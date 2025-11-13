@@ -1,39 +1,61 @@
 import * as vscode from "vscode";
-import { HuggingFaceChatModelProvider } from "./provider";
+import { LiteLLMChatModelProvider } from "./provider";
 
 export function activate(context: vscode.ExtensionContext) {
 	// Build a descriptive User-Agent to help quantify API usage
-	const ext = vscode.extensions.getExtension("HuggingFace.huggingface-vscode-chat");
+	const ext = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
 	const extVersion = ext?.packageJSON?.version ?? "unknown";
 	const vscodeVersion = vscode.version;
 	// Keep UA minimal: only extension version and VS Code version
-	const ua = `huggingface-vscode-chat/${extVersion} VSCode/${vscodeVersion}`;
+	const ua = `litellm-vscode-chat/${extVersion} VSCode/${vscodeVersion}`;
 
-	const provider = new HuggingFaceChatModelProvider(context.secrets, ua);
-	// Register the Hugging Face provider under the vendor id used in package.json
-	vscode.lm.registerLanguageModelChatProvider("huggingface", provider);
+	const provider = new LiteLLMChatModelProvider(context.secrets, ua);
+	// Register the LiteLLM provider under the vendor id used in package.json
+	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
 
-	// Management command to configure API key
+	// Management command to configure base URL and API key
 	context.subscriptions.push(
-		vscode.commands.registerCommand("huggingface.manage", async () => {
-			const existing = await context.secrets.get("huggingface.apiKey");
-			const apiKey = await vscode.window.showInputBox({
-				title: "Hugging Face API Key",
-				prompt: existing ? "Update your Hugging Face API key" : "Enter your Hugging Face API key",
+		vscode.commands.registerCommand("litellm.manage", async () => {
+			// First, prompt for base URL
+			const existingBaseUrl = await context.secrets.get("litellm.baseUrl");
+			const baseUrl = await vscode.window.showInputBox({
+				title: "LiteLLM Base URL",
+				prompt: existingBaseUrl ? "Update your LiteLLM base URL" : "Enter your LiteLLM base URL (e.g., http://localhost:4000 or https://api.litellm.ai)",
 				ignoreFocusOut: true,
-				password: true,
-				value: existing ?? "",
+				value: existingBaseUrl ?? "",
+				placeHolder: "http://localhost:4000",
+			});
+			if (baseUrl === undefined) {
+				return; // user canceled
+			}
+
+			// Then, prompt for API key
+			const existingApiKey = await context.secrets.get("litellm.apiKey");
+			const apiKey = await vscode.window.showInputBox({
+				title: "LiteLLM API Key",
+				prompt: existingApiKey ? "Update your LiteLLM API key" : "Enter your LiteLLM API key (leave empty if not required)",
+				ignoreFocusOut: true,
+				password: false,
+				value: existingApiKey ?? "",
 			});
 			if (apiKey === undefined) {
 				return; // user canceled
 			}
-			if (!apiKey.trim()) {
-				await context.secrets.delete("huggingface.apiKey");
-				vscode.window.showInformationMessage("Hugging Face API key cleared.");
-				return;
+
+			// Save or clear the values
+			if (!baseUrl.trim()) {
+				await context.secrets.delete("litellm.baseUrl");
+			} else {
+				await context.secrets.store("litellm.baseUrl", baseUrl.trim());
 			}
-			await context.secrets.store("huggingface.apiKey", apiKey.trim());
-			vscode.window.showInformationMessage("Hugging Face API key saved.");
+
+			if (!apiKey.trim()) {
+				await context.secrets.delete("litellm.apiKey");
+			} else {
+				await context.secrets.store("litellm.apiKey", apiKey.trim());
+			}
+
+			vscode.window.showInformationMessage("LiteLLM configuration saved.");
 		})
 	);
 }

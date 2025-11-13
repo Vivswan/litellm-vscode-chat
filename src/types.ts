@@ -38,7 +38,7 @@ export interface HFProvider {
 }
 
 /**
- * A model entry returned by the Hugging Face router models endpoint.
+ * Architecture information for a model.
  */
 export interface HFArchitecture {
     input_modalities?: string[];
@@ -55,16 +55,16 @@ export interface HFModelItem {
 }
 
 /**
- * Supplemental model info from the Hugging Face hub API.
+ * Extra model information (deprecated).
  */
-// Deprecated: extra model info was previously fetched from the hub API
+// Deprecated: extra model info was previously fetched from external APIs
 export interface HFExtraModelInfo {
     id: string;
     pipeline_tag?: string;
 }
 
 /**
- * Response envelope for the router models listing.
+ * Response envelope for the LiteLLM models listing.
  */
 export interface HFModelsResponse {
 	object: string;

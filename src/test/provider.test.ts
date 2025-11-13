@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { HuggingFaceChatModelProvider } from "../provider";
+import { LiteLLMChatModelProvider } from "../provider";
 import { convertMessages, convertTools, validateRequest, validateTools, tryParseJSONObject } from "../utils";
 
 interface OpenAIToolCall {
@@ -16,10 +16,10 @@ interface ConvertedMessage {
 	tool_call_id?: string;
 }
 
-suite("HuggingFace Chat Provider Extension", () => {
+suite("LiteLLM Chat Provider Extension", () => {
 	suite("provider", () => {
 		test("prepareLanguageModelChatInformation returns array (no key -> empty)", async () => {
-			const provider = new HuggingFaceChatModelProvider({
+			const provider = new LiteLLMChatModelProvider({
 				get: async () => undefined,
 				store: async () => {},
 				delete: async () => {},
@@ -34,7 +34,7 @@ suite("HuggingFace Chat Provider Extension", () => {
 		});
 
 		test("provideTokenCount counts simple string", async () => {
-			const provider = new HuggingFaceChatModelProvider({
+			const provider = new LiteLLMChatModelProvider({
 				get: async () => undefined,
 				store: async () => {},
 				delete: async () => {},
@@ -45,7 +45,7 @@ suite("HuggingFace Chat Provider Extension", () => {
 				{
 					id: "m",
 					name: "m",
-					family: "huggingface",
+					family: "litellm",
 					version: "1.0.0",
 					maxInputTokens: 1000,
 					maxOutputTokens: 1000,
@@ -59,7 +59,7 @@ suite("HuggingFace Chat Provider Extension", () => {
 		});
 
 		test("provideTokenCount counts message parts", async () => {
-			const provider = new HuggingFaceChatModelProvider({
+			const provider = new LiteLLMChatModelProvider({
 				get: async () => undefined,
 				store: async () => {},
 				delete: async () => {},
@@ -75,7 +75,7 @@ suite("HuggingFace Chat Provider Extension", () => {
 				{
 					id: "m",
 					name: "m",
-					family: "huggingface",
+					family: "litellm",
 					version: "1.0.0",
 					maxInputTokens: 1000,
 					maxOutputTokens: 1000,
@@ -88,8 +88,8 @@ suite("HuggingFace Chat Provider Extension", () => {
 			assert.ok(est > 0);
 		});
 
-		test("provideLanguageModelChatResponse throws without API key", async () => {
-			const provider = new HuggingFaceChatModelProvider({
+		test("provideLanguageModelChatResponse throws without configuration", async () => {
+			const provider = new LiteLLMChatModelProvider({
 				get: async () => undefined,
 				store: async () => {},
 				delete: async () => {},
@@ -102,7 +102,7 @@ suite("HuggingFace Chat Provider Extension", () => {
 					{
 						id: "m",
 						name: "m",
-						family: "huggingface",
+						family: "litellm",
 						version: "1.0.0",
 						maxInputTokens: 1000,
 						maxOutputTokens: 1000,
