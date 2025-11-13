@@ -1,12 +1,12 @@
 {
-	"name": "huggingface-vscode-chat",
-	"publisher": "HuggingFace",
-	"displayName": "Hugging Face Provider for GitHub Copilot Chat",
-	"description": "An extension that integrates Hugging Face Inference Providers into GitHub Copilot Chat",
+	"name": "litellm-vscode-chat",
+	"publisher": "vivswan",
+	"displayName": "LiteLLM Provider for GitHub Copilot Chat",
+	"description": "An extension that integrates LiteLLM into GitHub Copilot Chat",
 	"icon": "assets/logo.png",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/huggingface/huggingface-vscode-chat"
+		"url": "https://github.com/Vivswan/litellm-vscode-chat"
 	},
 	"version": "0.1.0",
 	"engines": {
@@ -22,33 +22,28 @@
 	},
 	"badges": [
 		{
-		"url": "https://img.shields.io/github/stars/huggingface/huggingface-vscode-chat?style=social",
-		"description": "Star huggingface-vscode-chat on Github",
-		"href": "https://github.com/huggingface/huggingface-vscode-chat"
-		},
-		{
-		"url": "https://img.shields.io/twitter/follow/huggingface?style=social",
-		"description": "Follow Hugging Face on Twitter",
-		"href": "https://x.com/huggingface"
+		"url": "https://img.shields.io/github/stars/Vivswan/litellm-vscode-chat?style=social",
+		"description": "Star litellm-vscode-chat on Github",
+		"href": "https://github.com/Vivswan/litellm-vscode-chat"
 		}
 	],
-	"homepage": "https://huggingface.co/docs/inference-providers/en/index",
+	"homepage": "https://docs.litellm.ai",
 	"bugs": {
-		"url": "https://github.com/huggingface/huggingface-vscode-chat/issues"
+		"url": "https://github.com/Vivswan/litellm-vscode-chat/issues"
 	},
 	"license": "MIT",
 	"contributes": {
 		"languageModelChatProviders": [
 			{
-				"vendor": "huggingface",
-				"displayName": "Hugging Face",
-				"managementCommand": "huggingface.manage"
+				"vendor": "litellm",
+				"displayName": "LiteLLM",
+				"managementCommand": "litellm.manage"
 			}
 		],
 		"commands": [
 			{
-				"command": "huggingface.manage",
-				"title": "Manage Hugging Face Provider"
+				"command": "litellm.manage",
+				"title": "Manage LiteLLM Provider"
 			}
 		]
 	},

@@ -13,14 +13,13 @@ import type { HFModelItem, HFModelsResponse } from "./types";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 
-const BASE_URL = "https://router.huggingface.co/v1";
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
 
 /**
- * VS Code Chat provider backed by Hugging Face Inference Providers.
+ * VS Code Chat provider backed by LiteLLM.
  */
-export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
+export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
 	/** Buffer for assembling streamed tool calls by index. */
 	private _toolCallBuffers: Map<number, { id?: string; name?: string; args: string }> = new Map<
@@ -90,12 +89,12 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 		options: { silent: boolean },
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
-		const apiKey = await this.ensureApiKey(options.silent);
-		if (!apiKey) {
+		const config = await this.ensureConfig(options.silent);
+		if (!config) {
 			return [];
 		}
 
-		const { models } = await this.fetchModels(apiKey);
+		const { models } = await this.fetchModels(config.apiKey, config.baseUrl);
 
 		const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
 			const providers = m?.providers ?? [];
@@ -120,8 +119,8 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				entries.push({
 					id: `${m.id}:cheapest`,
 					name: `${m.id} (cheapest)`,
-					tooltip: "Hugging Face via the cheapest provider",
-					family: "huggingface",
+					tooltip: "LiteLLM via the cheapest provider",
+					family: "litellm",
 					version: "1.0.0",
 					maxInputTokens: maxInput,
 					maxOutputTokens: maxOutput,
@@ -130,8 +129,8 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				entries.push({
 					id: `${m.id}:fastest`,
 					name: `${m.id} (fastest)`,
-					tooltip: "Hugging Face via the fastest provider",
-					family: "huggingface",
+					tooltip: "LiteLLM via the fastest provider",
+					family: "litellm",
 					version: "1.0.0",
 					maxInputTokens: maxInput,
 					maxOutputTokens: maxOutput,
@@ -146,8 +145,8 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				entries.push({
 					id: `${m.id}:${p.provider}`,
 					name: `${m.id} via ${p.provider}`,
-					tooltip: `Hugging Face via ${p.provider}`,
-					family: "huggingface",
+					tooltip: `LiteLLM via ${p.provider}`,
+					family: "litellm",
 					version: "1.0.0",
 					maxInputTokens: maxInput,
 					maxOutputTokens: maxOutput,
@@ -166,8 +165,8 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				entries.push({
 					id: m.id,
 					name: m.id,
-					tooltip: "Hugging Face",
-					family: "huggingface",
+					tooltip: "LiteLLM",
+					family: "litellm",
 					version: "1.0.0",
 					maxInputTokens: maxInput,
 					maxOutputTokens: maxOutput,
@@ -197,28 +196,44 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	/**
-	 * Fetch the list of models and supplementary metadata from Hugging Face.
-	 * @param apiKey The HF API key used to authenticate.
+	 * Fetch the list of models and supplementary metadata from LiteLLM.
+	 * @param apiKey The LiteLLM API key used to authenticate.
+	 * @param baseUrl The LiteLLM base URL.
 	 */
 	private async fetchModels(
-		apiKey: string
+		apiKey: string,
+		baseUrl: string
 	): Promise<{ models: HFModelItem[] }> {
 			const modelsList = (async () => {
-				const resp = await fetch(`${BASE_URL}/models`, {
+				const headers: Record<string, string> = { "User-Agent": this.userAgent };
+				if (apiKey) {
+					headers.Authorization = `Bearer ${apiKey}`;
+				}
+				const resp = await fetch(`${baseUrl}/v1/models`, {
 					method: "GET",
-					headers: { Authorization: `Bearer ${apiKey}`, "User-Agent": this.userAgent },
+					headers,
 				});
 				if (!resp.ok) {
 					let text = "";
 					try {
 						text = await resp.text();
 					} catch (error) {
-						console.error("[Hugging Face Model Provider] Failed to read response text", error);
+						console.error("[LiteLLM Model Provider] Failed to read response text", error);
 					}
+
+					// Provide helpful error message for authentication failures
+					if (resp.status === 401) {
+						const err = new Error(
+							`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+						);
+						console.error("[LiteLLM Model Provider] Authentication error", err);
+						throw err;
+					}
+
 					const err = new Error(
-						`Failed to fetch Hugging Face models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
+						`Failed to fetch LiteLLM models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
 					);
-					console.error("[Hugging Face Model Provider] Failed to fetch Hugging Face models", err);
+					console.error("[LiteLLM Model Provider] Failed to fetch LiteLLM models", err);
 					throw err;
 				}
 				const parsed = (await resp.json()) as HFModelsResponse;
@@ -229,7 +244,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				const models = await modelsList;
 				return { models };
 			} catch (err) {
-				console.error("[Hugging Face Model Provider] Failed to fetch Hugging Face models", err);
+				console.error("[LiteLLM Model Provider] Failed to fetch LiteLLM models", err);
 				throw err;
 			}
 		}
@@ -268,7 +283,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				try {
 					progress.report(part);
 				} catch (e) {
-					console.error("[Hugging Face Model Provider] Progress.report failed", {
+					console.error("[LiteLLM Model Provider] Progress.report failed", {
 						modelId: model.id,
 						error: e instanceof Error ? { name: e.name, message: e.message } : String(e),
 					});
@@ -276,9 +291,9 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 			},
 		};
 		try {
-			const apiKey = await this.ensureApiKey(true);
-			if (!apiKey) {
-				throw new Error("Hugging Face API key not found");
+			const config = await this.ensureConfig(true);
+			if (!config) {
+				throw new Error("LiteLLM configuration not found");
 			}
 
             const openaiMessages = convertMessages(messages);
@@ -295,7 +310,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
             const toolTokenCount = this.estimateToolTokens(toolConfig.tools);
             const tokenLimit = Math.max(1, model.maxInputTokens);
             if (inputTokenCount + toolTokenCount > tokenLimit) {
-                console.error("[Hugging Face Model Provider] Message exceeds token limit", { total: inputTokenCount + toolTokenCount, tokenLimit });
+                console.error("[LiteLLM Model Provider] Message exceeds token limit", { total: inputTokenCount + toolTokenCount, tokenLimit });
                 throw new Error("Message exceeds token limit.");
             }
 
@@ -327,30 +342,41 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 			if (toolConfig.tool_choice) {
 				(requestBody as Record<string, unknown>).tool_choice = toolConfig.tool_choice;
 			}
-			const response = await fetch(`${BASE_URL}/chat/completions`, {
+			const headers: Record<string, string> = {
+				"Content-Type": "application/json",
+				"User-Agent": this.userAgent,
+			};
+			if (config.apiKey) {
+				headers.Authorization = `Bearer ${config.apiKey}`;
+			}
+			const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
                 method: "POST",
-                headers: {
-                    Authorization: `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-					"User-Agent": this.userAgent,
-                },
+                headers,
                 body: JSON.stringify(requestBody),
             });
 
 			if (!response.ok) {
 				const errorText = await response.text();
-				console.error("[Hugging Face Model Provider] HF API error response", errorText);
+				console.error("[LiteLLM Model Provider] API error response", errorText);
+
+				// Provide helpful error message for authentication failures
+				if (response.status === 401) {
+					throw new Error(
+						`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+					);
+				}
+
 				throw new Error(
-					`Hugging Face API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`
+					`LiteLLM API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`
 				);
 			}
 
 			if (!response.body) {
-				throw new Error("No response body from Hugging Face API");
+				throw new Error("No response body from LiteLLM API");
 			}
 			await this.processStreamingResponse(response.body, trackingProgress, token);
 		} catch (err) {
-			console.error("[Hugging Face Model Provider] Chat request failed", {
+			console.error("[LiteLLM Model Provider] Chat request failed", {
 				modelId: model.id,
 				messageCount: messages.length,
 				error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
@@ -385,28 +411,50 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	/**
-	 * Ensure an API key exists in SecretStorage, optionally prompting the user when not silent.
+	 * Ensure base URL and API key exist in SecretStorage, optionally prompting the user when not silent.
 	 * @param silent If true, do not prompt the user.
 	 */
-	private async ensureApiKey(silent: boolean): Promise<string | undefined> {
-		let apiKey = await this.secrets.get("huggingface.apiKey");
+	private async ensureConfig(silent: boolean): Promise<{ baseUrl: string; apiKey: string } | undefined> {
+		let baseUrl = await this.secrets.get("litellm.baseUrl");
+		let apiKey = await this.secrets.get("litellm.apiKey");
+
+		if (!baseUrl && !silent) {
+			const entered = await vscode.window.showInputBox({
+				title: "LiteLLM Base URL",
+				prompt: "Enter your LiteLLM base URL (e.g., http://localhost:4000 or https://api.litellm.ai)",
+				ignoreFocusOut: true,
+				placeHolder: "http://localhost:4000",
+			});
+			if (entered && entered.trim()) {
+				baseUrl = entered.trim();
+				await this.secrets.store("litellm.baseUrl", baseUrl);
+			}
+		}
+
 		if (!apiKey && !silent) {
 			const entered = await vscode.window.showInputBox({
-				title: "Hugging Face API Key",
-				prompt: "Enter your Hugging Face API key",
+				title: "LiteLLM API Key",
+				prompt: "Enter your LiteLLM API key (leave empty if not required)",
 				ignoreFocusOut: true,
 				password: true,
 			});
-			if (entered && entered.trim()) {
+			if (entered !== undefined) {
 				apiKey = entered.trim();
-				await this.secrets.store("huggingface.apiKey", apiKey);
+				if (apiKey) {
+					await this.secrets.store("litellm.apiKey", apiKey);
+				}
 			}
 		}
-		return apiKey;
+
+		if (!baseUrl) {
+			return undefined;
+		}
+
+		return { baseUrl, apiKey: apiKey ?? "" };
 	}
 
 	/**
-	 * Read and parse the HF Router streaming (SSE-like) response and report parts.
+	 * Read and parse the LiteLLM streaming (SSE-like) response and report parts.
 	 * @param responseBody The readable stream body.
 	 * @param progress Progress reporter for streamed parts.
 	 * @param token Cancellation token.
@@ -465,7 +513,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 
 	/**
 	 * Handle a single streamed delta chunk, emitting text and tool call parts.
-	 * @param delta Parsed SSE chunk from the Router.
+	 * @param delta Parsed SSE chunk from LiteLLM.
 	 * @param progress Progress reporter for parts.
 	 */
     private async processDelta(
@@ -781,7 +829,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
             const parsed = tryParseJSONObject(buf.args);
             if (!parsed.ok) {
                 if (throwOnInvalid) {
-                    console.error("[Hugging Face Model Provider] Invalid JSON for tool call", { idx, snippet: (buf.args || "").slice(0, 200) });
+                    console.error("[LiteLLM Model Provider] Invalid JSON for tool call", { idx, snippet: (buf.args || "").slice(0, 200) });
                     throw new Error("Invalid JSON for tool call");
                 }
                 // When not throwing (e.g. on [DONE]), drop silently to reduce noise
