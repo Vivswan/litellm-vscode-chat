@@ -21,9 +21,9 @@ suite("LiteLLM Chat Provider Extension", () => {
 		test("prepareLanguageModelChatInformation returns array (no key -> empty)", async () => {
 			const provider = new LiteLLMChatModelProvider({
 				get: async () => undefined,
-				store: async () => {},
-				delete: async () => {},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
 			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
 
 			const infos = await provider.prepareLanguageModelChatInformation(
@@ -36,9 +36,9 @@ suite("LiteLLM Chat Provider Extension", () => {
 		test("provideTokenCount counts simple string", async () => {
 			const provider = new LiteLLMChatModelProvider({
 				get: async () => undefined,
-				store: async () => {},
-				delete: async () => {},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
 			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
 
 			const est = await provider.provideTokenCount(
@@ -61,9 +61,9 @@ suite("LiteLLM Chat Provider Extension", () => {
 		test("provideTokenCount counts message parts", async () => {
 			const provider = new LiteLLMChatModelProvider({
 				get: async () => undefined,
-				store: async () => {},
-				delete: async () => {},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
 			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
 
 			const msg: vscode.LanguageModelChatMessage = {
@@ -91,9 +91,9 @@ suite("LiteLLM Chat Provider Extension", () => {
 		test("provideLanguageModelChatResponse throws without configuration", async () => {
 			const provider = new LiteLLMChatModelProvider({
 				get: async () => undefined,
-				store: async () => {},
-				delete: async () => {},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
 			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
 
 			let threw = false;
@@ -110,7 +110,7 @@ suite("LiteLLM Chat Provider Extension", () => {
 					} as unknown as vscode.LanguageModelChatInformation,
 					[],
 					{} as unknown as vscode.LanguageModelChatRequestHandleOptions,
-					{ report: () => {} },
+					{ report: () => { } },
 					new vscode.CancellationTokenSource().token
 				);
 			} catch {
@@ -207,12 +207,12 @@ suite("LiteLLM Chat Provider Extension", () => {
 			assert.deepEqual(out.tool_choice, { type: "function", function: { name: "only_tool" } });
 		});
 
-	test("validateTools rejects invalid names", () => {
-		const badTools: vscode.LanguageModelChatTool[] = [
-			{ name: "bad name!", description: "", inputSchema: {} },
-		];
-		assert.throws(() => validateTools(badTools));
-	});
+		test("validateTools rejects invalid names", () => {
+			const badTools: vscode.LanguageModelChatTool[] = [
+				{ name: "bad name!", description: "", inputSchema: {} },
+			];
+			assert.throws(() => validateTools(badTools));
+		});
 	});
 
 	suite("utils/validation", () => {
