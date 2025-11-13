@@ -2,11 +2,11 @@ import * as vscode from "vscode";
 import {
 	CancellationToken,
 	LanguageModelChatInformation,
-	LanguageModelChatMessage,
+	LanguageModelChatRequestMessage,
 	LanguageModelChatProvider,
-	LanguageModelChatRequestHandleOptions,
 	LanguageModelResponsePart,
 	Progress,
+	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 
 import type { HFModelItem, HFModelsResponse } from "./types";
@@ -56,7 +56,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	constructor(private readonly secrets: vscode.SecretStorage, private readonly userAgent: string) { }
 
 	/** Roughly estimate tokens for VS Code chat messages (text only) */
-	private estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatMessage[]): number {
+	private estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRequestMessage[]): number {
 		let total = 0;
 		for (const m of msgs) {
 			for (const part of m.content) {
@@ -301,8 +301,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 */
 	async provideLanguageModelChatResponse(
 		model: LanguageModelChatInformation,
-		messages: readonly LanguageModelChatMessage[],
-		options: LanguageModelChatRequestHandleOptions,
+		messages: readonly LanguageModelChatRequestMessage[],
+		options: ProvideLanguageModelChatResponseOptions,
 		progress: Progress<LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
@@ -440,7 +440,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 */
 	async provideTokenCount(
 		model: LanguageModelChatInformation,
-		text: string | LanguageModelChatMessage,
+		text: string | LanguageModelChatRequestMessage,
 		_token: CancellationToken
 	): Promise<number> {
 		if (typeof text === "string") {
