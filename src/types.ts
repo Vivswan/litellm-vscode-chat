@@ -41,17 +41,17 @@ export interface HFProvider {
  * Architecture information for a model.
  */
 export interface HFArchitecture {
-    input_modalities?: string[];
-    output_modalities?: string[];
+	input_modalities?: string[];
+	output_modalities?: string[];
 }
 
 export interface HFModelItem {
-    id: string;
-    object: string;
-    created: number;
-    owned_by: string;
-    providers: HFProvider[];
-    architecture?: HFArchitecture;
+	id: string;
+	object: string;
+	created: number;
+	owned_by: string;
+	providers: HFProvider[];
+	architecture?: HFArchitecture;
 }
 
 /**
@@ -59,8 +59,8 @@ export interface HFModelItem {
  */
 // Deprecated: extra model info was previously fetched from external APIs
 export interface HFExtraModelInfo {
-    id: string;
-    pipeline_tag?: string;
+	id: string;
+	pipeline_tag?: string;
 }
 
 /**
