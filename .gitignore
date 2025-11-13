@@ -11,6 +11,7 @@ node_modules
 
 # Auto-generated VS Code type definitions
 /vscode.d.ts
+src/vscode.d.ts
 
 # Logs
 logs

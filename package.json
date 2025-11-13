@@ -22,9 +22,9 @@
 	},
 	"badges": [
 		{
-		"url": "https://img.shields.io/github/stars/Vivswan/litellm-vscode-chat?style=social",
-		"description": "Star litellm-vscode-chat on Github",
-		"href": "https://github.com/Vivswan/litellm-vscode-chat"
+			"url": "https://img.shields.io/github/stars/Vivswan/litellm-vscode-chat?style=social",
+			"description": "Star litellm-vscode-chat on Github",
+			"href": "https://github.com/Vivswan/litellm-vscode-chat"
 		}
 	],
 	"homepage": "https://docs.litellm.ai",
@@ -57,7 +57,8 @@
 		"lint": "eslint",
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
-		"test": "pnpm run compile && vscode-test"
+		"test": "npm run compile && vscode-test",
+		"bump-version": "node scripts/bump-version.js"
 	},
 	"dependencies": {},
 	"devDependencies": {
@@ -66,7 +67,7 @@
 		"@types/node": "^22",
 		"@types/mocha": "^10.0.6",
 		"@vscode/dts": "^0.4.1",
-		"@types/vscode": "^1.103.0",
+		"@types/vscode": "^1.104.0",
 		"@vscode/test-cli": "^0.0.11",
 		"@vscode/test-electron": "^2.5.2",
 		"eslint": "^9.13.0",
