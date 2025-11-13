@@ -51,7 +51,7 @@
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
 		"download-api": "dts dev",
-		"postdownload-api": "dts main",
+		"postdownload-api": "dts main && node -e \"const fs = require('fs'); if (fs.existsSync('vscode.d.ts')) { fs.renameSync('vscode.d.ts', 'src/vscode.d.ts'); console.log('Moved vscode.d.ts to src/'); }\"",
 		"postinstall": "npm run download-api",
 		"compile": "tsc -p ./",
 		"lint": "eslint",
