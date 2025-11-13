@@ -15,8 +15,11 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm ci
-      - run: npm run compile
+      - name: Install dependencies
+        run: npm install
+
+      - name: Compile the extension
+        run: npm run compile
 
       - name: Package VSIX
         run: npx @vscode/vsce package -o extension.vsix
