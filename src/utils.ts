@@ -189,7 +189,7 @@ export function convertMessages(messages: readonly vscode.LanguageModelChatReque
  * Convert VS Code tool definitions to OpenAI function tool definitions.
  * @param options Request options containing tools and toolMode.
  */
-export function convertTools(options: vscode.LanguageModelChatRequestHandleOptions): {
+export function convertTools(options: vscode.ProvideLanguageModelChatResponseOptions): {
 	tools?: OpenAIFunctionToolDef[];
 	tool_choice?: "auto" | { type: "function"; function: { name: string } };
 } {
@@ -199,8 +199,8 @@ export function convertTools(options: vscode.LanguageModelChatRequestHandleOptio
 	}
 
 	const toolDefs: OpenAIFunctionToolDef[] = tools
-		.filter((t) => t && typeof t === "object")
-		.map((t) => {
+		.filter((t): t is vscode.LanguageModelChatTool => t && typeof t === "object")
+		.map((t: vscode.LanguageModelChatTool) => {
 			const name = sanitizeFunctionName(t.name);
 			const description = typeof t.description === "string" ? t.description : "";
 			const params = sanitizeSchema(t.inputSchema ?? { type: "object", properties: {} });
