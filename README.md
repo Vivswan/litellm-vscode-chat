@@ -1,39 +1,38 @@
-# 🤗 Hugging Face Provider for GitHub Copilot Chat
+# LiteLLM Provider for GitHub Copilot Chat
 
-![Demo](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/inference-providers-guides/demo_vscode.gif)
-
-Use frontier open LLMs like Kimi K2, DeepSeek V3.1, GLM 4.5 and more in VS Code with GitHub Copilot Chat powered by [Hugging Face Inference Providers](https://huggingface.co/docs/inference-providers/index) 🔥
+Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://docs.litellm.ai)
 
 ---
 
 ## ⚡ Quick Start
-1. Install the HF Copilot Chat extension [here](https://marketplace.visualstudio.com/items?itemName=HuggingFace.huggingface-vscode-chat).
+1. Install the LiteLLM Copilot Chat extension [here](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat).
 2. Open VS Code's chat interface.
 3. Click the model picker and click "Manage Models...".
-4. Select "Hugging Face" provider.
-5. Provide your Hugging Face Token, you can get one in your [settings page](https://huggingface.co/settings/tokens/new?ownUserPermissions=inference.serverless.write&tokenType=fineGrained). You only need to give it the inference.serverless permissions.
-6. Choose the models you want to add to the model picker. 🥳
+4. Select "LiteLLM" provider.
+5. Provide your LiteLLM base URL (e.g., `http://localhost:4000` for self-hosted or your LiteLLM proxy URL).
+6. Provide your LiteLLM API key (if required).
+7. Choose the models you want to add to the model picker.
 
 Each model entry also offers `cheapest` and `fastest` mode for each model. `fastest` selects the provider with highest throughput and `cheapest` selects the provider with lowest price per output token.
 
-## ✨ Why use the Hugging Face provider in Copilot
-* Access [SoTA open-source LLMs](https://huggingface.co/models?pipeline_tag=text-generation&inference_provider=cerebras,together,fireworks-ai,nebius,novita,sambanova,groq,hyperbolic,nscale,fal-ai,cohere,replicate,scaleway,black-forest-labs,ovhcloud&sort=trending) with tool calling capabilities.
-* Single API to switch between multiple providers: Cerebras, Cohere, Fireworks AI, Groq, HF Inference, Hyperbolic, Nebius, Novita, Nscale, SambaNova, Together AI, and more. See the full list of partners in the [Inference Providers docs](https://huggingface.co/docs/inference-providers/index#partners).
-* Built for high availability (across providers) and low latency.
-* Transparent pricing: what the provider charges is what you pay.
-
-💡 The free Hugging Face user tier gives you a small amount of monthly inference credits to experiment. Upgrade to [Hugging Face PRO](https://huggingface.co/pro) or [Enterprise](https://huggingface.co/enterprise) for $2 in monthly credits plus pay-as-you-go access across all providers!
+## ✨ Why use the LiteLLM provider in Copilot
+* Access 100+ LLMs from OpenAI, Azure, Anthropic, Google, AWS, and more through a single unified API.
+* Single API to switch between multiple providers.
+* Built for high availability and low latency.
+* Self-hosted or cloud-based options.
+* Support for streaming, function calling, and vision models.
 
 ---
 
 ## Requirements
 * VS Code 1.104.0 or higher.
-* Hugging Face access token with `inference.serverless` permissions.
+* LiteLLM proxy running (self-hosted or cloud).
+* Optional: LiteLLM API key depending on your setup.
 
 ## 🛠️ Development
 ```bash
-git clone https://github.com/huggingface/huggingface-vscode-chat
-cd huggingface-vscode-chat
+git clone https://github.com/Vivswan/litellm-vscode-chat
+cd litellm-vscode-chat
 npm install
 npm run compile
 ```
@@ -48,11 +47,11 @@ Common scripts:
 ---
 
 ## 📚 Learn more
-* Inference Providers documentation: https://huggingface.co/docs/inference-providers/index
+* LiteLLM documentation: https://docs.litellm.ai
 * VS Code Chat Provider API: https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider
 
 ---
 
 ## Support & License
-* Open issues: https://github.com/huggingface/huggingface-vscode-chat/issues
-* License: MIT License Copyright (c) 2025 Hugging Face
+* Open issues: https://github.com/Vivswan/litellm-vscode-chat/issues
+* License: MIT License Copyright (c) 2025 LiteLLM
