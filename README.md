@@ -2,8 +2,6 @@
 
 Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://docs.litellm.ai)
 
----
-
 ## ⚡ Quick Start
 1. Install the LiteLLM Copilot Chat extension [here](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat).
 2. Open VS Code's chat interface.
@@ -21,8 +19,6 @@ Each model entry also offers `cheapest` and `fastest` mode for each model. `fast
 * Built for high availability and low latency.
 * Self-hosted or cloud-based options.
 * Support for streaming, function calling, and vision models.
-
----
 
 ## Requirements
 * VS Code 1.104.0 or higher.
@@ -44,14 +40,10 @@ Common scripts:
 * Lint: `npm run lint`
 * Format: `npm run format`
 
----
-
 ## 📚 Learn more
 * LiteLLM documentation: https://docs.litellm.ai
 * VS Code Chat Provider API: https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider
 
----
+## Support
 
-## Support & License
 * Open issues: https://github.com/Vivswan/litellm-vscode-chat/issues
-* License: MIT License Copyright (c) 2025 LiteLLM

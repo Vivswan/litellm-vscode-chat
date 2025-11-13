@@ -19,6 +19,8 @@ concurrency:
 jobs:
   package:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout deploy branch
         uses: actions/checkout@v4
@@ -30,13 +32,8 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Compile the extension
         run: npm run compile
@@ -58,26 +55,64 @@ jobs:
           name: vsix
           path: extension.vsix
 
-  # publish:
-  #   runs-on: ubuntu-latest
-  #   needs: [package]
-  #   steps:
-  #     - uses: actions/checkout@v4
+  publish:
+    runs-on: ubuntu-latest
+    needs: [ package ]
+    steps:
+      - name: Checkout deploy branch
+        uses: actions/checkout@v4
+        with:
+          ref: deploy
 
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 20
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-  #     - uses: actions/download-artifact@v4
-  #       with:
-  #         name: vsix
-  #         path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: .
 
-  #     - name: Publish to VS Code Marketplace
-  #       run: npx @vscode/vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ./extension.vsix
+      - name: Publish to VS Code Marketplace
+        run: npx @vscode/vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ./extension.vsix
+
+      - name: Create GitHub Release with VSIX
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.package.outputs.version }}
+          name: LiteLLM Provider for GitHub Copilot Chat v${{ needs.package.outputs.version }}
+          body: |
+            ## LiteLLM Provider for GitHub Copilot Chat v${{ needs.package.outputs.version }}
+
+            ### Installation from VSIX
+            1. Download the `extension.vsix` file
+            2. Open VS Code
+            3. Go to Extensions (Ctrl+Shift+X / Cmd+Shift+X)
+            4. Click the "..." menu at the top
+            5. Select "Install from VSIX..."
+            6. Choose the downloaded `extension.vsix` file
+
+            ### Installation from VS Code Marketplace
+            Search for "LiteLLM" in the VS Code Extensions marketplace or visit:
+            https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat
+
+            ### Configuration
+            After installation, run the "Manage LiteLLM Provider" command to configure:
+            - LiteLLM base URL (e.g., `http://localhost:4000` or your LiteLLM proxy URL)
+            - LiteLLM API key (if required)
+
+            [Full documentation](https://github.com/Vivswan/litellm-vscode-chat#readme)
+          files: |
+            extension.vsix
+          draft: false
+          prerelease: false
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+
 
   bump-version:
-    needs: package
+    needs: [ publish ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -91,7 +126,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: 20
 
       - name: Install dependencies
         run: npm install
