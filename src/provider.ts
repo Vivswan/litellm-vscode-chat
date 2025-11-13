@@ -89,20 +89,47 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		options: { silent: boolean },
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
+		console.log("[LiteLLM Model Provider] prepareLanguageModelChatInformation called", { silent: options.silent });
+
 		const config = await this.ensureConfig(options.silent);
 		if (!config) {
+			console.log("[LiteLLM Model Provider] No config found, returning empty array");
 			return [];
 		}
+		console.log("[LiteLLM Model Provider] Config loaded", { baseUrl: config.baseUrl, hasApiKey: !!config.apiKey });
 
 		const { models } = await this.fetchModels(config.apiKey, config.baseUrl);
+		console.log("[LiteLLM Model Provider] Fetched models", { count: models.length, modelIds: models.map(m => m.id) });
 
 		const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
+			console.log(`[LiteLLM Model Provider] Processing model: ${m.id}`);
 			const providers = m?.providers ?? [];
+			console.log(`[LiteLLM Model Provider]   - providers: ${providers.length}`, providers.map(p => ({ provider: p.provider, supports_tools: p.supports_tools })));
 			const modalities = m.architecture?.input_modalities ?? [];
 			const vision = Array.isArray(modalities) && modalities.includes("image");
 
+			// If no providers array exists (standard OpenAI-compatible API), create a default entry
+			if (providers.length === 0) {
+				console.log(`[LiteLLM Model Provider]   - no providers array, creating default entry`);
+				return [{
+					id: m.id,
+					name: m.id,
+					tooltip: "LiteLLM",
+					family: "litellm",
+					version: "1.0.0",
+					maxInputTokens: Math.max(1, DEFAULT_CONTEXT_LENGTH - DEFAULT_MAX_OUTPUT_TOKENS),
+					maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+					capabilities: {
+						toolCalling: true, // Assume tool calling is supported
+						imageInput: vision,
+					},
+				} satisfies LanguageModelChatInformation];
+			}
+
 			// Build entries for all providers that support tool calling
-			const toolProviders = providers.filter((p) => p.supports_tools === true);
+			// Assume supports_tools is true if not explicitly set to false
+			const toolProviders = providers.filter((p) => p.supports_tools !== false);
+			console.log(`[LiteLLM Model Provider]   - toolProviders: ${toolProviders.length}`, toolProviders.map(p => p.provider));
 			const entries: LanguageModelChatInformation[] = [];
 
 			if (toolProviders.length > 0) {
@@ -177,6 +204,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				} satisfies LanguageModelChatInformation);
 			}
 
+			console.log(`[LiteLLM Model Provider]   - created ${entries.length} entries for model ${m.id}`);
 			return entries;
 		});
 
@@ -185,6 +213,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			modelMaxPromptTokens: info.maxInputTokens + info.maxOutputTokens,
 		}));
 
+		console.log("[LiteLLM Model Provider] Final model count:", infos.length);
+		console.log("[LiteLLM Model Provider] Model IDs:", infos.map(i => i.id));
 		return infos;
 	}
 
@@ -204,6 +234,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		apiKey: string,
 		baseUrl: string
 	): Promise<{ models: HFModelItem[] }> {
+		console.log("[LiteLLM Model Provider] fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 		const modelsList = (async () => {
 			const headers: Record<string, string> = { "User-Agent": this.userAgent };
 			if (apiKey) {
@@ -211,10 +242,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				headers.Authorization = `Bearer ${apiKey}`;
 				headers["X-API-Key"] = apiKey;
 			}
+			console.log("[LiteLLM Model Provider] Fetching from:", `${baseUrl}/v1/models`);
 			const resp = await fetch(`${baseUrl}/v1/models`, {
 				method: "GET",
 				headers,
 			});
+			console.log("[LiteLLM Model Provider] Response status:", resp.status, resp.statusText);
 			if (!resp.ok) {
 				let text = "";
 				try {
@@ -239,11 +272,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				throw err;
 			}
 			const parsed = (await resp.json()) as HFModelsResponse;
+			console.log("[LiteLLM Model Provider] Parsed response:", { object: parsed.object, modelCount: parsed.data?.length ?? 0 });
+			if (parsed.data && parsed.data.length > 0) {
+				console.log("[LiteLLM Model Provider] First model sample:", JSON.stringify(parsed.data[0], null, 2));
+			}
 			return parsed.data ?? [];
 		})();
 
 		try {
 			const models = await modelsList;
+			console.log("[LiteLLM Model Provider] Successfully fetched models:", models.length);
 			return { models };
 		} catch (err) {
 			console.error("[LiteLLM Model Provider] Failed to fetch LiteLLM models", err);
@@ -351,6 +389,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				headers.Authorization = `Bearer ${config.apiKey}`;
 				headers["X-API-Key"] = config.apiKey;
 			}
+			console.log("[LiteLLM Model Provider] Sending chat request", {
+				url: `${config.baseUrl}/v1/chat/completions`,
+				modelId: model.id,
+				messageCount: messages.length,
+				requestBody: JSON.stringify(requestBody, null, 2),
+			});
 			const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
 				method: "POST",
 				headers,
@@ -417,8 +461,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * @param silent If true, do not prompt the user.
 	 */
 	private async ensureConfig(silent: boolean): Promise<{ baseUrl: string; apiKey: string } | undefined> {
+		console.log("[LiteLLM Model Provider] ensureConfig called", { silent });
 		let baseUrl = await this.secrets.get("litellm.baseUrl");
 		let apiKey = await this.secrets.get("litellm.apiKey");
+		console.log("[LiteLLM Model Provider] Retrieved from secrets:", { hasBaseUrl: !!baseUrl, hasApiKey: !!apiKey });
 
 		if (!baseUrl && !silent) {
 			const entered = await vscode.window.showInputBox({
@@ -449,9 +495,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		if (!baseUrl) {
+			console.log("[LiteLLM Model Provider] No baseUrl configured, returning undefined");
 			return undefined;
 		}
 
+		console.log("[LiteLLM Model Provider] Config ready:", { baseUrl, hasApiKey: !!apiKey });
 		return { baseUrl, apiKey: apiKey ?? "" };
 	}
 
