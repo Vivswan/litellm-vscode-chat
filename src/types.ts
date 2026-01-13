@@ -27,48 +27,77 @@ export interface OpenAIChatMessage {
 }
 
 /**
- * A single underlying provider (e.g., together, groq) for a model.
+ * LiteLLM model configuration parameters.
  */
-export interface HFProvider {
-	provider: string;
-	status: string;
-	supports_tools?: boolean;
-	supports_structured_output?: boolean;
-	context_length?: number;
+export interface LiteLLMParams {
+	custom_llm_provider?: string;
+	litellm_credential_name?: string;
+	use_in_pass_through?: boolean;
+	use_litellm_proxy?: boolean;
+	merge_reasoning_content_in_choices?: boolean;
+	model?: string;
+	tags?: string[];
 }
 
 /**
- * Architecture information for a model.
+ * Detailed model information from LiteLLM proxy including capabilities and token constraints.
  */
-export interface HFArchitecture {
-	input_modalities?: string[];
-	output_modalities?: string[];
+export interface LiteLLMModelInfo {
+	id?: string;
+	db_model?: boolean;
+	key?: string;
+	max_tokens?: number;
+	max_input_tokens?: number;
+	max_output_tokens?: number;
+	litellm_provider?: string;
+	mode?: string;
+	supports_system_messages?: boolean | null;
+	supports_response_schema?: boolean;
+	supports_vision?: boolean;
+	supports_function_calling?: boolean;
+	supports_tool_choice?: boolean;
+	supports_assistant_prefill?: boolean | null;
+	supports_prompt_caching?: boolean;
+	supports_audio_input?: boolean | null;
+	supports_audio_output?: boolean | null;
+	supports_pdf_input?: boolean;
+	supports_embedding_image_input?: boolean | null;
+	supports_native_streaming?: boolean | null;
+	supports_web_search?: boolean | null;
+	supports_url_context?: boolean | null;
+	supports_reasoning?: boolean;
+	supports_computer_use?: boolean | null;
+	supported_openai_params?: string[];
+	[key: string]: unknown; // Allow additional fields for extensibility
 }
 
-export interface HFModelItem {
+/**
+ * Single model entry from /model/info endpoint.
+ */
+export interface LiteLLMModelEntry {
+	model_name: string;
+	litellm_params?: LiteLLMParams;
+	model_info?: LiteLLMModelInfo;
+}
+
+/**
+ * Response envelope for LiteLLM /model/info endpoint.
+ */
+export interface LiteLLMModelInfoResponse {
+	data: LiteLLMModelEntry[];
+}
+
+/**
+ * Transformed model item for internal use.
+ */
+export interface TransformedModelItem {
 	id: string;
 	object: string;
 	created: number;
 	owned_by: string;
-	providers: HFProvider[];
-	architecture?: HFArchitecture;
-}
-
-/**
- * Extra model information (deprecated).
- */
-// Deprecated: extra model info was previously fetched from external APIs
-export interface HFExtraModelInfo {
-	id: string;
-	pipeline_tag?: string;
-}
-
-/**
- * Response envelope for the LiteLLM models listing.
- */
-export interface HFModelsResponse {
-	object: string;
-	data: HFModelItem[];
+	model_name: string;
+	litellm_params?: LiteLLMParams;
+	model_info?: LiteLLMModelInfo;
 }
 
 /**

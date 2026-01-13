@@ -33,6 +33,149 @@ suite("LiteLLM Chat Provider Extension", () => {
 			assert.ok(Array.isArray(infos));
 		});
 
+		test("buildCapabilities maps model_info flags correctly", async () => {
+			const provider = new LiteLLMChatModelProvider({
+				get: async () => undefined,
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
+			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+			// Access private method through type assertion for testing
+			const buildCapabilities = (provider as unknown as { buildCapabilities: (modelInfo: unknown) => vscode.LanguageModelChatCapabilities }).buildCapabilities;
+
+			// Test with vision and function calling support
+			const caps1 = buildCapabilities({
+				supports_vision: true,
+				supports_function_calling: true,
+			});
+			assert.deepEqual(caps1, {
+				toolCalling: true,
+				imageInput: true,
+			});
+
+			// Test without vision but with function calling
+			const caps2 = buildCapabilities({
+				supports_vision: false,
+				supports_function_calling: true,
+			});
+			assert.deepEqual(caps2, {
+				toolCalling: true,
+				imageInput: false,
+			});
+
+			// Test with null model_info
+			const caps3 = buildCapabilities(undefined);
+			assert.deepEqual(caps3, {
+				toolCalling: true,
+				imageInput: false,
+			});
+		});
+
+		test("prepareLanguageModelChatInformation extracts token constraints from model_info", async () => {
+			const mockFetch = async (url: string) => {
+				if (url.includes("/model/info")) {
+					return {
+						ok: true,
+						json: async () => ({
+							data: [
+								{
+									model_name: "test-model",
+									model_info: {
+										key: "test-model",
+										max_input_tokens: 8000,
+										max_output_tokens: 4000,
+										litellm_provider: "test-provider",
+										mode: "chat",
+										supports_vision: true,
+										supports_function_calling: true,
+									},
+								},
+							],
+						}),
+					};
+				}
+				throw new Error(`Unexpected URL: ${url}`);
+			};
+
+			// Mock global fetch
+			const originalFetch = global.fetch;
+			(global as unknown as { fetch: unknown }).fetch = mockFetch as unknown;
+
+			try {
+				const provider = new LiteLLMChatModelProvider({
+					get: async () => "test-api-key",
+					store: async () => { },
+					delete: async () => { },
+					onDidChange: (_listener: unknown) => ({ dispose() { } }),
+				} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: false },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.ok(Array.isArray(infos));
+				assert.equal(infos.length, 1);
+				assert.equal(infos[0].id, "test-model");
+				assert.equal(infos[0].name, "test-model");
+				assert.equal(infos[0].maxInputTokens, 8000);
+				assert.equal(infos[0].maxOutputTokens, 4000);
+				assert.equal(infos[0].capabilities.toolCalling, true);
+				assert.equal(infos[0].capabilities.imageInput, true);
+			} finally {
+				(global as unknown as { fetch: unknown }).fetch = originalFetch;
+			}
+		});
+
+		test("prepareLanguageModelChatInformation uses defaults for missing token constraints", async () => {
+			const mockFetch = async (url: string) => {
+				if (url.includes("/model/info")) {
+					return {
+						ok: true,
+						json: async () => ({
+							data: [
+								{
+									model_name: "minimal-model",
+									model_info: {
+										key: "minimal-model",
+										// No max_input_tokens or max_output_tokens
+										litellm_provider: "test",
+										mode: "responses",
+									},
+								},
+							],
+						}),
+					};
+				}
+				throw new Error(`Unexpected URL: ${url}`);
+			};
+
+			const originalFetch = global.fetch;
+			(global as unknown as { fetch: unknown }).fetch = mockFetch as unknown;
+
+			try {
+				const provider = new LiteLLMChatModelProvider({
+					get: async () => "test-api-key",
+					store: async () => { },
+					delete: async () => { },
+					onDidChange: (_listener: unknown) => ({ dispose() { } }),
+				} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: false },
+					new vscode.CancellationTokenSource().token
+				);
+
+				// Should use DEFAULT_CONTEXT_LENGTH and DEFAULT_MAX_OUTPUT_TOKENS
+				assert.equal(infos.length, 1);
+				assert.equal(infos[0].maxInputTokens, 128000); // DEFAULT_CONTEXT_LENGTH
+				assert.equal(infos[0].maxOutputTokens, 16000); // DEFAULT_MAX_OUTPUT_TOKENS
+			} finally {
+				(global as unknown as { fetch: unknown }).fetch = originalFetch;
+			}
+		});
+
 		test("provideTokenCount counts simple string", async () => {
 			const provider = new LiteLLMChatModelProvider({
 				get: async () => undefined,

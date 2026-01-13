@@ -9,7 +9,11 @@ import {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 
-import type { HFModelItem, HFModelsResponse } from "./types";
+import type {
+	LiteLLMModelInfoResponse,
+	LiteLLMModelInfo,
+	TransformedModelItem
+} from "./types";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 
@@ -101,111 +105,33 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		const { models } = await this.fetchModels(config.apiKey, config.baseUrl);
 		console.log("[LiteLLM Model Provider] Fetched models", { count: models.length, modelIds: models.map(m => m.id) });
 
-		const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
+		const infos: LanguageModelChatInformation[] = models.map((m) => {
 			console.log(`[LiteLLM Model Provider] Processing model: ${m.id}`);
-			const providers = m?.providers ?? [];
-			console.log(`[LiteLLM Model Provider]   - providers: ${providers.length}`, providers.map(p => ({ provider: p.provider, supports_tools: p.supports_tools })));
-			const modalities = m.architecture?.input_modalities ?? [];
-			const vision = Array.isArray(modalities) && modalities.includes("image");
+			const modelInfo = m.model_info;
 
-			// If no providers array exists (standard OpenAI-compatible API), create a default entry
-			if (providers.length === 0) {
-				console.log(`[LiteLLM Model Provider]   - no providers array, creating default entry`);
-				return [{
-					id: m.id,
-					name: m.id,
-					tooltip: "LiteLLM",
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: Math.max(1, DEFAULT_CONTEXT_LENGTH - DEFAULT_MAX_OUTPUT_TOKENS),
-					maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
-					capabilities: {
-						toolCalling: true, // Assume tool calling is supported
-						imageInput: vision,
-					},
-				} satisfies LanguageModelChatInformation];
-			}
+			// Extract token constraints from model_info
+			const maxInputTokens = modelInfo?.max_input_tokens ?? DEFAULT_CONTEXT_LENGTH;
+			const maxOutputTokens = modelInfo?.max_output_tokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
 
-			// Build entries for all providers that support tool calling
-			// Assume supports_tools is true if not explicitly set to false
-			const toolProviders = providers.filter((p) => p.supports_tools !== false);
-			console.log(`[LiteLLM Model Provider]   - toolProviders: ${toolProviders.length}`, toolProviders.map(p => p.provider));
-			const entries: LanguageModelChatInformation[] = [];
+			// Build capabilities based on model_info flags
+			const capabilities = this.buildCapabilities(modelInfo);
 
-			if (toolProviders.length > 0) {
-				const contextLengths = toolProviders
-					.map((p) => (typeof p?.context_length === "number" && p.context_length > 0 ? p.context_length : undefined))
-					.filter((len): len is number => typeof len === "number");
-				const aggregateContextLen = contextLengths.length > 0 ? Math.min(...contextLengths) : DEFAULT_CONTEXT_LENGTH;
-				const maxOutput = DEFAULT_MAX_OUTPUT_TOKENS;
-				const maxInput = Math.max(1, aggregateContextLen - maxOutput);
-				const aggregateCapabilities = {
-					toolCalling: true,
-					imageInput: vision,
-				};
-				entries.push({
-					id: `${m.id}:cheapest`,
-					name: `${m.id} (cheapest)`,
-					tooltip: "LiteLLM via the cheapest provider",
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: maxInput,
-					maxOutputTokens: maxOutput,
-					capabilities: aggregateCapabilities,
-				} satisfies LanguageModelChatInformation);
-				entries.push({
-					id: `${m.id}:fastest`,
-					name: `${m.id} (fastest)`,
-					tooltip: "LiteLLM via the fastest provider",
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: maxInput,
-					maxOutputTokens: maxOutput,
-					capabilities: aggregateCapabilities,
-				} satisfies LanguageModelChatInformation);
-			}
+			console.log(`[LiteLLM Model Provider]   - model_info:`, {
+				maxInputTokens,
+				maxOutputTokens,
+				capabilities,
+			});
 
-			for (const p of toolProviders) {
-				const contextLen = p?.context_length ?? DEFAULT_CONTEXT_LENGTH;
-				const maxOutput = DEFAULT_MAX_OUTPUT_TOKENS;
-				const maxInput = Math.max(1, contextLen - maxOutput);
-				entries.push({
-					id: `${m.id}:${p.provider}`,
-					name: `${m.id} via ${p.provider}`,
-					tooltip: `LiteLLM via ${p.provider}`,
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: maxInput,
-					maxOutputTokens: maxOutput,
-					capabilities: {
-						toolCalling: true,
-						imageInput: vision,
-					},
-				} satisfies LanguageModelChatInformation);
-			}
-
-			if (toolProviders.length === 0 && providers.length > 0) {
-				const base = providers[0];
-				const contextLen = base?.context_length ?? DEFAULT_CONTEXT_LENGTH;
-				const maxOutput = DEFAULT_MAX_OUTPUT_TOKENS;
-				const maxInput = Math.max(1, contextLen - maxOutput);
-				entries.push({
-					id: m.id,
-					name: m.id,
-					tooltip: "LiteLLM",
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: maxInput,
-					maxOutputTokens: maxOutput,
-					capabilities: {
-						toolCalling: false,
-						imageInput: vision,
-					},
-				} satisfies LanguageModelChatInformation);
-			}
-
-			console.log(`[LiteLLM Model Provider]   - created ${entries.length} entries for model ${m.id}`);
-			return entries;
+			return {
+				id: m.id,
+				name: m.model_name ?? m.id,
+				tooltip: `${m.model_info?.litellm_provider ?? "LiteLLM"} (${m.model_info?.mode ?? "responses"})`,
+				family: "litellm",
+				version: "1.0.0",
+				maxInputTokens: Math.max(1, maxInputTokens),
+				maxOutputTokens: Math.max(1, maxOutputTokens),
+				capabilities,
+			} satisfies LanguageModelChatInformation;
 		});
 
 		this._chatEndpoints = infos.map((info) => ({
@@ -216,6 +142,30 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		console.log("[LiteLLM Model Provider] Final model count:", infos.length);
 		console.log("[LiteLLM Model Provider] Model IDs:", infos.map(i => i.id));
 		return infos;
+	}
+
+	/**
+	 * Build capabilities object from model_info flags.
+	 * Maps LiteLLM model capabilities to VSCode LanguageModelChatInformation capabilities.
+	 */
+	private buildCapabilities(modelInfo: LiteLLMModelInfo | undefined): vscode.LanguageModelChatCapabilities {
+		if (!modelInfo) {
+			// Default capabilities if no model_info available
+			return {
+				toolCalling: true,
+				imageInput: false,
+			};
+		}
+
+		// Map LiteLLM capabilities to VSCode capabilities
+		const capabilities: vscode.LanguageModelChatCapabilities = {
+			// Tool calling is supported if function_calling is supported
+			toolCalling: modelInfo.supports_function_calling !== false,
+			// Image input is supported if vision is supported
+			imageInput: modelInfo.supports_vision === true,
+		};
+
+		return capabilities;
 	}
 
 	async provideLanguageModelChatInformation(
@@ -233,7 +183,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private async fetchModels(
 		apiKey: string,
 		baseUrl: string
-	): Promise<{ models: HFModelItem[] }> {
+	): Promise<{ models: TransformedModelItem[] }> {
 		console.log("[LiteLLM Model Provider] fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 		const modelsList = (async () => {
 			const headers: Record<string, string> = { "User-Agent": this.userAgent };
@@ -242,8 +192,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				headers.Authorization = `Bearer ${apiKey}`;
 				headers["X-API-Key"] = apiKey;
 			}
-			console.log("[LiteLLM Model Provider] Fetching from:", `${baseUrl}/v1/models`);
-			const resp = await fetch(`${baseUrl}/v1/models`, {
+
+			console.log("[LiteLLM Model Provider] Fetching from:", `${baseUrl}/model/info`);
+			const resp = await fetch(`${baseUrl}/model/info`, {
 				method: "GET",
 				headers,
 			});
@@ -271,12 +222,26 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				console.error("[LiteLLM Model Provider] Failed to fetch LiteLLM models", err);
 				throw err;
 			}
-			const parsed = (await resp.json()) as HFModelsResponse;
-			console.log("[LiteLLM Model Provider] Parsed response:", { object: parsed.object, modelCount: parsed.data?.length ?? 0 });
+			const parsed = (await resp.json()) as LiteLLMModelInfoResponse;
+			console.log("[LiteLLM Model Provider] Parsed response:", {
+				modelCount: parsed.data?.length ?? 0,
+			});
 			if (parsed.data && parsed.data.length > 0) {
 				console.log("[LiteLLM Model Provider] First model sample:", JSON.stringify(parsed.data[0], null, 2));
 			}
-			return parsed.data ?? [];
+
+			// Transform LiteLLM response format to internal format
+			const transformed: TransformedModelItem[] = (parsed.data ?? []).map((entry, index) => ({
+				id: entry.model_info?.key ?? entry.model_name ?? `model-${index}`,
+				object: "model",
+				created: Date.now(),
+				owned_by: entry.model_info?.litellm_provider ?? "litellm",
+				model_name: entry.model_name,
+				litellm_params: entry.litellm_params,
+				model_info: entry.model_info,
+			}));
+
+			return transformed;
 		})();
 
 		try {
@@ -390,12 +355,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				headers["X-API-Key"] = config.apiKey;
 			}
 			console.log("[LiteLLM Model Provider] Sending chat request", {
-				url: `${config.baseUrl}/v1/chat/completions`,
+				url: `${config.baseUrl}/chat/completions`,
 				modelId: model.id,
 				messageCount: messages.length,
 				requestBody: JSON.stringify(requestBody, null, 2),
 			});
-			const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+			const response = await fetch(`${config.baseUrl}/chat/completions`, {
 				method: "POST",
 				headers,
 				body: JSON.stringify(requestBody),
