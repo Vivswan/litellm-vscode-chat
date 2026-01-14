@@ -9,11 +9,7 @@ import {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 
-import type {
-	LiteLLMModelInfoResponse,
-	LiteLLMModelInfo,
-	TransformedModelItem
-} from "./types";
+import type { LiteLLMModelInfoResponse, LiteLLMModelInfo, TransformedModelItem } from "./types";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 
@@ -21,9 +17,31 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
 
 /**
+ * Known models that don't support certain OpenAI parameters,
+ * even if LiteLLM claims they do.
+ */
+const KNOWN_PARAMETER_LIMITATIONS: Record<string, Set<string>> = {
+	// Anthropic models don't support temperature in the same way
+	"claude-3-5-sonnet": new Set(["temperature"]),
+	"claude-3-5-haiku": new Set(["temperature"]),
+	"claude-3-opus": new Set(["temperature"]),
+	"claude-3-sonnet": new Set(["temperature"]),
+	"claude-3-haiku": new Set(["temperature"]),
+	"claude-haiku-4-5": new Set(["temperature"]),
+	// OpenAI Codex models don't support temperature, frequency_penalty, or presence_penalty
+	"gpt-5.1-codex": new Set(["temperature", "frequency_penalty", "presence_penalty"]),
+	"gpt-5.1-codex-mini": new Set(["temperature", "frequency_penalty", "presence_penalty"]),
+	"gpt-5.1-codex-max": new Set(["temperature", "frequency_penalty", "presence_penalty"]),
+	"codex-mini-latest": new Set(["temperature", "frequency_penalty", "presence_penalty"]),
+	// Add more known limitations as discovered
+};
+
+/**
  * VS Code Chat provider backed by LiteLLM.
  */
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
+	/** Cache of probed model parameter support to avoid repeated tests */
+	private _parameterProbeCache: Map<string, Set<string>> = new Map<string, Set<string>>();
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
 	/** Buffer for assembling streamed tool calls by index. */
 	private _toolCallBuffers: Map<number, { id?: string; name?: string; args: string }> = new Map<
@@ -45,11 +63,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _textToolActive:
 		| undefined
 		| {
-			name?: string;
-			index?: number;
-			argBuffer: string;
-			emitted?: boolean;
-		};
+				name?: string;
+				index?: number;
+				argBuffer: string;
+				emitted?: boolean;
+		  };
 	private _emittedTextToolCallKeys = new Set<string>();
 	private _emittedTextToolCallIds = new Set<string>();
 
@@ -57,7 +75,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * Create a provider using the given secret storage for the API key.
 	 * @param secrets VS Code secret storage.
 	 */
-	constructor(private readonly secrets: vscode.SecretStorage, private readonly userAgent: string) { }
+	constructor(
+		private readonly secrets: vscode.SecretStorage,
+		private readonly userAgent: string
+	) {}
 
 	/** Roughly estimate tokens for VS Code chat messages (text only) */
 	private estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRequestMessage[]): number {
@@ -73,8 +94,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	/** Rough token estimate for tool definitions by JSON size */
-	private estimateToolTokens(tools: { type: string; function: { name: string; description?: string; parameters?: object } }[] | undefined): number {
-		if (!tools || tools.length === 0) { return 0; }
+	private estimateToolTokens(
+		tools: { type: string; function: { name: string; description?: string; parameters?: object } }[] | undefined
+	): number {
+		if (!tools || tools.length === 0) {
+			return 0;
+		}
 		try {
 			const json = JSON.stringify(tools);
 			return Math.ceil(json.length / 4);
@@ -103,7 +128,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		console.log("[LiteLLM Model Provider] Config loaded", { baseUrl: config.baseUrl, hasApiKey: !!config.apiKey });
 
 		const { models } = await this.fetchModels(config.apiKey, config.baseUrl);
-		console.log("[LiteLLM Model Provider] Fetched models", { count: models.length, modelIds: models.map(m => m.id) });
+		console.log("[LiteLLM Model Provider] Fetched models", { count: models.length, modelIds: models.map((m) => m.id) });
 
 		const infos: LanguageModelChatInformation[] = models.map((m) => {
 			console.log(`[LiteLLM Model Provider] Processing model: ${m.id}`);
@@ -140,7 +165,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}));
 
 		console.log("[LiteLLM Model Provider] Final model count:", infos.length);
-		console.log("[LiteLLM Model Provider] Model IDs:", infos.map(i => i.id));
+		console.log(
+			"[LiteLLM Model Provider] Model IDs:",
+			infos.map((i) => i.id)
+		);
 		return infos;
 	}
 
@@ -168,6 +196,119 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		return capabilities;
 	}
 
+	/**
+	 * Record that a parameter failed for a model (discovered at runtime).
+	 * Used to cache parameter incompatibilities discovered through failed API calls.
+	 */
+	private recordParameterUnsupported(modelId: string, param: string): void {
+		if (!this._parameterProbeCache.has(modelId)) {
+			this._parameterProbeCache.set(modelId, new Set());
+		}
+		this._parameterProbeCache.get(modelId)!.add(param);
+		console.log(`[LiteLLM Model Provider] Cached parameter unsupported: ${modelId} does not support ${param}`);
+	}
+
+	/**
+	 * Remove unsupported parameters from the request body as a final safety net.
+	 */
+	private stripUnsupportedParametersFromRequest(
+		requestBody: Record<string, unknown>,
+		modelInfo: LiteLLMModelInfo | undefined,
+		modelId?: string
+	): void {
+		const paramsToCheck = ["temperature", "stop", "frequency_penalty", "presence_penalty"];
+		for (const p of paramsToCheck) {
+			if (!this.isParameterSupported(p, modelInfo, modelId) && p in requestBody) {
+				delete requestBody[p];
+				console.log(`[LiteLLM Model Provider] Removed unsupported parameter '${p}' for model ${modelId}`);
+			}
+		}
+	}
+
+	/**
+	 * Check if a parameter is supported by the model.
+	 * Uses a multi-level approach:
+	 * 1. Check known limitations (hardcoded list of models that don't support certain params)
+	 * 2. Check cached probe results (if model was tested at runtime)
+	 * 3. Check supported_openai_params from LiteLLM (with skepticism)
+	 */
+	private isParameterSupported(param: string, modelInfo: LiteLLMModelInfo | undefined, modelId?: string): boolean {
+		// 1. Check known limitations (do this BEFORE checking modelInfo, as it doesn't depend on it)
+		if (modelId) {
+			// Exact match
+			if (KNOWN_PARAMETER_LIMITATIONS[modelId]?.has(param)) {
+				console.log(
+					`[LiteLLM Model Provider] Parameter '${param}' blocked for ${modelId} by exact match in KNOWN_PARAMETER_LIMITATIONS`
+				);
+				return false;
+			}
+			// Substring match for model families (e.g., "claude-haiku-4-5" matches "claude-haiku")
+			for (const [knownModel, limitations] of Object.entries(KNOWN_PARAMETER_LIMITATIONS)) {
+				if (modelId.includes(knownModel) && limitations.has(param)) {
+					console.log(
+						`[LiteLLM Model Provider] Parameter '${param}' blocked for ${modelId} by substring match with ${knownModel}`
+					);
+					return false;
+				}
+			}
+		}
+
+		if (!modelInfo) {
+			return true; // No model info, assume supported
+		}
+
+		// 2. Check cached probe results
+		if (modelId && this._parameterProbeCache.has(modelId)) {
+			const unsupportedParams = this._parameterProbeCache.get(modelId);
+			if (unsupportedParams?.has(param)) {
+				console.log(`[LiteLLM Model Provider] Parameter '${param}' blocked for ${modelId} by probe cache`);
+				return false;
+			}
+		}
+
+		// 3. Check supported_openai_params (treat as soft requirement - model claims to support it)
+		if (modelInfo?.supported_openai_params) {
+			const supported = modelInfo.supported_openai_params.includes(param);
+			console.log(
+				`[LiteLLM Model Provider] Parameter '${param}' in supported_openai_params for ${modelId}: ${supported}`
+			);
+			return supported;
+		}
+
+		// 4. Default to true for backward compatibility
+		console.log(`[LiteLLM Model Provider] Parameter '${param}' defaulting to true (no model info)`);
+		return true;
+	}
+
+	/**
+	 * Get the appropriate completions endpoint based on model mode.
+	 * Uses "responses" endpoint if mode is "responses", otherwise defaults to "chat/completions".
+	 */
+	private getCompletionsEndpoint(mode: string | undefined): string {
+		if (mode === "responses") {
+			return "/responses";
+		}
+		return "/chat/completions";
+	}
+
+	/**
+	 * Parse error response from LiteLLM API and extract human-readable message.
+	 */
+	private parseApiError(statusCode: number, errorText: string): string {
+		try {
+			const parsed = JSON.parse(errorText);
+			if (parsed.error?.message) {
+				return parsed.error.message;
+			}
+		} catch {
+			/* ignore */
+		}
+		if (errorText) {
+			return errorText.slice(0, 200);
+		}
+		return `API request failed with status ${statusCode}`;
+	}
+
 	async provideLanguageModelChatInformation(
 		options: { silent: boolean },
 		_token: CancellationToken
@@ -180,10 +321,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * @param apiKey The LiteLLM API key used to authenticate.
 	 * @param baseUrl The LiteLLM base URL.
 	 */
-	private async fetchModels(
-		apiKey: string,
-		baseUrl: string
-	): Promise<{ models: TransformedModelItem[] }> {
+	private async fetchModels(apiKey: string, baseUrl: string): Promise<{ models: TransformedModelItem[] }> {
 		console.log("[LiteLLM Model Provider] fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 		const modelsList = (async () => {
 			const headers: Record<string, string> = { "User-Agent": this.userAgent };
@@ -271,7 +409,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		progress: Progress<LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
-
 		this._toolCallBuffers.clear();
 		this._completedToolCallIndices.clear();
 		this._hasEmittedAssistantText = false;
@@ -280,7 +417,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		this._textToolActive = undefined;
 		this._emittedTextToolCallKeys.clear();
 		this._emittedTextToolCallIds.clear();
-
 
 		let requestBody: Record<string, unknown> | undefined;
 		const trackingProgress: Progress<LanguageModelResponsePart> = {
@@ -313,7 +449,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const toolTokenCount = this.estimateToolTokens(toolConfig.tools);
 			const tokenLimit = Math.max(1, model.maxInputTokens);
 			if (inputTokenCount + toolTokenCount > tokenLimit) {
-				console.error("[LiteLLM Model Provider] Message exceeds token limit", { total: inputTokenCount + toolTokenCount, tokenLimit });
+				console.error("[LiteLLM Model Provider] Message exceeds token limit", {
+					total: inputTokenCount + toolTokenCount,
+					tokenLimit,
+				});
 				throw new Error("Message exceeds token limit.");
 			}
 
@@ -322,22 +461,54 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				messages: openaiMessages,
 				stream: true,
 				max_tokens: Math.min(options.modelOptions?.max_tokens || 4096, model.maxOutputTokens),
-				temperature: options.modelOptions?.temperature ?? 0.7,
 			};
 
-			// Allow-list model options
+			const modelInfo = model as unknown as { model_info?: LiteLLMModelInfo };
+
+			console.log(`[LiteLLM Model Provider] Model ID: ${model.id}, checking parameter support`);
+			console.log(
+				`[LiteLLM Model Provider] Model info supported_openai_params:`,
+				modelInfo.model_info?.supported_openai_params
+			);
+
+			// Only include temperature if the model supports it
+			const tempSupported = this.isParameterSupported("temperature", modelInfo.model_info, model.id);
+			console.log(`[LiteLLM Model Provider] Temperature supported for ${model.id}: ${tempSupported}`);
+			if (tempSupported) {
+				(requestBody as Record<string, unknown>).temperature = options.modelOptions?.temperature ?? 0.7;
+				console.log(
+					`[LiteLLM Model Provider] Added temperature: ${(requestBody as Record<string, unknown>).temperature}`
+				);
+			}
+
+			// Allow-list model options based on supported parameters
 			if (options.modelOptions) {
 				const mo = options.modelOptions as Record<string, unknown>;
-				if (typeof mo.stop === "string" || Array.isArray(mo.stop)) {
-					(requestBody as Record<string, unknown>).stop = mo.stop;
+				if (this.isParameterSupported("stop", modelInfo.model_info, model.id)) {
+					if (typeof mo.stop === "string" || Array.isArray(mo.stop)) {
+						(requestBody as Record<string, unknown>).stop = mo.stop;
+					}
 				}
-				if (typeof mo.frequency_penalty === "number") {
-					(requestBody as Record<string, unknown>).frequency_penalty = mo.frequency_penalty;
+				if (this.isParameterSupported("frequency_penalty", modelInfo.model_info, model.id)) {
+					if (typeof mo.frequency_penalty === "number") {
+						(requestBody as Record<string, unknown>).frequency_penalty = mo.frequency_penalty;
+					}
 				}
-				if (typeof mo.presence_penalty === "number") {
-					(requestBody as Record<string, unknown>).presence_penalty = mo.presence_penalty;
+				if (this.isParameterSupported("presence_penalty", modelInfo.model_info, model.id)) {
+					if (typeof mo.presence_penalty === "number") {
+						(requestBody as Record<string, unknown>).presence_penalty = mo.presence_penalty;
+					}
 				}
 			}
+
+			console.log(`[LiteLLM Model Provider] Request body before strip:`, JSON.stringify(requestBody));
+			// Final safety: strip any unsupported parameters that slipped through earlier checks
+			this.stripUnsupportedParametersFromRequest(
+				requestBody as Record<string, unknown>,
+				modelInfo.model_info,
+				model.id
+			);
+			console.log(`[LiteLLM Model Provider] Request body after strip:`, JSON.stringify(requestBody));
 
 			if (toolConfig.tools) {
 				(requestBody as Record<string, unknown>).tools = toolConfig.tools;
@@ -354,13 +525,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				headers.Authorization = `Bearer ${config.apiKey}`;
 				headers["X-API-Key"] = config.apiKey;
 			}
+			const endpoint = this.getCompletionsEndpoint(modelInfo.model_info?.mode);
 			console.log("[LiteLLM Model Provider] Sending chat request", {
-				url: `${config.baseUrl}/chat/completions`,
+				url: `${config.baseUrl}${endpoint}`,
 				modelId: model.id,
 				messageCount: messages.length,
 				requestBody: JSON.stringify(requestBody, null, 2),
 			});
-			const response = await fetch(`${config.baseUrl}/chat/completions`, {
+			const response = await fetch(`${config.baseUrl}${endpoint}`, {
 				method: "POST",
 				headers,
 				body: JSON.stringify(requestBody),
@@ -377,8 +549,24 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					);
 				}
 
+				const parsedError = this.parseApiError(response.status, errorText);
+
+				// Detect unsupported parameters and cache them
+				const parameterErrors = [
+					{ param: "temperature", patterns: ["temperature", "param temperature"] },
+					{ param: "stop", patterns: ["stop_sequences", "stop"] },
+					{ param: "frequency_penalty", patterns: ["frequency_penalty"] },
+					{ param: "presence_penalty", patterns: ["presence_penalty"] },
+				];
+
+				for (const { param, patterns } of parameterErrors) {
+					if (patterns.some((p) => errorText.toLowerCase().includes(p))) {
+						this.recordParameterUnsupported(model.id, param);
+					}
+				}
+
 				throw new Error(
-					`LiteLLM API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`
+					`LiteLLM API error: ${response.status} ${response.statusText}${parsedError ? `\n${parsedError}` : ""}`
 				);
 			}
 
@@ -477,7 +665,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private async processStreamingResponse(
 		responseBody: ReadableStream<Uint8Array>,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		token: vscode.CancellationToken,
+		token: vscode.CancellationToken
 	): Promise<void> {
 		const reader = responseBody.getReader();
 		const decoder = new TextDecoder();
@@ -486,7 +674,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		try {
 			while (!token.isCancellationRequested) {
 				const { done, value } = await reader.read();
-				if (done) { break; }
+				if (done) {
+					break;
+				}
 
 				buffer += decoder.decode(value, { stream: true });
 				const lines = buffer.split("\n");
@@ -533,19 +723,23 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 */
 	private async processDelta(
 		delta: Record<string, unknown>,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>
 	): Promise<boolean> {
 		let emitted = false;
 		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
-		if (!choice) { return false; }
+		if (!choice) {
+			return false;
+		}
 
 		const deltaObj = choice.delta as Record<string, unknown> | undefined;
 
 		// report thinking progress if backend provides it and host supports it
 		try {
-			const maybeThinking = (choice as Record<string, unknown> | undefined)?.thinking ?? (deltaObj as Record<string, unknown> | undefined)?.thinking;
+			const maybeThinking =
+				(choice as Record<string, unknown> | undefined)?.thinking ??
+				(deltaObj as Record<string, unknown> | undefined)?.thinking;
 			if (maybeThinking !== undefined) {
-				const vsAny = (vscode as unknown as Record<string, unknown>);
+				const vsAny = vscode as unknown as Record<string, unknown>;
 				const ThinkingCtor = vsAny["LanguageModelThinkingPart"] as
 					| (new (text: string, id?: string, metadata?: unknown) => unknown)
 					| undefined;
@@ -562,7 +756,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 						text = maybeThinking;
 					}
 					if (text) {
-						progress.report(new (ThinkingCtor as new (text: string, id?: string, metadata?: unknown) => unknown)(text, id, metadata) as unknown as vscode.LanguageModelResponsePart);
+						progress.report(
+							new (ThinkingCtor as new (text: string, id?: string, metadata?: unknown) => unknown)(
+								text,
+								id,
+								metadata
+							) as unknown as vscode.LanguageModelResponsePart
+						);
 						emitted = true;
 					}
 				}
@@ -629,7 +829,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 */
 	private processTextContent(
 		input: string,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>
 	): { emittedText: boolean; emittedAny: boolean } {
 		const BEGIN = "<|tool_call_begin|>";
 		const ARG_BEGIN = "<|tool_call_argument_begin|>";
@@ -647,13 +847,17 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					// No tool-call start: emit visible portion, but keep any partial BEGIN prefix as buffer
 					const longestPartialPrefix = ((): number => {
 						for (let k = Math.min(BEGIN.length - 1, data.length - 1); k > 0; k--) {
-							if (data.endsWith(BEGIN.slice(0, k))) { return k; }
+							if (data.endsWith(BEGIN.slice(0, k))) {
+								return k;
+							}
 						}
 						return 0;
 					})();
 					if (longestPartialPrefix > 0) {
 						const visible = data.slice(0, data.length - longestPartialPrefix);
-						if (visible) { visibleOut += this.stripControlTokens(visible); }
+						if (visible) {
+							visibleOut += this.stripControlTokens(visible);
+						}
 						this._textToolParserBuffer = data.slice(data.length - longestPartialPrefix);
 						data = "";
 						break;
@@ -677,9 +881,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				const e = data.indexOf(END);
 				let delimIdx = -1;
 				let delimKind: "arg" | "end" | undefined = undefined;
-				if (a !== -1 && (e === -1 || a < e)) { delimIdx = a; delimKind = "arg"; }
-				else if (e !== -1) { delimIdx = e; delimKind = "end"; }
-				else {
+				if (a !== -1 && (e === -1 || a < e)) {
+					delimIdx = a;
+					delimKind = "arg";
+				} else if (e !== -1) {
+					delimIdx = e;
+					delimKind = "end";
+				} else {
 					// Incomplete header; keep for next chunk (re-add BEGIN so we don't lose it)
 					this._textToolParserBuffer = BEGIN + data;
 					data = "";
@@ -755,7 +963,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private emitTextToolCallIfValid(
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		call: { name?: string; index?: number; argBuffer: string; emitted?: boolean },
-		argText: string,
+		argText: string
 	): boolean {
 		const name = call.name ?? "unknown_tool";
 		const parsed = tryParseJSONObject(argText);
@@ -781,9 +989,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		return true;
 	}
 
-	private async flushActiveTextToolCall(
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-	): Promise<void> {
+	private async flushActiveTextToolCall(progress: vscode.Progress<vscode.LanguageModelResponsePart>): Promise<void> {
 		if (!this._textToolActive) {
 			return;
 		}
@@ -822,7 +1028,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		try {
 			const canonical = JSON.stringify(parameters);
 			this._emittedTextToolCallKeys.add(`${buf.name}:${canonical}`);
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		progress.report(new vscode.LanguageModelToolCallPart(id, buf.name, parameters));
 		this._toolCallBuffers.delete(index);
 		this._completedToolCallIndices.add(index);
@@ -835,7 +1043,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 */
 	private async flushToolCallBuffers(
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		throwOnInvalid: boolean,
+		throwOnInvalid: boolean
 	): Promise<void> {
 		if (this._toolCallBuffers.size === 0) {
 			return;
@@ -844,7 +1052,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const parsed = tryParseJSONObject(buf.args);
 			if (!parsed.ok) {
 				if (throwOnInvalid) {
-					console.error("[LiteLLM Model Provider] Invalid JSON for tool call", { idx, snippet: (buf.args || "").slice(0, 200) });
+					console.error("[LiteLLM Model Provider] Invalid JSON for tool call", {
+						idx,
+						snippet: (buf.args || "").slice(0, 200),
+					});
 					throw new Error("Invalid JSON for tool call");
 				}
 				// When not throwing (e.g. on [DONE]), drop silently to reduce noise
@@ -855,7 +1066,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			try {
 				const canonical = JSON.stringify(parsed.value);
 				this._emittedTextToolCallKeys.add(`${name}:${canonical}`);
-			} catch { /* ignore */ }
+			} catch {
+				/* ignore */
+			}
 			progress.report(new vscode.LanguageModelToolCallPart(id, name, parsed.value));
 			this._toolCallBuffers.delete(idx);
 			this._completedToolCallIndices.add(idx);
@@ -873,5 +1086,4 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			return text;
 		}
 	}
-
 }

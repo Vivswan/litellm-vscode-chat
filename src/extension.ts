@@ -20,7 +20,9 @@ export function activate(context: vscode.ExtensionContext) {
 			const existingBaseUrl = await context.secrets.get("litellm.baseUrl");
 			const baseUrl = await vscode.window.showInputBox({
 				title: "LiteLLM Base URL",
-				prompt: existingBaseUrl ? "Update your LiteLLM base URL" : "Enter your LiteLLM base URL (e.g., http://localhost:4000 or https://api.litellm.ai)",
+				prompt: existingBaseUrl
+					? "Update your LiteLLM base URL"
+					: "Enter your LiteLLM base URL (e.g., http://localhost:4000 or https://api.litellm.ai)",
 				ignoreFocusOut: true,
 				value: existingBaseUrl ?? "",
 				placeHolder: "http://localhost:4000",
@@ -33,7 +35,9 @@ export function activate(context: vscode.ExtensionContext) {
 			const existingApiKey = await context.secrets.get("litellm.apiKey");
 			const apiKey = await vscode.window.showInputBox({
 				title: "LiteLLM API Key",
-				prompt: existingApiKey ? "Update your LiteLLM API key" : "Enter your LiteLLM API key (leave empty if not required)",
+				prompt: existingApiKey
+					? "Update your LiteLLM API key"
+					: "Enter your LiteLLM API key (leave empty if not required)",
 				ignoreFocusOut: true,
 				password: false,
 				value: existingApiKey ?? "",
@@ -60,4 +64,4 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 }
 
-export function deactivate() { }
+export function deactivate() {}
