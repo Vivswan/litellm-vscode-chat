@@ -16,11 +16,22 @@ export interface OpenAIFunctionToolDef {
 }
 
 /**
+ * Content item for vision/image support in OpenAI messages
+ */
+export interface OpenAIChatMessageContentItem {
+	type: "text" | "image_url";
+	text?: string;
+	image_url?: {
+		url: string;
+	};
+}
+
+/**
  * OpenAI-style chat message used for router requests.
  */
 export interface OpenAIChatMessage {
 	role: OpenAIChatRole;
-	content?: string;
+	content?: string | OpenAIChatMessageContentItem[];
 	name?: string;
 	tool_calls?: OpenAIToolCall[];
 	tool_call_id?: string;

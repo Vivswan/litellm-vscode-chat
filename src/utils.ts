@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { OpenAIChatMessage, OpenAIChatRole, OpenAIFunctionToolDef, OpenAIToolCall } from "./types";
+import type { OpenAIChatMessage, OpenAIChatRole, OpenAIFunctionToolDef, OpenAIToolCall, OpenAIChatMessageContentItem } from "./types";
 
 // Tool calling sanitization helpers
 
@@ -145,12 +145,26 @@ export function convertMessages(messages: readonly vscode.LanguageModelChatReque
 	for (const m of messages) {
 		const role = mapRole(m);
 		const textParts: string[] = [];
+		const contentItems: OpenAIChatMessageContentItem[] = [];
 		const toolCalls: OpenAIToolCall[] = [];
 		const toolResults: { callId: string; content: string }[] = [];
 
 		for (const part of m.content ?? []) {
 			if (part instanceof vscode.LanguageModelTextPart) {
 				textParts.push(part.value);
+			} else if (part instanceof vscode.LanguageModelDataPart) {
+				// Handle image and other data parts
+				if (part.mimeType.startsWith("image/")) {
+					// Convert image data to base64 for OpenAI vision API
+					const base64Data = Buffer.from(part.data).toString("base64");
+					contentItems.push({
+						type: "image_url",
+						image_url: {
+							url: `data:${part.mimeType};base64,${base64Data}`,
+						},
+					});
+				}
+				// Other data types (json, etc.) can be handled here if needed in the future
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
 				const id = part.callId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 				let args = "{}";
@@ -169,7 +183,8 @@ export function convertMessages(messages: readonly vscode.LanguageModelChatReque
 
 		let emittedAssistantToolCall = false;
 		if (toolCalls.length > 0) {
-			out.push({ role: "assistant", content: textParts.join("") || undefined, tool_calls: toolCalls });
+			const messageContent = buildMessageContent(textParts, contentItems);
+			out.push({ role: "assistant", content: messageContent || undefined, tool_calls: toolCalls });
 			emittedAssistantToolCall = true;
 		}
 
@@ -178,11 +193,38 @@ export function convertMessages(messages: readonly vscode.LanguageModelChatReque
 		}
 
 		const text = textParts.join("");
-		if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
-			out.push({ role, content: text });
+		if (text || contentItems.length > 0) {
+			if (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall)) {
+				const messageContent = buildMessageContent(textParts, contentItems);
+				if (messageContent) {
+					out.push({ role, content: messageContent });
+				}
+			}
 		}
 	}
 	return out;
+}
+
+/**
+ * Build message content from text and content items.
+ * If there are content items (images), return an array format.
+ * Otherwise, return a simple string.
+ */
+function buildMessageContent(textParts: string[], contentItems: OpenAIChatMessageContentItem[]): string | OpenAIChatMessageContentItem[] | undefined {
+	const text = textParts.join("");
+
+	if (contentItems.length === 0) {
+		return text || undefined;
+	}
+
+	// If we have content items (images), create an array with both text and images
+	const items: OpenAIChatMessageContentItem[] = [];
+	if (text) {
+		items.push({ type: "text", text });
+	}
+	items.push(...contentItems);
+
+	return items.length > 0 ? items : undefined;
 }
 
 /**
