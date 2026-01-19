@@ -21,9 +21,13 @@ Each model entry also offers `cheapest` and `fastest` mode for each model. `fast
 * Support for streaming, function calling, and vision models.
 
 ## Requirements
-* VS Code 1.104.0 or higher.
+* VS Code 1.108.0 or higher.
 * LiteLLM proxy running (self-hosted or cloud).
 * Optional: LiteLLM API key depending on your setup.
+**Need help getting started?**
+* On first run, you'll see a welcome notification with setup options
+* The status bar indicator shows your configuration state at all times
+* Click the status bar item or use Command Palette to configure
 
 ## 🛠️ Development
 ```bash
