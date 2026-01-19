@@ -9,7 +9,7 @@ import {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 
-import type { HFModelItem, HFModelsResponse } from "./types";
+import type { HFModelItem, HFModelsResponse, HFProvider } from "./types";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 
@@ -80,6 +80,38 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	/**
+	 * Resolve token constraints from provider info, workspace settings, or defaults.
+	 * Priority: provider info > workspace settings > hardcoded defaults
+	 */
+	private getTokenConstraints(provider: HFProvider | undefined): {
+		maxOutputTokens: number;
+		contextLength: number;
+		maxInputTokens: number;
+	} {
+		const config = vscode.workspace.getConfiguration('litellm-vscode-chat');
+
+		// Resolve max output tokens
+		const maxOutputTokens =
+			provider?.max_output_tokens ??
+			provider?.max_tokens ??
+			config.get<number>('defaultMaxOutputTokens', DEFAULT_MAX_OUTPUT_TOKENS);
+
+		// Resolve context length
+		const contextLength =
+			provider?.context_length ??
+			config.get<number>('defaultContextLength', DEFAULT_CONTEXT_LENGTH);
+
+		// Resolve max input tokens
+		let maxInputTokens = provider?.max_input_tokens;
+		if (maxInputTokens === undefined) {
+			const configMaxInput = config.get<number | null>('defaultMaxInputTokens', null);
+			maxInputTokens = configMaxInput ?? Math.max(1, contextLength - maxOutputTokens);
+		}
+
+		return { maxOutputTokens, contextLength, maxInputTokens };
+	}
+
+	/**
 	 * Get the list of available language models contributed by this provider
 	 * @param options Options which specify the calling context of this function
 	 * @param token A cancellation token which signals if the user cancelled the request or not
@@ -137,14 +169,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			// If no providers array exists (standard OpenAI-compatible API), create a default entry
 			if (providers.length === 0) {
 				console.log(`[LiteLLM Model Provider]   - no providers array, creating default entry`);
+				const constraints = this.getTokenConstraints(undefined);
 				return [{
 					id: m.id,
 					name: m.id,
 					tooltip: "LiteLLM",
 					family: "litellm",
 					version: "1.0.0",
-					maxInputTokens: Math.max(1, DEFAULT_CONTEXT_LENGTH - DEFAULT_MAX_OUTPUT_TOKENS),
-					maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+					maxInputTokens: constraints.maxInputTokens,
+					maxOutputTokens: constraints.maxOutputTokens,
 					capabilities: {
 						toolCalling: true, // Assume tool calling is supported
 						imageInput: vision,
@@ -159,11 +192,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const entries: LanguageModelChatInformation[] = [];
 
 			if (toolProviders.length > 0) {
-				const contextLengths = toolProviders
-					.map((p) => (typeof p?.context_length === "number" && p.context_length > 0 ? p.context_length : undefined))
-					.filter((len): len is number => typeof len === "number");
-				const aggregateContextLen = contextLengths.length > 0 ? Math.min(...contextLengths) : DEFAULT_CONTEXT_LENGTH;
-				const maxOutput = DEFAULT_MAX_OUTPUT_TOKENS;
+				const providerConstraints = toolProviders.map(p => this.getTokenConstraints(p));
+				const aggregateContextLen = Math.min(...providerConstraints.map(c => c.contextLength));
+				const maxOutput = Math.min(...providerConstraints.map(c => c.maxOutputTokens));
 				const maxInput = Math.max(1, aggregateContextLen - maxOutput);
 				const aggregateCapabilities = {
 					toolCalling: true,
@@ -192,9 +223,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			}
 
 			for (const p of toolProviders) {
-				const contextLen = p?.context_length ?? DEFAULT_CONTEXT_LENGTH;
-				const maxOutput = DEFAULT_MAX_OUTPUT_TOKENS;
-				const maxInput = Math.max(1, contextLen - maxOutput);
+				const constraints = this.getTokenConstraints(p);
+				const maxOutput = constraints.maxOutputTokens;
+				const maxInput = constraints.maxInputTokens;
 				entries.push({
 					id: `${m.id}:${p.provider}`,
 					name: `${m.id} via ${p.provider}`,
@@ -212,9 +243,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 			if (toolProviders.length === 0 && providers.length > 0) {
 				const base = providers[0];
-				const contextLen = base?.context_length ?? DEFAULT_CONTEXT_LENGTH;
-				const maxOutput = DEFAULT_MAX_OUTPUT_TOKENS;
-				const maxInput = Math.max(1, contextLen - maxOutput);
+				const constraints = this.getTokenConstraints(base);
+				const maxOutput = constraints.maxOutputTokens;
+				const maxInput = constraints.maxInputTokens;
 				entries.push({
 					id: m.id,
 					name: m.id,
