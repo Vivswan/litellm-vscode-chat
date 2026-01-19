@@ -1,53 +1,74 @@
 # LiteLLM Provider for GitHub Copilot Chat
 
-Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://docs.litellm.ai)
+Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://docs.litellm.ai).
 
-## ⚡ Quick Start
-1. Install the LiteLLM Copilot Chat extension [here](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat).
-2. Open VS Code's chat interface.
-3. Click the model picker and click "Manage Models...".
-4. Select "LiteLLM" provider.
-5. Provide your LiteLLM base URL (e.g., `http://localhost:4000` for self-hosted or your LiteLLM proxy URL).
-6. Provide your LiteLLM API key (if required).
-7. Choose the models you want to add to the model picker.
+## Features
 
-Each model entry also offers `cheapest` and `fastest` mode for each model. `fastest` selects the provider with highest throughput and `cheapest` selects the provider with lowest price per output token.
-
-## ✨ Why use the LiteLLM provider in Copilot
-* Access 100+ LLMs from OpenAI, Azure, Anthropic, Google, AWS, and more through a single unified API.
-* Single API to switch between multiple providers.
-* Built for high availability and low latency.
-* Self-hosted or cloud-based options.
-* Support for streaming, function calling, and vision models.
+- Access 100+ LLMs (OpenAI, Anthropic, Google, AWS, Azure, and more) through a unified API
+- Automatic provider selection with `cheapest` and `fastest` modes
+- Support for streaming, function calling, and vision models
+- Self-hosted or cloud-based deployment options
 
 ## Requirements
-* VS Code 1.108.0 or higher.
-* LiteLLM proxy running (self-hosted or cloud).
-* Optional: LiteLLM API key depending on your setup.
-**Need help getting started?**
-* On first run, you'll see a welcome notification with setup options
-* The status bar indicator shows your configuration state at all times
-* Click the status bar item or use Command Palette to configure
 
-## 🛠️ Development
+- VS Code 1.108.0 or higher
+- LiteLLM proxy running (self-hosted or cloud)
+- LiteLLM API key (if required by your setup)
+
+## Quick Start
+
+1. Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
+2. Open VS Code's chat interface
+3. Click the model picker → "Manage Models..." → "LiteLLM"
+4. Enter your LiteLLM base URL (e.g., `http://localhost:4000`)
+5. Enter your API key (if required)
+6. Select models to add
+
+## Configuration
+
+### Connection Settings
+
+To update your base URL or API key:
+- **Command Palette**: `Ctrl+Shift+P` / `Cmd+Shift+P` → "Manage LiteLLM Provider"
+- **Model Picker**: Chat interface → Model picker → "Manage Models..." → "LiteLLM"
+
+Credentials are stored securely in VS Code's secret storage.
+
+### Token Limits
+
+The extension uses token limits from LiteLLM model info when available. You can configure fallback defaults in VS Code settings:
+
+**To access**: `Ctrl+,` / `Cmd+,` → Search "litellm-vscode-chat"
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `litellm-vscode-chat.defaultMaxOutputTokens` | `16000` | Max tokens per response |
+| `litellm-vscode-chat.defaultContextLength` | `128000` | Total context window |
+| `litellm-vscode-chat.defaultMaxInputTokens` | `null` | Max input tokens (auto-calculated if null) |
+
+**Priority**: LiteLLM model info → Workspace settings → Defaults
+
+## Development
+
 ```bash
 git clone https://github.com/Vivswan/litellm-vscode-chat
 cd litellm-vscode-chat
 npm install
 npm run compile
 ```
-Press F5 to launch an Extension Development Host.
+ 
+Press `F5` to launch the Extension Development Host.
 
-Common scripts:
-* Build: `npm run compile`
-* Watch: `npm run watch`
-* Lint: `npm run lint`
-* Format: `npm run format`
+| Command | Description |
+|---------|-------------|
+| `npm run compile` | Build |
+| `npm run watch` | Watch mode |
+| `npm run lint` | Lint |
+| `npm run format` | Format |
+| `npm test` | Run tests |
 
-## 📚 Learn more
-* LiteLLM documentation: https://docs.litellm.ai
-* VS Code Chat Provider API: https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider
+## Resources
 
-## Support
-
-* Open issues: https://github.com/Vivswan/litellm-vscode-chat/issues
+- [LiteLLM Documentation](https://docs.litellm.ai)
+- [VS Code Chat Provider API](https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider)
+- [Report Issues](https://github.com/Vivswan/litellm-vscode-chat/issues)

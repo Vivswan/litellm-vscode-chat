@@ -35,6 +35,9 @@ export interface HFProvider {
 	supports_tools?: boolean;
 	supports_structured_output?: boolean;
 	context_length?: number;
+	max_tokens?: number;
+	max_input_tokens?: number;
+	max_output_tokens?: number;
 }
 
 /**
