@@ -98,7 +98,33 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 		console.log("[LiteLLM Model Provider] Config loaded", { baseUrl: config.baseUrl, hasApiKey: !!config.apiKey });
 
-		const { models } = await this.fetchModels(config.apiKey, config.baseUrl);
+		let models: HFModelItem[];
+		try {
+			const result = await this.fetchModels(config.apiKey, config.baseUrl);
+			models = result.models;
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			console.error("[LiteLLM Model Provider] Failed to fetch models", { error: errorMsg, silent: options.silent });
+
+			// When silent mode is enabled (e.g., background refresh or "Add models" button),
+			// show an error notification so the user knows what went wrong
+			if (options.silent) {
+				vscode.window.showErrorMessage(
+					`LiteLLM: ${errorMsg}`,
+					"Reconfigure",
+					"Dismiss"
+				).then(choice => {
+					if (choice === "Reconfigure") {
+						vscode.commands.executeCommand("litellm.manage");
+					}
+				});
+				// Return empty array instead of throwing to prevent the UI from breaking
+				return [];
+			}
+			// In non-silent mode, re-throw to let the caller handle it
+			throw err;
+		}
+
 		console.log("[LiteLLM Model Provider] Fetched models", { count: models.length, modelIds: models.map(m => m.id) });
 
 		const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
@@ -243,40 +269,75 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				headers["X-API-Key"] = apiKey;
 			}
 			console.log("[LiteLLM Model Provider] Fetching from:", `${baseUrl}/v1/models`);
-			const resp = await fetch(`${baseUrl}/v1/models`, {
-				method: "GET",
-				headers,
-			});
-			console.log("[LiteLLM Model Provider] Response status:", resp.status, resp.statusText);
-			if (!resp.ok) {
-				let text = "";
-				try {
-					text = await resp.text();
-				} catch (error) {
-					console.error("[LiteLLM Model Provider] Failed to read response text", error);
-				}
 
-				// Provide helpful error message for authentication failures
-				if (resp.status === 401) {
+			try {
+				const resp = await fetch(`${baseUrl}/v1/models`, {
+					method: "GET",
+					headers,
+				});
+				console.log("[LiteLLM Model Provider] Response status:", resp.status, resp.statusText);
+				if (!resp.ok) {
+					let text = "";
+					try {
+						text = await resp.text();
+					} catch (error) {
+						console.error("[LiteLLM Model Provider] Failed to read response text", error);
+					}
+
+					// Provide helpful error message for authentication failures
+					if (resp.status === 401) {
+						const err = new Error(
+							`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+						);
+						console.error("[LiteLLM Model Provider] Authentication error", err);
+						throw err;
+					}
+
 					const err = new Error(
-						`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+						`Failed to fetch LiteLLM models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
 					);
-					console.error("[LiteLLM Model Provider] Authentication error", err);
+					console.error("[LiteLLM Model Provider] Failed to fetch LiteLLM models", err);
 					throw err;
 				}
+				const parsed = (await resp.json()) as HFModelsResponse;
+				console.log("[LiteLLM Model Provider] Parsed response:", { object: parsed.object, modelCount: parsed.data?.length ?? 0 });
+				if (parsed.data && parsed.data.length > 0) {
+					console.log("[LiteLLM Model Provider] First model sample:", JSON.stringify(parsed.data[0], null, 2));
+				}
+				return parsed.data ?? [];
+			} catch (fetchError) {
+				// Enhanced error handling for network and certificate issues
+				const errMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+				const cause = (fetchError as any)?.cause;
+				const causeMsg = cause instanceof Error ? cause.message : String(cause);
 
-				const err = new Error(
-					`Failed to fetch LiteLLM models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
-				);
-				console.error("[LiteLLM Model Provider] Failed to fetch LiteLLM models", err);
-				throw err;
+				// Check for common network errors
+				if (causeMsg.includes("certificate has expired") || causeMsg.includes("CERT_HAS_EXPIRED")) {
+					const err = new Error(
+						`SSL Certificate Error: The SSL certificate for ${baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`
+					);
+					console.error("[LiteLLM Model Provider] Certificate error", err);
+					throw err;
+				} else if (causeMsg.includes("certificate") || errMsg.includes("certificate")) {
+					const err = new Error(
+						`SSL Certificate Error: There is an issue with the SSL certificate for ${baseUrl}. Error: ${causeMsg || errMsg}`
+					);
+					console.error("[LiteLLM Model Provider] Certificate error", err);
+					throw err;
+				} else if (causeMsg.includes("ENOTFOUND") || causeMsg.includes("ECONNREFUSED")) {
+					const err = new Error(
+						`Connection Error: Unable to connect to ${baseUrl}. Please check that the server is running and the URL is correct.`
+					);
+					console.error("[LiteLLM Model Provider] Connection error", err);
+					throw err;
+				} else {
+					const err = new Error(
+						`Network Error: Failed to fetch models from ${baseUrl}. ${errMsg}${causeMsg && causeMsg !== errMsg ? `. Cause: ${causeMsg}` : ""}`
+					);
+					console.error("[LiteLLM Model Provider] Network error", err);
+					throw err;
+				}
 			}
-			const parsed = (await resp.json()) as HFModelsResponse;
-			console.log("[LiteLLM Model Provider] Parsed response:", { object: parsed.object, modelCount: parsed.data?.length ?? 0 });
-			if (parsed.data && parsed.data.length > 0) {
-				console.log("[LiteLLM Model Provider] First model sample:", JSON.stringify(parsed.data[0], null, 2));
-			}
-			return parsed.data ?? [];
 		})();
 
 		try {
