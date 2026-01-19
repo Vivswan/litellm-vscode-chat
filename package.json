@@ -45,7 +45,30 @@
 				"command": "litellm.manage",
 				"title": "Manage LiteLLM Provider"
 			}
-		]
+		],
+		"configuration": {
+			"title": "LiteLLM VS Code Chat",
+			"properties": {
+				"litellm-vscode-chat.defaultMaxOutputTokens": {
+					"type": "number",
+					"default": 16000,
+					"minimum": 1,
+					"description": "Default maximum output tokens when not provided by model info"
+				},
+				"litellm-vscode-chat.defaultContextLength": {
+					"type": "number",
+					"default": 128000,
+					"minimum": 1,
+					"description": "Default context length when not provided by model info"
+				},
+				"litellm-vscode-chat.defaultMaxInputTokens": {
+					"type": ["number", "null"],
+					"default": null,
+					"minimum": 1,
+					"description": "Default maximum input tokens (if null, calculated as contextLength - maxOutputTokens)"
+				}
+			}
+		}
 	},
 	"main": "./out/extension.js",
 	"scripts": {

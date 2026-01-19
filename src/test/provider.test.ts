@@ -118,6 +118,267 @@ suite("LiteLLM Chat Provider Extension", () => {
 			}
 			assert.ok(threw);
 		});
+
+		test("uses token constraints from provider info when available", async () => {
+			// Mock fetch to return model with token constraints
+			const originalFetch = global.fetch;
+			global.fetch = async () => ({
+				ok: true,
+				json: async () => ({
+					object: "list",
+					data: [{
+						id: "test-model",
+						object: "model",
+						created: 0,
+						owned_by: "test",
+						providers: [{
+							provider: "test-provider",
+							status: "active",
+							supports_tools: true,
+							context_length: 100000,
+							max_output_tokens: 8000,
+							max_input_tokens: 90000,
+						}],
+					}],
+				}),
+			}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider({
+				get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
+			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+
+			// Find the per-provider entry
+			const providerEntry = infos.find(i => i.id === "test-model:test-provider");
+			assert.ok(providerEntry, "Provider entry should exist");
+			assert.equal(providerEntry.maxOutputTokens, 8000, "Should use max_output_tokens from provider");
+			assert.equal(providerEntry.maxInputTokens, 90000, "Should use max_input_tokens from provider");
+		});
+
+		test("uses workspace settings as fallback when provider fields absent", async () => {
+			// Mock fetch to return model without token constraints
+			const originalFetch = global.fetch;
+			global.fetch = async () => ({
+				ok: true,
+				json: async () => ({
+					object: "list",
+					data: [{
+						id: "test-model",
+						object: "model",
+						created: 0,
+						owned_by: "test",
+						providers: [{
+							provider: "test-provider",
+							status: "active",
+							supports_tools: true,
+						}],
+					}],
+				}),
+			}) as unknown as Response;
+
+			// Mock workspace configuration
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			vscode.workspace.getConfiguration = ((section?: string) => {
+				if (section === 'litellm-vscode-chat') {
+					return {
+						get: (key: string, defaultValue?: unknown) => {
+							if (key === 'defaultMaxOutputTokens') return 20000;
+							if (key === 'defaultContextLength') return 200000;
+							if (key === 'defaultMaxInputTokens') return null;
+							return defaultValue;
+						},
+					} as unknown as vscode.WorkspaceConfiguration;
+				}
+				return originalGetConfiguration(section);
+			}) as unknown as typeof vscode.workspace.getConfiguration;
+
+			const provider = new LiteLLMChatModelProvider({
+				get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
+			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+			vscode.workspace.getConfiguration = originalGetConfiguration;
+
+			// Find the per-provider entry
+			const providerEntry = infos.find(i => i.id === "test-model:test-provider");
+			assert.ok(providerEntry, "Provider entry should exist");
+			assert.equal(providerEntry.maxOutputTokens, 20000, "Should use workspace setting for max output tokens");
+			assert.equal(providerEntry.maxInputTokens, 180000, "Should calculate max input as context - output");
+		});
+
+		test("uses hardcoded defaults when provider and settings absent", async () => {
+			// Mock fetch to return model without token constraints
+			const originalFetch = global.fetch;
+			global.fetch = async () => ({
+				ok: true,
+				json: async () => ({
+					object: "list",
+					data: [{
+						id: "test-model",
+						object: "model",
+						created: 0,
+						owned_by: "test",
+						providers: [{
+							provider: "test-provider",
+							status: "active",
+							supports_tools: true,
+						}],
+					}],
+				}),
+			}) as unknown as Response;
+
+			// Mock workspace configuration to return defaults
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			vscode.workspace.getConfiguration = ((section?: string) => {
+				if (section === 'litellm-vscode-chat') {
+					return {
+						get: (key: string, defaultValue?: unknown) => defaultValue,
+					} as unknown as vscode.WorkspaceConfiguration;
+				}
+				return originalGetConfiguration(section);
+			}) as unknown as typeof vscode.workspace.getConfiguration;
+
+			const provider = new LiteLLMChatModelProvider({
+				get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
+			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+			vscode.workspace.getConfiguration = originalGetConfiguration;
+
+			// Find the per-provider entry
+			const providerEntry = infos.find(i => i.id === "test-model:test-provider");
+			assert.ok(providerEntry, "Provider entry should exist");
+			assert.equal(providerEntry.maxOutputTokens, 16000, "Should use hardcoded default for max output tokens");
+			assert.equal(providerEntry.maxInputTokens, 112000, "Should calculate with hardcoded defaults (128000 - 16000)");
+		});
+
+		test("aggregates minimum token constraints for cheapest/fastest entries", async () => {
+			// Mock fetch to return model with multiple providers
+			const originalFetch = global.fetch;
+			global.fetch = async () => ({
+				ok: true,
+				json: async () => ({
+					object: "list",
+					data: [{
+						id: "test-model",
+						object: "model",
+						created: 0,
+						owned_by: "test",
+						providers: [
+							{
+								provider: "provider-a",
+								status: "active",
+								supports_tools: true,
+								context_length: 100000,
+								max_output_tokens: 8000,
+							},
+							{
+								provider: "provider-b",
+								status: "active",
+								supports_tools: true,
+								context_length: 50000,
+								max_output_tokens: 4000,
+							},
+						],
+					}],
+				}),
+			}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider({
+				get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
+			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+
+			// Find the cheapest/fastest entries
+			const cheapestEntry = infos.find(i => i.id === "test-model:cheapest");
+			const fastestEntry = infos.find(i => i.id === "test-model:fastest");
+
+			assert.ok(cheapestEntry, "Cheapest entry should exist");
+			assert.ok(fastestEntry, "Fastest entry should exist");
+
+			// Should use minimum of both providers
+			assert.equal(cheapestEntry.maxOutputTokens, 4000, "Should use minimum max_output_tokens");
+			assert.equal(fastestEntry.maxOutputTokens, 4000, "Should use minimum max_output_tokens");
+			assert.equal(cheapestEntry.maxInputTokens, 46000, "Should calculate with minimum context (50000 - 4000)");
+		});
+
+		test("provider max_output_tokens takes priority over max_tokens", async () => {
+			// Mock fetch to return model with both max_output_tokens and max_tokens
+			const originalFetch = global.fetch;
+			global.fetch = async () => ({
+				ok: true,
+				json: async () => ({
+					object: "list",
+					data: [{
+						id: "test-model",
+						object: "model",
+						created: 0,
+						owned_by: "test",
+						providers: [{
+							provider: "test-provider",
+							status: "active",
+							supports_tools: true,
+							context_length: 100000,
+							max_tokens: 10000,
+							max_output_tokens: 8000,
+						}],
+					}],
+				}),
+			}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider({
+				get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+				store: async () => { },
+				delete: async () => { },
+				onDidChange: (_listener: unknown) => ({ dispose() { } }),
+			} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+
+			// Find the per-provider entry
+			const providerEntry = infos.find(i => i.id === "test-model:test-provider");
+			assert.ok(providerEntry, "Provider entry should exist");
+			assert.equal(providerEntry.maxOutputTokens, 8000, "Should prefer max_output_tokens over max_tokens");
+		});
 	});
 
 	suite("utils/convertMessages", () => {
