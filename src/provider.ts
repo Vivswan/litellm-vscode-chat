@@ -466,37 +466,31 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		let apiKey = await this.secrets.get("litellm.apiKey");
 		console.log("[LiteLLM Model Provider] Retrieved from secrets:", { hasBaseUrl: !!baseUrl, hasApiKey: !!apiKey });
 
-		if (!baseUrl && !silent) {
-			const entered = await vscode.window.showInputBox({
-				title: "LiteLLM Base URL",
-				prompt: "Enter your LiteLLM base URL (e.g., http://localhost:4000 or https://api.litellm.ai)",
-				ignoreFocusOut: true,
-				placeHolder: "http://localhost:4000",
-			});
-			if (entered && entered.trim()) {
-				baseUrl = entered.trim();
-				await this.secrets.store("litellm.baseUrl", baseUrl);
-			}
-		}
-
-		if (!apiKey && !silent) {
-			const entered = await vscode.window.showInputBox({
-				title: "LiteLLM API Key",
-				prompt: "Enter your LiteLLM API key (leave empty if not required)",
-				ignoreFocusOut: true,
-				password: true,
-			});
-			if (entered !== undefined) {
-				apiKey = entered.trim();
-				if (apiKey) {
-					await this.secrets.store("litellm.apiKey", apiKey);
-				}
-			}
-		}
-
 		if (!baseUrl) {
-			console.log("[LiteLLM Model Provider] No baseUrl configured, returning undefined");
-			return undefined;
+			if (silent) {
+				return undefined;
+			}
+
+			// Show error with action buttons
+			const result = await vscode.window.showErrorMessage(
+				"LiteLLM is not configured. Set up your connection to use this provider.",
+				"Configure Now",
+				"Learn More"
+			);
+
+			if (result === "Configure Now") {
+				await vscode.commands.executeCommand("litellm.manage");
+				// Re-fetch config after user completes setup
+				baseUrl = await this.secrets.get("litellm.baseUrl");
+				apiKey = await this.secrets.get("litellm.apiKey");
+			} else if (result === "Learn More") {
+				vscode.env.openExternal(vscode.Uri.parse("https://github.com/Vivswan/litellm-vscode-chat#quick-start"));
+			}
+
+			if (!baseUrl) {
+				console.log("[LiteLLM Model Provider] No baseUrl configured, returning undefined");
+				return undefined;
+			}
 		}
 
 		console.log("[LiteLLM Model Provider] Config ready:", { baseUrl, hasApiKey: !!apiKey });
