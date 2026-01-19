@@ -10,7 +10,7 @@
 	},
 	"version": "0.1.1",
 	"engines": {
-		"vscode": "^1.104.0"
+		"vscode": "^1.108.0"
 	},
 	"categories": [
 		"AI",
@@ -60,20 +60,19 @@
 		"test": "npm run compile && vscode-test",
 		"bump-version": "node scripts/bump-version.js"
 	},
-	"dependencies": {},
 	"devDependencies": {
 		"@eslint/js": "^9.13.0",
-		"@stylistic/eslint-plugin": "^2.9.0",
-		"@types/node": "^22",
-		"@types/mocha": "^10.0.6",
+		"@stylistic/eslint-plugin": "^2.13.0",
+		"@types/mocha": "^10.0.10",
+		"@types/node": "^22.19.7",
+		"@types/vscode": "^1.108.1",
 		"@vscode/dts": "^0.4.1",
-		"@types/vscode": "^1.104.0",
 		"@vscode/test-cli": "^0.0.11",
 		"@vscode/test-electron": "^2.5.2",
-		"eslint": "^9.13.0",
-		"prettier": "^3.1.0",
-		"typescript": "^5.9.2",
-		"typescript-eslint": "^8.39.0"
+		"eslint": "^9.39.2",
+		"prettier": "^3.8.0",
+		"typescript": "^5.9.3",
+		"typescript-eslint": "^8.53.0"
 	},
 	"packageManager": "pnpm@8.15.4+sha512.0bd3a9be9eb0e9a692676deec00a303ba218ba279d99241475616b398dbaeedd11146f92c2843458f557b1d127e09d4c171e105bdcd6b61002b39685a8016b9e"
 }
