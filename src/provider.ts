@@ -81,6 +81,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 	/**
 	 * Resolve token constraints from provider info, workspace settings, or defaults.
+	 *
+	 * This reads model CAPABILITIES from the LiteLLM API to understand what each
+	 * model can handle. This is separate from modelParameters which sets request
+	 * parameters.
+	 *
 	 * Priority: provider info > workspace settings > hardcoded defaults
 	 */
 	private getTokenConstraints(provider: HFProvider | undefined): {
@@ -109,6 +114,34 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		return { maxOutputTokens, contextLength, maxInputTokens };
+	}
+
+	/**
+	 * Resolve model-specific parameters from configuration using longest prefix match.
+	 *
+	 * This reads user configuration to customize request PARAMETERS sent to the
+	 * LiteLLM API. This is separate from getTokenConstraints which reads model
+	 * CAPABILITIES.
+	 *
+	 * @param modelId The model ID to match against configuration keys
+	 * @returns Object containing model-specific parameters, or empty object if no match
+	 */
+	private getModelParameters(modelId: string): Record<string, unknown> {
+		const config = vscode.workspace.getConfiguration('litellm-vscode-chat');
+		const modelParameters = config.get<Record<string, Record<string, unknown>>>('modelParameters', {});
+
+		// Find longest matching prefix
+		let longestMatch: { key: string; value: Record<string, unknown> } | undefined;
+
+		for (const [key, value] of Object.entries(modelParameters)) {
+			if (modelId === key || modelId.startsWith(key)) {
+				if (!longestMatch || key.length > longestMatch.key.length) {
+					longestMatch = { key, value };
+				}
+			}
+		}
+
+		return longestMatch ? { ...longestMatch.value } : {};
 	}
 
 	/**
@@ -444,17 +477,49 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				throw new Error("Message exceeds token limit.");
 			}
 
+			// 1. Get model-specific parameters from configuration
+			const modelParams = this.getModelParameters(model.id);
+
+			// 2. Determine max_tokens with proper precedence and clamping logic
+			let maxTokens: number;
+
+			if (typeof options.modelOptions?.max_tokens === "number") {
+				// Runtime options have highest priority - use directly without clamping
+				maxTokens = options.modelOptions.max_tokens;
+			} else if (typeof modelParams.max_tokens === "number") {
+				// Model-specific config - use directly without clamping
+				maxTokens = modelParams.max_tokens;
+			} else {
+				// Default value - clamp to model's maximum
+				maxTokens = Math.min(4096, model.maxOutputTokens);
+			}
+
+			// Build base request body
 			requestBody = {
 				model: model.id,
 				messages: openaiMessages,
 				stream: true,
-				max_tokens: Math.min(options.modelOptions?.max_tokens || 4096, model.maxOutputTokens),
-				temperature: options.modelOptions?.temperature ?? 0.7,
+				max_tokens: maxTokens,
+				temperature: 0.7, // Base default
 			};
 
-			// Allow-list model options
+			// 3. Apply other model-specific parameters from configuration (max_tokens already handled)
+			for (const [key, value] of Object.entries(modelParams)) {
+				if (key !== 'max_tokens') {
+					(requestBody as Record<string, unknown>)[key] = value;
+				}
+			}
+
+			// 4. Apply runtime options.modelOptions (highest priority for other parameters)
 			if (options.modelOptions) {
 				const mo = options.modelOptions as Record<string, unknown>;
+
+				// Apply temperature from options if specified
+				if (typeof mo.temperature === "number") {
+					(requestBody as Record<string, unknown>).temperature = mo.temperature;
+				}
+
+				// Apply other allow-listed parameters
 				if (typeof mo.stop === "string" || Array.isArray(mo.stop)) {
 					(requestBody as Record<string, unknown>).stop = mo.stop;
 				}
@@ -463,6 +528,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				}
 				if (typeof mo.presence_penalty === "number") {
 					(requestBody as Record<string, unknown>).presence_penalty = mo.presence_penalty;
+				}
+				if (typeof mo.top_p === "number") {
+					(requestBody as Record<string, unknown>).top_p = mo.top_p;
 				}
 			}
 

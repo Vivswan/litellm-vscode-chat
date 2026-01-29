@@ -379,6 +379,224 @@ suite("LiteLLM Chat Provider Extension", () => {
 			assert.ok(providerEntry, "Provider entry should exist");
 			assert.equal(providerEntry.maxOutputTokens, 8000, "Should prefer max_output_tokens over max_tokens");
 		});
+
+		suite("modelParameters configuration", () => {
+			test("exact model ID match returns parameters", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === 'litellm-vscode-chat') {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === 'modelParameters') {
+									return {
+										"gpt-4": {
+											temperature: 0.8,
+											max_tokens: 8000,
+										},
+									};
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				// Access the private method through type assertion
+				const provider = new LiteLLMChatModelProvider({
+					get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+					store: async () => { },
+					delete: async () => { },
+					onDidChange: (_listener: unknown) => ({ dispose() { } }),
+				} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+				const params = (provider as any).getModelParameters("gpt-4");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, { temperature: 0.8, max_tokens: 8000 });
+			});
+
+			test("prefix match returns parameters", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === 'litellm-vscode-chat') {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === 'modelParameters') {
+									return {
+										"gpt-4": {
+											temperature: 0.7,
+										},
+									};
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider({
+					get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+					store: async () => { },
+					delete: async () => { },
+					onDidChange: (_listener: unknown) => ({ dispose() { } }),
+				} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+				const params = (provider as any).getModelParameters("gpt-4-turbo:openai");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, { temperature: 0.7 });
+			});
+
+			test("longest prefix match takes precedence", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === 'litellm-vscode-chat') {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === 'modelParameters') {
+									return {
+										"gpt": {
+											temperature: 0.5,
+										},
+										"gpt-4": {
+											temperature: 0.7,
+										},
+										"gpt-4-turbo": {
+											temperature: 0.9,
+										},
+									};
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider({
+					get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+					store: async () => { },
+					delete: async () => { },
+					onDidChange: (_listener: unknown) => ({ dispose() { } }),
+				} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+				// Should match "gpt-4-turbo" (length 12) over "gpt-4" (length 5) and "gpt" (length 3)
+				const params = (provider as any).getModelParameters("gpt-4-turbo:fastest");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, { temperature: 0.9 });
+			});
+
+			test("no match returns empty object", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === 'litellm-vscode-chat') {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === 'modelParameters') {
+									return {
+										"gpt-4": {
+											temperature: 0.7,
+										},
+									};
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider({
+					get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+					store: async () => { },
+					delete: async () => { },
+					onDidChange: (_listener: unknown) => ({ dispose() { } }),
+				} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+				const params = (provider as any).getModelParameters("claude-opus");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, {});
+			});
+
+			test("empty configuration returns empty object", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === 'litellm-vscode-chat') {
+						return {
+							get: (key: string, defaultValue?: unknown) => defaultValue,
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider({
+					get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+					store: async () => { },
+					delete: async () => { },
+					onDidChange: (_listener: unknown) => ({ dispose() { } }),
+				} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+				const params = (provider as any).getModelParameters("gpt-4");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, {});
+			});
+
+			test("modelParameters supports various parameter types", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === 'litellm-vscode-chat') {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === 'modelParameters') {
+									return {
+										"test-model": {
+											temperature: 0.8,
+											max_tokens: 4096,
+											top_p: 0.9,
+											frequency_penalty: 0.5,
+											presence_penalty: 0.3,
+											stop: ["END", "STOP"],
+										},
+									};
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider({
+					get: async (key: string) => key === "litellm.baseUrl" ? "http://test" : "test-key",
+					store: async () => { },
+					delete: async () => { },
+					onDidChange: (_listener: unknown) => ({ dispose() { } }),
+				} as unknown as vscode.SecretStorage, "GitHubCopilotChat/test VSCode/test");
+
+				const params = (provider as any).getModelParameters("test-model");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, {
+					temperature: 0.8,
+					max_tokens: 4096,
+					top_p: 0.9,
+					frequency_penalty: 0.5,
+					presence_penalty: 0.3,
+					stop: ["END", "STOP"],
+				});
+			});
+		});
 	});
 
 	suite("utils/convertMessages", () => {

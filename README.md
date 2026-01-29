@@ -34,19 +34,56 @@ To update your base URL or API key:
 
 Credentials are stored securely in VS Code's secret storage.
 
-### Token Limits
+### Token Limits (Automatic)
 
-The extension uses token limits from LiteLLM model info when available. You can configure fallback defaults in VS Code settings:
+The extension automatically reads token limits from your LiteLLM server's model info. You can configure fallback defaults in VS Code settings:
 
 **To access**: `Ctrl+,` / `Cmd+,` → Search "litellm-vscode-chat"
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `litellm-vscode-chat.defaultMaxOutputTokens` | `16000` | Max tokens per response |
-| `litellm-vscode-chat.defaultContextLength` | `128000` | Total context window |
+| `litellm-vscode-chat.defaultMaxOutputTokens` | `16000` | Max tokens per response (fallback) |
+| `litellm-vscode-chat.defaultContextLength` | `128000` | Total context window (fallback) |
 | `litellm-vscode-chat.defaultMaxInputTokens` | `null` | Max input tokens (auto-calculated if null) |
 
 **Priority**: LiteLLM model info → Workspace settings → Defaults
+
+### Custom Model Parameters (Optional)
+
+Override default request parameters for specific models using the `modelParameters` setting. This is useful for models with specific requirements (like gpt-5 requiring `temperature: 1`) or to customize behavior per model.
+
+**To configure**: Add to your `settings.json`:
+
+```json
+{
+  "litellm-vscode-chat.modelParameters": {
+    "gpt-5": {
+      "temperature": 1
+    },
+    "gpt-4": {
+      "max_tokens": 8000,
+      "temperature": 0.8,
+      "top_p": 0.9
+    },
+    "claude-opus": {
+      "max_tokens": 16000,
+      "temperature": 0.5
+    }
+  }
+}
+```
+
+**Supported parameters:**
+- `max_tokens` - Maximum tokens in response
+- `temperature` - Randomness (0.0-2.0)
+- `top_p` - Nucleus sampling (0.0-1.0)
+- `frequency_penalty` - Reduce repetition (-2.0 to 2.0)
+- `presence_penalty` - Encourage new topics (-2.0 to 2.0)
+- `stop` - Stop sequences (string or array)
+
+**Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
+
+**Parameter precedence**: Runtime options > User config > Defaults
 
 ## Development
 
