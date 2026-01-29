@@ -92,7 +92,8 @@
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
 		"test": "npm run compile && vscode-test",
-		"bump-version": "node scripts/bump-version.js"
+		"bump-version": "node scripts/bump-version.js",
+		"prepare": "husky"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.13.0",
@@ -104,9 +105,14 @@
 		"@vscode/test-cli": "^0.0.11",
 		"@vscode/test-electron": "^2.5.2",
 		"eslint": "^9.39.2",
+		"husky": "^9.1.7",
+		"lint-staged": "^16.2.7",
 		"prettier": "^3.8.0",
 		"typescript": "^5.9.3",
 		"typescript-eslint": "^8.53.0"
 	},
-	"packageManager": "pnpm@8.15.4+sha512.0bd3a9be9eb0e9a692676deec00a303ba218ba279d99241475616b398dbaeedd11146f92c2843458f557b1d127e09d4c171e105bdcd6b61002b39685a8016b9e"
+	"packageManager": "pnpm@8.15.4+sha512.0bd3a9be9eb0e9a692676deec00a303ba218ba279d99241475616b398dbaeedd11146f92c2843458f557b1d127e09d4c171e105bdcd6b61002b39685a8016b9e",
+	"lint-staged": {
+		"*.{js,ts,json,md,yml,yaml}": "prettier --write"
+	}
 }
