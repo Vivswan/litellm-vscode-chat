@@ -46,6 +46,8 @@ jobs:
           git add .
           git commit -m "style: auto-format code with prettier"
           git push
+        env:
+          HUSKY: 0
 
       - name: Remove fix-lint label
         if: steps.git-check.outputs.changes == 'true'
