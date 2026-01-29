@@ -93,7 +93,8 @@
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
 		"test": "npm run compile && vscode-test",
-		"bump-version": "node scripts/bump-version.js"
+		"bump-version": "node scripts/bump-version.js",
+		"prepare": "husky"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.13.0",
