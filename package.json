@@ -8,7 +8,7 @@
 		"type": "git",
 		"url": "https://github.com/Vivswan/litellm-vscode-chat"
 	},
-	"version": "0.1.3",
+	"version": "0.1.4",
 	"engines": {
 		"vscode": "^1.108.0"
 	},
@@ -83,7 +83,7 @@
 	},
 	"main": "./out/extension.js",
 	"scripts": {
-		"prepare": "husky || true",
+		"prepare": "husky",
 		"vscode:prepublish": "npm run compile",
 		"download-api": "dts dev",
 		"postdownload-api": "dts main && node -e \"const fs = require('fs'); if (fs.existsSync('vscode.d.ts')) { fs.renameSync('vscode.d.ts', 'src/vscode.d.ts'); console.log('Moved vscode.d.ts to src/'); }\"",
@@ -93,8 +93,7 @@
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
 		"test": "npm run compile && vscode-test",
-		"bump-version": "node scripts/bump-version.js",
-		"prepare": "husky"
+		"bump-version": "node scripts/bump-version.js"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.13.0",
