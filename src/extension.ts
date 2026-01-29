@@ -15,8 +15,12 @@ function isVersionCompatible(current: string, required: string): boolean {
 			.map((n) => parseInt(n.replace(/[^0-9]/g, ""), 10));
 	const [cMaj, cMin, cPat] = parse(current);
 	const [rMaj, rMin, rPat] = parse(required);
-	if (cMaj !== rMaj) return cMaj > rMaj;
-	if (cMin !== rMin) return cMin > rMin;
+	if (cMaj !== rMaj) {
+		return cMaj > rMaj;
+	}
+	if (cMin !== rMin) {
+		return cMin > rMin;
+	}
 	return cPat >= rPat;
 }
 
