@@ -79,6 +79,8 @@ jobs:
             version-bump
             automated-pr
           base: version-bump-${{ steps.next_version.outputs.next_version }}
+        env:
+          HUSKY: 0
 
       # Clean up
       - name: Delete version bump branch
