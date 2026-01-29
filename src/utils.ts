@@ -269,7 +269,10 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 			while (toolCallIds.size > 0) {
 				const nextMessage = messages[nextMessageIdx++];
 				if (!nextMessage || nextMessage.role !== vscode.LanguageModelChatMessageRole.User) {
-					console.error("[LiteLLM Model Provider] Validation failed: missing tool result for call IDs:", Array.from(toolCallIds));
+					console.error(
+						"[LiteLLM Model Provider] Validation failed: missing tool result for call IDs:",
+						Array.from(toolCallIds)
+					);
 					throw new Error(errMsg);
 				}
 
