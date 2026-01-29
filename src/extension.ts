@@ -47,28 +47,71 @@ export function activate(context: vscode.ExtensionContext) {
 	// Keep UA minimal: only extension version and VS Code version
 	const ua = `litellm-vscode-chat/${extVersion} VSCode/${vscodeVersion}`;
 
-	const provider = new LiteLLMChatModelProvider(context.secrets, ua);
+	// Create output channel for diagnostics
+	const outputChannel = vscode.window.createOutputChannel("LiteLLM");
+	context.subscriptions.push(outputChannel);
+	outputChannel.appendLine(`LiteLLM Extension activated (v${extVersion})`);
+
+	const provider = new LiteLLMChatModelProvider(context.secrets, ua, outputChannel);
 	// Register the LiteLLM provider under the vendor id used in package.json
 	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
 
+	// Connection status tracking
+	interface ConnectionStatus {
+		state: "not-configured" | "loading" | "connected" | "error";
+		modelCount?: number;
+		error?: string;
+		lastChecked?: Date;
+	}
+
+	let connectionStatus: ConnectionStatus = { state: "not-configured" };
+
 	// Create status bar indicator
 	const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-	statusBarItem.command = "litellm.manage";
+	statusBarItem.command = "litellm.showDiagnostics";
 	context.subscriptions.push(statusBarItem);
 
-	// Function to update status bar based on configuration state
-	async function updateStatusBar() {
+	// Function to update status bar based on connection state
+	async function updateStatusBar(status?: ConnectionStatus) {
+		if (status) {
+			connectionStatus = status;
+			// Persist state for next reload
+			await context.globalState.update("litellm.lastConnectionStatus", status);
+		}
+
 		const baseUrl = await context.secrets.get("litellm.baseUrl");
-		if (baseUrl) {
-			statusBarItem.text = "$(check) LiteLLM";
-			statusBarItem.tooltip = `Connected to ${baseUrl}\nClick to manage`;
-			statusBarItem.backgroundColor = undefined;
-		} else {
-			statusBarItem.text = "$(warning) LiteLLM";
-			statusBarItem.tooltip = "Not configured - click to set up";
-			statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+
+		switch (connectionStatus.state) {
+			case "not-configured":
+				statusBarItem.text = "$(warning) LiteLLM";
+				statusBarItem.tooltip = "Not configured - click to set up";
+				statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+				break;
+			case "loading":
+				statusBarItem.text = "$(loading~spin) LiteLLM";
+				statusBarItem.tooltip = "Fetching models...";
+				statusBarItem.backgroundColor = undefined;
+				break;
+			case "connected": {
+				const count = connectionStatus.modelCount ?? 0;
+				statusBarItem.text = `$(check) LiteLLM (${count})`;
+				statusBarItem.tooltip = `Connected to ${baseUrl}\n${count} model${count === 1 ? "" : "s"} available\nClick for diagnostics`;
+				statusBarItem.backgroundColor = undefined;
+				break;
+			}
+			case "error":
+				statusBarItem.text = "$(error) LiteLLM";
+				statusBarItem.tooltip = `Connection failed\n${connectionStatus.error || "Unknown error"}\nClick for details`;
+				statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
+				break;
 		}
 		statusBarItem.show();
+	}
+
+	// Restore last known state from previous session
+	const lastStatus = context.globalState.get<ConnectionStatus>("litellm.lastConnectionStatus");
+	if (lastStatus) {
+		connectionStatus = lastStatus;
 	}
 
 	// Initial status bar update
@@ -77,7 +120,21 @@ export function activate(context: vscode.ExtensionContext) {
 	// Update when secrets change
 	context.secrets.onDidChange((e) => {
 		if (e.key === "litellm.baseUrl") {
-			updateStatusBar();
+			updateStatusBar({ state: "not-configured" });
+		}
+	});
+
+	// Provide status update callback to provider
+	provider.setStatusCallback((modelCount: number, error?: string) => {
+		if (error) {
+			outputChannel.appendLine(`[${new Date().toISOString()}] Model fetch failed: ${error}`);
+			updateStatusBar({ state: "error", error, lastChecked: new Date() });
+		} else if (modelCount === 0) {
+			outputChannel.appendLine(`[${new Date().toISOString()}] Warning: Server returned 0 models`);
+			updateStatusBar({ state: "error", modelCount: 0, error: "Server returned 0 models", lastChecked: new Date() });
+		} else {
+			outputChannel.appendLine(`[${new Date().toISOString()}] Successfully fetched ${modelCount} models`);
+			updateStatusBar({ state: "connected", modelCount, lastChecked: new Date() });
 		}
 	});
 
@@ -160,14 +217,138 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			// Update status bar to reflect new configuration
-			await updateStatusBar();
+			await updateStatusBar({ state: "not-configured" });
+			outputChannel.appendLine(`[${new Date().toISOString()}] Configuration updated: ${baseUrl.trim()}`);
 
-			// Show success message with option to open chat
-			vscode.window.showInformationMessage("LiteLLM configuration saved successfully!", "Open Chat").then((choice) => {
-				if (choice === "Open Chat") {
-					vscode.commands.executeCommand("workbench.action.chat.open");
+			// Show success message with test connection option
+			vscode.window
+				.showInformationMessage("LiteLLM configuration saved!", "Test Connection", "Open Chat", "Dismiss")
+				.then((choice) => {
+					if (choice === "Test Connection") {
+						vscode.commands.executeCommand("litellm.testConnection");
+					} else if (choice === "Open Chat") {
+						vscode.commands.executeCommand("workbench.action.chat.open");
+					}
+				});
+		})
+	);
+
+	// Test connection command
+	context.subscriptions.push(
+		vscode.commands.registerCommand("litellm.testConnection", async () => {
+			const baseUrl = await context.secrets.get("litellm.baseUrl");
+			if (!baseUrl) {
+				vscode.window.showErrorMessage("LiteLLM is not configured. Please run 'Manage LiteLLM Provider' first.");
+				return;
+			}
+
+			outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing connection to ${baseUrl}...`);
+			outputChannel.show(true);
+
+			try {
+				// Update status to loading
+				await updateStatusBar({ state: "loading" });
+
+				// Trigger model fetch by calling the provider method
+				const models = await provider.prepareLanguageModelChatInformation(
+					{ silent: false },
+					new vscode.CancellationTokenSource().token
+				);
+
+				if (models.length === 0) {
+					outputChannel.appendLine(`[${new Date().toISOString()}] WARNING: Server returned 0 models`);
+					vscode.window
+						.showWarningMessage(
+							`LiteLLM: Connected to ${baseUrl}, but server returned no models. Check your LiteLLM proxy configuration.`,
+							"View Output",
+							"Reconfigure"
+						)
+						.then((choice) => {
+							if (choice === "View Output") {
+								outputChannel.show();
+							} else if (choice === "Reconfigure") {
+								vscode.commands.executeCommand("litellm.manage");
+							}
+						});
+				} else {
+					outputChannel.appendLine(`[${new Date().toISOString()}] SUCCESS: Found ${models.length} models`);
+					vscode.window
+						.showInformationMessage(
+							`LiteLLM: Connection successful! Found ${models.length} model${models.length === 1 ? "" : "s"}.`,
+							"View Models",
+							"Open Chat"
+						)
+						.then((choice) => {
+							if (choice === "View Models") {
+								outputChannel.show();
+							} else if (choice === "Open Chat") {
+								vscode.commands.executeCommand("workbench.action.chat.open");
+							}
+						});
 				}
-			});
+			} catch (error) {
+				const errorMsg = error instanceof Error ? error.message : String(error);
+				outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: ${errorMsg}`);
+				vscode.window
+					.showErrorMessage(`LiteLLM: Connection failed - ${errorMsg}`, "View Output", "Reconfigure")
+					.then((choice) => {
+						if (choice === "View Output") {
+							outputChannel.show();
+						} else if (choice === "Reconfigure") {
+							vscode.commands.executeCommand("litellm.manage");
+						}
+					});
+			}
+		})
+	);
+
+	// Show diagnostics command
+	context.subscriptions.push(
+		vscode.commands.registerCommand("litellm.showDiagnostics", async () => {
+			const baseUrl = await context.secrets.get("litellm.baseUrl");
+			const hasApiKey = !!(await context.secrets.get("litellm.apiKey"));
+
+			const statusText =
+				connectionStatus.state === "not-configured"
+					? "Not configured"
+					: connectionStatus.state === "loading"
+						? "Loading..."
+						: connectionStatus.state === "connected"
+							? `Connected (${connectionStatus.modelCount ?? 0} models)`
+							: `Error: ${connectionStatus.error || "Unknown error"}`;
+
+			const lastCheckedText = connectionStatus.lastChecked
+				? new Date(connectionStatus.lastChecked).toLocaleString()
+				: "Never";
+
+			const diagnosticMessage = [
+				"LiteLLM Diagnostics",
+				"",
+				`Configuration:`,
+				`  Base URL: ${baseUrl || "Not set"}`,
+				`  API Key: ${hasApiKey ? "Configured" : "Not set"}`,
+				"",
+				`Connection Status: ${statusText}`,
+				`Last Checked: ${lastCheckedText}`,
+				"",
+				"Check the LiteLLM output channel for detailed logs.",
+			].join("\n");
+
+			const choice = await vscode.window.showInformationMessage(
+				diagnosticMessage,
+				{ modal: true },
+				"View Output",
+				"Test Connection",
+				"Reconfigure"
+			);
+
+			if (choice === "View Output") {
+				outputChannel.show();
+			} else if (choice === "Test Connection") {
+				vscode.commands.executeCommand("litellm.testConnection");
+			} else if (choice === "Reconfigure") {
+				vscode.commands.executeCommand("litellm.manage");
+			}
 		})
 	);
 }
