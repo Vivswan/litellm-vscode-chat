@@ -41,11 +41,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _textToolActive:
 		| undefined
 		| {
-			name?: string;
-			index?: number;
-			argBuffer: string;
-			emitted?: boolean;
-		};
+				name?: string;
+				index?: number;
+				argBuffer: string;
+				emitted?: boolean;
+		  };
 	private _emittedTextToolCallKeys = new Set<string>();
 	private _emittedTextToolCallIds = new Set<string>();
 
@@ -53,7 +53,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * Create a provider using the given secret storage for the API key.
 	 * @param secrets VS Code secret storage.
 	 */
-	constructor(private readonly secrets: vscode.SecretStorage, private readonly userAgent: string) { }
+	constructor(
+		private readonly secrets: vscode.SecretStorage,
+		private readonly userAgent: string
+	) {}
 
 	/** Roughly estimate tokens for VS Code chat messages (text only) */
 	private estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRequestMessage[]): number {
@@ -69,8 +72,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	/** Rough token estimate for tool definitions by JSON size */
-	private estimateToolTokens(tools: { type: string; function: { name: string; description?: string; parameters?: object } }[] | undefined): number {
-		if (!tools || tools.length === 0) { return 0; }
+	private estimateToolTokens(
+		tools: { type: string; function: { name: string; description?: string; parameters?: object } }[] | undefined
+	): number {
+		if (!tools || tools.length === 0) {
+			return 0;
+		}
 		try {
 			const json = JSON.stringify(tools);
 			return Math.ceil(json.length / 4);
@@ -93,23 +100,22 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		contextLength: number;
 		maxInputTokens: number;
 	} {
-		const config = vscode.workspace.getConfiguration('litellm-vscode-chat');
+		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
 
 		// Resolve max output tokens
 		const maxOutputTokens =
 			provider?.max_output_tokens ??
 			provider?.max_tokens ??
-			config.get<number>('defaultMaxOutputTokens', DEFAULT_MAX_OUTPUT_TOKENS);
+			config.get<number>("defaultMaxOutputTokens", DEFAULT_MAX_OUTPUT_TOKENS);
 
 		// Resolve context length
 		const contextLength =
-			provider?.context_length ??
-			config.get<number>('defaultContextLength', DEFAULT_CONTEXT_LENGTH);
+			provider?.context_length ?? config.get<number>("defaultContextLength", DEFAULT_CONTEXT_LENGTH);
 
 		// Resolve max input tokens
 		let maxInputTokens = provider?.max_input_tokens;
 		if (maxInputTokens === undefined) {
-			const configMaxInput = config.get<number | null>('defaultMaxInputTokens', null);
+			const configMaxInput = config.get<number | null>("defaultMaxInputTokens", null);
 			maxInputTokens = configMaxInput ?? Math.max(1, contextLength - maxOutputTokens);
 		}
 
@@ -127,8 +133,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * @returns Object containing model-specific parameters, or empty object if no match
 	 */
 	private getModelParameters(modelId: string): Record<string, unknown> {
-		const config = vscode.workspace.getConfiguration('litellm-vscode-chat');
-		const modelParameters = config.get<Record<string, Record<string, unknown>>>('modelParameters', {});
+		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
+		const modelParameters = config.get<Record<string, Record<string, unknown>>>("modelParameters", {});
 
 		// Find longest matching prefix
 		let longestMatch: { key: string; value: Record<string, unknown> } | undefined;
@@ -174,11 +180,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			// When silent mode is enabled (e.g., background refresh or "Add models" button),
 			// show an error notification so the user knows what went wrong
 			if (options.silent) {
-				vscode.window.showErrorMessage(
-					`LiteLLM: ${errorMsg}`,
-					"Reconfigure",
-					"Dismiss"
-				).then(choice => {
+				vscode.window.showErrorMessage(`LiteLLM: ${errorMsg}`, "Reconfigure", "Dismiss").then((choice) => {
 					if (choice === "Reconfigure") {
 						vscode.commands.executeCommand("litellm.manage");
 					}
@@ -190,12 +192,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			throw err;
 		}
 
-		console.log("[LiteLLM Model Provider] Fetched models", { count: models.length, modelIds: models.map(m => m.id) });
+		console.log("[LiteLLM Model Provider] Fetched models", { count: models.length, modelIds: models.map((m) => m.id) });
 
 		const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
 			console.log(`[LiteLLM Model Provider] Processing model: ${m.id}`);
 			const providers = m?.providers ?? [];
-			console.log(`[LiteLLM Model Provider]   - providers: ${providers.length}`, providers.map(p => ({ provider: p.provider, supports_tools: p.supports_tools })));
+			console.log(
+				`[LiteLLM Model Provider]   - providers: ${providers.length}`,
+				providers.map((p) => ({ provider: p.provider, supports_tools: p.supports_tools }))
+			);
 			const modalities = m.architecture?.input_modalities ?? [];
 			const vision = Array.isArray(modalities) && modalities.includes("image");
 
@@ -203,31 +208,36 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			if (providers.length === 0) {
 				console.log(`[LiteLLM Model Provider]   - no providers array, creating default entry`);
 				const constraints = this.getTokenConstraints(undefined);
-				return [{
-					id: m.id,
-					name: m.id,
-					tooltip: "LiteLLM",
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: constraints.maxInputTokens,
-					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: {
-						toolCalling: true, // Assume tool calling is supported
-						imageInput: vision,
-					},
-				} satisfies LanguageModelChatInformation];
+				return [
+					{
+						id: m.id,
+						name: m.id,
+						tooltip: "LiteLLM",
+						family: "litellm",
+						version: "1.0.0",
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: {
+							toolCalling: true, // Assume tool calling is supported
+							imageInput: vision,
+						},
+					} satisfies LanguageModelChatInformation,
+				];
 			}
 
 			// Build entries for all providers that support tool calling
 			// Assume supports_tools is true if not explicitly set to false
 			const toolProviders = providers.filter((p) => p.supports_tools !== false);
-			console.log(`[LiteLLM Model Provider]   - toolProviders: ${toolProviders.length}`, toolProviders.map(p => p.provider));
+			console.log(
+				`[LiteLLM Model Provider]   - toolProviders: ${toolProviders.length}`,
+				toolProviders.map((p) => p.provider)
+			);
 			const entries: LanguageModelChatInformation[] = [];
 
 			if (toolProviders.length > 0) {
-				const providerConstraints = toolProviders.map(p => this.getTokenConstraints(p));
-				const aggregateContextLen = Math.min(...providerConstraints.map(c => c.contextLength));
-				const maxOutput = Math.min(...providerConstraints.map(c => c.maxOutputTokens));
+				const providerConstraints = toolProviders.map((p) => this.getTokenConstraints(p));
+				const aggregateContextLen = Math.min(...providerConstraints.map((c) => c.contextLength));
+				const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
 				const maxInput = Math.max(1, aggregateContextLen - maxOutput);
 				const aggregateCapabilities = {
 					toolCalling: true,
@@ -304,7 +314,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}));
 
 		console.log("[LiteLLM Model Provider] Final model count:", infos.length);
-		console.log("[LiteLLM Model Provider] Model IDs:", infos.map(i => i.id));
+		console.log(
+			"[LiteLLM Model Provider] Model IDs:",
+			infos.map((i) => i.id)
+		);
 		return infos;
 	}
 
@@ -320,10 +333,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * @param apiKey The LiteLLM API key used to authenticate.
 	 * @param baseUrl The LiteLLM base URL.
 	 */
-	private async fetchModels(
-		apiKey: string,
-		baseUrl: string
-	): Promise<{ models: HFModelItem[] }> {
+	private async fetchModels(apiKey: string, baseUrl: string): Promise<{ models: HFModelItem[] }> {
 		console.log("[LiteLLM Model Provider] fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 		const modelsList = (async () => {
 			const headers: Record<string, string> = { "User-Agent": this.userAgent };
@@ -364,7 +374,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					throw err;
 				}
 				const parsed = (await resp.json()) as HFModelsResponse;
-				console.log("[LiteLLM Model Provider] Parsed response:", { object: parsed.object, modelCount: parsed.data?.length ?? 0 });
+				console.log("[LiteLLM Model Provider] Parsed response:", {
+					object: parsed.object,
+					modelCount: parsed.data?.length ?? 0,
+				});
 				if (parsed.data && parsed.data.length > 0) {
 					console.log("[LiteLLM Model Provider] First model sample:", JSON.stringify(parsed.data[0], null, 2));
 				}
@@ -431,7 +444,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		progress: Progress<LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
-
 		this._toolCallBuffers.clear();
 		this._completedToolCallIndices.clear();
 		this._hasEmittedAssistantText = false;
@@ -440,7 +452,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		this._textToolActive = undefined;
 		this._emittedTextToolCallKeys.clear();
 		this._emittedTextToolCallIds.clear();
-
 
 		let requestBody: Record<string, unknown> | undefined;
 		const trackingProgress: Progress<LanguageModelResponsePart> = {
@@ -473,7 +484,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const toolTokenCount = this.estimateToolTokens(toolConfig.tools);
 			const tokenLimit = Math.max(1, model.maxInputTokens);
 			if (inputTokenCount + toolTokenCount > tokenLimit) {
-				console.error("[LiteLLM Model Provider] Message exceeds token limit", { total: inputTokenCount + toolTokenCount, tokenLimit });
+				console.error("[LiteLLM Model Provider] Message exceeds token limit", {
+					total: inputTokenCount + toolTokenCount,
+					tokenLimit,
+				});
 				throw new Error("Message exceeds token limit.");
 			}
 
@@ -505,7 +519,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 			// 3. Apply other model-specific parameters from configuration (max_tokens already handled)
 			for (const [key, value] of Object.entries(modelParams)) {
-				if (key !== 'max_tokens') {
+				if (key !== "max_tokens") {
 					(requestBody as Record<string, unknown>)[key] = value;
 				}
 			}
@@ -666,7 +680,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private async processStreamingResponse(
 		responseBody: ReadableStream<Uint8Array>,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		token: vscode.CancellationToken,
+		token: vscode.CancellationToken
 	): Promise<void> {
 		const reader = responseBody.getReader();
 		const decoder = new TextDecoder();
@@ -675,7 +689,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		try {
 			while (!token.isCancellationRequested) {
 				const { done, value } = await reader.read();
-				if (done) { break; }
+				if (done) {
+					break;
+				}
 
 				buffer += decoder.decode(value, { stream: true });
 				const lines = buffer.split("\n");
@@ -722,19 +738,23 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 */
 	private async processDelta(
 		delta: Record<string, unknown>,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>
 	): Promise<boolean> {
 		let emitted = false;
 		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
-		if (!choice) { return false; }
+		if (!choice) {
+			return false;
+		}
 
 		const deltaObj = choice.delta as Record<string, unknown> | undefined;
 
 		// report thinking progress if backend provides it and host supports it
 		try {
-			const maybeThinking = (choice as Record<string, unknown> | undefined)?.thinking ?? (deltaObj as Record<string, unknown> | undefined)?.thinking;
+			const maybeThinking =
+				(choice as Record<string, unknown> | undefined)?.thinking ??
+				(deltaObj as Record<string, unknown> | undefined)?.thinking;
 			if (maybeThinking !== undefined) {
-				const vsAny = (vscode as unknown as Record<string, unknown>);
+				const vsAny = vscode as unknown as Record<string, unknown>;
 				const ThinkingCtor = vsAny["LanguageModelThinkingPart"] as
 					| (new (text: string, id?: string, metadata?: unknown) => unknown)
 					| undefined;
@@ -751,7 +771,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 						text = maybeThinking;
 					}
 					if (text) {
-						progress.report(new (ThinkingCtor as new (text: string, id?: string, metadata?: unknown) => unknown)(text, id, metadata) as unknown as vscode.LanguageModelResponsePart);
+						progress.report(
+							new (ThinkingCtor as new (text: string, id?: string, metadata?: unknown) => unknown)(
+								text,
+								id,
+								metadata
+							) as unknown as vscode.LanguageModelResponsePart
+						);
 						emitted = true;
 					}
 				}
@@ -818,7 +844,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 */
 	private processTextContent(
 		input: string,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>
 	): { emittedText: boolean; emittedAny: boolean } {
 		const BEGIN = "<|tool_call_begin|>";
 		const ARG_BEGIN = "<|tool_call_argument_begin|>";
@@ -836,13 +862,17 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					// No tool-call start: emit visible portion, but keep any partial BEGIN prefix as buffer
 					const longestPartialPrefix = ((): number => {
 						for (let k = Math.min(BEGIN.length - 1, data.length - 1); k > 0; k--) {
-							if (data.endsWith(BEGIN.slice(0, k))) { return k; }
+							if (data.endsWith(BEGIN.slice(0, k))) {
+								return k;
+							}
 						}
 						return 0;
 					})();
 					if (longestPartialPrefix > 0) {
 						const visible = data.slice(0, data.length - longestPartialPrefix);
-						if (visible) { visibleOut += this.stripControlTokens(visible); }
+						if (visible) {
+							visibleOut += this.stripControlTokens(visible);
+						}
 						this._textToolParserBuffer = data.slice(data.length - longestPartialPrefix);
 						data = "";
 						break;
@@ -866,9 +896,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				const e = data.indexOf(END);
 				let delimIdx = -1;
 				let delimKind: "arg" | "end" | undefined = undefined;
-				if (a !== -1 && (e === -1 || a < e)) { delimIdx = a; delimKind = "arg"; }
-				else if (e !== -1) { delimIdx = e; delimKind = "end"; }
-				else {
+				if (a !== -1 && (e === -1 || a < e)) {
+					delimIdx = a;
+					delimKind = "arg";
+				} else if (e !== -1) {
+					delimIdx = e;
+					delimKind = "end";
+				} else {
 					// Incomplete header; keep for next chunk (re-add BEGIN so we don't lose it)
 					this._textToolParserBuffer = BEGIN + data;
 					data = "";
@@ -944,7 +978,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private emitTextToolCallIfValid(
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		call: { name?: string; index?: number; argBuffer: string; emitted?: boolean },
-		argText: string,
+		argText: string
 	): boolean {
 		const name = call.name ?? "unknown_tool";
 		const parsed = tryParseJSONObject(argText);
@@ -970,9 +1004,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		return true;
 	}
 
-	private async flushActiveTextToolCall(
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-	): Promise<void> {
+	private async flushActiveTextToolCall(progress: vscode.Progress<vscode.LanguageModelResponsePart>): Promise<void> {
 		if (!this._textToolActive) {
 			return;
 		}
@@ -1011,7 +1043,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		try {
 			const canonical = JSON.stringify(parameters);
 			this._emittedTextToolCallKeys.add(`${buf.name}:${canonical}`);
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		progress.report(new vscode.LanguageModelToolCallPart(id, buf.name, parameters));
 		this._toolCallBuffers.delete(index);
 		this._completedToolCallIndices.add(index);
@@ -1024,7 +1058,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 */
 	private async flushToolCallBuffers(
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		throwOnInvalid: boolean,
+		throwOnInvalid: boolean
 	): Promise<void> {
 		if (this._toolCallBuffers.size === 0) {
 			return;
@@ -1033,7 +1067,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const parsed = tryParseJSONObject(buf.args);
 			if (!parsed.ok) {
 				if (throwOnInvalid) {
-					console.error("[LiteLLM Model Provider] Invalid JSON for tool call", { idx, snippet: (buf.args || "").slice(0, 200) });
+					console.error("[LiteLLM Model Provider] Invalid JSON for tool call", {
+						idx,
+						snippet: (buf.args || "").slice(0, 200),
+					});
 					throw new Error("Invalid JSON for tool call");
 				}
 				// When not throwing (e.g. on [DONE]), drop silently to reduce noise
@@ -1044,7 +1081,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			try {
 				const canonical = JSON.stringify(parsed.value);
 				this._emittedTextToolCallKeys.add(`${name}:${canonical}`);
-			} catch { /* ignore */ }
+			} catch {
+				/* ignore */
+			}
 			progress.report(new vscode.LanguageModelToolCallPart(id, name, parsed.value));
 			this._toolCallBuffers.delete(idx);
 			this._completedToolCallIndices.add(idx);
@@ -1062,5 +1101,4 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			return text;
 		}
 	}
-
 }
