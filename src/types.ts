@@ -30,7 +30,7 @@ export interface OpenAIChatMessage {
  * A single underlying provider (e.g., together, groq) for a model.
  * This interface represents model capability metadata read from the LiteLLM API.
  */
-export interface HFProvider {
+export interface LiteLLMProvider {
 	provider: string;
 	status: string;
 	supports_tools?: boolean;
@@ -47,25 +47,25 @@ export interface HFProvider {
 /**
  * Architecture information for a model.
  */
-export interface HFArchitecture {
+export interface LiteLLMArchitecture {
 	input_modalities?: string[];
 	output_modalities?: string[];
 }
 
-export interface HFModelItem {
+export interface LiteLLMModelItem {
 	id: string;
 	object: string;
 	created: number;
 	owned_by: string;
-	providers: HFProvider[];
-	architecture?: HFArchitecture;
+	providers: LiteLLMProvider[];
+	architecture?: LiteLLMArchitecture;
 }
 
 /**
  * Extra model information (deprecated).
  */
 // Deprecated: extra model info was previously fetched from external APIs
-export interface HFExtraModelInfo {
+export interface LiteLLMExtraModelInfo {
 	id: string;
 	pipeline_tag?: string;
 }
@@ -73,9 +73,9 @@ export interface HFExtraModelInfo {
 /**
  * Response envelope for the LiteLLM models listing.
  */
-export interface HFModelsResponse {
+export interface LiteLLMModelsResponse {
 	object: string;
-	data: HFModelItem[];
+	data: LiteLLMModelItem[];
 }
 
 /**

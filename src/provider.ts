@@ -9,7 +9,7 @@ import {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 
-import type { HFModelItem, HFModelsResponse, HFProvider } from "./types";
+import type { LiteLLMModelItem, LiteLLMModelsResponse, LiteLLMProvider } from "./types";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 
@@ -95,7 +95,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 *
 	 * Priority: provider info > workspace settings > hardcoded defaults
 	 */
-	private getTokenConstraints(provider: HFProvider | undefined): {
+	private getTokenConstraints(provider: LiteLLMProvider | undefined): {
 		maxOutputTokens: number;
 		contextLength: number;
 		maxInputTokens: number;
@@ -169,7 +169,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 		console.log("[LiteLLM Model Provider] Config loaded", { baseUrl: config.baseUrl, hasApiKey: !!config.apiKey });
 
-		let models: HFModelItem[];
+		let models: LiteLLMModelItem[];
 		try {
 			const result = await this.fetchModels(config.apiKey, config.baseUrl);
 			models = result.models;
@@ -333,7 +333,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * @param apiKey The LiteLLM API key used to authenticate.
 	 * @param baseUrl The LiteLLM base URL.
 	 */
-	private async fetchModels(apiKey: string, baseUrl: string): Promise<{ models: HFModelItem[] }> {
+	private async fetchModels(apiKey: string, baseUrl: string): Promise<{ models: LiteLLMModelItem[] }> {
 		console.log("[LiteLLM Model Provider] fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 		const modelsList = (async () => {
 			const headers: Record<string, string> = { "User-Agent": this.userAgent };
@@ -373,7 +373,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					console.error("[LiteLLM Model Provider] Failed to fetch LiteLLM models", err);
 					throw err;
 				}
-				const parsed = (await resp.json()) as HFModelsResponse;
+				const parsed = (await resp.json()) as LiteLLMModelsResponse;
 				console.log("[LiteLLM Model Provider] Parsed response:", {
 					object: parsed.object,
 					modelCount: parsed.data?.length ?? 0,
