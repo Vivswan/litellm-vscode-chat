@@ -677,6 +677,264 @@ suite("LiteLLM Chat Provider Extension", () => {
 				});
 			});
 		});
+
+		suite("diagnostics", () => {
+			test("status callback reports successful fetch with model count", async () => {
+				const originalFetch = global.fetch;
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "model-1",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [
+										{
+											provider: "test-provider",
+											status: "active",
+											supports_tools: true,
+										},
+									],
+								},
+								{
+									id: "model-2",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [
+										{
+											provider: "test-provider",
+											status: "active",
+											supports_tools: true,
+										},
+									],
+								},
+							],
+						}),
+					}) as unknown as Response;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				let callbackModelCount: number | undefined;
+				let callbackError: string | undefined;
+
+				provider.setStatusCallback((modelCount: number, error?: string) => {
+					callbackModelCount = modelCount;
+					callbackError = error;
+				});
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				global.fetch = originalFetch;
+
+				// Should report success with 6 model entries (2 models × 3 entries each: cheapest, fastest, provider-specific)
+				assert.equal(typeof callbackModelCount, "number");
+				assert.ok(callbackModelCount && callbackModelCount > 0, "Should report positive model count");
+				assert.equal(callbackError, undefined, "Should not report error on success");
+			});
+
+			test("status callback reports error on fetch failure", async () => {
+				const originalFetch = global.fetch;
+				global.fetch = async () => {
+					throw new Error("Network error");
+				};
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				let callbackModelCount: number | undefined;
+				let callbackError: string | undefined;
+
+				provider.setStatusCallback((modelCount: number, error?: string) => {
+					callbackModelCount = modelCount;
+					callbackError = error;
+				});
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				global.fetch = originalFetch;
+
+				assert.equal(callbackModelCount, 0, "Should report 0 models on error");
+				assert.equal(typeof callbackError, "string", "Should report error message");
+				assert.ok(callbackError && callbackError.includes("Network"), "Error message should mention network");
+			});
+
+			test("status callback reports empty model list", async () => {
+				const originalFetch = global.fetch;
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [],
+						}),
+					}) as unknown as Response;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				let callbackModelCount: number | undefined;
+				let callbackError: string | undefined;
+
+				provider.setStatusCallback((modelCount: number, error?: string) => {
+					callbackModelCount = modelCount;
+					callbackError = error;
+				});
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				global.fetch = originalFetch;
+
+				assert.equal(callbackModelCount, 0, "Should report 0 models");
+				assert.equal(typeof callbackError, "string", "Should report error for empty list");
+				assert.ok(callbackError && callbackError.includes("0 models"), "Error should mention 0 models");
+			});
+
+			test("status callback reports missing configuration", async () => {
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async () => undefined,
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				let callbackModelCount: number | undefined;
+				let callbackError: string | undefined;
+
+				provider.setStatusCallback((modelCount: number, error?: string) => {
+					callbackModelCount = modelCount;
+					callbackError = error;
+				});
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.equal(callbackModelCount, 0, "Should report 0 models");
+				assert.equal(typeof callbackError, "string", "Should report error");
+				assert.ok(callbackError && callbackError.includes("Not configured"), "Error should mention not configured");
+			});
+
+			test("output channel receives log messages", async () => {
+				const logs: string[] = [];
+				const mockOutputChannel = {
+					appendLine: (message: string) => logs.push(message),
+					show: () => {},
+					dispose: () => {},
+				} as unknown as vscode.OutputChannel;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async () => undefined,
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test",
+					mockOutputChannel
+				);
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.ok(logs.length > 0, "Should log messages");
+				assert.ok(
+					logs.some((log) => log.includes("ensureConfig")),
+					"Should log ensureConfig call"
+				);
+				assert.ok(
+					logs.some((log) => log.includes("No config found")),
+					"Should log missing config"
+				);
+			});
+
+			test("output channel receives error logs with timestamps", async () => {
+				const originalFetch = global.fetch;
+				global.fetch = async () => {
+					throw new Error("Test error");
+				};
+
+				const logs: string[] = [];
+				const mockOutputChannel = {
+					appendLine: (message: string) => logs.push(message),
+					show: () => {},
+					dispose: () => {},
+				} as unknown as vscode.OutputChannel;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test",
+					mockOutputChannel
+				);
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				global.fetch = originalFetch;
+
+				assert.ok(logs.length > 0, "Should log messages");
+				assert.ok(
+					logs.some((log) => log.includes("ERROR")),
+					"Should log error"
+				);
+				assert.ok(
+					logs.some((log) => log.includes("Test error")),
+					"Should include error message"
+				);
+				assert.ok(
+					logs.some((log) => /\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(log)),
+					"Should include timestamps"
+				);
+			});
+		});
 	});
 
 	suite("utils/convertMessages", () => {
