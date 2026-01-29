@@ -85,6 +85,81 @@ Override default request parameters for specific models using the `modelParamete
 
 **Parameter precedence**: Runtime options > User config > Defaults
 
+## Troubleshooting
+
+### Status Bar Indicator
+
+The LiteLLM status bar indicator (bottom right corner) shows your connection status:
+
+| Icon | Status | Description |
+|------|--------|-------------|
+| `⚠️ LiteLLM` | Not Configured | Click to set up your connection |
+| `⟳ LiteLLM` | Loading | Fetching models from server |
+| `✓ LiteLLM (N)` | Connected | Successfully connected with N models available |
+| `✗ LiteLLM` | Error | Connection failed - click for diagnostics |
+
+Click the status bar indicator at any time to view detailed diagnostics.
+
+### Test Your Connection
+
+After configuring the extension, verify your setup:
+
+1. **Command Palette**: `Ctrl+Shift+P` / `Cmd+Shift+P` → "LiteLLM: Test Connection"
+2. Or click "Test Connection" after saving configuration
+
+This will:
+- Attempt to connect to your LiteLLM server
+- Show the number of models found
+- Display detailed error messages if connection fails
+- Update the status bar with results
+
+### Diagnostic Tools
+
+**View Diagnostics**
+- **Command Palette**: `Ctrl+Shift+P` / `Cmd+Shift+P` → "LiteLLM: Show Diagnostics"
+- Or click the status bar indicator
+
+Shows:
+- Current configuration (base URL, API key status)
+- Connection state and model count
+- Last check timestamp
+- Quick access to output channel
+
+**Output Channel**
+
+View detailed logs for debugging:
+1. Open Output panel: `Ctrl+Shift+U` / `Cmd+Shift+U`
+2. Select "LiteLLM" from the dropdown
+
+The output channel logs:
+- Configuration changes
+- Model fetch attempts and results
+- Error messages with full details
+- Server response information
+
+### Common Issues
+
+**"No models appear in the model picker"**
+- Check the status bar - it will show the actual state
+- Click "Test Connection" to verify your setup
+- Check the "LiteLLM" output channel for error details
+- Verify your LiteLLM server is running and accessible
+
+**"Server returned 0 models"**
+- Your LiteLLM proxy is running but has no models configured
+- Check your LiteLLM proxy configuration (`litellm_config.yaml`)
+- Run `litellm --config your_config.yaml` to start the proxy with models
+
+**"Authentication failed"**
+- Your server requires an API key
+- Run "Manage LiteLLM Provider" and enter your API key
+- Verify the key is correct in your LiteLLM proxy configuration
+
+**"Connection Error: Unable to connect"**
+- Verify the base URL is correct (e.g., `http://localhost:4000`)
+- Ensure your LiteLLM proxy is running
+- Check firewall/network settings
+
 ## Development
 
 ```bash
