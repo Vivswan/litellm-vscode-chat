@@ -1,7 +1,6 @@
 .env
 
 # IDEs and editors
-package-lock.json
 .idea/
 
 out
