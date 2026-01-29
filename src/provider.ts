@@ -9,7 +9,13 @@ import {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 
-import type { LiteLLMModelItem, LiteLLMModelsResponse, LiteLLMProvider } from "./types";
+import type {
+	LiteLLMModelInfoItem,
+	LiteLLMModelInfoResponse,
+	LiteLLMModelItem,
+	LiteLLMModelsResponse,
+	LiteLLMProvider,
+} from "./types";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 
@@ -48,6 +54,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		  };
 	private _emittedTextToolCallKeys = new Set<string>();
 	private _emittedTextToolCallIds = new Set<string>();
+	/** Cache prompt-caching support per model id as reported by /v1/model/info. */
+	private _promptCachingSupport = new Map<string, boolean>();
 
 	/** Callback to update extension status */
 	private _statusCallback?: (modelCount: number, error?: string) => void;
@@ -207,6 +215,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
 		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
+		this._promptCachingSupport.clear();
 
 		const config = await this.ensureConfig(options.silent);
 		if (!config) {
@@ -294,10 +303,31 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const modalities = m.architecture?.input_modalities ?? [];
 			const vision = Array.isArray(modalities) && modalities.includes("image");
 
+			if (providers.length === 1 && providers[0].source === "model_info") {
+				const constraints = this.getTokenConstraints(providers[0]);
+				this._promptCachingSupport.set(m.id, providers[0].supports_prompt_caching === true);
+				return [
+					{
+						id: m.id,
+						name: m.id,
+						tooltip: "LiteLLM",
+						family: "litellm",
+						version: "1.0.0",
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: {
+							toolCalling: providers[0].supports_tools !== false,
+							imageInput: vision,
+						},
+					} satisfies LanguageModelChatInformation,
+				];
+			}
+
 			// If no providers array exists (standard OpenAI-compatible API), create a default entry
 			if (providers.length === 0) {
 				this.log(`  - no providers array, creating default entry`);
 				const constraints = this.getTokenConstraints(undefined);
+				this._promptCachingSupport.set(m.id, false);
 				return [
 					{
 						id: m.id,
@@ -329,6 +359,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				const aggregateContextLen = Math.min(...providerConstraints.map((c) => c.contextLength));
 				const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
 				const maxInput = Math.max(1, aggregateContextLen - maxOutput);
+				const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
 				const aggregateCapabilities = {
 					toolCalling: true,
 					imageInput: vision,
@@ -343,6 +374,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					maxOutputTokens: maxOutput,
 					capabilities: aggregateCapabilities,
 				} satisfies LanguageModelChatInformation);
+				this._promptCachingSupport.set(`${m.id}:cheapest`, aggregatePromptCaching);
 				entries.push({
 					id: `${m.id}:fastest`,
 					name: `${m.id} (fastest)`,
@@ -353,6 +385,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					maxOutputTokens: maxOutput,
 					capabilities: aggregateCapabilities,
 				} satisfies LanguageModelChatInformation);
+				this._promptCachingSupport.set(`${m.id}:fastest`, aggregatePromptCaching);
 			}
 
 			for (const p of toolProviders) {
@@ -372,6 +405,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 						imageInput: vision,
 					},
 				} satisfies LanguageModelChatInformation);
+				this._promptCachingSupport.set(`${m.id}:${p.provider}`, p.supports_prompt_caching === true);
 			}
 
 			if (toolProviders.length === 0 && providers.length > 0) {
@@ -392,6 +426,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 						imageInput: vision,
 					},
 				} satisfies LanguageModelChatInformation);
+				this._promptCachingSupport.set(m.id, base.supports_prompt_caching === true);
 			}
 
 			this.log(`  - created ${entries.length} entries for model ${m.id}`);
@@ -429,6 +464,41 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * @param apiKey The LiteLLM API key used to authenticate.
 	 * @param baseUrl The LiteLLM base URL.
 	 */
+	/** Map /v1/model/info entries into a /v1/models-like shape for reuse. */
+	private mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
+		const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
+
+		if (!modelId) {
+			return undefined;
+		}
+
+		const supportsTools = item.model_info?.supports_function_calling ?? item.model_info?.supports_tool_choice ?? true;
+		const providerName = item.model_info?.litellm_provider ?? "litellm";
+
+		const provider: LiteLLMProvider = {
+			provider: providerName,
+			status: "ok",
+			supports_tools: supportsTools,
+			context_length: item.model_info?.max_input_tokens ?? item.model_info?.max_tokens,
+			max_tokens: item.model_info?.max_tokens ?? item.model_info?.max_output_tokens,
+			max_input_tokens: item.model_info?.max_input_tokens,
+			max_output_tokens: item.model_info?.max_output_tokens ?? item.model_info?.max_tokens,
+			source: "model_info",
+			supports_prompt_caching: item.model_info?.supports_prompt_caching ?? null,
+		};
+
+		const architecture = item.model_info?.supports_vision ? { input_modalities: ["image"] } : undefined;
+
+		return {
+			id: modelId,
+			object: "model",
+			created: 0,
+			owned_by: providerName,
+			providers: [provider],
+			architecture,
+		};
+	}
+
 	private async fetchModels(apiKey: string, baseUrl: string): Promise<{ models: LiteLLMModelItem[] }> {
 		this.log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 		const modelsList = (async () => {
@@ -438,36 +508,75 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				headers.Authorization = `Bearer ${apiKey}`;
 				headers["X-API-Key"] = apiKey;
 			}
-			this.log("Fetching from:", `${baseUrl}/v1/models`);
+			const readErrorText = async (resp: Response): Promise<string> => {
+				let text = "";
+				try {
+					text = await resp.text();
+				} catch (error) {
+					this.logError("Failed to read response text", error);
+				}
+				return text;
+			};
+
+			const handleNonOk = async (resp: Response): Promise<never> => {
+				const text = await readErrorText(resp);
+				// Provide helpful error message for authentication failures
+				if (resp.status === 401) {
+					const err = new Error(
+						`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+					);
+					this.logError("Authentication error", err);
+					throw err;
+				}
+
+				const err = new Error(
+					`Failed to fetch LiteLLM models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
+				);
+				this.logError("Failed to fetch LiteLLM models", err);
+				throw err;
+			};
+
+			this.log("Fetching from:", `${baseUrl}/v1/model/info`);
 
 			try {
+				const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
+					method: "GET",
+					headers,
+				});
+				this.log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
+				if (infoResp.ok) {
+					const parsed = (await infoResp.json()) as LiteLLMModelInfoResponse | LiteLLMModelsResponse;
+					const data = (parsed as LiteLLMModelInfoResponse).data ?? [];
+					this.log("Parsed model/info response:", { modelCount: data.length });
+					if (data.length > 0) {
+						this.log("First model/info sample:", JSON.stringify(data[0], null, 2));
+					}
+
+					const first = data[0] as LiteLLMModelItem | undefined;
+					if (first && typeof (first as LiteLLMModelItem).id === "string" && Array.isArray(first.providers)) {
+						return data as LiteLLMModelItem[];
+					}
+
+					const models = data
+						.map((item) => this.mapModelInfoToLiteLLMModel(item as LiteLLMModelInfoItem))
+						.filter((m): m is LiteLLMModelItem => Boolean(m));
+					if (data.length > 0 && models.length === 0) {
+						console.warn("[LiteLLM Model Provider] model/info returned data but no mappable models; falling back");
+					} else {
+						return models;
+					}
+				} else if (infoResp.status !== 404 && infoResp.status !== 405) {
+					await handleNonOk(infoResp);
+				}
+
+				this.log("Fetching from:", `${baseUrl}/v1/models`);
 				const resp = await fetch(`${baseUrl}/v1/models`, {
 					method: "GET",
 					headers,
 				});
 				this.log("Response status:", `${resp.status} ${resp.statusText}`);
 				if (!resp.ok) {
-					let text = "";
-					try {
-						text = await resp.text();
-					} catch (error) {
-						this.logError("Failed to read response text", error);
-					}
-
-					// Provide helpful error message for authentication failures
-					if (resp.status === 401) {
-						const err = new Error(
-							`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
-						);
-						this.logError("Authentication error", err);
-						throw err;
-					}
-
-					const err = new Error(
-						`Failed to fetch LiteLLM models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
-					);
-					this.logError("Failed to fetch LiteLLM models", err);
-					throw err;
+					await handleNonOk(resp);
 				}
 				const parsed = (await resp.json()) as LiteLLMModelsResponse;
 				this.log("Parsed response:", {
@@ -568,7 +677,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				throw new Error("LiteLLM configuration not found");
 			}
 
-			const openaiMessages = convertMessages(messages);
+			const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
+			const promptCachingEnabled = settings.get<boolean>("promptCaching.enabled", true);
+			const supportsPromptCaching = this._promptCachingSupport.get(model.id) === true;
+			const openaiMessages = convertMessages(messages, {
+				cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
+			});
 			validateRequest(messages);
 			const toolConfig = convertTools(options);
 
