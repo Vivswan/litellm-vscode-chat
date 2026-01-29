@@ -216,9 +216,15 @@ suite("LiteLLM Chat Provider Extension", () => {
 				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string, defaultValue?: unknown) => {
-							if (key === "defaultMaxOutputTokens") return 20000;
-							if (key === "defaultContextLength") return 200000;
-							if (key === "defaultMaxInputTokens") return null;
+							if (key === "defaultMaxOutputTokens") {
+								return 20000;
+							}
+							if (key === "defaultContextLength") {
+								return 200000;
+							}
+							if (key === "defaultMaxInputTokens") {
+								return null;
+							}
 							return defaultValue;
 						},
 					} as unknown as vscode.WorkspaceConfiguration;
@@ -463,6 +469,7 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"GitHubCopilotChat/test VSCode/test"
 				);
 
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const params = (provider as any).getModelParameters("gpt-4");
 
 				vscode.workspace.getConfiguration = originalGetConfiguration;
@@ -500,6 +507,7 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"GitHubCopilotChat/test VSCode/test"
 				);
 
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const params = (provider as any).getModelParameters("gpt-4-turbo:openai");
 
 				vscode.workspace.getConfiguration = originalGetConfiguration;
@@ -544,6 +552,7 @@ suite("LiteLLM Chat Provider Extension", () => {
 				);
 
 				// Should match "gpt-4-turbo" (length 12) over "gpt-4" (length 5) and "gpt" (length 3)
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const params = (provider as any).getModelParameters("gpt-4-turbo:fastest");
 
 				vscode.workspace.getConfiguration = originalGetConfiguration;
@@ -581,6 +590,7 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"GitHubCopilotChat/test VSCode/test"
 				);
 
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const params = (provider as any).getModelParameters("claude-opus");
 
 				vscode.workspace.getConfiguration = originalGetConfiguration;
@@ -609,6 +619,7 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"GitHubCopilotChat/test VSCode/test"
 				);
 
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const params = (provider as any).getModelParameters("gpt-4");
 
 				vscode.workspace.getConfiguration = originalGetConfiguration;
@@ -651,6 +662,7 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"GitHubCopilotChat/test VSCode/test"
 				);
 
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const params = (provider as any).getModelParameters("test-model");
 
 				vscode.workspace.getConfiguration = originalGetConfiguration;

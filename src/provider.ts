@@ -385,7 +385,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			} catch (fetchError) {
 				// Enhanced error handling for network and certificate issues
 				const errMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
-				const cause = (fetchError as any)?.cause;
+				const cause = (fetchError as Error & { cause?: unknown })?.cause;
 				const causeMsg = cause instanceof Error ? cause.message : String(cause);
 
 				// Check for common network errors
