@@ -28,6 +28,7 @@ export interface OpenAIChatMessage {
 
 /**
  * A single underlying provider (e.g., together, groq) for a model.
+ * This interface represents model capability metadata read from the LiteLLM API.
  */
 export interface HFProvider {
 	provider: string;
@@ -35,6 +36,9 @@ export interface HFProvider {
 	supports_tools?: boolean;
 	supports_structured_output?: boolean;
 	context_length?: number;
+	// Model capability metadata (READ from /v1/models API endpoint)
+	// These define what the model CAN do, not what we ASK it to do.
+	// For customizing request parameters, use the modelParameters configuration.
 	max_tokens?: number;
 	max_input_tokens?: number;
 	max_output_tokens?: number;

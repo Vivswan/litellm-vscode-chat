@@ -69,6 +69,14 @@
 					"default": null,
 					"minimum": 1,
 					"description": "Default maximum input tokens (if null, calculated as contextLength - maxOutputTokens)"
+				},
+				"litellm-vscode-chat.modelParameters": {
+					"type": "object",
+					"default": {},
+					"description": "Model-specific request parameters to customize API behavior. Supports max_tokens, temperature, top_p, frequency_penalty, presence_penalty, stop, etc. Uses longest prefix matching (e.g., 'gpt-4' matches 'gpt-4-turbo:openai').",
+					"additionalProperties": {
+						"type": "object"
+					}
 				}
 			}
 		}
