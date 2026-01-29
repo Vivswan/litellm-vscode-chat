@@ -8,7 +8,11 @@ import { LiteLLMChatModelProvider } from "./provider";
  * @returns true if current version is compatible, false otherwise
  */
 function isVersionCompatible(current: string, required: string): boolean {
-	const parse = (v: string) => v.split('.').slice(0, 3).map(n => parseInt(n.replace(/[^0-9]/g, ''), 10));
+	const parse = (v: string) =>
+		v
+			.split(".")
+			.slice(0, 3)
+			.map((n) => parseInt(n.replace(/[^0-9]/g, ""), 10));
 	const [cMaj, cMin, cPat] = parse(current);
 	const [rMaj, rMin, rPat] = parse(required);
 	if (cMaj !== rMaj) return cMaj > rMaj;
@@ -20,14 +24,16 @@ export function activate(context: vscode.ExtensionContext) {
 	// Check VS Code version compatibility
 	const minVersion = "1.108.0";
 	if (!isVersionCompatible(vscode.version, minVersion)) {
-		vscode.window.showErrorMessage(
-			`LiteLLM requires VS Code ${minVersion} or higher. You have ${vscode.version}. Please update VS Code.`,
-			"Download Update"
-		).then(sel => {
-			if (sel) {
-				vscode.env.openExternal(vscode.Uri.parse("https://code.visualstudio.com/"));
-			}
-		});
+		vscode.window
+			.showErrorMessage(
+				`LiteLLM requires VS Code ${minVersion} or higher. You have ${vscode.version}. Please update VS Code.`,
+				"Download Update"
+			)
+			.then((sel) => {
+				if (sel) {
+					vscode.env.openExternal(vscode.Uri.parse("https://code.visualstudio.com/"));
+				}
+			});
 		return; // Don't register provider
 	}
 	// Build a descriptive User-Agent to help quantify API usage
@@ -65,7 +71,7 @@ export function activate(context: vscode.ExtensionContext) {
 	updateStatusBar();
 
 	// Update when secrets change
-	context.secrets.onDidChange(e => {
+	context.secrets.onDidChange((e) => {
 		if (e.key === "litellm.baseUrl") {
 			updateStatusBar();
 		}
@@ -74,19 +80,21 @@ export function activate(context: vscode.ExtensionContext) {
 	// Show welcome message on first run for unconfigured users
 	const hasShownWelcome = context.globalState.get<boolean>("litellm.hasShownWelcome", false);
 	if (!hasShownWelcome) {
-		context.secrets.get("litellm.baseUrl").then(baseUrl => {
+		context.secrets.get("litellm.baseUrl").then((baseUrl) => {
 			if (!baseUrl) {
-				vscode.window.showInformationMessage(
-					"Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.",
-					"Configure Now",
-					"Documentation"
-				).then(choice => {
-					if (choice === "Configure Now") {
-						vscode.commands.executeCommand("litellm.manage");
-					} else if (choice === "Documentation") {
-						vscode.env.openExternal(vscode.Uri.parse("https://github.com/Vivswan/litellm-vscode-chat#quick-start"));
-					}
-				});
+				vscode.window
+					.showInformationMessage(
+						"Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.",
+						"Configure Now",
+						"Documentation"
+					)
+					.then((choice) => {
+						if (choice === "Configure Now") {
+							vscode.commands.executeCommand("litellm.manage");
+						} else if (choice === "Documentation") {
+							vscode.env.openExternal(vscode.Uri.parse("https://github.com/Vivswan/litellm-vscode-chat#quick-start"));
+						}
+					});
 			}
 		});
 		context.globalState.update("litellm.hasShownWelcome", true);
@@ -99,7 +107,9 @@ export function activate(context: vscode.ExtensionContext) {
 			const existingBaseUrl = await context.secrets.get("litellm.baseUrl");
 			const baseUrl = await vscode.window.showInputBox({
 				title: "LiteLLM Base URL",
-				prompt: existingBaseUrl ? "Update your LiteLLM base URL" : "Enter your LiteLLM base URL (e.g., http://localhost:4000 or https://api.litellm.ai)",
+				prompt: existingBaseUrl
+					? "Update your LiteLLM base URL"
+					: "Enter your LiteLLM base URL (e.g., http://localhost:4000 or https://api.litellm.ai)",
 				ignoreFocusOut: true,
 				value: existingBaseUrl ?? "",
 				placeHolder: "http://localhost:4000",
@@ -111,7 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
 						return "URL must start with http:// or https://";
 					}
 					return null;
-				}
+				},
 			});
 			if (baseUrl === undefined) {
 				return; // user canceled
@@ -121,7 +131,9 @@ export function activate(context: vscode.ExtensionContext) {
 			const existingApiKey = await context.secrets.get("litellm.apiKey");
 			const apiKey = await vscode.window.showInputBox({
 				title: "LiteLLM API Key",
-				prompt: existingApiKey ? "Update your LiteLLM API key" : "Enter your LiteLLM API key (leave empty if not required)",
+				prompt: existingApiKey
+					? "Update your LiteLLM API key"
+					: "Enter your LiteLLM API key (leave empty if not required)",
 				ignoreFocusOut: true,
 				password: false,
 				value: existingApiKey ?? "",
@@ -147,10 +159,7 @@ export function activate(context: vscode.ExtensionContext) {
 			await updateStatusBar();
 
 			// Show success message with option to open chat
-			vscode.window.showInformationMessage(
-				"LiteLLM configuration saved successfully!",
-				"Open Chat"
-			).then(choice => {
+			vscode.window.showInformationMessage("LiteLLM configuration saved successfully!", "Open Chat").then((choice) => {
 				if (choice === "Open Chat") {
 					vscode.commands.executeCommand("workbench.action.chat.open");
 				}
@@ -159,4 +168,4 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 }
 
-export function deactivate() { }
+export function deactivate() {}
