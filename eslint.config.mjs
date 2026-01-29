@@ -45,5 +45,23 @@ export default tseslint.config(
 				}
 			]
 		}
+	},
+	// Special configuration for Node.js scripts
+	{
+		files: ['scripts/**/*.js'],
+		languageOptions: {
+			globals: {
+				require: 'readonly',
+				process: 'readonly',
+				console: 'readonly',
+				__dirname: 'readonly',
+				module: 'readonly',
+				exports: 'readonly'
+			}
+		},
+		rules: {
+			'@typescript-eslint/no-require-imports': 'off',
+			'no-undef': 'off'
+		}
 	}
 );
