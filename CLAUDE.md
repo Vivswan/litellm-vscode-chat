@@ -60,8 +60,16 @@ Tests use the `@vscode/test-electron` framework. Run `npm test` to execute all t
 **`src/extension.ts`**: Extension activation and lifecycle
 - Registers the LiteLLM chat provider with vendor ID `"litellm"`
 - Implements the `litellm.manage` command for configuration UI
-- Manages status bar indicator showing connection state
+- Manages status bar indicator showing connection state with 4 states:
+  - Not configured: `$(warning) LiteLLM`
+  - Loading: `$(loading~spin) LiteLLM`
+  - Connected: `$(check) LiteLLM (N)` where N is model count
+  - Error: `$(error) LiteLLM` with error details in tooltip
+- Creates "LiteLLM" output channel for diagnostic logging
+- Implements `litellm.testConnection` command to verify server connectivity
+- Implements `litellm.showDiagnostics` command to display configuration and connection status
 - Stores credentials securely in VS Code's SecretStorage (keys: `litellm.baseUrl`, `litellm.apiKey`)
+- Persists connection status in `globalState` across sessions
 
 **`src/provider.ts`**: Main provider implementation (`LiteLLMChatModelProvider`)
 - Implements VS Code's `LanguageModelChatProvider` interface
@@ -70,6 +78,12 @@ Tests use the `@vscode/test-electron` framework. Run `npm test` to execute all t
 - Converts VS Code message format to OpenAI-compatible format
 - Parses streaming SSE responses and emits parts (text, tool calls, thinking)
 - Manages tool call buffering and deduplication
+- Provides status callback mechanism to update extension about fetch results
+- Logs all operations to output channel for debugging
+- Shows notifications for:
+  - Missing configuration (one-time per session)
+  - Empty model list from server
+  - Connection errors with actionable buttons
 
 **`src/utils.ts`**: Conversion and validation utilities
 - `convertMessages()`: Transforms VS Code messages to OpenAI format
@@ -122,6 +136,39 @@ Tool calls are buffered until arguments become valid JSON, then emitted immediat
 - Base URL and API key stored in VS Code's SecretStorage (encrypted)
 - Settings like token limits and model parameters stored in workspace/user settings
 - First-run welcome message shown once using `globalState`
+- Connection status persisted in `globalState` for status bar restoration
+
+**Diagnostics and Status Tracking**
+
+The extension implements comprehensive diagnostics to help users troubleshoot configuration issues:
+
+1. **Status Bar Indicator**: Shows real-time connection state
+   - Updates automatically when models are fetched
+   - Persists state across VS Code reloads
+   - Click to open diagnostics dialog
+
+2. **Output Channel**: Provides detailed logging
+   - All configuration changes logged with timestamps
+   - Model fetch attempts and results
+   - Full error messages with stack traces
+   - Network request/response information
+   - Located at "Output" panel → "LiteLLM" dropdown
+
+3. **Status Callback Pattern**: Provider notifies extension of fetch results
+   - `setStatusCallback()` method accepts callback function
+   - Provider calls callback with model count on success or error message on failure
+   - Extension updates status bar and persists state
+
+4. **User Notifications**: Proactive error reporting
+   - One-time notification when no configuration exists (silent mode only)
+   - Warning when server returns empty model list
+   - Error notifications with actionable buttons (Reconfigure, View Output)
+
+5. **Test Connection Command**: Proactive verification
+   - Manually trigger model fetch to test connectivity
+   - Shows detailed success/failure messages
+   - Updates status bar with results
+   - Provides access to output channel logs
 
 ## Common Patterns
 
