@@ -44,6 +44,14 @@
 			{
 				"command": "litellm.manage",
 				"title": "Manage LiteLLM Provider"
+			},
+			{
+				"command": "litellm.testConnection",
+				"title": "LiteLLM: Test Connection"
+			},
+			{
+				"command": "litellm.showDiagnostics",
+				"title": "LiteLLM: Show Diagnostics"
 			}
 		],
 		"configuration": {
