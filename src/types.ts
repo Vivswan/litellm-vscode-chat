@@ -20,10 +20,19 @@ export interface OpenAIFunctionToolDef {
  */
 export interface OpenAIChatMessage {
 	role: OpenAIChatRole;
-	content?: string;
+	content?: string | OpenAIChatContentBlock[];
 	name?: string;
 	tool_calls?: OpenAIToolCall[];
 	tool_call_id?: string;
+}
+
+/** Structured content blocks used for prompt caching on select providers. */
+export interface OpenAIChatContentBlock {
+	type: "text";
+	text: string;
+	cache_control?: {
+		type: "ephemeral";
+	};
 }
 
 /**
@@ -42,6 +51,9 @@ export interface LiteLLMProvider {
 	max_tokens?: number;
 	max_input_tokens?: number;
 	max_output_tokens?: number;
+	source?: "model_info";
+	/** True if the upstream model advertises prompt caching support. */
+	supports_prompt_caching?: boolean | null;
 }
 
 /**
@@ -76,6 +88,31 @@ export interface LiteLLMExtraModelInfo {
 export interface LiteLLMModelsResponse {
 	object: string;
 	data: LiteLLMModelItem[];
+}
+
+/** LiteLLM /v1/model/info response envelope. */
+export interface LiteLLMModelInfoResponse {
+	data: LiteLLMModelInfoItem[];
+}
+
+/** LiteLLM model metadata entry from /v1/model/info. */
+export interface LiteLLMModelInfoItem {
+	model_name?: string;
+	litellm_params?: {
+		model?: string;
+	};
+	model_info?: {
+		id?: string;
+		key?: string;
+		max_tokens?: number;
+		max_input_tokens?: number;
+		max_output_tokens?: number;
+		litellm_provider?: string;
+		supports_function_calling?: boolean | null;
+		supports_tool_choice?: boolean | null;
+		supports_vision?: boolean | null;
+		supports_prompt_caching?: boolean | null;
+	};
 }
 
 /**

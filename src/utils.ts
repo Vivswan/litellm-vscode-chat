@@ -1,5 +1,11 @@
 import * as vscode from "vscode";
-import type { OpenAIChatMessage, OpenAIChatRole, OpenAIFunctionToolDef, OpenAIToolCall } from "./types";
+import type {
+	OpenAIChatContentBlock,
+	OpenAIChatMessage,
+	OpenAIChatRole,
+	OpenAIFunctionToolDef,
+	OpenAIToolCall,
+} from "./types";
 
 // Tool calling sanitization helpers
 
@@ -140,7 +146,11 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
  * @param messages The VS Code chat messages to convert.
  * @returns OpenAI-compatible messages array.
  */
-export function convertMessages(messages: readonly vscode.LanguageModelChatRequestMessage[]): OpenAIChatMessage[] {
+// Optionally mark the system prompt with cache_control for prompt caching.
+export function convertMessages(
+	messages: readonly vscode.LanguageModelChatRequestMessage[],
+	options?: { cacheSystemPrompt?: boolean }
+): OpenAIChatMessage[] {
 	const out: OpenAIChatMessage[] = [];
 	for (const m of messages) {
 		const role = mapRole(m);
@@ -179,7 +189,18 @@ export function convertMessages(messages: readonly vscode.LanguageModelChatReque
 
 		const text = textParts.join("");
 		if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
-			out.push({ role, content: text });
+			if (role === "system" && options?.cacheSystemPrompt) {
+				const content: OpenAIChatContentBlock[] = [
+					{
+						type: "text",
+						text,
+						cache_control: { type: "ephemeral" },
+					},
+				];
+				out.push({ role, content });
+			} else {
+				out.push({ role, content: text });
+			}
 		}
 	}
 	return out;
