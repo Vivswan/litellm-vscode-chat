@@ -80,6 +80,7 @@ Override default request parameters for specific models using the `modelParamete
 - `frequency_penalty` - Reduce repetition (-2.0 to 2.0)
 - `presence_penalty` - Encourage new topics (-2.0 to 2.0)
 - `stop` - Stop sequences (string or array)
+- And any parameter supported by your litellm and model provier back end
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
@@ -168,7 +169,7 @@ cd litellm-vscode-chat
 npm install
 npm run compile
 ```
- 
+
 Press `F5` to launch the Extension Development Host.
 
 | Command | Description |
