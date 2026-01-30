@@ -80,6 +80,7 @@ Override default request parameters for specific models using the `modelParamete
 - `frequency_penalty` - Reduce repetition (-2.0 to 2.0)
 - `presence_penalty` - Encourage new topics (-2.0 to 2.0)
 - `stop` - Stop sequences (string or array)
+- `service_tier`: [Priority processing](https://platform.openai.com/docs/guides/priority-processing)[¹](https://platform.openai.com/docs/api-reference/responses/create#responses-create-service_tier) (flex, priority, default, auto)
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
