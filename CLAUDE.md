@@ -73,11 +73,12 @@ Tests use the `@vscode/test-electron` framework. Run `npm test` to execute all t
 
 **`src/provider.ts`**: Main provider implementation (`LiteLLMChatModelProvider`)
 - Implements VS Code's `LanguageModelChatProvider` interface
-- Fetches available models from LiteLLM's `/v1/models` endpoint
+- Fetches available models from LiteLLM's `/v1/model/info` endpoint (with fallback to `/v1/models`)
 - Handles streaming chat completions via `/v1/chat/completions`
 - Converts VS Code message format to OpenAI-compatible format
 - Parses streaming SSE responses and emits parts (text, tool calls, thinking)
 - Manages tool call buffering and deduplication
+- Tracks prompt caching support per model from `/v1/model/info`
 - Provides status callback mechanism to update extension about fetch results
 - Logs all operations to output channel for debugging
 - Shows notifications for:
@@ -121,6 +122,17 @@ There are two distinct configuration concepts:
 - **Parameters** (from user config): What we ASK the model to do (temperature, max_tokens, etc.) - handled by `getModelParameters()`
 
 The `modelParameters` setting uses longest-prefix matching, so `"gpt-4"` matches `"gpt-4-turbo:openai"`.
+
+**Model Info and Prompt Caching**
+
+The provider fetches model metadata from LiteLLM's `/v1/model/info` endpoint:
+- **Fallback logic**: Tries `/v1/model/info` first, falls back to `/v1/models` on any error
+- **Model ID extraction**: Uses priority fallback (model_name → litellm_params.model → model_info.key → model_info.id)
+- **Prompt caching detection**: Tracks `supports_prompt_caching` flag per model
+- **Cache management**: Only clears cache on successful fetch to preserve data on failure
+- **Cache control**: Adds `cache_control` blocks to system messages for supported models when enabled
+
+Prompt caching is controlled by `promptCaching.enabled` setting (default: true) and only affects models that advertise support.
 
 **Streaming Response Processing**
 
@@ -188,10 +200,12 @@ Tool call handling is in `provider.ts`:
 
 ### Error Handling Strategy
 
-- Network/certificate errors: Provide specific actionable error messages
-- Authentication failures (401): Prompt user to run "Manage LiteLLM Provider" command
-- Silent mode errors: Return empty array instead of throwing to prevent UI breakage
-- Tool call JSON errors: Throw on completion, silently drop on cancellation
+- **Model fetch fallback**: `/v1/model/info` errors (including non-404/405) gracefully fall back to `/v1/models`
+- **Network/certificate errors**: Provide specific actionable error messages
+- **Authentication failures (401)**: Prompt user to run "Manage LiteLLM Provider" command
+- **Silent mode errors**: Return empty array instead of throwing to prevent UI breakage
+- **Tool call JSON errors**: Throw on completion, silently drop on cancellation
+- **Logging consistency**: All errors logged through `this.log()` instead of `console.warn/error` for unified output
 
 ## CI/CD Structure
 
