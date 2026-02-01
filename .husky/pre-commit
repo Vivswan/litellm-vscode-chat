@@ -1,11 +1,13 @@
 #!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
 
 # Ensure dependencies are installed
 bun install
 
 # Run formatting on staged files
 bunx lint-staged
+
+# Check formatting for all files
+bunx prettier --write .
 
 # Check if any files were modified by formatting
 if ! git diff --exit-code; then
