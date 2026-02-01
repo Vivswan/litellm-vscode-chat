@@ -1057,4 +1057,183 @@ suite("LiteLLM Chat Provider Extension", () => {
 			assert.deepEqual(tryParseJSONObject("not json"), { ok: false });
 		});
 	});
+
+	suite("model info and fallback", () => {
+		test("fallback from /v1/model/info to /v1/models on error", async () => {
+			const originalFetch = global.fetch;
+			let modelInfoAttempted = false;
+			let modelsAttempted = false;
+
+			global.fetch = async (url: string | URL | Request) => {
+				const urlStr = url.toString();
+				if (urlStr.includes("/v1/model/info")) {
+					modelInfoAttempted = true;
+					throw new Error("model/info endpoint failed");
+				}
+				if (urlStr.includes("/v1/models")) {
+					modelsAttempted = true;
+					return {
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+								},
+							],
+						}),
+					} as unknown as Response;
+				}
+				throw new Error("Unexpected URL");
+			};
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+
+			assert.ok(modelInfoAttempted, "Should attempt /v1/model/info first");
+			assert.ok(modelsAttempted, "Should fallback to /v1/models on error");
+			assert.ok(infos.length > 0, "Should still return models from fallback");
+		});
+
+		test("prompt caching support detected from model/info", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						data: [
+							{
+								model_name: "claude-3-5-sonnet-20241022",
+								model_info: {
+									id: "claude-3-5-sonnet-20241022",
+									supports_function_calling: true,
+									supports_prompt_caching: true,
+									max_tokens: 8192,
+									max_input_tokens: 200000,
+								},
+							},
+						],
+					}),
+				}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+
+			assert.ok(infos.length > 0, "Should return models");
+			// Access private _promptCachingSupport to verify
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const cachingSupport = (provider as any)._promptCachingSupport;
+			assert.equal(cachingSupport.get("claude-3-5-sonnet-20241022"), true, "Should detect prompt caching support");
+		});
+
+		test("prompt caching disabled for models without support", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						data: [
+							{
+								model_name: "gpt-4",
+								model_info: {
+									id: "gpt-4",
+									supports_function_calling: true,
+									supports_prompt_caching: false,
+									max_tokens: 8192,
+								},
+							},
+						],
+					}),
+				}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+
+			global.fetch = originalFetch;
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const cachingSupport = (provider as any)._promptCachingSupport;
+			assert.equal(cachingSupport.get("gpt-4"), false, "Should mark as not supporting prompt caching");
+		});
+
+		test("model ID extracted with fallback priority", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						data: [
+							{
+								model_name: "preferred-name",
+								litellm_params: { model: "fallback-name" },
+								model_info: {
+									key: "third-choice",
+									id: "last-resort",
+								},
+							},
+						],
+					}),
+				}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+
+			const modelEntry = infos.find((i) => i.id === "preferred-name");
+			assert.ok(modelEntry, "Should use model_name as first priority");
+		});
+	});
 });

@@ -215,7 +215,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
 		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
-		this._promptCachingSupport.clear();
 
 		const config = await this.ensureConfig(options.silent);
 		if (!config) {
@@ -245,6 +244,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		try {
 			const result = await this.fetchModels(config.apiKey, config.baseUrl);
 			models = result.models;
+			// Clear cache only on successful fetch to preserve existing data on failure
+			this._promptCachingSupport.clear();
 		} catch (err) {
 			const errorMsg = err instanceof Error ? err.message : String(err);
 			this.logError("Failed to fetch models", err);
@@ -464,7 +465,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * @param apiKey The LiteLLM API key used to authenticate.
 	 * @param baseUrl The LiteLLM base URL.
 	 */
-	/** Map /v1/model/info entries into a /v1/models-like shape for reuse. */
+	/**
+	 * Map /v1/model/info entries into a /v1/models-like shape for reuse.
+	 *
+	 * Extracts the model ID using fallback priority:
+	 * 1. item.model_name (preferred, most specific)
+	 * 2. item.litellm_params?.model (fallback)
+	 * 3. item.model_info?.key (secondary fallback)
+	 * 4. item.model_info?.id (last resort)
+	 */
 	private mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 		const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
 
@@ -561,14 +570,19 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 						.map((item) => this.mapModelInfoToLiteLLMModel(item as LiteLLMModelInfoItem))
 						.filter((m): m is LiteLLMModelItem => Boolean(m));
 					if (data.length > 0 && models.length === 0) {
-						console.warn("[LiteLLM Model Provider] model/info returned data but no mappable models; falling back");
+						this.log("model/info returned data but no mappable models; falling back", { dataLength: data.length });
 					} else {
 						return models;
 					}
-				} else if (infoResp.status !== 404 && infoResp.status !== 405) {
-					await handleNonOk(infoResp);
 				}
+				// Fall through to /v1/models fallback
+			} catch (error) {
+				this.log("model/info failed, falling back to /v1/models", error);
+				// Fall through to /v1/models fallback
+			}
 
+			// Fallback to /v1/models
+			try {
 				this.log("Fetching from:", `${baseUrl}/v1/models`);
 				const resp = await fetch(`${baseUrl}/v1/models`, {
 					method: "GET",
