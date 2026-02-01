@@ -17,19 +17,19 @@ jobs:
         with:
           ref: main
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm install
+        run: bun install
 
       # Use bump-version script to calculate next patch version
       - name: Calculate next version
         id: next_version
         run: |
-          BUMPING_VERSION=$(npm run bump-version)
+          BUMPING_VERSION=$(bun run bump-version)
           NEXT_VERSION=$(echo $BUMPING_VERSION  | sed 's/.*-> //')
           CURRENT_VERSION=$(echo $BUMPING_VERSION| sed 's/ ->.*//')
           echo "bumping_version=BUMPING_VERSION" >> $GITHUB_OUTPUT
