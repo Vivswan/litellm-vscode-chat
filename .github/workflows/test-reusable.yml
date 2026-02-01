@@ -16,6 +16,8 @@ on:
 
 jobs:
   test:
+    permissions:
+      contents: read
     strategy:
       matrix:
         os: ${{ inputs.os == 'matrix' && fromJSON('["ubuntu-latest", "windows-latest", "macos-latest"]') || fromJSON(format('["{0}"]', inputs.os)) }}
