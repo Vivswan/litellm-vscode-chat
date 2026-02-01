@@ -1,3 +1,22 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Ensure dependencies are installed
+npm install --save-dev
+
+# Run formatting on staged files
 npx lint-staged
+
+# Check if any files were modified by formatting
+if ! git diff --exit-code; then
+	echo ""
+	echo "❌ Formatting changes detected!"
+	echo "Files were modified by prettier. Please review and stage the changes, then commit again."
+	exit 1
+fi
+
+# Run linting
 npm run lint
+
+# Run tests
 npm test
