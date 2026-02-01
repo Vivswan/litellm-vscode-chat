@@ -33,17 +33,16 @@ jobs:
         with:
           ref: deploy
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
-          cache: 'npm'
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Compile the extension
-        run: npm run compile
+        run: bun run compile
 
       # Extract version from package.json
       - name: Get version from package.json
@@ -54,7 +53,7 @@ jobs:
           echo "Version from package.json: $PACKAGE_VERSION"
 
       - name: Package VSIX
-        run: npx @vscode/vsce package -o extension.vsix
+        run: bunx @vscode/vsce package -o extension.vsix
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
@@ -71,9 +70,10 @@ jobs:
         with:
           ref: deploy
 
-      - uses: actions/setup-node@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
+          bun-version: latest
 
       - uses: actions/download-artifact@v7
         with:
@@ -81,7 +81,7 @@ jobs:
           path: .
 
       - name: Publish to VS Code Marketplace
-        run: npx @vscode/vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ./extension.vsix
+        run: bunx @vscode/vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ./extension.vsix
 
       - name: Create GitHub Release with VSIX
         id: create_release
