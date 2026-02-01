@@ -85,7 +85,7 @@ jobs:
 
       - name: Create GitHub Release with VSIX
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.package.outputs.version }}
           name: LiteLLM Provider for GitHub Copilot Chat v${{ needs.package.outputs.version }}
