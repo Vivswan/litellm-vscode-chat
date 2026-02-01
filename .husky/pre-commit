@@ -2,10 +2,10 @@
 . "$(dirname "$0")/_/husky.sh"
 
 # Ensure dependencies are installed
-npm install --save-dev
+bun install
 
 # Run formatting on staged files
-npx lint-staged
+bunx lint-staged
 
 # Check if any files were modified by formatting
 if ! git diff --exit-code; then
@@ -16,7 +16,7 @@ if ! git diff --exit-code; then
 fi
 
 # Run linting
-npm run lint
+bun run lint
 
 # Run tests
-npm test
+bun run test
