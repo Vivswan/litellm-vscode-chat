@@ -80,10 +80,34 @@ Override default request parameters for specific models using the `modelParamete
 - `frequency_penalty` - Reduce repetition (-2.0 to 2.0)
 - `presence_penalty` - Encourage new topics (-2.0 to 2.0)
 - `stop` - Stop sequences (string or array)
+- And any parameter supported by your litellm and model provier back end
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
 **Parameter precedence**: Runtime options > User config > Defaults
+
+### Prompt Caching (Anthropic Claude)
+
+The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). Prompt caching reduces costs and improves response times by caching the system prompt across requests.
+
+**To configure**: Add to your `settings.json`:
+
+```json
+{
+  "litellm-vscode-chat.promptCaching.enabled": true
+}
+```
+
+**How it works:**
+- Automatically detects prompt caching support from LiteLLM's `/v1/model/info` endpoint
+- Only affects models that explicitly support prompt caching (primarily Claude models)
+- Adds `cache_control` blocks to system messages when enabled
+- Disabled by default for models without support
+
+**Benefits:**
+- Reduced API costs (cached tokens are cheaper)
+- Faster response times (cached content doesn't need reprocessing)
+- Transparent to the user (works automatically when supported)
 
 ## Troubleshooting
 
@@ -168,7 +192,7 @@ cd litellm-vscode-chat
 npm install
 npm run compile
 ```
- 
+
 Press `F5` to launch the Extension Development Host.
 
 | Command | Description |
