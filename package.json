@@ -81,7 +81,7 @@
 				"litellm-vscode-chat.promptCaching.enabled": {
 					"type": "boolean",
 					"default": true,
-					"description": "Enable prompt caching for supported models (system prompt only)"
+					"description": "Enable prompt caching for supported models (currently Anthropic Claude). Caches the system prompt to reduce costs and improve response times. Only affects models that advertise prompt caching support."
 				},
 				"litellm-vscode-chat.modelParameters": {
 					"type": "object",
