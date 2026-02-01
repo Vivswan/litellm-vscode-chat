@@ -110,7 +110,7 @@
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.13.0",
-		"@stylistic/eslint-plugin": "^2.13.0",
+		"@stylistic/eslint-plugin": "^5.7.1",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^25.1.0",
 		"@types/vscode": "^1.108.1",
