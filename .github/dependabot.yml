@@ -9,7 +9,7 @@ updates:
     directory: "/"
     # Check the npm registry for updates every day (weekdays)
     schedule:
-      interval: "daily"
+      interval: "monthly"
 
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
@@ -17,4 +17,4 @@ updates:
     # You don't need to specify `/.github/workflows` for `directory`. You can use `directory: "/"`.
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
