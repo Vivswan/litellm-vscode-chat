@@ -311,6 +311,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					{
 						id: m.id,
 						name: m.id,
+						detail: "LiteLLM",
 						tooltip: "LiteLLM",
 						family: "litellm",
 						version: "1.0.0",
@@ -333,6 +334,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					{
 						id: m.id,
 						name: m.id,
+						detail: "LiteLLM",
 						tooltip: "LiteLLM",
 						family: "litellm",
 						version: "1.0.0",
@@ -368,6 +370,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				entries.push({
 					id: `${m.id}:cheapest`,
 					name: `${m.id} (cheapest)`,
+					detail: "LiteLLM",
 					tooltip: "LiteLLM via the cheapest provider",
 					family: "litellm",
 					version: "1.0.0",
@@ -379,6 +382,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				entries.push({
 					id: `${m.id}:fastest`,
 					name: `${m.id} (fastest)`,
+					detail: "LiteLLM",
 					tooltip: "LiteLLM via the fastest provider",
 					family: "litellm",
 					version: "1.0.0",
@@ -396,6 +400,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				entries.push({
 					id: `${m.id}:${p.provider}`,
 					name: `${m.id} via ${p.provider}`,
+					detail: "LiteLLM",
 					tooltip: `LiteLLM via ${p.provider}`,
 					family: "litellm",
 					version: "1.0.0",
@@ -417,6 +422,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				entries.push({
 					id: m.id,
 					name: m.id,
+					detail: "LiteLLM",
 					tooltip: "LiteLLM",
 					family: "litellm",
 					version: "1.0.0",
