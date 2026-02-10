@@ -13,23 +13,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm install
+        run: bun install
 
       # Use bump-version script to calculate next patch version
       - name: Calculate next version
         id: next_version
         run: |
-          BUMPING_VERSION=$(npm run bump-version)
+          BUMPING_VERSION=$(bun run bump-version)
           NEXT_VERSION=$(echo $BUMPING_VERSION  | sed 's/.*-> //')
           CURRENT_VERSION=$(echo $BUMPING_VERSION| sed 's/ ->.*//')
           echo "bumping_version=BUMPING_VERSION" >> $GITHUB_OUTPUT
@@ -64,7 +64,7 @@ jobs:
 
       # Create pull request
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore: bump version to ${{ steps.next_version.outputs.next_version }}"

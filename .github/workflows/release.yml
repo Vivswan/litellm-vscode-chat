@@ -29,21 +29,20 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout deploy branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: deploy
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
-          cache: 'npm'
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Compile the extension
-        run: npm run compile
+        run: bun run compile
 
       # Extract version from package.json
       - name: Get version from package.json
@@ -54,10 +53,10 @@ jobs:
           echo "Version from package.json: $PACKAGE_VERSION"
 
       - name: Package VSIX
-        run: npx @vscode/vsce package -o extension.vsix
+        run: bunx @vscode/vsce package -o extension.vsix
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: vsix
           path: extension.vsix
@@ -67,25 +66,26 @@ jobs:
     needs: [ package ]
     steps:
       - name: Checkout deploy branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: deploy
 
-      - uses: actions/setup-node@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
+          bun-version: latest
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: vsix
           path: .
 
       - name: Publish to VS Code Marketplace
-        run: npx @vscode/vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ./extension.vsix
+        run: bunx @vscode/vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ./extension.vsix
 
       - name: Create GitHub Release with VSIX
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.package.outputs.version }}
           name: LiteLLM Provider for GitHub Copilot Chat v${{ needs.package.outputs.version }}

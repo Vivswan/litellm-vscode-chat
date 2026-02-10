@@ -65,6 +65,9 @@ web_modules/
 # Optional npm cache directory
 .npm
 
+# npm lockfile (using Bun instead)
+package-lock.json
+
 # Optional eslint cache
 .eslintcache
 
@@ -203,3 +206,5 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+.husky/_/

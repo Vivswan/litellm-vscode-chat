@@ -111,6 +111,22 @@ The extension supports prompt caching for models that advertise this capability 
 
 ## Troubleshooting
 
+### Mock LiteLLM Server (Local)
+
+For quick manual testing, you can run a tiny mock LiteLLM server that serves a static model list and canned chat replies.
+
+```bash
+node scripts/mock-litellm-server.js
+```
+
+Optional port override:
+
+```bash
+PORT=4001 node scripts/mock-litellm-server.js
+```
+
+Then set your base URL to `http://localhost:4000` (or the port you chose).
+
 ### Status Bar Indicator
 
 The LiteLLM status bar indicator (bottom right corner) shows your connection status:
