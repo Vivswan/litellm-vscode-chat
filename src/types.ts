@@ -48,9 +48,9 @@ export interface LiteLLMProvider {
 	// Model capability metadata (READ from /v1/models API endpoint)
 	// These define what the model CAN do, not what we ASK it to do.
 	// For customizing request parameters, use the modelParameters configuration.
-	max_tokens?: number;
-	max_input_tokens?: number;
-	max_output_tokens?: number;
+	max_tokens?: number | null;
+	max_input_tokens?: number | null;
+	max_output_tokens?: number | null;
 	source?: "model_info";
 	/** True if the upstream model advertises prompt caching support. */
 	supports_prompt_caching?: boolean | null;
@@ -104,9 +104,9 @@ export interface LiteLLMModelInfoItem {
 	model_info?: {
 		id?: string;
 		key?: string;
-		max_tokens?: number;
-		max_input_tokens?: number;
-		max_output_tokens?: number;
+		max_tokens?: number | null;
+		max_input_tokens?: number | null;
+		max_output_tokens?: number | null;
 		litellm_provider?: string;
 		supports_function_calling?: boolean | null;
 		supports_tool_choice?: boolean | null;
