@@ -257,6 +257,138 @@ suite("LiteLLM Chat Provider Extension", () => {
 			assert.equal(providerEntry.maxInputTokens, 180000, "Should calculate max input as context - output");
 		});
 
+		test("uses configured defaultMaxInputTokens as an explicit override", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						object: "list",
+						data: [
+							{
+								id: "test-model",
+								object: "model",
+								created: 0,
+								owned_by: "test",
+								providers: [
+									{
+										provider: "test-provider",
+										status: "active",
+										supports_tools: true,
+										context_length: 100000,
+										max_output_tokens: 8000,
+										max_input_tokens: 90000,
+									},
+								],
+							},
+						],
+					}),
+				}) as unknown as Response;
+
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			vscode.workspace.getConfiguration = ((section?: string) => {
+				if (section === "litellm-vscode-chat") {
+					return {
+						get: (key: string, defaultValue?: unknown) => {
+							if (key === "defaultMaxInputTokens") {
+								return 50000;
+							}
+							return defaultValue;
+						},
+					} as unknown as vscode.WorkspaceConfiguration;
+				}
+				return originalGetConfiguration(section);
+			}) as unknown as typeof vscode.workspace.getConfiguration;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+			vscode.workspace.getConfiguration = originalGetConfiguration;
+
+			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
+			assert.ok(providerEntry, "Provider entry should exist");
+			assert.equal(providerEntry.maxInputTokens, 50000, "Should use configured max input token override");
+		});
+
+		test("treats null provider max_input_tokens as missing and falls back to workspace setting", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						object: "list",
+						data: [
+							{
+								id: "test-model",
+								object: "model",
+								created: 0,
+								owned_by: "test",
+								providers: [
+									{
+										provider: "test-provider",
+										status: "active",
+										supports_tools: true,
+										context_length: 100000,
+										max_output_tokens: 8000,
+										max_input_tokens: null,
+									},
+								],
+							},
+						],
+					}),
+				}) as unknown as Response;
+
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			vscode.workspace.getConfiguration = ((section?: string) => {
+				if (section === "litellm-vscode-chat") {
+					return {
+						get: (key: string, defaultValue?: unknown) => {
+							if (key === "defaultMaxInputTokens") {
+								return 48000;
+							}
+							return defaultValue;
+						},
+					} as unknown as vscode.WorkspaceConfiguration;
+				}
+				return originalGetConfiguration(section);
+			}) as unknown as typeof vscode.workspace.getConfiguration;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+			vscode.workspace.getConfiguration = originalGetConfiguration;
+
+			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
+			assert.ok(providerEntry, "Provider entry should exist");
+			assert.equal(providerEntry.maxInputTokens, 48000, "Should ignore null provider max_input_tokens");
+		});
+
 		test("uses hardcoded defaults when provider and settings absent", async () => {
 			// Mock fetch to return model without token constraints
 			const originalFetch = global.fetch;

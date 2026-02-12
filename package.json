@@ -105,6 +105,7 @@
 		"lint": "eslint",
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
+		"mock-server": "node scripts/mock-litellm-server.js",
 		"test": "npm run compile && vscode-test",
 		"bump-version": "node scripts/bump-version.js"
 	},
