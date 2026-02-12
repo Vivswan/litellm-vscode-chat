@@ -8,7 +8,7 @@
 		"type": "git",
 		"url": "https://github.com/Vivswan/litellm-vscode-chat"
 	},
-	"version": "0.1.7",
+	"version": "0.1.8",
 	"engines": {
 		"vscode": "^1.108.0"
 	},
@@ -105,6 +105,7 @@
 		"lint": "eslint",
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
+		"mock-server": "node scripts/mock-litellm-server.js",
 		"test": "npm run compile && vscode-test",
 		"bump-version": "node scripts/bump-version.js"
 	},

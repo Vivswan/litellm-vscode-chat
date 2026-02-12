@@ -155,23 +155,26 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		maxInputTokens: number;
 	} {
 		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
+		const normalizePositive = (value: unknown): number | undefined =>
+			typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 
 		// Resolve max output tokens
 		const maxOutputTokens =
-			provider?.max_output_tokens ??
-			provider?.max_tokens ??
-			config.get<number>("defaultMaxOutputTokens", DEFAULT_MAX_OUTPUT_TOKENS);
+			normalizePositive(provider?.max_output_tokens) ??
+			normalizePositive(provider?.max_tokens) ??
+			normalizePositive(config.get<number>("defaultMaxOutputTokens", DEFAULT_MAX_OUTPUT_TOKENS)) ??
+			DEFAULT_MAX_OUTPUT_TOKENS;
 
 		// Resolve context length
 		const contextLength =
-			provider?.context_length ?? config.get<number>("defaultContextLength", DEFAULT_CONTEXT_LENGTH);
+			normalizePositive(provider?.context_length) ??
+			normalizePositive(config.get<number>("defaultContextLength", DEFAULT_CONTEXT_LENGTH)) ??
+			DEFAULT_CONTEXT_LENGTH;
 
 		// Resolve max input tokens
-		let maxInputTokens = provider?.max_input_tokens;
-		if (maxInputTokens === undefined) {
-			const configMaxInput = config.get<number | null>("defaultMaxInputTokens", null);
-			maxInputTokens = configMaxInput ?? Math.max(1, contextLength - maxOutputTokens);
-		}
+		const configMaxInput = normalizePositive(config.get<number | null>("defaultMaxInputTokens", null));
+		const maxInputTokens =
+			configMaxInput ?? normalizePositive(provider?.max_input_tokens) ?? Math.max(1, contextLength - maxOutputTokens);
 
 		return { maxOutputTokens, contextLength, maxInputTokens };
 	}
@@ -489,15 +492,22 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		const supportsTools = item.model_info?.supports_function_calling ?? item.model_info?.supports_tool_choice ?? true;
 		const providerName = item.model_info?.litellm_provider ?? "litellm";
+		const normalizePositive = (value: unknown): number | undefined =>
+			typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+		const maxInputTokens = normalizePositive(item.model_info?.max_input_tokens);
+		const maxOutputTokens =
+			normalizePositive(item.model_info?.max_output_tokens) ?? normalizePositive(item.model_info?.max_tokens);
+		const maxTokens =
+			normalizePositive(item.model_info?.max_tokens) ?? normalizePositive(item.model_info?.max_output_tokens);
 
 		const provider: LiteLLMProvider = {
 			provider: providerName,
 			status: "ok",
 			supports_tools: supportsTools,
-			context_length: item.model_info?.max_input_tokens ?? item.model_info?.max_tokens,
-			max_tokens: item.model_info?.max_tokens ?? item.model_info?.max_output_tokens,
-			max_input_tokens: item.model_info?.max_input_tokens,
-			max_output_tokens: item.model_info?.max_output_tokens ?? item.model_info?.max_tokens,
+			context_length: maxInputTokens ?? maxTokens,
+			max_tokens: maxTokens,
+			max_input_tokens: maxInputTokens,
+			max_output_tokens: maxOutputTokens,
 			source: "model_info",
 			supports_prompt_caching: item.model_info?.supports_prompt_caching ?? null,
 		};
