@@ -908,7 +908,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		this.log("Config ready:", { baseUrl, hasApiKey: !!apiKey });
-		return { baseUrl, apiKey: apiKey ?? "" };
+		return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey: apiKey ?? "" };
 	}
 
 	/**
