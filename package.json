@@ -110,7 +110,7 @@
 		"bump-version": "node scripts/bump-version.js"
 	},
 	"devDependencies": {
-		"@eslint/js": "^9.13.0",
+		"@eslint/js": "^10.0.1",
 		"@stylistic/eslint-plugin": "^5.7.1",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^25.1.0",
