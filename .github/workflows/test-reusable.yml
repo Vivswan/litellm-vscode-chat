@@ -13,6 +13,18 @@ on:
         required: false
         type: string
         default: ''
+  workflow_dispatch:
+    inputs:
+      os:
+        description: 'Operating system to run on (ubuntu-latest, windows-latest, macos-latest, or "matrix" for all)'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+      ref:
+        description: 'Git ref to checkout'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   test:

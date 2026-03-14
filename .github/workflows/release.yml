@@ -1,6 +1,7 @@
 name: Deploy and Release
 
 on:
+  workflow_dispatch:
   push:
     branches: [ deploy ]
 
