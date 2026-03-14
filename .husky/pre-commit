@@ -20,6 +20,9 @@ if ! git diff --exit-code; then
 	exit 1
 fi
 
+# Lint GitHub Actions workflows
+bun run lint:actions
+
 # Run linting
 bun run lint
 
