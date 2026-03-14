@@ -1,7 +1,10 @@
 #!/bin/sh
 
-# Ensure dependencies are installed
-bun install
+# Refuse to mutate the repo during commits. Dependencies should already exist.
+if [ ! -d node_modules ]; then
+	echo "Dependencies are missing. Run 'bun install' before committing."
+	exit 1
+fi
 
 # Run formatting on staged files
 bunx lint-staged
