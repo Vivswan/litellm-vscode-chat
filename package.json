@@ -98,9 +98,7 @@
 	"scripts": {
 		"prepare": "husky",
 		"vscode:prepublish": "npm run compile",
-		"download-api": "dts dev",
-		"postdownload-api": "dts main && node -e \"const fs = require('fs'); if (fs.existsSync('vscode.d.ts')) { fs.renameSync('vscode.d.ts', 'src/vscode.d.ts'); console.log('Moved vscode.d.ts to src/'); }\"",
-		"postinstall": "npm run download-api",
+		"sync:vscode-api": "dts dev && dts main && node -e \"const fs = require('fs'); if (fs.existsSync('vscode.d.ts')) { fs.renameSync('vscode.d.ts', 'src/vscode.d.ts'); console.log('Moved vscode.d.ts to src/'); }\"",
 		"compile": "tsc -p ./",
 		"lint": "eslint",
 		"format": "prettier --write .",
@@ -110,7 +108,7 @@
 		"bump-version": "node scripts/bump-version.js"
 	},
 	"devDependencies": {
-		"@eslint/js": "^10.0.1",
+		"@eslint/js": "^9.39.2",
 		"@stylistic/eslint-plugin": "^5.7.1",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^25.1.0",
@@ -118,7 +116,7 @@
 		"@vscode/dts": "^0.4.1",
 		"@vscode/test-cli": "^0.0.12",
 		"@vscode/test-electron": "^2.5.2",
-		"eslint": "^10.0.2",
+		"eslint": "^9.39.2",
 		"husky": "^9.1.7",
 		"lint-staged": "^16.2.7",
 		"prettier": "^3.8.0",

@@ -1,0 +1,47 @@
+name: Sync VS Code API
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-vscode-api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Sync VS Code API
+        run: bun run sync:vscode-api
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: sync VS Code API typings"
+          branch: codex/sync-vscode-api
+          delete-branch: true
+          title: "chore: sync VS Code API typings"
+          body: |
+            ## Summary
+            - sync `src/vscode.d.ts` with the latest VS Code API definitions
+
+            This PR was created automatically by the `Sync VS Code API` workflow.
+          add-paths: |
+            src/vscode.d.ts
