@@ -10,7 +10,7 @@ const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 const bumpType = process.argv[2] || "patch";
 
 if (!["patch", "minor", "major"].includes(bumpType)) {
-	console.error("Usage: npm run bump-version [patch|minor|major]");
+	console.error("Usage: bun run bump-version [patch|minor|major]");
 	console.error("  patch: 0.1.0 -> 0.1.1 (default)");
 	console.error("  minor: 0.1.0 -> 0.2.0");
 	console.error("  major: 0.1.0 -> 1.0.0");

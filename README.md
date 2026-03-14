@@ -205,19 +205,19 @@ The output channel logs:
 ```bash
 git clone https://github.com/Vivswan/litellm-vscode-chat
 cd litellm-vscode-chat
-npm install
-npm run compile
+bun install
+bun run compile
 ```
 
 Press `F5` to launch the Extension Development Host.
 
 | Command | Description |
 |---------|-------------|
-| `npm run compile` | Build |
-| `npm run watch` | Watch mode |
-| `npm run lint` | Lint |
-| `npm run format` | Format |
-| `npm test` | Run tests |
+| `bun run compile` | Build |
+| `bun run watch` | Watch mode |
+| `bun run lint` | Lint |
+| `bun run format` | Format |
+| `bun test` | Run tests |
 
 ## Resources
 
