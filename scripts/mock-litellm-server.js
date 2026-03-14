@@ -88,7 +88,7 @@ const server = http.createServer(async (req, res) => {
 
 	if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
 		const raw = await readBody(req);
-		let payload = {};
+		let payload;
 		try {
 			payload = raw ? JSON.parse(raw) : {};
 		} catch {
