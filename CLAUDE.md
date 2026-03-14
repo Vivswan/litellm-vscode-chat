@@ -10,25 +10,25 @@ This is a VS Code extension that integrates LiteLLM into GitHub Copilot Chat, al
 
 ```bash
 # Install dependencies
-npm install
+bun install
 
 # Compile TypeScript to JavaScript
-npm run compile
+bun run compile
 
 # Watch mode for development (auto-recompile on changes)
-npm run watch
+bun run watch
 
 # Run linter
-npm run lint
+bun run lint
 
 # Format code with Prettier
-npm run format
+bun run format
 
 # Run all tests
-npm test
+bun test
 
 # Bump version (updates package.json and CHANGELOG.md)
-npm run bump-version
+bun run bump-version
 ```
 
 ## Development Workflow
@@ -39,7 +39,7 @@ Press `F5` to launch the Extension Development Host with the extension loaded.
 
 ### Running Tests
 
-Tests use the `@vscode/test-electron` framework. Run `npm test` to execute all tests, which compiles the project and runs the test suite.
+Tests use the `@vscode/test-electron` framework. Run `bun test` to execute all tests, which compiles the project and runs the test suite.
 
 ### Code Style
 
