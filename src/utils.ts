@@ -163,7 +163,7 @@ export function convertMessages(
 				textParts.push(part.value);
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
 				const id = part.callId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-				let args = "{}";
+				let args;
 				try {
 					args = JSON.stringify(part.input ?? {});
 				} catch {

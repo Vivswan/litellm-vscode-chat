@@ -1,6 +1,7 @@
 name: Auto Format
 
 on:
+  workflow_dispatch:
   pull_request:
     types: [labeled, opened, synchronize]
 
@@ -24,7 +25,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: package.json
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -35,7 +36,7 @@ jobs:
       - name: Check for changes
         id: git-check
         run: |
-          git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
+          git diff --exit-code || echo "changes=true" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push changes
         if: steps.git-check.outputs.changes == 'true'
