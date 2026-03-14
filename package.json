@@ -100,6 +100,7 @@
 		"vscode:prepublish": "npm run compile",
 		"sync:vscode-api": "dts dev && dts main && node -e \"const fs = require('fs'); if (fs.existsSync('vscode.d.ts')) { fs.renameSync('vscode.d.ts', 'src/vscode.d.ts'); console.log('Moved vscode.d.ts to src/'); }\"",
 		"compile": "tsc -p ./",
+		"lint:actions": "node scripts/lint-actions.js",
 		"lint": "eslint",
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
@@ -108,6 +109,7 @@
 		"bump-version": "node scripts/bump-version.js"
 	},
 	"devDependencies": {
+		"actionlint": "^2.0.6",
 		"@eslint/js": "^10.0.0",
 		"@stylistic/eslint-plugin": "^5.7.1",
 		"@types/mocha": "^10.0.10",
