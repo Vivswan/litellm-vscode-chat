@@ -8,6 +8,13 @@ on:
         required: false
         type: string
         default: ''
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to checkout'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   format-check:
