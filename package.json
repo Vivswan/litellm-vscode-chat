@@ -113,7 +113,7 @@
 		"@eslint/js": "^10.0.0",
 		"@stylistic/eslint-plugin": "^5.7.1",
 		"@types/mocha": "^10.0.10",
-		"@types/node": "^25.1.0",
+		"@types/node": "^25.5.0",
 		"@types/vscode": "^1.108.1",
 		"@vscode/dts": "^0.4.1",
 		"@vscode/test-cli": "^0.0.12",
