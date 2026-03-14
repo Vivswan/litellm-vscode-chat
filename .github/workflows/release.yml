@@ -49,8 +49,8 @@ jobs:
       - name: Get version from package.json
         id: version
         run: |
-          PACKAGE_VERSION=$(cat package.json | grep version | head -1 | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d ' ')
-          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version from package.json: $PACKAGE_VERSION"
 
       - name: Package VSIX
