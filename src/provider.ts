@@ -908,7 +908,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		this.log("Config ready:", { baseUrl, hasApiKey: !!apiKey });
-		return { baseUrl, apiKey: apiKey ?? "" };
+		return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey: apiKey ?? "" };
 	}
 
 	/**
@@ -1134,8 +1134,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				// Find the delimiter that ends the name/index segment
 				const a = data.indexOf(ARG_BEGIN);
 				const e = data.indexOf(END);
-				let delimIdx = -1;
-				let delimKind: "arg" | "end" | undefined = undefined;
+				let delimIdx: number;
+				let delimKind: "arg" | "end";
 				if (a !== -1 && (e === -1 || a < e)) {
 					delimIdx = a;
 					delimKind = "arg";

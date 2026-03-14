@@ -20,7 +20,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: package.json
 
       - name: Install dependencies
         run: bun install
@@ -30,11 +30,13 @@ jobs:
         id: next_version
         run: |
           BUMPING_VERSION=$(bun run bump-version)
-          NEXT_VERSION=$(echo $BUMPING_VERSION  | sed 's/.*-> //')
-          CURRENT_VERSION=$(echo $BUMPING_VERSION| sed 's/ ->.*//')
-          echo "bumping_version=BUMPING_VERSION" >> $GITHUB_OUTPUT
-          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          NEXT_VERSION="${BUMPING_VERSION##*-> }"
+          CURRENT_VERSION="${BUMPING_VERSION%% ->*}"
+          {
+            echo "bumping_version=$BUMPING_VERSION"
+            echo "next_version=$NEXT_VERSION"
+            echo "current_version=$CURRENT_VERSION"
+          } >> "$GITHUB_OUTPUT"
           echo "$BUMPING_VERSION"
 
       # Create a new branch for the version bump
