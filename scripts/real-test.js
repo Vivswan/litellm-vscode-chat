@@ -33,7 +33,7 @@ Environment variable fallbacks:
 
 console.log(`Running real LiteLLM tests against ${baseUrl} with model ${modelId}`);
 if (apiKey) {
-	console.log(`Using API key: ${apiKey.slice(0, 6)}...`);
+	console.log("Using API key: [REDACTED]");
 } else {
 	console.log("No API key provided");
 }
