@@ -38,3 +38,19 @@ jobs:
 
       - name: Check formatting
         run: bunx prettier --check .
+
+      - name: Verify @types/vscode matches engines.vscode
+        run: |
+          node -e "
+          const pkg = require('./package.json');
+          const engVer = pkg.engines.vscode.replace(/[^0-9.]/g, '');
+          const typesRange = pkg.devDependencies['@types/vscode'];
+          const typesVer = typesRange.replace(/[^0-9.]/g, '');
+          const [eM, em] = engVer.split('.').map(Number);
+          const [tM, tm] = typesVer.split('.').map(Number);
+          if (tM > eM || (tM === eM && tm > em)) {
+            console.error('@types/vscode ' + typesRange + ' is newer than engines.vscode ' + pkg.engines.vscode);
+            process.exit(1);
+          }
+          console.log('engines.vscode ' + pkg.engines.vscode + ' >= @types/vscode ' + typesRange + ' ✓');
+          "
