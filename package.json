@@ -111,7 +111,7 @@
 		"watch": "tsc -watch -p ./",
 		"mock-server": "node scripts/mock-litellm-server.js",
 		"test": "bun run compile && vscode-test --label unit",
-		"real-test": "node scripts/real-test.js",
+		"host-fidelity-test": "node scripts/host-fidelity-test.js",
 		"bump-version": "node scripts/bump-version.js"
 	},
 	"devDependencies": {
