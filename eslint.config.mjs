@@ -48,7 +48,7 @@ export default tseslint.config(
 	},
 	// Special configuration for Node.js scripts
 	{
-		files: ['scripts/**/*.js'],
+		files: ['scripts/**/*.js', '.vscode-test.mjs'],
 		languageOptions: {
 			globals: {
 				require: 'readonly',
