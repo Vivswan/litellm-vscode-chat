@@ -118,15 +118,16 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 		}
 	}
 
-	// Detect whether this node is primarily defined by composites or $ref.
+	// Detect whether this node is primarily defined by composites, $ref, or const.
 	// These nodes should not have a default type forced on them.
 	const hasComposite = ["anyOf", "oneOf", "allOf"].some(
 		(k) => Array.isArray(schema[k]) && (schema[k] as unknown[]).length > 0
 	);
 	const hasRef = typeof schema["$ref"] === "string";
+	const hasConst = "const" in schema;
 
 	let t = schema.type as string | undefined;
-	if (t == null && !hasComposite && !hasRef) {
+	if (t == null && !hasComposite && !hasRef && !hasConst) {
 		t = "object";
 		schema.type = t;
 	}
