@@ -26,7 +26,7 @@ function isVersionCompatible(current: string, required: string): boolean {
 
 export function activate(context: vscode.ExtensionContext) {
 	// Check VS Code version compatibility
-	const minVersion = "1.108.0";
+	const minVersion = "1.110.0";
 	if (!isVersionCompatible(vscode.version, minVersion)) {
 		vscode.window
 			.showErrorMessage(
