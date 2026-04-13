@@ -90,6 +90,11 @@
 					"additionalProperties": {
 						"type": "object"
 					}
+				},
+				"litellm-vscode-chat.maskApiKeyInput": {
+					"type": "boolean",
+					"default": true,
+					"description": "Mask the API key input field when configuring. Disable to see the key as you type."
 				}
 			}
 		}
