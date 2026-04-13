@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, deploy ]
   pull_request:
@@ -10,6 +11,15 @@ permissions:
   contents: read
 
 jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Lint GitHub Actions workflows
+        uses: devops-actions/actionlint@469810fd82c015d3c43815cd2b0e4d02eecc4819 # v0.1.11
+
   test:
     uses: ./.github/workflows/test-reusable.yml
     with:

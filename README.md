@@ -6,7 +6,9 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 
 - Access 100+ LLMs (OpenAI, Anthropic, Google, AWS, Azure, and more) through a unified API
 - Automatic provider selection with `cheapest` and `fastest` modes
-- Support for streaming, function calling, and vision models
+- **Multimodal support**: Vision (images), PDF/document attachments, and text/JSON data
+- Support for streaming, function calling, and thinking/reasoning tokens
+- Broad model options pass-through (`response_format`, `reasoning_effort`, `seed`, and more)
 - Self-hosted or cloud-based deployment options
 
 ## Requirements
@@ -80,7 +82,12 @@ Override default request parameters for specific models using the `modelParamete
 - `frequency_penalty` - Reduce repetition (-2.0 to 2.0)
 - `presence_penalty` - Encourage new topics (-2.0 to 2.0)
 - `stop` - Stop sequences (string or array)
-- And any parameter supported by your litellm and model provier back end
+- `response_format` - Structured output / JSON mode
+- `reasoning_effort` - Thinking/reasoning control (for supported models)
+- `seed` - Deterministic output
+- And any other parameter supported by your LiteLLM and model provider backend
+
+All `modelParameters` keys are passed through to LiteLLM — the extension does not filter or restrict which parameters you can set.
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
@@ -205,19 +212,19 @@ The output channel logs:
 ```bash
 git clone https://github.com/Vivswan/litellm-vscode-chat
 cd litellm-vscode-chat
-npm install
-npm run compile
+bun install
+bun run compile
 ```
 
 Press `F5` to launch the Extension Development Host.
 
 | Command | Description |
 |---------|-------------|
-| `npm run compile` | Build |
-| `npm run watch` | Watch mode |
-| `npm run lint` | Lint |
-| `npm run format` | Format |
-| `npm test` | Run tests |
+| `bun run compile` | Build |
+| `bun run watch` | Watch mode |
+| `bun run lint` | Lint |
+| `bun run format` | Format |
+| `bun run test` | Run tests |
 
 ## Resources
 

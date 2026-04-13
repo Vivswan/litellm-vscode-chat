@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import type {
 	OpenAIChatContentBlock,
+	OpenAIChatFileContentBlock,
+	OpenAIChatImageUrlContentBlock,
 	OpenAIChatMessage,
 	OpenAIChatRole,
 	OpenAIFunctionToolDef,
@@ -61,6 +63,22 @@ function pruneUnknownSchemaKeywords(schema: unknown): Record<string, unknown> {
 		"maximum",
 		"pattern",
 		"format",
+		// Widely supported by OpenAI, Anthropic, Gemini, and most LiteLLM-backed providers
+		"const",
+		"examples",
+		"title",
+		"exclusiveMinimum",
+		"exclusiveMaximum",
+		"minItems",
+		"maxItems",
+		"uniqueItems",
+		"$ref",
+		"definitions",
+		"$defs",
+		// Composite schemas — preserved and recursively sanitized
+		"anyOf",
+		"oneOf",
+		"allOf",
 	]);
 	const out: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
@@ -78,25 +96,38 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 
 	let schema = input as Record<string, unknown>;
 
+	schema = pruneUnknownSchemaKeywords(schema);
+
+	// Recursively sanitize composite schema branches instead of collapsing them
 	for (const composite of ["anyOf", "oneOf", "allOf"]) {
-		const branch = (schema as Record<string, unknown>)[composite] as unknown;
+		const branch = schema[composite] as unknown;
 		if (Array.isArray(branch) && branch.length > 0) {
-			let preferred: Record<string, unknown> | undefined;
-			for (const b of branch) {
-				if (b && typeof b === "object" && (b as Record<string, unknown>).type === "string") {
-					preferred = b as Record<string, unknown>;
-					break;
-				}
-			}
-			schema = { ...(preferred ?? (branch[0] as Record<string, unknown>)) };
-			break;
+			schema[composite] = branch.filter((b) => b && typeof b === "object").map((b) => sanitizeSchema(b, propName));
 		}
 	}
 
-	schema = pruneUnknownSchemaKeywords(schema);
+	// Recursively sanitize definitions/$defs
+	for (const defKey of ["definitions", "$defs"]) {
+		const defs = schema[defKey] as Record<string, unknown> | undefined;
+		if (defs && typeof defs === "object" && !Array.isArray(defs)) {
+			const sanitized: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(defs)) {
+				sanitized[k] = sanitizeSchema(v);
+			}
+			schema[defKey] = sanitized;
+		}
+	}
+
+	// Detect whether this node is primarily defined by composites, $ref, or const.
+	// These nodes should not have a default type forced on them.
+	const hasComposite = ["anyOf", "oneOf", "allOf"].some(
+		(k) => Array.isArray(schema[k]) && (schema[k] as unknown[]).length > 0
+	);
+	const hasRef = typeof schema["$ref"] === "string";
+	const hasConst = "const" in schema;
 
 	let t = schema.type as string | undefined;
-	if (t == null) {
+	if (t == null && !hasComposite && !hasRef && !hasConst) {
 		t = "object";
 		schema.type = t;
 	}
@@ -141,6 +172,41 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 	return schema;
 }
 
+// Multimodal content helpers
+
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+function isImageMimeType(mime: string): boolean {
+	return IMAGE_MIME_TYPES.has(mime.toLowerCase());
+}
+
+function isTextMimeType(mime: string): boolean {
+	const lower = mime.toLowerCase();
+	return lower.startsWith("text/") || lower === "application/json" || lower.endsWith("+json");
+}
+
+function convertDataPartToContentBlock(
+	part: vscode.LanguageModelDataPart
+): OpenAIChatImageUrlContentBlock | OpenAIChatFileContentBlock | null {
+	const mime = part.mimeType.toLowerCase();
+	if (isImageMimeType(mime)) {
+		const base64 = Buffer.from(part.data).toString("base64");
+		return { type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } };
+	}
+	if (mime === "application/pdf") {
+		const base64 = Buffer.from(part.data).toString("base64");
+		return { type: "file", file: { file_data: `data:${mime};base64,${base64}` } };
+	}
+	return null;
+}
+
+function decodeDataPartText(part: vscode.LanguageModelDataPart): string | null {
+	if (isTextMimeType(part.mimeType)) {
+		return new TextDecoder().decode(part.data);
+	}
+	return null;
+}
+
 /**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
  * @param messages The VS Code chat messages to convert.
@@ -157,13 +223,15 @@ export function convertMessages(
 		const textParts: string[] = [];
 		const toolCalls: OpenAIToolCall[] = [];
 		const toolResults: { callId: string; content: string }[] = [];
+		const contentBlocks: OpenAIChatContentBlock[] = [];
+		let hasNonTextBlocks = false;
 
 		for (const part of m.content ?? []) {
 			if (part instanceof vscode.LanguageModelTextPart) {
 				textParts.push(part.value);
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
 				const id = part.callId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-				let args = "{}";
+				let args;
 				try {
 					args = JSON.stringify(part.input ?? {});
 				} catch {
@@ -174,6 +242,31 @@ export function convertMessages(
 				const callId = (part as { callId?: string }).callId ?? "";
 				const content = collectToolResultText(part as { content?: ReadonlyArray<unknown> });
 				toolResults.push({ callId, content });
+			} else if (part instanceof vscode.LanguageModelDataPart) {
+				const block = convertDataPartToContentBlock(part);
+				if (block) {
+					// Flush accumulated text before the non-text block to preserve ordering
+					if (textParts.length > 0) {
+						contentBlocks.push({ type: "text", text: textParts.join("") });
+						textParts.length = 0;
+					}
+					contentBlocks.push(block);
+					hasNonTextBlocks = true;
+				} else {
+					const decoded = decodeDataPartText(part);
+					if (decoded !== null) {
+						textParts.push(decoded);
+					} else {
+						console.log(
+							`[LiteLLM Model Provider] Skipping unsupported LanguageModelDataPart with MIME type: ${part.mimeType}`
+						);
+					}
+				}
+			} else if (isPromptTsxPart(part)) {
+				const extracted = extractPromptTsxText(part);
+				if (extracted) {
+					textParts.push(extracted);
+				}
 			}
 		}
 
@@ -187,19 +280,29 @@ export function convertMessages(
 			out.push({ role: "tool", tool_call_id: tr.callId, content: tr.content || "" });
 		}
 
-		const text = textParts.join("");
-		if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
-			if (role === "system" && options?.cacheSystemPrompt) {
-				const content: OpenAIChatContentBlock[] = [
-					{
-						type: "text",
-						text,
-						cache_control: { type: "ephemeral" },
-					},
-				];
-				out.push({ role, content });
-			} else {
-				out.push({ role, content: text });
+		if (role === "user" && hasNonTextBlocks) {
+			// Flush any remaining text after the last non-text block
+			if (textParts.length > 0) {
+				contentBlocks.push({ type: "text", text: textParts.join("") });
+			}
+			if (contentBlocks.length > 0) {
+				out.push({ role, content: contentBlocks });
+			}
+		} else {
+			const text = textParts.join("");
+			if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
+				if (role === "system" && options?.cacheSystemPrompt) {
+					const content: OpenAIChatContentBlock[] = [
+						{
+							type: "text",
+							text,
+							cache_control: { type: "ephemeral" },
+						},
+					];
+					out.push({ role, content });
+				} else {
+					out.push({ role, content: text });
+				}
 			}
 		}
 	}
@@ -212,7 +315,7 @@ export function convertMessages(
  */
 export function convertTools(options: vscode.ProvideLanguageModelChatResponseOptions): {
 	tools?: OpenAIFunctionToolDef[];
-	tool_choice?: "auto" | { type: "function"; function: { name: string } };
+	tool_choice?: "auto" | "required" | { type: "function"; function: { name: string } };
 } {
 	const tools = options.tools ?? [];
 	if (!tools || tools.length === 0) {
@@ -235,31 +338,16 @@ export function convertTools(options: vscode.ProvideLanguageModelChatResponseOpt
 			} satisfies OpenAIFunctionToolDef;
 		});
 
-	let tool_choice: "auto" | { type: "function"; function: { name: string } } = "auto";
+	let tool_choice: "auto" | "required" | { type: "function"; function: { name: string } } = "auto";
 	if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
-		if (tools.length !== 1) {
-			console.error("[LiteLLM Model Provider] ToolMode.Required but multiple tools:", tools.length);
-			throw new Error("LanguageModelChatToolMode.Required is not supported with more than one tool");
+		if (tools.length === 1) {
+			tool_choice = { type: "function", function: { name: sanitizeFunctionName(tools[0].name) } };
+		} else {
+			tool_choice = "required";
 		}
-		tool_choice = { type: "function", function: { name: sanitizeFunctionName(tools[0].name) } };
 	}
 
 	return { tools: toolDefs, tool_choice };
-}
-
-/**
- * Validate tool names to ensure they contain only word chars, hyphens, or underscores.
- * @param tools Tools to validate.
- */
-export function validateTools(tools: readonly vscode.LanguageModelChatTool[]): void {
-	for (const tool of tools) {
-		if (!tool.name.match(/^[\w-]+$/)) {
-			console.error("[LiteLLM Model Provider] Invalid tool name detected:", tool.name);
-			throw new Error(
-				`Invalid tool name "${tool.name}": only alphanumeric characters, hyphens, and underscores are allowed.`
-			);
-		}
-	}
 }
 
 /**
@@ -353,6 +441,18 @@ function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }): string
 	for (const c of pr.content ?? []) {
 		if (c instanceof vscode.LanguageModelTextPart) {
 			text += c.value;
+		} else if (c instanceof vscode.LanguageModelDataPart) {
+			const decoded = decodeDataPartText(c);
+			if (decoded !== null) {
+				text += decoded;
+			} else if (isImageMimeType(c.mimeType)) {
+				console.log("[LiteLLM Model Provider] Tool returned image data which cannot be forwarded as tool result text");
+			}
+		} else if (isPromptTsxPart(c)) {
+			const extracted = extractPromptTsxText(c);
+			if (extracted) {
+				text += extracted;
+			}
 		} else if (typeof c === "string") {
 			text += c;
 		} else {
@@ -364,6 +464,36 @@ function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }): string
 		}
 	}
 	return text;
+}
+
+/**
+ * Type guard for LanguageModelPromptTsxPart-like values.
+ */
+function isPromptTsxPart(value: unknown): boolean {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	const ctorName = (Object.getPrototypeOf(value as object) as { constructor?: { name?: string } } | undefined)
+		?.constructor?.name;
+	return ctorName === "LanguageModelPromptTsxPart";
+}
+
+/**
+ * Extract text from a LanguageModelPromptTsxPart-like value.
+ */
+function extractPromptTsxText(part: unknown): string | null {
+	const obj = part as Record<string, unknown>;
+	if (typeof obj.value === "string") {
+		return obj.value;
+	}
+	if (obj.value !== undefined && obj.value !== null) {
+		try {
+			return JSON.stringify(obj.value);
+		} catch {
+			return null;
+		}
+	}
+	return null;
 }
 
 /**

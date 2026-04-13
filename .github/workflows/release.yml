@@ -1,6 +1,7 @@
 name: Deploy and Release
 
 on:
+  workflow_dispatch:
   push:
     branches: [ deploy ]
 
@@ -36,7 +37,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: package.json
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -48,15 +49,15 @@ jobs:
       - name: Get version from package.json
         id: version
         run: |
-          PACKAGE_VERSION=$(cat package.json | grep version | head -1 | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d ' ')
-          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version from package.json: $PACKAGE_VERSION"
 
       - name: Package VSIX
         run: bunx @vscode/vsce package -o extension.vsix
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: vsix
           path: extension.vsix
@@ -73,9 +74,9 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: package.json
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: vsix
           path: .

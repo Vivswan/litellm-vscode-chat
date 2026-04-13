@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
-import { convertMessages, convertTools, validateRequest, validateTools, tryParseJSONObject } from "../utils";
+import { convertMessages, convertTools, validateRequest, tryParseJSONObject } from "../utils";
 
 interface OpenAIToolCall {
 	id: string;
@@ -97,6 +97,42 @@ suite("LiteLLM Chat Provider Extension", () => {
 			assert.ok(est > 0);
 		});
 
+		test("provideTokenCount estimates tokens for image parts", async () => {
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async () => undefined,
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+			const imageData = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+			const msg: vscode.LanguageModelChatMessage = {
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [
+					new vscode.LanguageModelTextPart("describe"),
+					new vscode.LanguageModelDataPart(imageData, "image/png"),
+				],
+				name: undefined,
+			};
+			const est = await provider.provideTokenCount(
+				{
+					id: "m",
+					name: "m",
+					family: "litellm",
+					version: "1.0.0",
+					maxInputTokens: 100000,
+					maxOutputTokens: 1000,
+					capabilities: {},
+				} as unknown as vscode.LanguageModelChatInformation,
+				msg,
+				new vscode.CancellationTokenSource().token
+			);
+			// Should include both text tokens (~2) and image tokens (765)
+			assert.ok(est >= 765, `Should estimate at least 765 tokens for the image, got ${est}`);
+		});
+
 		test("provideLanguageModelChatResponse throws without configuration", async () => {
 			const provider = new LiteLLMChatModelProvider(
 				{
@@ -187,268 +223,276 @@ suite("LiteLLM Chat Provider Extension", () => {
 		test("uses workspace settings as fallback when provider fields absent", async () => {
 			// Mock fetch to return model without token constraints
 			const originalFetch = global.fetch;
-			global.fetch = async () =>
-				({
-					ok: true,
-					json: async () => ({
-						object: "list",
-						data: [
-							{
-								id: "test-model",
-								object: "model",
-								created: 0,
-								owned_by: "test",
-								providers: [
-									{
-										provider: "test-provider",
-										status: "active",
-										supports_tools: true,
-									},
-								],
-							},
-						],
-					}),
-				}) as unknown as Response;
-
-			// Mock workspace configuration
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
-			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat") {
-					return {
-						get: (key: string, defaultValue?: unknown) => {
-							if (key === "defaultMaxOutputTokens") {
-								return 20000;
-							}
-							if (key === "defaultContextLength") {
-								return 200000;
-							}
-							if (key === "defaultMaxInputTokens") {
-								return null;
-							}
-							return defaultValue;
-						},
-					} as unknown as vscode.WorkspaceConfiguration;
-				}
-				return originalGetConfiguration(section);
-			}) as unknown as typeof vscode.workspace.getConfiguration;
+			try {
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [
+										{
+											provider: "test-provider",
+											status: "active",
+											supports_tools: true,
+										},
+									],
+								},
+							],
+						}),
+					}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+				// Mock workspace configuration
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "defaultMaxOutputTokens") {
+									return 20000;
+								}
+								if (key === "defaultContextLength") {
+									return 200000;
+								}
+								if (key === "defaultMaxInputTokens") {
+									return null;
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
 
-			const infos = await provider.prepareLanguageModelChatInformation(
-				{ silent: true },
-				new vscode.CancellationTokenSource().token
-			);
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
 
-			global.fetch = originalFetch;
-			vscode.workspace.getConfiguration = originalGetConfiguration;
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
 
-			// Find the per-provider entry
-			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
-			assert.ok(providerEntry, "Provider entry should exist");
-			assert.equal(providerEntry.maxOutputTokens, 20000, "Should use workspace setting for max output tokens");
-			assert.equal(providerEntry.maxInputTokens, 180000, "Should calculate max input as context - output");
+				// Find the per-provider entry
+				const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
+				assert.ok(providerEntry, "Provider entry should exist");
+				assert.equal(providerEntry.maxOutputTokens, 20000, "Should use workspace setting for max output tokens");
+				assert.equal(providerEntry.maxInputTokens, 180000, "Should calculate max input as context - output");
+			} finally {
+				global.fetch = originalFetch;
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
 		});
 
 		test("uses configured defaultMaxInputTokens as an explicit override", async () => {
 			const originalFetch = global.fetch;
-			global.fetch = async () =>
-				({
-					ok: true,
-					json: async () => ({
-						object: "list",
-						data: [
-							{
-								id: "test-model",
-								object: "model",
-								created: 0,
-								owned_by: "test",
-								providers: [
-									{
-										provider: "test-provider",
-										status: "active",
-										supports_tools: true,
-										context_length: 100000,
-										max_output_tokens: 8000,
-										max_input_tokens: 90000,
-									},
-								],
-							},
-						],
-					}),
-				}) as unknown as Response;
-
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
-			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat") {
-					return {
-						get: (key: string, defaultValue?: unknown) => {
-							if (key === "defaultMaxInputTokens") {
-								return 50000;
-							}
-							return defaultValue;
-						},
-					} as unknown as vscode.WorkspaceConfiguration;
-				}
-				return originalGetConfiguration(section);
-			}) as unknown as typeof vscode.workspace.getConfiguration;
+			try {
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [
+										{
+											provider: "test-provider",
+											status: "active",
+											supports_tools: true,
+											context_length: 100000,
+											max_output_tokens: 8000,
+											max_input_tokens: 90000,
+										},
+									],
+								},
+							],
+						}),
+					}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "defaultMaxInputTokens") {
+									return 50000;
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
 
-			const infos = await provider.prepareLanguageModelChatInformation(
-				{ silent: true },
-				new vscode.CancellationTokenSource().token
-			);
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
 
-			global.fetch = originalFetch;
-			vscode.workspace.getConfiguration = originalGetConfiguration;
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
 
-			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
-			assert.ok(providerEntry, "Provider entry should exist");
-			assert.equal(providerEntry.maxInputTokens, 50000, "Should use configured max input token override");
+				const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
+				assert.ok(providerEntry, "Provider entry should exist");
+				assert.equal(providerEntry.maxInputTokens, 50000, "Should use configured max input token override");
+			} finally {
+				global.fetch = originalFetch;
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
 		});
 
 		test("treats null provider max_input_tokens as missing and falls back to workspace setting", async () => {
 			const originalFetch = global.fetch;
-			global.fetch = async () =>
-				({
-					ok: true,
-					json: async () => ({
-						object: "list",
-						data: [
-							{
-								id: "test-model",
-								object: "model",
-								created: 0,
-								owned_by: "test",
-								providers: [
-									{
-										provider: "test-provider",
-										status: "active",
-										supports_tools: true,
-										context_length: 100000,
-										max_output_tokens: 8000,
-										max_input_tokens: null,
-									},
-								],
-							},
-						],
-					}),
-				}) as unknown as Response;
-
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
-			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat") {
-					return {
-						get: (key: string, defaultValue?: unknown) => {
-							if (key === "defaultMaxInputTokens") {
-								return 48000;
-							}
-							return defaultValue;
-						},
-					} as unknown as vscode.WorkspaceConfiguration;
-				}
-				return originalGetConfiguration(section);
-			}) as unknown as typeof vscode.workspace.getConfiguration;
+			try {
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [
+										{
+											provider: "test-provider",
+											status: "active",
+											supports_tools: true,
+											context_length: 100000,
+											max_output_tokens: 8000,
+											max_input_tokens: null,
+										},
+									],
+								},
+							],
+						}),
+					}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "defaultMaxInputTokens") {
+									return 48000;
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
 
-			const infos = await provider.prepareLanguageModelChatInformation(
-				{ silent: true },
-				new vscode.CancellationTokenSource().token
-			);
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
 
-			global.fetch = originalFetch;
-			vscode.workspace.getConfiguration = originalGetConfiguration;
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
 
-			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
-			assert.ok(providerEntry, "Provider entry should exist");
-			assert.equal(providerEntry.maxInputTokens, 48000, "Should ignore null provider max_input_tokens");
+				const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
+				assert.ok(providerEntry, "Provider entry should exist");
+				assert.equal(providerEntry.maxInputTokens, 48000, "Should ignore null provider max_input_tokens");
+			} finally {
+				global.fetch = originalFetch;
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
 		});
 
 		test("uses hardcoded defaults when provider and settings absent", async () => {
-			// Mock fetch to return model without token constraints
 			const originalFetch = global.fetch;
-			global.fetch = async () =>
-				({
-					ok: true,
-					json: async () => ({
-						object: "list",
-						data: [
-							{
-								id: "test-model",
-								object: "model",
-								created: 0,
-								owned_by: "test",
-								providers: [
-									{
-										provider: "test-provider",
-										status: "active",
-										supports_tools: true,
-									},
-								],
-							},
-						],
-					}),
-				}) as unknown as Response;
-
-			// Mock workspace configuration to return defaults
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
-			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat") {
-					return {
-						get: (key: string, defaultValue?: unknown) => defaultValue,
-					} as unknown as vscode.WorkspaceConfiguration;
-				}
-				return originalGetConfiguration(section);
-			}) as unknown as typeof vscode.workspace.getConfiguration;
+			try {
+				// Mock fetch to return model without token constraints
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [
+										{
+											provider: "test-provider",
+											status: "active",
+											supports_tools: true,
+										},
+									],
+								},
+							],
+						}),
+					}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+				// Mock workspace configuration to return defaults
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (_key: string, defaultValue?: unknown) => defaultValue,
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
 
-			const infos = await provider.prepareLanguageModelChatInformation(
-				{ silent: true },
-				new vscode.CancellationTokenSource().token
-			);
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
 
-			global.fetch = originalFetch;
-			vscode.workspace.getConfiguration = originalGetConfiguration;
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
 
-			// Find the per-provider entry
-			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
-			assert.ok(providerEntry, "Provider entry should exist");
-			assert.equal(providerEntry.maxOutputTokens, 16000, "Should use hardcoded default for max output tokens");
-			assert.equal(providerEntry.maxInputTokens, 112000, "Should calculate with hardcoded defaults (128000 - 16000)");
+				// Find the per-provider entry
+				const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
+				assert.ok(providerEntry, "Provider entry should exist");
+				assert.equal(providerEntry.maxOutputTokens, 16000, "Should use hardcoded default for max output tokens");
+				assert.equal(providerEntry.maxInputTokens, 112000, "Should calculate with hardcoded defaults (128000 - 16000)");
+			} finally {
+				global.fetch = originalFetch;
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
 		});
 
 		test("aggregates minimum token constraints for cheapest/fastest entries", async () => {
@@ -1118,6 +1162,148 @@ suite("LiteLLM Chat Provider Extension", () => {
 			assert.ok(Array.isArray(out[0].tool_calls) && out[0].tool_calls.length === 1);
 			assert.equal(out[0].tool_calls?.[0].function.name, "search");
 		});
+
+		test("converts user message with image to array content", () => {
+			const imageData = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+			const dataPart = new vscode.LanguageModelDataPart(imageData, "image/png");
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("What is in this image?"), dataPart],
+					name: undefined,
+				},
+			];
+			const out = convertMessages(messages);
+			assert.equal(out.length, 1);
+			assert.equal(out[0].role, "user");
+			assert.ok(Array.isArray(out[0].content), "content should be an array when images present");
+			const content = out[0].content as Array<{ type: string }>;
+			assert.equal(content.length, 2);
+			assert.equal(content[0].type, "text");
+			assert.equal(content[1].type, "image_url");
+			const imageBlock = content[1] as { type: string; image_url: { url: string } };
+			assert.ok(imageBlock.image_url.url.startsWith("data:image/png;base64,"));
+		});
+
+		test("user message without images produces string content", () => {
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("hello")],
+					name: undefined,
+				},
+			];
+			const out = convertMessages(messages);
+			assert.equal(out[0].content, "hello");
+			assert.equal(typeof out[0].content, "string");
+		});
+
+		test("image-only user message produces array content", () => {
+			const imageData = new Uint8Array([0xff, 0xd8, 0xff]);
+			const dataPart = new vscode.LanguageModelDataPart(imageData, "image/jpeg");
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [dataPart],
+					name: undefined,
+				},
+			];
+			const out = convertMessages(messages);
+			assert.equal(out.length, 1);
+			const content = out[0].content as Array<{ type: string }>;
+			assert.ok(Array.isArray(content));
+			assert.equal(content.length, 1);
+			assert.equal(content[0].type, "image_url");
+		});
+
+		test("handles multiple images in a single user message", () => {
+			const img1 = new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
+			const img2 = new vscode.LanguageModelDataPart(new Uint8Array([4, 5, 6]), "image/jpeg");
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("Compare these:"), img1, img2],
+					name: undefined,
+				},
+			];
+			const out = convertMessages(messages);
+			const content = out[0].content as Array<{ type: string }>;
+			assert.ok(Array.isArray(content));
+			assert.equal(content.length, 3); // 1 text + 2 images
+			assert.equal(content[0].type, "text");
+			assert.equal(content[1].type, "image_url");
+			assert.equal(content[2].type, "image_url");
+		});
+
+		test("preserves ordering of text and image parts", () => {
+			const img = new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("before"), img, new vscode.LanguageModelTextPart("after")],
+					name: undefined,
+				},
+			];
+			const out = convertMessages(messages);
+			const content = out[0].content as Array<{ type: string }>;
+			assert.ok(Array.isArray(content));
+			assert.equal(content.length, 3);
+			assert.equal(content[0].type, "text");
+			assert.equal((content[0] as unknown as { text: string }).text, "before");
+			assert.equal(content[1].type, "image_url");
+			assert.equal(content[2].type, "text");
+			assert.equal((content[2] as unknown as { text: string }).text, "after");
+		});
+
+		test("decodes text/json LanguageModelDataPart as text", () => {
+			const jsonData = new TextEncoder().encode('{"key":"value"}');
+			const jsonPart = new vscode.LanguageModelDataPart(jsonData, "application/json");
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("here is data: "), jsonPart],
+					name: undefined,
+				},
+			];
+			const out = convertMessages(messages);
+			assert.equal(typeof out[0].content, "string");
+			assert.ok((out[0].content as string).includes('{"key":"value"}'));
+		});
+
+		test("converts PDF LanguageModelDataPart to file content block", () => {
+			const pdfData = new Uint8Array([0x25, 0x50, 0x44, 0x46]); // %PDF magic
+			const pdfPart = new vscode.LanguageModelDataPart(pdfData, "application/pdf");
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("Analyze this:"), pdfPart],
+					name: undefined,
+				},
+			];
+			const out = convertMessages(messages);
+			const content = out[0].content as Array<{ type: string }>;
+			assert.ok(Array.isArray(content));
+			assert.equal(content.length, 2);
+			assert.equal(content[0].type, "text");
+			assert.equal(content[1].type, "file");
+			const fileBlock = content[1] as { type: string; file: { file_data: string } };
+			assert.ok(fileBlock.file.file_data.startsWith("data:application/pdf;base64,"));
+		});
+
+		test("skips unsupported binary LanguageModelDataPart without crash", () => {
+			const binPart = new vscode.LanguageModelDataPart(new Uint8Array([0x00, 0x01]), "application/octet-stream");
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("test"), binPart],
+					name: undefined,
+				},
+			];
+			const out = convertMessages(messages);
+			// Should produce string content since the binary part is skipped
+			assert.equal(typeof out[0].content, "string");
+			assert.equal(out[0].content, "test");
+		});
 	});
 
 	suite("utils/tools", () => {
@@ -1153,9 +1339,141 @@ suite("LiteLLM Chat Provider Extension", () => {
 			assert.deepEqual(out.tool_choice, { type: "function", function: { name: "only_tool" } });
 		});
 
-		test("validateTools rejects invalid names", () => {
-			const badTools: vscode.LanguageModelChatTool[] = [{ name: "bad name!", description: "", inputSchema: {} }];
-			assert.throws(() => validateTools(badTools));
+		test("convertTools uses 'required' for ToolMode.Required with multiple tools", () => {
+			const out = convertTools({
+				toolMode: vscode.LanguageModelChatToolMode.Required,
+				tools: [
+					{ name: "tool_a", description: "A", inputSchema: {} },
+					{ name: "tool_b", description: "B", inputSchema: {} },
+				],
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+			assert.equal(out.tool_choice, "required");
+			assert.ok(Array.isArray(out.tools) && out.tools.length === 2);
+		});
+
+		test("schema preserves anyOf/oneOf/allOf branches", () => {
+			const out = convertTools({
+				tools: [
+					{
+						name: "flexible_tool",
+						description: "Tool with composite schema",
+						inputSchema: {
+							type: "object",
+							properties: {
+								value: {
+									anyOf: [{ type: "string" }, { type: "number" }],
+								},
+							},
+						},
+					},
+				],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+			assert.ok(out.tools);
+			const params = out.tools![0].function.parameters as Record<string, unknown>;
+			const props = params.properties as Record<string, Record<string, unknown>>;
+			assert.ok(Array.isArray(props.value.anyOf), "anyOf should be preserved");
+			assert.equal((props.value.anyOf as unknown[]).length, 2);
+		});
+
+		test("schema preserves const keyword", () => {
+			const out = convertTools({
+				tools: [
+					{
+						name: "const_tool",
+						description: "Tool with const",
+						inputSchema: {
+							type: "object",
+							properties: {
+								action: { type: "string", const: "submit" },
+							},
+						},
+					},
+				],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+			assert.ok(out.tools);
+			const params = out.tools![0].function.parameters as Record<string, unknown>;
+			const props = params.properties as Record<string, Record<string, unknown>>;
+			assert.equal(props.action.const, "submit", "const keyword should be preserved");
+		});
+
+		test("schema does not force type on const-only nodes", () => {
+			const out = convertTools({
+				tools: [
+					{
+						name: "const_only_tool",
+						description: "Tool with const-only property",
+						inputSchema: {
+							type: "object",
+							properties: {
+								action: { const: "submit" },
+							},
+						},
+					},
+				],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+			assert.ok(out.tools);
+			const params = out.tools![0].function.parameters as Record<string, unknown>;
+			const props = params.properties as Record<string, Record<string, unknown>>;
+			assert.equal(props.action.const, "submit", "const should be preserved");
+			assert.equal(props.action.type, undefined, "type should not be forced on const-only node");
+			assert.equal(props.action.properties, undefined, "properties should not be added to const-only node");
+		});
+
+		test("schema does not force type on $ref-only nodes", () => {
+			const out = convertTools({
+				tools: [
+					{
+						name: "ref_tool",
+						description: "Tool with $ref",
+						inputSchema: {
+							type: "object",
+							properties: {
+								item: { $ref: "#/$defs/Item" },
+							},
+							$defs: {
+								Item: { type: "string" },
+							},
+						},
+					},
+				],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+			assert.ok(out.tools);
+			const params = out.tools![0].function.parameters as Record<string, unknown>;
+			const props = params.properties as Record<string, Record<string, unknown>>;
+			assert.equal(props.item["$ref"], "#/$defs/Item", "$ref should be preserved");
+			assert.equal(props.item.type, undefined, "type should not be forced on $ref node");
+			assert.equal(props.item.properties, undefined, "properties should not be added to $ref node");
+		});
+
+		test("schema does not force type on type-less anyOf nodes", () => {
+			const out = convertTools({
+				tools: [
+					{
+						name: "union_tool",
+						description: "Tool with typeless anyOf",
+						inputSchema: {
+							type: "object",
+							properties: {
+								value: {
+									anyOf: [{ type: "string" }, { type: "number" }],
+									description: "A string or number",
+								},
+							},
+						},
+					},
+				],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+			assert.ok(out.tools);
+			const params = out.tools![0].function.parameters as Record<string, unknown>;
+			const props = params.properties as Record<string, Record<string, unknown>>;
+			assert.ok(Array.isArray(props.value.anyOf), "anyOf should be preserved");
+			assert.equal(props.value.type, undefined, "type should not be forced on anyOf node");
+			assert.equal(props.value.properties, undefined, "properties should not be added to anyOf node");
 		});
 	});
 
@@ -1366,6 +1684,218 @@ suite("LiteLLM Chat Provider Extension", () => {
 
 			const modelEntry = infos.find((i) => i.id === "preferred-name");
 			assert.ok(modelEntry, "Should use model_name as first priority");
+		});
+
+		test("extended model metadata captured from model/info", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						data: [
+							{
+								model_name: "gpt-4o",
+								model_info: {
+									id: "gpt-4o",
+									supports_function_calling: true,
+									supports_vision: true,
+									supports_response_schema: true,
+									supports_reasoning: false,
+									supports_pdf_input: true,
+									max_tokens: 16384,
+									max_input_tokens: 128000,
+								},
+							},
+						],
+					}),
+				}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			global.fetch = originalFetch;
+
+			assert.ok(infos.length > 0, "Should return models");
+			const modelEntry = infos.find((i) => i.id === "gpt-4o");
+			assert.ok(modelEntry, "Should have gpt-4o entry");
+			assert.equal(modelEntry.capabilities.imageInput, true, "Should detect vision support");
+		});
+	});
+
+	suite("streaming response processing", () => {
+		test("processDelta emits text content from string delta", async () => {
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async () => undefined,
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const parts: vscode.LanguageModelResponsePart[] = [];
+			const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const emitted = await (provider as any).processDelta(
+				{
+					choices: [{ delta: { content: "Hello world" } }],
+				},
+				progress
+			);
+
+			assert.ok(emitted, "Should report emitted = true");
+			assert.ok(parts.length > 0, "Should emit at least one part");
+			const textPart = parts.find((p) => p instanceof vscode.LanguageModelTextPart) as vscode.LanguageModelTextPart;
+			assert.ok(textPart, "Should emit a text part");
+			assert.ok(textPart.value.includes("Hello world"), "Text should contain the content");
+		});
+
+		test("processDelta handles tool calls in delta", async () => {
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async () => undefined,
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const parts: vscode.LanguageModelResponsePart[] = [];
+			const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			await (provider as any).processDelta(
+				{
+					choices: [
+						{
+							delta: {
+								tool_calls: [
+									{
+										index: 0,
+										id: "call_123",
+										function: { name: "test_tool", arguments: '{"key":"value"}' },
+									},
+								],
+							},
+						},
+					],
+				},
+				progress
+			);
+
+			assert.ok(parts.length > 0, "Should emit tool call part");
+			const toolPart = parts.find(
+				(p) => p instanceof vscode.LanguageModelToolCallPart
+			) as vscode.LanguageModelToolCallPart;
+			assert.ok(toolPart, "Should emit a LanguageModelToolCallPart");
+			assert.equal(toolPart.name, "test_tool");
+		});
+
+		test("processDelta logs token usage", async () => {
+			const logs: string[] = [];
+			const mockOutput = {
+				appendLine: (msg: string) => logs.push(msg),
+				show: () => {},
+				dispose: () => {},
+			} as unknown as vscode.OutputChannel;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async () => undefined,
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test",
+				mockOutput
+			);
+
+			const parts: vscode.LanguageModelResponsePart[] = [];
+			const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			await (provider as any).processDelta(
+				{
+					choices: [],
+					usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+				},
+				progress
+			);
+
+			assert.ok(
+				logs.some((l) => l.includes("Token usage")),
+				"Should log token usage"
+			);
+		});
+
+		test("processTextContent strips control tokens", async () => {
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async () => undefined,
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const parts: vscode.LanguageModelResponsePart[] = [];
+			const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const result = (provider as any).processTextContent(
+				"Hello <|tool_calls_section_begin|>world<|tool_calls_section_end|>",
+				progress
+			);
+
+			assert.ok(result.emittedText, "Should emit text");
+			const textPart = parts.find((p) => p instanceof vscode.LanguageModelTextPart) as vscode.LanguageModelTextPart;
+			assert.ok(textPart, "Should emit a text part");
+			assert.ok(!textPart.value.includes("<|"), "Should not contain control tokens");
+			assert.ok(textPart.value.includes("Hello"), "Should preserve visible text");
+			assert.ok(textPart.value.includes("world"), "Should preserve visible text");
+		});
+
+		test("processTextContent parses inline tool calls", async () => {
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async () => undefined,
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+
+			const parts: vscode.LanguageModelResponsePart[] = [];
+			const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(provider as any).processTextContent(
+				'<|tool_call_begin|>my_tool<|tool_call_argument_begin|>{"arg":"val"}<|tool_call_end|>',
+				progress
+			);
+
+			const toolPart = parts.find(
+				(p) => p instanceof vscode.LanguageModelToolCallPart
+			) as vscode.LanguageModelToolCallPart;
+			assert.ok(toolPart, "Should emit a tool call from inline control tokens");
+			assert.equal(toolPart.name, "my_tool");
 		});
 	});
 });
