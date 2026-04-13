@@ -773,6 +773,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					if (providerOwnedKeys.has(key)) {
 						continue; // never overwrite provider-owned fields
 					}
+					if (key.startsWith("_")) {
+						continue; // skip VS Code internal fields (e.g. _capturingTokenCorrelationId)
+					}
 					(requestBody as Record<string, unknown>)[key] = value;
 				}
 			}

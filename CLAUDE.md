@@ -150,6 +150,7 @@ The `modelParameters` setting uses longest-prefix matching, so `"gpt-4"` matches
 
 The extension uses a broad pass-through approach for model parameters rather than an allow-list:
 - **Provider-owned fields** (never overwritable): `model`, `messages`, `stream`, `tools`, `tool_choice`
+- **Internal fields** (filtered): Keys starting with `_` are skipped (VS Code injects internal fields like `_capturingTokenCorrelationId` into `modelOptions`)
 - **Special handling**: `max_tokens` has its own precedence logic (runtime > config > default clamped to model max)
 - **Everything else**: All keys from `modelParameters` config and `options.modelOptions` runtime are forwarded directly to LiteLLM
 
