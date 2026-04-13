@@ -61,7 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
 		state: "not-configured" | "loading" | "connected" | "error";
 		modelCount?: number;
 		error?: string;
-		lastChecked?: Date;
+		lastChecked?: string;
 	}
 
 	let connectionStatus: ConnectionStatus = { state: "not-configured" };
@@ -128,13 +128,18 @@ export function activate(context: vscode.ExtensionContext) {
 	provider.setStatusCallback((modelCount: number, error?: string) => {
 		if (error) {
 			outputChannel.appendLine(`[${new Date().toISOString()}] Model fetch failed: ${error}`);
-			updateStatusBar({ state: "error", error, lastChecked: new Date() });
+			updateStatusBar({ state: "error", error, lastChecked: new Date().toISOString() });
 		} else if (modelCount === 0) {
 			outputChannel.appendLine(`[${new Date().toISOString()}] Warning: Server returned 0 models`);
-			updateStatusBar({ state: "error", modelCount: 0, error: "Server returned 0 models", lastChecked: new Date() });
+			updateStatusBar({
+				state: "error",
+				modelCount: 0,
+				error: "Server returned 0 models",
+				lastChecked: new Date().toISOString(),
+			});
 		} else {
 			outputChannel.appendLine(`[${new Date().toISOString()}] Successfully fetched ${modelCount} models`);
-			updateStatusBar({ state: "connected", modelCount, lastChecked: new Date() });
+			updateStatusBar({ state: "connected", modelCount, lastChecked: new Date().toISOString() });
 		}
 	});
 
@@ -190,13 +195,14 @@ export function activate(context: vscode.ExtensionContext) {
 
 			// Then, prompt for API key
 			const existingApiKey = await context.secrets.get("litellm.apiKey");
+			const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
 			const apiKey = await vscode.window.showInputBox({
 				title: "LiteLLM API Key",
 				prompt: existingApiKey
 					? "Update your LiteLLM API key"
 					: "Enter your LiteLLM API key (leave empty if not required)",
 				ignoreFocusOut: true,
-				password: false,
+				password: maskApiKey,
 				value: existingApiKey ?? "",
 			});
 			if (apiKey === undefined) {
