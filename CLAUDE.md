@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a VS Code extension that integrates LiteLLM into GitHub Copilot Chat, allowing users to access 100+ LLMs (OpenAI, Anthropic, Google, AWS, Azure, etc.) through a unified API. The extension implements VS Code's Language Model Chat Provider API to enable streaming chat completions with tool calling support.
+This is a VS Code extension that integrates LiteLLM into GitHub Copilot Chat, allowing users to access 100+ LLMs (OpenAI, Anthropic, Google, AWS, Azure, etc.) through a unified API. The extension implements VS Code's Language Model Chat Provider API to enable streaming chat completions with tool calling, multimodal input (images, PDFs), and thinking/reasoning support.
 
 ## Build and Development Commands
 
@@ -76,9 +76,13 @@ Tests use the `@vscode/test-electron` framework. Run `bun test` to execute all t
 - Fetches available models from LiteLLM's `/v1/model/info` endpoint (with fallback to `/v1/models`)
 - Handles streaming chat completions via `/v1/chat/completions`
 - Converts VS Code message format to OpenAI-compatible format
-- Parses streaming SSE responses and emits parts (text, tool calls, thinking)
+- Parses streaming SSE responses and emits parts (text, tool calls, thinking/reasoning)
 - Manages tool call buffering and deduplication
 - Tracks prompt caching support per model from `/v1/model/info`
+- Captures extended model metadata (supports_response_schema, supports_reasoning, supports_pdf_input, supported_openai_params)
+- Broad model options pass-through: all `modelOptions` and `modelParameters` keys forwarded to LiteLLM except provider-owned fields (`model`, `messages`, `stream`, `stream_options`, `tools`, `tool_choice`)
+- Requests `stream_options: { include_usage: true }` by default and logs token usage from the final streaming chunk
+- Token estimation: text-only for the hard rejection path (no multimodal guesses); `provideTokenCount()` uses rough heuristics for images/PDFs for VS Code UI hints
 - Provides status callback mechanism to update extension about fetch results
 - Logs all operations to output channel for debugging
 - Shows notifications for:
@@ -87,13 +91,32 @@ Tests use the `@vscode/test-electron` framework. Run `bun test` to execute all t
   - Connection errors with actionable buttons
 
 **`src/utils.ts`**: Conversion and validation utilities
-- `convertMessages()`: Transforms VS Code messages to OpenAI format
+- `convertMessages()`: Transforms VS Code messages to OpenAI format, including multimodal content:
+  - `LanguageModelTextPart` → text content (string or text block)
+  - `LanguageModelDataPart` with image MIME (png/jpeg/gif/webp) → `image_url` content block with base64 data URL
+  - `LanguageModelDataPart` with `application/pdf` → `file` content block with base64 data URL
+  - `LanguageModelDataPart` with text/JSON MIME → decoded as text
+  - `LanguageModelPromptTsxPart` → text extraction
+  - Unknown binary MIME types → logged and skipped
+  - Preserves interleaved ordering of text/image/file parts
+  - User messages with non-text parts use array content format; text-only messages use string format
 - `convertTools()`: Transforms VS Code tool definitions to OpenAI function definitions
+  - `ToolMode.Required` with single tool → named function choice
+  - `ToolMode.Required` with multiple tools → `tool_choice: "required"` (no longer throws)
+- `sanitizeSchema()`: Sanitizes JSON schemas while preserving provider-compatible features:
+  - Preserves composite schemas (`anyOf`/`oneOf`/`allOf`) — recursively sanitizes branches instead of collapsing
+  - Preserves `$ref` and `definitions`/`$defs` for recursive schemas
+  - Preserves widely-supported keywords: `const`, `examples`, `title`, `exclusiveMinimum`/`exclusiveMaximum`, `minItems`/`maxItems`/`uniqueItems`
+  - Does NOT force `type: "object"` on nodes defined by composites or `$ref`
+  - Converts `number` → `integer` for ID-like property names
 - `validateRequest()`: Ensures correct tool call/result pairing in message sequences
-- `sanitizeSchema()`: Cleans JSON schemas to work with OpenAI's requirements (removes unsupported keywords, handles composite schemas like anyOf/oneOf/allOf, converts number types to integer for ID-like properties)
+- `collectToolResultText()`: Handles text, `LanguageModelDataPart` (text/JSON decoded, image warned), and `LanguageModelPromptTsxPart` in tool results
 - `tryParseJSONObject()`: Safely parses JSON for tool call arguments
 
 **`src/types.ts`**: TypeScript interfaces for LiteLLM and OpenAI types
+- `OpenAIChatContentBlock`: Discriminated union of `OpenAIChatTextContentBlock`, `OpenAIChatImageUrlContentBlock`, and `OpenAIChatFileContentBlock`
+- `LiteLLMProvider`: Extended with `supports_response_schema`, `supports_reasoning`, `supports_pdf_input`, `supported_openai_params`
+- `LiteLLMModelInfoItem`: Extended with `supports_response_schema`, `supports_reasoning`, `supports_pdf_input`, `supports_audio_input`, `supports_audio_output`, `supported_openai_params`
 
 ### Key Architectural Patterns
 
@@ -118,10 +141,19 @@ The provider uses rough estimation (length/4) for token counting.
 **Model Parameters vs Capabilities**
 
 There are two distinct configuration concepts:
-- **Capabilities** (read from LiteLLM API): What the model CAN do (max tokens, context length, tool support) - handled by `getTokenConstraints()`
-- **Parameters** (from user config): What we ASK the model to do (temperature, max_tokens, etc.) - handled by `getModelParameters()`
+- **Capabilities** (read from LiteLLM API): What the model CAN do (max tokens, context length, tool support, vision, reasoning, PDF input, etc.) - handled by `getTokenConstraints()` and extended metadata
+- **Parameters** (from user config or runtime): What we ASK the model to do (temperature, max_tokens, response_format, reasoning_effort, etc.) - handled by `getModelParameters()` and broad pass-through
 
 The `modelParameters` setting uses longest-prefix matching, so `"gpt-4"` matches `"gpt-4-turbo:openai"`.
+
+**Request Parameter Pass-through**
+
+The extension uses a broad pass-through approach for model parameters rather than an allow-list:
+- **Provider-owned fields** (never overwritable): `model`, `messages`, `stream`, `tools`, `tool_choice`
+- **Special handling**: `max_tokens` has its own precedence logic (runtime > config > default clamped to model max)
+- **Everything else**: All keys from `modelParameters` config and `options.modelOptions` runtime are forwarded directly to LiteLLM
+
+This enables any LiteLLM/OpenAI-compatible parameter without extension updates: `response_format`, `reasoning_effort`, `seed`, `top_k`, `parallel_tool_calls`, `logprobs`, `modalities`, `metadata`, etc.
 
 **Model Info and Prompt Caching**
 
@@ -129,6 +161,8 @@ The provider fetches model metadata from LiteLLM's `/v1/model/info` endpoint:
 - **Fallback logic**: Tries `/v1/model/info` first, falls back to `/v1/models` on any error
 - **Model ID extraction**: Uses priority fallback (model_name → litellm_params.model → model_info.key → model_info.id)
 - **Prompt caching detection**: Tracks `supports_prompt_caching` flag per model
+- **Extended metadata**: Captures `supports_response_schema`, `supports_reasoning`, `supports_pdf_input`, `supported_openai_params` for diagnostics and future use
+- **Vision detection**: Sets `imageInput` capability from `supports_vision`; includes `pdf` in `input_modalities` from `supports_pdf_input`
 - **Cache management**: Only clears cache on successful fetch to preserve data on failure
 - **Cache control**: Adds `cache_control` blocks to system messages for supported models when enabled
 
@@ -142,6 +176,16 @@ The provider handles three formats for tool calls:
 3. **Control token stripping**: Removes `<|*_section_begin|>` and `<|*_section_end|>` markers
 
 Tool calls are buffered until arguments become valid JSON, then emitted immediately to avoid perceived hanging. Deduplication prevents duplicate emissions.
+
+The provider handles thinking/reasoning tokens from multiple providers:
+- `choice.thinking` or `delta.thinking` — Anthropic Claude format (structured object with text/id/metadata)
+- `delta.reasoning_content` — DeepSeek, Kimi/Moonshot, xAI/Grok format (plain string)
+- `delta.reasoning` — other providers mapped through LiteLLM
+- All mapped to `LanguageModelThinkingPart` (probed dynamically, not yet in stable VS Code API)
+
+Structured `delta.content` arrays are handled: text blocks are extracted, non-text blocks silently ignored.
+
+Token usage from the final streaming chunk is logged to the output channel. The usage extraction runs before the `choices[0]` early-return to catch the common OpenAI `choices: []` + `usage: {...}` trailer format.
 
 **Configuration Storage**
 
