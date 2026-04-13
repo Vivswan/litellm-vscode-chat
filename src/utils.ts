@@ -350,21 +350,6 @@ export function convertTools(options: vscode.ProvideLanguageModelChatResponseOpt
 }
 
 /**
- * Validate tool names to ensure they contain only word chars, hyphens, or underscores.
- * @param tools Tools to validate.
- */
-export function validateTools(tools: readonly vscode.LanguageModelChatTool[]): void {
-	for (const tool of tools) {
-		if (!tool.name.match(/^[\w-]+$/)) {
-			console.error("[LiteLLM Model Provider] Invalid tool name detected:", tool.name);
-			throw new Error(
-				`Invalid tool name "${tool.name}": only alphanumeric characters, hyphens, and underscores are allowed.`
-			);
-		}
-	}
-}
-
-/**
  * Validate the request message sequence for correct tool call/result pairing.
  * @param messages The full request message list.
  */
