@@ -1398,6 +1398,30 @@ suite("LiteLLM Chat Provider Extension", () => {
 			assert.equal(props.action.const, "submit", "const keyword should be preserved");
 		});
 
+		test("schema does not force type on const-only nodes", () => {
+			const out = convertTools({
+				tools: [
+					{
+						name: "const_only_tool",
+						description: "Tool with const-only property",
+						inputSchema: {
+							type: "object",
+							properties: {
+								action: { const: "submit" },
+							},
+						},
+					},
+				],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+			assert.ok(out.tools);
+			const params = out.tools![0].function.parameters as Record<string, unknown>;
+			const props = params.properties as Record<string, Record<string, unknown>>;
+			assert.equal(props.action.const, "submit", "const should be preserved");
+			assert.equal(props.action.type, undefined, "type should not be forced on const-only node");
+			assert.equal(props.action.properties, undefined, "properties should not be added to const-only node");
+		});
+
 		test("schema does not force type on $ref-only nodes", () => {
 			const out = convertTools({
 				tools: [
