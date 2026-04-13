@@ -27,33 +27,10 @@ const DEFAULT_CONTEXT_LENGTH = 128000;
  */
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
-	/** Buffer for assembling streamed tool calls by index. */
-	private _toolCallBuffers: Map<number, { id?: string; name?: string; args: string }> = new Map<
-		number,
-		{ id?: string; name?: string; args: string }
-	>();
 
-	/** Indices for which a tool call has been fully emitted. */
-	private _completedToolCallIndices = new Set<number>();
+	/** Per-request streaming state, reset at the start of each chat response. */
+	private _req = LiteLLMChatModelProvider._freshRequestState();
 
-	/** Track if we emitted any assistant text before seeing tool calls (SSE-like begin-tool-calls hint). */
-	private _hasEmittedAssistantText = false;
-
-	/** Track if we emitted the begin-tool-calls whitespace flush. */
-	private _emittedBeginToolCallsHint = false;
-
-	// Lightweight tokenizer state for tool calls embedded in text
-	private _textToolParserBuffer = "";
-	private _textToolActive:
-		| undefined
-		| {
-				name?: string;
-				index?: number;
-				argBuffer: string;
-				emitted?: boolean;
-		  };
-	private _emittedTextToolCallKeys = new Set<string>();
-	private _emittedTextToolCallIds = new Set<string>();
 	/** Cache prompt-caching support per model id as reported by /v1/model/info. */
 	private _promptCachingSupport = new Map<string, boolean>();
 
@@ -62,6 +39,22 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 	/** Track if we've shown the "no config" notification this session */
 	private _hasShownNoConfigNotification = false;
+
+	/** Auto-incrementing counter for generating unique tool call IDs. */
+	private _toolCallIdCounter = 0;
+
+	private static _freshRequestState() {
+		return {
+			toolCallBuffers: new Map<number, { id?: string; name?: string; args: string }>(),
+			completedToolCallIndices: new Set<number>(),
+			hasEmittedAssistantText: false,
+			emittedBeginToolCallsHint: false,
+			textToolParserBuffer: "",
+			textToolActive: undefined as undefined | { name?: string; index?: number; argBuffer: string; emitted?: boolean },
+			emittedTextToolCallKeys: new Set<string>(),
+			emittedTextToolCallIds: new Set<string>(),
+		};
+	}
 
 	/**
 	 * Create a provider using the given secret storage for the API key.
@@ -92,12 +85,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				this.outputChannel.appendLine(`[${timestamp}] ${message}`);
 			}
 		}
-		// Also log to console for development
-		if (data !== undefined) {
-			console.log(`[LiteLLM Model Provider] ${message}`, data);
-		} else {
-			console.log(`[LiteLLM Model Provider] ${message}`);
-		}
 	}
 
 	private logError(message: string, error: unknown): void {
@@ -109,7 +96,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				this.outputChannel.appendLine(`Stack trace: ${error.stack}`);
 			}
 		}
-		console.error(`[LiteLLM Model Provider] ${message}`, error);
 	}
 
 	/**
@@ -124,6 +110,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			for (const part of m.content) {
 				if (part instanceof vscode.LanguageModelTextPart) {
 					total += Math.ceil(part.value.length / 4);
+				} else if (part instanceof vscode.LanguageModelToolCallPart) {
+					total += Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / 4);
 				} else if (part instanceof vscode.LanguageModelDataPart) {
 					const mime = part.mimeType.toLowerCase();
 					if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
@@ -548,139 +536,135 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 	private async fetchModels(apiKey: string, baseUrl: string): Promise<{ models: LiteLLMModelItem[] }> {
 		this.log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
-		const modelsList = (async () => {
-			const headers: Record<string, string> = { "User-Agent": this.userAgent };
-			if (apiKey) {
-				// Try both authentication methods: standard Bearer and X-API-Key
-				headers.Authorization = `Bearer ${apiKey}`;
-				headers["X-API-Key"] = apiKey;
-			}
-			const readErrorText = async (resp: Response): Promise<string> => {
-				let text = "";
-				try {
-					text = await resp.text();
-				} catch (error) {
-					this.logError("Failed to read response text", error);
-				}
-				return text;
-			};
-
-			const handleNonOk = async (resp: Response): Promise<never> => {
-				const text = await readErrorText(resp);
-				// Provide helpful error message for authentication failures
-				if (resp.status === 401) {
-					const err = new Error(
-						`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
-					);
-					this.logError("Authentication error", err);
-					throw err;
-				}
-
-				const err = new Error(
-					`Failed to fetch LiteLLM models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
-				);
-				this.logError("Failed to fetch LiteLLM models", err);
-				throw err;
-			};
-
-			this.log("Fetching from:", `${baseUrl}/v1/model/info`);
-
+		const headers: Record<string, string> = { "User-Agent": this.userAgent };
+		if (apiKey) {
+			// Try both authentication methods: standard Bearer and X-API-Key
+			headers.Authorization = `Bearer ${apiKey}`;
+			headers["X-API-Key"] = apiKey;
+		}
+		const readErrorText = async (resp: Response): Promise<string> => {
+			let text = "";
 			try {
-				const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
-					method: "GET",
-					headers,
-				});
-				this.log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
-				if (infoResp.ok) {
-					const parsed = (await infoResp.json()) as LiteLLMModelInfoResponse | LiteLLMModelsResponse;
-					const data = (parsed as LiteLLMModelInfoResponse).data ?? [];
-					this.log("Parsed model/info response:", { modelCount: data.length });
-					if (data.length > 0) {
-						this.log("First model/info sample:", JSON.stringify(data[0], null, 2));
-					}
-
-					const first = data[0] as LiteLLMModelItem | undefined;
-					if (first && typeof (first as LiteLLMModelItem).id === "string" && Array.isArray(first.providers)) {
-						return data as LiteLLMModelItem[];
-					}
-
-					const models = data
-						.map((item) => this.mapModelInfoToLiteLLMModel(item as LiteLLMModelInfoItem))
-						.filter((m): m is LiteLLMModelItem => Boolean(m));
-					if (data.length > 0 && models.length === 0) {
-						this.log("model/info returned data but no mappable models; falling back", { dataLength: data.length });
-					} else {
-						return models;
-					}
-				}
-				// Fall through to /v1/models fallback
+				text = await resp.text();
 			} catch (error) {
-				this.log("model/info failed, falling back to /v1/models", error);
-				// Fall through to /v1/models fallback
+				this.logError("Failed to read response text", error);
+			}
+			return text;
+		};
+
+		const handleNonOk = async (resp: Response): Promise<never> => {
+			const text = await readErrorText(resp);
+			// Provide helpful error message for authentication failures
+			if (resp.status === 401) {
+				const err = new Error(
+					`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+				);
+				this.logError("Authentication error", err);
+				throw err;
 			}
 
-			// Fallback to /v1/models
-			try {
-				this.log("Fetching from:", `${baseUrl}/v1/models`);
-				const resp = await fetch(`${baseUrl}/v1/models`, {
-					method: "GET",
-					headers,
-				});
-				this.log("Response status:", `${resp.status} ${resp.statusText}`);
-				if (!resp.ok) {
-					await handleNonOk(resp);
-				}
-				const parsed = (await resp.json()) as LiteLLMModelsResponse;
-				this.log("Parsed response:", {
-					object: parsed.object,
-					modelCount: parsed.data?.length ?? 0,
-				});
-				if (parsed.data && parsed.data.length > 0) {
-					this.log("First model sample:", JSON.stringify(parsed.data[0], null, 2));
-				}
-				return parsed.data ?? [];
-			} catch (fetchError) {
-				// Enhanced error handling for network and certificate issues
-				const errMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
-				const cause = (fetchError as Error & { cause?: unknown })?.cause;
-				const causeMsg = cause instanceof Error ? cause.message : String(cause);
-
-				// Check for common network errors
-				if (causeMsg.includes("certificate has expired") || causeMsg.includes("CERT_HAS_EXPIRED")) {
-					const err = new Error(
-						`SSL Certificate Error: The SSL certificate for ${baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`
-					);
-					this.logError("Certificate error", err);
-					throw err;
-				} else if (causeMsg.includes("certificate") || errMsg.includes("certificate")) {
-					const err = new Error(
-						`SSL Certificate Error: There is an issue with the SSL certificate for ${baseUrl}. Error: ${causeMsg || errMsg}`
-					);
-					this.logError("Certificate error", err);
-					throw err;
-				} else if (causeMsg.includes("ENOTFOUND") || causeMsg.includes("ECONNREFUSED")) {
-					const err = new Error(
-						`Connection Error: Unable to connect to ${baseUrl}. Please check that the server is running and the URL is correct.`
-					);
-					this.logError("Connection error", err);
-					throw err;
-				} else {
-					const err = new Error(
-						`Network Error: Failed to fetch models from ${baseUrl}. ${errMsg}${causeMsg && causeMsg !== errMsg ? `. Cause: ${causeMsg}` : ""}`
-					);
-					this.logError("Network error", err);
-					throw err;
-				}
-			}
-		})();
-
-		try {
-			const models = await modelsList;
-			this.log("Successfully fetched models:", models.length);
-			return { models };
-		} catch (err) {
+			const err = new Error(
+				`Failed to fetch LiteLLM models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
+			);
 			this.logError("Failed to fetch LiteLLM models", err);
 			throw err;
+		};
+
+		this.log("Fetching from:", `${baseUrl}/v1/model/info`);
+
+		try {
+			const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
+				method: "GET",
+				headers,
+				signal: AbortSignal.timeout(30000),
+			});
+			this.log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
+			if (infoResp.ok) {
+				const parsed = (await infoResp.json()) as LiteLLMModelInfoResponse | LiteLLMModelsResponse;
+				const data = (parsed as LiteLLMModelInfoResponse).data ?? [];
+				this.log("Parsed model/info response:", { modelCount: data.length });
+				if (data.length > 0) {
+					this.log("First model/info sample:", JSON.stringify(data[0], null, 2));
+				}
+
+				const first = data[0] as LiteLLMModelItem | undefined;
+				if (first && typeof (first as LiteLLMModelItem).id === "string" && Array.isArray(first.providers)) {
+					const models = data as LiteLLMModelItem[];
+					this.log("Successfully fetched models:", models.length);
+					return { models };
+				}
+
+				const models = data
+					.map((item) => this.mapModelInfoToLiteLLMModel(item as LiteLLMModelInfoItem))
+					.filter((m): m is LiteLLMModelItem => Boolean(m));
+				if (data.length > 0 && models.length === 0) {
+					this.log("model/info returned data but no mappable models; falling back", { dataLength: data.length });
+				} else {
+					this.log("Successfully fetched models:", models.length);
+					return { models };
+				}
+			}
+			// Fall through to /v1/models fallback
+		} catch (error) {
+			this.log("model/info failed, falling back to /v1/models", error);
+			// Fall through to /v1/models fallback
+		}
+
+		// Fallback to /v1/models
+		try {
+			this.log("Fetching from:", `${baseUrl}/v1/models`);
+			const resp = await fetch(`${baseUrl}/v1/models`, {
+				method: "GET",
+				headers,
+				signal: AbortSignal.timeout(30000),
+			});
+			this.log("Response status:", `${resp.status} ${resp.statusText}`);
+			if (!resp.ok) {
+				await handleNonOk(resp);
+			}
+			const parsed = (await resp.json()) as LiteLLMModelsResponse;
+			this.log("Parsed response:", {
+				object: parsed.object,
+				modelCount: parsed.data?.length ?? 0,
+			});
+			if (parsed.data && parsed.data.length > 0) {
+				this.log("First model sample:", JSON.stringify(parsed.data[0], null, 2));
+			}
+			const models = parsed.data ?? [];
+			this.log("Successfully fetched models:", models.length);
+			return { models };
+		} catch (fetchError) {
+			// Enhanced error handling for network and certificate issues
+			const errMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+			const cause = (fetchError as Error & { cause?: unknown })?.cause;
+			const causeMsg = cause instanceof Error ? cause.message : String(cause);
+
+			// Check for common network errors
+			if (causeMsg.includes("certificate has expired") || causeMsg.includes("CERT_HAS_EXPIRED")) {
+				const err = new Error(
+					`SSL Certificate Error: The SSL certificate for ${baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`
+				);
+				this.logError("Certificate error", err);
+				throw err;
+			} else if (causeMsg.includes("certificate") || errMsg.includes("certificate")) {
+				const err = new Error(
+					`SSL Certificate Error: There is an issue with the SSL certificate for ${baseUrl}. Error: ${causeMsg || errMsg}`
+				);
+				this.logError("Certificate error", err);
+				throw err;
+			} else if (causeMsg.includes("ENOTFOUND") || causeMsg.includes("ECONNREFUSED")) {
+				const err = new Error(
+					`Connection Error: Unable to connect to ${baseUrl}. Please check that the server is running and the URL is correct.`
+				);
+				this.logError("Connection error", err);
+				throw err;
+			} else {
+				const err = new Error(
+					`Network Error: Failed to fetch models from ${baseUrl}. ${errMsg}${causeMsg && causeMsg !== errMsg ? `. Cause: ${causeMsg}` : ""}`
+				);
+				this.logError("Network error", err);
+				throw err;
+			}
 		}
 	}
 
@@ -701,14 +685,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		progress: Progress<LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
-		this._toolCallBuffers.clear();
-		this._completedToolCallIndices.clear();
-		this._hasEmittedAssistantText = false;
-		this._emittedBeginToolCallsHint = false;
-		this._textToolParserBuffer = "";
-		this._textToolActive = undefined;
-		this._emittedTextToolCallKeys.clear();
-		this._emittedTextToolCallIds.clear();
+		this._req = LiteLLMChatModelProvider._freshRequestState();
 
 		let requestBody: Record<string, unknown> | undefined;
 		const trackingProgress: Progress<LanguageModelResponsePart> = {
@@ -716,10 +693,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				try {
 					progress.report(part);
 				} catch (e) {
-					console.error("[LiteLLM Model Provider] Progress.report failed", {
-						modelId: model.id,
-						error: e instanceof Error ? { name: e.name, message: e.message } : String(e),
-					});
+					this.logError("Progress.report failed", e);
 				}
 			},
 		};
@@ -746,7 +720,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const toolTokenCount = this.estimateToolTokens(toolConfig.tools);
 			const tokenLimit = Math.max(1, model.maxInputTokens);
 			if (inputTokenCount + toolTokenCount > tokenLimit) {
-				console.error("[LiteLLM Model Provider] Message exceeds token limit", {
+				this.logError("Message exceeds token limit", {
 					total: inputTokenCount + toolTokenCount,
 					tokenLimit,
 				});
@@ -781,7 +755,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			};
 
 			// Provider-owned fields that cannot be overwritten by config or runtime options
-			const providerOwnedKeys = new Set(["model", "messages", "stream", "tools", "tool_choice"]);
+			const providerOwnedKeys = new Set(["model", "messages", "stream", "stream_options", "tools", "tool_choice"]);
 
 			// 3. Apply model-specific parameters from configuration (max_tokens already handled)
 			for (const [key, value] of Object.entries(modelParams)) {
@@ -818,21 +792,21 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				headers.Authorization = `Bearer ${config.apiKey}`;
 				headers["X-API-Key"] = config.apiKey;
 			}
-			console.log("[LiteLLM Model Provider] Sending chat request", {
+			this.log("Sending chat request", {
 				url: `${config.baseUrl}/v1/chat/completions`,
 				modelId: model.id,
 				messageCount: messages.length,
-				requestBody: JSON.stringify(requestBody, null, 2),
 			});
 			const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
 				method: "POST",
 				headers,
 				body: JSON.stringify(requestBody),
+				signal: AbortSignal.timeout(300000),
 			});
 
 			if (!response.ok) {
 				const errorText = await response.text();
-				console.error("[LiteLLM Model Provider] API error response", errorText);
+				this.logError("API error response", errorText);
 
 				// Provide helpful error message for authentication failures
 				if (response.status === 401) {
@@ -851,11 +825,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			}
 			await this.processStreamingResponse(response.body, trackingProgress, token);
 		} catch (err) {
-			console.error("[LiteLLM Model Provider] Chat request failed", {
-				modelId: model.id,
-				messageCount: messages.length,
-				error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
-			});
+			this.logError("Chat request failed", err);
 			throw err;
 		}
 	}
@@ -868,7 +838,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * @returns A promise that resolves to the number of tokens
 	 */
 	async provideTokenCount(
-		model: LanguageModelChatInformation,
+		_model: LanguageModelChatInformation,
 		text: string | LanguageModelChatRequestMessage,
 		_token: CancellationToken
 	): Promise<number> {
@@ -977,21 +947,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					try {
 						const parsed = JSON.parse(data);
 						await this.processDelta(parsed, progress);
-					} catch {
-						// Silently ignore malformed SSE lines temporarily
+					} catch (e) {
+						this.log("Skipping malformed SSE line", { error: String(e), data: data.slice(0, 200) });
 					}
 				}
 			}
 		} finally {
 			reader.releaseLock();
-			// Clean up any leftover tool call state
-			this._toolCallBuffers.clear();
-			this._completedToolCallIndices.clear();
-			this._hasEmittedAssistantText = false;
-			this._emittedBeginToolCallsHint = false;
-			this._textToolParserBuffer = "";
-			this._textToolActive = undefined;
-			this._emittedTextToolCallKeys.clear();
+			this._req = LiteLLMChatModelProvider._freshRequestState();
 		}
 	}
 
@@ -1068,7 +1031,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					if (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") {
 						const res = this.processTextContent(block.text as string, progress);
 						if (res.emittedText) {
-							this._hasEmittedAssistantText = true;
+							this._req.hasEmittedAssistantText = true;
 						}
 						if (res.emittedAny) {
 							emitted = true;
@@ -1080,7 +1043,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				const content = String(deltaObj.content);
 				const res = this.processTextContent(content, progress);
 				if (res.emittedText) {
-					this._hasEmittedAssistantText = true;
+					this._req.hasEmittedAssistantText = true;
 				}
 				if (res.emittedAny) {
 					emitted = true;
@@ -1093,29 +1056,29 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 			// SSEProcessor-like: if first tool call appears after text, emit a whitespace
 			// to ensure any UI buffers/linkifiers are flushed without adding visible noise.
-			if (!this._emittedBeginToolCallsHint && this._hasEmittedAssistantText && toolCalls.length > 0) {
+			if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && toolCalls.length > 0) {
 				progress.report(new vscode.LanguageModelTextPart(" "));
-				this._emittedBeginToolCallsHint = true;
+				this._req.emittedBeginToolCallsHint = true;
 			}
 
 			for (const tc of toolCalls) {
 				const idx = (tc.index as number) ?? 0;
 				// Ignore any further deltas for an index we've already completed
-				if (this._completedToolCallIndices.has(idx)) {
+				if (this._req.completedToolCallIndices.has(idx)) {
 					continue;
 				}
-				const buf = this._toolCallBuffers.get(idx) ?? { args: "" };
+				const buf = this._req.toolCallBuffers.get(idx) ?? { args: "" };
 				if (tc.id && typeof tc.id === "string") {
-					buf.id = tc.id as string;
+					buf.id = tc.id;
 				}
 				const func = tc.function as Record<string, unknown> | undefined;
 				if (func?.name && typeof func.name === "string") {
-					buf.name = func.name as string;
+					buf.name = func.name;
 				}
 				if (typeof func?.arguments === "string") {
-					buf.args += func.arguments as string;
+					buf.args += func.arguments;
 				}
-				this._toolCallBuffers.set(idx, buf);
+				this._req.toolCallBuffers.set(idx, buf);
 
 				// Emit immediately once arguments become valid JSON to avoid perceived hanging
 				await this.tryEmitBufferedToolCall(idx, progress);
@@ -1143,13 +1106,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		const ARG_BEGIN = "<|tool_call_argument_begin|>";
 		const END = "<|tool_call_end|>";
 
-		let data = this._textToolParserBuffer + input;
+		let data = this._req.textToolParserBuffer + input;
 		let emittedText = false;
 		let emittedAny = false;
 		let visibleOut = "";
 
 		while (data.length > 0) {
-			if (!this._textToolActive) {
+			if (!this._req.textToolActive) {
 				const b = data.indexOf(BEGIN);
 				if (b === -1) {
 					// No tool-call start: emit visible portion, but keep any partial BEGIN prefix as buffer
@@ -1166,7 +1129,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 						if (visible) {
 							visibleOut += this.stripControlTokens(visible);
 						}
-						this._textToolParserBuffer = data.slice(data.length - longestPartialPrefix);
+						this._req.textToolParserBuffer = data.slice(data.length - longestPartialPrefix);
 						data = "";
 						break;
 					} else {
@@ -1197,7 +1160,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					delimKind = "end";
 				} else {
 					// Incomplete header; keep for next chunk (re-add BEGIN so we don't lose it)
-					this._textToolParserBuffer = BEGIN + data;
+					this._req.textToolParserBuffer = BEGIN + data;
 					data = "";
 					break;
 				}
@@ -1206,19 +1169,19 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				const m = header.match(/^([A-Za-z0-9_\-.]+)(?::(\d+))?/);
 				const name = m?.[1] ?? undefined;
 				const index = m?.[2] ? Number(m?.[2]) : undefined;
-				this._textToolActive = { name, index, argBuffer: "", emitted: false };
+				this._req.textToolActive = { name, index, argBuffer: "", emitted: false };
 				// Advance past delimiter token
 				if (delimKind === "arg") {
 					data = data.slice(delimIdx + ARG_BEGIN.length);
 				} else /* end */ {
 					// No args, finalize immediately
 					data = data.slice(delimIdx + END.length);
-					const did = this.emitTextToolCallIfValid(progress, this._textToolActive, "{}");
+					const did = this.emitTextToolCallIfValid(progress, this._req.textToolActive, "{}");
 					if (did) {
-						this._textToolActive.emitted = true;
+						this._req.textToolActive.emitted = true;
 						emittedAny = true;
 					}
-					this._textToolActive = undefined;
+					this._req.textToolActive = undefined;
 				}
 				continue;
 			}
@@ -1227,29 +1190,37 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const e2 = data.indexOf(END);
 			if (e2 === -1) {
 				// No end marker yet, accumulate and check for early valid JSON
-				this._textToolActive.argBuffer += data;
+				this._req.textToolActive.argBuffer += data;
 				// Early emit when JSON becomes valid and we haven't emitted yet
-				if (!this._textToolActive.emitted) {
-					const did = this.emitTextToolCallIfValid(progress, this._textToolActive, this._textToolActive.argBuffer);
+				if (!this._req.textToolActive.emitted) {
+					const did = this.emitTextToolCallIfValid(
+						progress,
+						this._req.textToolActive,
+						this._req.textToolActive.argBuffer
+					);
 					if (did) {
-						this._textToolActive.emitted = true;
+						this._req.textToolActive.emitted = true;
 						emittedAny = true;
 					}
 				}
 				data = "";
 				break;
 			} else {
-				this._textToolActive.argBuffer += data.slice(0, e2);
+				this._req.textToolActive.argBuffer += data.slice(0, e2);
 				// Consume END
 				data = data.slice(e2 + END.length);
 				// Final attempt to emit if not already
-				if (!this._textToolActive.emitted) {
-					const did = this.emitTextToolCallIfValid(progress, this._textToolActive, this._textToolActive.argBuffer);
+				if (!this._req.textToolActive.emitted) {
+					const did = this.emitTextToolCallIfValid(
+						progress,
+						this._req.textToolActive,
+						this._req.textToolActive.argBuffer
+					);
 					if (did) {
 						emittedAny = true;
 					}
 				}
-				this._textToolActive = undefined;
+				this._req.textToolActive = undefined;
 				continue;
 			}
 		}
@@ -1263,7 +1234,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		// Store leftover for next chunk
-		this._textToolParserBuffer = data;
+		this._req.textToolParserBuffer = data;
 
 		return { emittedText, emittedAny };
 	}
@@ -1283,32 +1254,32 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		// identity-based dedupe when index is present
 		if (typeof call.index === "number") {
 			const idKey = `${name}:${call.index}`;
-			if (this._emittedTextToolCallIds.has(idKey)) {
+			if (this._req.emittedTextToolCallIds.has(idKey)) {
 				return false;
 			}
 			// Mark identity as emitted
-			this._emittedTextToolCallIds.add(idKey);
-		} else if (this._emittedTextToolCallKeys.has(key)) {
+			this._req.emittedTextToolCallIds.add(idKey);
+		} else if (this._req.emittedTextToolCallKeys.has(key)) {
 			return false;
 		}
-		this._emittedTextToolCallKeys.add(key);
-		const id = `tct_${Math.random().toString(36).slice(2, 10)}`;
+		this._req.emittedTextToolCallKeys.add(key);
+		const id = `tct_${++this._toolCallIdCounter}`;
 		progress.report(new vscode.LanguageModelToolCallPart(id, name, parsed.value));
 		return true;
 	}
 
 	private async flushActiveTextToolCall(progress: vscode.Progress<vscode.LanguageModelResponsePart>): Promise<void> {
-		if (!this._textToolActive) {
+		if (!this._req.textToolActive) {
 			return;
 		}
-		const argText = this._textToolActive.argBuffer;
+		const argText = this._req.textToolActive.argBuffer;
 		const parsed = tryParseJSONObject(argText);
 		if (!parsed.ok) {
 			return;
 		}
 		// Emit (dedupe ensures we don't double-emit)
-		this.emitTextToolCallIfValid(progress, this._textToolActive, argText);
-		this._textToolActive = undefined;
+		this.emitTextToolCallIfValid(progress, this._req.textToolActive, argText);
+		this._req.textToolActive = undefined;
 	}
 
 	/**
@@ -1320,7 +1291,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		index: number,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>
 	): Promise<void> {
-		const buf = this._toolCallBuffers.get(index);
+		const buf = this._req.toolCallBuffers.get(index);
 		if (!buf) {
 			return;
 		}
@@ -1331,17 +1302,17 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		if (!canParse.ok) {
 			return;
 		}
-		const id = buf.id ?? `call_${Math.random().toString(36).slice(2, 10)}`;
+		const id = buf.id ?? `call_${++this._toolCallIdCounter}`;
 		const parameters = canParse.value;
 		try {
 			const canonical = JSON.stringify(parameters);
-			this._emittedTextToolCallKeys.add(`${buf.name}:${canonical}`);
+			this._req.emittedTextToolCallKeys.add(`${buf.name}:${canonical}`);
 		} catch {
 			/* ignore */
 		}
 		progress.report(new vscode.LanguageModelToolCallPart(id, buf.name, parameters));
-		this._toolCallBuffers.delete(index);
-		this._completedToolCallIndices.add(index);
+		this._req.toolCallBuffers.delete(index);
+		this._req.completedToolCallIndices.add(index);
 	}
 
 	/**
@@ -1353,10 +1324,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		throwOnInvalid: boolean
 	): Promise<void> {
-		if (this._toolCallBuffers.size === 0) {
+		if (this._req.toolCallBuffers.size === 0) {
 			return;
 		}
-		for (const [idx, buf] of Array.from(this._toolCallBuffers.entries())) {
+		for (const [idx, buf] of Array.from(this._req.toolCallBuffers.entries())) {
 			const parsed = tryParseJSONObject(buf.args);
 			if (!parsed.ok) {
 				if (throwOnInvalid) {
@@ -1369,17 +1340,17 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				// When not throwing (e.g. on [DONE]), drop silently to reduce noise
 				continue;
 			}
-			const id = buf.id ?? `call_${Math.random().toString(36).slice(2, 10)}`;
+			const id = buf.id ?? `call_${++this._toolCallIdCounter}`;
 			const name = buf.name ?? "unknown_tool";
 			try {
 				const canonical = JSON.stringify(parsed.value);
-				this._emittedTextToolCallKeys.add(`${name}:${canonical}`);
+				this._req.emittedTextToolCallKeys.add(`${name}:${canonical}`);
 			} catch {
 				/* ignore */
 			}
 			progress.report(new vscode.LanguageModelToolCallPart(id, name, parsed.value));
-			this._toolCallBuffers.delete(idx);
-			this._completedToolCallIndices.add(idx);
+			this._req.toolCallBuffers.delete(idx);
+			this._req.completedToolCallIndices.add(idx);
 		}
 	}
 

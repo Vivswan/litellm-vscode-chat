@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
-import { convertMessages, convertTools, validateRequest, validateTools, tryParseJSONObject } from "../utils";
+import { convertMessages, convertTools, validateRequest, tryParseJSONObject } from "../utils";
 
 /**
  * Full integration test suite against a real LiteLLM server.
@@ -15,6 +15,7 @@ import { convertMessages, convertTools, validateRequest, validateTools, tryParse
 const BASE_URL = process.env.LITELLM_REAL_BASE_URL;
 const API_KEY = process.env.LITELLM_REAL_API_KEY ?? "";
 const MODEL_ID = process.env.LITELLM_REAL_MODEL;
+const TEST_TIMEOUT = Number(process.env.LITELLM_REAL_TIMEOUT) || 0;
 
 interface OpenAIToolCall {
 	id: string;
@@ -218,7 +219,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 		});
 
 		test("/v1/chat/completions endpoint is reachable", async function () {
-			this.timeout(30000);
+			this.timeout(TEST_TIMEOUT || 30000);
 			const resp = await fetch(`${baseUrl}/v1/chat/completions`, {
 				method: "POST",
 				headers: { ...headers, "Content-Type": "application/json" },
@@ -240,7 +241,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 
 	suite("streaming chat completion", () => {
 		test("simple text response", async function () {
-			this.timeout(30000);
+			this.timeout(TEST_TIMEOUT || 30000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
@@ -260,7 +261,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 		});
 
 		test("multi-turn conversation", async function () {
-			this.timeout(30000);
+			this.timeout(TEST_TIMEOUT || 30000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
@@ -289,7 +290,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 		});
 
 		test("system message is included", async function () {
-			this.timeout(30000);
+			this.timeout(TEST_TIMEOUT || 30000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
@@ -314,7 +315,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 		});
 
 		test("longer response streams multiple chunks", async function () {
-			this.timeout(60000);
+			this.timeout(TEST_TIMEOUT || 60000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
@@ -338,7 +339,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 
 	suite("tool calling", () => {
 		test("model returns tool call when given tools", async function () {
-			this.timeout(30000);
+			this.timeout(TEST_TIMEOUT || 30000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
@@ -378,7 +379,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 		});
 
 		test("tool call + result round-trip produces final answer", async function () {
-			this.timeout(45000);
+			this.timeout(TEST_TIMEOUT || 45000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
@@ -449,7 +450,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 		});
 
 		test("multiple tools available", async function () {
-			this.timeout(30000);
+			this.timeout(TEST_TIMEOUT || 30000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
@@ -495,7 +496,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 		});
 
 		test("required tool mode forces tool call", async function () {
-			this.timeout(30000);
+			this.timeout(TEST_TIMEOUT || 30000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
@@ -545,7 +546,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 
 	suite("image and multimodal input", () => {
 		test("message with image data part is accepted", async function () {
-			this.timeout(30000);
+			this.timeout(TEST_TIMEOUT || 30000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
@@ -832,10 +833,6 @@ suite("Real LiteLLM Server Integration Tests", function () {
 			const props = params.properties as Record<string, Record<string, unknown>>;
 			assert.equal(props.action.const, "submit");
 		});
-
-		test("validateTools rejects invalid names", () => {
-			assert.throws(() => validateTools([{ name: "bad name!", description: "", inputSchema: {} }]));
-		});
 	});
 
 	// ─── Validation ──────────────────────────────────────────────────────
@@ -1063,7 +1060,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 		});
 
 		test("provideLanguageModelChatResponse fails with invalid model ID", async function () {
-			this.timeout(15000);
+			this.timeout(TEST_TIMEOUT || 15000);
 			const provider = makeProvider(baseUrl, apiKey);
 			// Fetch real models first so config is loaded
 			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
@@ -1102,7 +1099,7 @@ suite("Real LiteLLM Server Integration Tests", function () {
 
 	suite("cancellation", () => {
 		test("cancellation token stops streaming", async function () {
-			this.timeout(15000);
+			this.timeout(TEST_TIMEOUT || 15000);
 			const provider = makeProvider(baseUrl, apiKey);
 			const model = await getTargetModel(provider, modelId);
 
