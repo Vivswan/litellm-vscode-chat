@@ -56,6 +56,23 @@ export function activate(context: vscode.ExtensionContext) {
 	// Register the LiteLLM provider under the vendor id used in package.json
 	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
 
+	// Test-only commands — registered in test and development modes, never in production
+	if (context.extensionMode !== vscode.ExtensionMode.Production) {
+		context.subscriptions.push(
+			vscode.commands.registerCommand("litellm._test.setSecrets", async (baseUrl: string, apiKey: string) => {
+				await context.secrets.store("litellm.baseUrl", baseUrl);
+				await context.secrets.store("litellm.apiKey", apiKey || "");
+			}),
+			vscode.commands.registerCommand("litellm._test.refreshModels", async () => {
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				return infos.length;
+			})
+		);
+	}
+
 	// Connection status tracking
 	interface ConnectionStatus {
 		state: "not-configured" | "loading" | "connected" | "error";
