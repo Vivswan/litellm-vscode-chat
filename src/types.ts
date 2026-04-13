@@ -26,13 +26,31 @@ export interface OpenAIChatMessage {
 	tool_call_id?: string;
 }
 
-/** Structured content blocks used for prompt caching on select providers. */
-export interface OpenAIChatContentBlock {
+/** Text content block for chat messages. */
+export interface OpenAIChatTextContentBlock {
 	type: "text";
 	text: string;
 	cache_control?: {
 		type: "ephemeral";
 	};
+}
+
+/** Image URL content block for vision input. */
+export interface OpenAIChatImageUrlContentBlock {
+	type: "image_url";
+	image_url: { url: string; detail?: string };
+}
+
+/** Structured content blocks used in chat messages. */
+export type OpenAIChatContentBlock =
+	| OpenAIChatTextContentBlock
+	| OpenAIChatImageUrlContentBlock
+	| OpenAIChatFileContentBlock;
+
+/** File content block for document input (PDFs, etc.). */
+export interface OpenAIChatFileContentBlock {
+	type: "file";
+	file: { file_data: string; filename?: string };
 }
 
 /**
@@ -54,6 +72,14 @@ export interface LiteLLMProvider {
 	source?: "model_info";
 	/** True if the upstream model advertises prompt caching support. */
 	supports_prompt_caching?: boolean | null;
+	/** True if the upstream model supports structured output / response_format schema. */
+	supports_response_schema?: boolean | null;
+	/** True if the upstream model supports reasoning/thinking. */
+	supports_reasoning?: boolean | null;
+	/** True if the upstream model supports PDF input. */
+	supports_pdf_input?: boolean | null;
+	/** List of OpenAI-compatible parameters the model supports. */
+	supported_openai_params?: string[] | null;
 }
 
 /**
@@ -112,6 +138,12 @@ export interface LiteLLMModelInfoItem {
 		supports_tool_choice?: boolean | null;
 		supports_vision?: boolean | null;
 		supports_prompt_caching?: boolean | null;
+		supports_response_schema?: boolean | null;
+		supports_reasoning?: boolean | null;
+		supports_pdf_input?: boolean | null;
+		supports_audio_input?: boolean | null;
+		supports_audio_output?: boolean | null;
+		supported_openai_params?: string[] | null;
 	};
 }
 

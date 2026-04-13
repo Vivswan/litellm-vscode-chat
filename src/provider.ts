@@ -112,13 +112,24 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		console.error(`[LiteLLM Model Provider] ${message}`, error);
 	}
 
-	/** Roughly estimate tokens for VS Code chat messages (text only) */
+	/**
+	 * Roughly estimate text tokens for VS Code chat messages.
+	 * Only counts text parts — multimodal data (images, PDFs) is excluded because
+	 * real token accounting is model- and provider-specific, and this estimate
+	 * feeds a hard client-side rejection path.
+	 */
 	private estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRequestMessage[]): number {
 		let total = 0;
 		for (const m of msgs) {
 			for (const part of m.content) {
 				if (part instanceof vscode.LanguageModelTextPart) {
 					total += Math.ceil(part.value.length / 4);
+				} else if (part instanceof vscode.LanguageModelDataPart) {
+					const mime = part.mimeType.toLowerCase();
+					if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
+						total += Math.ceil(part.data.length / 4);
+					}
+					// Images/PDFs excluded: real costs are model-specific, let LiteLLM handle rejection
 				}
 			}
 		}
@@ -510,9 +521,20 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			max_output_tokens: maxOutputTokens,
 			source: "model_info",
 			supports_prompt_caching: item.model_info?.supports_prompt_caching ?? null,
+			supports_response_schema: item.model_info?.supports_response_schema ?? null,
+			supports_reasoning: item.model_info?.supports_reasoning ?? null,
+			supports_pdf_input: item.model_info?.supports_pdf_input ?? null,
+			supported_openai_params: item.model_info?.supported_openai_params ?? null,
 		};
 
-		const architecture = item.model_info?.supports_vision ? { input_modalities: ["image"] } : undefined;
+		const inputModalities: string[] = [];
+		if (item.model_info?.supports_vision) {
+			inputModalities.push("image");
+		}
+		if (item.model_info?.supports_pdf_input) {
+			inputModalities.push("pdf");
+		}
+		const architecture = inputModalities.length > 0 ? { input_modalities: inputModalities } : undefined;
 
 		return {
 			id: modelId,
@@ -753,38 +775,31 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				model: model.id,
 				messages: openaiMessages,
 				stream: true,
+				stream_options: { include_usage: true },
 				max_tokens: maxTokens,
 				temperature: 0.7, // Base default
 			};
 
-			// 3. Apply other model-specific parameters from configuration (max_tokens already handled)
+			// Provider-owned fields that cannot be overwritten by config or runtime options
+			const providerOwnedKeys = new Set(["model", "messages", "stream", "tools", "tool_choice"]);
+
+			// 3. Apply model-specific parameters from configuration (max_tokens already handled)
 			for (const [key, value] of Object.entries(modelParams)) {
-				if (key !== "max_tokens") {
+				if (key !== "max_tokens" && !providerOwnedKeys.has(key)) {
 					(requestBody as Record<string, unknown>)[key] = value;
 				}
 			}
 
-			// 4. Apply runtime options.modelOptions (highest priority for other parameters)
+			// 4. Apply runtime options.modelOptions — broad pass-through (highest priority)
 			if (options.modelOptions) {
-				const mo = options.modelOptions as Record<string, unknown>;
-
-				// Apply temperature from options if specified
-				if (typeof mo.temperature === "number") {
-					(requestBody as Record<string, unknown>).temperature = mo.temperature;
-				}
-
-				// Apply other allow-listed parameters
-				if (typeof mo.stop === "string" || Array.isArray(mo.stop)) {
-					(requestBody as Record<string, unknown>).stop = mo.stop;
-				}
-				if (typeof mo.frequency_penalty === "number") {
-					(requestBody as Record<string, unknown>).frequency_penalty = mo.frequency_penalty;
-				}
-				if (typeof mo.presence_penalty === "number") {
-					(requestBody as Record<string, unknown>).presence_penalty = mo.presence_penalty;
-				}
-				if (typeof mo.top_p === "number") {
-					(requestBody as Record<string, unknown>).top_p = mo.top_p;
+				for (const [key, value] of Object.entries(options.modelOptions as Record<string, unknown>)) {
+					if (key === "max_tokens") {
+						continue; // already handled above with special precedence
+					}
+					if (providerOwnedKeys.has(key)) {
+						continue; // never overwrite provider-owned fields
+					}
+					(requestBody as Record<string, unknown>)[key] = value;
 				}
 			}
 
@@ -864,6 +879,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			for (const part of text.content) {
 				if (part instanceof vscode.LanguageModelTextPart) {
 					totalTokens += Math.ceil(part.value.length / 4);
+				} else if (part instanceof vscode.LanguageModelDataPart) {
+					const mime = part.mimeType.toLowerCase();
+					if (mime.startsWith("image/")) {
+						totalTokens += 765;
+					} else if (mime === "application/pdf") {
+						totalTokens += 500;
+					} else if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
+						totalTokens += Math.ceil(part.data.length / 4);
+					}
 				}
 			}
 			return totalTokens;
@@ -981,6 +1005,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>
 	): Promise<boolean> {
 		let emitted = false;
+
+		// Log token usage — must run before the choices[0] early return because
+		// OpenAI-compatible streams send usage in a final chunk with choices: []
+		const usage = delta.usage as Record<string, unknown> | undefined;
+		if (usage) {
+			this.log("Token usage", usage);
+		}
+
 		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
 		if (!choice) {
 			return false;
@@ -992,7 +1024,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		try {
 			const maybeThinking =
 				(choice as Record<string, unknown> | undefined)?.thinking ??
-				(deltaObj as Record<string, unknown> | undefined)?.thinking;
+				(deltaObj as Record<string, unknown> | undefined)?.thinking ??
+				(deltaObj as Record<string, unknown> | undefined)?.reasoning_content ??
+				(deltaObj as Record<string, unknown> | undefined)?.reasoning;
 			if (maybeThinking !== undefined) {
 				const vsAny = vscode as unknown as Record<string, unknown>;
 				const ThinkingCtor = vsAny["LanguageModelThinkingPart"] as
@@ -1025,14 +1059,32 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		} catch {
 			// ignore errors here temporarily
 		}
-		if (deltaObj?.content) {
-			const content = String(deltaObj.content);
-			const res = this.processTextContent(content, progress);
-			if (res.emittedText) {
-				this._hasEmittedAssistantText = true;
-			}
-			if (res.emittedAny) {
-				emitted = true;
+
+		// Handle content — may be a string or an array of content blocks
+		if (deltaObj?.content !== undefined && deltaObj.content !== null) {
+			if (Array.isArray(deltaObj.content)) {
+				// Structured content array (some providers return this)
+				for (const block of deltaObj.content as Array<Record<string, unknown>>) {
+					if (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") {
+						const res = this.processTextContent(block.text as string, progress);
+						if (res.emittedText) {
+							this._hasEmittedAssistantText = true;
+						}
+						if (res.emittedAny) {
+							emitted = true;
+						}
+					}
+					// Silently ignore non-text blocks in streaming (thinking blocks handled above)
+				}
+			} else {
+				const content = String(deltaObj.content);
+				const res = this.processTextContent(content, progress);
+				if (res.emittedText) {
+					this._hasEmittedAssistantText = true;
+				}
+				if (res.emittedAny) {
+					emitted = true;
+				}
 			}
 		}
 
@@ -1075,6 +1127,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			// On both 'tool_calls' and 'stop', emit any buffered calls and throw on invalid JSON
 			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ true);
 		}
+
 		return emitted;
 	}
 
