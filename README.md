@@ -217,7 +217,7 @@ Press `F5` to launch the Extension Development Host.
 | `bun run watch` | Watch mode |
 | `bun run lint` | Lint |
 | `bun run format` | Format |
-| `bun test` | Run tests |
+| `bun run test` | Run tests |
 
 ## Resources
 
