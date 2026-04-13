@@ -1103,6 +1103,37 @@ suite("Real LiteLLM Server Integration Tests", function () {
 			}
 			assert.ok(threw, "Should throw for invalid model ID");
 		});
+
+		test("request with VS Code internal modelOptions keys succeeds", async function () {
+			this.timeout(TEST_TIMEOUT || 30000);
+			const provider = makeProvider(baseUrl, apiKey);
+			const model = await getTargetModel(provider, modelId);
+
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("Say OK.")],
+					name: undefined,
+				},
+			];
+
+			// Simulate VS Code injecting internal underscore-prefixed fields into modelOptions.
+			// Before the fix, these would be forwarded to LiteLLM, causing 400 "Unknown parameter"
+			// errors on Azure and OpenAI-compatible backends.
+			const options = {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelOptions: {
+					_capturingTokenCorrelationId: "test-correlation-id-12345",
+					_internalSessionData: { sessionId: "abc" },
+					temperature: 0.5,
+				},
+			} as unknown as vscode.ProvideLanguageModelChatResponseOptions;
+
+			const parts = await runChat(provider, model, messages, options);
+			const fullText = extractText(parts);
+			assert.ok(fullText.length > 0, "Should receive a response despite internal keys in modelOptions");
+			console.log(`  [real-test] Response with internal keys filtered: "${fullText.trim()}"`);
+		});
 	});
 
 	// ─── Cancellation ────────────────────────────────────────────────────
