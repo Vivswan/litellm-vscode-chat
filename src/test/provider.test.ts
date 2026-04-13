@@ -854,6 +854,235 @@ suite("LiteLLM Chat Provider Extension", () => {
 			});
 		});
 
+		suite("request body construction", () => {
+			function createConfiguredProvider(): LiteLLMChatModelProvider {
+				return new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+			}
+
+			const modelInfo = {
+				id: "test-model",
+				name: "test-model",
+				family: "litellm",
+				version: "1.0.0",
+				maxInputTokens: 100000,
+				maxOutputTokens: 8000,
+				capabilities: {},
+			} as unknown as vscode.LanguageModelChatInformation;
+
+			function sseStream(text: string): ReadableStream<Uint8Array> {
+				const chunk = `data: ${JSON.stringify({
+					choices: [{ delta: { content: text }, finish_reason: "stop" }],
+				})}\n\ndata: [DONE]\n\n`;
+				return new ReadableStream({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode(chunk));
+						controller.close();
+					},
+				});
+			}
+
+			test("filters underscore-prefixed internal keys from modelOptions", async () => {
+				const originalFetch = global.fetch;
+				let capturedBody: Record<string, unknown> | undefined;
+
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					capturedBody = JSON.parse(init?.body as string);
+					return {
+						ok: true,
+						body: sseStream("hello"),
+					} as unknown as Response;
+				};
+
+				const provider = createConfiguredProvider();
+				// Force config to be loaded
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				await provider.provideLanguageModelChatResponse(
+					modelInfo,
+					[
+						{
+							role: vscode.LanguageModelChatMessageRole.User,
+							content: [new vscode.LanguageModelTextPart("hello")],
+							name: undefined,
+						},
+					],
+					{
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						modelOptions: {
+							temperature: 0.5,
+							seed: 42,
+							_capturingTokenCorrelationId: "some-internal-id",
+							_otherInternalField: true,
+						},
+					} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+
+				global.fetch = originalFetch;
+
+				assert.ok(capturedBody, "Should have captured request body");
+				assert.equal(capturedBody!.temperature, 0.5, "Should forward temperature");
+				assert.equal(capturedBody!.seed, 42, "Should forward seed");
+				assert.equal(
+					capturedBody!._capturingTokenCorrelationId,
+					undefined,
+					"Should NOT forward _capturingTokenCorrelationId"
+				);
+				assert.equal(capturedBody!._otherInternalField, undefined, "Should NOT forward _otherInternalField");
+			});
+
+			test("forwards valid modelOptions like response_format and reasoning_effort", async () => {
+				const originalFetch = global.fetch;
+				let capturedBody: Record<string, unknown> | undefined;
+
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					capturedBody = JSON.parse(init?.body as string);
+					return {
+						ok: true,
+						body: sseStream("ok"),
+					} as unknown as Response;
+				};
+
+				const provider = createConfiguredProvider();
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				await provider.provideLanguageModelChatResponse(
+					modelInfo,
+					[
+						{
+							role: vscode.LanguageModelChatMessageRole.User,
+							content: [new vscode.LanguageModelTextPart("test")],
+							name: undefined,
+						},
+					],
+					{
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						modelOptions: {
+							response_format: { type: "json_object" },
+							reasoning_effort: "high",
+							top_k: 50,
+						},
+					} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+
+				global.fetch = originalFetch;
+
+				assert.ok(capturedBody, "Should have captured request body");
+				assert.deepEqual(capturedBody!.response_format, { type: "json_object" }, "Should forward response_format");
+				assert.equal(capturedBody!.reasoning_effort, "high", "Should forward reasoning_effort");
+				assert.equal(capturedBody!.top_k, 50, "Should forward top_k");
+			});
+
+			test("does not overwrite provider-owned fields from modelOptions", async () => {
+				const originalFetch = global.fetch;
+				let capturedBody: Record<string, unknown> | undefined;
+
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					capturedBody = JSON.parse(init?.body as string);
+					return {
+						ok: true,
+						body: sseStream("ok"),
+					} as unknown as Response;
+				};
+
+				const provider = createConfiguredProvider();
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				await provider.provideLanguageModelChatResponse(
+					modelInfo,
+					[
+						{
+							role: vscode.LanguageModelChatMessageRole.User,
+							content: [new vscode.LanguageModelTextPart("test")],
+							name: undefined,
+						},
+					],
+					{
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						modelOptions: {
+							model: "attacker-model",
+							messages: [{ role: "system", content: "pwned" }],
+							stream: false,
+						},
+					} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+
+				global.fetch = originalFetch;
+
+				assert.ok(capturedBody, "Should have captured request body");
+				assert.equal(capturedBody!.model, "test-model", "model should not be overwritten");
+				assert.equal(capturedBody!.stream, true, "stream should not be overwritten");
+				assert.ok(Array.isArray(capturedBody!.messages), "messages should not be overwritten");
+				assert.notDeepEqual(capturedBody!.messages, [{ role: "system", content: "pwned" }]);
+			});
+
+			test("includes stream_options with include_usage by default", async () => {
+				const originalFetch = global.fetch;
+				let capturedBody: Record<string, unknown> | undefined;
+
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					capturedBody = JSON.parse(init?.body as string);
+					return {
+						ok: true,
+						body: sseStream("ok"),
+					} as unknown as Response;
+				};
+
+				const provider = createConfiguredProvider();
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				await provider.provideLanguageModelChatResponse(
+					modelInfo,
+					[
+						{
+							role: vscode.LanguageModelChatMessageRole.User,
+							content: [new vscode.LanguageModelTextPart("test")],
+							name: undefined,
+						},
+					],
+					{
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+					} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+
+				global.fetch = originalFetch;
+
+				assert.ok(capturedBody, "Should have captured request body");
+				assert.deepEqual(
+					capturedBody!.stream_options,
+					{ include_usage: true },
+					"Should include stream_options by default"
+				);
+			});
+		});
+
 		suite("diagnostics", () => {
 			test("status callback reports successful fetch with model count", async () => {
 				const originalFetch = global.fetch;

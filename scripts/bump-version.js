@@ -18,7 +18,8 @@ if (!["patch", "minor", "major"].includes(bumpType)) {
 }
 
 // Parse current version
-const [major, minor, patch] = packageJson.version.split(".").map(Number);
+const currentVersion = packageJson.version;
+const [major, minor, patch] = currentVersion.split(".").map(Number);
 
 // Calculate new version
 let newVersion;
@@ -38,7 +39,7 @@ switch (bumpType) {
 // Update package.json
 packageJson.version = newVersion;
 fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, "\t") + "\n");
-console.log(`Version bumped: ${packageJson.version} -> ${newVersion}`);
+console.error(`Version bumped: ${currentVersion} -> ${newVersion}`);
 
 // Return the new version for use in scripts
-process.stdout.write(`${packageJson.version} -> ${newVersion}`);
+process.stdout.write(`${currentVersion} -> ${newVersion}`);
