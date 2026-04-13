@@ -248,6 +248,95 @@ const BUILTIN_SCENARIOS = {
 			makeChunk({}, "stop"),
 		],
 	},
+
+	// Anthropic-style structured thinking object (text + id + metadata)
+	"thinking-structured": {
+		type: "sse",
+		chunks: [
+			makeChunk({
+				role: "assistant",
+				thinking: { text: "I need to work through this step by step.", id: "think_001" },
+			}),
+			makeChunk({ thinking: { text: " First, consider the problem.", id: "think_001" } }),
+			makeChunk({ content: "Here is my answer." }),
+			makeChunk({}, "stop"),
+		],
+	},
+
+	// Text followed by tool call in the same response (common with reasoning models)
+	"text-then-tool": {
+		type: "sse",
+		chunks: [
+			makeChunk({ role: "assistant", content: "Let me check that for you." }),
+			makeChunk({
+				tool_calls: [
+					{
+						index: 0,
+						id: "call_after_text",
+						type: "function",
+						function: { name: "get_weather", arguments: '{"location":"London"}' },
+					},
+				],
+			}),
+			makeChunk({}, "tool_calls"),
+		],
+	},
+
+	// Multiple parallel tool calls in one response
+	"parallel-tool-calls": {
+		type: "sse",
+		chunks: [
+			makeChunk({
+				role: "assistant",
+				tool_calls: [
+					{
+						index: 0,
+						id: "call_p1",
+						type: "function",
+						function: { name: "get_weather", arguments: '{"location":"Paris"}' },
+					},
+					{
+						index: 1,
+						id: "call_p2",
+						type: "function",
+						function: { name: "get_weather", arguments: '{"location":"Tokyo"}' },
+					},
+				],
+			}),
+			makeChunk({}, "tool_calls"),
+		],
+	},
+
+	// Usage trailer with cache token details (Anthropic prompt caching)
+	"usage-with-cache-tokens": {
+		type: "sse",
+		chunks: [
+			makeChunk({ role: "assistant", content: "Cached response" }),
+			makeChunk({}, "stop"),
+			{
+				id: "chatcmpl-capture",
+				object: "chat.completion.chunk",
+				choices: [],
+				usage: {
+					prompt_tokens: 200,
+					completion_tokens: 30,
+					total_tokens: 230,
+					cache_creation_input_tokens: 150,
+					cache_read_input_tokens: 50,
+				},
+			},
+		],
+	},
+
+	// DeepSeek reasoning field (plain string, different from reasoning_content)
+	"reasoning-field": {
+		type: "sse",
+		chunks: [
+			makeChunk({ role: "assistant", reasoning: "Working through the math..." }),
+			makeChunk({ content: "The result is 7." }),
+			makeChunk({}, "stop"),
+		],
+	},
 };
 
 // ── Factory ──────────────────────────────────────────────────────────────────
