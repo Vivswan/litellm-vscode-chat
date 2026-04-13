@@ -23,6 +23,21 @@ fi
 # Lint GitHub Actions workflows
 bun run lint:actions
 
+# Verify @types/vscode matches engines.vscode
+node -e "
+const pkg = require('./package.json');
+const engVer = pkg.engines.vscode.replace(/[^0-9.]/g, '');
+const typesRange = pkg.devDependencies['@types/vscode'];
+const typesVer = typesRange.replace(/[^0-9.]/g, '');
+const [eM, em] = engVer.split('.').map(Number);
+const [tM, tm] = typesVer.split('.').map(Number);
+if (tM > eM || (tM === eM && tm > em)) {
+  console.error('❌ @types/vscode ' + typesRange + ' is newer than engines.vscode ' + pkg.engines.vscode);
+  console.error('   Bump engines.vscode or downgrade @types/vscode to fix.');
+  process.exit(1);
+}
+"
+
 # Run linting
 bun run lint
 
