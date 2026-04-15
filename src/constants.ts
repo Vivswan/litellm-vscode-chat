@@ -31,14 +31,7 @@ export const CONTROL_TOKENS = {
 } as const;
 
 // Provider-owned request fields that cannot be overwritten
-export const PROVIDER_OWNED_FIELDS = new Set([
-	"model",
-	"messages",
-	"stream",
-	"stream_options",
-	"tools",
-	"tool_choice",
-]);
+export const PROVIDER_OWNED_FIELDS = new Set(["model", "messages", "stream", "stream_options", "tools", "tool_choice"]);
 
 // Function name constraints
 export const MAX_FUNCTION_NAME_LENGTH = 64;
