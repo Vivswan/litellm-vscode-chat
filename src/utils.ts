@@ -8,6 +8,7 @@ import type {
 	OpenAIFunctionToolDef,
 	OpenAIToolCall,
 } from "./types";
+import { INTEGER_PROPERTY_MARKERS, MAX_FUNCTION_NAME_LENGTH } from "./constants";
 
 // Tool calling sanitization helpers
 
@@ -16,20 +17,7 @@ function isIntegerLikePropertyName(propertyName: string | undefined): boolean {
 		return false;
 	}
 	const lowered = propertyName.toLowerCase();
-	const integerMarkers = [
-		"id",
-		"limit",
-		"count",
-		"index",
-		"size",
-		"offset",
-		"length",
-		"results_limit",
-		"maxresults",
-		"debugsessionid",
-		"cellid",
-	];
-	return integerMarkers.some((m) => lowered.includes(m)) || lowered.endsWith("_id");
+	return INTEGER_PROPERTY_MARKERS.some((m) => lowered.includes(m)) || lowered.endsWith("_id");
 }
 
 function sanitizeFunctionName(name: unknown): string {
@@ -41,7 +29,7 @@ function sanitizeFunctionName(name: unknown): string {
 		sanitized = `tool_${sanitized}`;
 	}
 	sanitized = sanitized.replace(/_+/g, "_");
-	return sanitized.slice(0, 64);
+	return sanitized.slice(0, MAX_FUNCTION_NAME_LENGTH);
 }
 
 function pruneUnknownSchemaKeywords(schema: unknown): Record<string, unknown> {

@@ -18,9 +18,29 @@ import type {
 } from "./types";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
-
-const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
-const DEFAULT_CONTEXT_LENGTH = 128000;
+import {
+	DEFAULT_MAX_OUTPUT_TOKENS,
+	DEFAULT_CONTEXT_LENGTH,
+	DEFAULT_TEMPERATURE,
+	DEFAULT_FALLBACK_MAX_TOKENS,
+	CHARS_PER_TOKEN_ESTIMATE,
+	IMAGE_TOKEN_ESTIMATE,
+	PDF_TOKEN_ESTIMATE,
+	MODEL_FETCH_TIMEOUT,
+	CHAT_REQUEST_TIMEOUT,
+	MAX_TOOLS_PER_REQUEST,
+	CONTROL_TOKENS,
+	PROVIDER_OWNED_FIELDS,
+} from "./constants";
+import type {
+	StreamingResponseDelta,
+	StreamingChoice,
+	StreamingDelta,
+	ThinkingContent,
+	ContentBlock,
+	StreamingToolCall,
+	TokenUsage,
+} from "./types";
 
 /**
  * VS Code Chat provider backed by LiteLLM.
@@ -109,13 +129,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		for (const m of msgs) {
 			for (const part of m.content) {
 				if (part instanceof vscode.LanguageModelTextPart) {
-					total += Math.ceil(part.value.length / 4);
+					total += Math.ceil(part.value.length / CHARS_PER_TOKEN_ESTIMATE);
 				} else if (part instanceof vscode.LanguageModelToolCallPart) {
-					total += Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / 4);
+					total += Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / CHARS_PER_TOKEN_ESTIMATE);
 				} else if (part instanceof vscode.LanguageModelDataPart) {
 					const mime = part.mimeType.toLowerCase();
 					if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-						total += Math.ceil(part.data.length / 4);
+						total += Math.ceil(part.data.length / CHARS_PER_TOKEN_ESTIMATE);
 					}
 					// Images/PDFs excluded: real costs are model-specific, let LiteLLM handle rejection
 				}
@@ -133,7 +153,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 		try {
 			const json = JSON.stringify(tools);
-			return Math.ceil(json.length / 4);
+			return Math.ceil(json.length / CHARS_PER_TOKEN_ESTIMATE);
 		} catch {
 			return 0;
 		}
@@ -576,7 +596,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
 				method: "GET",
 				headers,
-				signal: AbortSignal.timeout(30000),
+				signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT),
 			});
 			this.log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
 			if (infoResp.ok) {
@@ -616,7 +636,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const resp = await fetch(`${baseUrl}/v1/models`, {
 				method: "GET",
 				headers,
-				signal: AbortSignal.timeout(30000),
+				signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT),
 			});
 			this.log("Response status:", `${resp.status} ${resp.statusText}`);
 			if (!resp.ok) {
@@ -712,8 +732,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			validateRequest(messages);
 			const toolConfig = convertTools(options);
 
-			if (options.tools && options.tools.length > 128) {
-				throw new Error("Cannot have more than 128 tools per request.");
+			if (options.tools && options.tools.length > MAX_TOOLS_PER_REQUEST) {
+				throw new Error(`Cannot have more than ${MAX_TOOLS_PER_REQUEST} tools per request.`);
 			}
 
 			const inputTokenCount = this.estimateMessagesTokens(messages);
@@ -741,7 +761,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				maxTokens = modelParams.max_tokens;
 			} else {
 				// Default value - clamp to model's maximum
-				maxTokens = Math.min(4096, model.maxOutputTokens);
+				maxTokens = Math.min(DEFAULT_FALLBACK_MAX_TOKENS, model.maxOutputTokens);
 			}
 
 			// Build base request body
@@ -751,15 +771,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				stream: true,
 				stream_options: { include_usage: true },
 				max_tokens: maxTokens,
-				temperature: 0.7, // Base default
+				temperature: DEFAULT_TEMPERATURE,
 			};
-
-			// Provider-owned fields that cannot be overwritten by config or runtime options
-			const providerOwnedKeys = new Set(["model", "messages", "stream", "stream_options", "tools", "tool_choice"]);
 
 			// 3. Apply model-specific parameters from configuration (max_tokens already handled)
 			for (const [key, value] of Object.entries(modelParams)) {
-				if (key !== "max_tokens" && !providerOwnedKeys.has(key)) {
+				if (key !== "max_tokens" && !PROVIDER_OWNED_FIELDS.has(key)) {
 					(requestBody as Record<string, unknown>)[key] = value;
 				}
 			}
@@ -770,7 +787,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					if (key === "max_tokens") {
 						continue; // already handled above with special precedence
 					}
-					if (providerOwnedKeys.has(key)) {
+					if (PROVIDER_OWNED_FIELDS.has(key)) {
 						continue; // never overwrite provider-owned fields
 					}
 					if (key.startsWith("_")) {
@@ -804,7 +821,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				method: "POST",
 				headers,
 				body: JSON.stringify(requestBody),
-				signal: AbortSignal.timeout(300000),
+				signal: AbortSignal.timeout(CHAT_REQUEST_TIMEOUT),
 			});
 
 			if (!response.ok) {
@@ -846,20 +863,20 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		_token: CancellationToken
 	): Promise<number> {
 		if (typeof text === "string") {
-			return Math.ceil(text.length / 4);
+			return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
 		} else {
 			let totalTokens = 0;
 			for (const part of text.content) {
 				if (part instanceof vscode.LanguageModelTextPart) {
-					totalTokens += Math.ceil(part.value.length / 4);
+					totalTokens += Math.ceil(part.value.length / CHARS_PER_TOKEN_ESTIMATE);
 				} else if (part instanceof vscode.LanguageModelDataPart) {
 					const mime = part.mimeType.toLowerCase();
 					if (mime.startsWith("image/")) {
-						totalTokens += 765;
+						totalTokens += IMAGE_TOKEN_ESTIMATE;
 					} else if (mime === "application/pdf") {
-						totalTokens += 500;
+						totalTokens += PDF_TOKEN_ESTIMATE;
 					} else if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-						totalTokens += Math.ceil(part.data.length / 4);
+						totalTokens += Math.ceil(part.data.length / CHARS_PER_TOKEN_ESTIMATE);
 					}
 				}
 			}
@@ -967,32 +984,29 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * @param progress Progress reporter for parts.
 	 */
 	private async processDelta(
-		delta: Record<string, unknown>,
+		delta: StreamingResponseDelta,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>
 	): Promise<boolean> {
 		let emitted = false;
 
 		// Log token usage — must run before the choices[0] early return because
 		// OpenAI-compatible streams send usage in a final chunk with choices: []
-		const usage = delta.usage as Record<string, unknown> | undefined;
+		const usage = delta.usage;
 		if (usage) {
 			this.log("Token usage", usage);
 		}
 
-		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
+		const choice = delta.choices?.[0];
 		if (!choice) {
 			return false;
 		}
 
-		const deltaObj = choice.delta as Record<string, unknown> | undefined;
+		const deltaObj = choice.delta;
 
 		// report thinking progress if backend provides it and host supports it
 		try {
 			const maybeThinking =
-				(choice as Record<string, unknown> | undefined)?.thinking ??
-				(deltaObj as Record<string, unknown> | undefined)?.thinking ??
-				(deltaObj as Record<string, unknown> | undefined)?.reasoning_content ??
-				(deltaObj as Record<string, unknown> | undefined)?.reasoning;
+				choice.thinking ?? deltaObj?.thinking ?? deltaObj?.reasoning_content ?? deltaObj?.reasoning;
 			if (maybeThinking !== undefined) {
 				const vsAny = vscode as unknown as Record<string, unknown>;
 				const ThinkingCtor = vsAny["LanguageModelThinkingPart"] as
@@ -1003,10 +1017,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					let id: string | undefined;
 					let metadata: unknown;
 					if (maybeThinking && typeof maybeThinking === "object") {
-						const mt = maybeThinking as Record<string, unknown>;
-						text = typeof mt["text"] === "string" ? (mt["text"] as string) : "";
-						id = typeof mt["id"] === "string" ? (mt["id"] as string) : undefined;
-						metadata = mt["metadata"];
+						const mt = maybeThinking as ThinkingContent;
+						text = typeof mt.text === "string" ? mt.text : "";
+						id = typeof mt.id === "string" ? mt.id : undefined;
+						metadata = mt.metadata;
 					} else if (typeof maybeThinking === "string") {
 						text = maybeThinking;
 					}
@@ -1030,9 +1044,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		if (deltaObj?.content !== undefined && deltaObj.content !== null) {
 			if (Array.isArray(deltaObj.content)) {
 				// Structured content array (some providers return this)
-				for (const block of deltaObj.content as Array<Record<string, unknown>>) {
+				for (const block of deltaObj.content as Array<ContentBlock>) {
 					if (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") {
-						const res = this.processTextContent(block.text as string, progress);
+						const res = this.processTextContent(block.text, progress);
 						if (res.emittedText) {
 							this._req.hasEmittedAssistantText = true;
 						}
@@ -1055,7 +1069,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		if (deltaObj?.tool_calls) {
-			const toolCalls = deltaObj.tool_calls as Array<Record<string, unknown>>;
+			const toolCalls = deltaObj.tool_calls as Array<StreamingToolCall>;
 
 			// SSEProcessor-like: if first tool call appears after text, emit a whitespace
 			// to ensure any UI buffers/linkifiers are flushed without adding visible noise.
@@ -1065,7 +1079,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			}
 
 			for (const tc of toolCalls) {
-				const idx = (tc.index as number) ?? 0;
+				const idx = tc.index ?? 0;
 				// Ignore any further deltas for an index we've already completed
 				if (this._req.completedToolCallIndices.has(idx)) {
 					continue;
@@ -1074,7 +1088,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				if (tc.id && typeof tc.id === "string") {
 					buf.id = tc.id;
 				}
-				const func = tc.function as Record<string, unknown> | undefined;
+				const func = tc.function;
 				if (func?.name && typeof func.name === "string") {
 					buf.name = func.name;
 				}
@@ -1088,7 +1102,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			}
 		}
 
-		const finish = (choice.finish_reason as string | undefined) ?? undefined;
+		const finish = choice.finish_reason ?? undefined;
 		if (finish === "tool_calls" || finish === "stop") {
 			// On both 'tool_calls' and 'stop', emit any buffered calls and throw on invalid JSON
 			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ true);
