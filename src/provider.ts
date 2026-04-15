@@ -1334,7 +1334,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const parsed = tryParseJSONObject(buf.args);
 			if (!parsed.ok) {
 				if (throwOnInvalid) {
-					console.error("[LiteLLM Model Provider] Invalid JSON for tool call", {
+					this.logError("Invalid JSON for tool call", {
 						idx,
 						snippet: (buf.args || "").slice(0, 200),
 					});

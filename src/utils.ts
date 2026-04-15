@@ -8,6 +8,7 @@ import type {
 	OpenAIFunctionToolDef,
 	OpenAIToolCall,
 } from "./types";
+import { log, warn, error } from "./logger";
 
 // Tool calling sanitization helpers
 
@@ -257,9 +258,7 @@ export function convertMessages(
 					if (decoded !== null) {
 						textParts.push(decoded);
 					} else {
-						console.log(
-							`[LiteLLM Model Provider] Skipping unsupported LanguageModelDataPart with MIME type: ${part.mimeType}`
-						);
+						log(`Skipping unsupported LanguageModelDataPart with MIME type: ${part.mimeType}`);
 					}
 				}
 			} else if (isPromptTsxPart(part)) {
@@ -357,7 +356,7 @@ export function convertTools(options: vscode.ProvideLanguageModelChatResponseOpt
 export function validateRequest(messages: readonly vscode.LanguageModelChatRequestMessage[]): void {
 	const lastMessage = messages[messages.length - 1];
 	if (!lastMessage) {
-		console.error("[LiteLLM Model Provider] No messages in request");
+		error("No messages in request");
 		throw new Error("Invalid request: no messages.");
 	}
 
@@ -378,10 +377,7 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 			while (toolCallIds.size > 0) {
 				const nextMessage = messages[nextMessageIdx++];
 				if (!nextMessage || nextMessage.role !== vscode.LanguageModelChatMessageRole.User) {
-					console.error(
-						"[LiteLLM Model Provider] Validation failed: missing tool result for call IDs:",
-						Array.from(toolCallIds)
-					);
+					error("Validation failed: missing tool result for call IDs:", Array.from(toolCallIds));
 					throw new Error(errMsg);
 				}
 
@@ -390,7 +386,7 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 						const ctorName =
 							(Object.getPrototypeOf(part as object) as { constructor?: { name?: string } } | undefined)?.constructor
 								?.name ?? typeof part;
-						console.error("[LiteLLM Model Provider] Validation failed: expected tool result part, got:", ctorName);
+						error("Validation failed: expected tool result part, got:", ctorName);
 						throw new Error(errMsg);
 					}
 					const callId = (part as { callId: string }).callId;
@@ -446,7 +442,7 @@ function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }): string
 			if (decoded !== null) {
 				text += decoded;
 			} else if (isImageMimeType(c.mimeType)) {
-				console.log("[LiteLLM Model Provider] Tool returned image data which cannot be forwarded as tool result text");
+				log("Tool returned image data which cannot be forwarded as tool result text");
 			}
 		} else if (isPromptTsxPart(c)) {
 			const extracted = extractPromptTsxText(c);

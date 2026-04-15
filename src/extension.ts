@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "./provider";
+import { setLogger, OutputChannelLogger } from "./logger";
 
 /**
  * Check if the current VS Code version meets the minimum required version.
@@ -51,6 +52,9 @@ export function activate(context: vscode.ExtensionContext) {
 	const outputChannel = vscode.window.createOutputChannel("LiteLLM");
 	context.subscriptions.push(outputChannel);
 	outputChannel.appendLine(`LiteLLM Extension activated (v${extVersion})`);
+
+	// Initialize global logger with the output channel
+	setLogger(new OutputChannelLogger(outputChannel));
 
 	const provider = new LiteLLMChatModelProvider(context.secrets, ua, outputChannel);
 	// Register the LiteLLM provider under the vendor id used in package.json
