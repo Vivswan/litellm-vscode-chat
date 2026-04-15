@@ -29,18 +29,9 @@ import {
 	MODEL_FETCH_TIMEOUT,
 	CHAT_REQUEST_TIMEOUT,
 	MAX_TOOLS_PER_REQUEST,
-	CONTROL_TOKENS,
 	PROVIDER_OWNED_FIELDS,
 } from "./constants";
-import type {
-	StreamingResponseDelta,
-	StreamingChoice,
-	StreamingDelta,
-	ThinkingContent,
-	ContentBlock,
-	StreamingToolCall,
-	TokenUsage,
-} from "./types";
+import type { StreamingResponseDelta, ThinkingContent, ContentBlock, StreamingToolCall } from "./types";
 
 /**
  * VS Code Chat provider backed by LiteLLM.
@@ -1005,8 +996,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		// report thinking progress if backend provides it and host supports it
 		try {
-			const maybeThinking =
-				choice.thinking ?? deltaObj?.thinking ?? deltaObj?.reasoning_content ?? deltaObj?.reasoning;
+			const maybeThinking = choice.thinking ?? deltaObj?.thinking ?? deltaObj?.reasoning_content ?? deltaObj?.reasoning;
 			if (maybeThinking !== undefined) {
 				const vsAny = vscode as unknown as Record<string, unknown>;
 				const ThinkingCtor = vsAny["LanguageModelThinkingPart"] as
