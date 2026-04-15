@@ -158,3 +158,71 @@ export interface ToolCallBuffer {
 
 /** OpenAI-style chat roles. */
 export type OpenAIChatRole = "system" | "user" | "assistant" | "tool";
+
+/**
+ * Streaming response delta structure
+ */
+export interface StreamingResponseDelta {
+	choices?: Array<StreamingChoice>;
+	usage?: TokenUsage;
+}
+
+/**
+ * Streaming choice within a delta
+ */
+export interface StreamingChoice {
+	delta?: StreamingDelta;
+	finish_reason?: string | null;
+	thinking?: ThinkingContent | string;
+}
+
+/**
+ * Delta content within a streaming choice
+ */
+export interface StreamingDelta {
+	content?: string | Array<ContentBlock>;
+	tool_calls?: Array<StreamingToolCall>;
+	thinking?: ThinkingContent | string;
+	reasoning_content?: string;
+	reasoning?: string;
+}
+
+/**
+ * Thinking/reasoning content structure
+ */
+export interface ThinkingContent {
+	text?: string;
+	id?: string;
+	metadata?: unknown;
+}
+
+/**
+ * Content block in structured delta content
+ */
+export interface ContentBlock {
+	type: string;
+	text?: string;
+	[key: string]: unknown;
+}
+
+/**
+ * Streaming tool call structure
+ */
+export interface StreamingToolCall {
+	index?: number;
+	id?: string;
+	type?: "function";
+	function?: {
+		name?: string;
+		arguments?: string;
+	};
+}
+
+/**
+ * Token usage information
+ */
+export interface TokenUsage {
+	prompt_tokens?: number;
+	completion_tokens?: number;
+	total_tokens?: number;
+}
