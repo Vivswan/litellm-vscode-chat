@@ -76,7 +76,7 @@ export class OutputChannelLogger implements Logger {
  * Falls back to console when no VS Code output channel is available
  */
 export class ConsoleLogger implements Logger {
-	constructor(private readonly prefix: string = "[LiteLLM]") {}
+	constructor(private readonly prefix = "[LiteLLM]") {}
 
 	log(message: string, ...args: unknown[]): void {
 		console.log(`${this.prefix} ${message}`, ...args);

@@ -8,7 +8,7 @@ import type {
 	OpenAIFunctionToolDef,
 	OpenAIToolCall,
 } from "./types";
-import { log, warn, error } from "./logger";
+import { log, error } from "./logger";
 
 // Tool calling sanitization helpers
 
