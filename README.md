@@ -59,6 +59,7 @@ Override default request parameters for specific models using the `modelParamete
 ```json
 {
   "litellm-vscode-chat.modelParameters": {
+    "gpt-5.5":{},
     "gpt-5": {
       "temperature": 1
     },
@@ -74,6 +75,8 @@ Override default request parameters for specific models using the `modelParamete
   }
 }
 ```
+
+When a model matches a `modelParameters` entry, that entry is used instead of codebase defaults. Use an empty object (for example, `"gpt-5.5": {}`) to send no default parameters for a model.
 
 **Supported parameters:**
 - `max_tokens` - Maximum tokens in response
@@ -91,7 +94,7 @@ All `modelParameters` keys are passed through to LiteLLM — the extension does 
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
-**Parameter precedence**: Runtime options > User config > Defaults
+**Parameter precedence**: Runtime options > matched model-specific `modelParameters` entry > codebase defaults. Matched model-specific entries replace defaults; they are not merged with them.
 
 ### Prompt Caching (Anthropic Claude)
 

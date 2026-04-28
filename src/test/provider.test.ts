@@ -613,6 +613,162 @@ suite("LiteLLM Chat Provider Extension", () => {
 		});
 
 		suite("modelParameters configuration", () => {
+			test("returns codebase defaults when no model-specific match exists", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "modelParameters") {
+									return {
+										"gpt-4": {
+											temperature: 0.8,
+										},
+									};
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const params = (provider as any).getModelParameters("claude-opus");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, { temperature: 0.7 });
+			});
+
+			test("model-specific parameters are used when matched", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "modelParameters") {
+									return {
+										"gpt-4": {
+											temperature: 0.8,
+										},
+									};
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const params = (provider as any).getModelParameters("gpt-4:openai");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, { temperature: 0.8 });
+			});
+
+			test("does not treat default key as global fallback", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "modelParameters") {
+									return {
+										default: {
+											temperature: 0.4,
+										},
+										"gpt-4": {
+											top_p: 0.9,
+										},
+									};
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const defaultParams = (provider as any).getModelParameters("claude-opus");
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const modelParams = (provider as any).getModelParameters("gpt-4:openai");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(defaultParams, { temperature: 0.7 });
+				assert.deepEqual(modelParams, { top_p: 0.9 });
+			});
+
+			test("model-specific empty object disables built-in defaults", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "modelParameters") {
+									return {
+										"gpt-5.5": {},
+									};
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const params = (provider as any).getModelParameters("gpt-5.5");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, {});
+			});
+
 			test("exact model ID match returns parameters", async () => {
 				const originalGetConfiguration = vscode.workspace.getConfiguration;
 				vscode.workspace.getConfiguration = ((section?: string) => {
@@ -736,7 +892,7 @@ suite("LiteLLM Chat Provider Extension", () => {
 				assert.deepEqual(params, { temperature: 0.9 });
 			});
 
-			test("no match returns empty object", async () => {
+			test("no match returns built-in defaults", async () => {
 				const originalGetConfiguration = vscode.workspace.getConfiguration;
 				vscode.workspace.getConfiguration = ((section?: string) => {
 					if (section === "litellm-vscode-chat") {
@@ -771,10 +927,10 @@ suite("LiteLLM Chat Provider Extension", () => {
 
 				vscode.workspace.getConfiguration = originalGetConfiguration;
 
-				assert.deepEqual(params, {});
+				assert.deepEqual(params, { temperature: 0.7 });
 			});
 
-			test("empty configuration returns empty object", async () => {
+			test("empty configuration returns built-in defaults", async () => {
 				const originalGetConfiguration = vscode.workspace.getConfiguration;
 				vscode.workspace.getConfiguration = ((section?: string) => {
 					if (section === "litellm-vscode-chat") {
@@ -797,6 +953,35 @@ suite("LiteLLM Chat Provider Extension", () => {
 
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const params = (provider as any).getModelParameters("gpt-4");
+
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+
+				assert.deepEqual(params, { temperature: 0.7 });
+			});
+
+			test("uses codebase model-specific defaults from registry file", async () => {
+				const originalGetConfiguration = vscode.workspace.getConfiguration;
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => defaultValue,
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const params = (provider as any).getModelParameters("gpt-5.5");
 
 				vscode.workspace.getConfiguration = originalGetConfiguration;
 

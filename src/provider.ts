@@ -17,7 +17,8 @@ import type {
 	LiteLLMProvider,
 } from "./types";
 
-import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
+import { resolveCodebaseModelDefaults } from "./modelDefaults";
+import { convertTools, convertMessages, findLongestPrefixMatch, tryParseJSONObject, validateRequest } from "./utils";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
@@ -190,20 +191,18 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 */
 	private getModelParameters(modelId: string): Record<string, unknown> {
 		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
+		const codebaseModelParameters = resolveCodebaseModelDefaults(modelId);
 		const modelParameters = config.get<Record<string, Record<string, unknown>>>("modelParameters", {});
 
-		// Find longest matching prefix
-		let longestMatch: { key: string; value: Record<string, unknown> } | undefined;
+		const longestMatch = findLongestPrefixMatch(Object.entries(modelParameters), modelId, ([key]) => key);
 
-		for (const [key, value] of Object.entries(modelParameters)) {
-			if (modelId === key || modelId.startsWith(key)) {
-				if (!longestMatch || key.length > longestMatch.key.length) {
-					longestMatch = { key, value };
-				}
-			}
+		if (longestMatch) {
+			return { ...longestMatch[1] };
 		}
 
-		return longestMatch ? { ...longestMatch.value } : {};
+		return {
+			...codebaseModelParameters,
+		};
 	}
 
 	/**
@@ -751,7 +750,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				stream: true,
 				stream_options: { include_usage: true },
 				max_tokens: maxTokens,
-				temperature: 0.7, // Base default
 			};
 
 			// Provider-owned fields that cannot be overwritten by config or runtime options
