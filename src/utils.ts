@@ -208,6 +208,37 @@ function decodeDataPartText(part: vscode.LanguageModelDataPart): string | null {
 }
 
 /**
+ * Find the best prefix match for a model ID from a list of entries.
+ *
+ * Matching behavior:
+ * 1. Exact match or prefix match against each entry's prefix key
+ * 2. Longest matching prefix wins
+ *
+ * @param entries Candidate entries to search.
+ * @param modelId Model identifier to match.
+ * @param getPrefix Function that returns the match prefix for each entry.
+ * @returns The longest matching entry, or undefined when no match exists.
+ */
+export function findLongestPrefixMatch<T>(
+	entries: readonly T[],
+	modelId: string,
+	getPrefix: (entry: T) => string
+): T | undefined {
+	let longestMatch: T | undefined;
+	let longestPrefixLength = -1;
+
+	for (const entry of entries) {
+		const prefix = getPrefix(entry);
+		if ((modelId === prefix || modelId.startsWith(prefix)) && prefix.length > longestPrefixLength) {
+			longestMatch = entry;
+			longestPrefixLength = prefix.length;
+		}
+	}
+
+	return longestMatch;
+}
+
+/**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
  * @param messages The VS Code chat messages to convert.
  * @returns OpenAI-compatible messages array.
