@@ -49,8 +49,8 @@ Tests use the `@vscode/test-electron` framework. Run `bun test` to execute all t
 
 ### Git Commit and PR Conventions
 
-- **DO NOT** add "Co-Authored-By: Codex" or similar attribution lines to commit messages
-- **DO NOT** add "Generated with Codex" or similar markers to pull request descriptions
+- **DO NOT** add "Co-Authored-By:" or similar attribution lines to commit messages
+- **DO NOT** add "Generated with" or similar markers to pull request descriptions
 - Keep commit messages and PR descriptions clean and focused on the actual changes
 
 ## Architecture

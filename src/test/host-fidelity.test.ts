@@ -141,6 +141,21 @@ suite("Host-Fidelity Tests (capture)", function () {
 		return { body, parts };
 	}
 
+	/** Temporarily set modelParameters config for a single test and restore it afterward. */
+	async function withModelParameters<T>(
+		value: Record<string, Record<string, unknown>>,
+		fn: () => Promise<T>
+	): Promise<T> {
+		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
+		const original = config.inspect<Record<string, Record<string, unknown>>>("modelParameters")?.globalValue;
+		await config.update("modelParameters", value, vscode.ConfigurationTarget.Global);
+		try {
+			return await fn();
+		} finally {
+			await config.update("modelParameters", original, vscode.ConfigurationTarget.Global);
+		}
+	}
+
 	// ─── Model Discovery ─────────────────────────────────────────────────
 
 	suite("model discovery", () => {
@@ -254,6 +269,24 @@ suite("Host-Fidelity Tests (capture)", function () {
 			const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
 			assert.ok(typeof body.model === "string", "model should be a string");
 			assert.ok(typeof body.max_tokens === "number", "max_tokens should be a number");
+		});
+
+		test("modelParameters merge onto built-in defaults through the host path", async () => {
+			await withModelParameters({ [model.id]: { top_p: 0.9 } }, async () => {
+				const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
+				assert.strictEqual(body.temperature, 0.7, "Built-in default temperature should still be present");
+				assert.strictEqual(body.top_p, 0.9, "Configured parameter should be merged into the request");
+				assert.strictEqual(body._replaceDefaults, undefined, "Extension metadata must not leak into the request");
+			});
+		});
+
+		test("_replaceDefaults skips built-in defaults through the host path", async () => {
+			await withModelParameters({ [model.id]: { _replaceDefaults: true, top_p: 0.9 } }, async () => {
+				const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
+				assert.strictEqual(body.temperature, undefined, "Built-in temperature should be omitted when replacing");
+				assert.strictEqual(body.top_p, 0.9, "Configured parameter should still be forwarded");
+				assert.strictEqual(body._replaceDefaults, undefined, "Extension metadata must not leak into the request");
+			});
 		});
 
 		test("multi-turn conversation preserves all message roles and order", async () => {
