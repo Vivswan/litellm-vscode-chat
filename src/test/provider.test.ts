@@ -2,6 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import { convertMessages, convertTools, validateRequest, tryParseJSONObject } from "../utils";
+import { findLongestPrefixMatch, getModelDefaults } from "../modelDefaults";
 
 interface OpenAIToolCall {
 	id: string;
@@ -1081,6 +1082,226 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"Should include stream_options by default"
 				);
 			});
+			test("unmatched model gets built-in fallback defaults (temperature 0.7)", async () => {
+				const originalFetch = global.fetch;
+				const originalGetConfig = vscode.workspace.getConfiguration;
+				let capturedBody: Record<string, unknown> | undefined;
+
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					capturedBody = JSON.parse(init?.body as string);
+					return { ok: true, body: sseStream("ok") } as unknown as Response;
+				};
+
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string) => {
+								if (key === "modelParameters") {
+									return {};
+								}
+								return undefined;
+							},
+						};
+					}
+					return originalGetConfig(section!);
+				}) as typeof vscode.workspace.getConfiguration;
+
+				try {
+					const provider = createConfiguredProvider();
+					await provider.prepareLanguageModelChatInformation(
+						{ silent: true },
+						new vscode.CancellationTokenSource().token
+					);
+					await provider.provideLanguageModelChatResponse(
+						modelInfo,
+						[
+							{
+								role: vscode.LanguageModelChatMessageRole.User,
+								content: [new vscode.LanguageModelTextPart("test")],
+								name: undefined,
+							},
+						],
+						{
+							toolMode: vscode.LanguageModelChatToolMode.Auto,
+						} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+						{ report: () => {} },
+						new vscode.CancellationTokenSource().token
+					);
+					assert.ok(capturedBody, "Should have captured request body");
+					assert.strictEqual(capturedBody!.temperature, 0.7, "Should include default temperature 0.7");
+				} finally {
+					global.fetch = originalFetch;
+					vscode.workspace.getConfiguration = originalGetConfig;
+				}
+			});
+
+			test("gpt-5.5 model gets no built-in temperature", async () => {
+				const originalFetch = global.fetch;
+				const originalGetConfig = vscode.workspace.getConfiguration;
+				let capturedBody: Record<string, unknown> | undefined;
+
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					capturedBody = JSON.parse(init?.body as string);
+					return { ok: true, body: sseStream("ok") } as unknown as Response;
+				};
+
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string) => {
+								if (key === "modelParameters") {
+									return {};
+								}
+								return undefined;
+							},
+						};
+					}
+					return originalGetConfig(section!);
+				}) as typeof vscode.workspace.getConfiguration;
+
+				const gpt55Model = { ...modelInfo, id: "gpt-5.5:openai" };
+
+				try {
+					const provider = createConfiguredProvider();
+					await provider.prepareLanguageModelChatInformation(
+						{ silent: true },
+						new vscode.CancellationTokenSource().token
+					);
+					await provider.provideLanguageModelChatResponse(
+						gpt55Model,
+						[
+							{
+								role: vscode.LanguageModelChatMessageRole.User,
+								content: [new vscode.LanguageModelTextPart("test")],
+								name: undefined,
+							},
+						],
+						{
+							toolMode: vscode.LanguageModelChatToolMode.Auto,
+						} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+						{ report: () => {} },
+						new vscode.CancellationTokenSource().token
+					);
+					assert.ok(capturedBody, "Should have captured request body");
+					assert.strictEqual(capturedBody!.temperature, undefined, "gpt-5.5 should not have temperature");
+				} finally {
+					global.fetch = originalFetch;
+					vscode.workspace.getConfiguration = originalGetConfig;
+				}
+			});
+
+			test("_replaceDefaults: true skips codebase defaults", async () => {
+				const originalFetch = global.fetch;
+				const originalGetConfig = vscode.workspace.getConfiguration;
+				let capturedBody: Record<string, unknown> | undefined;
+
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					capturedBody = JSON.parse(init?.body as string);
+					return { ok: true, body: sseStream("ok") } as unknown as Response;
+				};
+
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string) => {
+								if (key === "modelParameters") {
+									return { "test-model": { _replaceDefaults: true, top_p: 0.9 } };
+								}
+								return undefined;
+							},
+						};
+					}
+					return originalGetConfig(section!);
+				}) as typeof vscode.workspace.getConfiguration;
+
+				try {
+					const provider = createConfiguredProvider();
+					await provider.prepareLanguageModelChatInformation(
+						{ silent: true },
+						new vscode.CancellationTokenSource().token
+					);
+					await provider.provideLanguageModelChatResponse(
+						modelInfo,
+						[
+							{
+								role: vscode.LanguageModelChatMessageRole.User,
+								content: [new vscode.LanguageModelTextPart("test")],
+								name: undefined,
+							},
+						],
+						{
+							toolMode: vscode.LanguageModelChatToolMode.Auto,
+						} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+						{ report: () => {} },
+						new vscode.CancellationTokenSource().token
+					);
+					assert.ok(capturedBody, "Should have captured request body");
+					assert.strictEqual(
+						capturedBody!.temperature,
+						undefined,
+						"Should not have default temperature when _replaceDefaults is true"
+					);
+					assert.strictEqual(capturedBody!.top_p, 0.9, "Should have user-specified top_p");
+					assert.strictEqual(capturedBody!._replaceDefaults, undefined, "_replaceDefaults must not appear in request");
+				} finally {
+					global.fetch = originalFetch;
+					vscode.workspace.getConfiguration = originalGetConfig;
+				}
+			});
+
+			test("user config without _replaceDefaults merges onto codebase defaults", async () => {
+				const originalFetch = global.fetch;
+				const originalGetConfig = vscode.workspace.getConfiguration;
+				let capturedBody: Record<string, unknown> | undefined;
+
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					capturedBody = JSON.parse(init?.body as string);
+					return { ok: true, body: sseStream("ok") } as unknown as Response;
+				};
+
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string) => {
+								if (key === "modelParameters") {
+									return { "test-model": { top_p: 0.8 } };
+								}
+								return undefined;
+							},
+						};
+					}
+					return originalGetConfig(section!);
+				}) as typeof vscode.workspace.getConfiguration;
+
+				try {
+					const provider = createConfiguredProvider();
+					await provider.prepareLanguageModelChatInformation(
+						{ silent: true },
+						new vscode.CancellationTokenSource().token
+					);
+					await provider.provideLanguageModelChatResponse(
+						modelInfo,
+						[
+							{
+								role: vscode.LanguageModelChatMessageRole.User,
+								content: [new vscode.LanguageModelTextPart("test")],
+								name: undefined,
+							},
+						],
+						{
+							toolMode: vscode.LanguageModelChatToolMode.Auto,
+						} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+						{ report: () => {} },
+						new vscode.CancellationTokenSource().token
+					);
+					assert.ok(capturedBody, "Should have captured request body");
+					assert.strictEqual(capturedBody!.temperature, 0.7, "Should keep default temperature when merging");
+					assert.strictEqual(capturedBody!.top_p, 0.8, "Should have user-specified top_p");
+				} finally {
+					global.fetch = originalFetch;
+					vscode.workspace.getConfiguration = originalGetConfig;
+				}
+			});
 		});
 
 		suite("diagnostics", () => {
@@ -2125,6 +2346,34 @@ suite("LiteLLM Chat Provider Extension", () => {
 			) as vscode.LanguageModelToolCallPart;
 			assert.ok(toolPart, "Should emit a tool call from inline control tokens");
 			assert.equal(toolPart.name, "my_tool");
+		});
+	});
+
+	suite("modelDefaults", () => {
+		test("findLongestPrefixMatch returns longest match", () => {
+			const entries = { gpt: "a", "gpt-4": "b", "gpt-4-turbo": "c" };
+			assert.strictEqual(findLongestPrefixMatch("gpt-4-turbo:fastest", entries), "c");
+			assert.strictEqual(findLongestPrefixMatch("gpt-4:openai", entries), "b");
+			assert.strictEqual(findLongestPrefixMatch("gpt-3.5", entries), "a");
+		});
+
+		test("findLongestPrefixMatch returns undefined for no match", () => {
+			assert.strictEqual(findLongestPrefixMatch("claude-3", { gpt: "a" }), undefined);
+		});
+
+		test("getModelDefaults returns temperature 0.7 for unmatched model", () => {
+			const defaults = getModelDefaults("claude-3-opus");
+			assert.strictEqual(defaults.temperature, 0.7);
+		});
+
+		test("getModelDefaults returns no temperature for gpt-5.5", () => {
+			const defaults = getModelDefaults("gpt-5.5");
+			assert.strictEqual(defaults.temperature, undefined);
+		});
+
+		test("getModelDefaults returns no temperature for gpt-5.5 with suffix", () => {
+			const defaults = getModelDefaults("gpt-5.5:openai");
+			assert.strictEqual(defaults.temperature, undefined);
 		});
 	});
 });

@@ -16,6 +16,7 @@ import type {
 	LiteLLMModelsResponse,
 	LiteLLMProvider,
 } from "./types";
+import { findLongestPrefixMatch, getModelDefaults } from "./modelDefaults";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 
@@ -191,19 +192,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private getModelParameters(modelId: string): Record<string, unknown> {
 		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
 		const modelParameters = config.get<Record<string, Record<string, unknown>>>("modelParameters", {});
-
-		// Find longest matching prefix
-		let longestMatch: { key: string; value: Record<string, unknown> } | undefined;
-
-		for (const [key, value] of Object.entries(modelParameters)) {
-			if (modelId === key || modelId.startsWith(key)) {
-				if (!longestMatch || key.length > longestMatch.key.length) {
-					longestMatch = { key, value };
-				}
-			}
-		}
-
-		return longestMatch ? { ...longestMatch.value } : {};
+		const match = findLongestPrefixMatch(modelId, modelParameters);
+		return match ? { ...match } : {};
 	}
 
 	/**
@@ -744,14 +734,19 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				maxTokens = Math.min(4096, model.maxOutputTokens);
 			}
 
-			// Build base request body
+			// Build base request body with codebase defaults
+			const replaceDefaults = modelParams._replaceDefaults === true;
+			delete modelParams._replaceDefaults;
+
+			const defaults = replaceDefaults ? {} : getModelDefaults(model.id);
+
 			requestBody = {
 				model: model.id,
 				messages: openaiMessages,
 				stream: true,
 				stream_options: { include_usage: true },
 				max_tokens: maxTokens,
-				temperature: 0.7, // Base default
+				...defaults,
 			};
 
 			// Provider-owned fields that cannot be overwritten by config or runtime options
