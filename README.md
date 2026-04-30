@@ -91,7 +91,7 @@ All `modelParameters` keys are passed through to LiteLLM — the extension does 
 
 **Built-in defaults**: The extension applies `temperature: 0.7` by default. Some models (e.g., `gpt-5.5`) have built-in overrides that suppress the default temperature. User `modelParameters` entries merge on top of these defaults.
 
-**`_replaceDefaults`**: Set `"_replaceDefaults": true` in a model entry to skip all built-in defaults for that model and use only your supplied parameters:
+**`_replaceDefaults`**: Set `"_replaceDefaults": true` in a model entry to skip built-in request-parameter defaults for that model (for example, the default `temperature`) and use only the request parameters you supply from configuration:
 
 ```json
 {
