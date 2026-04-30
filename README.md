@@ -87,7 +87,22 @@ Override default request parameters for specific models using the `modelParamete
 - `seed` - Deterministic output
 - And any other parameter supported by your LiteLLM and model provider backend
 
-All `modelParameters` keys are passed through to LiteLLM — the extension does not filter or restrict which parameters you can set.
+All `modelParameters` keys are passed through to LiteLLM — the extension does not filter or restrict which parameters you can set. The reserved key `_replaceDefaults` is extension metadata and is never forwarded.
+
+**Built-in defaults**: The extension applies `temperature: 0.7` by default. Some models (e.g., `gpt-5.5`) have built-in overrides that suppress the default temperature. User `modelParameters` entries merge on top of these defaults.
+
+**`_replaceDefaults`**: Set `"_replaceDefaults": true` in a model entry to skip all built-in defaults for that model and use only your supplied parameters:
+
+```json
+{
+  "litellm-vscode-chat.modelParameters": {
+    "gpt-4": {
+      "_replaceDefaults": true,
+      "top_p": 0.9
+    }
+  }
+}
+```
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
