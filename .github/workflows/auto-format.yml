@@ -51,7 +51,7 @@ jobs:
 
       - name: Remove fix-lint label
         if: steps.git-check.outputs.changes == 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.issues.removeLabel({
@@ -63,7 +63,7 @@ jobs:
 
       - name: Add comment if no changes
         if: steps.git-check.outputs.changes != 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.issues.createComment({

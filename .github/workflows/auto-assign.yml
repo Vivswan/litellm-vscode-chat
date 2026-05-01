@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Assign issue to owner
         if: github.event_name == 'issues'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.issues.addAssignees({
@@ -28,7 +28,7 @@ jobs:
 
       - name: Assign PR to owner
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.issues.addAssignees({
