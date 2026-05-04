@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "./provider";
+import { IssueReporter, DiagnosticsSnapshot } from "./issueReporter";
 
 const GITHUB_REPO = "https://github.com/Vivswan/litellm-vscode-chat";
-const GITHUB_NEW_ISSUE_BUG = `${GITHUB_REPO}/issues/new?labels=bug&title=%5BBug%5D+`;
 const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
 const GITHUB_DOCS = `${GITHUB_REPO}#quick-start`;
 
@@ -57,7 +57,8 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(outputChannel);
 	outputChannel.appendLine(`LiteLLM Extension activated (v${extVersion})`);
 
-	const provider = new LiteLLMChatModelProvider(context.secrets, ua, outputChannel);
+	const issueReporter = new IssueReporter();
+	const provider = new LiteLLMChatModelProvider(context.secrets, ua, outputChannel, issueReporter);
 	// Register the LiteLLM provider under the vendor id used in package.json
 	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
 
@@ -289,13 +290,16 @@ export function activate(context: vscode.ExtensionContext) {
 						.showWarningMessage(
 							`LiteLLM: Connected to ${baseUrl}, but server returned no models. Check your LiteLLM proxy configuration.`,
 							"View Output",
-							"Reconfigure"
+							"Reconfigure",
+							"Report Issue"
 						)
 						.then((choice) => {
 							if (choice === "View Output") {
 								outputChannel.show();
 							} else if (choice === "Reconfigure") {
 								vscode.commands.executeCommand("litellm.manage");
+							} else if (choice === "Report Issue") {
+								vscode.commands.executeCommand("litellm.reportIssue");
 							}
 						});
 				} else {
@@ -318,12 +322,14 @@ export function activate(context: vscode.ExtensionContext) {
 				const errorMsg = error instanceof Error ? error.message : String(error);
 				outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: ${errorMsg}`);
 				vscode.window
-					.showErrorMessage(`LiteLLM: Connection failed - ${errorMsg}`, "View Output", "Reconfigure")
+					.showErrorMessage(`LiteLLM: Connection failed - ${errorMsg}`, "View Output", "Reconfigure", "Report Issue")
 					.then((choice) => {
 						if (choice === "View Output") {
 							outputChannel.show();
 						} else if (choice === "Reconfigure") {
 							vscode.commands.executeCommand("litellm.manage");
+						} else if (choice === "Report Issue") {
+							vscode.commands.executeCommand("litellm.reportIssue");
 						}
 					});
 			}
@@ -368,6 +374,7 @@ export function activate(context: vscode.ExtensionContext) {
 				"View Output",
 				"Test Connection",
 				"Reconfigure",
+				"Report Issue",
 				"Help & Feedback"
 			);
 
@@ -377,6 +384,8 @@ export function activate(context: vscode.ExtensionContext) {
 				vscode.commands.executeCommand("litellm.testConnection");
 			} else if (choice === "Reconfigure") {
 				vscode.commands.executeCommand("litellm.manage");
+			} else if (choice === "Report Issue") {
+				vscode.commands.executeCommand("litellm.reportIssue");
 			} else if (choice === "Help & Feedback") {
 				vscode.commands.executeCommand("litellm.helpAndFeedback");
 			}
@@ -397,12 +406,41 @@ export function activate(context: vscode.ExtensionContext) {
 			if (!choice) {
 				return;
 			}
+			if (choice.id === "bug") {
+				await vscode.commands.executeCommand("litellm.reportIssue");
+				return;
+			}
 			const urls: Record<string, string> = {
-				bug: GITHUB_NEW_ISSUE_BUG,
 				feature: GITHUB_NEW_ISSUE_FEATURE,
 				docs: GITHUB_DOCS,
 			};
 			vscode.env.openExternal(vscode.Uri.parse(urls[choice.id]));
+		})
+	);
+
+	// Build diagnostics snapshot for issue reporting
+	async function buildDiagnosticsSnapshot(): Promise<DiagnosticsSnapshot> {
+		const baseUrl = await context.secrets.get("litellm.baseUrl");
+		const hasApiKey = !!(await context.secrets.get("litellm.apiKey"));
+
+		return {
+			extensionVersion: extVersion,
+			vscodeVersion: vscodeVersion,
+			platform: `${process.platform} ${process.arch}`,
+			connectionState: connectionStatus.state,
+			modelCount: connectionStatus.modelCount,
+			apiKeyConfigured: hasApiKey,
+			baseUrlConfigured: !!baseUrl,
+			latestError: issueReporter.getLatestError(),
+			recentLogs: issueReporter.getRecentLogs(),
+		};
+	}
+
+	// Report Issue command
+	context.subscriptions.push(
+		vscode.commands.registerCommand("litellm.reportIssue", async () => {
+			const snapshot = await buildDiagnosticsSnapshot();
+			await issueReporter.openIssue(snapshot);
 		})
 	);
 }
