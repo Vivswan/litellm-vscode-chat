@@ -52,6 +52,10 @@
 			{
 				"command": "litellm.showDiagnostics",
 				"title": "LiteLLM: Show Diagnostics"
+			},
+			{
+				"command": "litellm.helpAndFeedback",
+				"title": "LiteLLM: Help & Feedback"
 			}
 		],
 		"configuration": {

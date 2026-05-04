@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "./provider";
 
+const GITHUB_REPO = "https://github.com/Vivswan/litellm-vscode-chat";
+const GITHUB_NEW_ISSUE_BUG = `${GITHUB_REPO}/issues/new?labels=bug&title=%5BBug%5D+`;
+const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
+const GITHUB_DOCS = `${GITHUB_REPO}#quick-start`;
+
 /**
  * Check if the current VS Code version meets the minimum required version.
  * @param current The current VS Code version (e.g., "1.108.0")
@@ -175,7 +180,7 @@ export function activate(context: vscode.ExtensionContext) {
 						if (choice === "Configure Now") {
 							vscode.commands.executeCommand("litellm.manage");
 						} else if (choice === "Documentation") {
-							vscode.env.openExternal(vscode.Uri.parse("https://github.com/Vivswan/litellm-vscode-chat#quick-start"));
+							vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS));
 						}
 					});
 			}
@@ -362,7 +367,8 @@ export function activate(context: vscode.ExtensionContext) {
 				{ modal: true },
 				"View Output",
 				"Test Connection",
-				"Reconfigure"
+				"Reconfigure",
+				"Help & Feedback"
 			);
 
 			if (choice === "View Output") {
@@ -371,7 +377,32 @@ export function activate(context: vscode.ExtensionContext) {
 				vscode.commands.executeCommand("litellm.testConnection");
 			} else if (choice === "Reconfigure") {
 				vscode.commands.executeCommand("litellm.manage");
+			} else if (choice === "Help & Feedback") {
+				vscode.commands.executeCommand("litellm.helpAndFeedback");
 			}
+		})
+	);
+
+	// Help & Feedback command
+	context.subscriptions.push(
+		vscode.commands.registerCommand("litellm.helpAndFeedback", async () => {
+			const choice = await vscode.window.showQuickPick(
+				[
+					{ label: "$(bug) Report Bug", id: "bug" },
+					{ label: "$(lightbulb) Request Feature", id: "feature" },
+					{ label: "$(book) Documentation", id: "docs" },
+				],
+				{ title: "LiteLLM: Help & Feedback", placeHolder: "What would you like to do?" }
+			);
+			if (!choice) {
+				return;
+			}
+			const urls: Record<string, string> = {
+				bug: GITHUB_NEW_ISSUE_BUG,
+				feature: GITHUB_NEW_ISSUE_FEATURE,
+				docs: GITHUB_DOCS,
+			};
+			vscode.env.openExternal(vscode.Uri.parse(urls[choice.id]));
 		})
 	);
 }
