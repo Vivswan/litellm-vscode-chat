@@ -187,6 +187,12 @@ Shows:
 - Last check timestamp
 - Quick access to output channel
 
+**Help & Feedback**
+- **Command Palette**: `Ctrl+Shift+P` / `Cmd+Shift+P` → "LiteLLM: Help & Feedback"
+- Also accessible from the diagnostics dialog
+
+Quickly report bugs, request features, or open the documentation.
+
 **Output Channel**
 
 View detailed logs for debugging:
