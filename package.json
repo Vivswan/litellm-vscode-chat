@@ -56,6 +56,10 @@
 			{
 				"command": "litellm.helpAndFeedback",
 				"title": "LiteLLM: Help & Feedback"
+			},
+			{
+				"command": "litellm.reportIssue",
+				"title": "LiteLLM: Report Issue"
 			}
 		],
 		"configuration": {

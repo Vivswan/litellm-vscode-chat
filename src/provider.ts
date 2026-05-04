@@ -19,6 +19,7 @@ import type {
 import { findLongestPrefixMatch, getModelDefaults } from "./modelDefaults";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
+import type { IssueReporter } from "./issueReporter";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
@@ -66,7 +67,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	constructor(
 		private readonly secrets: vscode.SecretStorage,
 		private readonly userAgent: string,
-		private readonly outputChannel?: vscode.OutputChannel
+		private readonly outputChannel?: vscode.OutputChannel,
+		private readonly issueReporter?: IssueReporter
 	) {}
 
 	/**
@@ -80,11 +82,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private log(message: string, data?: unknown): void {
 		if (this.outputChannel) {
 			const timestamp = new Date().toISOString();
-			if (data !== undefined) {
-				this.outputChannel.appendLine(`[${timestamp}] ${message}: ${JSON.stringify(data, null, 2)}`);
-			} else {
-				this.outputChannel.appendLine(`[${timestamp}] ${message}`);
-			}
+			const line =
+				data !== undefined
+					? `[${timestamp}] ${message}: ${JSON.stringify(data, null, 2)}`
+					: `[${timestamp}] ${message}`;
+			this.outputChannel.appendLine(line);
+			this.issueReporter?.appendLog(line);
 		}
 	}
 
@@ -93,10 +96,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		if (this.outputChannel) {
 			const timestamp = new Date().toISOString();
 			this.outputChannel.appendLine(`[${timestamp}] ERROR: ${message}: ${errorMsg}`);
+			this.issueReporter?.appendLog(`[${timestamp}] ERROR: ${message}: ${errorMsg}`);
 			if (error instanceof Error && error.stack) {
 				this.outputChannel.appendLine(`Stack trace: ${error.stack}`);
 			}
 		}
+		this.issueReporter?.recordError(message, error);
 	}
 
 	/**
@@ -250,11 +255,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			// When silent mode is enabled (e.g., background refresh or "Add models" button),
 			// show an error notification so the user knows what went wrong
 			if (options.silent) {
-				vscode.window.showErrorMessage(`LiteLLM: ${errorMsg}`, "Reconfigure", "Dismiss").then((choice) => {
-					if (choice === "Reconfigure") {
-						vscode.commands.executeCommand("litellm.manage");
-					}
-				});
+				vscode.window
+					.showErrorMessage(`LiteLLM: ${errorMsg}`, "Reconfigure", "Report Issue", "Dismiss")
+					.then((choice) => {
+						if (choice === "Reconfigure") {
+							vscode.commands.executeCommand("litellm.manage");
+						} else if (choice === "Report Issue") {
+							vscode.commands.executeCommand("litellm.reportIssue");
+						}
+					});
 				// Return empty array instead of throwing to prevent the UI from breaking
 				return [];
 			}
@@ -274,13 +283,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				.showWarningMessage(
 					"LiteLLM: Your server returned no models. Check your LiteLLM proxy configuration.",
 					"Check Server",
-					"Reconfigure"
+					"Reconfigure",
+					"Report Issue"
 				)
 				.then((choice) => {
 					if (choice === "Check Server") {
 						vscode.commands.executeCommand("litellm.testConnection");
 					} else if (choice === "Reconfigure") {
 						vscode.commands.executeCommand("litellm.manage");
+					} else if (choice === "Report Issue") {
+						vscode.commands.executeCommand("litellm.reportIssue");
 					}
 				});
 			return [];
