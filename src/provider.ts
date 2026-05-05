@@ -88,7 +88,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		const TTL_MS = 30_000;
-		if (options.silent && this._lastModelList.length > 0 && Date.now() - this._modelListFetchedAtMs < TTL_MS) {
+		if (options.silent && this._modelListFetchedAtMs > 0 && Date.now() - this._modelListFetchedAtMs < TTL_MS) {
 			this.log("Returning cached models (within TTL)", { count: this._lastModelList.length });
 			return this._lastModelList;
 		}
@@ -227,14 +227,18 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 								}
 							});
 						this._lastModelList = [];
-						this._modelListFetchedAtMs = Date.now();
+						if (this._discoveryGeneration === myGeneration) {
+							this._modelListFetchedAtMs = Date.now();
+						}
 						return [];
 					}
 					throw new Error(firstError);
 				}
 
-				this._lastModelList = allInfos;
-				this._modelListFetchedAtMs = Date.now();
+				if (this._discoveryGeneration === myGeneration) {
+					this._lastModelList = allInfos;
+					this._modelListFetchedAtMs = Date.now();
+				}
 				return allInfos;
 			} finally {
 				if (this._discoveryGeneration === myGeneration) {

@@ -1262,4 +1262,151 @@ suite("provider", () => {
 			assert.equal(modelEntry.capabilities.imageInput, true);
 		});
 	});
+
+	suite("discovery cache and deduplication", () => {
+		function makeModelResponse(modelIds: string[]) {
+			return async () =>
+				({
+					ok: true,
+					json: async () => ({
+						object: "list",
+						data: modelIds.map((id) => ({
+							id,
+							object: "model",
+							created: 0,
+							owned_by: "test",
+							providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
+						})),
+					}),
+				}) as unknown as Response;
+		}
+
+		function makeProvider() {
+			return new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+		}
+
+		const token = new vscode.CancellationTokenSource().token;
+
+		test("TTL cache returns cached results for silent calls", async () => {
+			const originalFetch = global.fetch;
+			let fetchCount = 0;
+			global.fetch = async () => {
+				fetchCount++;
+				return (await makeModelResponse(["model-a"])()) as Response;
+			};
+
+			const provider = makeProvider();
+			await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			assert.equal(fetchCount, 1);
+
+			await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			assert.equal(fetchCount, 1, "Second silent call should use TTL cache");
+
+			global.fetch = originalFetch;
+		});
+
+		test("TTL cache is bypassed after invalidateModelCache", async () => {
+			const originalFetch = global.fetch;
+			let fetchCount = 0;
+			global.fetch = async () => {
+				fetchCount++;
+				return (await makeModelResponse(["model-a"])()) as Response;
+			};
+
+			const provider = makeProvider();
+			await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			assert.equal(fetchCount, 1);
+
+			provider.invalidateModelCache();
+			await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			assert.equal(fetchCount, 2, "Should re-fetch after invalidation");
+
+			global.fetch = originalFetch;
+		});
+
+		test("non-silent call bypasses TTL cache", async () => {
+			const originalFetch = global.fetch;
+			let fetchCount = 0;
+			global.fetch = async () => {
+				fetchCount++;
+				return (await makeModelResponse(["model-a"])()) as Response;
+			};
+
+			const provider = makeProvider();
+			await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			assert.equal(fetchCount, 1);
+
+			await provider.prepareLanguageModelChatInformation({ silent: false }, token);
+			assert.equal(fetchCount, 2, "Non-silent call should bypass cache");
+
+			global.fetch = originalFetch;
+		});
+
+		test("stale fetch does not overwrite cache after invalidation", async () => {
+			const originalFetch = global.fetch;
+			let fetchCount = 0;
+
+			const provider = makeProvider();
+
+			// First: populate cache with "old-model"
+			global.fetch = makeModelResponse(["old-model"]);
+			await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			fetchCount = 0;
+
+			// Invalidate, then fetch with "new-model"
+			provider.invalidateModelCache();
+			global.fetch = async () => {
+				fetchCount++;
+				return (await makeModelResponse(["new-model"])()) as Response;
+			};
+			const result = await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			assert.equal(fetchCount, 1);
+
+			const ids = result.map((m) => m.id);
+			assert.ok(
+				ids.some((id) => id.includes("new-model")),
+				`Should have new-model, got: ${ids.join(", ")}`
+			);
+			assert.ok(!ids.some((id) => id.includes("old-model")), `Should not have old-model, got: ${ids.join(", ")}`);
+
+			// Verify the cache holds new-model, not old
+			global.fetch = async () => {
+				throw new Error("should not fetch");
+			};
+			const cached = await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			const cachedIds = cached.map((m) => m.id);
+			assert.ok(
+				cachedIds.some((id) => id.includes("new-model")),
+				`Cache should have new-model, got: ${cachedIds.join(", ")}`
+			);
+
+			global.fetch = originalFetch;
+		});
+
+		test("empty model list is cached within TTL", async () => {
+			const originalFetch = global.fetch;
+			let fetchCount = 0;
+			global.fetch = async () => {
+				fetchCount++;
+				return { ok: true, json: async () => ({ object: "list", data: [] }) } as unknown as Response;
+			};
+
+			const provider = makeProvider();
+			await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			assert.equal(fetchCount, 1);
+
+			await provider.prepareLanguageModelChatInformation({ silent: true }, token);
+			assert.equal(fetchCount, 1, "Empty result should be cached within TTL");
+
+			global.fetch = originalFetch;
+		});
+	});
 });
