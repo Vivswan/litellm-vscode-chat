@@ -72,4 +72,26 @@ suite("buildRequestBody param filtering", () => {
 		assert.strictEqual(body.temperature, 0.5);
 		assert.strictEqual(body.top_p, 0.9);
 	});
+
+	test("built-in default temperature is stripped for incompatible models", () => {
+		const body = buildRequestBody({
+			rawModelId: "claude-sonnet-4-20250514",
+			openaiMessages: [],
+			maxTokens: 1000,
+			modelParams: {},
+			toolConfig: {},
+		});
+		assert.strictEqual(body.temperature, undefined, "default temperature 0.7 should be stripped for Claude");
+	});
+
+	test("built-in default temperature is stripped for o1", () => {
+		const body = buildRequestBody({
+			rawModelId: "o1",
+			openaiMessages: [],
+			maxTokens: 1000,
+			modelParams: {},
+			toolConfig: {},
+		});
+		assert.strictEqual(body.temperature, undefined, "default temperature 0.7 should be stripped for o1");
+	});
 });
