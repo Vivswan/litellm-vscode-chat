@@ -9,7 +9,7 @@
 const http = require("http");
 const { URL } = require("url");
 
-const MODEL_ID = "openai/gpt-5-mini-flex";
+const MODEL_ID = "openai/gpt-4o-test";
 
 const MODEL_INFO = {
 	data: [

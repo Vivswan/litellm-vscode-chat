@@ -2,6 +2,29 @@ import * as vscode from "vscode";
 import type { LiteLLMProvider } from "../types";
 import { findLongestPrefixMatch, getModelDefaults } from "./modelDefaults";
 
+const KNOWN_PARAMETER_LIMITATIONS: Record<string, Set<string>> = {
+	"claude-3-5-sonnet": new Set(["temperature"]),
+	"claude-3-5-haiku": new Set(["temperature"]),
+	"claude-3-opus": new Set(["temperature"]),
+	"claude-3-sonnet": new Set(["temperature"]),
+	"claude-3-haiku": new Set(["temperature"]),
+	"claude-haiku-4-5": new Set(["temperature"]),
+	"o1-": new Set(["temperature", "top_p", "frequency_penalty", "presence_penalty"]),
+	"gpt-5": new Set(["temperature", "top_p", "frequency_penalty", "presence_penalty"]),
+	"gpt-5.1-codex": new Set(["temperature", "frequency_penalty", "presence_penalty"]),
+	"codex-mini": new Set(["temperature", "frequency_penalty", "presence_penalty"]),
+};
+
+export function stripUnsupportedParams(body: Record<string, unknown>, rawModelId: string): void {
+	const modelName = rawModelId.includes("/") ? rawModelId.slice(rawModelId.lastIndexOf("/") + 1) : rawModelId;
+	const unsupported = findLongestPrefixMatch(modelName, KNOWN_PARAMETER_LIMITATIONS);
+	if (unsupported) {
+		for (const param of unsupported) {
+			delete body[param];
+		}
+	}
+}
+
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
 
@@ -149,5 +172,6 @@ export function buildRequestBody(params: RequestBodyParams): Record<string, unkn
 		body.tool_choice = toolConfig.tool_choice;
 	}
 
+	stripUnsupportedParams(body, rawModelId);
 	return body;
 }
