@@ -5,45 +5,6 @@ import type {
 	LiteLLMModelsResponse,
 	LiteLLMProvider,
 } from "../types";
-import { z } from "zod/v4";
-
-export const ModelInfoItemSchema = z.object({
-	model_name: z.string().optional(),
-	litellm_params: z
-		.object({
-			model: z.string().optional(),
-		})
-		.optional(),
-	model_info: z
-		.object({
-			id: z.string().optional(),
-			key: z.string().optional(),
-			max_tokens: z.number().nullable().optional(),
-			max_input_tokens: z.number().nullable().optional(),
-			max_output_tokens: z.number().nullable().optional(),
-			litellm_provider: z.string().optional(),
-			supports_function_calling: z.boolean().nullable().optional(),
-			supports_tool_choice: z.boolean().nullable().optional(),
-			supports_vision: z.boolean().nullable().optional(),
-			supports_prompt_caching: z.boolean().nullable().optional(),
-			supports_response_schema: z.boolean().nullable().optional(),
-			supports_reasoning: z.boolean().nullable().optional(),
-			supports_pdf_input: z.boolean().nullable().optional(),
-			supports_audio_input: z.boolean().nullable().optional(),
-			supports_audio_output: z.boolean().nullable().optional(),
-			supported_openai_params: z.array(z.string()).nullable().optional(),
-		})
-		.optional(),
-});
-
-export const ModelInfoResponseSchema = z.object({
-	data: z.array(z.unknown()),
-});
-
-export const ModelsResponseSchema = z.object({
-	object: z.string().optional(),
-	data: z.array(z.unknown()).optional(),
-});
 
 export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 	const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;

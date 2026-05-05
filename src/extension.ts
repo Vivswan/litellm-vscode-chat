@@ -180,7 +180,7 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 
 	// Diagnostics command
-	registerDiagnosticsCommand(context, registry, () => statusBar.connectionStatus);
+	registerDiagnosticsCommand(context, registry, () => statusBar.connectionStatus, outputChannel);
 
 	// Help & Feedback command
 	registerHelpAndFeedbackCommand(context);

@@ -33,7 +33,8 @@ export async function buildDiagnosticsSnapshot(
 export function registerDiagnosticsCommand(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
-	getConnectionStatus: () => ConnectionStatus
+	getConnectionStatus: () => ConnectionStatus,
+	outputChannel: vscode.OutputChannel
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand("litellm.showDiagnostics", async () => {
@@ -95,12 +96,7 @@ export function registerDiagnosticsCommand(
 			);
 
 			if (choice === "View Output") {
-				const outputChannel = context.subscriptions.find(
-					(s) => s && typeof (s as vscode.OutputChannel).appendLine === "function"
-				) as vscode.OutputChannel | undefined;
-				if (outputChannel) {
-					outputChannel.show();
-				}
+				outputChannel.show();
 			} else if (choice === "Test Connection") {
 				vscode.commands.executeCommand("litellm.testConnection");
 			} else if (choice === "Manage Servers") {

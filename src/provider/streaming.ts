@@ -218,6 +218,7 @@ export class StreamProcessor {
 		const END = "<|tool_call_end|>";
 
 		let data = this._req.textToolParserBuffer + input;
+		this._req.textToolParserBuffer = "";
 		let emittedText = false;
 		let emittedAny = false;
 		let visibleOut = "";
@@ -240,13 +241,11 @@ export class StreamProcessor {
 							visibleOut += this.stripControlTokens(visible);
 						}
 						this._req.textToolParserBuffer = data.slice(data.length - longestPartialPrefix);
-						data = "";
-						break;
 					} else {
 						visibleOut += this.stripControlTokens(data);
-						data = "";
-						break;
 					}
+					data = "";
+					break;
 				}
 				const pre = data.slice(0, b);
 				if (pre) {
@@ -329,8 +328,6 @@ export class StreamProcessor {
 			emittedText = true;
 			emittedAny = true;
 		}
-
-		this._req.textToolParserBuffer = data;
 
 		return { emittedText, emittedAny };
 	}
