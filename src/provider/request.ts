@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { LiteLLMProvider } from "../types";
 import { findLongestPrefixMatch, getModelDefaults } from "./modelDefaults";
-import { countTextTokens } from "../tokenizer";
+import { countTextTokens, countDataPartTokens } from "../tokenizer";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
@@ -70,11 +70,7 @@ export function estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRe
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
 				total += countTextTokens(part.name + JSON.stringify(part.input ?? {}));
 			} else if (part instanceof vscode.LanguageModelDataPart) {
-				const mime = part.mimeType.toLowerCase();
-				if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-					const text = part.data instanceof Uint8Array ? new TextDecoder().decode(part.data) : String(part.data);
-					total += countTextTokens(text);
-				}
+				total += countDataPartTokens(part.mimeType, part.data);
 			}
 		}
 	}

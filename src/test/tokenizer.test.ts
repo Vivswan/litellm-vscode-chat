@@ -55,6 +55,17 @@ suite("Tokenizer", () => {
 		assert.equal(tokens, countTextTokens(json));
 	});
 
+	test("countMessageTokens handles tool result parts", () => {
+		const parts = [{ callId: "call_1", content: [{ value: "result text" }] }];
+		const tokens = countMessageTokens(parts);
+		assert.equal(tokens, countTextTokens("result text"));
+	});
+
+	test("countMessageTokens handles tool result with image content", () => {
+		const parts = [{ callId: "call_1", content: [{ mimeType: "image/png", data: new Uint8Array([1]) }] }];
+		assert.equal(countMessageTokens(parts), 765);
+	});
+
 	test("countMessageTokens sums mixed parts", () => {
 		const parts = [{ value: "describe this" }, { mimeType: "image/png", data: new Uint8Array([1]) }];
 		const tokens = countMessageTokens(parts);
