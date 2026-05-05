@@ -8,9 +8,9 @@
 		"type": "git",
 		"url": "https://github.com/Vivswan/litellm-vscode-chat"
 	},
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"engines": {
-		"vscode": "^1.110.0"
+		"vscode": "^1.118.0"
 	},
 	"categories": [
 		"AI",
@@ -52,6 +52,14 @@
 			{
 				"command": "litellm.showDiagnostics",
 				"title": "LiteLLM: Show Diagnostics"
+			},
+			{
+				"command": "litellm.helpAndFeedback",
+				"title": "LiteLLM: Help & Feedback"
+			},
+			{
+				"command": "litellm.reportIssue",
+				"title": "LiteLLM: Report Issue"
 			}
 		],
 		"configuration": {
@@ -86,7 +94,7 @@
 				"litellm-vscode-chat.modelParameters": {
 					"type": "object",
 					"default": {},
-					"description": "Model-specific request parameters to customize API behavior. Supports max_tokens, temperature, top_p, frequency_penalty, presence_penalty, stop, etc. Uses longest prefix matching (e.g., 'gpt-4' matches 'gpt-4-turbo:openai'). Set '_replaceDefaults: true' in a model entry to skip built-in codebase defaults (e.g., temperature) for that model. Note: gpt-5.5 has no built-in default temperature.",
+					"description": "Model-specific request parameters to customize API behavior. Supports max_tokens, temperature, top_p, frequency_penalty, presence_penalty, stop, etc. Uses longest prefix matching (e.g., 'gpt-4' matches 'gpt-4-turbo:openai'). For multi-server setups, prefix with the server label to scope parameters to a specific server (e.g., 'Production/gpt-4'). Server-scoped entries take priority over unscoped ones. Set '_replaceDefaults: true' in a model entry to skip built-in codebase defaults (e.g., temperature) for that model. Note: gpt-5.5 has no built-in default temperature.",
 					"additionalProperties": {
 						"type": "object"
 					}
@@ -119,17 +127,17 @@
 		"@eslint/js": "^10.0.0",
 		"@stylistic/eslint-plugin": "^5.10.0",
 		"@types/mocha": "^10.0.10",
-		"@types/node": "^25.5.0",
-		"@types/vscode": "^1.110.0",
+		"@types/node": "^25.6.0",
+		"@types/vscode": "^1.118.0",
 		"@vscode/dts": "^0.4.1",
 		"@vscode/test-cli": "^0.0.12",
 		"@vscode/test-electron": "^2.5.2",
-		"eslint": "^10.1.0",
+		"eslint": "^10.3.0",
 		"husky": "^9.1.7",
 		"lint-staged": "^16.4.0",
 		"prettier": "^3.8.1",
-		"typescript": "^6.0.2",
-		"typescript-eslint": "^8.58.0"
+		"typescript": "^6.0.3",
+		"typescript-eslint": "^8.59.1"
 	},
 	"packageManager": "bun@1.3.9",
 	"lint-staged": {

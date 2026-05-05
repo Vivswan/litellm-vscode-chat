@@ -59,21 +59,40 @@ Tests use the `@vscode/test-electron` framework. Run `bun test` to execute all t
 
 **`src/extension.ts`**: Extension activation and lifecycle
 - Registers the LiteLLM chat provider with vendor ID `"litellm"`
-- Implements the `litellm.manage` command for configuration UI
-- Manages status bar indicator showing connection state with 4 states:
+- Implements the `litellm.manage` command as a Quick Pick based multi-server manager
+- Creates `ServerRegistry` for managing multiple server configurations
+- Migrates legacy single-server config on first run after upgrade
+- Manages status bar indicator showing connection state with 5 states:
   - Not configured: `$(warning) LiteLLM`
   - Loading: `$(loading~spin) LiteLLM`
-  - Connected: `$(check) LiteLLM (N)` where N is model count
+  - Connected: `$(check) LiteLLM (N)` where N is total model count across all servers
+  - Degraded: `$(warning) LiteLLM (N)` when some servers failed but others succeeded
   - Error: `$(error) LiteLLM` with error details in tooltip
 - Creates "LiteLLM" output channel for diagnostic logging
-- Implements `litellm.testConnection` command to verify server connectivity
-- Implements `litellm.showDiagnostics` command to display configuration and connection status
-- Stores credentials securely in VS Code's SecretStorage (keys: `litellm.baseUrl`, `litellm.apiKey`)
+- Implements `litellm.testConnection` command to verify connectivity to all servers
+- Implements `litellm.showDiagnostics` command to display per-server status and configuration
+- Stores API keys per server in VS Code's SecretStorage (keys: `litellm.apiKey.<serverId>`)
+- Stores server metadata (id, label, baseUrl) in `globalState` as a list
 - Persists connection status in `globalState` across sessions
+
+**`src/serverRegistry.ts`**: Multi-server configuration management
+- `ServerRegistry` class managing server configs in `globalState` and API keys in `SecretStorage`
+- CRUD operations: `addServer`, `updateServer`, `removeServer`, `getServersWithKeys`
+- Unique label enforcement via `hasLabel`
+- `migrateLegacy()` auto-migrates existing single-server `litellm.baseUrl`/`litellm.apiKey` secrets into the registry
+- Server configs stored as `{ id, label, baseUrl }` list; API keys stored per server as `litellm.apiKey.<serverId>`
 
 **`src/provider.ts`**: Main provider implementation (`LiteLLMChatModelProvider`)
 - Implements VS Code's `LanguageModelChatProvider` interface
-- Fetches available models from LiteLLM's `/v1/model/info` endpoint (with fallback to `/v1/models`)
+- Fetches available models from all configured servers in parallel via `Promise.allSettled`
+- Aggregates models from successful servers; failed servers don't block reachable ones
+- Maps each exposed model ID to its originating server via `_modelRoutes` for request routing
+- Single-server setups keep model IDs unchanged; multi-server prefixes with `serverId/`
+- Model `detail` field shows server label in multi-server mode, "LiteLLM" in single-server
+- Model names are prefixed with `[ServerLabel] ` in multi-server mode for visibility in list views
+- Routes chat completions to the originating server using the model's server mapping
+- `modelParameters` matching tries `"ServerLabel/rawModelId"` first, falls back to `"rawModelId"`
+- Fetches from LiteLLM's `/v1/model/info` endpoint (with fallback to `/v1/models`)
 - Handles streaming chat completions via `/v1/chat/completions`
 - Converts VS Code message format to OpenAI-compatible format
 - Parses streaming SSE responses and emits parts (text, tool calls, thinking/reasoning)
@@ -83,7 +102,7 @@ Tests use the `@vscode/test-electron` framework. Run `bun test` to execute all t
 - Broad model options pass-through: all `modelOptions` and `modelParameters` keys forwarded to LiteLLM except provider-owned fields (`model`, `messages`, `stream`, `stream_options`, `tools`, `tool_choice`)
 - Requests `stream_options: { include_usage: true }` by default and logs token usage from the final streaming chunk
 - Token estimation: text-only for the hard rejection path (no multimodal guesses); `provideTokenCount()` uses rough heuristics for images/PDFs for VS Code UI hints
-- Provides status callback mechanism to update extension about fetch results
+- Provides `AggregatedStatus` callback with per-server statuses to update extension UI
 - Logs all operations to output channel for debugging
 - Shows notifications for:
   - Missing configuration (one-time per session)
@@ -127,6 +146,8 @@ The extension creates multiple model entries per LiteLLM model to support provid
 - `model-name:fastest` - Routes to the fastest available provider
 - `model-name:provider-name` - Routes to a specific provider (e.g., `gpt-4:openai` or `gpt-4:azure`)
 
+In multi-server setups, each variant is server-scoped with a `serverId/` prefix in the model ID (e.g., `abc123/gpt-4:cheapest`). Single-server setups omit the prefix. Model names are prefixed with `[ServerLabel] ` (e.g., `[Production] gpt-4`) and the `detail` field shows the server label, allowing users to distinguish models from different servers in both list and dropdown views.
+
 This allows users to choose routing strategy in the VS Code chat model picker.
 
 **Token Limit Management**
@@ -144,7 +165,7 @@ There are two distinct configuration concepts:
 - **Capabilities** (read from LiteLLM API): What the model CAN do (max tokens, context length, tool support, vision, reasoning, PDF input, etc.) - handled by `getTokenConstraints()` and extended metadata
 - **Parameters** (from user config or runtime): What we ASK the model to do (temperature, max_tokens, response_format, reasoning_effort, etc.) - handled by `getModelParameters()` and broad pass-through
 
-The `modelParameters` setting uses longest-prefix matching, so `"gpt-4"` matches `"gpt-4-turbo:openai"`.
+The `modelParameters` setting uses longest-prefix matching against the raw model ID (without server prefix), so `"gpt-4"` matches `"gpt-4-turbo:openai"`. In multi-server setups, server-scoped keys like `"ServerLabel/gpt-4"` take priority over unscoped keys.
 
 **Request Parameter Pass-through**
 
@@ -190,7 +211,9 @@ Token usage from the final streaming chunk is logged to the output channel. The 
 
 **Configuration Storage**
 
-- Base URL and API key stored in VS Code's SecretStorage (encrypted)
+- Server metadata (id, label, baseUrl) stored in `globalState` as a list under `litellm.serverRegistry`
+- API keys stored per server in SecretStorage under `litellm.apiKey.<serverId>`
+- Legacy single-server config (`litellm.baseUrl`, `litellm.apiKey`) auto-migrated on first run
 - Settings like token limits and model parameters stored in workspace/user settings
 - First-run welcome message shown once using `globalState`
 - Connection status persisted in `globalState` for status bar restoration
@@ -212,9 +235,9 @@ The extension implements comprehensive diagnostics to help users troubleshoot co
    - Located at "Output" panel → "LiteLLM" dropdown
 
 3. **Status Callback Pattern**: Provider notifies extension of fetch results
-   - `setStatusCallback()` method accepts callback function
-   - Provider calls callback with model count on success or error message on failure
-   - Extension updates status bar and persists state
+   - `setStatusCallback()` accepts callback receiving `AggregatedStatus` object
+   - `AggregatedStatus` contains per-server `ServerStatus[]` and `totalModels` count
+   - Extension derives connection state: connected (all ok), degraded (partial), error (all failed)
 
 4. **User Notifications**: Proactive error reporting
    - One-time notification when no configuration exists (silent mode only)

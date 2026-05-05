@@ -5,6 +5,7 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 ## Features
 
 - Access 100+ LLMs (OpenAI, Anthropic, Google, AWS, Azure, and more) through a unified API
+- **Multi-server support**: Connect to multiple LiteLLM servers simultaneously and aggregate models
 - Automatic provider selection with `cheapest` and `fastest` modes
 - **Multimodal support**: Vision (images), PDF/document attachments, and text/JSON data
 - Support for streaming, function calling, and thinking/reasoning tokens
@@ -22,19 +23,30 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 1. Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
 2. Open VS Code's chat interface
 3. Click the model picker → "Manage Models..." → "LiteLLM"
-4. Enter your LiteLLM base URL (e.g., `http://localhost:4000`)
-5. Enter your API key (if required)
-6. Select models to add
+4. Add a server: enter a label, base URL (e.g., `http://localhost:4000`), and API key
+5. Select models to add
 
 ## Configuration
 
-### Connection Settings
+### Server Management
 
-To update your base URL or API key:
+The extension supports connecting to multiple LiteLLM servers at once. Models from all reachable servers are aggregated into one list.
+
+To manage servers:
 - **Command Palette**: `Ctrl+Shift+P` / `Cmd+Shift+P` → "Manage LiteLLM Provider"
 - **Model Picker**: Chat interface → Model picker → "Manage Models..." → "LiteLLM"
 
-Credentials are stored securely in VS Code's secret storage.
+From the server manager you can:
+- **Add Server** — provide a unique label, base URL, and optional API key
+- **Edit Server** — update label, URL, or API key
+- **Remove Server** — delete a server and its stored credentials
+- **Test All Servers** — verify connectivity to every configured server
+
+If no servers are configured, the "Manage" command jumps straight to the add flow.
+
+Credentials are stored securely in VS Code's secret storage. Server metadata (label, URL) is stored in global state.
+
+**Upgrading from single-server**: Existing single-server configurations are automatically migrated into the server registry on first run.
 
 ### Token Limits (Automatic)
 
@@ -106,6 +118,24 @@ All `modelParameters` keys are passed through to LiteLLM — the extension does 
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
+**Server-scoped parameters**: In multi-server setups, prefix a key with the server label and `/` to scope parameters to a specific server. Server-scoped entries take priority over unscoped ones:
+
+```json
+{
+  "litellm-vscode-chat.modelParameters": {
+    "gpt-4": {
+      "temperature": 0.7
+    },
+    "Production/gpt-4": {
+      "temperature": 0.3
+    },
+    "Dev/gpt-4": {
+      "temperature": 0.9
+    }
+  }
+}
+```
+
 **Parameter precedence**: Runtime options > User config > Defaults
 
 ### Prompt Caching (Anthropic Claude)
@@ -155,10 +185,11 @@ The LiteLLM status bar indicator (bottom right corner) shows your connection sta
 
 | Icon | Status | Description |
 |------|--------|-------------|
-| `⚠️ LiteLLM` | Not Configured | Click to set up your connection |
-| `⟳ LiteLLM` | Loading | Fetching models from server |
-| `✓ LiteLLM (N)` | Connected | Successfully connected with N models available |
-| `✗ LiteLLM` | Error | Connection failed - click for diagnostics |
+| `⚠️ LiteLLM` | Not Configured | No servers configured - click to set up |
+| `⟳ LiteLLM` | Loading | Fetching models from servers |
+| `✓ LiteLLM (N)` | Connected | All servers reachable with N models available |
+| `⚠️ LiteLLM (N)` | Degraded | Some servers unreachable, N models from reachable servers |
+| `✗ LiteLLM` | Error | All servers failed - click for diagnostics |
 
 Click the status bar indicator at any time to view detailed diagnostics.
 
@@ -182,10 +213,17 @@ This will:
 - Or click the status bar indicator
 
 Shows:
-- Current configuration (base URL, API key status)
-- Connection state and model count
+- Configured servers with labels and URLs
+- Per-server connection state, model count, and errors
+- Overall connection status and total model count
 - Last check timestamp
 - Quick access to output channel
+
+**Help & Feedback**
+- **Command Palette**: `Ctrl+Shift+P` / `Cmd+Shift+P` → "LiteLLM: Help & Feedback"
+- Also accessible from the diagnostics dialog
+
+Quickly report bugs, request features, or open the documentation.
 
 **Output Channel**
 
@@ -214,7 +252,7 @@ The output channel logs:
 
 **"Authentication failed"**
 - Your server requires an API key
-- Run "Manage LiteLLM Provider" and enter your API key
+- Run "Manage LiteLLM Provider" and edit the server to update its API key
 - Verify the key is correct in your LiteLLM proxy configuration
 
 **"Connection Error: Unable to connect"**
