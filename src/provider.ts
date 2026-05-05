@@ -20,9 +20,23 @@ import { findLongestPrefixMatch, getModelDefaults } from "./modelDefaults";
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 import type { IssueReporter } from "./issueReporter";
+import type { ServerWithKey, ServerStatus } from "./serverRegistry";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
+
+interface ModelRoute {
+	serverId: string;
+	baseUrl: string;
+	apiKey: string;
+	rawModelId: string;
+	serverLabel: string;
+}
+
+export interface AggregatedStatus {
+	serverStatuses: ServerStatus[];
+	totalModels: number;
+}
 
 /**
  * VS Code Chat provider backed by LiteLLM.
@@ -37,13 +51,19 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _promptCachingSupport = new Map<string, boolean>();
 
 	/** Callback to update extension status */
-	private _statusCallback?: (modelCount: number, error?: string) => void;
+	private _statusCallback?: (status: AggregatedStatus) => void;
 
 	/** Track if we've shown the "no config" notification this session */
 	private _hasShownNoConfigNotification = false;
 
 	/** Auto-incrementing counter for generating unique tool call IDs. */
 	private _toolCallIdCounter = 0;
+
+	/** Maps exposed model ID to routing info (server, raw model id, api key) */
+	private _modelRoutes = new Map<string, ModelRoute>();
+
+	/** External function to get configured servers */
+	private _getServers?: () => Promise<ServerWithKey[]>;
 
 	private static _freshRequestState() {
 		return {
@@ -73,10 +93,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 	/**
 	 * Set callback to update extension status when models are fetched.
-	 * @param callback Function to call with model count or error.
+	 * @param callback Function to call with aggregated server status.
 	 */
-	setStatusCallback(callback: (modelCount: number, error?: string) => void): void {
+	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
 		this._statusCallback = callback;
+	}
+
+	setServerProvider(getServers: () => Promise<ServerWithKey[]>): void {
+		this._getServers = getServers;
 	}
 
 	private log(message: string, data?: unknown): void {
@@ -186,25 +210,47 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 	/**
 	 * Resolve model-specific parameters from configuration using longest prefix match.
+	 * Uses the raw model ID (without server prefix) for matching.
+	 * In multi-server setups, tries "ServerLabel/rawModelId" first, then falls back to "rawModelId".
 	 *
 	 * This reads user configuration to customize request PARAMETERS sent to the
 	 * LiteLLM API. This is separate from getTokenConstraints which reads model
 	 * CAPABILITIES.
 	 *
-	 * @param modelId The model ID to match against configuration keys
+	 * @param modelId The exposed model ID to match against configuration keys
 	 * @returns Object containing model-specific parameters, or empty object if no match
 	 */
 	private getModelParameters(modelId: string): Record<string, unknown> {
+		const route = this._modelRoutes.get(modelId);
+		const rawId = route?.rawModelId ?? modelId;
 		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
 		const modelParameters = config.get<Record<string, Record<string, unknown>>>("modelParameters", {});
-		const match = findLongestPrefixMatch(modelId, modelParameters);
+		if (route?.serverLabel) {
+			const scopedMatch = findLongestPrefixMatch(`${route.serverLabel}/${rawId}`, modelParameters);
+			if (scopedMatch) {
+				return { ...scopedMatch };
+			}
+		}
+		const match = findLongestPrefixMatch(rawId, modelParameters);
 		return match ? { ...match } : {};
 	}
 
 	/**
-	 * Get the list of available language models contributed by this provider
+	 * Build exposed model ID that is unique across servers.
+	 * For single-server setups, returns the raw model ID unchanged.
+	 */
+	private buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {
+		if (serverCount <= 1) {
+			return rawModelId;
+		}
+		return `${serverId}/${rawModelId}`;
+	}
+
+	/**
+	 * Get the list of available language models contributed by this provider.
+	 * Fetches models from all configured servers in parallel and aggregates results.
 	 * @param options Options which specify the calling context of this function
-	 * @param token A cancellation token which signals if the user cancelled the request or not
+	 * @param _token A cancellation token which signals if the user cancelled the request or not
 	 * @returns A promise that resolves to the list of available language models
 	 */
 	async prepareLanguageModelChatInformation(
@@ -213,15 +259,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	): Promise<LanguageModelChatInformation[]> {
 		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
 
-		const config = await this.ensureConfig(options.silent);
-		if (!config) {
-			this.log("No config found, returning empty array");
+		const servers = await this.ensureServers(options.silent);
+		if (!servers || servers.length === 0) {
+			this.log("No servers configured, returning empty array");
 
 			// Show one-time notification when no config in silent mode
 			if (options.silent && !this._hasShownNoConfigNotification) {
 				this._hasShownNoConfigNotification = true;
 				vscode.window
-					.showWarningMessage("LiteLLM: No configuration found. Click to configure.", "Configure Now", "Dismiss")
+					.showWarningMessage("LiteLLM: No servers configured. Click to configure.", "Configure Now", "Dismiss")
 					.then((choice) => {
 						if (choice === "Configure Now") {
 							vscode.commands.executeCommand("litellm.manage");
@@ -231,57 +277,79 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 			// Notify status callback
 			if (this._statusCallback) {
-				this._statusCallback(0, "Not configured");
+				this._statusCallback({ serverStatuses: [], totalModels: 0 });
 			}
 			return [];
 		}
-		this.log("Config loaded", { baseUrl: config.baseUrl, hasApiKey: !!config.apiKey });
 
-		let models: LiteLLMModelItem[];
-		try {
-			const result = await this.fetchModels(config.apiKey, config.baseUrl);
-			models = result.models;
-			// Clear cache only on successful fetch to preserve existing data on failure
-			this._promptCachingSupport.clear();
-		} catch (err) {
-			const errorMsg = err instanceof Error ? err.message : String(err);
-			this.logError("Failed to fetch models", err);
+		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
 
-			// Notify status callback of error
-			if (this._statusCallback) {
-				this._statusCallback(0, errorMsg);
+		const results = await Promise.allSettled(
+			servers.map(async (server) => {
+				const result = await this.fetchModels(server.apiKey, server.baseUrl);
+				return { server, models: result.models };
+			})
+		);
+
+		const serverStatuses: ServerStatus[] = [];
+		const allInfos: LanguageModelChatInformation[] = [];
+		// Clear cache only on successful fetch to preserve existing data on failure
+		this._modelRoutes.clear();
+		this._promptCachingSupport.clear();
+
+		const successfulCount = results.filter((r) => r.status === "fulfilled").length;
+		const serverCount = servers.length;
+
+		for (let i = 0; i < results.length; i++) {
+			const result = results[i];
+			const server = servers[i];
+
+			if (result.status === "rejected") {
+				const errorMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+				this.logError(`Failed to fetch models from server "${server.label}"`, result.reason);
+				serverStatuses.push({
+					serverId: server.id,
+					label: server.label,
+					baseUrl: server.baseUrl,
+					state: "error",
+					modelCount: 0,
+					error: errorMsg,
+					lastChecked: new Date().toISOString(),
+				});
+				continue;
 			}
 
-			// When silent mode is enabled (e.g., background refresh or "Add models" button),
-			// show an error notification so the user knows what went wrong
-			if (options.silent) {
-				vscode.window
-					.showErrorMessage(`LiteLLM: ${errorMsg}`, "Reconfigure", "Report Issue", "Dismiss")
-					.then((choice) => {
-						if (choice === "Reconfigure") {
-							vscode.commands.executeCommand("litellm.manage");
-						} else if (choice === "Report Issue") {
-							vscode.commands.executeCommand("litellm.reportIssue");
-						}
-					});
-				// Return empty array instead of throwing to prevent the UI from breaking
-				return [];
-			}
-			// In non-silent mode, re-throw to let the caller handle it
-			throw err;
+			const { models } = result.value;
+			this.log(`Server "${server.label}" returned ${models.length} models`);
+
+			const serverInfos = this.buildModelInfos(models, server, serverCount);
+			allInfos.push(...serverInfos);
+
+			serverStatuses.push({
+				serverId: server.id,
+				label: server.label,
+				baseUrl: server.baseUrl,
+				state: "ok",
+				modelCount: serverInfos.length,
+				lastChecked: new Date().toISOString(),
+			});
 		}
 
-		this.log("Fetched models", { count: models.length, modelIds: models.map((m) => m.id) });
+		this._chatEndpoints = allInfos.map((info) => ({
+			model: info.id,
+			modelMaxPromptTokens: info.maxInputTokens + info.maxOutputTokens,
+		}));
 
-		// Warn if server returns empty model list
-		if (models.length === 0) {
-			this.log("WARNING: Server returned empty model list");
-			if (this._statusCallback) {
-				this._statusCallback(0, "Server returned 0 models");
-			}
+		this.log("Final model count:", allInfos.length);
+
+		if (this._statusCallback) {
+			this._statusCallback({ serverStatuses, totalModels: allInfos.length });
+		}
+
+		if (allInfos.length === 0 && successfulCount > 0) {
 			vscode.window
 				.showWarningMessage(
-					"LiteLLM: Your server returned no models. Check your LiteLLM proxy configuration.",
+					"LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.",
 					"Check Server",
 					"Reconfigure",
 					"Report Issue"
@@ -295,28 +363,58 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 						vscode.commands.executeCommand("litellm.reportIssue");
 					}
 				});
-			return [];
 		}
 
+		if (successfulCount === 0 && servers.length > 0 && options.silent) {
+			const firstError = serverStatuses.find((s) => s.error)?.error ?? "Unknown error";
+			vscode.window
+				.showErrorMessage(`LiteLLM: ${firstError}`, "Reconfigure", "Report Issue", "Dismiss")
+				.then((choice) => {
+					if (choice === "Reconfigure") {
+						vscode.commands.executeCommand("litellm.manage");
+					} else if (choice === "Report Issue") {
+						vscode.commands.executeCommand("litellm.reportIssue");
+					}
+				});
+		}
+
+		return allInfos;
+	}
+
+	private buildModelInfos(
+		models: LiteLLMModelItem[],
+		server: ServerWithKey,
+		serverCount: number
+	): LanguageModelChatInformation[] {
 		const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
-			this.log(`Processing model: ${m.id}`);
+			this.log(`Processing model: ${m.id} from server "${server.label}"`);
 			const providers = m?.providers ?? [];
-			this.log(
-				`  - providers: ${providers.length}`,
-				providers.map((p) => ({ provider: p.provider, supports_tools: p.supports_tools }))
-			);
 			const modalities = m.architecture?.input_modalities ?? [];
 			const vision = Array.isArray(modalities) && modalities.includes("image");
+			const detail = serverCount > 1 ? server.label : "LiteLLM";
+			const namePrefix = serverCount > 1 ? `[${server.label}] ` : "";
+
+			const registerRoute = (exposedId: string, rawId: string) => {
+				this._modelRoutes.set(exposedId, {
+					serverId: server.id,
+					baseUrl: server.baseUrl,
+					apiKey: server.apiKey,
+					rawModelId: rawId,
+					serverLabel: server.label,
+				});
+			};
 
 			if (providers.length === 1 && providers[0].source === "model_info") {
 				const constraints = this.getTokenConstraints(providers[0]);
-				this._promptCachingSupport.set(m.id, providers[0].supports_prompt_caching === true);
+				const exposedId = this.buildExposedModelId(m.id, server.id, serverCount);
+				this._promptCachingSupport.set(exposedId, providers[0].supports_prompt_caching === true);
+				registerRoute(exposedId, m.id);
 				return [
 					{
-						id: m.id,
-						name: m.id,
-						detail: "LiteLLM",
-						tooltip: "LiteLLM",
+						id: exposedId,
+						name: `${namePrefix}${m.id}`,
+						detail,
+						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
 						family: "litellm",
 						version: "1.0.0",
 						maxInputTokens: constraints.maxInputTokens,
@@ -331,15 +429,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 			// If no providers array exists (standard OpenAI-compatible API), create a default entry
 			if (providers.length === 0) {
-				this.log(`  - no providers array, creating default entry`);
 				const constraints = this.getTokenConstraints(undefined);
-				this._promptCachingSupport.set(m.id, false);
+				const exposedId = this.buildExposedModelId(m.id, server.id, serverCount);
+				this._promptCachingSupport.set(exposedId, false);
+				registerRoute(exposedId, m.id);
 				return [
 					{
-						id: m.id,
-						name: m.id,
-						detail: "LiteLLM",
-						tooltip: "LiteLLM",
+						id: exposedId,
+						name: `${namePrefix}${m.id}`,
+						detail,
+						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
 						family: "litellm",
 						version: "1.0.0",
 						maxInputTokens: constraints.maxInputTokens,
@@ -355,10 +454,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			// Build entries for all providers that support tool calling
 			// Assume supports_tools is true if not explicitly set to false
 			const toolProviders = providers.filter((p) => p.supports_tools !== false);
-			this.log(
-				`  - toolProviders: ${toolProviders.length}`,
-				toolProviders.map((p) => p.provider)
-			);
 			const entries: LanguageModelChatInformation[] = [];
 
 			if (toolProviders.length > 0) {
@@ -371,94 +466,87 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					toolCalling: true,
 					imageInput: vision,
 				};
+
+				const cheapestRaw = `${m.id}:cheapest`;
+				const fastestRaw = `${m.id}:fastest`;
+				const cheapestId = this.buildExposedModelId(cheapestRaw, server.id, serverCount);
+				const fastestId = this.buildExposedModelId(fastestRaw, server.id, serverCount);
+
 				entries.push({
-					id: `${m.id}:cheapest`,
-					name: `${m.id} (cheapest)`,
-					detail: "LiteLLM",
-					tooltip: "LiteLLM via the cheapest provider",
+					id: cheapestId,
+					name: `${namePrefix}${m.id} (cheapest)`,
+					detail,
+					tooltip: `LiteLLM via the cheapest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
 					family: "litellm",
 					version: "1.0.0",
 					maxInputTokens: maxInput,
 					maxOutputTokens: maxOutput,
 					capabilities: aggregateCapabilities,
 				} satisfies LanguageModelChatInformation);
-				this._promptCachingSupport.set(`${m.id}:cheapest`, aggregatePromptCaching);
+				this._promptCachingSupport.set(cheapestId, aggregatePromptCaching);
+				registerRoute(cheapestId, cheapestRaw);
+
 				entries.push({
-					id: `${m.id}:fastest`,
-					name: `${m.id} (fastest)`,
-					detail: "LiteLLM",
-					tooltip: "LiteLLM via the fastest provider",
+					id: fastestId,
+					name: `${namePrefix}${m.id} (fastest)`,
+					detail,
+					tooltip: `LiteLLM via the fastest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
 					family: "litellm",
 					version: "1.0.0",
 					maxInputTokens: maxInput,
 					maxOutputTokens: maxOutput,
 					capabilities: aggregateCapabilities,
 				} satisfies LanguageModelChatInformation);
-				this._promptCachingSupport.set(`${m.id}:fastest`, aggregatePromptCaching);
+				this._promptCachingSupport.set(fastestId, aggregatePromptCaching);
+				registerRoute(fastestId, fastestRaw);
 			}
 
 			for (const p of toolProviders) {
 				const constraints = this.getTokenConstraints(p);
-				const maxOutput = constraints.maxOutputTokens;
-				const maxInput = constraints.maxInputTokens;
+				const rawId = `${m.id}:${p.provider}`;
+				const exposedId = this.buildExposedModelId(rawId, server.id, serverCount);
 				entries.push({
-					id: `${m.id}:${p.provider}`,
-					name: `${m.id} via ${p.provider}`,
-					detail: "LiteLLM",
-					tooltip: `LiteLLM via ${p.provider}`,
+					id: exposedId,
+					name: `${namePrefix}${m.id} via ${p.provider}`,
+					detail,
+					tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
 					family: "litellm",
 					version: "1.0.0",
-					maxInputTokens: maxInput,
-					maxOutputTokens: maxOutput,
+					maxInputTokens: constraints.maxInputTokens,
+					maxOutputTokens: constraints.maxOutputTokens,
 					capabilities: {
 						toolCalling: true,
 						imageInput: vision,
 					},
 				} satisfies LanguageModelChatInformation);
-				this._promptCachingSupport.set(`${m.id}:${p.provider}`, p.supports_prompt_caching === true);
+				this._promptCachingSupport.set(exposedId, p.supports_prompt_caching === true);
+				registerRoute(exposedId, rawId);
 			}
 
 			if (toolProviders.length === 0 && providers.length > 0) {
 				const base = providers[0];
 				const constraints = this.getTokenConstraints(base);
-				const maxOutput = constraints.maxOutputTokens;
-				const maxInput = constraints.maxInputTokens;
+				const exposedId = this.buildExposedModelId(m.id, server.id, serverCount);
 				entries.push({
-					id: m.id,
-					name: m.id,
-					detail: "LiteLLM",
-					tooltip: "LiteLLM",
+					id: exposedId,
+					name: `${namePrefix}${m.id}`,
+					detail,
+					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
 					family: "litellm",
 					version: "1.0.0",
-					maxInputTokens: maxInput,
-					maxOutputTokens: maxOutput,
+					maxInputTokens: constraints.maxInputTokens,
+					maxOutputTokens: constraints.maxOutputTokens,
 					capabilities: {
 						toolCalling: false,
 						imageInput: vision,
 					},
 				} satisfies LanguageModelChatInformation);
-				this._promptCachingSupport.set(m.id, base.supports_prompt_caching === true);
+				this._promptCachingSupport.set(exposedId, base.supports_prompt_caching === true);
+				registerRoute(exposedId, m.id);
 			}
 
-			this.log(`  - created ${entries.length} entries for model ${m.id}`);
 			return entries;
 		});
-
-		this._chatEndpoints = infos.map((info) => ({
-			model: info.id,
-			modelMaxPromptTokens: info.maxInputTokens + info.maxOutputTokens,
-		}));
-
-		this.log("Final model count:", infos.length);
-		this.log(
-			"Model IDs:",
-			infos.map((i) => i.id)
-		);
-
-		// Notify status callback of success
-		if (this._statusCallback) {
-			this._statusCallback(infos.length);
-		}
 
 		return infos;
 	}
@@ -700,9 +788,24 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			},
 		};
 		try {
-			const config = await this.ensureConfig(true);
-			if (!config) {
-				throw new Error("LiteLLM configuration not found");
+			const route = this._modelRoutes.get(model.id);
+			let baseUrl: string;
+			let apiKey: string;
+			let rawModelId: string;
+
+			if (route) {
+				baseUrl = route.baseUrl;
+				apiKey = route.apiKey;
+				rawModelId = route.rawModelId;
+			} else {
+				// Fallback: try legacy single-server config
+				const config = await this.ensureConfig(true);
+				if (!config) {
+					throw new Error("LiteLLM configuration not found");
+				}
+				baseUrl = config.baseUrl;
+				apiKey = config.apiKey;
+				rawModelId = model.id;
 			}
 
 			const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
@@ -750,10 +853,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const replaceDefaults = modelParams._replaceDefaults === true;
 			delete modelParams._replaceDefaults;
 
-			const defaults = replaceDefaults ? {} : getModelDefaults(model.id);
+			const defaults = replaceDefaults ? {} : getModelDefaults(rawModelId);
 
 			requestBody = {
-				model: model.id,
+				model: rawModelId,
 				messages: openaiMessages,
 				stream: true,
 				stream_options: { include_usage: true },
@@ -797,17 +900,17 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				"Content-Type": "application/json",
 				"User-Agent": this.userAgent,
 			};
-			if (config.apiKey) {
+			if (apiKey) {
 				// Try both authentication methods: standard Bearer and X-API-Key
-				headers.Authorization = `Bearer ${config.apiKey}`;
-				headers["X-API-Key"] = config.apiKey;
+				headers.Authorization = `Bearer ${apiKey}`;
+				headers["X-API-Key"] = apiKey;
 			}
 			this.log("Sending chat request", {
-				url: `${config.baseUrl}/v1/chat/completions`,
-				modelId: model.id,
+				url: `${baseUrl}/v1/chat/completions`,
+				modelId: rawModelId,
 				messageCount: messages.length,
 			});
-			const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+			const response = await fetch(`${baseUrl}/v1/chat/completions`, {
 				method: "POST",
 				headers,
 				body: JSON.stringify(requestBody),
@@ -875,8 +978,33 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	/**
-	 * Ensure base URL and API key exist in SecretStorage, optionally prompting the user when not silent.
-	 * @param silent If true, do not prompt the user.
+	 * Get configured servers. Returns empty array if none configured.
+	 */
+	private async ensureServers(silent: boolean): Promise<ServerWithKey[] | undefined> {
+		if (this._getServers) {
+			const servers = await this._getServers();
+			if (servers.length > 0) {
+				return servers;
+			}
+		}
+
+		// Fallback to legacy single-server config for backwards compat
+		const config = await this.ensureConfig(silent);
+		if (config) {
+			return [
+				{
+					id: "_legacy",
+					label: "Default",
+					baseUrl: config.baseUrl,
+					apiKey: config.apiKey,
+				},
+			];
+		}
+		return undefined;
+	}
+
+	/**
+	 * Legacy single-server config lookup. Used as fallback.
 	 */
 	private async ensureConfig(silent: boolean): Promise<{ baseUrl: string; apiKey: string } | undefined> {
 		this.log("ensureConfig called", { silent });

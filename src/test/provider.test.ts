@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
+import type { AggregatedStatus } from "../provider";
 import { convertMessages, convertTools, validateRequest, tryParseJSONObject } from "../utils";
 import { findLongestPrefixMatch, getModelDefaults } from "../modelDefaults";
 import { IssueReporter, redactSecrets } from "../issueReporter";
@@ -1355,12 +1356,10 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"GitHubCopilotChat/test VSCode/test"
 				);
 
-				let callbackModelCount: number | undefined;
-				let callbackError: string | undefined;
+				let callbackStatus: AggregatedStatus | undefined;
 
-				provider.setStatusCallback((modelCount: number, error?: string) => {
-					callbackModelCount = modelCount;
-					callbackError = error;
+				provider.setStatusCallback((status: AggregatedStatus) => {
+					callbackStatus = status;
 				});
 
 				await provider.prepareLanguageModelChatInformation(
@@ -1371,9 +1370,12 @@ suite("LiteLLM Chat Provider Extension", () => {
 				global.fetch = originalFetch;
 
 				// Should report success with 6 model entries (2 models × 3 entries each: cheapest, fastest, provider-specific)
-				assert.equal(typeof callbackModelCount, "number");
-				assert.ok(callbackModelCount && callbackModelCount > 0, "Should report positive model count");
-				assert.equal(callbackError, undefined, "Should not report error on success");
+				assert.ok(callbackStatus, "Should have received status callback");
+				assert.ok(callbackStatus!.totalModels > 0, "Should report positive model count");
+				assert.ok(
+					callbackStatus!.serverStatuses.every((s) => s.state === "ok"),
+					"All servers should be ok"
+				);
 			});
 
 			test("status callback reports error on fetch failure", async () => {
@@ -1392,12 +1394,10 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"GitHubCopilotChat/test VSCode/test"
 				);
 
-				let callbackModelCount: number | undefined;
-				let callbackError: string | undefined;
+				let callbackStatus: AggregatedStatus | undefined;
 
-				provider.setStatusCallback((modelCount: number, error?: string) => {
-					callbackModelCount = modelCount;
-					callbackError = error;
+				provider.setStatusCallback((status: AggregatedStatus) => {
+					callbackStatus = status;
 				});
 
 				await provider.prepareLanguageModelChatInformation(
@@ -1407,9 +1407,16 @@ suite("LiteLLM Chat Provider Extension", () => {
 
 				global.fetch = originalFetch;
 
-				assert.equal(callbackModelCount, 0, "Should report 0 models on error");
-				assert.equal(typeof callbackError, "string", "Should report error message");
-				assert.ok(callbackError && callbackError.includes("Network"), "Error message should mention network");
+				assert.ok(callbackStatus, "Should have received status callback");
+				assert.equal(callbackStatus!.totalModels, 0, "Should report 0 models on error");
+				assert.ok(
+					callbackStatus!.serverStatuses.some((s) => s.state === "error"),
+					"Should have error status"
+				);
+				assert.ok(
+					callbackStatus!.serverStatuses.some((s) => s.error?.includes("Network")),
+					"Error message should mention network"
+				);
 			});
 
 			test("status callback reports empty model list", async () => {
@@ -1433,12 +1440,10 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"GitHubCopilotChat/test VSCode/test"
 				);
 
-				let callbackModelCount: number | undefined;
-				let callbackError: string | undefined;
+				let callbackStatus: AggregatedStatus | undefined;
 
-				provider.setStatusCallback((modelCount: number, error?: string) => {
-					callbackModelCount = modelCount;
-					callbackError = error;
+				provider.setStatusCallback((status: AggregatedStatus) => {
+					callbackStatus = status;
 				});
 
 				await provider.prepareLanguageModelChatInformation(
@@ -1448,9 +1453,8 @@ suite("LiteLLM Chat Provider Extension", () => {
 
 				global.fetch = originalFetch;
 
-				assert.equal(callbackModelCount, 0, "Should report 0 models");
-				assert.equal(typeof callbackError, "string", "Should report error for empty list");
-				assert.ok(callbackError && callbackError.includes("0 models"), "Error should mention 0 models");
+				assert.ok(callbackStatus, "Should have received status callback");
+				assert.equal(callbackStatus!.totalModels, 0, "Should report 0 models");
 			});
 
 			test("status callback reports missing configuration", async () => {
@@ -1464,12 +1468,10 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"GitHubCopilotChat/test VSCode/test"
 				);
 
-				let callbackModelCount: number | undefined;
-				let callbackError: string | undefined;
+				let callbackStatus: AggregatedStatus | undefined;
 
-				provider.setStatusCallback((modelCount: number, error?: string) => {
-					callbackModelCount = modelCount;
-					callbackError = error;
+				provider.setStatusCallback((status: AggregatedStatus) => {
+					callbackStatus = status;
 				});
 
 				await provider.prepareLanguageModelChatInformation(
@@ -1477,9 +1479,9 @@ suite("LiteLLM Chat Provider Extension", () => {
 					new vscode.CancellationTokenSource().token
 				);
 
-				assert.equal(callbackModelCount, 0, "Should report 0 models");
-				assert.equal(typeof callbackError, "string", "Should report error");
-				assert.ok(callbackError && callbackError.includes("Not configured"), "Error should mention not configured");
+				assert.ok(callbackStatus, "Should have received status callback");
+				assert.equal(callbackStatus!.totalModels, 0, "Should report 0 models");
+				assert.equal(callbackStatus!.serverStatuses.length, 0, "Should have no server statuses");
 			});
 
 			test("output channel receives log messages", async () => {
@@ -1512,7 +1514,7 @@ suite("LiteLLM Chat Provider Extension", () => {
 					"Should log ensureConfig call"
 				);
 				assert.ok(
-					logs.some((log) => log.includes("No config found")),
+					logs.some((log) => log.includes("No") && (log.includes("config") || log.includes("servers"))),
 					"Should log missing config"
 				);
 			});

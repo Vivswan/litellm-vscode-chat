@@ -1,6 +1,9 @@
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "./provider";
+import type { AggregatedStatus } from "./provider";
 import { IssueReporter, DiagnosticsSnapshot } from "./issueReporter";
+import { ServerRegistry } from "./serverRegistry";
+import type { ServerStatus } from "./serverRegistry";
 
 const GITHUB_REPO = "https://github.com/Vivswan/litellm-vscode-chat";
 const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
@@ -58,8 +61,19 @@ export function activate(context: vscode.ExtensionContext) {
 	outputChannel.appendLine(`LiteLLM Extension activated (v${extVersion})`);
 
 	const issueReporter = new IssueReporter();
+	const registry = new ServerRegistry(context.globalState, context.secrets);
 	const provider = new LiteLLMChatModelProvider(context.secrets, ua, outputChannel, issueReporter);
-	// Register the LiteLLM provider under the vendor id used in package.json
+
+	// Wire up multi-server provider
+	provider.setServerProvider(() => registry.getServersWithKeys());
+
+	// Migrate legacy single-server config
+	registry.migrateLegacy().then((migrated) => {
+		if (migrated) {
+			outputChannel.appendLine(`[${new Date().toISOString()}] Migrated legacy single-server config to server registry`);
+		}
+	});
+
 	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
 
 	// Test-only commands — registered in test and development modes, never in production
@@ -75,14 +89,34 @@ export function activate(context: vscode.ExtensionContext) {
 					new vscode.CancellationTokenSource().token
 				);
 				return infos.length;
+			}),
+			vscode.commands.registerCommand(
+				"litellm._test.addServer",
+				async (label: string, baseUrl: string, apiKey: string) => {
+					return registry.addServer(label, baseUrl, apiKey || "");
+				}
+			),
+			vscode.commands.registerCommand("litellm._test.removeServer", async (serverId: string) => {
+				await registry.removeServer(serverId);
+			}),
+			vscode.commands.registerCommand("litellm._test.clearServers", async () => {
+				for (const s of registry.getServers()) {
+					await registry.removeServer(s.id);
+				}
+				await context.secrets.delete("litellm.baseUrl");
+				await context.secrets.delete("litellm.apiKey");
+			}),
+			vscode.commands.registerCommand("litellm._test.getServers", () => {
+				return registry.getServers();
 			})
 		);
 	}
 
 	// Connection status tracking
 	interface ConnectionStatus {
-		state: "not-configured" | "loading" | "connected" | "error";
-		modelCount?: number;
+		state: "not-configured" | "loading" | "connected" | "degraded" | "error";
+		totalModels?: number;
+		serverStatuses?: ServerStatus[];
 		error?: string;
 		lastChecked?: string;
 	}
@@ -102,8 +136,6 @@ export function activate(context: vscode.ExtensionContext) {
 			await context.globalState.update("litellm.lastConnectionStatus", status);
 		}
 
-		const baseUrl = await context.secrets.get("litellm.baseUrl");
-
 		switch (connectionStatus.state) {
 			case "not-configured":
 				statusBarItem.text = "$(warning) LiteLLM";
@@ -116,10 +148,21 @@ export function activate(context: vscode.ExtensionContext) {
 				statusBarItem.backgroundColor = undefined;
 				break;
 			case "connected": {
-				const count = connectionStatus.modelCount ?? 0;
+				const count = connectionStatus.totalModels ?? 0;
+				const serverCount = connectionStatus.serverStatuses?.length ?? 0;
+				const serverText = serverCount > 1 ? ` from ${serverCount} servers` : "";
 				statusBarItem.text = `$(check) LiteLLM (${count})`;
-				statusBarItem.tooltip = `Connected to ${baseUrl}\n${count} model${count === 1 ? "" : "s"} available\nClick for diagnostics`;
+				statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available${serverText}\nClick for diagnostics`;
 				statusBarItem.backgroundColor = undefined;
+				break;
+			}
+			case "degraded": {
+				const count = connectionStatus.totalModels ?? 0;
+				const statuses = connectionStatus.serverStatuses ?? [];
+				const failedCount = statuses.filter((s) => s.state === "error").length;
+				statusBarItem.text = `$(warning) LiteLLM (${count})`;
+				statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available\n${failedCount} server${failedCount === 1 ? "" : "s"} unreachable\nClick for diagnostics`;
+				statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
 				break;
 			}
 			case "error":
@@ -140,138 +183,139 @@ export function activate(context: vscode.ExtensionContext) {
 	// Initial status bar update
 	updateStatusBar();
 
-	// Update when secrets change
-	context.secrets.onDidChange((e) => {
-		if (e.key === "litellm.baseUrl") {
-			updateStatusBar({ state: "not-configured" });
-		}
-	});
+	// Status callback from provider
+	provider.setStatusCallback((aggStatus: AggregatedStatus) => {
+		const now = new Date().toISOString();
+		const { serverStatuses, totalModels } = aggStatus;
 
-	// Provide status update callback to provider
-	provider.setStatusCallback((modelCount: number, error?: string) => {
-		if (error) {
-			outputChannel.appendLine(`[${new Date().toISOString()}] Model fetch failed: ${error}`);
-			updateStatusBar({ state: "error", error, lastChecked: new Date().toISOString() });
-		} else if (modelCount === 0) {
-			outputChannel.appendLine(`[${new Date().toISOString()}] Warning: Server returned 0 models`);
+		if (serverStatuses.length === 0) {
+			outputChannel.appendLine(`[${now}] No servers configured`);
+			updateStatusBar({ state: "not-configured", lastChecked: now });
+			return;
+		}
+
+		const okCount = serverStatuses.filter((s) => s.state === "ok").length;
+		const errCount = serverStatuses.filter((s) => s.state === "error").length;
+
+		if (okCount === 0) {
+			const firstError = serverStatuses.find((s) => s.error)?.error ?? "All servers failed";
+			outputChannel.appendLine(`[${now}] All servers failed: ${firstError}`);
 			updateStatusBar({
 				state: "error",
-				modelCount: 0,
-				error: "Server returned 0 models",
-				lastChecked: new Date().toISOString(),
+				error: firstError,
+				serverStatuses,
+				totalModels: 0,
+				lastChecked: now,
+			});
+		} else if (errCount > 0) {
+			outputChannel.appendLine(`[${now}] Partial success: ${okCount} ok, ${errCount} failed, ${totalModels} models`);
+			updateStatusBar({
+				state: "degraded",
+				serverStatuses,
+				totalModels,
+				lastChecked: now,
+			});
+		} else if (totalModels === 0) {
+			outputChannel.appendLine(`[${now}] Warning: All servers returned 0 models`);
+			updateStatusBar({
+				state: "error",
+				error: "Servers returned 0 models",
+				serverStatuses,
+				totalModels: 0,
+				lastChecked: now,
 			});
 		} else {
-			outputChannel.appendLine(`[${new Date().toISOString()}] Successfully fetched ${modelCount} models`);
-			updateStatusBar({ state: "connected", modelCount, lastChecked: new Date().toISOString() });
+			outputChannel.appendLine(`[${now}] Successfully fetched ${totalModels} models from ${okCount} server(s)`);
+			updateStatusBar({
+				state: "connected",
+				serverStatuses,
+				totalModels,
+				lastChecked: now,
+			});
 		}
 	});
 
 	// Show welcome message on first run for unconfigured users
 	const hasShownWelcome = context.globalState.get<boolean>("litellm.hasShownWelcome", false);
 	if (!hasShownWelcome) {
-		context.secrets.get("litellm.baseUrl").then((baseUrl) => {
-			if (!baseUrl) {
-				vscode.window
-					.showInformationMessage(
-						"Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.",
-						"Configure Now",
-						"Documentation"
-					)
-					.then((choice) => {
-						if (choice === "Configure Now") {
-							vscode.commands.executeCommand("litellm.manage");
-						} else if (choice === "Documentation") {
-							vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS));
-						}
-					});
-			}
-		});
+		const servers = registry.getServers();
+		if (servers.length === 0) {
+			context.secrets.get("litellm.baseUrl").then((baseUrl) => {
+				if (!baseUrl) {
+					vscode.window
+						.showInformationMessage(
+							"Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.",
+							"Configure Now",
+							"Documentation"
+						)
+						.then((choice) => {
+							if (choice === "Configure Now") {
+								vscode.commands.executeCommand("litellm.manage");
+							} else if (choice === "Documentation") {
+								vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS));
+							}
+						});
+				}
+			});
+		}
 		context.globalState.update("litellm.hasShownWelcome", true);
 	}
 
-	// Management command to configure base URL and API key
+	// Server management command (replaces old single-server litellm.manage)
 	context.subscriptions.push(
 		vscode.commands.registerCommand("litellm.manage", async () => {
-			// First, prompt for base URL
-			const existingBaseUrl = await context.secrets.get("litellm.baseUrl");
-			const baseUrl = await vscode.window.showInputBox({
-				title: "LiteLLM Base URL",
-				prompt: existingBaseUrl
-					? "Update your LiteLLM base URL"
-					: "Enter your LiteLLM base URL (e.g., http://localhost:4000 or https://api.litellm.ai)",
-				ignoreFocusOut: true,
-				value: existingBaseUrl ?? "",
-				placeHolder: "http://localhost:4000",
-				validateInput: (value) => {
-					if (!value.trim()) {
-						return "Base URL is required";
-					}
-					if (!value.startsWith("http://") && !value.startsWith("https://")) {
-						return "URL must start with http:// or https://";
-					}
-					return null;
-				},
+			const servers = registry.getServers();
+
+			if (servers.length === 0) {
+				// No servers: jump straight to add flow
+				await addServerFlow(registry, outputChannel);
+				return;
+			}
+
+			const items: (vscode.QuickPickItem & { action: string })[] = [
+				{ label: "$(add) Add Server", action: "add" },
+				...servers.map((s) => ({
+					label: `$(server) ${s.label}`,
+					description: s.baseUrl,
+					action: `edit:${s.id}`,
+				})),
+				{ label: "$(testing-run-icon) Test All Servers", action: "test-all" },
+			];
+
+			const pick = await vscode.window.showQuickPick(items, {
+				title: "LiteLLM: Manage Servers",
+				placeHolder: "Select an action or server to manage",
 			});
-			if (baseUrl === undefined) {
-				return; // user canceled
+
+			if (!pick) {
+				return;
 			}
 
-			// Then, prompt for API key
-			const existingApiKey = await context.secrets.get("litellm.apiKey");
-			const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
-			const apiKey = await vscode.window.showInputBox({
-				title: "LiteLLM API Key",
-				prompt: existingApiKey
-					? "Update your LiteLLM API key"
-					: "Enter your LiteLLM API key (leave empty if not required)",
-				ignoreFocusOut: true,
-				password: maskApiKey,
-				value: existingApiKey ?? "",
-			});
-			if (apiKey === undefined) {
-				return; // user canceled
+			if (pick.action === "add") {
+				await addServerFlow(registry, outputChannel);
+			} else if (pick.action === "test-all") {
+				await vscode.commands.executeCommand("litellm.testConnection");
+			} else if (pick.action.startsWith("edit:")) {
+				const serverId = pick.action.slice(5);
+				await manageServerFlow(registry, serverId, outputChannel);
 			}
-
-			// Save or clear the values
-			if (!baseUrl.trim()) {
-				await context.secrets.delete("litellm.baseUrl");
-			} else {
-				await context.secrets.store("litellm.baseUrl", baseUrl.trim());
-			}
-
-			if (!apiKey.trim()) {
-				await context.secrets.delete("litellm.apiKey");
-			} else {
-				await context.secrets.store("litellm.apiKey", apiKey.trim());
-			}
-
-			// Update status bar to reflect new configuration
-			await updateStatusBar({ state: "not-configured" });
-			outputChannel.appendLine(`[${new Date().toISOString()}] Configuration updated: ${baseUrl.trim()}`);
-
-			// Show success message with test connection option
-			vscode.window
-				.showInformationMessage("LiteLLM configuration saved!", "Test Connection", "Open Chat", "Dismiss")
-				.then((choice) => {
-					if (choice === "Test Connection") {
-						vscode.commands.executeCommand("litellm.testConnection");
-					} else if (choice === "Open Chat") {
-						vscode.commands.executeCommand("workbench.action.chat.open");
-					}
-				});
 		})
 	);
 
 	// Test connection command
 	context.subscriptions.push(
 		vscode.commands.registerCommand("litellm.testConnection", async () => {
-			const baseUrl = await context.secrets.get("litellm.baseUrl");
-			if (!baseUrl) {
-				vscode.window.showErrorMessage("LiteLLM is not configured. Please run 'Manage LiteLLM Provider' first.");
-				return;
+			const servers = registry.getServers();
+			if (servers.length === 0) {
+				// Fallback: check legacy config
+				const baseUrl = await context.secrets.get("litellm.baseUrl");
+				if (!baseUrl) {
+					vscode.window.showErrorMessage("LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.");
+					return;
+				}
 			}
 
-			outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing connection to ${baseUrl}...`);
+			outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing connection to all servers...`);
 			outputChannel.show(true);
 
 			try {
@@ -285,10 +329,10 @@ export function activate(context: vscode.ExtensionContext) {
 				);
 
 				if (models.length === 0) {
-					outputChannel.appendLine(`[${new Date().toISOString()}] WARNING: Server returned 0 models`);
+					outputChannel.appendLine(`[${new Date().toISOString()}] WARNING: No models returned`);
 					vscode.window
 						.showWarningMessage(
-							`LiteLLM: Connected to ${baseUrl}, but server returned no models. Check your LiteLLM proxy configuration.`,
+							`LiteLLM: Connected but no models returned. Check your LiteLLM proxy configuration.`,
 							"View Output",
 							"Reconfigure",
 							"Report Issue"
@@ -339,8 +383,8 @@ export function activate(context: vscode.ExtensionContext) {
 	// Show diagnostics command
 	context.subscriptions.push(
 		vscode.commands.registerCommand("litellm.showDiagnostics", async () => {
-			const baseUrl = await context.secrets.get("litellm.baseUrl");
-			const hasApiKey = !!(await context.secrets.get("litellm.apiKey"));
+			const servers = registry.getServers();
+			const serverStatuses = connectionStatus.serverStatuses ?? [];
 
 			const statusText =
 				connectionStatus.state === "not-configured"
@@ -348,32 +392,49 @@ export function activate(context: vscode.ExtensionContext) {
 					: connectionStatus.state === "loading"
 						? "Loading..."
 						: connectionStatus.state === "connected"
-							? `Connected (${connectionStatus.modelCount ?? 0} models)`
-							: `Error: ${connectionStatus.error || "Unknown error"}`;
+							? `Connected (${connectionStatus.totalModels ?? 0} models)`
+							: connectionStatus.state === "degraded"
+								? `Degraded (${connectionStatus.totalModels ?? 0} models, some servers failed)`
+								: `Error: ${connectionStatus.error || "Unknown error"}`;
 
 			const lastCheckedText = connectionStatus.lastChecked
 				? new Date(connectionStatus.lastChecked).toLocaleString()
 				: "Never";
 
-			const diagnosticMessage = [
+			const lines = [
 				"LiteLLM Diagnostics",
 				"",
-				`Configuration:`,
-				`  Base URL: ${baseUrl || "Not set"}`,
-				`  API Key: ${hasApiKey ? "Configured" : "Not set"}`,
-				"",
+				`Servers Configured: ${servers.length}`,
 				`Connection Status: ${statusText}`,
 				`Last Checked: ${lastCheckedText}`,
-				"",
-				"Check the LiteLLM output channel for detailed logs.",
-			].join("\n");
+			];
+
+			if (serverStatuses.length > 0) {
+				lines.push("");
+				lines.push("Server Details:");
+				for (const ss of serverStatuses) {
+					lines.push(`  ${ss.label}: ${ss.state === "ok" ? `OK (${ss.modelCount} models)` : `Error: ${ss.error}`}`);
+					lines.push(`    URL: ${ss.baseUrl}`);
+				}
+			} else if (servers.length > 0) {
+				lines.push("");
+				lines.push("Server Details:");
+				for (const s of servers) {
+					lines.push(`  ${s.label}: ${s.baseUrl}`);
+				}
+			}
+
+			lines.push("");
+			lines.push("Check the LiteLLM output channel for detailed logs.");
+
+			const diagnosticMessage = lines.join("\n");
 
 			const choice = await vscode.window.showInformationMessage(
 				diagnosticMessage,
 				{ modal: true },
 				"View Output",
 				"Test Connection",
-				"Reconfigure",
+				"Manage Servers",
 				"Report Issue",
 				"Help & Feedback"
 			);
@@ -382,7 +443,7 @@ export function activate(context: vscode.ExtensionContext) {
 				outputChannel.show();
 			} else if (choice === "Test Connection") {
 				vscode.commands.executeCommand("litellm.testConnection");
-			} else if (choice === "Reconfigure") {
+			} else if (choice === "Manage Servers") {
 				vscode.commands.executeCommand("litellm.manage");
 			} else if (choice === "Report Issue") {
 				vscode.commands.executeCommand("litellm.reportIssue");
@@ -420,17 +481,17 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Build diagnostics snapshot for issue reporting
 	async function buildDiagnosticsSnapshot(): Promise<DiagnosticsSnapshot> {
-		const baseUrl = await context.secrets.get("litellm.baseUrl");
-		const hasApiKey = !!(await context.secrets.get("litellm.apiKey"));
+		const servers = registry.getServers();
+		const hasApiKey = servers.length > 0; // simplified: at least one server exists
 
 		return {
 			extensionVersion: extVersion,
 			vscodeVersion: vscodeVersion,
 			platform: `${process.platform} ${process.arch}`,
 			connectionState: connectionStatus.state,
-			modelCount: connectionStatus.modelCount,
+			modelCount: connectionStatus.totalModels,
 			apiKeyConfigured: hasApiKey,
-			baseUrlConfigured: !!baseUrl,
+			baseUrlConfigured: servers.length > 0,
 			latestError: issueReporter.getLatestError(),
 			recentLogs: issueReporter.getRecentLogs(),
 		};
@@ -443,6 +504,180 @@ export function activate(context: vscode.ExtensionContext) {
 			await issueReporter.openIssue(snapshot);
 		})
 	);
+}
+
+async function addServerFlow(registry: ServerRegistry, outputChannel: vscode.OutputChannel): Promise<boolean> {
+	const label = await vscode.window.showInputBox({
+		title: "LiteLLM: Add Server - Label",
+		prompt: "Enter a unique label for this server (e.g., 'Production', 'Local Dev')",
+		ignoreFocusOut: true,
+		placeHolder: "My LiteLLM Server",
+		validateInput: (value) => {
+			if (!value.trim()) {
+				return "Label is required";
+			}
+			if (registry.hasLabel(value.trim())) {
+				return "A server with this label already exists";
+			}
+			return null;
+		},
+	});
+	if (label === undefined) {
+		return false;
+	}
+
+	const baseUrl = await vscode.window.showInputBox({
+		title: "LiteLLM: Add Server - Base URL",
+		prompt: "Enter the LiteLLM base URL",
+		ignoreFocusOut: true,
+		placeHolder: "http://localhost:4000",
+		validateInput: (value) => {
+			if (!value.trim()) {
+				return "Base URL is required";
+			}
+			if (!value.startsWith("http://") && !value.startsWith("https://")) {
+				return "URL must start with http:// or https://";
+			}
+			return null;
+		},
+	});
+	if (baseUrl === undefined) {
+		return false;
+	}
+
+	const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
+	const apiKey = await vscode.window.showInputBox({
+		title: "LiteLLM: Add Server - API Key",
+		prompt: "Enter the API key (leave empty if not required)",
+		ignoreFocusOut: true,
+		password: maskApiKey,
+	});
+	if (apiKey === undefined) {
+		return false;
+	}
+
+	await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim());
+	outputChannel.appendLine(`[${new Date().toISOString()}] Added server "${label.trim()}" at ${baseUrl.trim()}`);
+
+	vscode.window
+		.showInformationMessage(`Server "${label.trim()}" added!`, "Test Connection", "Open Chat", "Dismiss")
+		.then((choice) => {
+			if (choice === "Test Connection") {
+				vscode.commands.executeCommand("litellm.testConnection");
+			} else if (choice === "Open Chat") {
+				vscode.commands.executeCommand("workbench.action.chat.open");
+			}
+		});
+
+	return true;
+}
+
+async function manageServerFlow(
+	registry: ServerRegistry,
+	serverId: string,
+	outputChannel: vscode.OutputChannel
+): Promise<void> {
+	const servers = registry.getServers();
+	const server = servers.find((s) => s.id === serverId);
+	if (!server) {
+		return;
+	}
+
+	const pick = await vscode.window.showQuickPick(
+		[
+			{ label: "$(edit) Edit Server", action: "edit" },
+			{ label: "$(testing-run-icon) Test Server", action: "test" },
+			{ label: "$(trash) Remove Server", action: "remove" },
+		],
+		{
+			title: `LiteLLM: ${server.label}`,
+			placeHolder: `Manage server "${server.label}" (${server.baseUrl})`,
+		}
+	);
+
+	if (!pick) {
+		return;
+	}
+
+	if (pick.action === "edit") {
+		const label = await vscode.window.showInputBox({
+			title: "LiteLLM: Edit Server - Label",
+			prompt: "Update the server label",
+			ignoreFocusOut: true,
+			value: server.label,
+			validateInput: (value) => {
+				if (!value.trim()) {
+					return "Label is required";
+				}
+				if (registry.hasLabel(value.trim(), serverId)) {
+					return "A server with this label already exists";
+				}
+				return null;
+			},
+		});
+		if (label === undefined) {
+			return;
+		}
+
+		const baseUrl = await vscode.window.showInputBox({
+			title: "LiteLLM: Edit Server - Base URL",
+			prompt: "Update the LiteLLM base URL",
+			ignoreFocusOut: true,
+			value: server.baseUrl,
+			validateInput: (value) => {
+				if (!value.trim()) {
+					return "Base URL is required";
+				}
+				if (!value.startsWith("http://") && !value.startsWith("https://")) {
+					return "URL must start with http:// or https://";
+				}
+				return null;
+			},
+		});
+		if (baseUrl === undefined) {
+			return;
+		}
+
+		const existingApiKey = await registry.getApiKey(serverId);
+		const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
+		const apiKey = await vscode.window.showInputBox({
+			title: "LiteLLM: Edit Server - API Key",
+			prompt: existingApiKey ? "Update the API key" : "Enter the API key (leave empty if not required)",
+			ignoreFocusOut: true,
+			password: maskApiKey,
+			value: existingApiKey,
+		});
+		if (apiKey === undefined) {
+			return;
+		}
+
+		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim());
+		outputChannel.appendLine(`[${new Date().toISOString()}] Updated server "${label.trim()}"`);
+
+		vscode.window
+			.showInformationMessage(`Server "${label.trim()}" updated!`, "Test Connection", "Dismiss")
+			.then((choice) => {
+				if (choice === "Test Connection") {
+					vscode.commands.executeCommand("litellm.testConnection");
+				}
+			});
+	} else if (pick.action === "test") {
+		outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing server "${server.label}"...`);
+		outputChannel.show(true);
+		// Test all servers (individual server test would require refactoring provider)
+		await vscode.commands.executeCommand("litellm.testConnection");
+	} else if (pick.action === "remove") {
+		const confirm = await vscode.window.showWarningMessage(
+			`Remove server "${server.label}" (${server.baseUrl})?`,
+			{ modal: true },
+			"Remove"
+		);
+		if (confirm === "Remove") {
+			await registry.removeServer(serverId);
+			outputChannel.appendLine(`[${new Date().toISOString()}] Removed server "${server.label}"`);
+			vscode.window.showInformationMessage(`Server "${server.label}" removed.`);
+		}
+	}
 }
 
 export function deactivate() {}
