@@ -1,8 +1,10 @@
+import * as vscode from "vscode";
 import { LanguageModelChatInformation } from "vscode";
 import type { LiteLLMModelItem } from "../types";
 import type { ServerWithKey } from "../extension/serverRegistry";
 import type { ModelRoute } from "./request";
 import { getTokenConstraints, buildExposedModelId } from "./request";
+import { findLongestPrefixMatch } from "./modelDefaults";
 
 export interface RegistrationResult {
 	infos: LanguageModelChatInformation[];
@@ -18,6 +20,9 @@ export function buildModelInfos(
 ): RegistrationResult {
 	const routes = new Map<string, ModelRoute>();
 	const promptCaching = new Map<string, boolean>();
+	const capOverrides = vscode.workspace
+		.getConfiguration("litellm-vscode-chat")
+		.get<Record<string, string>>("modelCapabilitiesOverrides", {});
 
 	const registerRoute = (exposedId: string, rawId: string) => {
 		routes.set(exposedId, {
@@ -50,10 +55,10 @@ export function buildModelInfos(
 					version: "1.0.0",
 					maxInputTokens: constraints.maxInputTokens,
 					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: {
+					capabilities: applyCapabilityOverrides(m.id, {
 						toolCalling: providers[0].supports_tools !== false,
 						imageInput: vision,
-					},
+					}, capOverrides),
 				} satisfies LanguageModelChatInformation,
 			];
 		}
@@ -73,10 +78,10 @@ export function buildModelInfos(
 					version: "1.0.0",
 					maxInputTokens: constraints.maxInputTokens,
 					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: {
+					capabilities: applyCapabilityOverrides(m.id, {
 						toolCalling: true,
 						imageInput: vision,
-					},
+					}, capOverrides),
 				} satisfies LanguageModelChatInformation,
 			];
 		}
@@ -90,10 +95,10 @@ export function buildModelInfos(
 			const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
 			const maxInput = Math.max(1, aggregateContextLen - maxOutput);
 			const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
-			const aggregateCapabilities = {
+			const aggregateCapabilities = applyCapabilityOverrides(m.id, {
 				toolCalling: true,
 				imageInput: vision,
-			};
+			}, capOverrides);
 
 			const cheapestRaw = `${m.id}:cheapest`;
 			const fastestRaw = `${m.id}:fastest`;
@@ -142,10 +147,10 @@ export function buildModelInfos(
 				version: "1.0.0",
 				maxInputTokens: constraints.maxInputTokens,
 				maxOutputTokens: constraints.maxOutputTokens,
-				capabilities: {
+				capabilities: applyCapabilityOverrides(m.id, {
 					toolCalling: true,
 					imageInput: vision,
-				},
+				}, capOverrides),
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, p.supports_prompt_caching === true);
 			registerRoute(exposedId, rawId);
@@ -164,10 +169,10 @@ export function buildModelInfos(
 				version: "1.0.0",
 				maxInputTokens: constraints.maxInputTokens,
 				maxOutputTokens: constraints.maxOutputTokens,
-				capabilities: {
+				capabilities: applyCapabilityOverrides(m.id, {
 					toolCalling: false,
 					imageInput: vision,
-				},
+				}, capOverrides),
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, base.supports_prompt_caching === true);
 			registerRoute(exposedId, m.id);
@@ -177,4 +182,18 @@ export function buildModelInfos(
 	});
 
 	return { infos, routes, promptCaching };
+}
+
+export function applyCapabilityOverrides(
+	modelId: string,
+	capabilities: { toolCalling: boolean; imageInput: boolean },
+	overrides: Record<string, string>
+): { toolCalling: boolean; imageInput: boolean } {
+	const match = findLongestPrefixMatch(modelId, overrides);
+	if (!match) return capabilities;
+	const caps = match.split(",").map((s) => s.trim());
+	return {
+		toolCalling: caps.includes("toolCalling") ? true : capabilities.toolCalling,
+		imageInput: caps.includes("imageInput") ? true : capabilities.imageInput,
+	};
 }
