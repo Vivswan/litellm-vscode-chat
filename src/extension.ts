@@ -121,6 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 			try {
 				await statusBar.updateStatusBar({ state: "loading" });
+				provider.invalidateModelCache();
 
 				const models = await provider.prepareLanguageModelChatInformation(
 					{ silent: false },

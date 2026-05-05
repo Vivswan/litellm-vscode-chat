@@ -31,6 +31,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _toolCallIdCounter = 0;
 	private _modelRoutes = new Map<string, ModelRoute>();
 	private _getServers?: () => Promise<ServerWithKey[]>;
+	private _inFlightDiscovery: Promise<LanguageModelChatInformation[]> | undefined;
+	private _lastModelList: LanguageModelChatInformation[] = [];
+	private _modelListFetchedAtMs = 0;
 
 	constructor(
 		private readonly secrets: vscode.SecretStorage,
@@ -78,6 +81,19 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	): Promise<LanguageModelChatInformation[]> {
 		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
 
+		if (this._inFlightDiscovery) {
+			this.log("Returning in-flight discovery promise");
+			return this._inFlightDiscovery;
+		}
+
+		const TTL_MS = 30_000;
+		if (options.silent && this._lastModelList.length > 0 && Date.now() - this._modelListFetchedAtMs < TTL_MS) {
+			this.log("Returning cached models (within TTL)", { count: this._lastModelList.length });
+			return this._lastModelList;
+		}
+
+		this._inFlightDiscovery = (async () => {
+		try {
 		const servers = await ensureServers(options.silent, this._getServers, this.secrets);
 		if (!servers || servers.length === 0) {
 			this.log("No servers configured, returning empty array");
@@ -208,12 +224,25 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 							vscode.commands.executeCommand("litellm.reportIssue");
 						}
 					});
+				this._lastModelList = [];
+				this._modelListFetchedAtMs = Date.now();
 				return [];
 			}
 			throw new Error(firstError);
 		}
 
+		this._lastModelList = allInfos;
+		this._modelListFetchedAtMs = Date.now();
 		return allInfos;
+		} finally {
+			this._inFlightDiscovery = undefined;
+		}
+		})();
+		return this._inFlightDiscovery;
+	}
+
+	invalidateModelCache(): void {
+		this._modelListFetchedAtMs = 0;
 	}
 
 	async provideLanguageModelChatInformation(

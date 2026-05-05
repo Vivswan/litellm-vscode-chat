@@ -40,6 +40,7 @@ export function registerTestCommands(
 			options: { silent: boolean },
 			token: vscode.CancellationToken
 		) => Promise<vscode.LanguageModelChatInformation[]>;
+		invalidateModelCache: () => void;
 	}
 ): void {
 	if (context.extensionMode !== vscode.ExtensionMode.Production) {
@@ -49,6 +50,7 @@ export function registerTestCommands(
 				await context.secrets.store("litellm.apiKey", apiKey || "");
 			}),
 			vscode.commands.registerCommand("litellm._test.refreshModels", async () => {
+				provider.invalidateModelCache();
 				const infos = await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
