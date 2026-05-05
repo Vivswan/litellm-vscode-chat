@@ -32,12 +32,27 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _modelRoutes = new Map<string, ModelRoute>();
 	private _getServers?: () => Promise<ServerWithKey[]>;
 
+	private readonly _onDidChange = new vscode.EventEmitter<void>();
+	readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
+	private readonly _configWatcher: vscode.Disposable;
+
 	constructor(
 		private readonly secrets: vscode.SecretStorage,
 		private readonly userAgent: string,
 		private readonly outputChannel?: vscode.OutputChannel,
 		private readonly issueReporter?: IssueReporter
-	) {}
+	) {
+		this._configWatcher = vscode.workspace.onDidChangeConfiguration((e) => {
+			if (e.affectsConfiguration("litellm-vscode-chat.modelCapabilitiesOverrides")) {
+				this._onDidChange.fire();
+			}
+		});
+	}
+
+	dispose(): void {
+		this._configWatcher.dispose();
+		this._onDidChange.dispose();
+	}
 
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
 		this._statusCallback = callback;
