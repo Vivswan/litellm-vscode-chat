@@ -55,10 +55,15 @@ export function buildModelInfos(
 					version: "1.0.0",
 					maxInputTokens: constraints.maxInputTokens,
 					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: applyCapabilityOverrides(m.id, {
-						toolCalling: providers[0].supports_tools !== false,
-						imageInput: vision,
-					}, capOverrides, server.label),
+					capabilities: applyCapabilityOverrides(
+						m.id,
+						{
+							toolCalling: providers[0].supports_tools !== false,
+							imageInput: vision,
+						},
+						capOverrides,
+						server.label
+					),
 				} satisfies LanguageModelChatInformation,
 			];
 		}
@@ -78,10 +83,15 @@ export function buildModelInfos(
 					version: "1.0.0",
 					maxInputTokens: constraints.maxInputTokens,
 					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: applyCapabilityOverrides(m.id, {
-						toolCalling: true,
-						imageInput: vision,
-					}, capOverrides, server.label),
+					capabilities: applyCapabilityOverrides(
+						m.id,
+						{
+							toolCalling: true,
+							imageInput: vision,
+						},
+						capOverrides,
+						server.label
+					),
 				} satisfies LanguageModelChatInformation,
 			];
 		}
@@ -95,10 +105,15 @@ export function buildModelInfos(
 			const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
 			const maxInput = Math.max(1, aggregateContextLen - maxOutput);
 			const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
-			const aggregateCapabilities = applyCapabilityOverrides(m.id, {
-				toolCalling: true,
-				imageInput: vision,
-			}, capOverrides);
+			const aggregateCapabilities = applyCapabilityOverrides(
+				m.id,
+				{
+					toolCalling: true,
+					imageInput: vision,
+				},
+				capOverrides,
+				server.label
+			);
 
 			const cheapestRaw = `${m.id}:cheapest`;
 			const fastestRaw = `${m.id}:fastest`;
@@ -147,10 +162,15 @@ export function buildModelInfos(
 				version: "1.0.0",
 				maxInputTokens: constraints.maxInputTokens,
 				maxOutputTokens: constraints.maxOutputTokens,
-				capabilities: applyCapabilityOverrides(m.id, {
-					toolCalling: true,
-					imageInput: vision,
-				}, capOverrides, server.label),
+				capabilities: applyCapabilityOverrides(
+					m.id,
+					{
+						toolCalling: true,
+						imageInput: vision,
+					},
+					capOverrides,
+					server.label
+				),
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, p.supports_prompt_caching === true);
 			registerRoute(exposedId, rawId);
@@ -169,10 +189,15 @@ export function buildModelInfos(
 				version: "1.0.0",
 				maxInputTokens: constraints.maxInputTokens,
 				maxOutputTokens: constraints.maxOutputTokens,
-				capabilities: applyCapabilityOverrides(m.id, {
-					toolCalling: false,
-					imageInput: vision,
-				}, capOverrides, server.label),
+				capabilities: applyCapabilityOverrides(
+					m.id,
+					{
+						toolCalling: false,
+						imageInput: vision,
+					},
+					capOverrides,
+					server.label
+				),
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, base.supports_prompt_caching === true);
 			registerRoute(exposedId, m.id);
@@ -202,7 +227,9 @@ export function applyCapabilityOverrides(
 	const caps = matchValue.split(",").map((s) => s.trim());
 	const unknown = caps.filter((c) => c !== "" && !VALID_CAPS.includes(c));
 	if (unknown.length > 0) {
-		console.warn(`[LiteLLM] Unknown capability overrides for "${modelId}": ${unknown.join(", ")}. Valid values: ${VALID_CAPS.join(", ")}`);
+		console.warn(
+			`[LiteLLM] Unknown capability overrides for "${modelId}": ${unknown.join(", ")}. Valid values: ${VALID_CAPS.join(", ")}`
+		);
 	}
 	return {
 		toolCalling: caps.includes("toolCalling") ? true : capabilities.toolCalling,
