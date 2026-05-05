@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 
 const GITHUB_REPO_URL = "https://github.com/Vivswan/litellm-vscode-chat";
 const MAX_LOG_ENTRIES = 50;
-const MAX_BODY_LENGTH = 4000;
+const MAX_BODY_LENGTH = 1500;
+const MAX_URL_LENGTH = 8000;
 
 export interface ErrorContext {
 	source: string;
@@ -56,7 +57,7 @@ export class IssueReporter {
 	buildIssueUrl(snapshot: DiagnosticsSnapshot): string {
 		const title = this.buildTitle(snapshot);
 		const body = this.buildBody(snapshot);
-		const truncatedBody = body.length > MAX_BODY_LENGTH ? body.slice(0, MAX_BODY_LENGTH) + "\n\n...(truncated)" : body;
+		let truncatedBody = body.length > MAX_BODY_LENGTH ? body.slice(0, MAX_BODY_LENGTH) + "\n\n...(truncated)" : body;
 
 		const params = new URLSearchParams({
 			labels: "bug",
@@ -64,7 +65,19 @@ export class IssueReporter {
 			body: truncatedBody,
 		});
 
-		return `${GITHUB_REPO_URL}/issues/new?${params.toString()}`;
+		let url = `${GITHUB_REPO_URL}/issues/new?${params.toString()}`;
+
+		if (url.length > MAX_URL_LENGTH) {
+			truncatedBody = body.slice(0, 800) + "\n\n...(truncated, full diagnostics copied to clipboard)";
+			const shortParams = new URLSearchParams({
+				labels: "bug",
+				title,
+				body: truncatedBody,
+			});
+			url = `${GITHUB_REPO_URL}/issues/new?${shortParams.toString()}`;
+		}
+
+		return url;
 	}
 
 	buildTitle(snapshot: DiagnosticsSnapshot): string {
@@ -145,7 +158,13 @@ export class IssueReporter {
 	}
 
 	async openIssue(snapshot: DiagnosticsSnapshot): Promise<void> {
+		const fullBody = this.buildBody(snapshot);
 		const url = this.buildIssueUrl(snapshot);
+
+		if (fullBody.length > MAX_BODY_LENGTH) {
+			await vscode.env.clipboard.writeText(fullBody);
+		}
+
 		await vscode.env.openExternal(vscode.Uri.parse(url));
 	}
 }
