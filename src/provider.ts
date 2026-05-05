@@ -9,79 +9,29 @@ import {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 
-import type {
-	LiteLLMModelInfoItem,
-	LiteLLMModelInfoResponse,
-	LiteLLMModelItem,
-	LiteLLMModelsResponse,
-	LiteLLMProvider,
-} from "./types";
-import { findLongestPrefixMatch, getModelDefaults } from "./modelDefaults";
-
-import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 import type { IssueReporter } from "./issueReporter";
-import type { ServerWithKey, ServerStatus } from "./serverRegistry";
+import type { ServerWithKey, ServerStatus } from "./extension/serverRegistry";
+import type { ModelRoute } from "./provider/request";
 
-const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
-const DEFAULT_CONTEXT_LENGTH = 128000;
-
-interface ModelRoute {
-	serverId: string;
-	rawModelId: string;
-	serverLabel: string;
-}
+import { fetchModels } from "./provider/discovery";
+import { buildModelInfos } from "./provider/registration";
+import { ensureServers } from "./provider/config";
+import { sendChatRequest } from "./provider/client";
 
 export interface AggregatedStatus {
 	serverStatuses: ServerStatus[];
 	totalModels: number;
 }
 
-/**
- * VS Code Chat provider backed by LiteLLM.
- */
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
-
-	/** Per-request streaming state, reset at the start of each chat response. */
-	private _req = LiteLLMChatModelProvider._freshRequestState();
-
-	/** Cache prompt-caching support per model id as reported by /v1/model/info. */
 	private _promptCachingSupport = new Map<string, boolean>();
-
-	/** Callback to update extension status */
 	private _statusCallback?: (status: AggregatedStatus) => void;
-
-	/** Track if we've shown the "no config" notification this session */
 	private _hasShownNoConfigNotification = false;
-
-	/** Auto-incrementing counter for generating unique tool call IDs. */
 	private _toolCallIdCounter = 0;
-
-	/** Maps exposed model ID to routing info (server, raw model id, api key) */
 	private _modelRoutes = new Map<string, ModelRoute>();
-
-	/** External function to get configured servers */
 	private _getServers?: () => Promise<ServerWithKey[]>;
 
-	private static _freshRequestState() {
-		return {
-			toolCallBuffers: new Map<number, { id?: string; name?: string; args: string }>(),
-			completedToolCallIndices: new Set<number>(),
-			hasEmittedAssistantText: false,
-			emittedBeginToolCallsHint: false,
-			textToolParserBuffer: "",
-			textToolActive: undefined as undefined | { name?: string; index?: number; argBuffer: string; emitted?: boolean },
-			emittedTextToolCallKeys: new Set<string>(),
-			emittedTextToolCallIds: new Set<string>(),
-		};
-	}
-
-	/**
-	 * Create a provider using the given secret storage for the API key.
-	 * @param secrets VS Code secret storage.
-	 * @param userAgent User agent string for API requests.
-	 * @param outputChannel Output channel for diagnostic logging.
-	 */
 	constructor(
 		private readonly secrets: vscode.SecretStorage,
 		private readonly userAgent: string,
@@ -89,10 +39,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		private readonly issueReporter?: IssueReporter
 	) {}
 
-	/**
-	 * Set callback to update extension status when models are fetched.
-	 * @param callback Function to call with aggregated server status.
-	 */
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
 		this._statusCallback = callback;
 	}
@@ -126,142 +72,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		this.issueReporter?.recordError(message, error);
 	}
 
-	/**
-	 * Roughly estimate text tokens for VS Code chat messages.
-	 * Only counts text parts — multimodal data (images, PDFs) is excluded because
-	 * real token accounting is model- and provider-specific, and this estimate
-	 * feeds a hard client-side rejection path.
-	 */
-	private estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRequestMessage[]): number {
-		let total = 0;
-		for (const m of msgs) {
-			for (const part of m.content) {
-				if (part instanceof vscode.LanguageModelTextPart) {
-					total += Math.ceil(part.value.length / 4);
-				} else if (part instanceof vscode.LanguageModelToolCallPart) {
-					total += Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / 4);
-				} else if (part instanceof vscode.LanguageModelDataPart) {
-					const mime = part.mimeType.toLowerCase();
-					if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-						total += Math.ceil(part.data.length / 4);
-					}
-					// Images/PDFs excluded: real costs are model-specific, let LiteLLM handle rejection
-				}
-			}
-		}
-		return total;
-	}
-
-	/** Rough token estimate for tool definitions by JSON size */
-	private estimateToolTokens(
-		tools: { type: string; function: { name: string; description?: string; parameters?: object } }[] | undefined
-	): number {
-		if (!tools || tools.length === 0) {
-			return 0;
-		}
-		try {
-			const json = JSON.stringify(tools);
-			return Math.ceil(json.length / 4);
-		} catch {
-			return 0;
-		}
-	}
-
-	/**
-	 * Resolve token constraints from provider info, workspace settings, or defaults.
-	 *
-	 * This reads model CAPABILITIES from the LiteLLM API to understand what each
-	 * model can handle. This is separate from modelParameters which sets request
-	 * parameters.
-	 *
-	 * Priority: provider info > workspace settings > hardcoded defaults
-	 */
-	private getTokenConstraints(provider: LiteLLMProvider | undefined): {
-		maxOutputTokens: number;
-		contextLength: number;
-		maxInputTokens: number;
-	} {
-		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const normalizePositive = (value: unknown): number | undefined =>
-			typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
-
-		// Resolve max output tokens
-		const maxOutputTokens =
-			normalizePositive(provider?.max_output_tokens) ??
-			normalizePositive(provider?.max_tokens) ??
-			normalizePositive(config.get<number>("defaultMaxOutputTokens", DEFAULT_MAX_OUTPUT_TOKENS)) ??
-			DEFAULT_MAX_OUTPUT_TOKENS;
-
-		// Resolve context length
-		const contextLength =
-			normalizePositive(provider?.context_length) ??
-			normalizePositive(config.get<number>("defaultContextLength", DEFAULT_CONTEXT_LENGTH)) ??
-			DEFAULT_CONTEXT_LENGTH;
-
-		// Resolve max input tokens
-		const configMaxInput = normalizePositive(config.get<number | null>("defaultMaxInputTokens", null));
-		const maxInputTokens =
-			configMaxInput ?? normalizePositive(provider?.max_input_tokens) ?? Math.max(1, contextLength - maxOutputTokens);
-
-		return { maxOutputTokens, contextLength, maxInputTokens };
-	}
-
-	/**
-	 * Resolve model-specific parameters from configuration using longest prefix match.
-	 * Uses the raw model ID (without server prefix) for matching.
-	 * In multi-server setups, tries "ServerLabel/rawModelId" first, then falls back to "rawModelId".
-	 *
-	 * This reads user configuration to customize request PARAMETERS sent to the
-	 * LiteLLM API. This is separate from getTokenConstraints which reads model
-	 * CAPABILITIES.
-	 *
-	 * @param modelId The exposed model ID to match against configuration keys
-	 * @returns Object containing model-specific parameters, or empty object if no match
-	 */
-	private getModelParameters(modelId: string): Record<string, unknown> {
-		const route = this._modelRoutes.get(modelId);
-		const rawId = route?.rawModelId ?? modelId;
-		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const modelParameters = config.get<Record<string, Record<string, unknown>>>("modelParameters", {});
-		if (route?.serverLabel) {
-			const scopedMatch = findLongestPrefixMatch(`${route.serverLabel}/${rawId}`, modelParameters);
-			if (scopedMatch) {
-				return { ...scopedMatch };
-			}
-		}
-		const match = findLongestPrefixMatch(rawId, modelParameters);
-		return match ? { ...match } : {};
-	}
-
-	/**
-	 * Build exposed model ID that is unique across servers.
-	 * For single-server setups, returns the raw model ID unchanged.
-	 */
-	private buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {
-		if (serverCount <= 1) {
-			return rawModelId;
-		}
-		return `${serverId}/${rawModelId}`;
-	}
-
-	/**
-	 * Get the list of available language models contributed by this provider.
-	 * Fetches models from all configured servers in parallel and aggregates results.
-	 * @param options Options which specify the calling context of this function
-	 * @param _token A cancellation token which signals if the user cancelled the request or not
-	 * @returns A promise that resolves to the list of available language models
-	 */
 	async prepareLanguageModelChatInformation(
 		options: { silent: boolean },
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
 		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
 
-		const servers = await this.ensureServers(options.silent);
+		const servers = await ensureServers(options.silent, this._getServers, this.secrets);
 		if (!servers || servers.length === 0) {
 			this.log("No servers configured, returning empty array");
 
-			// Show one-time notification when no config in silent mode
 			if (options.silent && !this._hasShownNoConfigNotification) {
 				this._hasShownNoConfigNotification = true;
 				vscode.window
@@ -273,7 +93,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					});
 			}
 
-			// Notify status callback
 			if (this._statusCallback) {
 				this._statusCallback({ serverStatuses: [], totalModels: 0 });
 			}
@@ -284,7 +103,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
-				const result = await this.fetchModels(server.apiKey, server.baseUrl);
+				const result = await fetchModels(
+					server.apiKey,
+					server.baseUrl,
+					this.userAgent,
+					(msg, data) => this.log(msg, data),
+					(msg, err) => this.logError(msg, err)
+				);
 				return { server, models: result.models };
 			})
 		);
@@ -295,8 +120,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		const successfulCount = results.filter((r) => r.status === "fulfilled").length;
 		const serverCount = servers.length;
 
-		// Only clear caches when at least one server succeeds to preserve
-		// routing data for previously-registered models on total failure.
 		if (successfulCount > 0) {
 			this._modelRoutes.clear();
 			this._promptCachingSupport.clear();
@@ -324,15 +147,21 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const { models } = result.value;
 			this.log(`Server "${server.label}" returned ${models.length} models`);
 
-			const serverInfos = this.buildModelInfos(models, server, serverCount);
-			allInfos.push(...serverInfos);
+			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg));
+			allInfos.push(...reg.infos);
+			for (const [k, v] of reg.routes) {
+				this._modelRoutes.set(k, v);
+			}
+			for (const [k, v] of reg.promptCaching) {
+				this._promptCachingSupport.set(k, v);
+			}
 
 			serverStatuses.push({
 				serverId: server.id,
 				label: server.label,
 				baseUrl: server.baseUrl,
 				state: "ok",
-				modelCount: serverInfos.length,
+				modelCount: reg.infos.length,
 				lastChecked: new Date().toISOString(),
 			});
 		}
@@ -387,174 +216,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		return allInfos;
 	}
 
-	private buildModelInfos(
-		models: LiteLLMModelItem[],
-		server: ServerWithKey,
-		serverCount: number
-	): LanguageModelChatInformation[] {
-		const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
-			this.log(`Processing model: ${m.id} from server "${server.label}"`);
-			const providers = m?.providers ?? [];
-			const modalities = m.architecture?.input_modalities ?? [];
-			const vision = Array.isArray(modalities) && modalities.includes("image");
-			const detail = serverCount > 1 ? server.label : "LiteLLM";
-			const namePrefix = serverCount > 1 ? `[${server.label}] ` : "";
-
-			const registerRoute = (exposedId: string, rawId: string) => {
-				this._modelRoutes.set(exposedId, {
-					serverId: server.id,
-					rawModelId: rawId,
-					serverLabel: server.label,
-				});
-			};
-
-			if (providers.length === 1 && providers[0].source === "model_info") {
-				const constraints = this.getTokenConstraints(providers[0]);
-				const exposedId = this.buildExposedModelId(m.id, server.id, serverCount);
-				this._promptCachingSupport.set(exposedId, providers[0].supports_prompt_caching === true);
-				registerRoute(exposedId, m.id);
-				return [
-					{
-						id: exposedId,
-						name: `${namePrefix}${m.id}`,
-						detail,
-						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-						family: "litellm",
-						version: "1.0.0",
-						maxInputTokens: constraints.maxInputTokens,
-						maxOutputTokens: constraints.maxOutputTokens,
-						capabilities: {
-							toolCalling: providers[0].supports_tools !== false,
-							imageInput: vision,
-						},
-					} satisfies LanguageModelChatInformation,
-				];
-			}
-
-			// If no providers array exists (standard OpenAI-compatible API), create a default entry
-			if (providers.length === 0) {
-				const constraints = this.getTokenConstraints(undefined);
-				const exposedId = this.buildExposedModelId(m.id, server.id, serverCount);
-				this._promptCachingSupport.set(exposedId, false);
-				registerRoute(exposedId, m.id);
-				return [
-					{
-						id: exposedId,
-						name: `${namePrefix}${m.id}`,
-						detail,
-						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-						family: "litellm",
-						version: "1.0.0",
-						maxInputTokens: constraints.maxInputTokens,
-						maxOutputTokens: constraints.maxOutputTokens,
-						capabilities: {
-							toolCalling: true, // Assume tool calling is supported
-							imageInput: vision,
-						},
-					} satisfies LanguageModelChatInformation,
-				];
-			}
-
-			// Build entries for all providers that support tool calling
-			// Assume supports_tools is true if not explicitly set to false
-			const toolProviders = providers.filter((p) => p.supports_tools !== false);
-			const entries: LanguageModelChatInformation[] = [];
-
-			if (toolProviders.length > 0) {
-				const providerConstraints = toolProviders.map((p) => this.getTokenConstraints(p));
-				const aggregateContextLen = Math.min(...providerConstraints.map((c) => c.contextLength));
-				const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
-				const maxInput = Math.max(1, aggregateContextLen - maxOutput);
-				const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
-				const aggregateCapabilities = {
-					toolCalling: true,
-					imageInput: vision,
-				};
-
-				const cheapestRaw = `${m.id}:cheapest`;
-				const fastestRaw = `${m.id}:fastest`;
-				const cheapestId = this.buildExposedModelId(cheapestRaw, server.id, serverCount);
-				const fastestId = this.buildExposedModelId(fastestRaw, server.id, serverCount);
-
-				entries.push({
-					id: cheapestId,
-					name: `${namePrefix}${m.id} (cheapest)`,
-					detail,
-					tooltip: `LiteLLM via the cheapest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: maxInput,
-					maxOutputTokens: maxOutput,
-					capabilities: aggregateCapabilities,
-				} satisfies LanguageModelChatInformation);
-				this._promptCachingSupport.set(cheapestId, aggregatePromptCaching);
-				registerRoute(cheapestId, cheapestRaw);
-
-				entries.push({
-					id: fastestId,
-					name: `${namePrefix}${m.id} (fastest)`,
-					detail,
-					tooltip: `LiteLLM via the fastest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: maxInput,
-					maxOutputTokens: maxOutput,
-					capabilities: aggregateCapabilities,
-				} satisfies LanguageModelChatInformation);
-				this._promptCachingSupport.set(fastestId, aggregatePromptCaching);
-				registerRoute(fastestId, fastestRaw);
-			}
-
-			for (const p of toolProviders) {
-				const constraints = this.getTokenConstraints(p);
-				const rawId = `${m.id}:${p.provider}`;
-				const exposedId = this.buildExposedModelId(rawId, server.id, serverCount);
-				entries.push({
-					id: exposedId,
-					name: `${namePrefix}${m.id} via ${p.provider}`,
-					detail,
-					tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: constraints.maxInputTokens,
-					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: {
-						toolCalling: true,
-						imageInput: vision,
-					},
-				} satisfies LanguageModelChatInformation);
-				this._promptCachingSupport.set(exposedId, p.supports_prompt_caching === true);
-				registerRoute(exposedId, rawId);
-			}
-
-			if (toolProviders.length === 0 && providers.length > 0) {
-				const base = providers[0];
-				const constraints = this.getTokenConstraints(base);
-				const exposedId = this.buildExposedModelId(m.id, server.id, serverCount);
-				entries.push({
-					id: exposedId,
-					name: `${namePrefix}${m.id}`,
-					detail,
-					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: constraints.maxInputTokens,
-					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: {
-						toolCalling: false,
-						imageInput: vision,
-					},
-				} satisfies LanguageModelChatInformation);
-				this._promptCachingSupport.set(exposedId, base.supports_prompt_caching === true);
-				registerRoute(exposedId, m.id);
-			}
-
-			return entries;
-		});
-
-		return infos;
-	}
-
 	async provideLanguageModelChatInformation(
 		options: { silent: boolean },
 		_token: CancellationToken
@@ -562,216 +223,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		return this.prepareLanguageModelChatInformation({ silent: options.silent ?? false }, _token);
 	}
 
-	/**
-	 * Fetch the list of models and supplementary metadata from LiteLLM.
-	 * @param apiKey The LiteLLM API key used to authenticate.
-	 * @param baseUrl The LiteLLM base URL.
-	 */
-	/**
-	 * Map /v1/model/info entries into a /v1/models-like shape for reuse.
-	 *
-	 * Extracts the model ID using fallback priority:
-	 * 1. item.model_name (preferred, most specific)
-	 * 2. item.litellm_params?.model (fallback)
-	 * 3. item.model_info?.key (secondary fallback)
-	 * 4. item.model_info?.id (last resort)
-	 */
-	private mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
-		const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
-
-		if (!modelId) {
-			return undefined;
-		}
-
-		const supportsTools = item.model_info?.supports_function_calling ?? item.model_info?.supports_tool_choice ?? true;
-		const providerName = item.model_info?.litellm_provider ?? "litellm";
-		const normalizePositive = (value: unknown): number | undefined =>
-			typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
-		const maxInputTokens = normalizePositive(item.model_info?.max_input_tokens);
-		const maxOutputTokens =
-			normalizePositive(item.model_info?.max_output_tokens) ?? normalizePositive(item.model_info?.max_tokens);
-		const maxTokens =
-			normalizePositive(item.model_info?.max_tokens) ?? normalizePositive(item.model_info?.max_output_tokens);
-
-		const provider: LiteLLMProvider = {
-			provider: providerName,
-			status: "ok",
-			supports_tools: supportsTools,
-			context_length: maxInputTokens ?? maxTokens,
-			max_tokens: maxTokens,
-			max_input_tokens: maxInputTokens,
-			max_output_tokens: maxOutputTokens,
-			source: "model_info",
-			supports_prompt_caching: item.model_info?.supports_prompt_caching ?? null,
-			supports_response_schema: item.model_info?.supports_response_schema ?? null,
-			supports_reasoning: item.model_info?.supports_reasoning ?? null,
-			supports_pdf_input: item.model_info?.supports_pdf_input ?? null,
-			supported_openai_params: item.model_info?.supported_openai_params ?? null,
-		};
-
-		const inputModalities: string[] = [];
-		if (item.model_info?.supports_vision) {
-			inputModalities.push("image");
-		}
-		if (item.model_info?.supports_pdf_input) {
-			inputModalities.push("pdf");
-		}
-		const architecture = inputModalities.length > 0 ? { input_modalities: inputModalities } : undefined;
-
-		return {
-			id: modelId,
-			object: "model",
-			created: 0,
-			owned_by: providerName,
-			providers: [provider],
-			architecture,
-		};
-	}
-
-	private async fetchModels(apiKey: string, baseUrl: string): Promise<{ models: LiteLLMModelItem[] }> {
-		this.log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
-		const headers: Record<string, string> = { "User-Agent": this.userAgent };
-		if (apiKey) {
-			// Try both authentication methods: standard Bearer and X-API-Key
-			headers.Authorization = `Bearer ${apiKey}`;
-			headers["X-API-Key"] = apiKey;
-		}
-		const readErrorText = async (resp: Response): Promise<string> => {
-			let text = "";
-			try {
-				text = await resp.text();
-			} catch (error) {
-				this.logError("Failed to read response text", error);
-			}
-			return text;
-		};
-
-		const handleNonOk = async (resp: Response): Promise<never> => {
-			const text = await readErrorText(resp);
-			// Provide helpful error message for authentication failures
-			if (resp.status === 401) {
-				const err = new Error(
-					`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
-				);
-				this.logError("Authentication error", err);
-				throw err;
-			}
-
-			const err = new Error(
-				`Failed to fetch LiteLLM models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`
-			);
-			this.logError("Failed to fetch LiteLLM models", err);
-			throw err;
-		};
-
-		this.log("Fetching from:", `${baseUrl}/v1/model/info`);
-
-		try {
-			const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
-				method: "GET",
-				headers,
-				signal: AbortSignal.timeout(30000),
-			});
-			this.log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
-			if (infoResp.ok) {
-				const parsed = (await infoResp.json()) as LiteLLMModelInfoResponse | LiteLLMModelsResponse;
-				const data = (parsed as LiteLLMModelInfoResponse).data ?? [];
-				this.log("Parsed model/info response:", { modelCount: data.length });
-				if (data.length > 0) {
-					this.log("First model/info sample:", JSON.stringify(data[0], null, 2));
-				}
-
-				const first = data[0] as LiteLLMModelItem | undefined;
-				if (first && typeof (first as LiteLLMModelItem).id === "string" && Array.isArray(first.providers)) {
-					const models = data as LiteLLMModelItem[];
-					this.log("Successfully fetched models:", models.length);
-					return { models };
-				}
-
-				const models = data
-					.map((item) => this.mapModelInfoToLiteLLMModel(item as LiteLLMModelInfoItem))
-					.filter((m): m is LiteLLMModelItem => Boolean(m));
-				if (data.length > 0 && models.length === 0) {
-					this.log("model/info returned data but no mappable models; falling back", { dataLength: data.length });
-				} else {
-					this.log("Successfully fetched models:", models.length);
-					return { models };
-				}
-			}
-			// Fall through to /v1/models fallback
-		} catch (error) {
-			this.log("model/info failed, falling back to /v1/models", error);
-			// Fall through to /v1/models fallback
-		}
-
-		// Fallback to /v1/models
-		try {
-			this.log("Fetching from:", `${baseUrl}/v1/models`);
-			const resp = await fetch(`${baseUrl}/v1/models`, {
-				method: "GET",
-				headers,
-				signal: AbortSignal.timeout(30000),
-			});
-			this.log("Response status:", `${resp.status} ${resp.statusText}`);
-			if (!resp.ok) {
-				await handleNonOk(resp);
-			}
-			const parsed = (await resp.json()) as LiteLLMModelsResponse;
-			this.log("Parsed response:", {
-				object: parsed.object,
-				modelCount: parsed.data?.length ?? 0,
-			});
-			if (parsed.data && parsed.data.length > 0) {
-				this.log("First model sample:", JSON.stringify(parsed.data[0], null, 2));
-			}
-			const models = parsed.data ?? [];
-			this.log("Successfully fetched models:", models.length);
-			return { models };
-		} catch (fetchError) {
-			// Enhanced error handling for network and certificate issues
-			const errMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
-			const cause = (fetchError as Error & { cause?: unknown })?.cause;
-			const causeMsg = cause instanceof Error ? cause.message : String(cause);
-
-			// Check for common network errors
-			if (causeMsg.includes("certificate has expired") || causeMsg.includes("CERT_HAS_EXPIRED")) {
-				const err = new Error(
-					`SSL Certificate Error: The SSL certificate for ${baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`
-				);
-				this.logError("Certificate error", err);
-				throw err;
-			} else if (causeMsg.includes("certificate") || errMsg.includes("certificate")) {
-				const err = new Error(
-					`SSL Certificate Error: There is an issue with the SSL certificate for ${baseUrl}. Error: ${causeMsg || errMsg}`
-				);
-				this.logError("Certificate error", err);
-				throw err;
-			} else if (causeMsg.includes("ENOTFOUND") || causeMsg.includes("ECONNREFUSED")) {
-				const err = new Error(
-					`Connection Error: Unable to connect to ${baseUrl}. Please check that the server is running and the URL is correct.`
-				);
-				this.logError("Connection error", err);
-				throw err;
-			} else {
-				const err = new Error(
-					`Network Error: Failed to fetch models from ${baseUrl}. ${errMsg}${causeMsg && causeMsg !== errMsg ? `. Cause: ${causeMsg}` : ""}`
-				);
-				this.logError("Network error", err);
-				throw err;
-			}
-		}
-	}
-
-	/**
-	 * Returns the response for a chat request, passing the results to the progress callback.
-	 * The {@linkcode LanguageModelChatProvider} must emit the response parts to the progress callback as they are received from the language model.
-	 * @param model The language model to use
-	 * @param messages The messages to include in the request
-	 * @param options Options for the request
-	 * @param progress The progress to emit the streamed response chunks to
-	 * @param token A cancellation token for the request
-	 * @returns A promise that resolves when the response is complete. Results are actually passed to the progress callback.
-	 */
 	async provideLanguageModelChatResponse(
 		model: LanguageModelChatInformation,
 		messages: readonly LanguageModelChatRequestMessage[],
@@ -779,9 +230,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		progress: Progress<LanguageModelResponsePart>,
 		token: CancellationToken
 	): Promise<void> {
-		this._req = LiteLLMChatModelProvider._freshRequestState();
-
-		let requestBody: Record<string, unknown> | undefined;
 		const trackingProgress: Progress<LanguageModelResponsePart> = {
 			report: (part) => {
 				try {
@@ -792,174 +240,23 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			},
 		};
 		try {
-			const route = this._modelRoutes.get(model.id);
-			let baseUrl: string;
-			let apiKey: string;
-			let rawModelId: string;
-
-			if (route) {
-				// Resolve baseUrl/apiKey from registry at request time to pick up edits
-				const server = await this.resolveServer(route.serverId);
-				if (server) {
-					baseUrl = server.baseUrl;
-					apiKey = server.apiKey;
-				} else {
-					throw new Error(`Server "${route.serverLabel}" is no longer configured`);
-				}
-				rawModelId = route.rawModelId;
-			} else {
-				// Fallback: try legacy single-server config
-				const config = await this.ensureConfig(true);
-				if (!config) {
-					throw new Error("LiteLLM configuration not found");
-				}
-				baseUrl = config.baseUrl;
-				apiKey = config.apiKey;
-				rawModelId = model.id;
-			}
-
-			const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
-			const promptCachingEnabled = settings.get<boolean>("promptCaching.enabled", true);
-			const supportsPromptCaching = this._promptCachingSupport.get(model.id) === true;
-			const openaiMessages = convertMessages(messages, {
-				cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
-			});
-			validateRequest(messages);
-			const toolConfig = convertTools(options);
-
-			if (options.tools && options.tools.length > 128) {
-				throw new Error("Cannot have more than 128 tools per request.");
-			}
-
-			const inputTokenCount = this.estimateMessagesTokens(messages);
-			const toolTokenCount = this.estimateToolTokens(toolConfig.tools);
-			const tokenLimit = Math.max(1, model.maxInputTokens);
-			if (inputTokenCount + toolTokenCount > tokenLimit) {
-				this.logError("Message exceeds token limit", {
-					total: inputTokenCount + toolTokenCount,
-					tokenLimit,
-				});
-				throw new Error("Message exceeds token limit.");
-			}
-
-			// 1. Get model-specific parameters from configuration
-			const modelParams = this.getModelParameters(model.id);
-
-			// 2. Determine max_tokens with proper precedence and clamping logic
-			let maxTokens: number;
-
-			if (typeof options.modelOptions?.max_tokens === "number") {
-				// Runtime options have highest priority - use directly without clamping
-				maxTokens = options.modelOptions.max_tokens;
-			} else if (typeof modelParams.max_tokens === "number") {
-				// Model-specific config - use directly without clamping
-				maxTokens = modelParams.max_tokens;
-			} else {
-				// Default value - clamp to model's maximum
-				maxTokens = Math.min(4096, model.maxOutputTokens);
-			}
-
-			// Build base request body with codebase defaults
-			const replaceDefaults = modelParams._replaceDefaults === true;
-			delete modelParams._replaceDefaults;
-
-			const defaults = replaceDefaults ? {} : getModelDefaults(rawModelId);
-
-			requestBody = {
-				model: rawModelId,
-				messages: openaiMessages,
-				stream: true,
-				stream_options: { include_usage: true },
-				max_tokens: maxTokens,
-				...defaults,
-			};
-
-			// Provider-owned fields that cannot be overwritten by config or runtime options
-			const providerOwnedKeys = new Set(["model", "messages", "stream", "stream_options", "tools", "tool_choice"]);
-
-			// 3. Apply model-specific parameters from configuration (max_tokens already handled)
-			for (const [key, value] of Object.entries(modelParams)) {
-				if (key !== "max_tokens" && !providerOwnedKeys.has(key)) {
-					(requestBody as Record<string, unknown>)[key] = value;
-				}
-			}
-
-			// 4. Apply runtime options.modelOptions — broad pass-through (highest priority)
-			if (options.modelOptions) {
-				for (const [key, value] of Object.entries(options.modelOptions as Record<string, unknown>)) {
-					if (key === "max_tokens") {
-						continue; // already handled above with special precedence
-					}
-					if (providerOwnedKeys.has(key)) {
-						continue; // never overwrite provider-owned fields
-					}
-					if (key.startsWith("_")) {
-						continue; // skip VS Code internal fields (e.g. _capturingTokenCorrelationId)
-					}
-					(requestBody as Record<string, unknown>)[key] = value;
-				}
-			}
-
-			if (toolConfig.tools) {
-				(requestBody as Record<string, unknown>).tools = toolConfig.tools;
-			}
-			if (toolConfig.tool_choice) {
-				(requestBody as Record<string, unknown>).tool_choice = toolConfig.tool_choice;
-			}
-			const headers: Record<string, string> = {
-				"Content-Type": "application/json",
-				"User-Agent": this.userAgent,
-			};
-			if (apiKey) {
-				// Try both authentication methods: standard Bearer and X-API-Key
-				headers.Authorization = `Bearer ${apiKey}`;
-				headers["X-API-Key"] = apiKey;
-			}
-			this.log("Sending chat request", {
-				url: `${baseUrl}/v1/chat/completions`,
-				modelId: rawModelId,
-				messageCount: messages.length,
-			});
-			const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-				method: "POST",
-				headers,
-				body: JSON.stringify(requestBody),
-				signal: AbortSignal.timeout(300000),
-			});
-
-			if (!response.ok) {
-				const errorText = await response.text();
-				this.logError("API error response", errorText);
-
-				// Provide helpful error message for authentication failures
-				if (response.status === 401) {
-					throw new Error(
-						`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
-					);
-				}
-
-				throw new Error(
-					`LiteLLM API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`
-				);
-			}
-
-			if (!response.body) {
-				throw new Error("No response body from LiteLLM API");
-			}
-			await this.processStreamingResponse(response.body, trackingProgress, token);
+			this._toolCallIdCounter = await sendChatRequest(
+				{ model, messages, options, progress: trackingProgress, token },
+				this._modelRoutes,
+				this._promptCachingSupport,
+				this._getServers,
+				this.secrets,
+				this.userAgent,
+				this._toolCallIdCounter,
+				(msg, data) => this.log(msg, data),
+				(msg, err) => this.logError(msg, err)
+			);
 		} catch (err) {
 			this.logError("Chat request failed", err);
 			throw err;
 		}
 	}
 
-	/**
-	 * Returns the number of tokens for a given text using the model specific tokenizer logic
-	 * @param model The language model to use
-	 * @param text The text to count tokens for
-	 * @param token A cancellation token for the request
-	 * @returns A promise that resolves to the number of tokens
-	 */
 	async provideTokenCount(
 		_model: LanguageModelChatInformation,
 		text: string | LanguageModelChatRequestMessage,
@@ -984,543 +281,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				}
 			}
 			return totalTokens;
-		}
-	}
-
-	private async resolveServer(serverId: string): Promise<{ baseUrl: string; apiKey: string } | undefined> {
-		if (serverId === "_legacy") {
-			const config = await this.ensureConfig(true);
-			return config ?? undefined;
-		}
-		if (!this._getServers) {
-			return undefined;
-		}
-		const servers = await this._getServers();
-		return servers.find((s) => s.id === serverId);
-	}
-
-	/**
-	 * Get configured servers. Returns undefined if none configured.
-	 */
-	private async ensureServers(silent: boolean): Promise<ServerWithKey[] | undefined> {
-		if (this._getServers) {
-			const servers = await this._getServers();
-			if (servers.length > 0) {
-				return servers;
-			}
-		}
-
-		// Fallback to legacy single-server secrets (pre-migration)
-		const baseUrl = await this.secrets.get("litellm.baseUrl");
-		if (baseUrl) {
-			const apiKey = (await this.secrets.get("litellm.apiKey")) ?? "";
-			return [
-				{
-					id: "_legacy",
-					label: "Default",
-					baseUrl: baseUrl.replace(/\/+$/, ""),
-					apiKey,
-				},
-			];
-		}
-
-		if (silent) {
-			return undefined;
-		}
-
-		// No config at all — prompt user to configure
-		const result = await vscode.window.showErrorMessage(
-			"LiteLLM is not configured. Set up your connection to use this provider.",
-			"Configure Now",
-			"Learn More"
-		);
-
-		if (result === "Configure Now") {
-			await vscode.commands.executeCommand("litellm.manage");
-			// Re-query registry since litellm.manage writes to the registry
-			if (this._getServers) {
-				const servers = await this._getServers();
-				if (servers.length > 0) {
-					return servers;
-				}
-			}
-		} else if (result === "Learn More") {
-			vscode.env.openExternal(vscode.Uri.parse("https://github.com/Vivswan/litellm-vscode-chat#quick-start"));
-		}
-
-		return undefined;
-	}
-
-	/**
-	 * Legacy single-server config lookup from SecretStorage. Silent only.
-	 */
-	private async ensureConfig(_silent: boolean): Promise<{ baseUrl: string; apiKey: string } | undefined> {
-		const baseUrl = await this.secrets.get("litellm.baseUrl");
-		if (!baseUrl) {
-			return undefined;
-		}
-		const apiKey = (await this.secrets.get("litellm.apiKey")) ?? "";
-		return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
-	}
-
-	/**
-	 * Read and parse the LiteLLM streaming (SSE-like) response and report parts.
-	 * @param responseBody The readable stream body.
-	 * @param progress Progress reporter for streamed parts.
-	 * @param token Cancellation token.
-	 */
-	private async processStreamingResponse(
-		responseBody: ReadableStream<Uint8Array>,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		token: vscode.CancellationToken
-	): Promise<void> {
-		const reader = responseBody.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-
-		try {
-			while (!token.isCancellationRequested) {
-				const { done, value } = await reader.read();
-				if (done) {
-					break;
-				}
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-
-				for (const line of lines) {
-					if (!line.startsWith("data: ")) {
-						continue;
-					}
-					const data = line.slice(6);
-					if (data === "[DONE]") {
-						// Do not throw on [DONE]; any incomplete/empty buffers are ignored.
-						await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ false);
-						// Flush any in-progress text-embedded tool call (silent if incomplete)
-						await this.flushActiveTextToolCall(progress);
-						continue;
-					}
-
-					try {
-						const parsed = JSON.parse(data);
-						await this.processDelta(parsed, progress);
-					} catch (e) {
-						this.log("Skipping malformed SSE line", { error: String(e), data: data.slice(0, 200) });
-					}
-				}
-			}
-		} finally {
-			reader.releaseLock();
-			this._req = LiteLLMChatModelProvider._freshRequestState();
-		}
-	}
-
-	/**
-	 * Handle a single streamed delta chunk, emitting text and tool call parts.
-	 * @param delta Parsed SSE chunk from LiteLLM.
-	 * @param progress Progress reporter for parts.
-	 */
-	private async processDelta(
-		delta: Record<string, unknown>,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>
-	): Promise<boolean> {
-		let emitted = false;
-
-		// Log token usage — must run before the choices[0] early return because
-		// OpenAI-compatible streams send usage in a final chunk with choices: []
-		const usage = delta.usage as Record<string, unknown> | undefined;
-		if (usage) {
-			this.log("Token usage", usage);
-		}
-
-		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
-		if (!choice) {
-			return false;
-		}
-
-		const deltaObj = choice.delta as Record<string, unknown> | undefined;
-
-		// report thinking progress if backend provides it and host supports it
-		try {
-			const maybeThinking =
-				(choice as Record<string, unknown> | undefined)?.thinking ??
-				(deltaObj as Record<string, unknown> | undefined)?.thinking ??
-				(deltaObj as Record<string, unknown> | undefined)?.reasoning_content ??
-				(deltaObj as Record<string, unknown> | undefined)?.reasoning;
-			if (maybeThinking !== undefined) {
-				const vsAny = vscode as unknown as Record<string, unknown>;
-				const ThinkingCtor = vsAny["LanguageModelThinkingPart"] as
-					| (new (text: string, id?: string, metadata?: unknown) => unknown)
-					| undefined;
-				if (ThinkingCtor) {
-					let text = "";
-					let id: string | undefined;
-					let metadata: unknown;
-					if (maybeThinking && typeof maybeThinking === "object") {
-						const mt = maybeThinking as Record<string, unknown>;
-						text = typeof mt["text"] === "string" ? (mt["text"] as string) : "";
-						id = typeof mt["id"] === "string" ? (mt["id"] as string) : undefined;
-						metadata = mt["metadata"];
-					} else if (typeof maybeThinking === "string") {
-						text = maybeThinking;
-					}
-					if (text) {
-						progress.report(
-							new (ThinkingCtor as new (text: string, id?: string, metadata?: unknown) => unknown)(
-								text,
-								id,
-								metadata
-							) as unknown as vscode.LanguageModelResponsePart
-						);
-						emitted = true;
-					}
-				}
-			}
-		} catch {
-			// ignore errors here temporarily
-		}
-
-		// Handle content — may be a string or an array of content blocks
-		if (deltaObj?.content !== undefined && deltaObj.content !== null) {
-			if (Array.isArray(deltaObj.content)) {
-				// Structured content array (some providers return this)
-				for (const block of deltaObj.content as Array<Record<string, unknown>>) {
-					if (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") {
-						const res = this.processTextContent(block.text as string, progress);
-						if (res.emittedText) {
-							this._req.hasEmittedAssistantText = true;
-						}
-						if (res.emittedAny) {
-							emitted = true;
-						}
-					}
-					// Silently ignore non-text blocks in streaming (thinking blocks handled above)
-				}
-			} else {
-				const content = String(deltaObj.content);
-				const res = this.processTextContent(content, progress);
-				if (res.emittedText) {
-					this._req.hasEmittedAssistantText = true;
-				}
-				if (res.emittedAny) {
-					emitted = true;
-				}
-			}
-		}
-
-		if (deltaObj?.tool_calls) {
-			const toolCalls = deltaObj.tool_calls as Array<Record<string, unknown>>;
-
-			// SSEProcessor-like: if first tool call appears after text, emit a whitespace
-			// to ensure any UI buffers/linkifiers are flushed without adding visible noise.
-			if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && toolCalls.length > 0) {
-				progress.report(new vscode.LanguageModelTextPart(" "));
-				this._req.emittedBeginToolCallsHint = true;
-			}
-
-			for (const tc of toolCalls) {
-				const idx = (tc.index as number) ?? 0;
-				// Ignore any further deltas for an index we've already completed
-				if (this._req.completedToolCallIndices.has(idx)) {
-					continue;
-				}
-				const buf = this._req.toolCallBuffers.get(idx) ?? { args: "" };
-				if (tc.id && typeof tc.id === "string") {
-					buf.id = tc.id;
-				}
-				const func = tc.function as Record<string, unknown> | undefined;
-				if (func?.name && typeof func.name === "string") {
-					buf.name = func.name;
-				}
-				if (typeof func?.arguments === "string") {
-					buf.args += func.arguments;
-				}
-				this._req.toolCallBuffers.set(idx, buf);
-
-				// Emit immediately once arguments become valid JSON to avoid perceived hanging
-				await this.tryEmitBufferedToolCall(idx, progress);
-			}
-		}
-
-		const finish = (choice.finish_reason as string | undefined) ?? undefined;
-		if (finish === "tool_calls" || finish === "stop") {
-			// On both 'tool_calls' and 'stop', emit any buffered calls and throw on invalid JSON
-			await this.flushToolCallBuffers(progress, /*throwOnInvalid*/ true);
-		}
-
-		return emitted;
-	}
-
-	/**
-	 * Process streamed text content for inline tool-call control tokens and emit text/tool calls.
-	 * Returns which parts were emitted for logging/flow control.
-	 */
-	private processTextContent(
-		input: string,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>
-	): { emittedText: boolean; emittedAny: boolean } {
-		const BEGIN = "<|tool_call_begin|>";
-		const ARG_BEGIN = "<|tool_call_argument_begin|>";
-		const END = "<|tool_call_end|>";
-
-		let data = this._req.textToolParserBuffer + input;
-		let emittedText = false;
-		let emittedAny = false;
-		let visibleOut = "";
-
-		while (data.length > 0) {
-			if (!this._req.textToolActive) {
-				const b = data.indexOf(BEGIN);
-				if (b === -1) {
-					// No tool-call start: emit visible portion, but keep any partial BEGIN prefix as buffer
-					const longestPartialPrefix = ((): number => {
-						for (let k = Math.min(BEGIN.length - 1, data.length - 1); k > 0; k--) {
-							if (data.endsWith(BEGIN.slice(0, k))) {
-								return k;
-							}
-						}
-						return 0;
-					})();
-					if (longestPartialPrefix > 0) {
-						const visible = data.slice(0, data.length - longestPartialPrefix);
-						if (visible) {
-							visibleOut += this.stripControlTokens(visible);
-						}
-						this._req.textToolParserBuffer = data.slice(data.length - longestPartialPrefix);
-						data = "";
-						break;
-					} else {
-						// All visible, clean other control tokens
-						visibleOut += this.stripControlTokens(data);
-						data = "";
-						break;
-					}
-				}
-				// Emit text before the token
-				const pre = data.slice(0, b);
-				if (pre) {
-					visibleOut += this.stripControlTokens(pre);
-				}
-				// Advance past BEGIN
-				data = data.slice(b + BEGIN.length);
-
-				// Find the delimiter that ends the name/index segment
-				const a = data.indexOf(ARG_BEGIN);
-				const e = data.indexOf(END);
-				let delimIdx: number;
-				let delimKind: "arg" | "end";
-				if (a !== -1 && (e === -1 || a < e)) {
-					delimIdx = a;
-					delimKind = "arg";
-				} else if (e !== -1) {
-					delimIdx = e;
-					delimKind = "end";
-				} else {
-					// Incomplete header; keep for next chunk (re-add BEGIN so we don't lose it)
-					this._req.textToolParserBuffer = BEGIN + data;
-					data = "";
-					break;
-				}
-
-				const header = data.slice(0, delimIdx).trim();
-				const m = header.match(/^([A-Za-z0-9_\-.]+)(?::(\d+))?/);
-				const name = m?.[1] ?? undefined;
-				const index = m?.[2] ? Number(m?.[2]) : undefined;
-				this._req.textToolActive = { name, index, argBuffer: "", emitted: false };
-				// Advance past delimiter token
-				if (delimKind === "arg") {
-					data = data.slice(delimIdx + ARG_BEGIN.length);
-				} else /* end */ {
-					// No args, finalize immediately
-					data = data.slice(delimIdx + END.length);
-					const did = this.emitTextToolCallIfValid(progress, this._req.textToolActive, "{}");
-					if (did) {
-						this._req.textToolActive.emitted = true;
-						emittedAny = true;
-					}
-					this._req.textToolActive = undefined;
-				}
-				continue;
-			}
-
-			// We are inside arguments, collect until END and emit as soon as JSON becomes valid
-			const e2 = data.indexOf(END);
-			if (e2 === -1) {
-				// No end marker yet, accumulate and check for early valid JSON
-				this._req.textToolActive.argBuffer += data;
-				// Early emit when JSON becomes valid and we haven't emitted yet
-				if (!this._req.textToolActive.emitted) {
-					const did = this.emitTextToolCallIfValid(
-						progress,
-						this._req.textToolActive,
-						this._req.textToolActive.argBuffer
-					);
-					if (did) {
-						this._req.textToolActive.emitted = true;
-						emittedAny = true;
-					}
-				}
-				data = "";
-				break;
-			} else {
-				this._req.textToolActive.argBuffer += data.slice(0, e2);
-				// Consume END
-				data = data.slice(e2 + END.length);
-				// Final attempt to emit if not already
-				if (!this._req.textToolActive.emitted) {
-					const did = this.emitTextToolCallIfValid(
-						progress,
-						this._req.textToolActive,
-						this._req.textToolActive.argBuffer
-					);
-					if (did) {
-						emittedAny = true;
-					}
-				}
-				this._req.textToolActive = undefined;
-				continue;
-			}
-		}
-
-		// Emit any visible text
-		const textToEmit = visibleOut;
-		if (textToEmit && textToEmit.length > 0) {
-			progress.report(new vscode.LanguageModelTextPart(textToEmit));
-			emittedText = true;
-			emittedAny = true;
-		}
-
-		// Store leftover for next chunk
-		this._req.textToolParserBuffer = data;
-
-		return { emittedText, emittedAny };
-	}
-
-	private emitTextToolCallIfValid(
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		call: { name?: string; index?: number; argBuffer: string; emitted?: boolean },
-		argText: string
-	): boolean {
-		const name = call.name ?? "unknown_tool";
-		const parsed = tryParseJSONObject(argText);
-		if (!parsed.ok) {
-			return false;
-		}
-		const canonical = JSON.stringify(parsed.value);
-		const key = `${name}:${canonical}`;
-		// identity-based dedupe when index is present
-		if (typeof call.index === "number") {
-			const idKey = `${name}:${call.index}`;
-			if (this._req.emittedTextToolCallIds.has(idKey)) {
-				return false;
-			}
-			// Mark identity as emitted
-			this._req.emittedTextToolCallIds.add(idKey);
-		} else if (this._req.emittedTextToolCallKeys.has(key)) {
-			return false;
-		}
-		this._req.emittedTextToolCallKeys.add(key);
-		const id = `tct_${++this._toolCallIdCounter}`;
-		progress.report(new vscode.LanguageModelToolCallPart(id, name, parsed.value));
-		return true;
-	}
-
-	private async flushActiveTextToolCall(progress: vscode.Progress<vscode.LanguageModelResponsePart>): Promise<void> {
-		if (!this._req.textToolActive) {
-			return;
-		}
-		const argText = this._req.textToolActive.argBuffer;
-		const parsed = tryParseJSONObject(argText);
-		if (!parsed.ok) {
-			return;
-		}
-		// Emit (dedupe ensures we don't double-emit)
-		this.emitTextToolCallIfValid(progress, this._req.textToolActive, argText);
-		this._req.textToolActive = undefined;
-	}
-
-	/**
-	 * Try to emit a buffered tool call when a valid name and JSON arguments are available.
-	 * @param index The tool call index from the stream.
-	 * @param progress Progress reporter for parts.
-	 */
-	private async tryEmitBufferedToolCall(
-		index: number,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>
-	): Promise<void> {
-		const buf = this._req.toolCallBuffers.get(index);
-		if (!buf) {
-			return;
-		}
-		if (!buf.name) {
-			return;
-		}
-		const canParse = tryParseJSONObject(buf.args);
-		if (!canParse.ok) {
-			return;
-		}
-		const id = buf.id ?? `call_${++this._toolCallIdCounter}`;
-		const parameters = canParse.value;
-		try {
-			const canonical = JSON.stringify(parameters);
-			this._req.emittedTextToolCallKeys.add(`${buf.name}:${canonical}`);
-		} catch {
-			/* ignore */
-		}
-		progress.report(new vscode.LanguageModelToolCallPart(id, buf.name, parameters));
-		this._req.toolCallBuffers.delete(index);
-		this._req.completedToolCallIndices.add(index);
-	}
-
-	/**
-	 * Flush all buffered tool calls, optionally throwing if arguments are not valid JSON.
-	 * @param progress Progress reporter for parts.
-	 * @param throwOnInvalid If true, throw when a tool call has invalid JSON args.
-	 */
-	private async flushToolCallBuffers(
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		throwOnInvalid: boolean
-	): Promise<void> {
-		if (this._req.toolCallBuffers.size === 0) {
-			return;
-		}
-		for (const [idx, buf] of Array.from(this._req.toolCallBuffers.entries())) {
-			const parsed = tryParseJSONObject(buf.args);
-			if (!parsed.ok) {
-				if (throwOnInvalid) {
-					console.error("[LiteLLM Model Provider] Invalid JSON for tool call", {
-						idx,
-						snippet: (buf.args || "").slice(0, 200),
-					});
-					throw new Error("Invalid JSON for tool call");
-				}
-				// When not throwing (e.g. on [DONE]), drop silently to reduce noise
-				continue;
-			}
-			const id = buf.id ?? `call_${++this._toolCallIdCounter}`;
-			const name = buf.name ?? "unknown_tool";
-			try {
-				const canonical = JSON.stringify(parsed.value);
-				this._req.emittedTextToolCallKeys.add(`${name}:${canonical}`);
-			} catch {
-				/* ignore */
-			}
-			progress.report(new vscode.LanguageModelToolCallPart(id, name, parsed.value));
-			this._req.toolCallBuffers.delete(idx);
-			this._req.completedToolCallIndices.add(idx);
-		}
-	}
-
-	/** Strip provider control tokens like <|tool_calls_section_begin|> and <|tool_call_begin|> from streamed text. */
-	private stripControlTokens(text: string): string {
-		try {
-			// Remove section markers and explicit tool call begin/argument/end markers that some backends stream as text
-			return text
-				.replace(/<\|[a-zA-Z0-9_-]+_section_(?:begin|end)\|>/g, "")
-				.replace(/<\|tool_call_(?:argument_)?(?:begin|end)\|>/g, "");
-		} catch {
-			return text;
 		}
 	}
 }
