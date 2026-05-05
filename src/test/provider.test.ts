@@ -1510,8 +1510,8 @@ suite("LiteLLM Chat Provider Extension", () => {
 
 				assert.ok(logs.length > 0, "Should log messages");
 				assert.ok(
-					logs.some((log) => log.includes("ensureConfig")),
-					"Should log ensureConfig call"
+					logs.some((log) => log.includes("prepareLanguageModelChatInformation")),
+					"Should log provider call"
 				);
 				assert.ok(
 					logs.some((log) => log.includes("No") && (log.includes("config") || log.includes("servers"))),
