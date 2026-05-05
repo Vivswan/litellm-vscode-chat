@@ -482,7 +482,8 @@ export function activate(context: vscode.ExtensionContext) {
 	// Build diagnostics snapshot for issue reporting
 	async function buildDiagnosticsSnapshot(): Promise<DiagnosticsSnapshot> {
 		const servers = registry.getServers();
-		const hasApiKey = servers.length > 0; // simplified: at least one server exists
+		const serversWithKeys = await registry.getServersWithKeys();
+		const hasApiKey = serversWithKeys.some((s) => s.apiKey.trim().length > 0);
 
 		return {
 			extensionVersion: extVersion,

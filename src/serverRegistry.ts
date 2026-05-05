@@ -37,7 +37,11 @@ export class ServerRegistry {
 	}
 
 	async addServer(label: string, baseUrl: string, apiKey: string): Promise<ServerConfig> {
-		const id = generateId();
+		const existingIds = new Set(this.getServers().map((s) => s.id));
+		let id = generateId();
+		while (existingIds.has(id)) {
+			id = generateId();
+		}
 		const server: ServerConfig = { id, label, baseUrl: baseUrl.replace(/\/+$/, "") };
 		const servers = this.getServers();
 		servers.push(server);
