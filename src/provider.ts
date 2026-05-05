@@ -8,6 +8,7 @@ import {
 	Progress,
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
+import { countTextTokens, countMessageTokens } from "./tokenizer";
 
 import type { IssueReporter } from "./issueReporter";
 import type { ServerWithKey, ServerStatus } from "./extension/serverRegistry";
@@ -263,24 +264,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		_token: CancellationToken
 	): Promise<number> {
 		if (typeof text === "string") {
-			return Math.ceil(text.length / 4);
+			return countTextTokens(text);
 		} else {
-			let totalTokens = 0;
-			for (const part of text.content) {
-				if (part instanceof vscode.LanguageModelTextPart) {
-					totalTokens += Math.ceil(part.value.length / 4);
-				} else if (part instanceof vscode.LanguageModelDataPart) {
-					const mime = part.mimeType.toLowerCase();
-					if (mime.startsWith("image/")) {
-						totalTokens += 765;
-					} else if (mime === "application/pdf") {
-						totalTokens += 500;
-					} else if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-						totalTokens += Math.ceil(part.data.length / 4);
-					}
-				}
-			}
-			return totalTokens;
+			return countMessageTokens(text.content);
 		}
 	}
 }

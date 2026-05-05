@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { LiteLLMProvider } from "../types";
 import { findLongestPrefixMatch, getModelDefaults } from "./modelDefaults";
+import { countTextTokens } from "../tokenizer";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
@@ -65,13 +66,13 @@ export function estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRe
 	for (const m of msgs) {
 		for (const part of m.content) {
 			if (part instanceof vscode.LanguageModelTextPart) {
-				total += Math.ceil(part.value.length / 4);
+				total += countTextTokens(part.value);
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
-				total += Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / 4);
+				total += countTextTokens(part.name + JSON.stringify(part.input ?? {}));
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				const mime = part.mimeType.toLowerCase();
 				if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-					total += Math.ceil(part.data.length / 4);
+					total += countTextTokens(String(part.data));
 				}
 			}
 		}
