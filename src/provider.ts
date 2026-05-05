@@ -986,7 +986,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	/**
-	 * Get configured servers. Returns empty array if none configured.
+	 * Get configured servers. Returns undefined if none configured.
 	 */
 	private async ensureServers(silent: boolean): Promise<ServerWithKey[] | undefined> {
 		if (this._getServers) {
@@ -996,26 +996,42 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			}
 		}
 
-		// Fallback to legacy single-server config for backwards compat
-		const config = await this.ensureConfig(silent);
-		if (config) {
+		// Fallback to legacy single-server secrets (pre-migration)
+		const baseUrl = await this.secrets.get("litellm.baseUrl");
+		if (baseUrl) {
+			const apiKey = (await this.secrets.get("litellm.apiKey")) ?? "";
 			return [
 				{
 					id: "_legacy",
 					label: "Default",
-					baseUrl: config.baseUrl,
-					apiKey: config.apiKey,
+					baseUrl: baseUrl.replace(/\/+$/, ""),
+					apiKey,
 				},
 			];
 		}
 
-		// After interactive setup (ensureConfig may have triggered litellm.manage),
-		// re-check the registry in case the user added a server.
-		if (!silent && this._getServers) {
-			const servers = await this._getServers();
-			if (servers.length > 0) {
-				return servers;
+		if (silent) {
+			return undefined;
+		}
+
+		// No config at all — prompt user to configure
+		const result = await vscode.window.showErrorMessage(
+			"LiteLLM is not configured. Set up your connection to use this provider.",
+			"Configure Now",
+			"Learn More"
+		);
+
+		if (result === "Configure Now") {
+			await vscode.commands.executeCommand("litellm.manage");
+			// Re-query registry since litellm.manage writes to the registry
+			if (this._getServers) {
+				const servers = await this._getServers();
+				if (servers.length > 0) {
+					return servers;
+				}
 			}
+		} else if (result === "Learn More") {
+			vscode.env.openExternal(vscode.Uri.parse("https://github.com/Vivswan/litellm-vscode-chat#quick-start"));
 		}
 
 		return undefined;
@@ -1024,41 +1040,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	/**
 	 * Legacy single-server config lookup. Used as fallback.
 	 */
-	private async ensureConfig(silent: boolean): Promise<{ baseUrl: string; apiKey: string } | undefined> {
-		this.log("ensureConfig called", { silent });
-		let baseUrl = await this.secrets.get("litellm.baseUrl");
-		let apiKey = await this.secrets.get("litellm.apiKey");
-		this.log("Retrieved from secrets:", { hasBaseUrl: !!baseUrl, hasApiKey: !!apiKey });
-
+	/**
+	 * Legacy single-server config lookup from SecretStorage. Silent only.
+	 */
+	private async ensureConfig(_silent: boolean): Promise<{ baseUrl: string; apiKey: string } | undefined> {
+		const baseUrl = await this.secrets.get("litellm.baseUrl");
 		if (!baseUrl) {
-			if (silent) {
-				return undefined;
-			}
-
-			// Show error with action buttons
-			const result = await vscode.window.showErrorMessage(
-				"LiteLLM is not configured. Set up your connection to use this provider.",
-				"Configure Now",
-				"Learn More"
-			);
-
-			if (result === "Configure Now") {
-				await vscode.commands.executeCommand("litellm.manage");
-				// Re-fetch config after user completes setup
-				baseUrl = await this.secrets.get("litellm.baseUrl");
-				apiKey = await this.secrets.get("litellm.apiKey");
-			} else if (result === "Learn More") {
-				vscode.env.openExternal(vscode.Uri.parse("https://github.com/Vivswan/litellm-vscode-chat#quick-start"));
-			}
-
-			if (!baseUrl) {
-				this.log("No baseUrl configured, returning undefined");
-				return undefined;
-			}
+			return undefined;
 		}
-
-		this.log("Config ready:", { baseUrl, hasApiKey: !!apiKey });
-		return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey: apiKey ?? "" };
+		const apiKey = (await this.secrets.get("litellm.apiKey")) ?? "";
+		return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
 	}
 
 	/**
