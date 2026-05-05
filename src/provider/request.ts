@@ -72,7 +72,8 @@ export function estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRe
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				const mime = part.mimeType.toLowerCase();
 				if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-					total += countTextTokens(String(part.data));
+					const text = part.data instanceof Uint8Array ? new TextDecoder().decode(part.data) : String(part.data);
+					total += countTextTokens(text);
 				}
 			}
 		}

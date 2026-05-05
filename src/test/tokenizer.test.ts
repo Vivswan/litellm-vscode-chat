@@ -47,11 +47,16 @@ suite("Tokenizer", () => {
 		assert.equal(countMessageTokens(parts), 500);
 	});
 
+	test("countMessageTokens decodes Uint8Array for text/json data parts", () => {
+		const json = '{"key":"value"}';
+		const data = new TextEncoder().encode(json);
+		const parts = [{ mimeType: "application/json", data }];
+		const tokens = countMessageTokens(parts);
+		assert.equal(tokens, countTextTokens(json));
+	});
+
 	test("countMessageTokens sums mixed parts", () => {
-		const parts = [
-			{ value: "describe this" },
-			{ mimeType: "image/png", data: new Uint8Array([1]) },
-		];
+		const parts = [{ value: "describe this" }, { mimeType: "image/png", data: new Uint8Array([1]) }];
 		const tokens = countMessageTokens(parts);
 		assert.equal(tokens, countTextTokens("describe this") + 765);
 	});
