@@ -55,7 +55,7 @@ jobs:
         run: |
           git add package.json
           git commit -m "chore: bump version to ${{ steps.next_version.outputs.next_version }}"
-          git push origin version-bump-${{ steps.next_version.outputs.next_version }}
+          git push --force-with-lease origin version-bump-${{ steps.next_version.outputs.next_version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HUSKY: 0
