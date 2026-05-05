@@ -36,4 +36,18 @@ suite("applyCapabilityOverrides", () => {
 		assert.strictEqual(result.toolCalling, true);
 		assert.strictEqual(result.imageInput, true);
 	});
+
+	test("server-scoped override takes priority over unscoped", () => {
+		const overrides = { "my-model": "toolCalling", "Production/my-model": "imageInput" };
+		const result = applyCapabilityOverrides("my-model", { toolCalling: false, imageInput: false }, overrides, "Production");
+		assert.strictEqual(result.toolCalling, false);
+		assert.strictEqual(result.imageInput, true);
+	});
+
+	test("falls back to unscoped override when no server match", () => {
+		const overrides = { "my-model": "toolCalling", "Production/my-model": "imageInput" };
+		const result = applyCapabilityOverrides("my-model", { toolCalling: false, imageInput: false }, overrides, "Staging");
+		assert.strictEqual(result.toolCalling, true);
+		assert.strictEqual(result.imageInput, false);
+	});
 });

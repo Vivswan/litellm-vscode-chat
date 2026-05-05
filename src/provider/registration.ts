@@ -58,7 +58,7 @@ export function buildModelInfos(
 					capabilities: applyCapabilityOverrides(m.id, {
 						toolCalling: providers[0].supports_tools !== false,
 						imageInput: vision,
-					}, capOverrides),
+					}, capOverrides, server.label),
 				} satisfies LanguageModelChatInformation,
 			];
 		}
@@ -81,7 +81,7 @@ export function buildModelInfos(
 					capabilities: applyCapabilityOverrides(m.id, {
 						toolCalling: true,
 						imageInput: vision,
-					}, capOverrides),
+					}, capOverrides, server.label),
 				} satisfies LanguageModelChatInformation,
 			];
 		}
@@ -150,7 +150,7 @@ export function buildModelInfos(
 				capabilities: applyCapabilityOverrides(m.id, {
 					toolCalling: true,
 					imageInput: vision,
-				}, capOverrides),
+				}, capOverrides, server.label),
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, p.supports_prompt_caching === true);
 			registerRoute(exposedId, rawId);
@@ -172,7 +172,7 @@ export function buildModelInfos(
 				capabilities: applyCapabilityOverrides(m.id, {
 					toolCalling: false,
 					imageInput: vision,
-				}, capOverrides),
+				}, capOverrides, server.label),
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, base.supports_prompt_caching === true);
 			registerRoute(exposedId, m.id);
@@ -187,11 +187,23 @@ export function buildModelInfos(
 export function applyCapabilityOverrides(
 	modelId: string,
 	capabilities: { toolCalling: boolean; imageInput: boolean },
-	overrides: Record<string, string>
+	overrides: Record<string, string>,
+	serverLabel?: string
 ): { toolCalling: boolean; imageInput: boolean } {
-	const match = findLongestPrefixMatch(modelId, overrides);
-	if (!match) return capabilities;
-	const caps = match.split(",").map((s) => s.trim());
+	const VALID_CAPS = ["toolCalling", "imageInput"];
+	let matchValue: string | undefined;
+	if (serverLabel) {
+		matchValue = findLongestPrefixMatch(`${serverLabel}/${modelId}`, overrides);
+	}
+	if (!matchValue) {
+		matchValue = findLongestPrefixMatch(modelId, overrides);
+	}
+	if (!matchValue) return capabilities;
+	const caps = matchValue.split(",").map((s) => s.trim());
+	const unknown = caps.filter((c) => c !== "" && !VALID_CAPS.includes(c));
+	if (unknown.length > 0) {
+		console.warn(`[LiteLLM] Unknown capability overrides for "${modelId}": ${unknown.join(", ")}. Valid values: ${VALID_CAPS.join(", ")}`);
+	}
 	return {
 		toolCalling: caps.includes("toolCalling") ? true : capabilities.toolCalling,
 		imageInput: caps.includes("imageInput") ? true : capabilities.imageInput,
