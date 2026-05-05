@@ -27,8 +27,6 @@ const DEFAULT_CONTEXT_LENGTH = 128000;
 
 interface ModelRoute {
 	serverId: string;
-	baseUrl: string;
-	apiKey: string;
 	rawModelId: string;
 	serverLabel: string;
 }
@@ -405,8 +403,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const registerRoute = (exposedId: string, rawId: string) => {
 				this._modelRoutes.set(exposedId, {
 					serverId: server.id,
-					baseUrl: server.baseUrl,
-					apiKey: server.apiKey,
 					rawModelId: rawId,
 					serverLabel: server.label,
 				});
@@ -802,8 +798,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			let rawModelId: string;
 
 			if (route) {
-				baseUrl = route.baseUrl;
-				apiKey = route.apiKey;
+				// Resolve baseUrl/apiKey from registry at request time to pick up edits
+				const server = await this.resolveServer(route.serverId);
+				if (server) {
+					baseUrl = server.baseUrl;
+					apiKey = server.apiKey;
+				} else {
+					throw new Error(`Server "${route.serverLabel}" is no longer configured`);
+				}
 				rawModelId = route.rawModelId;
 			} else {
 				// Fallback: try legacy single-server config
@@ -983,6 +985,18 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			}
 			return totalTokens;
 		}
+	}
+
+	private async resolveServer(serverId: string): Promise<{ baseUrl: string; apiKey: string } | undefined> {
+		if (serverId === "_legacy") {
+			const config = await this.ensureConfig(true);
+			return config ?? undefined;
+		}
+		if (!this._getServers) {
+			return undefined;
+		}
+		const servers = await this._getServers();
+		return servers.find((s) => s.id === serverId);
 	}
 
 	/**

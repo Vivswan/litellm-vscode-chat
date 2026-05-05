@@ -970,7 +970,12 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			this.timeout(15000);
 
 			await vscode.commands.executeCommand("litellm._test.clearServers");
-			await vscode.commands.executeCommand("litellm._test.addServer", "Solo", baseUrlA, "key-a");
+			const soloConfig = (await vscode.commands.executeCommand(
+				"litellm._test.addServer",
+				"Solo",
+				baseUrlA,
+				"key-a"
+			)) as ServerConfig;
 
 			try {
 				const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
@@ -978,7 +983,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 				for (const m of models) {
 					assert.ok(
-						!m.id.includes("/") || m.id.startsWith("openai/"),
+						!m.id.startsWith(soloConfig.id + "/"),
 						`Single-server model ID should not have server prefix: ${m.id}`
 					);
 				}
