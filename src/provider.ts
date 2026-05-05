@@ -293,12 +293,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		const serverStatuses: ServerStatus[] = [];
 		const allInfos: LanguageModelChatInformation[] = [];
-		// Clear cache only on successful fetch to preserve existing data on failure
-		this._modelRoutes.clear();
-		this._promptCachingSupport.clear();
 
 		const successfulCount = results.filter((r) => r.status === "fulfilled").length;
 		const serverCount = servers.length;
+
+		// Only clear caches when at least one server succeeds to preserve
+		// routing data for previously-registered models on total failure.
+		if (successfulCount > 0) {
+			this._modelRoutes.clear();
+			this._promptCachingSupport.clear();
+		}
 
 		for (let i = 0; i < results.length; i++) {
 			const result = results[i];
@@ -365,17 +369,21 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				});
 		}
 
-		if (successfulCount === 0 && servers.length > 0 && options.silent) {
+		if (successfulCount === 0 && servers.length > 0) {
 			const firstError = serverStatuses.find((s) => s.error)?.error ?? "Unknown error";
-			vscode.window
-				.showErrorMessage(`LiteLLM: ${firstError}`, "Reconfigure", "Report Issue", "Dismiss")
-				.then((choice) => {
-					if (choice === "Reconfigure") {
-						vscode.commands.executeCommand("litellm.manage");
-					} else if (choice === "Report Issue") {
-						vscode.commands.executeCommand("litellm.reportIssue");
-					}
-				});
+			if (options.silent) {
+				vscode.window
+					.showErrorMessage(`LiteLLM: ${firstError}`, "Reconfigure", "Report Issue", "Dismiss")
+					.then((choice) => {
+						if (choice === "Reconfigure") {
+							vscode.commands.executeCommand("litellm.manage");
+						} else if (choice === "Report Issue") {
+							vscode.commands.executeCommand("litellm.reportIssue");
+						}
+					});
+				return [];
+			}
+			throw new Error(firstError);
 		}
 
 		return allInfos;
@@ -1000,6 +1008,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				},
 			];
 		}
+
+		// After interactive setup (ensureConfig may have triggered litellm.manage),
+		// re-check the registry in case the user added a server.
+		if (!silent && this._getServers) {
+			const servers = await this._getServers();
+			if (servers.length > 0) {
+				return servers;
+			}
+		}
+
 		return undefined;
 	}
 
