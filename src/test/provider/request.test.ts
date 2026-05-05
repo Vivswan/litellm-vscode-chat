@@ -6,7 +6,14 @@ function buildWithParams(rawModelId: string, extra: Record<string, unknown> = {}
 		rawModelId,
 		openaiMessages: [],
 		maxTokens: 1000,
-		modelParams: { _replaceDefaults: true, temperature: 0.5, top_p: 0.9, frequency_penalty: 0.1, presence_penalty: 0.2, ...extra },
+		modelParams: {
+			_replaceDefaults: true,
+			temperature: 0.5,
+			top_p: 0.9,
+			frequency_penalty: 0.1,
+			presence_penalty: 0.2,
+			...extra,
+		},
 		toolConfig: {},
 	});
 }
@@ -42,5 +49,19 @@ suite("buildRequestBody param filtering", () => {
 		assert.strictEqual(body.top_p, 0.9);
 		assert.strictEqual(body.frequency_penalty, undefined);
 		assert.strictEqual(body.presence_penalty, undefined);
+	});
+
+	test("provider-prefixed model ID strips params correctly", () => {
+		const body = buildWithParams("openai/o1-preview");
+		assert.strictEqual(body.temperature, undefined);
+		assert.strictEqual(body.top_p, undefined);
+		assert.strictEqual(body.frequency_penalty, undefined);
+		assert.strictEqual(body.presence_penalty, undefined);
+	});
+
+	test("provider-prefixed unmatched model retains all params", () => {
+		const body = buildWithParams("openai/gpt-4o");
+		assert.strictEqual(body.temperature, 0.5);
+		assert.strictEqual(body.top_p, 0.9);
 	});
 });
