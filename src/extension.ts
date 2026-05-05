@@ -57,6 +57,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const provider = new LiteLLMChatModelProvider(context.secrets, ua, outputChannel, issueReporter);
 
 	provider.setServerProvider(() => registry.getServersWithKeys());
+	registry.setOnChangeCallback(() => provider.invalidateModelCache());
 
 	registry.migrateLegacy().then((migrated) => {
 		if (migrated) {

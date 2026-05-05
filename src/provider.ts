@@ -81,8 +81,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	): Promise<LanguageModelChatInformation[]> {
 		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
 
-		if (this._inFlightDiscovery) {
-			this.log("Returning in-flight discovery promise");
+		if (this._inFlightDiscovery && options.silent) {
+			this.log("Returning in-flight discovery promise (silent coalescing)");
 			return this._inFlightDiscovery;
 		}
 
@@ -93,156 +93,157 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		this._inFlightDiscovery = (async () => {
-		try {
-		const servers = await ensureServers(options.silent, this._getServers, this.secrets);
-		if (!servers || servers.length === 0) {
-			this.log("No servers configured, returning empty array");
+			try {
+				const servers = await ensureServers(options.silent, this._getServers, this.secrets);
+				if (!servers || servers.length === 0) {
+					this.log("No servers configured, returning empty array");
 
-			if (options.silent && !this._hasShownNoConfigNotification) {
-				this._hasShownNoConfigNotification = true;
-				vscode.window
-					.showWarningMessage("LiteLLM: No servers configured. Click to configure.", "Configure Now", "Dismiss")
-					.then((choice) => {
-						if (choice === "Configure Now") {
-							vscode.commands.executeCommand("litellm.manage");
-						}
-					});
-			}
-
-			if (this._statusCallback) {
-				this._statusCallback({ serverStatuses: [], totalModels: 0 });
-			}
-			return [];
-		}
-
-		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
-
-		const results = await Promise.allSettled(
-			servers.map(async (server) => {
-				const result = await fetchModels(
-					server.apiKey,
-					server.baseUrl,
-					this.userAgent,
-					(msg, data) => this.log(msg, data),
-					(msg, err) => this.logError(msg, err)
-				);
-				return { server, models: result.models };
-			})
-		);
-
-		const serverStatuses: ServerStatus[] = [];
-		const allInfos: LanguageModelChatInformation[] = [];
-
-		const successfulCount = results.filter((r) => r.status === "fulfilled").length;
-		const serverCount = servers.length;
-
-		if (successfulCount > 0) {
-			this._modelRoutes.clear();
-			this._promptCachingSupport.clear();
-		}
-
-		for (let i = 0; i < results.length; i++) {
-			const result = results[i];
-			const server = servers[i];
-
-			if (result.status === "rejected") {
-				const errorMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-				this.logError(`Failed to fetch models from server "${server.label}"`, result.reason);
-				serverStatuses.push({
-					serverId: server.id,
-					label: server.label,
-					baseUrl: server.baseUrl,
-					state: "error",
-					modelCount: 0,
-					error: errorMsg,
-					lastChecked: new Date().toISOString(),
-				});
-				continue;
-			}
-
-			const { models } = result.value;
-			this.log(`Server "${server.label}" returned ${models.length} models`);
-
-			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg));
-			allInfos.push(...reg.infos);
-			for (const [k, v] of reg.routes) {
-				this._modelRoutes.set(k, v);
-			}
-			for (const [k, v] of reg.promptCaching) {
-				this._promptCachingSupport.set(k, v);
-			}
-
-			serverStatuses.push({
-				serverId: server.id,
-				label: server.label,
-				baseUrl: server.baseUrl,
-				state: "ok",
-				modelCount: reg.infos.length,
-				lastChecked: new Date().toISOString(),
-			});
-		}
-
-		this._chatEndpoints = allInfos.map((info) => ({
-			model: info.id,
-			modelMaxPromptTokens: info.maxInputTokens + info.maxOutputTokens,
-		}));
-
-		this.log("Final model count:", allInfos.length);
-
-		if (this._statusCallback) {
-			this._statusCallback({ serverStatuses, totalModels: allInfos.length });
-		}
-
-		if (allInfos.length === 0 && successfulCount > 0) {
-			vscode.window
-				.showWarningMessage(
-					"LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.",
-					"Check Server",
-					"Reconfigure",
-					"Report Issue"
-				)
-				.then((choice) => {
-					if (choice === "Check Server") {
-						vscode.commands.executeCommand("litellm.testConnection");
-					} else if (choice === "Reconfigure") {
-						vscode.commands.executeCommand("litellm.manage");
-					} else if (choice === "Report Issue") {
-						vscode.commands.executeCommand("litellm.reportIssue");
+					if (options.silent && !this._hasShownNoConfigNotification) {
+						this._hasShownNoConfigNotification = true;
+						vscode.window
+							.showWarningMessage("LiteLLM: No servers configured. Click to configure.", "Configure Now", "Dismiss")
+							.then((choice) => {
+								if (choice === "Configure Now") {
+									vscode.commands.executeCommand("litellm.manage");
+								}
+							});
 					}
-				});
-		}
 
-		if (successfulCount === 0 && servers.length > 0) {
-			const firstError = serverStatuses.find((s) => s.error)?.error ?? "Unknown error";
-			if (options.silent) {
-				vscode.window
-					.showErrorMessage(`LiteLLM: ${firstError}`, "Reconfigure", "Report Issue", "Dismiss")
-					.then((choice) => {
-						if (choice === "Reconfigure") {
-							vscode.commands.executeCommand("litellm.manage");
-						} else if (choice === "Report Issue") {
-							vscode.commands.executeCommand("litellm.reportIssue");
-						}
+					if (this._statusCallback) {
+						this._statusCallback({ serverStatuses: [], totalModels: 0 });
+					}
+					return [];
+				}
+
+				this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
+
+				const results = await Promise.allSettled(
+					servers.map(async (server) => {
+						const result = await fetchModels(
+							server.apiKey,
+							server.baseUrl,
+							this.userAgent,
+							(msg, data) => this.log(msg, data),
+							(msg, err) => this.logError(msg, err)
+						);
+						return { server, models: result.models };
+					})
+				);
+
+				const serverStatuses: ServerStatus[] = [];
+				const allInfos: LanguageModelChatInformation[] = [];
+
+				const successfulCount = results.filter((r) => r.status === "fulfilled").length;
+				const serverCount = servers.length;
+
+				if (successfulCount > 0) {
+					this._modelRoutes.clear();
+					this._promptCachingSupport.clear();
+				}
+
+				for (let i = 0; i < results.length; i++) {
+					const result = results[i];
+					const server = servers[i];
+
+					if (result.status === "rejected") {
+						const errorMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+						this.logError(`Failed to fetch models from server "${server.label}"`, result.reason);
+						serverStatuses.push({
+							serverId: server.id,
+							label: server.label,
+							baseUrl: server.baseUrl,
+							state: "error",
+							modelCount: 0,
+							error: errorMsg,
+							lastChecked: new Date().toISOString(),
+						});
+						continue;
+					}
+
+					const { models } = result.value;
+					this.log(`Server "${server.label}" returned ${models.length} models`);
+
+					const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg));
+					allInfos.push(...reg.infos);
+					for (const [k, v] of reg.routes) {
+						this._modelRoutes.set(k, v);
+					}
+					for (const [k, v] of reg.promptCaching) {
+						this._promptCachingSupport.set(k, v);
+					}
+
+					serverStatuses.push({
+						serverId: server.id,
+						label: server.label,
+						baseUrl: server.baseUrl,
+						state: "ok",
+						modelCount: reg.infos.length,
+						lastChecked: new Date().toISOString(),
 					});
-				this._lastModelList = [];
-				this._modelListFetchedAtMs = Date.now();
-				return [];
-			}
-			throw new Error(firstError);
-		}
+				}
 
-		this._lastModelList = allInfos;
-		this._modelListFetchedAtMs = Date.now();
-		return allInfos;
-		} finally {
-			this._inFlightDiscovery = undefined;
-		}
+				this._chatEndpoints = allInfos.map((info) => ({
+					model: info.id,
+					modelMaxPromptTokens: info.maxInputTokens + info.maxOutputTokens,
+				}));
+
+				this.log("Final model count:", allInfos.length);
+
+				if (this._statusCallback) {
+					this._statusCallback({ serverStatuses, totalModels: allInfos.length });
+				}
+
+				if (allInfos.length === 0 && successfulCount > 0) {
+					vscode.window
+						.showWarningMessage(
+							"LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.",
+							"Check Server",
+							"Reconfigure",
+							"Report Issue"
+						)
+						.then((choice) => {
+							if (choice === "Check Server") {
+								vscode.commands.executeCommand("litellm.testConnection");
+							} else if (choice === "Reconfigure") {
+								vscode.commands.executeCommand("litellm.manage");
+							} else if (choice === "Report Issue") {
+								vscode.commands.executeCommand("litellm.reportIssue");
+							}
+						});
+				}
+
+				if (successfulCount === 0 && servers.length > 0) {
+					const firstError = serverStatuses.find((s) => s.error)?.error ?? "Unknown error";
+					if (options.silent) {
+						vscode.window
+							.showErrorMessage(`LiteLLM: ${firstError}`, "Reconfigure", "Report Issue", "Dismiss")
+							.then((choice) => {
+								if (choice === "Reconfigure") {
+									vscode.commands.executeCommand("litellm.manage");
+								} else if (choice === "Report Issue") {
+									vscode.commands.executeCommand("litellm.reportIssue");
+								}
+							});
+						this._lastModelList = [];
+						this._modelListFetchedAtMs = Date.now();
+						return [];
+					}
+					throw new Error(firstError);
+				}
+
+				this._lastModelList = allInfos;
+				this._modelListFetchedAtMs = Date.now();
+				return allInfos;
+			} finally {
+				this._inFlightDiscovery = undefined;
+			}
 		})();
 		return this._inFlightDiscovery;
 	}
 
 	invalidateModelCache(): void {
 		this._modelListFetchedAtMs = 0;
+		this._inFlightDiscovery = undefined;
 	}
 
 	async provideLanguageModelChatInformation(
