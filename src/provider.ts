@@ -1052,9 +1052,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	/**
-	 * Legacy single-server config lookup. Used as fallback.
-	 */
-	/**
 	 * Legacy single-server config lookup from SecretStorage. Silent only.
 	 */
 	private async ensureConfig(_silent: boolean): Promise<{ baseUrl: string; apiKey: string } | undefined> {
