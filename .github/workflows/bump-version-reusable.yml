@@ -42,6 +42,7 @@ jobs:
       # Create a new branch for the version bump
       - name: Create version bump branch
         run: |
+          git push origin --delete version-bump-${{ steps.next_version.outputs.next_version }} 2>/dev/null || true
           git checkout -b version-bump-${{ steps.next_version.outputs.next_version }}
 
       # Configure Git
@@ -55,7 +56,7 @@ jobs:
         run: |
           git add package.json
           git commit -m "chore: bump version to ${{ steps.next_version.outputs.next_version }}"
-          git push --force-with-lease origin version-bump-${{ steps.next_version.outputs.next_version }}
+          git push origin version-bump-${{ steps.next_version.outputs.next_version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HUSKY: 0
