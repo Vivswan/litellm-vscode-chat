@@ -138,7 +138,9 @@ export async function fetchModels(
 			}
 		}
 	} catch (error) {
-		log("model/info failed, falling back to /v1/models", error);
+		log("model/info failed, falling back to /v1/models", {
+			message: error instanceof Error ? error.message : String(error),
+		});
 	}
 
 	try {

@@ -83,7 +83,7 @@ export class StatusBarManager {
 
 		if (serverStatuses.length === 0) {
 			this.outputChannel.appendLine(`[${now}] No servers configured`);
-			this.updateStatusBar({ state: "not-configured", lastChecked: now });
+			void this.updateStatusBar({ state: "not-configured", lastChecked: now });
 			return;
 		}
 
@@ -93,7 +93,7 @@ export class StatusBarManager {
 		if (okCount === 0) {
 			const firstError = serverStatuses.find((s) => s.error)?.error ?? "All servers failed";
 			this.outputChannel.appendLine(`[${now}] All servers failed: ${firstError}`);
-			this.updateStatusBar({
+			void this.updateStatusBar({
 				state: "error",
 				error: firstError,
 				serverStatuses,
@@ -104,7 +104,7 @@ export class StatusBarManager {
 			this.outputChannel.appendLine(
 				`[${now}] Partial success: ${okCount} ok, ${errCount} failed, ${totalModels} models`
 			);
-			this.updateStatusBar({
+			void this.updateStatusBar({
 				state: "degraded",
 				serverStatuses,
 				totalModels,
@@ -112,7 +112,7 @@ export class StatusBarManager {
 			});
 		} else if (totalModels === 0) {
 			this.outputChannel.appendLine(`[${now}] Warning: All servers returned 0 models`);
-			this.updateStatusBar({
+			void this.updateStatusBar({
 				state: "error",
 				error: "Servers returned 0 models",
 				serverStatuses,
@@ -121,7 +121,7 @@ export class StatusBarManager {
 			});
 		} else {
 			this.outputChannel.appendLine(`[${now}] Successfully fetched ${totalModels} models from ${okCount} server(s)`);
-			this.updateStatusBar({
+			void this.updateStatusBar({
 				state: "connected",
 				serverStatuses,
 				totalModels,
