@@ -615,6 +615,9 @@ async function manageServerFlow(
 				if (!value.trim()) {
 					return "Label is required";
 				}
+				if (value.includes("/")) {
+					return "Label cannot contain '/' (used as separator in model parameters)";
+				}
 				if (registry.hasLabel(value.trim(), serverId)) {
 					return "A server with this label already exists";
 				}
@@ -668,7 +671,7 @@ async function manageServerFlow(
 				}
 			});
 	} else if (pick.action === "test") {
-		outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing server "${server.label}"...`);
+		outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing all servers...`);
 		outputChannel.show(true);
 		// Test all servers (individual server test would require refactoring provider)
 		await vscode.commands.executeCommand("litellm.testConnection");
