@@ -112,7 +112,7 @@
 				"litellm-vscode-chat.modelCapabilitiesOverrides": {
 					"type": "object",
 					"default": {},
-					"description": "Override model capabilities. Key is model ID (prefix-matched), value is comma-separated capabilities to ENABLE: 'toolCalling', 'imageInput'. Example: { \"my-model\": \"toolCalling,imageInput\" }",
+					"description": "Override model capabilities. Key is model ID (prefix-matched), value is comma-separated capabilities to ENABLE: 'toolCalling', 'imageInput'. For multi-server setups, prefix with server label (e.g., 'Production/gpt-4'). Server-scoped keys take priority. Example: { \"my-model\": \"toolCalling,imageInput\" }",
 					"additionalProperties": {
 						"type": "string"
 					}

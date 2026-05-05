@@ -62,7 +62,8 @@ export function buildModelInfos(
 							imageInput: vision,
 						},
 						capOverrides,
-						server.label
+						server.label,
+						log
 					),
 				} satisfies LanguageModelChatInformation,
 			];
@@ -90,7 +91,8 @@ export function buildModelInfos(
 							imageInput: vision,
 						},
 						capOverrides,
-						server.label
+						server.label,
+						log
 					),
 				} satisfies LanguageModelChatInformation,
 			];
@@ -112,7 +114,8 @@ export function buildModelInfos(
 					imageInput: vision,
 				},
 				capOverrides,
-				server.label
+				server.label,
+				log
 			);
 
 			const cheapestRaw = `${m.id}:cheapest`;
@@ -169,7 +172,8 @@ export function buildModelInfos(
 						imageInput: vision,
 					},
 					capOverrides,
-					server.label
+					server.label,
+					log
 				),
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, p.supports_prompt_caching === true);
@@ -196,7 +200,8 @@ export function buildModelInfos(
 						imageInput: vision,
 					},
 					capOverrides,
-					server.label
+					server.label,
+					log
 				),
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, base.supports_prompt_caching === true);
@@ -213,12 +218,19 @@ export function applyCapabilityOverrides(
 	modelId: string,
 	capabilities: { toolCalling: boolean; imageInput: boolean },
 	overrides: Record<string, string>,
-	serverLabel?: string
+	serverLabel?: string,
+	log?: (message: string) => void
 ): { toolCalling: boolean; imageInput: boolean } {
 	const VALID_CAPS = ["toolCalling", "imageInput"];
 	let matchValue: string | undefined;
 	if (serverLabel) {
-		matchValue = findLongestPrefixMatch(`${serverLabel}/${modelId}`, overrides);
+		const scopedOverrides: Record<string, string> = {};
+		for (const [key, value] of Object.entries(overrides)) {
+			if (key.includes("/")) {
+				scopedOverrides[key] = value;
+			}
+		}
+		matchValue = findLongestPrefixMatch(`${serverLabel}/${modelId}`, scopedOverrides);
 	}
 	if (!matchValue) {
 		matchValue = findLongestPrefixMatch(modelId, overrides);
@@ -226,9 +238,9 @@ export function applyCapabilityOverrides(
 	if (!matchValue) return capabilities;
 	const caps = matchValue.split(",").map((s) => s.trim());
 	const unknown = caps.filter((c) => c !== "" && !VALID_CAPS.includes(c));
-	if (unknown.length > 0) {
-		console.warn(
-			`[LiteLLM] Unknown capability overrides for "${modelId}": ${unknown.join(", ")}. Valid values: ${VALID_CAPS.join(", ")}`
+	if (unknown.length > 0 && log) {
+		log(
+			`WARNING: Unknown capability overrides for "${modelId}": ${unknown.join(", ")}. Valid values: ${VALID_CAPS.join(", ")}`
 		);
 	}
 	return {
