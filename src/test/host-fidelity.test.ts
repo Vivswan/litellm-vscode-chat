@@ -904,8 +904,8 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			await config.update(
 				"modelParameters",
 				{
-					"openai/gpt-5-mini-flex": { temperature: 0.5 },
-					"ServerA/openai/gpt-5-mini-flex": { temperature: 0.2 },
+					"openai/gpt-4o-test": { temperature: 0.5 },
+					"ServerA/openai/gpt-4o-test": { temperature: 0.2 },
 				},
 				vscode.ConfigurationTarget.Global
 			);
@@ -939,8 +939,8 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			await config.update(
 				"modelParameters",
 				{
-					"openai/gpt-5-mini-flex": { temperature: 0.5 },
-					"ServerA/openai/gpt-5-mini-flex": { temperature: 0.2 },
+					"openai/gpt-4o-test": { temperature: 0.5 },
+					"ServerA/openai/gpt-4o-test": { temperature: 0.2 },
 				},
 				vscode.ConfigurationTarget.Global
 			);
