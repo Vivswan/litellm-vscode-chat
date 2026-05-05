@@ -27,6 +27,14 @@ suite("buildRequestBody param filtering", () => {
 		assert.strictEqual(body.presence_penalty, undefined);
 	});
 
+	test("base o1 model also strips params", () => {
+		const body = buildWithParams("o1");
+		assert.strictEqual(body.temperature, undefined);
+		assert.strictEqual(body.top_p, undefined);
+		assert.strictEqual(body.frequency_penalty, undefined);
+		assert.strictEqual(body.presence_penalty, undefined);
+	});
+
 	test("claude model strips temperature", () => {
 		const body = buildWithParams("claude-3-5-sonnet-20241022");
 		assert.strictEqual(body.temperature, undefined);

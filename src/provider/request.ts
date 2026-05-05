@@ -9,7 +9,7 @@ const KNOWN_PARAMETER_LIMITATIONS: Record<string, Set<string>> = {
 	"claude-3-sonnet": new Set(["temperature"]),
 	"claude-3-haiku": new Set(["temperature"]),
 	"claude-haiku-4-5": new Set(["temperature"]),
-	"o1-": new Set(["temperature", "top_p", "frequency_penalty", "presence_penalty"]),
+	o1: new Set(["temperature", "top_p", "frequency_penalty", "presence_penalty"]),
 	"gpt-5": new Set(["temperature", "top_p", "frequency_penalty", "presence_penalty"]),
 	"gpt-5.1-codex": new Set(["temperature", "frequency_penalty", "presence_penalty"]),
 	"codex-mini": new Set(["temperature", "frequency_penalty", "presence_penalty"]),
