@@ -32,6 +32,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _modelRoutes = new Map<string, ModelRoute>();
 	private _getServers?: () => Promise<ServerWithKey[]>;
 	private _inFlightDiscovery: Promise<LanguageModelChatInformation[]> | undefined;
+	private _discoveryGeneration = 0;
 	private _lastModelList: LanguageModelChatInformation[] = [];
 	private _modelListFetchedAtMs = 0;
 
@@ -92,7 +93,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			return this._lastModelList;
 		}
 
-		this._inFlightDiscovery = (async () => {
+		const myGeneration = this._discoveryGeneration;
+		const promise = (async () => {
 			try {
 				const servers = await ensureServers(options.silent, this._getServers, this.secrets);
 				if (!servers || servers.length === 0) {
@@ -235,14 +237,20 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				this._modelListFetchedAtMs = Date.now();
 				return allInfos;
 			} finally {
-				this._inFlightDiscovery = undefined;
+				if (this._discoveryGeneration === myGeneration) {
+					this._inFlightDiscovery = undefined;
+				}
 			}
 		})();
-		return this._inFlightDiscovery;
+		if (options.silent) {
+			this._inFlightDiscovery = promise;
+		}
+		return promise;
 	}
 
 	invalidateModelCache(): void {
 		this._modelListFetchedAtMs = 0;
+		this._discoveryGeneration++;
 		this._inFlightDiscovery = undefined;
 	}
 
