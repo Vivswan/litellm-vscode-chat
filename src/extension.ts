@@ -483,7 +483,9 @@ export function activate(context: vscode.ExtensionContext) {
 	async function buildDiagnosticsSnapshot(): Promise<DiagnosticsSnapshot> {
 		const servers = registry.getServers();
 		const serversWithKeys = await registry.getServersWithKeys();
-		const hasApiKey = serversWithKeys.some((s) => s.apiKey.trim().length > 0);
+		const hasApiKey =
+			serversWithKeys.some((s) => s.apiKey.trim().length > 0) || !!(await context.secrets.get("litellm.apiKey"));
+		const hasBaseUrl = servers.length > 0 || !!(await context.secrets.get("litellm.baseUrl"));
 
 		return {
 			extensionVersion: extVersion,
@@ -492,7 +494,7 @@ export function activate(context: vscode.ExtensionContext) {
 			connectionState: connectionStatus.state,
 			modelCount: connectionStatus.totalModels,
 			apiKeyConfigured: hasApiKey,
-			baseUrlConfigured: servers.length > 0,
+			baseUrlConfigured: hasBaseUrl,
 			latestError: issueReporter.getLatestError(),
 			recentLogs: issueReporter.getRecentLogs(),
 		};
@@ -516,6 +518,9 @@ async function addServerFlow(registry: ServerRegistry, outputChannel: vscode.Out
 		validateInput: (value) => {
 			if (!value.trim()) {
 				return "Label is required";
+			}
+			if (value.includes("/")) {
+				return "Label cannot contain '/' (used as separator in model parameters)";
 			}
 			if (registry.hasLabel(value.trim())) {
 				return "A server with this label already exists";
@@ -587,7 +592,7 @@ async function manageServerFlow(
 	const pick = await vscode.window.showQuickPick(
 		[
 			{ label: "$(edit) Edit Server", action: "edit" },
-			{ label: "$(testing-run-icon) Test Server", action: "test" },
+			{ label: "$(testing-run-icon) Test All Servers", action: "test" },
 			{ label: "$(trash) Remove Server", action: "remove" },
 		],
 		{
