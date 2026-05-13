@@ -101,6 +101,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
 
+		const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
+		const discoveryTimeout = settings.get<number>("discoveryTimeout", 30000);
+
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
 				const result = await fetchModels(
@@ -108,7 +111,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					server.baseUrl,
 					this.userAgent,
 					(msg, data) => this.log(msg, data),
-					(msg, err) => this.logError(msg, err)
+					(msg, err) => this.logError(msg, err),
+					discoveryTimeout
 				);
 				return { server, models: result.models };
 			})

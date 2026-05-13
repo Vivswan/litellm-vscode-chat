@@ -67,8 +67,10 @@ export async function fetchModels(
 	baseUrl: string,
 	userAgent: string,
 	log: (message: string, data?: unknown) => void,
-	logError: (message: string, error: unknown) => void
+	logError: (message: string, error: unknown) => void,
+	discoveryTimeout?: number
 ): Promise<FetchModelsResult> {
+	const timeout = discoveryTimeout ?? 30000;
 	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 	const headers: Record<string, string> = { "User-Agent": userAgent };
 	if (apiKey) {
@@ -109,7 +111,7 @@ export async function fetchModels(
 		const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
 			method: "GET",
 			headers,
-			signal: AbortSignal.timeout(30000),
+			signal: AbortSignal.timeout(timeout),
 		});
 		log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
 		if (infoResp.ok) {
@@ -148,7 +150,7 @@ export async function fetchModels(
 		const resp = await fetch(`${baseUrl}/v1/models`, {
 			method: "GET",
 			headers,
-			signal: AbortSignal.timeout(30000),
+			signal: AbortSignal.timeout(timeout),
 		});
 		log("Response status:", `${resp.status} ${resp.statusText}`);
 		if (!resp.ok) {

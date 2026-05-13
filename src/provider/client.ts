@@ -60,6 +60,7 @@ export async function sendChatRequest(
 
 	const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
 	const promptCachingEnabled = settings.get<boolean>("promptCaching.enabled", true);
+	const requestTimeout = settings.get<number>("requestTimeout", 300000);
 	const supportsPromptCaching = promptCachingSupport.get(model.id) === true;
 	const openaiMessages = convertMessages(messages, {
 		cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
@@ -118,7 +119,7 @@ export async function sendChatRequest(
 		method: "POST",
 		headers,
 		body: JSON.stringify(requestBody),
-		signal: AbortSignal.timeout(300000),
+		signal: AbortSignal.timeout(requestTimeout),
 	});
 
 	if (!response.ok) {
