@@ -59,6 +59,7 @@ The extension automatically reads token limits from your LiteLLM server's model 
 | `litellm-vscode-chat.defaultMaxOutputTokens` | `16000` | Max tokens per response (fallback) |
 | `litellm-vscode-chat.defaultContextLength` | `128000` | Total context window (fallback) |
 | `litellm-vscode-chat.defaultMaxInputTokens` | `null` | Max input tokens (auto-calculated if null) |
+| `litellm-vscode-chat.requestTimeoutMs` | `300000` | Request timeout in milliseconds for chat completion calls |
 
 **Priority**: LiteLLM model info → Workspace settings → Defaults
 

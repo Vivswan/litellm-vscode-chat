@@ -91,6 +91,12 @@
 					"minimum": 1,
 					"description": "Default maximum input tokens (if null, calculated as contextLength - maxOutputTokens)"
 				},
+				"litellm-vscode-chat.requestTimeoutMs": {
+					"type": "number",
+					"default": 300000,
+					"minimum": 1000,
+					"description": "Request timeout in milliseconds for chat completion API calls"
+				},
 				"litellm-vscode-chat.promptCaching.enabled": {
 					"type": "boolean",
 					"default": true,

@@ -718,11 +718,13 @@ suite("provider", () => {
 		async function captureRequestBody(
 			provider: LiteLLMChatModelProvider,
 			model: vscode.LanguageModelChatInformation,
-			opts: unknown
+			opts: unknown,
+			onFetchInit?: (init?: RequestInit) => void
 		): Promise<Record<string, unknown>> {
 			const originalFetch = global.fetch;
 			let capturedBody: Record<string, unknown> = {};
 			global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+				onFetchInit?.(init);
 				capturedBody = JSON.parse(init?.body as string);
 				return { ok: true, body: sseStream("ok") } as unknown as Response;
 			};
@@ -743,6 +745,52 @@ suite("provider", () => {
 			global.fetch = originalFetch;
 			return capturedBody;
 		}
+
+		test("uses configured requestTimeoutMs for chat requests", async () => {
+			const originalGetConfig = vscode.workspace.getConfiguration;
+			const originalAbortSignalTimeout = AbortSignal.timeout;
+			let timeoutMs: number | undefined;
+			let fetchSignal: AbortSignal | undefined;
+			const timeoutSignal = new AbortController().signal;
+
+			vscode.workspace.getConfiguration = ((section?: string) => {
+				if (section === "litellm-vscode-chat") {
+					return {
+						get: (key: string, defaultValue?: unknown) => {
+							if (key === "modelParameters") {
+								return {};
+							}
+							if (key === "requestTimeoutMs") {
+								return 600000;
+							}
+							return defaultValue;
+						},
+					} as unknown as vscode.WorkspaceConfiguration;
+				}
+				return originalGetConfig(section);
+			}) as unknown as typeof vscode.workspace.getConfiguration;
+
+			(AbortSignal as unknown as { timeout(ms: number): AbortSignal }).timeout = (ms: number) => {
+				timeoutMs = ms;
+				return timeoutSignal;
+			};
+
+			try {
+				await captureRequestBody(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					(init) => {
+						fetchSignal = init?.signal as AbortSignal | undefined;
+					}
+				);
+				assert.equal(timeoutMs, 600000);
+				assert.equal(fetchSignal, timeoutSignal);
+			} finally {
+				AbortSignal.timeout = originalAbortSignalTimeout;
+				vscode.workspace.getConfiguration = originalGetConfig;
+			}
+		});
 
 		test("filters underscore-prefixed internal keys from modelOptions", async () => {
 			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
