@@ -35,6 +35,20 @@ export function buildModelInfos(
 		const detail = serverCount > 1 ? server.label : "LiteLLM";
 		const namePrefix = serverCount > 1 ? `[${server.label}] ` : "";
 
+		// Log extended capabilities for debugging
+		if (providers.length > 0 && providers[0].source === "model_info") {
+			const p = providers[0];
+			const caps = {
+				tools: p.supports_tools !== false,
+				vision,
+				promptCaching: p.supports_prompt_caching === true,
+				reasoning: p.supports_reasoning === true,
+				pdfInput: modalities.includes("pdf"),
+				responseSchema: p.supports_response_schema === true,
+			};
+			log(`  Capabilities: ${JSON.stringify(caps)}`);
+		}
+
 		if (providers.length === 1 && providers[0].source === "model_info") {
 			const constraints = getTokenConstraints(providers[0]);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
