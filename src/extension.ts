@@ -58,6 +58,12 @@ export function activate(context: vscode.ExtensionContext) {
 
 	provider.setServerProvider(() => registry.getServersWithKeys());
 
+	// Wire up registry changes to invalidate model cache
+	registry.setOnChange(() => {
+		outputChannel.appendLine(`[${new Date().toISOString()}] Server configuration changed, invalidating model cache`);
+		provider.invalidateModelCache();
+	});
+
 	registry.migrateLegacy().then((migrated) => {
 		if (migrated) {
 			outputChannel.appendLine(`[${new Date().toISOString()}] Migrated legacy single-server config to server registry`);

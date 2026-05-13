@@ -27,10 +27,16 @@ function apiKeySecret(serverId: string): string {
 }
 
 export class ServerRegistry {
+	private _onChange?: () => void;
+
 	constructor(
 		private readonly globalState: vscode.Memento,
 		private readonly secrets: vscode.SecretStorage
 	) {}
+
+	setOnChange(callback: () => void): void {
+		this._onChange = callback;
+	}
 
 	getServers(): ServerConfig[] {
 		return this.globalState.get<ServerConfig[]>(REGISTRY_KEY, []);
@@ -49,6 +55,7 @@ export class ServerRegistry {
 		if (apiKey) {
 			await this.secrets.store(apiKeySecret(id), apiKey);
 		}
+		this._onChange?.();
 		return server;
 	}
 
@@ -67,12 +74,14 @@ export class ServerRegistry {
 				await this.secrets.delete(apiKeySecret(id));
 			}
 		}
+		this._onChange?.();
 	}
 
 	async removeServer(id: string): Promise<void> {
 		const servers = this.getServers().filter((s) => s.id !== id);
 		await this.globalState.update(REGISTRY_KEY, servers);
 		await this.secrets.delete(apiKeySecret(id));
+		this._onChange?.();
 	}
 
 	async getApiKey(serverId: string): Promise<string> {
