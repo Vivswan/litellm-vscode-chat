@@ -118,7 +118,11 @@ export interface LiteLLMModelsResponse {
 
 /** LiteLLM /v1/model/info response envelope. */
 export interface LiteLLMModelInfoResponse {
-	data: LiteLLMModelInfoItem[];
+	/**
+	 * LiteLLM has returned this as either an array (most common) or an object keyed by model id/name
+	 * depending on version and configuration.
+	 */
+	data: LiteLLMModelInfoItem[] | Record<string, LiteLLMModelInfoItem>;
 }
 
 /** LiteLLM model metadata entry from /v1/model/info. */

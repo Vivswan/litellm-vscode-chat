@@ -1261,5 +1261,47 @@ suite("provider", () => {
 			assert.ok(modelEntry);
 			assert.equal(modelEntry.capabilities.imageInput, true);
 		});
+
+		test("model/info supports object-shaped data responses", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						data: {
+							"gpt-5.5": {
+								model_info: {
+									id: "gpt-5.5",
+									supports_function_calling: true,
+									supports_vision: true,
+									max_input_tokens: 1050000,
+									max_output_tokens: 128000,
+								},
+							},
+						},
+					}),
+				}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+			global.fetch = originalFetch;
+
+			const modelEntry = infos.find((i) => i.id === "gpt-5.5");
+			assert.ok(modelEntry);
+			assert.equal(modelEntry.capabilities.imageInput, true);
+			assert.equal(modelEntry.maxInputTokens, 1050000);
+			assert.equal(modelEntry.maxOutputTokens, 128000);
+		});
 	});
 });

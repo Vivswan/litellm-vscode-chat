@@ -6,6 +6,45 @@ import type {
 	LiteLLMProvider,
 } from "../types";
 
+function looksLikeLiteLLMModelItem(value: unknown): value is LiteLLMModelItem {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	const record = value as Record<string, unknown>;
+	return typeof record.id === "string" && Array.isArray(record.providers);
+}
+
+function extractModelInfoEntries(parsed: unknown): unknown[] {
+	if (Array.isArray(parsed)) {
+		return parsed;
+	}
+
+	if (!parsed || typeof parsed !== "object") {
+		return [];
+	}
+
+	const data = (parsed as Record<string, unknown>).data;
+	if (Array.isArray(data)) {
+		return data;
+	}
+
+	// Some LiteLLM versions return `{ data: { [modelName]: { ...modelInfoItem } } }`
+	if (data && typeof data === "object" && !Array.isArray(data)) {
+		return Object.entries(data as Record<string, unknown>).map(([key, value]) => {
+			if (!value || typeof value !== "object" || Array.isArray(value)) {
+				return value;
+			}
+			const record = value as Record<string, unknown>;
+			if (record.model_name === undefined && record.id === undefined) {
+				return { model_name: key, ...record };
+			}
+			return record;
+		});
+	}
+
+	return [];
+}
+
 export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 	const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
 
@@ -113,15 +152,14 @@ export async function fetchModels(
 		});
 		log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
 		if (infoResp.ok) {
-			const parsed = (await infoResp.json()) as LiteLLMModelInfoResponse | LiteLLMModelsResponse;
-			const data = (parsed as LiteLLMModelInfoResponse).data ?? [];
+			const parsed = (await infoResp.json()) as unknown as LiteLLMModelInfoResponse | LiteLLMModelsResponse;
+			const data = extractModelInfoEntries(parsed);
 			log("Parsed model/info response:", { modelCount: data.length });
 			if (data.length > 0) {
 				log("First model/info sample:", JSON.stringify(data[0], null, 2));
 			}
 
-			const first = data[0] as LiteLLMModelItem | undefined;
-			if (first && typeof (first as LiteLLMModelItem).id === "string" && Array.isArray(first.providers)) {
+			if (data.length > 0 && data.every((item) => looksLikeLiteLLMModelItem(item))) {
 				const models = data as LiteLLMModelItem[];
 				log("Successfully fetched models:", models.length);
 				return { models };
