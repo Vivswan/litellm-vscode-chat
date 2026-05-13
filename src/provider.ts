@@ -31,6 +31,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _toolCallIdCounter = 0;
 	private _modelRoutes = new Map<string, ModelRoute>();
 	private _getServers?: () => Promise<ServerWithKey[]>;
+	private _onDidChangeLanguageModelChatInformation = new vscode.EventEmitter<void>();
+
+	readonly onDidChangeLanguageModelChatInformation = this._onDidChangeLanguageModelChatInformation.event;
 
 	constructor(
 		private readonly secrets: vscode.SecretStorage,
@@ -45,6 +48,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 	setServerProvider(getServers: () => Promise<ServerWithKey[]>): void {
 		this._getServers = getServers;
+	}
+
+	/** Invalidate the model cache and notify VS Code to refetch model information */
+	invalidateModelCache(): void {
+		this.log("Model cache invalidated - clearing routes and prompt caching support");
+		this._modelRoutes.clear();
+		this._promptCachingSupport.clear();
+		this._onDidChangeLanguageModelChatInformation.fire();
 	}
 
 	private log(message: string, data?: unknown): void {
@@ -175,6 +186,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		if (this._statusCallback) {
 			this._statusCallback({ serverStatuses, totalModels: allInfos.length });
+		}
+
+		// Notify VS Code that model information has changed so it can update its cache
+		if (successfulCount > 0) {
+			this.log("Notifying VS Code of model information changes");
+			this._onDidChangeLanguageModelChatInformation.fire();
 		}
 
 		if (allInfos.length === 0 && successfulCount > 0) {
