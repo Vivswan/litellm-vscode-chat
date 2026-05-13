@@ -1147,6 +1147,48 @@ suite("provider", () => {
 			assert.equal((provider as any)._promptCachingSupport.get("claude-3-5-sonnet-20241022"), true);
 		});
 
+		test("model/info numeric string token limits are parsed and max_output_tokens wins", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						data: [
+							{
+								model_name: "gpt-5.3-codex-spark",
+								model_info: {
+									id: "gpt-5.3-codex-spark",
+									supports_function_calling: true,
+									max_tokens: "128000",
+									max_input_tokens: "128000",
+									max_output_tokens: "32000",
+								},
+							},
+						],
+					}),
+				}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+			global.fetch = originalFetch;
+
+			const modelEntry = infos.find((i) => i.id === "gpt-5.3-codex-spark");
+			assert.ok(modelEntry);
+			assert.equal(modelEntry.maxOutputTokens, 32000);
+			assert.equal(modelEntry.maxInputTokens, 128000);
+		});
+
 		test("prompt caching disabled for models without support", async () => {
 			const originalFetch = global.fetch;
 			global.fetch = async () =>

@@ -15,8 +15,15 @@ export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMM
 
 	const supportsTools = item.model_info?.supports_function_calling ?? item.model_info?.supports_tool_choice ?? true;
 	const providerName = item.model_info?.litellm_provider ?? "litellm";
-	const normalizePositive = (value: unknown): number | undefined =>
-		typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+	const normalizePositive = (value: unknown): number | undefined => {
+		const candidate =
+			typeof value === "number"
+				? value
+				: typeof value === "string" && value.trim() !== ""
+					? Number.parseInt(value, 10)
+					: Number.NaN;
+		return Number.isFinite(candidate) && candidate > 0 ? candidate : undefined;
+	};
 	const maxInputTokens = normalizePositive(item.model_info?.max_input_tokens);
 	const maxOutputTokens =
 		normalizePositive(item.model_info?.max_output_tokens) ?? normalizePositive(item.model_info?.max_tokens);
