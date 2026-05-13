@@ -115,7 +115,7 @@
 	"description": "An extension that integrates LiteLLM into GitHub Copilot Chat",
 	"displayName": "LiteLLM Provider for GitHub Copilot Chat",
 	"engines": {
-		"vscode": "^1.118.0"
+		"vscode": "^1.120.0"
 	},
 	"galleryBanner": {
 		"color": "#100f11",

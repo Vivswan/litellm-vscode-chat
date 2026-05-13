@@ -28,7 +28,7 @@ function isVersionCompatible(current: string, required: string): boolean {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	const minVersion = "1.110.0";
+	const minVersion = "1.120.0";
 	if (!isVersionCompatible(vscode.version, minVersion)) {
 		vscode.window
 			.showErrorMessage(
@@ -55,16 +55,18 @@ export function activate(context: vscode.ExtensionContext) {
 	const issueReporter = new IssueReporter();
 	const registry = new ServerRegistry(context.globalState, context.secrets);
 	const provider = new LiteLLMChatModelProvider(context.secrets, ua, outputChannel, issueReporter);
+	context.subscriptions.push(provider);
 
 	provider.setServerProvider(() => registry.getServersWithKeys());
 
 	registry.migrateLegacy().then((migrated) => {
 		if (migrated) {
 			outputChannel.appendLine(`[${new Date().toISOString()}] Migrated legacy single-server config to server registry`);
+			provider.refreshLanguageModelChatInformation();
 		}
 	});
 
-	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
+	context.subscriptions.push(vscode.lm.registerLanguageModelChatProvider("litellm", provider));
 
 	// Test-only commands
 	registerTestCommands(context, registry, provider);

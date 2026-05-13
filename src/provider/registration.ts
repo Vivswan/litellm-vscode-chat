@@ -1,3 +1,4 @@
+import "../vscode.proposed.chatProvider";
 import { LanguageModelChatInformation } from "vscode";
 import type { LiteLLMModelItem } from "../types";
 import type { ServerWithKey } from "../extension/serverRegistry";
@@ -9,6 +10,8 @@ export interface RegistrationResult {
 	routes: Map<string, ModelRoute>;
 	promptCaching: Map<string, boolean>;
 }
+
+const MODEL_PICKER_CATEGORY = { label: "LiteLLM", order: 100 };
 
 export function buildModelInfos(
 	models: LiteLLMModelItem[],
@@ -48,6 +51,8 @@ export function buildModelInfos(
 					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
 					family: "litellm",
 					version: "1.0.0",
+					isUserSelectable: true,
+					category: MODEL_PICKER_CATEGORY,
 					maxInputTokens: constraints.maxInputTokens,
 					maxOutputTokens: constraints.maxOutputTokens,
 					capabilities: {
@@ -71,6 +76,8 @@ export function buildModelInfos(
 					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
 					family: "litellm",
 					version: "1.0.0",
+					isUserSelectable: true,
+					category: MODEL_PICKER_CATEGORY,
 					maxInputTokens: constraints.maxInputTokens,
 					maxOutputTokens: constraints.maxOutputTokens,
 					capabilities: {
@@ -107,6 +114,8 @@ export function buildModelInfos(
 				tooltip: `LiteLLM via the cheapest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
 				family: "litellm",
 				version: "1.0.0",
+				isUserSelectable: true,
+				category: MODEL_PICKER_CATEGORY,
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
@@ -121,6 +130,8 @@ export function buildModelInfos(
 				tooltip: `LiteLLM via the fastest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
 				family: "litellm",
 				version: "1.0.0",
+				isUserSelectable: true,
+				category: MODEL_PICKER_CATEGORY,
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
@@ -140,6 +151,8 @@ export function buildModelInfos(
 				tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
 				family: "litellm",
 				version: "1.0.0",
+				isUserSelectable: true,
+				category: MODEL_PICKER_CATEGORY,
 				maxInputTokens: constraints.maxInputTokens,
 				maxOutputTokens: constraints.maxOutputTokens,
 				capabilities: {
@@ -162,6 +175,8 @@ export function buildModelInfos(
 				tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
 				family: "litellm",
 				version: "1.0.0",
+				isUserSelectable: true,
+				category: MODEL_PICKER_CATEGORY,
 				maxInputTokens: constraints.maxInputTokens,
 				maxOutputTokens: constraints.maxOutputTokens,
 				capabilities: {

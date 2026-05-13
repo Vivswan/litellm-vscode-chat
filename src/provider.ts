@@ -23,7 +23,7 @@ export interface AggregatedStatus {
 	totalModels: number;
 }
 
-export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
+export class LiteLLMChatModelProvider implements LanguageModelChatProvider, vscode.Disposable {
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
 	private _promptCachingSupport = new Map<string, boolean>();
 	private _statusCallback?: (status: AggregatedStatus) => void;
@@ -31,6 +31,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _toolCallIdCounter = 0;
 	private _modelRoutes = new Map<string, ModelRoute>();
 	private _getServers?: () => Promise<ServerWithKey[]>;
+	private readonly _onDidChangeLanguageModelChatInformation = new vscode.EventEmitter<void>();
+	readonly onDidChangeLanguageModelChatInformation = this._onDidChangeLanguageModelChatInformation.event;
 
 	constructor(
 		private readonly secrets: vscode.SecretStorage,
@@ -38,6 +40,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		private readonly outputChannel?: vscode.OutputChannel,
 		private readonly issueReporter?: IssueReporter
 	) {}
+
+	dispose(): void {
+		this._onDidChangeLanguageModelChatInformation.dispose();
+	}
+
+	refreshLanguageModelChatInformation(): void {
+		this._onDidChangeLanguageModelChatInformation.fire();
+	}
 
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
 		this._statusCallback = callback;
