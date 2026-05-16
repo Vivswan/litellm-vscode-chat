@@ -5,7 +5,7 @@ on:
   issues:
     types: [opened]
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
 
 jobs:
   assign:
@@ -27,7 +27,7 @@ jobs:
             });
 
       - name: Assign PR to owner
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v9
         with:
           script: |
@@ -36,4 +36,16 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
               assignees: ['${{ github.repository_owner }}']
+            });
+
+      - name: Add fix-lint label to same-repo PRs
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v9
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              labels: ['fix-lint']
             });
