@@ -1,0 +1,243 @@
+# GitHub Copilot Chat Setup Steps for LiteLLM Provider
+# This file provides step-by-step instructions for setting up and using the LiteLLM Provider extension with GitHub Copilot Chat in VS Code
+
+name: LiteLLM Provider Setup Guide
+
+# Prerequisites
+prerequisites:
+  - name: VS Code Version
+    requirement: VS Code 1.118.0 or higher
+    verification: Check Help → About
+
+  - name: LiteLLM Proxy
+    requirement: LiteLLM proxy server running (self-hosted or cloud)
+    verification: Ensure your LiteLLM proxy is accessible
+    options:
+      - Self-hosted: Run litellm --config your_config.yaml
+      - Cloud: Use LiteLLM cloud service
+      - Testing: Use mock server (node scripts/mock-litellm-server.js)
+
+  - name: API Key
+    requirement: LiteLLM API key (if required by your setup)
+    verification: Check your LiteLLM proxy configuration
+
+# Installation Steps
+installation:
+  step1:
+    name: Install Extension
+    description: Install the LiteLLM Provider extension from VS Code Marketplace
+    actions:
+      - Open VS Code
+      - Navigate to Extensions (Ctrl+Shift+X / Cmd+Shift+X)
+      - Search for "LiteLLM"
+      - Click Install on "LiteLLM Provider for GitHub Copilot Chat"
+    alternative:
+      - Download VSIX from GitHub releases
+      - Click "..." menu in Extensions view
+      - Select "Install from VSIX..."
+      - Choose the downloaded file
+
+  step2:
+    name: Open GitHub Copilot Chat
+    description: Access the chat interface in VS Code
+    actions:
+      - Click the chat icon in the Activity Bar (left sidebar)
+      - Or use Command Palette (Ctrl+Shift+P / Cmd+Shift+P) → "GitHub Copilot: Open Chat"
+
+  step3:
+    name: Configure LiteLLM Server
+    description: Add your LiteLLM server configuration
+    actions:
+      - Click the model picker in chat interface
+      - Select "Manage Models..." → "LiteLLM"
+      - Click "Add Server"
+      - Enter server details:
+          label: A unique name for this server (e.g., "Production", "Dev", "Local")
+          baseUrl: Your LiteLLM proxy URL (e.g., http://localhost:4000)
+          apiKey: Your API key (leave empty if not required)
+      - Click "Save"
+    notes:
+      - You can add multiple servers
+      - Server labels cannot contain "/" character
+      - Credentials are stored securely in VS Code's secret storage
+      - Legacy single-server configs are automatically migrated
+
+  step4:
+    name: Test Connection
+    description: Verify your server configuration
+    actions:
+      - Click "Test Connection" after saving
+      - Or use Command Palette → "LiteLLM: Test Connection"
+      - Check the status bar indicator (bottom right)
+    expected_results:
+      success: "✓ LiteLLM (N)" where N is the number of available models
+      degraded: "⚠️ LiteLLM (N)" when some servers are unreachable
+      error: "✗ LiteLLM" when all servers failed
+
+  step5:
+    name: Select a Model
+    description: Choose a model for your chat session
+    actions:
+      - Click the model picker dropdown in chat
+      - Browse available models from your LiteLLM server(s)
+      - Models are grouped by server in multi-server setups
+      - Models include routing variants:
+          - "model-name" - Default routing
+          - "model-name:cheapest" - Route to cheapest provider
+          - "model-name:fastest" - Route to fastest provider
+          - "model-name:provider-name" - Route to specific provider (e.g., gpt-4:openai)
+      - Select your preferred model
+
+  step6:
+    name: Start Chatting
+    description: Begin using the LiteLLM provider with GitHub Copilot Chat
+    actions:
+      - Type your message in the chat input
+      - Press Enter to send
+      - The extension supports:
+          - Streaming responses
+          - Function/tool calling
+          - Vision (image attachments)
+          - PDF document attachments
+          - Thinking/reasoning tokens (for supported models)
+
+# Optional Configuration
+optional_configuration:
+  model_parameters:
+    name: Custom Model Parameters
+    description: Override default request parameters for specific models
+    location: VS Code Settings (Ctrl+, / Cmd+,) → Search "litellm-vscode-chat.modelParameters"
+    example:
+      gpt-4:
+        max_tokens: 8000
+        temperature: 0.8
+        top_p: 0.9
+      claude-opus:
+        max_tokens: 16000
+        temperature: 0.5
+    features:
+      - Longest prefix matching (e.g., "gpt-4" matches "gpt-4-turbo:openai")
+      - Server-scoped parameters (e.g., "Production/gpt-4")
+      - _replaceDefaults flag to skip built-in defaults
+      - Pass-through for any LiteLLM/OpenAI-compatible parameter
+
+  token_limits:
+    name: Token Limit Fallbacks
+    description: Configure default token limits when not provided by model info
+    settings:
+      - litellm-vscode-chat.defaultMaxOutputTokens (default: 16000)
+      - litellm-vscode-chat.defaultContextLength (default: 128000)
+      - litellm-vscode-chat.defaultMaxInputTokens (default: null - auto-calculated)
+    priority: LiteLLM model info → Workspace settings → Defaults
+
+  prompt_caching:
+    name: Prompt Caching (Anthropic Claude)
+    description: Enable prompt caching for supported models to reduce costs
+    setting: litellm-vscode-chat.promptCaching.enabled (default: true)
+    notes:
+      - Only affects models that advertise prompt caching support
+      - Automatically detects support from LiteLLM's /v1/model/info endpoint
+      - Adds cache_control blocks to system messages
+
+# Troubleshooting
+troubleshooting:
+  no_models:
+    issue: No models appear in the model picker
+    solutions:
+      - Check the status bar indicator for connection state
+      - Run "LiteLLM: Test Connection" command
+      - View "LiteLLM" output channel (Ctrl+Shift+U / Cmd+Shift+U)
+      - Verify LiteLLM server is running and accessible
+      - Check firewall/network settings
+
+  empty_models:
+    issue: Server returned 0 models
+    solutions:
+      - LiteLLM proxy has no models configured
+      - Check litellm_config.yaml configuration
+      - Ensure models are properly defined in your LiteLLM setup
+
+  auth_failed:
+    issue: Authentication failed (401)
+    solutions:
+      - Run "Manage LiteLLM Provider" and edit server
+      - Update API key
+      - Verify key is correct in LiteLLM proxy configuration
+
+  connection_error:
+    issue: Unable to connect to server
+    solutions:
+      - Verify base URL is correct (e.g., http://localhost:4000)
+      - Ensure LiteLLM proxy is running
+      - Check firewall/network settings
+      - Try test connection command
+
+  diagnostics:
+    issue: Need detailed debugging information
+    solutions:
+      - Run "LiteLLM: Show Diagnostics" command
+      - Or click the status bar indicator
+      - View detailed logs in "LiteLLM" output channel
+      - Check per-server connection state and errors
+
+# Multi-Server Setup
+multi_server:
+  description: Connect to multiple LiteLLM servers simultaneously
+  benefits:
+    - Aggregate models from multiple sources
+    - Separate production/development/testing servers
+    - Failover and redundancy
+  setup:
+    - Add multiple servers via "Manage LiteLLM Provider"
+    - Each server needs a unique label
+    - Models are prefixed with server label in multi-server mode
+    - Server-scoped model parameters using "ServerLabel/model-id" format
+  behavior:
+    - Models fetched in parallel from all servers
+    - Failed servers don't block reachable ones
+    - Status bar shows aggregated model count
+    - Degraded state when some servers are unreachable
+
+# Advanced Features
+advanced_features:
+  multimodal:
+    name: Multimodal Input Support
+    capabilities:
+      - Vision: Attach images (PNG, JPEG, GIF, WebP)
+      - Documents: Attach PDF files
+      - Data: Text and JSON content
+    usage: Use the attachment button in chat interface
+
+  tool_calling:
+    name: Function/Tool Calling
+    description: Extension automatically handles tool definitions and results
+    formats:
+      - Standard OpenAI format
+      - Inline control tokens
+      - Multiple tool call buffering and deduplication
+
+  thinking_tokens:
+    name: Reasoning Support
+    description: Displays thinking/reasoning process for supported models
+    providers:
+      - Anthropic Claude (structured thinking)
+      - DeepSeek (reasoning_content)
+      - Kimi/Moonshot (reasoning_content)
+      - xAI/Grok (reasoning_content)
+
+# Resources
+resources:
+  - name: Extension Documentation
+    url: https://github.com/Vivswan/litellm-vscode-chat#readme
+
+  - name: LiteLLM Documentation
+    url: https://docs.litellm.ai
+
+  - name: VS Code Chat Provider API
+    url: https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider
+
+  - name: Report Issues
+    url: https://github.com/Vivswan/litellm-vscode-chat/issues
+
+  - name: VS Code Marketplace
+    url: https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat
