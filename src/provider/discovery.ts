@@ -18,11 +18,9 @@ export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMM
 	const providerName = item.model_info?.litellm_provider ?? "litellm";
 	const maxInputTokens = normalizePositiveNumber(item.model_info?.max_input_tokens);
 	const maxOutputTokens =
-		normalizePositiveNumber(item.model_info?.max_output_tokens) ??
-		normalizePositiveNumber(item.model_info?.max_tokens);
+		normalizePositiveNumber(item.model_info?.max_output_tokens) ?? normalizePositiveNumber(item.model_info?.max_tokens);
 	const maxTokens =
-		normalizePositiveNumber(item.model_info?.max_tokens) ??
-		normalizePositiveNumber(item.model_info?.max_output_tokens);
+		normalizePositiveNumber(item.model_info?.max_tokens) ?? normalizePositiveNumber(item.model_info?.max_output_tokens);
 
 	const provider: LiteLLMProvider = {
 		provider: providerName,
