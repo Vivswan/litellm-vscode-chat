@@ -1007,7 +1007,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 			try {
 				const models = await waitForFreshModels(
-					{ vendor: "litellm" },
+					{ vendor: "litellm", id: CAPTURE_MODEL_ID },
 					15000,
 					(models) => models.length > 0 && models.every((m) => m.id === CAPTURE_MODEL_ID),
 					`single-server raw model ID ${CAPTURE_MODEL_ID}`
