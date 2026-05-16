@@ -782,6 +782,29 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 		);
 	}
 
+	async function waitForNoConfiguredServers(timeoutMs: number): Promise<number> {
+		const deadline = Date.now() + timeoutMs;
+		let lastCount = -1;
+		let lastServers: ServerConfig[] = [];
+
+		while (Date.now() < deadline) {
+			lastServers = (await vscode.commands.executeCommand("litellm._test.getServers")) as ServerConfig[];
+			lastCount = (await vscode.commands.executeCommand("litellm._test.refreshModels")) as number;
+
+			if (lastServers.length === 0 && lastCount === 0) {
+				return lastCount;
+			}
+
+			await new Promise((r) => setTimeout(r, 200));
+		}
+
+		throw new Error(
+			`Timeout (${timeoutMs}ms) waiting for empty registry. Last servers: ${
+				lastServers.length > 0 ? lastServers.map((server) => server.id).join(", ") : "(none)"
+			}; last model count: ${lastCount}`
+		);
+	}
+
 	suiteSetup(async function () {
 		this.timeout(20000);
 
@@ -1028,12 +1051,12 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 	suite("no-config behavior", () => {
 		test("empty registry returns no models", async function () {
-			this.timeout(15000);
+			this.timeout(20000);
 
 			await vscode.commands.executeCommand("litellm._test.clearServers");
 
 			try {
-				const count = await vscode.commands.executeCommand("litellm._test.refreshModels");
+				const count = await waitForNoConfiguredServers(15000);
 				assert.strictEqual(count, 0, "Empty registry should return 0 models");
 			} finally {
 				await setupTwoServers();
