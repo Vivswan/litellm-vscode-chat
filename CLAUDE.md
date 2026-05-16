@@ -214,7 +214,9 @@ Token usage from the final streaming chunk is logged to the output channel. The 
 - Server metadata (id, label, baseUrl) stored in `globalState` as a list under `litellm.serverRegistry`
 - API keys stored per server in SecretStorage under `litellm.apiKey.<serverId>`
 - Legacy single-server config (`litellm.baseUrl`, `litellm.apiKey`) auto-migrated on first run
-- Settings like token limits and model parameters stored in workspace/user settings
+- Settings like token limits, model parameters, and timeouts stored in workspace/user settings
+  - `requestTimeout`: Timeout in milliseconds for chat completion requests (default: 300000ms / 5 minutes)
+  - `discoveryTimeout`: Timeout in milliseconds for model discovery requests (default: 30000ms / 30 seconds)
 - First-run welcome message shown once using `globalState`
 - Connection status persisted in `globalState` for status bar restoration
 

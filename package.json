@@ -108,6 +108,18 @@
 					"type": "boolean",
 					"default": true,
 					"description": "Mask the API key input field when configuring. Disable to see the key as you type."
+				},
+				"litellm-vscode-chat.requestTimeout": {
+					"type": "number",
+					"default": 300000,
+					"minimum": 1000,
+					"description": "Request timeout in milliseconds for chat completion requests. Default is 300000ms (5 minutes). Increase this value if you're experiencing timeout errors with long-running requests."
+				},
+				"litellm-vscode-chat.discoveryTimeout": {
+					"type": "number",
+					"default": 30000,
+					"minimum": 1000,
+					"description": "Request timeout in milliseconds for model discovery requests. Default is 30000ms (30 seconds)."
 				}
 			}
 		}
