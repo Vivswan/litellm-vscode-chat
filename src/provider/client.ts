@@ -60,7 +60,15 @@ export async function sendChatRequest(
 
 	const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
 	const promptCachingEnabled = settings.get<boolean>("promptCaching.enabled", true);
-	const requestTimeout = settings.get<number>("requestTimeout", 300000);
+	const rawRequestTimeout = settings.get<number>("requestTimeout", 300000);
+	// Validate and clamp requestTimeout to minimum 1000ms
+	const requestTimeout = Math.max(1000, isFinite(rawRequestTimeout) ? rawRequestTimeout : 300000);
+	if (rawRequestTimeout !== requestTimeout) {
+		log("Invalid requestTimeout configuration, using clamped value", {
+			configured: rawRequestTimeout,
+			clamped: requestTimeout,
+		});
+	}
 	const supportsPromptCaching = promptCachingSupport.get(model.id) === true;
 	const openaiMessages = convertMessages(messages, {
 		cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,

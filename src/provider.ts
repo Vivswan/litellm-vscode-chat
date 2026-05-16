@@ -102,7 +102,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
 
 		const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const discoveryTimeout = settings.get<number>("discoveryTimeout", 30000);
+		const rawDiscoveryTimeout = settings.get<number>("discoveryTimeout", 30000);
+		// Validate and clamp discoveryTimeout to minimum 1000ms
+		const discoveryTimeout = Math.max(1000, isFinite(rawDiscoveryTimeout) ? rawDiscoveryTimeout : 30000);
+		if (rawDiscoveryTimeout !== discoveryTimeout) {
+			this.log("Invalid discoveryTimeout configuration, using clamped value", {
+				configured: rawDiscoveryTimeout,
+				clamped: discoveryTimeout,
+			});
+		}
 
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {

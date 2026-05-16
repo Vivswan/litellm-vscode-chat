@@ -70,7 +70,15 @@ export async function fetchModels(
 	logError: (message: string, error: unknown) => void,
 	discoveryTimeout?: number
 ): Promise<FetchModelsResult> {
-	const timeout = discoveryTimeout ?? 30000;
+	// Validate and clamp timeout to minimum 1000ms (second line of defense)
+	const rawTimeout = discoveryTimeout ?? 30000;
+	const timeout = Math.max(1000, isFinite(rawTimeout) ? rawTimeout : 30000);
+	if (rawTimeout !== timeout) {
+		log("Invalid discoveryTimeout provided, using clamped value", {
+			provided: rawTimeout,
+			clamped: timeout,
+		});
+	}
 	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 	const headers: Record<string, string> = { "User-Agent": userAgent };
 	if (apiKey) {

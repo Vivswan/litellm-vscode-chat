@@ -4,14 +4,14 @@ import * as vscode from "vscode";
 suite("Timeout Configuration", () => {
 	test("requestTimeout default is 300000ms", () => {
 		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const timeout = config.get<number>("requestTimeout", 300000);
-		assert.ok(timeout >= 1000, "requestTimeout should be at least 1000ms");
+		const defaultValue = config.inspect<number>("requestTimeout")?.defaultValue;
+		assert.strictEqual(defaultValue, 300000, "requestTimeout default should be 300000ms");
 	});
 
 	test("discoveryTimeout default is 30000ms", () => {
 		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const timeout = config.get<number>("discoveryTimeout", 30000);
-		assert.ok(timeout >= 1000, "discoveryTimeout should be at least 1000ms");
+		const defaultValue = config.inspect<number>("discoveryTimeout")?.defaultValue;
+		assert.strictEqual(defaultValue, 30000, "discoveryTimeout default should be 30000ms");
 	});
 
 	test("timeout configuration can be read from workspace settings", () => {
