@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { LiteLLMProvider } from "../types";
+import { normalizePositiveNumber } from "../shared/numbers";
 import { findLongestPrefixMatch, getModelDefaults } from "./modelDefaults";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
@@ -17,30 +18,23 @@ export function getTokenConstraints(provider: LiteLLMProvider | undefined): {
 	maxInputTokens: number;
 } {
 	const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-	const normalizePositive = (value: unknown): number | undefined => {
-		const candidate =
-			typeof value === "number"
-				? value
-				: typeof value === "string" && value.trim() !== ""
-					? Number.parseInt(value, 10)
-					: Number.NaN;
-		return Number.isFinite(candidate) && candidate > 0 ? candidate : undefined;
-	};
 
 	const maxOutputTokens =
-		normalizePositive(provider?.max_output_tokens) ??
-		normalizePositive(provider?.max_tokens) ??
-		normalizePositive(config.get<number>("defaultMaxOutputTokens", DEFAULT_MAX_OUTPUT_TOKENS)) ??
+		normalizePositiveNumber(provider?.max_output_tokens) ??
+		normalizePositiveNumber(provider?.max_tokens) ??
+		normalizePositiveNumber(config.get<number>("defaultMaxOutputTokens", DEFAULT_MAX_OUTPUT_TOKENS)) ??
 		DEFAULT_MAX_OUTPUT_TOKENS;
 
 	const contextLength =
-		normalizePositive(provider?.context_length) ??
-		normalizePositive(config.get<number>("defaultContextLength", DEFAULT_CONTEXT_LENGTH)) ??
+		normalizePositiveNumber(provider?.context_length) ??
+		normalizePositiveNumber(config.get<number>("defaultContextLength", DEFAULT_CONTEXT_LENGTH)) ??
 		DEFAULT_CONTEXT_LENGTH;
 
-	const configMaxInput = normalizePositive(config.get<number | null>("defaultMaxInputTokens", null));
+	const configMaxInput = normalizePositiveNumber(config.get<number | null>("defaultMaxInputTokens", null));
 	const maxInputTokens =
-		configMaxInput ?? normalizePositive(provider?.max_input_tokens) ?? Math.max(1, contextLength - maxOutputTokens);
+		configMaxInput ??
+		normalizePositiveNumber(provider?.max_input_tokens) ??
+		Math.max(1, contextLength - maxOutputTokens);
 
 	return { maxOutputTokens, contextLength, maxInputTokens };
 }
