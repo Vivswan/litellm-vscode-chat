@@ -1,6 +1,6 @@
 {
 	"name": "litellm-vscode-chat",
-	"version": "0.2.4",
+	"version": "0.2.5",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/Vivswan/litellm-vscode-chat"
