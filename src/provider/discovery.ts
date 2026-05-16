@@ -72,7 +72,7 @@ export async function fetchModels(
 ): Promise<FetchModelsResult> {
 	// Validate and clamp timeout to minimum 1000ms (second line of defense)
 	const rawTimeout = discoveryTimeout ?? 30000;
-	const timeout = Math.max(1000, isFinite(rawTimeout) ? rawTimeout : 30000);
+	const timeout = Math.max(1000, Number.isFinite(rawTimeout) ? rawTimeout : 30000);
 	if (rawTimeout !== timeout) {
 		log("Invalid discoveryTimeout provided, using clamped value", {
 			provided: rawTimeout,
