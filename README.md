@@ -161,6 +161,31 @@ The extension supports prompt caching for models that advertise this capability 
 - Faster response times (cached content doesn't need reprocessing)
 - Transparent to the user (works automatically when supported)
 
+### Request Timeouts
+
+Configure timeout values for different types of requests. This is useful if you're experiencing timeout errors with long-running requests or slow network connections.
+
+**To configure**: Add to your `settings.json`:
+
+```json
+{
+  "litellm-vscode-chat.requestTimeout": 600000,
+  "litellm-vscode-chat.discoveryTimeout": 60000
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `litellm-vscode-chat.requestTimeout` | `300000` (5 minutes) | Timeout for chat completion requests in milliseconds |
+| `litellm-vscode-chat.discoveryTimeout` | `30000` (30 seconds) | Timeout for model discovery requests in milliseconds |
+
+**When to increase timeouts:**
+- Your requests are timing out with complex prompts or large context windows
+- Your LiteLLM server is slow or has high latency
+- You're using models that take a long time to generate responses (e.g., with extensive reasoning)
+
+**Note**: Minimum timeout is 1000ms (1 second) for both settings.
+
 ## Troubleshooting
 
 ### Mock LiteLLM Server (Local)

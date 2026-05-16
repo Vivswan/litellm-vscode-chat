@@ -67,8 +67,18 @@ export async function fetchModels(
 	baseUrl: string,
 	userAgent: string,
 	log: (message: string, data?: unknown) => void,
-	logError: (message: string, error: unknown) => void
+	logError: (message: string, error: unknown) => void,
+	discoveryTimeout?: number
 ): Promise<FetchModelsResult> {
+	// Validate and clamp timeout to minimum 1000ms (second line of defense)
+	const rawTimeout = discoveryTimeout ?? 30000;
+	const timeout = Math.max(1000, Number.isFinite(rawTimeout) ? rawTimeout : 30000);
+	if (rawTimeout !== timeout) {
+		log("Invalid discoveryTimeout provided, using clamped value", {
+			provided: rawTimeout,
+			clamped: timeout,
+		});
+	}
 	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 	const headers: Record<string, string> = { "User-Agent": userAgent };
 	if (apiKey) {
@@ -109,7 +119,7 @@ export async function fetchModels(
 		const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
 			method: "GET",
 			headers,
-			signal: AbortSignal.timeout(30000),
+			signal: AbortSignal.timeout(timeout),
 		});
 		log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
 		if (infoResp.ok) {
@@ -148,7 +158,7 @@ export async function fetchModels(
 		const resp = await fetch(`${baseUrl}/v1/models`, {
 			method: "GET",
 			headers,
-			signal: AbortSignal.timeout(30000),
+			signal: AbortSignal.timeout(timeout),
 		});
 		log("Response status:", `${resp.status} ${resp.statusText}`);
 		if (!resp.ok) {
