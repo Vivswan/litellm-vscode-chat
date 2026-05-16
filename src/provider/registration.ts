@@ -15,6 +15,7 @@ function withUserSelectableMetadata(info: LanguageModelChatInformation): Languag
 
 	return {
 		...info,
+		isUserSelectable: true,
 		metadata: {
 			...existingMetadata,
 			isUserSelectable: true,
