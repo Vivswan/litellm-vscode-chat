@@ -238,8 +238,13 @@ suite("provider", () => {
 				const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
 				assert.ok(providerEntry);
 
+				// VS Code 1.120+ requires isUserSelectable at top level
+				const topLevel = providerEntry as unknown as { isUserSelectable?: boolean };
+				assert.equal(topLevel.isUserSelectable, true, "isUserSelectable should be at top level for VS Code 1.120+");
+
+				// Also keep it in metadata for backward compatibility
 				const metadata = (providerEntry as unknown as { metadata?: { isUserSelectable?: boolean } }).metadata;
-				assert.equal(metadata?.isUserSelectable, true);
+				assert.equal(metadata?.isUserSelectable, true, "isUserSelectable should also be in metadata");
 			} finally {
 				global.fetch = originalFetch;
 			}
