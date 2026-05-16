@@ -93,13 +93,8 @@ jobs:
           body: |
             ## LiteLLM Provider for GitHub Copilot Chat v${{ needs.package.outputs.version }}
 
-            ### Installation from VSIX
-            1. Download the `extension.vsix` file
-            2. Open VS Code
-            3. Go to Extensions (Ctrl+Shift+X / Cmd+Shift+X)
-            4. Click the "..." menu at the top
-            5. Select "Install from VSIX..."
-            6. Choose the downloaded `extension.vsix` file
+            ## What's Changed
+            See the auto-generated release notes below for the full list of changes in this release.
 
             ### Installation from VS Code Marketplace
             Search for "LiteLLM" in the VS Code Extensions marketplace or visit:
@@ -111,6 +106,7 @@ jobs:
             - LiteLLM API key (if required)
 
             [Full documentation](https://github.com/Vivswan/litellm-vscode-chat#readme)
+          generate_release_notes: true
           files: |
             extension.vsix
           draft: false
