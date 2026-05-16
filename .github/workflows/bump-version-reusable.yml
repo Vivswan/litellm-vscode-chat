@@ -78,6 +78,12 @@ jobs:
           This PR was automatically created by the release workflow." \
             --label "version-bump" \
             --label "automated-pr"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for version bump PR
+        continue-on-error: true
+        run: |
           gh pr merge --auto --squash \
             version-bump-${{ steps.next_version.outputs.next_version }}
         env:
