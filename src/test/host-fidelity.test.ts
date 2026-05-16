@@ -41,6 +41,7 @@ const REAL_API_KEY = process.env.LITELLM_REAL_API_KEY ?? "";
 const REAL_MODEL_ID = process.env.LITELLM_REAL_MODEL || "";
 const REAL_TIMEOUT = Number(process.env.LITELLM_REAL_TIMEOUT) || 0;
 const IS_LIVE = !!REAL_BASE_URL;
+const CAPTURE_MODEL_ID = "openai/gpt-5-mini-flex";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,9 @@ const IS_LIVE = !!REAL_BASE_URL;
  */
 async function waitForFreshModels(
 	selector: vscode.LanguageModelChatSelector,
-	timeoutMs: number
+	timeoutMs: number,
+	acceptModels: (models: vscode.LanguageModelChat[]) => boolean = (models) => models.length > 0,
+	expectedDescription = "models"
 ): Promise<vscode.LanguageModelChat[]> {
 	// Trigger an explicit refresh so the provider fetches from the
 	// now-correctly-configured server.
@@ -61,15 +64,19 @@ async function waitForFreshModels(
 	// The host may need a moment to process the provider's new model list.
 	// Try immediately first, then poll with backoff.
 	const deadline = Date.now() + timeoutMs;
+	let lastModels: vscode.LanguageModelChat[] = [];
 	while (Date.now() < deadline) {
 		const models = await vscode.lm.selectChatModels(selector);
-		if (models.length > 0) {
+		lastModels = models;
+		if (acceptModels(models)) {
 			return models;
 		}
 		await new Promise((r) => setTimeout(r, 200));
 	}
 
-	throw new Error(`Timeout (${timeoutMs}ms) waiting for fresh models with selector ${JSON.stringify(selector)}`);
+	throw new Error(
+		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription} with selector ${JSON.stringify(selector)}. Last IDs: ${lastModels.map((m) => m.id).join(", ")}`
+	);
 }
 
 /** Collect all parts from a streaming response. */
@@ -761,6 +768,15 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 		serverIdB = configB.id;
 	}
 
+	async function waitForTwoServerModels(timeoutMs: number): Promise<vscode.LanguageModelChat[]> {
+		return waitForFreshModels(
+			{ vendor: "litellm" },
+			timeoutMs,
+			(models) => Boolean(findModelByServerId(models, serverIdA) && findModelByServerId(models, serverIdB)),
+			`models from both configured servers (${serverIdA}, ${serverIdB})`
+		);
+	}
+
 	suiteSetup(async function () {
 		this.timeout(20000);
 
@@ -788,13 +804,13 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 	suite("model aggregation", () => {
 		test("models from both servers are registered", async function () {
 			this.timeout(15000);
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			assert.ok(models.length >= 2, `Expected models from both servers, got ${models.length}`);
 		});
 
 		test("model IDs are distinct when same model comes from two servers", async function () {
 			this.timeout(15000);
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const ids = models.map((m) => m.id);
 			const uniqueIds = new Set(ids);
 			assert.strictEqual(ids.length, uniqueIds.size, `All model IDs should be unique: ${ids.join(", ")}`);
@@ -802,7 +818,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 		test("multi-server model IDs contain server prefix", async function () {
 			this.timeout(15000);
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const fromA = findModelByServerId(models, serverIdA);
 			const fromB = findModelByServerId(models, serverIdB);
 			assert.ok(fromA, `Should have a model with server prefix ${serverIdA}`);
@@ -811,7 +827,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 		test("each model has positive token limits", async function () {
 			this.timeout(15000);
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			for (const m of models) {
 				assert.ok(m.maxInputTokens > 0, `${m.id} maxInputTokens should be positive`);
 			}
@@ -824,7 +840,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			serverA.setScenario("text-only");
 			serverB.setScenario("text-only");
 
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const modelFromA = findModelByServerId(models, serverIdA);
 			assert.ok(modelFromA, "Should have a model from ServerA");
 
@@ -845,7 +861,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			this.timeout(15000);
 			serverA.setScenario("text-only");
 
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const modelFromA = findModelByServerId(models, serverIdA);
 			assert.ok(modelFromA, "Should have a model from ServerA");
 
@@ -873,7 +889,14 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			await serverB.close();
 
 			try {
-				const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+				const models = await waitForFreshModels(
+					{ vendor: "litellm" },
+					15000,
+					(models) =>
+						models.some((m) => m.id.startsWith(serverIdA + "/")) &&
+						models.every((m) => !m.id.startsWith(serverIdB + "/")),
+					`models from healthy server ${serverIdA} only`
+				);
 				assert.ok(models.length > 0, "Should still have models from the healthy server");
 
 				const fromA = models.filter((m) => m.id.startsWith(serverIdA + "/"));
@@ -894,7 +917,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			this.timeout(15000);
 			serverA.setScenario("text-only");
 
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const modelFromA = findModelByServerId(models, serverIdA);
 			assert.ok(modelFromA, "Should have a model from ServerA");
 
@@ -929,7 +952,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			this.timeout(15000);
 			serverB.setScenario("text-only");
 
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const modelFromB = findModelByServerId(models, serverIdB);
 			assert.ok(modelFromB, "Should have a model from ServerB");
 
@@ -978,7 +1001,12 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			)) as ServerConfig;
 
 			try {
-				const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+				const models = await waitForFreshModels(
+					{ vendor: "litellm" },
+					15000,
+					(models) => models.length > 0 && models.every((m) => m.id === CAPTURE_MODEL_ID),
+					`single-server raw model ID ${CAPTURE_MODEL_ID}`
+				);
 				assert.ok(models.length > 0, "Should have models");
 
 				for (const m of models) {
