@@ -10,6 +10,8 @@ suite("shared/numbers", () => {
 
 	test("normalizePositiveNumber rejects malformed and non-positive values", () => {
 		assert.equal(normalizePositiveNumber("128000abc"), undefined);
+		assert.equal(normalizePositiveNumber("1.5"), undefined);
+		assert.equal(normalizePositiveNumber(1.5), undefined);
 		assert.equal(normalizePositiveNumber(""), undefined);
 		assert.equal(normalizePositiveNumber(0), undefined);
 		assert.equal(normalizePositiveNumber(-1), undefined);
