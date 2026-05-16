@@ -1060,10 +1060,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 				assert.ok(ids.length > 0, "Should have models");
 
 				for (const id of ids) {
-					assert.ok(
-						!id.startsWith(soloConfig.id + "/"),
-						`Single-server model ID should not have server prefix: ${id}`
-					);
+					assert.ok(!id.startsWith(soloConfig.id + "/"), `Single-server model ID should not have server prefix: ${id}`);
 				}
 			} finally {
 				await setupTwoServers();
