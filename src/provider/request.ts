@@ -17,8 +17,15 @@ export function getTokenConstraints(provider: LiteLLMProvider | undefined): {
 	maxInputTokens: number;
 } {
 	const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-	const normalizePositive = (value: unknown): number | undefined =>
-		typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+	const normalizePositive = (value: unknown): number | undefined => {
+		const candidate =
+			typeof value === "number"
+				? value
+				: typeof value === "string" && value.trim() !== ""
+					? Number.parseInt(value, 10)
+					: Number.NaN;
+		return Number.isFinite(candidate) && candidate > 0 ? candidate : undefined;
+	};
 
 	const maxOutputTokens =
 		normalizePositive(provider?.max_output_tokens) ??
