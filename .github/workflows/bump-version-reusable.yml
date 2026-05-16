@@ -42,6 +42,7 @@ jobs:
       # Create a new branch for the version bump
       - name: Create version bump branch
         run: |
+          git push origin --delete version-bump-${{ steps.next_version.outputs.next_version }} 2>/dev/null || true
           git checkout -b version-bump-${{ steps.next_version.outputs.next_version }}
 
       # Configure Git
@@ -66,25 +67,24 @@ jobs:
 
       # Create pull request
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v8
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: bump version to ${{ steps.next_version.outputs.next_version }}"
-          branch: main
-          title: "Version Bump to ${{ steps.next_version.outputs.next_version }}"
-          body: |
-            ## Version Bump
-            This PR automatically bumps the version from ${{ steps.next_version.outputs.current_version }} to ${{ steps.next_version.outputs.next_version }} after a successful release.
-
-            This PR was automatically created by the release workflow.
-          labels: |
-            version-bump
-            automated-pr
-          base: version-bump-${{ steps.next_version.outputs.next_version }}
-        env:
-          HUSKY: 0
-
-      # Clean up
-      - name: Delete version bump branch
         run: |
-          git push origin --delete version-bump-${{ steps.next_version.outputs.next_version }}
+          gh pr create \
+            --base main \
+            --head version-bump-${{ steps.next_version.outputs.next_version }} \
+            --title "Version Bump to ${{ steps.next_version.outputs.next_version }}" \
+            --body "## Version Bump
+          This PR automatically bumps the version from ${{ steps.next_version.outputs.current_version }} to ${{ steps.next_version.outputs.next_version }} after a successful release.
+
+          This PR was automatically created by the release workflow." \
+            --label "version-bump" \
+            --label "automated-pr"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for version bump PR
+        continue-on-error: true
+        run: |
+          gh pr merge --auto --squash \
+            version-bump-${{ steps.next_version.outputs.next_version }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

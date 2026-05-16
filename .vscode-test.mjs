@@ -3,7 +3,13 @@ import { defineConfig } from "@vscode/test-cli";
 export default defineConfig([
 	{
 		label: "unit",
-		files: "out/test/provider.test.js",
+		files: [
+			"out/test/*.test.js",
+			"out/test/shared/*.test.js",
+			"out/test/provider/*.test.js",
+			"out/test/extension/*.test.js",
+			"!out/test/host-fidelity.test.js",
+		],
 		mocha: {
 			ui: "tdd",
 			timeout: 20000,

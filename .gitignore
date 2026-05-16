@@ -1,4 +1,7 @@
 .env
+.claude/
+.codex/
+.worktrees/
 
 # IDEs and editors
 .idea/
