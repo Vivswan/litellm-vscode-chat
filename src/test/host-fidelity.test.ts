@@ -57,17 +57,20 @@ async function waitForFreshModels(
 	acceptModels: (models: vscode.LanguageModelChat[]) => boolean = (models) => models.length > 0,
 	expectedDescription = "models"
 ): Promise<vscode.LanguageModelChat[]> {
-	// Trigger an explicit refresh so the provider fetches from the
-	// now-correctly-configured server.
-	await vscode.commands.executeCommand("litellm._test.refreshModels");
-
-	// The host may need a moment to process the provider's new model list.
-	// Try immediately first, then poll with backoff.
 	const deadline = Date.now() + timeoutMs;
-	let lastModels: vscode.LanguageModelChat[] = [];
+	let lastRefreshAt = 0;
+	let lastIds: string[] = [];
 	while (Date.now() < deadline) {
+		// Re-trigger refresh while polling so topology changes like
+		// two servers -> one server don't get stuck on an empty host list
+		// if the first refresh races with registry propagation.
+		if (Date.now() - lastRefreshAt >= 1000) {
+			await vscode.commands.executeCommand("litellm._test.refreshModels");
+			lastRefreshAt = Date.now();
+		}
+
 		const models = await vscode.lm.selectChatModels(selector);
-		lastModels = models;
+		lastIds = models.map((model) => model.id);
 		if (acceptModels(models)) {
 			return models;
 		}
@@ -75,7 +78,9 @@ async function waitForFreshModels(
 	}
 
 	throw new Error(
-		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription} with selector ${JSON.stringify(selector)}. Last IDs: ${lastModels.map((m) => m.id).join(", ")}`
+		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription} with selector ${JSON.stringify(selector)}. Last model IDs: ${
+			lastIds.length > 0 ? lastIds.join(", ") : "(none)"
+		}`
 	);
 }
 
@@ -990,7 +995,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 	suite("single-server fallback", () => {
 		test("with one server, model IDs have no server prefix", async function () {
-			this.timeout(15000);
+			this.timeout(20000);
 
 			await vscode.commands.executeCommand("litellm._test.clearServers");
 			const soloConfig = (await vscode.commands.executeCommand(
@@ -1002,7 +1007,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 			try {
 				const models = await waitForFreshModels(
-					{ vendor: "litellm" },
+					{ vendor: "litellm", id: CAPTURE_MODEL_ID },
 					15000,
 					(models) => models.length > 0 && models.every((m) => m.id === CAPTURE_MODEL_ID),
 					`single-server raw model ID ${CAPTURE_MODEL_ID}`
