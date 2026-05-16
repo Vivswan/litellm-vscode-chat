@@ -226,8 +226,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 									vscode.commands.executeCommand("litellm.reportIssue");
 								}
 							});
-						this._lastModelList = [];
 						if (this._discoveryGeneration === myGeneration) {
+							this._lastModelList = [];
 							this._modelListFetchedAtMs = Date.now();
 						}
 						return [];
