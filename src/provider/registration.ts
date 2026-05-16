@@ -10,6 +10,18 @@ export interface RegistrationResult {
 	promptCaching: Map<string, boolean>;
 }
 
+function withUserSelectableMetadata(info: LanguageModelChatInformation): LanguageModelChatInformation {
+	const existingMetadata = (info as LanguageModelChatInformation & { metadata?: Record<string, unknown> }).metadata;
+
+	return {
+		...info,
+		metadata: {
+			...existingMetadata,
+			isUserSelectable: true,
+		},
+	} as LanguageModelChatInformation;
+}
+
 export function buildModelInfos(
 	models: LiteLLMModelItem[],
 	server: ServerWithKey,
@@ -176,5 +188,5 @@ export function buildModelInfos(
 		return entries;
 	});
 
-	return { infos, routes, promptCaching };
+	return { infos: infos.map(withUserSelectableMetadata), routes, promptCaching };
 }

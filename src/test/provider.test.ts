@@ -201,6 +201,50 @@ suite("provider", () => {
 			assert.equal(providerEntry.maxInputTokens, 90000);
 		});
 
+		test("marks registered models as user-selectable for VS Code 1.120 picker compatibility", async () => {
+			const originalFetch = global.fetch;
+			try {
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
+								},
+							],
+						}),
+					}) as unknown as Response;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
+				assert.ok(providerEntry);
+
+				const metadata = (providerEntry as unknown as { metadata?: { isUserSelectable?: boolean } }).metadata;
+				assert.equal(metadata?.isUserSelectable, true);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
 		test("uses workspace settings as fallback when provider fields absent", async () => {
 			const originalFetch = global.fetch;
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
@@ -1145,6 +1189,96 @@ suite("provider", () => {
 			assert.ok(infos.length > 0);
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			assert.equal((provider as any)._promptCachingSupport.get("claude-3-5-sonnet-20241022"), true);
+		});
+
+		test("model/info numeric string token limits are parsed and max_output_tokens wins", async () => {
+			const originalFetch = global.fetch;
+			try {
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							data: [
+								{
+									model_name: "gpt-5.3-codex-spark",
+									model_info: {
+										id: "gpt-5.3-codex-spark",
+										supports_function_calling: true,
+										max_tokens: "128000",
+										max_input_tokens: "128000",
+										max_output_tokens: "32000",
+									},
+								},
+							],
+						}),
+					}) as unknown as Response;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				const modelEntry = infos.find((i) => i.id === "gpt-5.3-codex-spark");
+				assert.ok(modelEntry);
+				assert.equal(modelEntry.maxOutputTokens, 32000);
+				assert.equal(modelEntry.maxInputTokens, 128000);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
+		test("model/info malformed numeric strings are ignored", async () => {
+			const originalFetch = global.fetch;
+			try {
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							data: [
+								{
+									model_name: "gpt-5-bad-metadata",
+									model_info: {
+										id: "gpt-5-bad-metadata",
+										supports_function_calling: true,
+										max_tokens: "128000abc",
+										max_input_tokens: "128000abc",
+										max_output_tokens: "32000abc",
+									},
+								},
+							],
+						}),
+					}) as unknown as Response;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				const modelEntry = infos.find((i) => i.id === "gpt-5-bad-metadata");
+				assert.ok(modelEntry);
+				assert.equal(modelEntry.maxOutputTokens, 16000);
+				assert.equal(modelEntry.maxInputTokens, 112000);
+			} finally {
+				global.fetch = originalFetch;
+			}
 		});
 
 		test("prompt caching disabled for models without support", async () => {

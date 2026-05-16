@@ -55,6 +55,13 @@ export function registerTestCommands(
 				);
 				return infos.length;
 			}),
+			vscode.commands.registerCommand("litellm._test.refreshModelIds", async () => {
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				return infos.map((info) => info.id);
+			}),
 			vscode.commands.registerCommand(
 				"litellm._test.addServer",
 				async (label: string, baseUrl: string, apiKey: string) => {

@@ -41,6 +41,7 @@ const REAL_API_KEY = process.env.LITELLM_REAL_API_KEY ?? "";
 const REAL_MODEL_ID = process.env.LITELLM_REAL_MODEL || "";
 const REAL_TIMEOUT = Number(process.env.LITELLM_REAL_TIMEOUT) || 0;
 const IS_LIVE = !!REAL_BASE_URL;
+const CAPTURE_MODEL_ID = "openai/gpt-5-mini-flex";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -52,24 +53,58 @@ const IS_LIVE = !!REAL_BASE_URL;
  */
 async function waitForFreshModels(
 	selector: vscode.LanguageModelChatSelector,
-	timeoutMs: number
+	timeoutMs: number,
+	acceptModels: (models: vscode.LanguageModelChat[]) => boolean = (models) => models.length > 0,
+	expectedDescription = "models"
 ): Promise<vscode.LanguageModelChat[]> {
-	// Trigger an explicit refresh so the provider fetches from the
-	// now-correctly-configured server.
-	await vscode.commands.executeCommand("litellm._test.refreshModels");
-
-	// The host may need a moment to process the provider's new model list.
-	// Try immediately first, then poll with backoff.
 	const deadline = Date.now() + timeoutMs;
+	let lastRefreshAt = 0;
+	let lastIds: string[] = [];
 	while (Date.now() < deadline) {
+		// Re-trigger refresh while polling so topology changes like
+		// two servers -> one server don't get stuck on an empty host list
+		// if the first refresh races with registry propagation.
+		if (Date.now() - lastRefreshAt >= 1000) {
+			await vscode.commands.executeCommand("litellm._test.refreshModels");
+			lastRefreshAt = Date.now();
+		}
+
 		const models = await vscode.lm.selectChatModels(selector);
-		if (models.length > 0) {
+		lastIds = models.map((model) => model.id);
+		if (acceptModels(models)) {
 			return models;
 		}
 		await new Promise((r) => setTimeout(r, 200));
 	}
 
-	throw new Error(`Timeout (${timeoutMs}ms) waiting for fresh models with selector ${JSON.stringify(selector)}`);
+	throw new Error(
+		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription} with selector ${JSON.stringify(selector)}. Last model IDs: ${
+			lastIds.length > 0 ? lastIds.join(", ") : "(none)"
+		}`
+	);
+}
+
+async function waitForPreparedModelIds(
+	timeoutMs: number,
+	acceptIds: (ids: string[]) => boolean,
+	expectedDescription: string
+): Promise<string[]> {
+	const deadline = Date.now() + timeoutMs;
+	let lastIds: string[] = [];
+
+	while (Date.now() < deadline) {
+		lastIds = (await vscode.commands.executeCommand("litellm._test.refreshModelIds")) as string[];
+		if (acceptIds(lastIds)) {
+			return lastIds;
+		}
+		await new Promise((r) => setTimeout(r, 200));
+	}
+
+	throw new Error(
+		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription}. Last prepared model IDs: ${
+			lastIds.length > 0 ? lastIds.join(", ") : "(none)"
+		}`
+	);
 }
 
 /** Collect all parts from a streaming response. */
@@ -761,6 +796,38 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 		serverIdB = configB.id;
 	}
 
+	async function waitForTwoServerModels(timeoutMs: number): Promise<vscode.LanguageModelChat[]> {
+		return waitForFreshModels(
+			{ vendor: "litellm" },
+			timeoutMs,
+			(models) => Boolean(findModelByServerId(models, serverIdA) && findModelByServerId(models, serverIdB)),
+			`models from both configured servers (${serverIdA}, ${serverIdB})`
+		);
+	}
+
+	async function waitForNoConfiguredServers(timeoutMs: number): Promise<number> {
+		const deadline = Date.now() + timeoutMs;
+		let lastCount = -1;
+		let lastServers: ServerConfig[] = [];
+
+		while (Date.now() < deadline) {
+			lastServers = (await vscode.commands.executeCommand("litellm._test.getServers")) as ServerConfig[];
+			lastCount = (await vscode.commands.executeCommand("litellm._test.refreshModels")) as number;
+
+			if (lastServers.length === 0 && lastCount === 0) {
+				return lastCount;
+			}
+
+			await new Promise((r) => setTimeout(r, 200));
+		}
+
+		throw new Error(
+			`Timeout (${timeoutMs}ms) waiting for empty registry. Last servers: ${
+				lastServers.length > 0 ? lastServers.map((server) => server.id).join(", ") : "(none)"
+			}; last model count: ${lastCount}`
+		);
+	}
+
 	suiteSetup(async function () {
 		this.timeout(20000);
 
@@ -788,13 +855,13 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 	suite("model aggregation", () => {
 		test("models from both servers are registered", async function () {
 			this.timeout(15000);
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			assert.ok(models.length >= 2, `Expected models from both servers, got ${models.length}`);
 		});
 
 		test("model IDs are distinct when same model comes from two servers", async function () {
 			this.timeout(15000);
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const ids = models.map((m) => m.id);
 			const uniqueIds = new Set(ids);
 			assert.strictEqual(ids.length, uniqueIds.size, `All model IDs should be unique: ${ids.join(", ")}`);
@@ -802,7 +869,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 		test("multi-server model IDs contain server prefix", async function () {
 			this.timeout(15000);
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const fromA = findModelByServerId(models, serverIdA);
 			const fromB = findModelByServerId(models, serverIdB);
 			assert.ok(fromA, `Should have a model with server prefix ${serverIdA}`);
@@ -811,7 +878,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 		test("each model has positive token limits", async function () {
 			this.timeout(15000);
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			for (const m of models) {
 				assert.ok(m.maxInputTokens > 0, `${m.id} maxInputTokens should be positive`);
 			}
@@ -824,7 +891,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			serverA.setScenario("text-only");
 			serverB.setScenario("text-only");
 
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const modelFromA = findModelByServerId(models, serverIdA);
 			assert.ok(modelFromA, "Should have a model from ServerA");
 
@@ -845,7 +912,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			this.timeout(15000);
 			serverA.setScenario("text-only");
 
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const modelFromA = findModelByServerId(models, serverIdA);
 			assert.ok(modelFromA, "Should have a model from ServerA");
 
@@ -873,7 +940,14 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			await serverB.close();
 
 			try {
-				const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+				const models = await waitForFreshModels(
+					{ vendor: "litellm" },
+					15000,
+					(models) =>
+						models.some((m) => m.id.startsWith(serverIdA + "/")) &&
+						models.every((m) => !m.id.startsWith(serverIdB + "/")),
+					`models from healthy server ${serverIdA} only`
+				);
 				assert.ok(models.length > 0, "Should still have models from the healthy server");
 
 				const fromA = models.filter((m) => m.id.startsWith(serverIdA + "/"));
@@ -894,7 +968,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			this.timeout(15000);
 			serverA.setScenario("text-only");
 
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const modelFromA = findModelByServerId(models, serverIdA);
 			assert.ok(modelFromA, "Should have a model from ServerA");
 
@@ -929,7 +1003,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			this.timeout(15000);
 			serverB.setScenario("text-only");
 
-			const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
+			const models = await waitForTwoServerModels(15000);
 			const modelFromB = findModelByServerId(models, serverIdB);
 			assert.ok(modelFromB, "Should have a model from ServerB");
 
@@ -967,7 +1041,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 	suite("single-server fallback", () => {
 		test("with one server, model IDs have no server prefix", async function () {
-			this.timeout(15000);
+			this.timeout(20000);
 
 			await vscode.commands.executeCommand("litellm._test.clearServers");
 			const soloConfig = (await vscode.commands.executeCommand(
@@ -978,14 +1052,15 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			)) as ServerConfig;
 
 			try {
-				const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
-				assert.ok(models.length > 0, "Should have models");
+				const ids = await waitForPreparedModelIds(
+					15000,
+					(ids) => ids.length > 0 && ids.every((id) => id === CAPTURE_MODEL_ID),
+					`single-server raw model ID ${CAPTURE_MODEL_ID}`
+				);
+				assert.ok(ids.length > 0, "Should have models");
 
-				for (const m of models) {
-					assert.ok(
-						!m.id.startsWith(soloConfig.id + "/"),
-						`Single-server model ID should not have server prefix: ${m.id}`
-					);
+				for (const id of ids) {
+					assert.ok(!id.startsWith(soloConfig.id + "/"), `Single-server model ID should not have server prefix: ${id}`);
 				}
 			} finally {
 				await setupTwoServers();
@@ -995,12 +1070,12 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 	suite("no-config behavior", () => {
 		test("empty registry returns no models", async function () {
-			this.timeout(15000);
+			this.timeout(20000);
 
 			await vscode.commands.executeCommand("litellm._test.clearServers");
 
 			try {
-				const count = await vscode.commands.executeCommand("litellm._test.refreshModels");
+				const count = await waitForNoConfiguredServers(15000);
 				assert.strictEqual(count, 0, "Empty registry should return 0 models");
 			} finally {
 				await setupTwoServers();

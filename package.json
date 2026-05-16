@@ -1,6 +1,6 @@
 {
 	"name": "litellm-vscode-chat",
-	"version": "0.2.4",
+	"version": "0.2.5",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/Vivswan/litellm-vscode-chat"
@@ -12,8 +12,7 @@
 		"@stylistic/eslint-plugin": "^5.10.0",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^25.6.0",
-		"@types/vscode": "^1.118.0",
-		"@vscode/dts": "^0.4.1",
+		"@types/vscode": "^1.120.0",
 		"@vscode/test-cli": "^0.0.12",
 		"@vscode/test-electron": "^2.5.2",
 		"eslint": "^10.3.0",
@@ -127,7 +126,7 @@
 	"description": "An extension that integrates LiteLLM into GitHub Copilot Chat",
 	"displayName": "LiteLLM Provider for GitHub Copilot Chat",
 	"engines": {
-		"vscode": "^1.118.0"
+		"vscode": "^1.120.0"
 	},
 	"galleryBanner": {
 		"color": "#100f11",
@@ -144,7 +143,6 @@
 	"scripts": {
 		"prepare": "husky",
 		"vscode:prepublish": "bun run compile",
-		"sync:vscode-api": "dts dev && dts main && node -e \"const fs = require('fs'); if (fs.existsSync('vscode.d.ts')) { fs.renameSync('vscode.d.ts', 'src/vscode.d.ts'); console.log('Moved vscode.d.ts to src/'); }\"",
 		"compile": "tsc -p ./",
 		"lint:actions": "node scripts/lint-actions.js",
 		"lint": "eslint",
