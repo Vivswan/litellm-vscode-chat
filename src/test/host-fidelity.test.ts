@@ -84,6 +84,29 @@ async function waitForFreshModels(
 	);
 }
 
+async function waitForPreparedModelIds(
+	timeoutMs: number,
+	acceptIds: (ids: string[]) => boolean,
+	expectedDescription: string
+): Promise<string[]> {
+	const deadline = Date.now() + timeoutMs;
+	let lastIds: string[] = [];
+
+	while (Date.now() < deadline) {
+		lastIds = (await vscode.commands.executeCommand("litellm._test.refreshModelIds")) as string[];
+		if (acceptIds(lastIds)) {
+			return lastIds;
+		}
+		await new Promise((r) => setTimeout(r, 200));
+	}
+
+	throw new Error(
+		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription}. Last prepared model IDs: ${
+			lastIds.length > 0 ? lastIds.join(", ") : "(none)"
+		}`
+	);
+}
+
 /** Collect all parts from a streaming response. */
 async function collectStream(response: vscode.LanguageModelChatResponse): Promise<unknown[]> {
 	const parts: unknown[] = [];
@@ -1029,18 +1052,17 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 			)) as ServerConfig;
 
 			try {
-				const models = await waitForFreshModels(
-					{ vendor: "litellm", id: CAPTURE_MODEL_ID },
+				const ids = await waitForPreparedModelIds(
 					15000,
-					(models) => models.length > 0 && models.every((m) => m.id === CAPTURE_MODEL_ID),
+					(ids) => ids.length > 0 && ids.every((id) => id === CAPTURE_MODEL_ID),
 					`single-server raw model ID ${CAPTURE_MODEL_ID}`
 				);
-				assert.ok(models.length > 0, "Should have models");
+				assert.ok(ids.length > 0, "Should have models");
 
-				for (const m of models) {
+				for (const id of ids) {
 					assert.ok(
-						!m.id.startsWith(soloConfig.id + "/"),
-						`Single-server model ID should not have server prefix: ${m.id}`
+						!id.startsWith(soloConfig.id + "/"),
+						`Single-server model ID should not have server prefix: ${id}`
 					);
 				}
 			} finally {
