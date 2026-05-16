@@ -10,6 +10,14 @@ import { registerDiagnosticsCommand, buildDiagnosticsSnapshot } from "./extensio
 
 const GITHUB_DOCS = "https://github.com/Vivswan/litellm-vscode-chat#quick-start";
 
+function normalizeVersionRange(versionRange: unknown): string | undefined {
+	if (typeof versionRange !== "string") {
+		return undefined;
+	}
+
+	return versionRange.trim().replace(/^[~^<>=\s]+/, "");
+}
+
 function isVersionCompatible(current: string, required: string): boolean {
 	const parse = (v: string) =>
 		v
@@ -28,8 +36,9 @@ function isVersionCompatible(current: string, required: string): boolean {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	const minVersion = "1.110.0";
-	if (!isVersionCompatible(vscode.version, minVersion)) {
+	const ext = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
+	const minVersion = normalizeVersionRange(ext?.packageJSON?.engines?.vscode);
+	if (minVersion && !isVersionCompatible(vscode.version, minVersion)) {
 		vscode.window
 			.showErrorMessage(
 				`LiteLLM requires VS Code ${minVersion} or higher. You have ${vscode.version}. Please update VS Code.`,
@@ -43,7 +52,6 @@ export function activate(context: vscode.ExtensionContext) {
 		return;
 	}
 
-	const ext = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
 	const extVersion = ext?.packageJSON?.version ?? "unknown";
 	const vscodeVersion = vscode.version;
 	const ua = `litellm-vscode-chat/${extVersion} VSCode/${vscodeVersion}`;

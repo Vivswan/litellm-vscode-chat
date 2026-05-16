@@ -201,6 +201,50 @@ suite("provider", () => {
 			assert.equal(providerEntry.maxInputTokens, 90000);
 		});
 
+		test("marks registered models as user-selectable for VS Code 1.120 picker compatibility", async () => {
+			const originalFetch = global.fetch;
+			try {
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
+								},
+							],
+						}),
+					}) as unknown as Response;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
+				assert.ok(providerEntry);
+
+				const metadata = (providerEntry as unknown as { metadata?: { isUserSelectable?: boolean } }).metadata;
+				assert.equal(metadata?.isUserSelectable, true);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
 		test("uses workspace settings as fallback when provider fields absent", async () => {
 			const originalFetch = global.fetch;
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
