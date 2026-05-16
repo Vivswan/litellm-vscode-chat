@@ -13,7 +13,10 @@ export interface RegistrationResult {
 function withUserSelectableMetadata(info: LanguageModelChatInformation): LanguageModelChatInformation {
 	return {
 		...info,
-		metadata: { isUserSelectable: true },
+		metadata: {
+			...info.metadata,
+			isUserSelectable: true,
+		},
 	} as LanguageModelChatInformation;
 }
 
