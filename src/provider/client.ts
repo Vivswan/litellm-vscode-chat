@@ -62,7 +62,7 @@ export async function sendChatRequest(
 	const promptCachingEnabled = settings.get<boolean>("promptCaching.enabled", true);
 	const rawRequestTimeout = settings.get<number>("requestTimeout", 300000);
 	// Validate and clamp requestTimeout to minimum 1000ms
-	const requestTimeout = Math.max(1000, isFinite(rawRequestTimeout) ? rawRequestTimeout : 300000);
+	const requestTimeout = Math.max(1000, Number.isFinite(rawRequestTimeout) ? rawRequestTimeout : 300000);
 	if (rawRequestTimeout !== requestTimeout) {
 		log("Invalid requestTimeout configuration, using clamped value", {
 			configured: rawRequestTimeout,
