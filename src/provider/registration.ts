@@ -11,10 +11,12 @@ export interface RegistrationResult {
 }
 
 function withUserSelectableMetadata(info: LanguageModelChatInformation): LanguageModelChatInformation {
+	const existingMetadata = (info as LanguageModelChatInformation & { metadata?: Record<string, unknown> }).metadata;
+
 	return {
 		...info,
 		metadata: {
-			...info.metadata,
+			...existingMetadata,
 			isUserSelectable: true,
 		},
 	} as LanguageModelChatInformation;
