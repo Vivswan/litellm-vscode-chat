@@ -82,6 +82,9 @@ export function activate(context: vscode.ExtensionContext) {
 	provider.setStatusCallback((aggStatus: AggregatedStatus) => {
 		statusBar.handleAggregatedStatus(aggStatus);
 	});
+	provider.setResponseCostCallback((cost) => {
+		statusBar.addSessionCost(cost);
+	});
 
 	// Welcome message
 	const hasShownWelcome = context.globalState.get<boolean>("litellm.hasShownWelcome", false);

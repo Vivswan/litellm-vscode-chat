@@ -12,6 +12,7 @@ import type { ModelRoute } from "./request";
 import { StreamProcessor } from "./streaming";
 import { resolveServer } from "./config";
 import type { ServerWithKey } from "../extension/serverRegistry";
+import { getConfiguredReasoningEffort } from "./reasoningEffort";
 
 export interface ChatRequestContext {
 	model: LanguageModelChatInformation;
@@ -29,6 +30,7 @@ export async function sendChatRequest(
 	secrets: vscode.SecretStorage,
 	userAgent: string,
 	toolCallIdCounter: number,
+	onResponseCost: (cost: number) => void,
 	log: (message: string, data?: unknown) => void,
 	logError: (message: string, error: unknown) => void
 ): Promise<number> {
@@ -89,10 +91,19 @@ export async function sendChatRequest(
 	}
 
 	const modelParams = getModelParameters(model.id, modelRoutes);
+	const runtimeModelOptions = { ...(options.modelOptions as Record<string, unknown> | undefined) };
+	const supportsReasoningEffort = route?.supportedOpenAIParams?.has("reasoning_effort") === true;
+	if (
+		supportsReasoningEffort &&
+		runtimeModelOptions.reasoning_effort === undefined &&
+		modelParams.reasoning_effort === undefined
+	) {
+		runtimeModelOptions.reasoning_effort = getConfiguredReasoningEffort(options);
+	}
 
 	let maxTokens: number;
-	if (typeof options.modelOptions?.max_tokens === "number") {
-		maxTokens = options.modelOptions.max_tokens;
+	if (typeof runtimeModelOptions.max_tokens === "number") {
+		maxTokens = runtimeModelOptions.max_tokens;
 	} else if (typeof modelParams.max_tokens === "number") {
 		maxTokens = modelParams.max_tokens;
 	} else {
@@ -105,7 +116,8 @@ export async function sendChatRequest(
 		maxTokens,
 		modelParams,
 		toolConfig,
-		modelOptions: options.modelOptions as Record<string, unknown> | undefined,
+		modelOptions: runtimeModelOptions,
+		supportedOpenAIParams: route?.supportedOpenAIParams,
 	});
 
 	const headers: Record<string, string> = {
@@ -143,11 +155,31 @@ export async function sendChatRequest(
 		throw new Error(`LiteLLM API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`);
 	}
 
+	const responseCostHeader = response.headers.get("x-litellm-response-cost");
+	if (responseCostHeader) {
+		const parsed = Number(responseCostHeader);
+		if (Number.isFinite(parsed) && parsed >= 0) {
+			onResponseCost(parsed);
+			log("LiteLLM response cost received", { responseCostUsd: parsed });
+		}
+	}
+
 	if (!response.body) {
 		throw new Error("No response body from LiteLLM API");
 	}
 
-	const streamProcessor = new StreamProcessor(toolCallIdCounter, log);
+	const streamProcessor = new StreamProcessor(
+		toolCallIdCounter,
+		log,
+		(cost) => {
+			log("LiteLLM streamed response cost", { responseCostUsd: cost });
+			onResponseCost(cost);
+		},
+		{
+			inputCostPerToken: route?.inputCostPerToken,
+			outputCostPerToken: route?.outputCostPerToken,
+		}
+	);
 	await streamProcessor.processStreamingResponse(response.body, progress, token);
 	return streamProcessor.toolCallIdCounter;
 }

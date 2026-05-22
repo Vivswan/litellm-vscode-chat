@@ -10,6 +10,9 @@ export interface ModelRoute {
 	serverId: string;
 	rawModelId: string;
 	serverLabel: string;
+	supportedOpenAIParams?: Set<string>;
+	inputCostPerToken?: number;
+	outputCostPerToken?: number;
 }
 
 export function getTokenConstraints(provider: LiteLLMProvider | undefined): {
@@ -101,29 +104,45 @@ export interface RequestBodyParams {
 	modelParams: Record<string, unknown>;
 	toolConfig: { tools?: unknown[]; tool_choice?: unknown };
 	modelOptions?: Record<string, unknown>;
+	supportedOpenAIParams?: Set<string>;
 }
 
 export function buildRequestBody(params: RequestBodyParams): Record<string, unknown> {
-	const { rawModelId, openaiMessages, maxTokens, modelParams, toolConfig, modelOptions } = params;
+	const { rawModelId, openaiMessages, maxTokens, modelParams, toolConfig, modelOptions, supportedOpenAIParams } =
+		params;
 
 	const replaceDefaults = modelParams._replaceDefaults === true;
 	delete modelParams._replaceDefaults;
 
 	const defaults = replaceDefaults ? {} : getModelDefaults(rawModelId);
+	const supportsParam = (key: string): boolean => {
+		if (!supportedOpenAIParams || supportedOpenAIParams.size === 0) {
+			return true;
+		}
+		return supportedOpenAIParams.has(key.toLowerCase());
+	};
 
 	const body: Record<string, unknown> = {
 		model: rawModelId,
 		messages: openaiMessages,
 		stream: true,
 		stream_options: { include_usage: true },
-		max_tokens: maxTokens,
 		...defaults,
 	};
+
+	const explicitMaxCompletionTokens =
+		modelParams.max_completion_tokens !== undefined || modelOptions?.max_completion_tokens !== undefined;
+
+	if (supportsParam("max_tokens")) {
+		body.max_tokens = maxTokens;
+	} else if (supportsParam("max_completion_tokens") && !explicitMaxCompletionTokens) {
+		body.max_completion_tokens = maxTokens;
+	}
 
 	const providerOwnedKeys = new Set(["model", "messages", "stream", "stream_options", "tools", "tool_choice"]);
 
 	for (const [key, value] of Object.entries(modelParams)) {
-		if (key !== "max_tokens" && !providerOwnedKeys.has(key)) {
+		if (key !== "max_tokens" && !providerOwnedKeys.has(key) && supportsParam(key)) {
 			body[key] = value;
 		}
 	}
@@ -137,6 +156,9 @@ export function buildRequestBody(params: RequestBodyParams): Record<string, unkn
 				continue;
 			}
 			if (key.startsWith("_")) {
+				continue;
+			}
+			if (!supportsParam(key)) {
 				continue;
 			}
 			body[key] = value;

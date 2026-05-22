@@ -1,11 +1,103 @@
 import type {
 	LiteLLMModelInfoItem,
 	LiteLLMModelInfoResponse,
+	LiteLLMModelGroupInfoItem,
+	LiteLLMModelGroupInfoResponse,
 	LiteLLMModelItem,
 	LiteLLMModelsResponse,
 	LiteLLMProvider,
 } from "../types";
-import { normalizePositiveNumber } from "../shared/numbers";
+import { normalizeNonNegativeNumber, normalizePositiveNumber } from "../shared/numbers";
+
+function normalizeSupportedParams(values: string[] | null | undefined): string[] | null {
+	if (!Array.isArray(values) || values.length === 0) {
+		return null;
+	}
+	return values.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function buildProvider(params: {
+	provider: string;
+	supportsTools?: boolean;
+	contextLength?: number;
+	maxTokens?: number | null;
+	maxInputTokens?: number | null;
+	maxOutputTokens?: number | null;
+	inputCostPerToken?: number | null;
+	outputCostPerToken?: number | null;
+	supportsPromptCaching?: boolean | null;
+	supportsResponseSchema?: boolean | null;
+	supportsReasoning?: boolean | null;
+	supportsNoneReasoningEffort?: boolean | null;
+	supportsMinimalReasoningEffort?: boolean | null;
+	supportsLowReasoningEffort?: boolean | null;
+	supportsXhighReasoningEffort?: boolean | null;
+	supportsMaxReasoningEffort?: boolean | null;
+	supportsPdfInput?: boolean | null;
+	supportedOpenAIParams?: string[] | null;
+}): LiteLLMProvider {
+	return {
+		provider: params.provider,
+		status: "ok",
+		supports_tools: params.supportsTools,
+		context_length: params.contextLength,
+		max_tokens: normalizePositiveNumber(params.maxTokens),
+		max_input_tokens: normalizePositiveNumber(params.maxInputTokens),
+		max_output_tokens: normalizePositiveNumber(params.maxOutputTokens),
+		input_cost_per_token: normalizeNonNegativeNumber(params.inputCostPerToken),
+		output_cost_per_token: normalizeNonNegativeNumber(params.outputCostPerToken),
+		source: "model_info",
+		supports_prompt_caching: params.supportsPromptCaching ?? null,
+		supports_response_schema: params.supportsResponseSchema ?? null,
+		supports_reasoning: params.supportsReasoning ?? null,
+		supports_none_reasoning_effort: params.supportsNoneReasoningEffort ?? null,
+		supports_minimal_reasoning_effort: params.supportsMinimalReasoningEffort ?? null,
+		supports_low_reasoning_effort: params.supportsLowReasoningEffort ?? null,
+		supports_xhigh_reasoning_effort: params.supportsXhighReasoningEffort ?? null,
+		supports_max_reasoning_effort: params.supportsMaxReasoningEffort ?? null,
+		supports_pdf_input: params.supportsPdfInput ?? null,
+		supported_openai_params: normalizeSupportedParams(params.supportedOpenAIParams),
+	};
+}
+
+function mapModelGroupInfoToLiteLLMModel(item: LiteLLMModelGroupInfoItem): LiteLLMModelItem | undefined {
+	const modelId = item.model_group;
+	if (!modelId) {
+		return undefined;
+	}
+
+	const providerName = Array.isArray(item.providers) && item.providers.length > 0 ? item.providers[0] : "litellm";
+	const maxInputTokens = normalizePositiveNumber(item.max_input_tokens);
+	const maxOutputTokens = normalizePositiveNumber(item.max_output_tokens) ?? normalizePositiveNumber(item.max_tokens);
+	const maxTokens = normalizePositiveNumber(item.max_tokens) ?? normalizePositiveNumber(item.max_output_tokens);
+	const provider = buildProvider({
+		provider: providerName,
+		supportsTools: item.supports_function_calling ?? true,
+		contextLength: maxInputTokens ?? maxTokens,
+		maxTokens,
+		maxInputTokens,
+		maxOutputTokens,
+		inputCostPerToken: item.input_cost_per_token,
+		outputCostPerToken: item.output_cost_per_token,
+		supportsReasoning: item.supports_reasoning,
+		supportedOpenAIParams: item.supported_openai_params,
+	});
+
+	const inputModalities: string[] = [];
+	if (item.supports_vision) {
+		inputModalities.push("image");
+	}
+	const architecture = inputModalities.length > 0 ? { input_modalities: inputModalities } : undefined;
+
+	return {
+		id: modelId,
+		object: "model",
+		created: 0,
+		owned_by: providerName,
+		providers: [provider],
+		architecture,
+	};
+}
 
 export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 	const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
@@ -22,21 +114,26 @@ export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMM
 	const maxTokens =
 		normalizePositiveNumber(item.model_info?.max_tokens) ?? normalizePositiveNumber(item.model_info?.max_output_tokens);
 
-	const provider: LiteLLMProvider = {
+	const provider = buildProvider({
 		provider: providerName,
-		status: "ok",
-		supports_tools: supportsTools,
-		context_length: maxInputTokens ?? maxTokens,
-		max_tokens: maxTokens,
-		max_input_tokens: maxInputTokens,
-		max_output_tokens: maxOutputTokens,
-		source: "model_info",
-		supports_prompt_caching: item.model_info?.supports_prompt_caching ?? null,
-		supports_response_schema: item.model_info?.supports_response_schema ?? null,
-		supports_reasoning: item.model_info?.supports_reasoning ?? null,
-		supports_pdf_input: item.model_info?.supports_pdf_input ?? null,
-		supported_openai_params: item.model_info?.supported_openai_params ?? null,
-	};
+		supportsTools,
+		contextLength: maxInputTokens ?? maxTokens,
+		maxTokens,
+		maxInputTokens,
+		maxOutputTokens,
+		inputCostPerToken: item.model_info?.input_cost_per_token,
+		outputCostPerToken: item.model_info?.output_cost_per_token,
+		supportsPromptCaching: item.model_info?.supports_prompt_caching,
+		supportsResponseSchema: item.model_info?.supports_response_schema,
+		supportsReasoning: item.model_info?.supports_reasoning,
+		supportsNoneReasoningEffort: item.model_info?.supports_none_reasoning_effort,
+		supportsMinimalReasoningEffort: item.model_info?.supports_minimal_reasoning_effort,
+		supportsLowReasoningEffort: item.model_info?.supports_low_reasoning_effort,
+		supportsXhighReasoningEffort: item.model_info?.supports_xhigh_reasoning_effort,
+		supportsMaxReasoningEffort: item.model_info?.supports_max_reasoning_effort,
+		supportsPdfInput: item.model_info?.supports_pdf_input,
+		supportedOpenAIParams: item.model_info?.supported_openai_params,
+	});
 
 	const inputModalities: string[] = [];
 	if (item.model_info?.supports_vision) {
@@ -148,6 +245,36 @@ export async function fetchModels(
 		}
 	} catch (error) {
 		log("model/info failed, falling back to /v1/models", {
+			message: error instanceof Error ? error.message : String(error),
+		});
+	}
+
+	try {
+		log("Fetching from:", `${baseUrl}/v1/model_group/info`);
+		const resp = await fetch(`${baseUrl}/v1/model_group/info`, {
+			method: "GET",
+			headers,
+			signal: AbortSignal.timeout(timeout),
+		});
+		log("Response status:", `${resp.status} ${resp.statusText}`);
+		if (!resp.ok) {
+			await handleNonOk(resp);
+		}
+		const parsed = (await resp.json()) as LiteLLMModelGroupInfoResponse;
+		const data = parsed.data ?? [];
+		log("Parsed model_group/info response:", { modelCount: data.length });
+		if (data.length > 0) {
+			log("First model_group/info sample:", JSON.stringify(data[0], null, 2));
+		}
+		const models = data.map(mapModelGroupInfoToLiteLLMModel).filter((m): m is LiteLLMModelItem => Boolean(m));
+		if (data.length > 0 && models.length === 0) {
+			log("model_group/info returned data but no mappable models; falling back", { dataLength: data.length });
+		} else {
+			log("Successfully fetched models:", models.length);
+			return { models };
+		}
+	} catch (error) {
+		log("model_group/info failed, falling back to /v1/models", {
 			message: error instanceof Error ? error.message : String(error),
 		});
 	}
