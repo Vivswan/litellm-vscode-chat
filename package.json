@@ -36,6 +36,9 @@
 		"AI",
 		"Chat"
 	],
+	"activationEvents": [
+		"onStartupFinished"
+	],
 	"contributes": {
 		"languageModelChatProviders": [
 			{
@@ -142,7 +145,7 @@
 	"publisher": "vivswan",
 	"scripts": {
 		"prepare": "husky",
-		"vscode:prepublish": "bun run compile",
+		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -p ./",
 		"lint:actions": "node scripts/lint-actions.js",
 		"lint": "eslint",

@@ -754,6 +754,24 @@ suite("provider", () => {
 			capabilities: {},
 		} as unknown as vscode.LanguageModelChatInformation;
 
+		function createDiscoveryPayload(modelId: string, supportedOpenAIParams?: string[]): Record<string, unknown> {
+			return {
+				data: [
+					{
+						model_name: modelId,
+						model_info: {
+							id: modelId,
+							supports_function_calling: true,
+							max_tokens: 8000,
+							max_input_tokens: 100000,
+							max_output_tokens: 8000,
+							supported_openai_params: supportedOpenAIParams ?? null,
+						},
+					},
+				],
+			};
+		}
+
 		function sseStream(text: string): ReadableStream<Uint8Array> {
 			const chunk = `data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
 			return new ReadableStream({
@@ -767,13 +785,28 @@ suite("provider", () => {
 		async function captureRequestBody(
 			provider: LiteLLMChatModelProvider,
 			model: vscode.LanguageModelChatInformation,
-			opts: unknown
+			opts: unknown,
+			discoveryPayload?: Record<string, unknown>
 		): Promise<Record<string, unknown>> {
 			const originalFetch = global.fetch;
 			let capturedBody: Record<string, unknown> = {};
 			global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
-				capturedBody = JSON.parse(init?.body as string);
-				return { ok: true, body: sseStream("ok") } as unknown as Response;
+				const urlStr = _url.toString();
+				if (urlStr.includes("/v1/chat/completions")) {
+					capturedBody = JSON.parse(init?.body as string);
+					return { ok: true, body: sseStream("ok") } as unknown as Response;
+				}
+				if (
+					urlStr.includes("/v1/model/info") ||
+					urlStr.includes("/v1/model_group/info") ||
+					urlStr.includes("/v1/models")
+				) {
+					return {
+						ok: true,
+						json: async () => discoveryPayload ?? createDiscoveryPayload(model.id),
+					} as unknown as Response;
+				}
+				throw new Error(`Unexpected URL: ${urlStr}`);
 			};
 			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			await provider.provideLanguageModelChatResponse(
@@ -817,6 +850,40 @@ suite("provider", () => {
 			assert.deepEqual(body.response_format, { type: "json_object" });
 			assert.equal(body.reasoning_effort, "high");
 			assert.equal(body.top_k, 50);
+		});
+
+		test("strips unsupported params when supported_openai_params is provided", async () => {
+			const originalGetConfig = vscode.workspace.getConfiguration;
+			vscode.workspace.getConfiguration = ((section?: string) => {
+				if (section === "litellm-vscode-chat")
+					return {
+						get: (key: string, defaultValue?: unknown) => {
+							if (key === "modelParameters") {
+								return { "gpt-5.5": { temperature: 0.2, top_p: 0.95 } };
+							}
+							return defaultValue;
+						},
+					} as unknown as vscode.WorkspaceConfiguration;
+				return originalGetConfig(section);
+			}) as unknown as typeof vscode.workspace.getConfiguration;
+			try {
+				const body = await captureRequestBody(
+					createConfiguredProvider(),
+					{ ...modelInfo, id: "gpt-5.5:openai" },
+					{
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						modelOptions: { temperature: 0.4, seed: 123 },
+					},
+					createDiscoveryPayload("gpt-5.5:openai", ["top_p", "max_tokens"])
+				);
+
+				assert.strictEqual(body.temperature, undefined);
+				assert.strictEqual(body.seed, 123);
+				assert.strictEqual(body.top_p, 0.95);
+				assert.strictEqual(body.max_tokens, 8000);
+			} finally {
+				vscode.workspace.getConfiguration = originalGetConfig;
+			}
 		});
 
 		test("does not overwrite provider-owned fields from modelOptions", async () => {
@@ -1399,6 +1466,160 @@ suite("provider", () => {
 			const modelEntry = infos.find((i) => i.id === "gpt-4o");
 			assert.ok(modelEntry);
 			assert.equal(modelEntry.capabilities.imageInput, true);
+			assert.ok(modelEntry.detail);
+		});
+
+		test("model/info pricing metadata is surfaced in the picker detail", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						data: [
+							{
+								model_name: "vertex_ai/xai/grok-4.1-fast-non-reasoning",
+								model_info: {
+									id: "vertex_ai/xai/grok-4.1-fast-non-reasoning",
+									supports_function_calling: true,
+									max_tokens: 2000000,
+									max_input_tokens: 2000000,
+									max_output_tokens: 2000000,
+									input_cost_per_token: 2e-7,
+									output_cost_per_token: 5e-7,
+									supports_reasoning: true,
+									supported_openai_params: ["temperature", "top_p", "max_tokens", "reasoning_effort"],
+								},
+							},
+						],
+					}),
+				}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+			global.fetch = originalFetch;
+
+			const modelEntry = infos.find((i) => i.id === "vertex_ai/xai/grok-4.1-fast-non-reasoning");
+			assert.ok(modelEntry);
+			assert.ok(modelEntry.detail?.includes("↑ $0.20"));
+			assert.ok(modelEntry.detail?.includes("↓ $0.50"));
+			assert.ok(!modelEntry.detail?.includes("ctx"));
+			assert.ok(modelEntry.detail?.includes("Thinking:"));
+		});
+
+		test("bedrock models are grouped under bedrock family", async () => {
+			const originalFetch = global.fetch;
+			global.fetch = async () =>
+				({
+					ok: true,
+					json: async () => ({
+						data: [
+							{
+								model_name: "bedrock/anthropic.claude-3-5-sonnet",
+								model_info: {
+									id: "bedrock/anthropic.claude-3-5-sonnet",
+									supports_function_calling: true,
+									input_cost_per_token: 1e-6,
+									output_cost_per_token: 2e-6,
+								},
+							},
+						],
+					}),
+				}) as unknown as Response;
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+			global.fetch = originalFetch;
+
+			const modelEntry = infos.find((i) => i.id === "bedrock/anthropic.claude-3-5-sonnet");
+			assert.ok(modelEntry);
+			assert.equal(modelEntry.family, "bedrock");
+		});
+
+		test("falls back to /v1/model_group/info before /v1/models", async () => {
+			const originalFetch = global.fetch;
+			let modelInfoAttempted = false;
+			let modelGroupAttempted = false;
+			let modelsAttempted = false;
+			global.fetch = async (url: string | URL | Request) => {
+				const urlStr = url.toString();
+				if (urlStr.includes("/v1/model/info")) {
+					modelInfoAttempted = true;
+					throw new Error("model/info endpoint failed");
+				}
+				if (urlStr.includes("/v1/model_group/info")) {
+					modelGroupAttempted = true;
+					return {
+						ok: true,
+						json: async () => ({
+							data: [
+								{
+									model_group: "vertex_ai/xai/grok-4.1-fast-non-reasoning",
+									providers: ["vertex_ai"],
+									max_input_tokens: 2000000,
+									max_output_tokens: 2000000,
+									input_cost_per_token: 2e-7,
+									output_cost_per_token: 5e-7,
+									supports_function_calling: true,
+									supported_openai_params: ["top_p", "max_tokens"],
+								},
+							],
+						}),
+					} as unknown as Response;
+				}
+				if (urlStr.includes("/v1/models")) {
+					modelsAttempted = true;
+					return {
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [{ id: "test-model", object: "model", created: 0, owned_by: "test" }],
+						}),
+					} as unknown as Response;
+				}
+				throw new Error(`Unexpected URL: ${urlStr}`);
+			};
+
+			const provider = new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+			const infos = await provider.prepareLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+			global.fetch = originalFetch;
+
+			assert.ok(modelInfoAttempted);
+			assert.ok(modelGroupAttempted);
+			assert.ok(!modelsAttempted);
+			assert.ok(infos.find((i) => i.id === "vertex_ai/xai/grok-4.1-fast-non-reasoning"));
 		});
 	});
 });

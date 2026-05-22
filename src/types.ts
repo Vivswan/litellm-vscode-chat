@@ -63,6 +63,8 @@ export interface LiteLLMProvider {
 	supports_tools?: boolean;
 	supports_structured_output?: boolean;
 	context_length?: number;
+	input_cost_per_token?: number | null;
+	output_cost_per_token?: number | null;
 	// Model capability metadata (READ from /v1/models API endpoint)
 	// These define what the model CAN do, not what we ASK it to do.
 	// For customizing request parameters, use the modelParameters configuration.
@@ -76,6 +78,12 @@ export interface LiteLLMProvider {
 	supports_response_schema?: boolean | null;
 	/** True if the upstream model supports reasoning/thinking. */
 	supports_reasoning?: boolean | null;
+	/** Detailed reasoning effort support flags from LiteLLM model metadata. */
+	supports_none_reasoning_effort?: boolean | null;
+	supports_minimal_reasoning_effort?: boolean | null;
+	supports_low_reasoning_effort?: boolean | null;
+	supports_xhigh_reasoning_effort?: boolean | null;
+	supports_max_reasoning_effort?: boolean | null;
 	/** True if the upstream model supports PDF input. */
 	supports_pdf_input?: boolean | null;
 	/** List of OpenAI-compatible parameters the model supports. */
@@ -133,6 +141,8 @@ export interface LiteLLMModelInfoItem {
 		max_tokens?: number | null;
 		max_input_tokens?: number | null;
 		max_output_tokens?: number | null;
+		input_cost_per_token?: number | null;
+		output_cost_per_token?: number | null;
 		litellm_provider?: string;
 		supports_function_calling?: boolean | null;
 		supports_tool_choice?: boolean | null;
@@ -140,11 +150,39 @@ export interface LiteLLMModelInfoItem {
 		supports_prompt_caching?: boolean | null;
 		supports_response_schema?: boolean | null;
 		supports_reasoning?: boolean | null;
+		supports_none_reasoning_effort?: boolean | null;
+		supports_minimal_reasoning_effort?: boolean | null;
+		supports_low_reasoning_effort?: boolean | null;
+		supports_xhigh_reasoning_effort?: boolean | null;
+		supports_max_reasoning_effort?: boolean | null;
 		supports_pdf_input?: boolean | null;
 		supports_audio_input?: boolean | null;
 		supports_audio_output?: boolean | null;
 		supported_openai_params?: string[] | null;
 	};
+}
+
+/** LiteLLM model group metadata entry from /v1/model_group/info. */
+export interface LiteLLMModelGroupInfoItem {
+	model_group?: string;
+	providers?: string[] | null;
+	max_tokens?: number | null;
+	max_input_tokens?: number | null;
+	max_output_tokens?: number | null;
+	input_cost_per_token?: number | null;
+	output_cost_per_token?: number | null;
+	supports_parallel_function_calling?: boolean | null;
+	supports_vision?: boolean | null;
+	supports_web_search?: boolean | null;
+	supports_url_context?: boolean | null;
+	supports_reasoning?: boolean | null;
+	supports_function_calling?: boolean | null;
+	supported_openai_params?: string[] | null;
+}
+
+/** Response envelope for the LiteLLM model group info listing. */
+export interface LiteLLMModelGroupInfoResponse {
+	data: LiteLLMModelGroupInfoItem[];
 }
 
 /**

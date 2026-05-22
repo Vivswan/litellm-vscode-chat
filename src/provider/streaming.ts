@@ -29,11 +29,22 @@ export class StreamProcessor {
 	private _req: RequestState;
 	private _toolCallIdCounter: number;
 	private _log: (message: string, data?: unknown) => void;
+	private _onCost?: (costUsd: number) => void;
+	private _inputCostPerToken?: number;
+	private _outputCostPerToken?: number;
 
-	constructor(initialIdCounter: number, log: (message: string, data?: unknown) => void) {
+	constructor(
+		initialIdCounter: number,
+		log: (message: string, data?: unknown) => void,
+		onCost?: (costUsd: number) => void,
+		pricing?: { inputCostPerToken?: number; outputCostPerToken?: number }
+	) {
 		this._req = freshRequestState();
 		this._toolCallIdCounter = initialIdCounter;
 		this._log = log;
+		this._onCost = onCost;
+		this._inputCostPerToken = pricing?.inputCostPerToken;
+		this._outputCostPerToken = pricing?.outputCostPerToken;
 	}
 
 	get toolCallIdCounter(): number {
@@ -98,6 +109,34 @@ export class StreamProcessor {
 		const usage = delta.usage as Record<string, unknown> | undefined;
 		if (usage) {
 			this._log("Token usage", usage);
+			const candidate =
+				(usage.response_cost as unknown) ??
+				(usage.cost as unknown) ??
+				((usage as Record<string, unknown>)["total_cost"] as unknown);
+			let cost = typeof candidate === "number" ? candidate : Number(candidate);
+			if (!(Number.isFinite(cost) && cost >= 0)) {
+				// Fallback: compute from token counts × per-token pricing learned at discovery.
+				const promptTokens = Number(usage.prompt_tokens ?? (usage as Record<string, unknown>)["input_tokens"]);
+				const completionTokens = Number(usage.completion_tokens ?? (usage as Record<string, unknown>)["output_tokens"]);
+				if (
+					Number.isFinite(promptTokens) &&
+					Number.isFinite(completionTokens) &&
+					(this._inputCostPerToken || this._outputCostPerToken)
+				) {
+					cost = promptTokens * (this._inputCostPerToken ?? 0) + completionTokens * (this._outputCostPerToken ?? 0);
+				}
+			}
+			if (Number.isFinite(cost) && cost >= 0 && this._onCost) {
+				this._onCost(cost);
+			}
+		}
+		const topLevelCost =
+			(delta.response_cost as unknown) ?? ((delta as Record<string, unknown>)["x-litellm-response-cost"] as unknown);
+		if (topLevelCost !== undefined) {
+			const cost = typeof topLevelCost === "number" ? topLevelCost : Number(topLevelCost);
+			if (Number.isFinite(cost) && cost >= 0 && this._onCost) {
+				this._onCost(cost);
+			}
 		}
 
 		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
