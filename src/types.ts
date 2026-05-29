@@ -13,6 +13,9 @@ export interface OpenAIToolCall {
 export interface OpenAIFunctionToolDef {
 	type: "function";
 	function: { name: string; description?: string; parameters?: object };
+	cache_control?: {
+		type: "ephemeral";
+	};
 }
 
 /**

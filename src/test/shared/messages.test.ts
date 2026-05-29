@@ -16,6 +16,21 @@ interface ConvertedMessage {
 }
 
 suite("shared/messages", () => {
+	const countCacheMarkers = (messages: unknown[]): number => {
+		let count = 0;
+		for (const msg of messages as Array<{ content?: unknown }>) {
+			const content = msg.content;
+			if (Array.isArray(content)) {
+				for (const block of content as Array<{ type?: string; cache_control?: { type: string } }>) {
+					if (block.type === "text" && block.cache_control?.type === "ephemeral") {
+						count++;
+					}
+				}
+			}
+		}
+		return count;
+	};
+
 	test("maps user/assistant text", () => {
 		const messages: vscode.LanguageModelChatMessage[] = [
 			{
@@ -204,5 +219,84 @@ suite("shared/messages", () => {
 		const out = convertMessages(messages);
 		assert.equal(typeof out[0].content, "string");
 		assert.equal(out[0].content, "test");
+	});
+
+	test("cacheFirstUserMessage tags only first user message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("prelude")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("assistant")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("second")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, { cacheFirstUserMessage: true });
+		assert.equal(countCacheMarkers(out), 1);
+		const firstUser = out.find((m) => m.role === "user");
+		assert.ok(Array.isArray(firstUser?.content));
+		const firstUserText = (firstUser?.content as Array<{ type: string; cache_control?: { type: string } }>).find(
+			(b) => b.type === "text"
+		);
+		assert.equal(firstUserText?.cache_control?.type, "ephemeral");
+		const laterUser = out.filter((m) => m.role === "user")[1];
+		assert.equal(typeof laterUser.content, "string");
+		const preludeAssistant = out[0];
+		assert.equal(preludeAssistant.role, "assistant");
+		assert.equal(typeof preludeAssistant.content, "string");
+	});
+
+	test("cacheConversation tags last text-bearing message and skips trailing tool-call-only assistant", () => {
+		const toolCall = new vscode.LanguageModelToolCallPart("c1", "search", { q: "x" });
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("last text-bearing")],
+				name: undefined,
+			},
+			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [toolCall], name: undefined },
+		];
+
+		const out = convertMessages(messages, { cacheConversation: true });
+		assert.equal(countCacheMarkers(out), 1);
+		const lastTextBearing = out.find((m) => m.role === "assistant" && !m.tool_calls);
+		assert.ok(Array.isArray(lastTextBearing?.content));
+		const textBlock = (lastTextBearing?.content as Array<{ type: string; cache_control?: { type: string } }>).find(
+			(b) => b.type === "text"
+		);
+		assert.equal(textBlock?.cache_control?.type, "ephemeral");
+	});
+
+	test("cacheFirstUserMessage and cacheConversation remain idempotent on single user message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("only user message")],
+				name: undefined,
+			},
+		];
+		const options = { cacheFirstUserMessage: true, cacheConversation: true };
+		const out = convertMessages(messages, options);
+		assert.equal(countCacheMarkers(out), 1);
+		assert.deepEqual(convertMessages(messages, options), out);
 	});
 });
