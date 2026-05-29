@@ -141,4 +141,22 @@ suite("shared/tools", () => {
 		assert.equal(props.value.type, undefined);
 		assert.equal(props.value.properties, undefined);
 	});
+
+	test("cacheTools tags only the last tool definition", () => {
+		const out = convertTools(
+			{
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				tools: [
+					{ name: "tool_a", description: "A", inputSchema: {} },
+					{ name: "tool_b", description: "B", inputSchema: {} },
+				],
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions,
+			{ cacheTools: true }
+		);
+
+		assert.ok(out.tools);
+		assert.equal(out.tools!.length, 2);
+		assert.equal(out.tools![0].cache_control, undefined);
+		assert.deepEqual(out.tools![1].cache_control, { type: "ephemeral" });
+	});
 });

@@ -2,14 +2,39 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import { convertMessages } from "../../shared/messages";
 
+function countCacheControlMarkers(messages: unknown[]): number {
+	let count = 0;
+	for (const msg of messages) {
+		const content = (msg as { content?: unknown }).content;
+		if (Array.isArray(content)) {
+			for (const block of content as Array<{ type?: unknown; cache_control?: unknown }>) {
+				if (block?.type === "text" && (block as { cache_control?: unknown }).cache_control) {
+					count++;
+				}
+			}
+		}
+	}
+	return count;
+}
+
+function hasCacheControlOnAnyTextBlock(message: unknown): boolean {
+	const content = (message as { content?: unknown }).content;
+	if (!Array.isArray(content)) {
+		return false;
+	}
+	return (content as Array<{ type?: unknown; cache_control?: unknown }>).some(
+		(block) => block?.type === "text" && (block as { cache_control?: unknown }).cache_control
+	);
+}
+
 interface OpenAIToolCall {
 	id: string;
 	type: "function";
 	function: { name: string; arguments: string };
 }
 interface ConvertedMessage {
-	role: "user" | "assistant" | "tool";
-	content?: string;
+	role: "user" | "assistant" | "tool" | "system";
+	content?: unknown;
 	name?: string;
 	tool_calls?: OpenAIToolCall[];
 	tool_call_id?: string;
@@ -59,8 +84,9 @@ suite("shared/messages", () => {
 		const out = convertMessages([msg]) as ConvertedMessage[];
 		assert.equal(out.length, 1);
 		assert.equal(out[0].role, "assistant");
-		assert.ok(out[0].content?.includes("before"));
-		assert.ok(out[0].content?.includes("after"));
+		const content = out[0].content as string | undefined;
+		assert.ok(content?.includes("before"));
+		assert.ok(content?.includes("after"));
 		assert.ok(Array.isArray(out[0].tool_calls) && out[0].tool_calls.length === 1);
 		assert.equal(out[0].tool_calls?.[0].function.name, "search");
 	});
@@ -204,5 +230,112 @@ suite("shared/messages", () => {
 		const out = convertMessages(messages);
 		assert.equal(typeof out[0].content, "string");
 		assert.equal(out[0].content, "test");
+	});
+
+	test("cacheFirstUserMessage tags the first user message only", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: 999 as unknown as vscode.LanguageModelChatMessageRole,
+				content: [new vscode.LanguageModelTextPart("sys")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("u1")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("a1")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("u2")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, { cacheFirstUserMessage: true }) as ConvertedMessage[];
+		assert.equal(countCacheControlMarkers(out), 1);
+
+		const firstUser = out.find((m) => m.role === "user");
+		assert.ok(firstUser, "expected a user message");
+		assert.ok(hasCacheControlOnAnyTextBlock(firstUser), "expected first user message to carry cache_control");
+
+		const otherTagged = out.filter((m) => m !== firstUser && hasCacheControlOnAnyTextBlock(m));
+		assert.deepEqual(otherTagged, []);
+	});
+
+	test("cacheConversation tags the last text-bearing message (skipping tool-call-only assistant)", () => {
+		const trailingToolCall = new vscode.LanguageModelToolCallPart("call-last", "search", { q: "x" });
+		const toolResult = new vscode.LanguageModelToolResultPart("call-last", [
+			new vscode.LanguageModelTextPart("result"),
+		]);
+
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("u1")],
+				name: undefined,
+			},
+			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [trailingToolCall], name: undefined },
+			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [toolResult], name: undefined },
+			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [trailingToolCall], name: undefined },
+		];
+
+		const out = convertMessages(messages, { cacheConversation: true }) as ConvertedMessage[];
+		assert.equal(countCacheControlMarkers(out), 1);
+
+		const lastTaggedIndex = out.findLastIndex((m) => hasCacheControlOnAnyTextBlock(m));
+		assert.ok(lastTaggedIndex >= 0);
+		assert.equal(out[lastTaggedIndex].role, "tool");
+	});
+
+	test("cacheFirstUserMessage + cacheConversation stays idempotent and uses <= 2 message markers", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("u1")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("a1")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("u2")],
+				name: undefined,
+			},
+		];
+
+		const out1 = convertMessages(messages, {
+			cacheFirstUserMessage: true,
+			cacheConversation: true,
+		}) as ConvertedMessage[];
+		const out2 = convertMessages(messages, {
+			cacheFirstUserMessage: true,
+			cacheConversation: true,
+		}) as ConvertedMessage[];
+		assert.deepEqual(out1, out2, "convertMessages should be idempotent for the same inputs/options");
+		assert.ok(countCacheControlMarkers(out1) <= 2, "expected at most 2 message cache_control markers");
+	});
+
+	test("cacheFirstUserMessage + cacheConversation collapses to one marker for a single-message conversation", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("u1")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, {
+			cacheFirstUserMessage: true,
+			cacheConversation: true,
+		}) as ConvertedMessage[];
+		assert.equal(countCacheControlMarkers(out), 1);
 	});
 });
