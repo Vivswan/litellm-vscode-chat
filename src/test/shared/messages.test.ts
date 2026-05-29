@@ -205,4 +205,164 @@ suite("shared/messages", () => {
 		assert.equal(typeof out[0].content, "string");
 		assert.equal(out[0].content, "test");
 	});
+
+	test("cacheFirstUserMessage tags first user message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first user message")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("assistant response")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("second user message")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { cacheFirstUserMessage: true });
+		assert.equal(out.length, 3);
+		// First user message should have cache_control
+		assert.ok(Array.isArray(out[0].content));
+		const firstContent = out[0].content as Array<{ type: string; cache_control?: { type: string } }>;
+		assert.equal(firstContent.length, 1);
+		assert.deepEqual(firstContent[0].cache_control, { type: "ephemeral" });
+		// Second user message should not have cache_control
+		assert.equal(typeof out[2].content, "string");
+	});
+
+	test("cacheConversation tags last message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first message")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("second message")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("last message")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { cacheConversation: true });
+		assert.equal(out.length, 3);
+		// First two messages should not have cache_control
+		assert.equal(typeof out[0].content, "string");
+		assert.equal(typeof out[1].content, "string");
+		// Last message should have cache_control
+		assert.ok(Array.isArray(out[2].content));
+		const lastContent = out[2].content as Array<{ type: string; cache_control?: { type: string } }>;
+		assert.equal(lastContent.length, 1);
+		assert.deepEqual(lastContent[0].cache_control, { type: "ephemeral" });
+	});
+
+	test("cacheFirstUserMessage and cacheConversation with single user message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("only user message")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { cacheFirstUserMessage: true, cacheConversation: true });
+		assert.equal(out.length, 1);
+		// Should only have one cache_control marker (idempotent)
+		assert.ok(Array.isArray(out[0].content));
+		const content = out[0].content as Array<{ type: string; cache_control?: { type: string } }>;
+		assert.equal(content.length, 1);
+		assert.deepEqual(content[0].cache_control, { type: "ephemeral" });
+	});
+
+	test("cacheFirstUserMessage and cacheConversation with multiple user messages", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first user")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("response")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("second user")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { cacheFirstUserMessage: true, cacheConversation: true });
+		assert.equal(out.length, 3);
+		// First user message should have cache_control
+		assert.ok(Array.isArray(out[0].content));
+		const firstContent = out[0].content as Array<{ type: string; cache_control?: { type: string } }>;
+		assert.deepEqual(firstContent[0].cache_control, { type: "ephemeral" });
+		// Assistant message should not have cache_control
+		assert.equal(typeof out[1].content, "string");
+		// Last user message should have cache_control
+		assert.ok(Array.isArray(out[2].content));
+		const lastContent = out[2].content as Array<{ type: string; cache_control?: { type: string } }>;
+		assert.deepEqual(lastContent[0].cache_control, { type: "ephemeral" });
+	});
+
+	test("cacheFirstUserMessage and cacheConversation with multiple user messages", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first user")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("response")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("second user")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { cacheFirstUserMessage: true, cacheConversation: true });
+		assert.equal(out.length, 3);
+		// First user message should have cache_control
+		assert.ok(Array.isArray(out[0].content));
+		const firstContent = out[0].content as Array<{ type: string; cache_control?: { type: string } }>;
+		assert.deepEqual(firstContent[0].cache_control, { type: "ephemeral" });
+		// Assistant message should not have cache_control
+		assert.equal(typeof out[1].content, "string");
+		// Last user message should have cache_control
+		assert.ok(Array.isArray(out[2].content));
+		const lastContent = out[2].content as Array<{ type: string; cache_control?: { type: string } }>;
+		assert.deepEqual(lastContent[0].cache_control, { type: "ephemeral" });
+	});
+
+	test("cacheConversation skips empty messages", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { cacheConversation: true });
+		// Since last message is empty, cache_control should go to first message
+		assert.ok(Array.isArray(out[0].content));
+		const firstContent = out[0].content as Array<{ type: string; cache_control?: { type: string } }>;
+		assert.deepEqual(firstContent[0].cache_control, { type: "ephemeral" });
+	});
 });
