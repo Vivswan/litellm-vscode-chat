@@ -87,6 +87,27 @@ suite("shared/messages", () => {
 		assert.ok(imageBlock.image_url.url.startsWith("data:image/png;base64,"));
 	});
 
+	test("converts image MIME types with parameters (stickers)", () => {
+		const imageData = new Uint8Array([0x52, 0x49, 0x46, 0x46]); // RIFF (webp container)
+		const dataPart = new vscode.LanguageModelDataPart(imageData, "image/webp; charset=binary");
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("What is this sticker?"), dataPart],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages);
+		assert.equal(out.length, 1);
+		assert.equal(out[0].role, "user");
+		assert.ok(Array.isArray(out[0].content), "content should be an array when images present");
+		const content = out[0].content as Array<{ type: string }>;
+		assert.equal(content.length, 2);
+		assert.equal(content[1].type, "image_url");
+		const imageBlock = content[1] as { type: string; image_url: { url: string } };
+		assert.ok(imageBlock.image_url.url.startsWith("data:image/webp;base64,"));
+	});
+
 	test("user message without images produces string content", () => {
 		const messages: vscode.LanguageModelChatMessage[] = [
 			{
@@ -172,6 +193,21 @@ suite("shared/messages", () => {
 		assert.ok((out[0].content as string).includes('{"key":"value"}'));
 	});
 
+	test("decodes JSON MIME types with charset parameters as text", () => {
+		const jsonData = new TextEncoder().encode('{"key":"value"}');
+		const jsonPart = new vscode.LanguageModelDataPart(jsonData, "application/json; charset=utf-8");
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("here is data: "), jsonPart],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages);
+		assert.equal(typeof out[0].content, "string");
+		assert.ok((out[0].content as string).includes('{"key":"value"}'));
+	});
+
 	test("converts PDF LanguageModelDataPart to file content block", () => {
 		const pdfData = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
 		const pdfPart = new vscode.LanguageModelDataPart(pdfData, "application/pdf");
@@ -187,6 +223,25 @@ suite("shared/messages", () => {
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 2);
 		assert.equal(content[0].type, "text");
+		assert.equal(content[1].type, "file");
+		const fileBlock = content[1] as { type: string; file: { file_data: string } };
+		assert.ok(fileBlock.file.file_data.startsWith("data:application/pdf;base64,"));
+	});
+
+	test("converts PDF MIME types with parameters to file content block", () => {
+		const pdfData = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+		const pdfPart = new vscode.LanguageModelDataPart(pdfData, "application/pdf; charset=binary");
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("Analyze this:"), pdfPart],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages);
+		const content = out[0].content as Array<{ type: string }>;
+		assert.ok(Array.isArray(content));
+		assert.equal(content.length, 2);
 		assert.equal(content[1].type, "file");
 		const fileBlock = content[1] as { type: string; file: { file_data: string } };
 		assert.ok(fileBlock.file.file_data.startsWith("data:application/pdf;base64,"));

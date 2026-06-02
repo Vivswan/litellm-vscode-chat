@@ -10,20 +10,25 @@ import type {
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
+function normalizeMimeType(mime: string): string {
+	const [base] = mime.split(";");
+	return (base ?? mime).trim().toLowerCase();
+}
+
 function isImageMimeType(mime: string): boolean {
-	return IMAGE_MIME_TYPES.has(mime.toLowerCase());
+	return IMAGE_MIME_TYPES.has(normalizeMimeType(mime));
 }
 
 function isTextMimeType(mime: string): boolean {
-	const lower = mime.toLowerCase();
+	const lower = normalizeMimeType(mime);
 	return lower.startsWith("text/") || lower === "application/json" || lower.endsWith("+json");
 }
 
 function convertDataPartToContentBlock(
 	part: vscode.LanguageModelDataPart
 ): OpenAIChatImageUrlContentBlock | OpenAIChatFileContentBlock | null {
-	const mime = part.mimeType.toLowerCase();
-	if (isImageMimeType(mime)) {
+	const mime = normalizeMimeType(part.mimeType);
+	if (IMAGE_MIME_TYPES.has(mime)) {
 		const base64 = Buffer.from(part.data).toString("base64");
 		return { type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } };
 	}
