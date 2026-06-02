@@ -30,6 +30,7 @@ export class StreamProcessor {
 	private _toolCallIdCounter: number;
 	private _log: (message: string, data?: unknown) => void;
 	private _onCost?: (costUsd: number) => void;
+	private _hasReportedCost = false;
 	private _inputCostPerToken?: number;
 	private _outputCostPerToken?: number;
 
@@ -53,6 +54,7 @@ export class StreamProcessor {
 
 	resetState(): void {
 		this._req = freshRequestState();
+		this._hasReportedCost = false;
 	}
 
 	async processStreamingResponse(
@@ -97,6 +99,7 @@ export class StreamProcessor {
 		} finally {
 			reader.releaseLock();
 			this._req = freshRequestState();
+			this._hasReportedCost = false;
 		}
 	}
 
@@ -126,17 +129,13 @@ export class StreamProcessor {
 					cost = promptTokens * (this._inputCostPerToken ?? 0) + completionTokens * (this._outputCostPerToken ?? 0);
 				}
 			}
-			if (Number.isFinite(cost) && cost >= 0 && this._onCost) {
-				this._onCost(cost);
-			}
+			this.reportCostOnce(cost);
 		}
 		const topLevelCost =
 			(delta.response_cost as unknown) ?? ((delta as Record<string, unknown>)["x-litellm-response-cost"] as unknown);
 		if (topLevelCost !== undefined) {
 			const cost = typeof topLevelCost === "number" ? topLevelCost : Number(topLevelCost);
-			if (Number.isFinite(cost) && cost >= 0 && this._onCost) {
-				this._onCost(cost);
-			}
+			this.reportCostOnce(cost);
 		}
 
 		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
@@ -479,6 +478,16 @@ export class StreamProcessor {
 				.replace(/<\|tool_call_(?:argument_)?(?:begin|end)\|>/g, "");
 		} catch {
 			return text;
+		}
+	}
+
+	private reportCostOnce(cost: number): void {
+		if (this._hasReportedCost || !this._onCost) {
+			return;
+		}
+		if (Number.isFinite(cost) && cost >= 0) {
+			this._hasReportedCost = true;
+			this._onCost(cost);
 		}
 	}
 }

@@ -96,4 +96,27 @@ suite("provider/streaming", () => {
 		assert.ok(toolPart, "Should emit a tool call from inline control tokens");
 		assert.equal(toolPart.name, "my_tool");
 	});
+
+	test("processDelta reports cost only once when usage and top-level cost both exist", async () => {
+		const costs: number[] = [];
+		const stream = new StreamProcessor(
+			0,
+			() => {},
+			(cost) => {
+				costs.push(cost);
+			}
+		);
+		const progress = { report: (_: vscode.LanguageModelResponsePart) => {} };
+
+		await stream.processDelta(
+			{
+				choices: [],
+				usage: { response_cost: 0.12, prompt_tokens: 10, completion_tokens: 20 },
+				response_cost: 0.12,
+			},
+			progress
+		);
+
+		assert.deepEqual(costs, [0.12], "Should only report one cost value per request stream");
+	});
 });

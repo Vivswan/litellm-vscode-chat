@@ -155,10 +155,12 @@ export async function sendChatRequest(
 		throw new Error(`LiteLLM API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`);
 	}
 
+	let hasReportedResponseCost = false;
 	const responseCostHeader = response.headers.get("x-litellm-response-cost");
 	if (responseCostHeader) {
 		const parsed = Number(responseCostHeader);
 		if (Number.isFinite(parsed) && parsed >= 0) {
+			hasReportedResponseCost = true;
 			onResponseCost(parsed);
 			log("LiteLLM response cost received", { responseCostUsd: parsed });
 		}
@@ -171,10 +173,12 @@ export async function sendChatRequest(
 	const streamProcessor = new StreamProcessor(
 		toolCallIdCounter,
 		log,
-		(cost) => {
-			log("LiteLLM streamed response cost", { responseCostUsd: cost });
-			onResponseCost(cost);
-		},
+		hasReportedResponseCost
+			? undefined
+			: (cost) => {
+					log("LiteLLM streamed response cost", { responseCostUsd: cost });
+					onResponseCost(cost);
+				},
 		{
 			inputCostPerToken: route?.inputCostPerToken,
 			outputCostPerToken: route?.outputCostPerToken,
