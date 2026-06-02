@@ -13,6 +13,13 @@ export interface OpenAIToolCall {
 export interface OpenAIFunctionToolDef {
 	type: "function";
 	function: { name: string; description?: string; parameters?: object };
+	/**
+	 * Anthropic prompt-caching breakpoint. When present on the last tool
+	 * definition, the entire tools prefix is cached and reused across requests.
+	 */
+	cache_control?: {
+		type: "ephemeral";
+	};
 }
 
 /**

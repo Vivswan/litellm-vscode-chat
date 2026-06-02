@@ -119,13 +119,39 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
 }
 
 /**
+ * Apply an Anthropic ephemeral cache breakpoint to a message by tagging its
+ * last text content block. String content is promoted to a single text block.
+ * Returns true if a breakpoint was placed.
+ */
+function applyCacheControlToMessage(msg: OpenAIChatMessage): boolean {
+	if (typeof msg.content === "string") {
+		if (msg.content.length === 0) {
+			return false;
+		}
+		msg.content = [{ type: "text", text: msg.content, cache_control: { type: "ephemeral" } }];
+		return true;
+	}
+	if (Array.isArray(msg.content) && msg.content.length > 0) {
+		for (let i = msg.content.length - 1; i >= 0; i--) {
+			const block = msg.content[i];
+			if (block.type === "text") {
+				block.cache_control = { type: "ephemeral" };
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
-	options?: { cacheSystemPrompt?: boolean }
+	options?: { cacheSystemPrompt?: boolean; cacheConversation?: boolean; cacheFirstUserMessage?: boolean }
 ): OpenAIChatMessage[] {
 	const out: OpenAIChatMessage[] = [];
+	let systemPromptCached = false;
 	for (const m of messages) {
 		const role = mapRole(m);
 		const textParts: string[] = [];
@@ -197,7 +223,7 @@ export function convertMessages(
 		} else {
 			const text = textParts.join("");
 			if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
-				if (role === "system" && options?.cacheSystemPrompt) {
+				if (role === "system" && options?.cacheSystemPrompt && !systemPromptCached) {
 					const content: OpenAIChatContentBlock[] = [
 						{
 							type: "text",
@@ -206,11 +232,39 @@ export function convertMessages(
 						},
 					];
 					out.push({ role, content });
+					systemPromptCached = true;
 				} else {
 					out.push({ role, content: text });
 				}
 			}
 		}
 	}
+
+	// First-user-message breakpoint: tag the first user message so its prefix
+	// (tools + system + first user turn) becomes a long-lived cacheable anchor
+	// that survives the entire agent session, even when the rolling-last
+	// breakpoint moves to a later message that diverges between turns.
+	if (options?.cacheFirstUserMessage && out.length > 0) {
+		for (const msg of out) {
+			if (msg.role === "user" && applyCacheControlToMessage(msg)) {
+				break;
+			}
+		}
+	}
+
+	// Rolling conversation breakpoint: tag the last message so the entire
+	// prefix (system + tools + prior turns) is cached and reused on the next
+	// agent round-trip. Anthropic allows up to 4 breakpoints; combined with the
+	// system-prompt, last-tool, and first-user breakpoints this stays within
+	// budget. If the rolling tag lands on the same message as the first-user
+	// tag, the helper is idempotent and still emits a single marker.
+	if (options?.cacheConversation && out.length > 0) {
+		for (let i = out.length - 1; i >= 0; i--) {
+			if (applyCacheControlToMessage(out[i])) {
+				break;
+			}
+		}
+	}
+
 	return out;
 }

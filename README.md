@@ -140,7 +140,7 @@ All `modelParameters` keys are passed through to LiteLLM — the extension does 
 
 ### Prompt Caching (Anthropic Claude)
 
-The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). Prompt caching reduces costs and improves response times by caching the system prompt across requests.
+The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). Prompt caching reduces costs and improves response times by caching a stable request prefix across turns (especially in agent sessions).
 
 **To configure**: Add to your `settings.json`:
 
@@ -153,8 +153,8 @@ The extension supports prompt caching for models that advertise this capability 
 **How it works:**
 - Automatically detects prompt caching support from LiteLLM's `/v1/model/info` endpoint
 - Only affects models that explicitly support prompt caching (primarily Claude models)
-- Adds `cache_control` blocks to system messages when enabled
-- Disabled by default for models without support
+- Adds up to 4 `cache_control` breakpoints per request (tools, system prompt, first user message, and rolling last message)
+- No effect for models without support
 
 **Benefits:**
 - Reduced API costs (cached tokens are cheaper)

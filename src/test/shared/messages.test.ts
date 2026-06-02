@@ -205,4 +205,100 @@ suite("shared/messages", () => {
 		assert.equal(typeof out[0].content, "string");
 		assert.equal(out[0].content, "test");
 	});
+
+	test("cacheFirstUserMessage tags only the first user message", () => {
+		const systemRole = -1 as unknown as vscode.LanguageModelChatMessageRole;
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: systemRole,
+				content: [new vscode.LanguageModelTextPart("sys")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("ok")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("second")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, { cacheFirstUserMessage: true }) as Array<{
+			role: string;
+			content?: unknown;
+		}>;
+
+		const firstUser = out.find((m) => m.role === "user")!;
+		assert.ok(Array.isArray(firstUser.content), "first user should be promoted to array content");
+		const firstBlocks = firstUser.content as Array<{ type: string; cache_control?: unknown }>;
+		assert.equal(firstBlocks[0].type, "text");
+		assert.deepEqual(firstBlocks[0].cache_control, { type: "ephemeral" });
+
+		const secondUser = out.filter((m) => m.role === "user")[1]!;
+		assert.equal(typeof secondUser.content, "string");
+
+		const system = out.find((m) => m.role === "system")!;
+		assert.equal(typeof system.content, "string");
+	});
+
+	test("cacheConversation tags the last text-bearing message (skipping tool-call-only assistant turns)", () => {
+		const toolCall = new vscode.LanguageModelToolCallPart("call1", "search", { q: "hello" });
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("hi")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [toolCall],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, { cacheConversation: true }) as Array<{ role: string; content?: unknown }>;
+		assert.equal(out.length, 2);
+
+		const assistant = out[1];
+		assert.equal(assistant.role, "assistant");
+		assert.equal(assistant.content, undefined);
+
+		const user = out[0];
+		assert.ok(Array.isArray(user.content), "user should be promoted to array content");
+		const blocks = user.content as Array<{ type: string; cache_control?: unknown }>;
+		assert.deepEqual(blocks[0].cache_control, { type: "ephemeral" });
+	});
+
+	test("cacheFirstUserMessage + cacheConversation stays idempotent when both land on the same message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("hi")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("ok")],
+				name: undefined,
+			},
+		];
+
+		const opts = { cacheFirstUserMessage: true, cacheConversation: true };
+		const out1 = convertMessages(messages, opts);
+		const out2 = convertMessages(messages, opts);
+		assert.deepEqual(out1, out2);
+
+		const user = out1[0] as unknown as { content?: unknown };
+		assert.ok(Array.isArray(user.content));
+		const blocks = user.content as Array<{ type: string; cache_control?: unknown }>;
+		assert.deepEqual(blocks[0].cache_control, { type: "ephemeral" });
+	});
 });

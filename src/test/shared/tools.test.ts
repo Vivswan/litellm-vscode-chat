@@ -41,6 +41,22 @@ suite("shared/tools", () => {
 		assert.ok(Array.isArray(out.tools) && out.tools.length === 2);
 	});
 
+	test("convertTools can tag last tool with cache_control", () => {
+		const out = convertTools(
+			{
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				tools: [
+					{ name: "tool_a", description: "A", inputSchema: {} },
+					{ name: "tool_b", description: "B", inputSchema: {} },
+				],
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions,
+			{ cacheTools: true }
+		);
+		assert.ok(out.tools && out.tools.length === 2);
+		assert.equal((out.tools[0] as unknown as { cache_control?: unknown }).cache_control, undefined);
+		assert.deepEqual((out.tools[1] as unknown as { cache_control?: unknown }).cache_control, { type: "ephemeral" });
+	});
+
 	test("schema preserves anyOf/oneOf/allOf branches", () => {
 		const out = convertTools({
 			tools: [
