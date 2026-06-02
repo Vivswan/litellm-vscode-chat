@@ -118,12 +118,91 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
 	return text;
 }
 
+/** Cache TTL accepted by the breakpoint helpers. "5m" omits the wire field. */
+export type AnchorTtl = "5m" | "1h";
+
+/** Build a cache_control object, omitting `ttl` for the default 5m tier. */
+function buildCacheControl(ttl: AnchorTtl): { type: "ephemeral"; ttl?: "1h" } {
+	return ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+}
+
+/**
+ * Apply an Anthropic ephemeral cache breakpoint to a message by tagging its
+ * last text content block. String content is promoted to a single text block.
+ * Returns true if a breakpoint was placed.
+ */
+function applyCacheControlToMessage(msg: OpenAIChatMessage, ttl: AnchorTtl): boolean {
+	if (typeof msg.content === "string") {
+		if (msg.content.length === 0) {
+			return false;
+		}
+		msg.content = [{ type: "text", text: msg.content, cache_control: buildCacheControl(ttl) }];
+		return true;
+	}
+	if (Array.isArray(msg.content) && msg.content.length > 0) {
+		for (let i = msg.content.length - 1; i >= 0; i--) {
+			const block = msg.content[i];
+			if (block.type === "text") {
+				block.cache_control = buildCacheControl(ttl);
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/**
+ * Placement strategy for the rolling-last cache_control breakpoint.
+ *  - "always":          tag whatever the last message is.
+ *  - "stableTurnsOnly": skip the rolling-last breakpoint when the last message
+ *                       is a tool result (role: "tool"). Walks backward and
+ *                       tags the first non-tool message instead. This avoids
+ *                       anchoring the cache on tool-result bytes that VS Code
+ *                       may re-render or truncate between turns.
+ *  - "never":           never place a rolling-last breakpoint. Static anchors
+ *                       (tools / system / first user) still fire when their
+ *                       respective specs are set.
+ */
+export type RollingPlacement = "always" | "stableTurnsOnly" | "never";
+
+/** Per-anchor cache spec. `undefined` means "do not place this anchor". */
+export interface AnchorSpec {
+	ttl: AnchorTtl;
+}
+
+/** Rolling-last anchor spec: a TTL plus a placement strategy. */
+export interface RollingSpec extends AnchorSpec {
+	placement: RollingPlacement;
+}
+
+/** Cache plan consumed by {@link convertMessages}. */
+export interface MessageCacheSpec {
+	/** Tag the system prompt at this TTL. Omit to skip. */
+	system?: AnchorSpec;
+	/** Tag the first user message at this TTL. Omit to skip. */
+	firstUser?: AnchorSpec;
+	/** Rolling-last anchor. Omit to skip. */
+	rolling?: RollingSpec;
+}
+
 /**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
+ *
+ * `cache` is a resolved per-anchor plan (see {@link MessageCacheSpec}). Each
+ * present anchor places a `cache_control` marker at its specified TTL; absent
+ * anchors are skipped. Note the tools anchor is handled separately in
+ * `convertTools`.
+ *
+ * `placedRollingOn` is an optional out-parameter: if provided, its `role` field
+ * is filled with the role of the message that received the rolling-last marker
+ * ("user" / "assistant" / "tool"), or "skipped" when no marker was placed.
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
-	options?: { cacheSystemPrompt?: boolean }
+	options?: {
+		cache?: MessageCacheSpec;
+		placedRollingOn?: { role: string };
+	}
 ): OpenAIChatMessage[] {
 	const out: OpenAIChatMessage[] = [];
 	for (const m of messages) {
@@ -197,12 +276,12 @@ export function convertMessages(
 		} else {
 			const text = textParts.join("");
 			if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
-				if (role === "system" && options?.cacheSystemPrompt) {
+				if (role === "system" && options?.cache?.system) {
 					const content: OpenAIChatContentBlock[] = [
 						{
 							type: "text",
 							text,
-							cache_control: { type: "ephemeral" },
+							cache_control: buildCacheControl(options.cache.system.ttl),
 						},
 					];
 					out.push({ role, content });
@@ -212,5 +291,57 @@ export function convertMessages(
 			}
 		}
 	}
+
+	// First-user-message breakpoint: tag the first user message so its prefix
+	// (tools + system + first user turn) becomes a long-lived cacheable anchor.
+	// Why: in long agent runs the very first user prompt + the system prompt +
+	// the tools array form a multi-thousand-token block that is byte-identical
+	// for every subsequent turn. A breakpoint here guarantees that block is
+	// cached even if the rolling-conversation breakpoint moves to a later
+	// message that diverges between turns. Anthropic allows up to 4 breakpoints
+	// (system + tools + first-user + rolling-last = 4) so this stays in budget.
+	if (options?.cache?.firstUser && out.length > 0) {
+		const firstUserTtl = options.cache.firstUser.ttl;
+		for (const msg of out) {
+			if (msg.role === "user" && applyCacheControlToMessage(msg, firstUserTtl)) {
+				break;
+			}
+		}
+	}
+
+	// Rolling conversation breakpoint: tag the last message so the entire
+	// prefix (system + tools + prior turns) is cached and reused on the next
+	// agent round-trip. Anthropic allows up to 4 breakpoints; combined with the
+	// system-prompt, last-tool, and first-user breakpoints this stays within
+	// budget. If the rolling tag lands on the same message as the first-user
+	// tag (only one user message in the conversation), the helper is idempotent
+	// and we still emit a single cache_control marker for that message.
+	//
+	// Placement strategy (orthogonal to TTL):
+	//   "always"          -> tag the last message regardless of role.
+	//   "stableTurnsOnly" -> skip role:"tool" tails (volatile bytes); tag the
+	//                        first non-tool message walking backwards.
+	//   "never"           -> place no rolling marker (spec absent).
+	const rolling = options?.cache?.rolling;
+	if (rolling && rolling.placement !== "never" && out.length > 0) {
+		const skipToolResults = rolling.placement === "stableTurnsOnly";
+		for (let i = out.length - 1; i >= 0; i--) {
+			const msg = out[i];
+			if (skipToolResults && msg.role === "tool") {
+				continue;
+			}
+			if (applyCacheControlToMessage(msg, rolling.ttl)) {
+				if (options?.placedRollingOn) {
+					options.placedRollingOn.role = msg.role;
+				}
+				break;
+			}
+		}
+	}
+
+	if (options?.placedRollingOn && !options.placedRollingOn.role) {
+		options.placedRollingOn.role = "skipped";
+	}
+
 	return out;
 }
