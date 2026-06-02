@@ -8,10 +8,8 @@ import type {
 	OpenAIToolCall,
 } from "../types";
 
-const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-
 function isImageMimeType(mime: string): boolean {
-	return IMAGE_MIME_TYPES.has(mime.toLowerCase());
+	return mime.toLowerCase().startsWith("image/");
 }
 
 function isTextMimeType(mime: string): boolean {
