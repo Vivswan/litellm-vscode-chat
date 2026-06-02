@@ -70,9 +70,29 @@ export async function sendChatRequest(
 		});
 	}
 	const supportsPromptCaching = promptCachingSupport.get(model.id) === true;
-	const openaiMessages = convertMessages(messages, {
+	const converted = convertMessages(messages, {
 		cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
 	});
+	const openaiMessages = converted.messages;
+	const multimodalContent = converted.multimodalContent;
+
+	// Log multimodal content if present
+	if (multimodalContent.imageCount > 0 || multimodalContent.pdfCount > 0) {
+		log("Multimodal content detected", {
+			images: multimodalContent.imageCount,
+			pdfs: multimodalContent.pdfCount,
+			modelSupportsVision: model.capabilities?.imageInput === true,
+		});
+
+		// Warn if sending images to a non-vision model
+		if (multimodalContent.imageCount > 0 && model.capabilities?.imageInput !== true) {
+			log(
+				"WARNING: Sending images to a model that does not advertise vision support. The model may reject the request or ignore the images.",
+				{ modelId: model.id, imageCount: multimodalContent.imageCount }
+			);
+		}
+	}
+
 	validateRequest(messages);
 	const toolConfig = convertTools(options);
 

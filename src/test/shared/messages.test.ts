@@ -29,11 +29,12 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages) as ConvertedMessage[];
-		assert.deepEqual(out, [
+		const result = convertMessages(messages);
+		assert.deepEqual(result.messages, [
 			{ role: "user", content: "hi" },
 			{ role: "assistant", content: "hello" },
 		]);
+		assert.deepEqual(result.multimodalContent, { imageCount: 0, pdfCount: 0 });
 	});
 
 	test("maps tool calls and results", () => {
@@ -43,7 +44,8 @@ suite("shared/messages", () => {
 			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [toolCall], name: undefined },
 			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [toolResult], name: undefined },
 		];
-		const out = convertMessages(messages) as ConvertedMessage[];
+		const result = convertMessages(messages);
+		const out = result.messages as ConvertedMessage[];
 		const hasToolCalls = out.some((m: ConvertedMessage) => Array.isArray(m.tool_calls));
 		const hasToolMsg = out.some((m: ConvertedMessage) => m.role === "tool");
 		assert.ok(hasToolCalls && hasToolMsg);
@@ -56,7 +58,8 @@ suite("shared/messages", () => {
 			content: [new vscode.LanguageModelTextPart("before "), toolCall, new vscode.LanguageModelTextPart(" after")],
 			name: undefined,
 		};
-		const out = convertMessages([msg]) as ConvertedMessage[];
+		const result = convertMessages([msg]);
+		const out = result.messages as ConvertedMessage[];
 		assert.equal(out.length, 1);
 		assert.equal(out[0].role, "assistant");
 		assert.ok(out[0].content?.includes("before"));
@@ -75,7 +78,8 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const result = convertMessages(messages);
+		const out = result.messages;
 		assert.equal(out.length, 1);
 		assert.equal(out[0].role, "user");
 		assert.ok(Array.isArray(out[0].content), "content should be an array when images present");
@@ -85,6 +89,8 @@ suite("shared/messages", () => {
 		assert.equal(content[1].type, "image_url");
 		const imageBlock = content[1] as { type: string; image_url: { url: string } };
 		assert.ok(imageBlock.image_url.url.startsWith("data:image/png;base64,"));
+		assert.equal(result.multimodalContent.imageCount, 1);
+		assert.equal(result.multimodalContent.pdfCount, 0);
 	});
 
 	test("user message without images produces string content", () => {
@@ -95,9 +101,12 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const result = convertMessages(messages);
+		const out = result.messages;
 		assert.equal(out[0].content, "hello");
 		assert.equal(typeof out[0].content, "string");
+		assert.equal(result.multimodalContent.imageCount, 0);
+		assert.equal(result.multimodalContent.pdfCount, 0);
 	});
 
 	test("image-only user message produces array content", () => {
@@ -110,12 +119,15 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const result = convertMessages(messages);
+		const out = result.messages;
 		assert.equal(out.length, 1);
 		const content = out[0].content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 1);
 		assert.equal(content[0].type, "image_url");
+		assert.equal(result.multimodalContent.imageCount, 1);
+		assert.equal(result.multimodalContent.pdfCount, 0);
 	});
 
 	test("handles multiple images in a single user message", () => {
@@ -128,13 +140,16 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const result = convertMessages(messages);
+		const out = result.messages;
 		const content = out[0].content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 3);
 		assert.equal(content[0].type, "text");
 		assert.equal(content[1].type, "image_url");
 		assert.equal(content[2].type, "image_url");
+		assert.equal(result.multimodalContent.imageCount, 2);
+		assert.equal(result.multimodalContent.pdfCount, 0);
 	});
 
 	test("preserves ordering of text and image parts", () => {
@@ -146,7 +161,8 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const result = convertMessages(messages);
+		const out = result.messages;
 		const content = out[0].content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 3);
@@ -155,6 +171,8 @@ suite("shared/messages", () => {
 		assert.equal(content[1].type, "image_url");
 		assert.equal(content[2].type, "text");
 		assert.equal((content[2] as unknown as { text: string }).text, "after");
+		assert.equal(result.multimodalContent.imageCount, 1);
+		assert.equal(result.multimodalContent.pdfCount, 0);
 	});
 
 	test("decodes text/json LanguageModelDataPart as text", () => {
@@ -167,9 +185,12 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const result = convertMessages(messages);
+		const out = result.messages;
 		assert.equal(typeof out[0].content, "string");
 		assert.ok((out[0].content as string).includes('{"key":"value"}'));
+		assert.equal(result.multimodalContent.imageCount, 0);
+		assert.equal(result.multimodalContent.pdfCount, 0);
 	});
 
 	test("converts PDF LanguageModelDataPart to file content block", () => {
@@ -182,7 +203,8 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const result = convertMessages(messages);
+		const out = result.messages;
 		const content = out[0].content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 2);
@@ -190,6 +212,8 @@ suite("shared/messages", () => {
 		assert.equal(content[1].type, "file");
 		const fileBlock = content[1] as { type: string; file: { file_data: string } };
 		assert.ok(fileBlock.file.file_data.startsWith("data:application/pdf;base64,"));
+		assert.equal(result.multimodalContent.imageCount, 0);
+		assert.equal(result.multimodalContent.pdfCount, 1);
 	});
 
 	test("skips unsupported binary LanguageModelDataPart without crash", () => {
@@ -201,8 +225,11 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const result = convertMessages(messages);
+		const out = result.messages;
 		assert.equal(typeof out[0].content, "string");
 		assert.equal(out[0].content, "test");
+		assert.equal(result.multimodalContent.imageCount, 0);
+		assert.equal(result.multimodalContent.pdfCount, 0);
 	});
 });

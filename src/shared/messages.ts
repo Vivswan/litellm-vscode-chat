@@ -118,14 +118,24 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
 	return text;
 }
 
+export interface ConvertedMessagesResult {
+	messages: OpenAIChatMessage[];
+	multimodalContent: {
+		imageCount: number;
+		pdfCount: number;
+	};
+}
+
 /**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
 	options?: { cacheSystemPrompt?: boolean }
-): OpenAIChatMessage[] {
+): ConvertedMessagesResult {
 	const out: OpenAIChatMessage[] = [];
+	let imageCount = 0;
+	let pdfCount = 0;
 	for (const m of messages) {
 		const role = mapRole(m);
 		const textParts: string[] = [];
@@ -153,6 +163,11 @@ export function convertMessages(
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				const block = convertDataPartToContentBlock(part);
 				if (block) {
+					if (block.type === "image_url") {
+						imageCount++;
+					} else if (block.type === "file") {
+						pdfCount++;
+					}
 					if (textParts.length > 0) {
 						contentBlocks.push({ type: "text", text: textParts.join("") });
 						textParts.length = 0;
@@ -212,5 +227,11 @@ export function convertMessages(
 			}
 		}
 	}
-	return out;
+	return {
+		messages: out,
+		multimodalContent: {
+			imageCount,
+			pdfCount,
+		},
+	};
 }
