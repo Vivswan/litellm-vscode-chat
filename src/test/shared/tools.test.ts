@@ -141,4 +141,63 @@ suite("shared/tools", () => {
 		assert.equal(props.value.type, undefined);
 		assert.equal(props.value.properties, undefined);
 	});
+
+	test("cacheTools adds cache_control to last tool only", () => {
+		const out = convertTools(
+			{
+				tools: [
+					{ name: "tool_a", description: "A", inputSchema: {} },
+					{ name: "tool_b", description: "B", inputSchema: {} },
+					{ name: "tool_c", description: "C", inputSchema: {} },
+				],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions,
+			{ cacheTools: true }
+		);
+		assert.ok(out.tools);
+		assert.equal(out.tools.length, 3);
+		assert.equal(out.tools[0].cache_control, undefined, "First tool should not have cache_control");
+		assert.equal(out.tools[1].cache_control, undefined, "Second tool should not have cache_control");
+		assert.deepEqual(out.tools[2].cache_control, { type: "ephemeral" }, "Last tool should have cache_control");
+	});
+
+	test("cacheTools does nothing when false", () => {
+		const out = convertTools(
+			{
+				tools: [
+					{ name: "tool_a", description: "A", inputSchema: {} },
+					{ name: "tool_b", description: "B", inputSchema: {} },
+				],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions,
+			{ cacheTools: false }
+		);
+		assert.ok(out.tools);
+		assert.equal(out.tools[0].cache_control, undefined);
+		assert.equal(out.tools[1].cache_control, undefined);
+	});
+
+	test("cacheTools handles single tool", () => {
+		const out = convertTools(
+			{
+				tools: [{ name: "only_tool", description: "Only", inputSchema: {} }],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions,
+			{ cacheTools: true }
+		);
+		assert.ok(out.tools);
+		assert.equal(out.tools.length, 1);
+		assert.deepEqual(out.tools[0].cache_control, { type: "ephemeral" });
+	});
+
+	test("cacheTools does nothing with empty tools", () => {
+		const out = convertTools(
+			{
+				tools: [],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions,
+			{ cacheTools: true }
+		);
+		assert.deepEqual(out.tools, undefined);
+	});
 });
