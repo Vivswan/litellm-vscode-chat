@@ -24,12 +24,15 @@ export interface OpenAIFunctionToolDef {
 }
 
 /**
- * Anthropic ephemeral cache breakpoint. `ttl` is omitted for the default
- * 5-minute lifetime and only set explicitly to "1h" for the extended tier.
+ * Anthropic ephemeral cache breakpoint as serialized on the wire. The default
+ * 5-minute lifetime is encoded by *omitting* `ttl` entirely; the field is only
+ * ever set explicitly to "1h" for the extended tier. (The 5m-vs-1h *input*
+ * decision is the internal `AnchorTtl` type in `shared/messages.ts`; this
+ * interface is the wire contract and therefore never carries "5m".)
  */
 export interface CacheControl {
 	type: "ephemeral";
-	ttl?: "5m" | "1h";
+	ttl?: "1h";
 }
 
 /**
