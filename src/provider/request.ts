@@ -108,9 +108,14 @@ export function estimateSystemPromptTokens(msgs: readonly vscode.LanguageModelCh
 	let total = 0;
 	for (const m of msgs) {
 		const r = m.role as unknown as number;
-		if (r !== USER && r !== ASSISTANT) {
-			total += estimateSingleMessageTokens(m);
+		// Only the *leading* system block is cached, so stop accumulating once
+		// the conversation proper begins. A stray system-role message later in
+		// the transcript must not inflate the `system` anchor size (which would
+		// mis-drive the minCacheTokens floor and auto-mode TTL gating).
+		if (r === USER || r === ASSISTANT) {
+			break;
 		}
+		total += estimateSingleMessageTokens(m);
 	}
 	return total;
 }

@@ -193,7 +193,9 @@ export interface MessageCacheSpec {
  *
  * `placedRollingOn` is an optional out-parameter: if provided, its `role` field
  * is filled with the role of the message that received the rolling-last marker
- * ("user" / "assistant" / "tool"), or "skipped" when no marker was placed.
+ * ("user" / "assistant" / "tool" / "system"), or "skipped" when no marker was
+ * placed. ("system" can occur when the only cacheable tail is a leading system
+ * message — e.g. a system-only transcript with placement "always".)
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
