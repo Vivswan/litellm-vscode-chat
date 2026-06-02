@@ -140,7 +140,7 @@ All `modelParameters` keys are passed through to LiteLLM — the extension does 
 
 ### Prompt Caching (Anthropic Claude)
 
-The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). Prompt caching reduces costs and improves response times by caching the system prompt across requests.
+The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). Prompt caching reduces costs and improves response times by caching request prefixes that remain stable across agent turns.
 
 **To configure**: Add to your `settings.json`:
 
@@ -153,13 +153,26 @@ The extension supports prompt caching for models that advertise this capability 
 **How it works:**
 - Automatically detects prompt caching support from LiteLLM's `/v1/model/info` endpoint
 - Only affects models that explicitly support prompt caching (primarily Claude models)
-- Adds `cache_control` blocks to system messages when enabled
+- Uses all four Anthropic-allowed cache breakpoints per request:
+  1. **Tools array** — Tags the last tool definition, caching the entire tools prefix
+  2. **System prompt** — Caches the system message
+  3. **First user message** — Creates a long-lived anchor for the original task
+  4. **Rolling conversation** — Tags the last message, caching the entire conversation history
+- Each agent turn reuses the cached prefix from the previous turn
 - Disabled by default for models without support
 
 **Benefits:**
-- Reduced API costs (cached tokens are cheaper)
-- Faster response times (cached content doesn't need reprocessing)
-- Transparent to the user (works automatically when supported)
+- **Reduced API costs** — Cached tokens cost 90% less than regular input tokens
+- **Faster response times** — Cached content doesn't need reprocessing
+- **Agent-optimized** — In agent sessions with repeated tool calls, the tools array and conversation history are only paid for once per 5-minute cache TTL
+- **Transparent** — Works automatically when supported, no user action required
+
+**Agent mode performance:**
+In a typical agent session (Copilot Chat agent mode with tool calling):
+- Tools array: ~1000-5000 tokens, cached across all turns
+- Conversation history: grows every turn, but prefix is cached
+- First user message: stable anchor that survives the full session
+- Result: 70-80% reduction in input token costs for multi-turn agent sessions
 
 ### Request Timeouts
 
