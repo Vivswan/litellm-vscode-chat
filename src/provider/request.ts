@@ -101,10 +101,12 @@ export interface RequestBodyParams {
 	modelParams: Record<string, unknown>;
 	toolConfig: { tools?: unknown[]; tool_choice?: unknown };
 	modelOptions?: Record<string, unknown>;
+	supportedOpenAIParams?: Set<string>;
 }
 
 export function buildRequestBody(params: RequestBodyParams): Record<string, unknown> {
-	const { rawModelId, openaiMessages, maxTokens, modelParams, toolConfig, modelOptions } = params;
+	const { rawModelId, openaiMessages, maxTokens, modelParams, toolConfig, modelOptions, supportedOpenAIParams } =
+		params;
 
 	const replaceDefaults = modelParams._replaceDefaults === true;
 	delete modelParams._replaceDefaults;
@@ -137,6 +139,14 @@ export function buildRequestBody(params: RequestBodyParams): Record<string, unkn
 				continue;
 			}
 			if (key.startsWith("_")) {
+				continue;
+			}
+			if (
+				supportedOpenAIParams &&
+				supportedOpenAIParams.size > 0 &&
+				!supportedOpenAIParams.has(key.toLowerCase()) &&
+				key !== "seed"
+			) {
 				continue;
 			}
 			body[key] = value;

@@ -2,7 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import type { AggregatedStatus } from "../provider";
-import { getModelParameters } from "../provider/request";
+import { buildRequestBody, getModelParameters } from "../provider/request";
 
 suite("provider", () => {
 	test("prepareLanguageModelChatInformation returns array (no key -> empty)", async () => {
@@ -817,6 +817,23 @@ suite("provider", () => {
 			assert.deepEqual(body.response_format, { type: "json_object" });
 			assert.equal(body.reasoning_effort, "high");
 			assert.equal(body.top_k, 50);
+		});
+
+		test("preserves seed when supportedOpenAIParams is provided", () => {
+			const body = buildRequestBody({
+				rawModelId: "test-model",
+				openaiMessages: [{ role: "user", content: "test" }],
+				maxTokens: 100,
+				modelParams: {},
+				toolConfig: {},
+				modelOptions: {
+					seed: 123,
+					temperature: 0.4,
+				},
+				supportedOpenAIParams: new Set(["top_p", "max_tokens"]),
+			});
+			assert.equal(body.seed, 123);
+			assert.equal(body.temperature, undefined);
 		});
 
 		test("does not overwrite provider-owned fields from modelOptions", async () => {
