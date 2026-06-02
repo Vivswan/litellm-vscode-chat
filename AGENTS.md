@@ -173,7 +173,11 @@ The provider fetches model metadata from LiteLLM's `/v1/model/info` endpoint:
 - **Cache management**: Only clears cache on successful fetch to preserve data on failure
 - **Cache control**: Adds `cache_control` blocks to system messages for supported models when enabled
 
-Prompt caching is controlled by `promptCaching.enabled` setting (default: true) and only affects models that advertise support.
+Prompt caching is controlled by the `promptCaching.mode` setting (`off` | `chat` | `agent` | `auto`, default: `auto`) and only affects models that advertise support. The per-anchor TTL ("5m" vs extended "1h") is decided by a pure resolver in `src/provider/cacheStrategy.ts` (`resolveCachePlan`), which `client.ts` calls with measured anchor sizes:
+- **Mode → TTL matrix**: `off` = nothing cached; `chat` = all four anchors 5m; `agent` = head (tools/system/firstUser) 1h, rolling 5m; `auto` = system 1h, firstUser & tools 1h when their estimated size ≥ `tokenSizeAutoBreakpoint` (default 8000) else 5m, rolling always 5m.
+- **`minCacheTokens`** (default 1024): a universal floor — any anchor whose estimated block size is below it is suppressed (the provider won't cache a prefix shorter than its minimum). Also handles the degenerate tiny/absent system prompt.
+- **`rollingLastMessage`** (default `stableTurnsOnly`): orthogonal to `mode`; controls *placement* of the rolling anchor (`always`/`stableTurnsOnly`/`never`), not its TTL.
+- **TTL wire format**: "5m" omits the `ttl` field entirely (Anthropic default); "1h" emits `ttl: "1h"`. The 1h tier requires the gateway to forward the extended-cache-ttl beta; otherwise it silently downgrades to 5m. The diagnostic log records the resolved per-anchor TTL and measured sizes.
 
 **Streaming Response Processing**
 
