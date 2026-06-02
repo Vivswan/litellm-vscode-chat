@@ -550,6 +550,14 @@ suite("provider", () => {
 			assert.equal(cheapestEntry.maxOutputTokens, 4000);
 			assert.equal(fastestEntry.maxOutputTokens, 4000);
 			assert.equal(cheapestEntry.maxInputTokens, 46000);
+			assert.equal(cheapestEntry.name, "test-model (cheapest)");
+			assert.equal(fastestEntry.name, "test-model (fastest)");
+			assert.equal(cheapestEntry.detail, "LiteLLM");
+			assert.equal(fastestEntry.detail, "LiteLLM");
+			assert.equal(cheapestEntry.tooltip, "LiteLLM via the cheapest provider");
+			assert.equal(fastestEntry.tooltip, "LiteLLM via the fastest provider");
+			assert.ok(!(cheapestEntry.tooltip ?? "").includes("provider-a"));
+			assert.ok(!(fastestEntry.tooltip ?? "").includes("provider-a"));
 		});
 
 		test("provider max_output_tokens takes priority over max_tokens", async () => {
