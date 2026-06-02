@@ -21,6 +21,37 @@ suite("shared/tools", () => {
 		assert.equal(out.tools[0].function.name, "do_something");
 	});
 
+	test("convertTools tags only the last tool when cacheTools is enabled", () => {
+		const out = convertTools(
+			{
+				tools: [
+					{ name: "tool_a", description: "A", inputSchema: {} },
+					{ name: "tool_b", description: "B", inputSchema: {} },
+				],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions,
+			{ cacheTools: true }
+		);
+
+		assert.ok(Array.isArray(out.tools) && out.tools.length === 2);
+		assert.equal(out.tools[0].cache_control, undefined);
+		assert.deepEqual(out.tools[1].cache_control, { type: "ephemeral" });
+	});
+
+	test("convertTools does not tag tools unless cacheTools is enabled", () => {
+		const out = convertTools({
+			tools: [
+				{ name: "tool_a", description: "A", inputSchema: {} },
+				{ name: "tool_b", description: "B", inputSchema: {} },
+			],
+			toolMode: vscode.LanguageModelChatToolMode.Auto,
+		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+
+		assert.ok(Array.isArray(out.tools) && out.tools.length === 2);
+		assert.equal(out.tools[0].cache_control, undefined);
+		assert.equal(out.tools[1].cache_control, undefined);
+	});
+
 	test("convertTools respects ToolMode.Required for single tool", () => {
 		const out = convertTools({
 			toolMode: vscode.LanguageModelChatToolMode.Required,

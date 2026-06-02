@@ -2,6 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import type { AggregatedStatus } from "../provider";
+import { sendChatRequest } from "../provider/client";
 import { getModelParameters } from "../provider/request";
 
 suite("provider", () => {
@@ -764,6 +765,18 @@ suite("provider", () => {
 			});
 		}
 
+		function countCacheControls(value: unknown): number {
+			if (Array.isArray(value)) {
+				return value.reduce((count, item) => count + countCacheControls(item), 0);
+			}
+			if (!value || typeof value !== "object") {
+				return 0;
+			}
+			const obj = value as Record<string, unknown>;
+			const ownMarker = (obj.cache_control as { type?: unknown } | undefined)?.type === "ephemeral" ? 1 : 0;
+			return ownMarker + Object.values(obj).reduce<number>((count, item) => count + countCacheControls(item), 0);
+		}
+
 		async function captureRequestBody(
 			provider: LiteLLMChatModelProvider,
 			model: vscode.LanguageModelChatInformation,
@@ -835,6 +848,72 @@ suite("provider", () => {
 				toolMode: vscode.LanguageModelChatToolMode.Auto,
 			});
 			assert.deepEqual(body.stream_options, { include_usage: true });
+		});
+
+		test("emits four prompt cache breakpoints when prompt caching is active", async () => {
+			const originalFetch = global.fetch;
+			let capturedBody: Record<string, unknown> = {};
+			global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+				capturedBody = JSON.parse(init?.body as string);
+				return { ok: true, body: sseStream("ok") } as unknown as Response;
+			};
+			try {
+				await sendChatRequest(
+					{
+						model: { ...modelInfo, id: "claude-cache-model" },
+						messages: [
+							{
+								role: -1 as unknown as vscode.LanguageModelChatMessageRole,
+								content: [new vscode.LanguageModelTextPart("system")],
+								name: undefined,
+							},
+							{
+								role: vscode.LanguageModelChatMessageRole.User,
+								content: [new vscode.LanguageModelTextPart("first user")],
+								name: undefined,
+							},
+							{
+								role: vscode.LanguageModelChatMessageRole.Assistant,
+								content: [new vscode.LanguageModelTextPart("last message")],
+								name: undefined,
+							},
+						],
+						options: {
+							tools: [
+								{ name: "tool_a", description: "A", inputSchema: {} },
+								{ name: "tool_b", description: "B", inputSchema: {} },
+							],
+							toolMode: vscode.LanguageModelChatToolMode.Auto,
+						},
+						progress: { report: () => {} },
+						token: new vscode.CancellationTokenSource().token,
+					},
+					new Map(),
+					new Map([["claude-cache-model", true]]),
+					undefined,
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test",
+					0,
+					() => {},
+					() => {}
+				);
+			} finally {
+				global.fetch = originalFetch;
+			}
+
+			const tools = capturedBody.tools as Array<{ cache_control?: { type: string } }>;
+			const messages = capturedBody.messages as Array<{ content?: Array<{ cache_control?: { type: string } }> }>;
+			assert.equal(countCacheControls(capturedBody), 4);
+			assert.equal(tools[0].cache_control, undefined);
+			assert.deepEqual(tools[1].cache_control, { type: "ephemeral" });
+			assert.deepEqual(messages[0].content?.[0].cache_control, { type: "ephemeral" });
+			assert.deepEqual(messages[1].content?.[0].cache_control, { type: "ephemeral" });
+			assert.deepEqual(messages[2].content?.[0].cache_control, { type: "ephemeral" });
 		});
 
 		test("unmatched model gets built-in fallback defaults (temperature 0.7)", async () => {

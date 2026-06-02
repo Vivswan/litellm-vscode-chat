@@ -13,6 +13,10 @@ export interface OpenAIToolCall {
 export interface OpenAIFunctionToolDef {
 	type: "function";
 	function: { name: string; description?: string; parameters?: object };
+	/** Anthropic prompt-caching breakpoint for the tools prefix. */
+	cache_control?: {
+		type: "ephemeral";
+	};
 }
 
 /**

@@ -8,11 +8,26 @@ interface OpenAIToolCall {
 	function: { name: string; arguments: string };
 }
 interface ConvertedMessage {
-	role: "user" | "assistant" | "tool";
-	content?: string;
+	role: "system" | "user" | "assistant" | "tool";
+	content?: string | Array<{ type: string; text?: string; cache_control?: { type: "ephemeral" } }>;
 	name?: string;
 	tool_calls?: OpenAIToolCall[];
 	tool_call_id?: string;
+}
+
+function countCacheControls(messages: ConvertedMessage[]): number {
+	return messages.reduce((count, message) => {
+		if (!Array.isArray(message.content)) {
+			return count;
+		}
+		return count + message.content.filter((block) => block.cache_control?.type === "ephemeral").length;
+	}, 0);
+}
+
+function textBlocks(
+	message: ConvertedMessage
+): Array<{ type: string; text?: string; cache_control?: { type: "ephemeral" } }> {
+	return Array.isArray(message.content) ? message.content : [];
 }
 
 suite("shared/messages", () => {
@@ -59,8 +74,8 @@ suite("shared/messages", () => {
 		const out = convertMessages([msg]) as ConvertedMessage[];
 		assert.equal(out.length, 1);
 		assert.equal(out[0].role, "assistant");
-		assert.ok(out[0].content?.includes("before"));
-		assert.ok(out[0].content?.includes("after"));
+		assert.ok((out[0].content as string).includes("before"));
+		assert.ok((out[0].content as string).includes("after"));
 		assert.ok(Array.isArray(out[0].tool_calls) && out[0].tool_calls.length === 1);
 		assert.equal(out[0].tool_calls?.[0].function.name, "search");
 	});
@@ -204,5 +219,121 @@ suite("shared/messages", () => {
 		const out = convertMessages(messages);
 		assert.equal(typeof out[0].content, "string");
 		assert.equal(out[0].content, "test");
+	});
+
+	test("cacheFirstUserMessage tags only the first user message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("preface")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("second")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, { cacheFirstUserMessage: true }) as ConvertedMessage[];
+
+		assert.equal(countCacheControls(out), 1);
+		assert.equal(textBlocks(out[1])[0].cache_control?.type, "ephemeral");
+		assert.equal(textBlocks(out[0])[0]?.cache_control, undefined);
+		assert.equal(out[2].content, "second");
+	});
+
+	test("cacheConversation tags the last text-bearing message and skips tool-call-only turns", () => {
+		const toolCall = new vscode.LanguageModelToolCallPart("call1", "search", { q: "hello" });
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("last text")],
+				name: undefined,
+			},
+			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [toolCall], name: undefined },
+		];
+
+		const out = convertMessages(messages, { cacheConversation: true }) as ConvertedMessage[];
+
+		assert.equal(countCacheControls(out), 1);
+		assert.equal(out[0].content, "first");
+		assert.equal(textBlocks(out[1])[0].cache_control?.type, "ephemeral");
+		assert.equal(out[2].content, undefined);
+	});
+
+	test("first-user and rolling cache markers remain within message breakpoint budget", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("middle")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("last")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, {
+			cacheFirstUserMessage: true,
+			cacheConversation: true,
+		}) as ConvertedMessage[];
+
+		assert.equal(countCacheControls(out), 2);
+		assert.equal(textBlocks(out[0])[0].cache_control?.type, "ephemeral");
+		assert.equal(textBlocks(out[2])[0].cache_control?.type, "ephemeral");
+	});
+
+	test("first-user and rolling cache markers collapse on a single user message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("only")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, {
+			cacheFirstUserMessage: true,
+			cacheConversation: true,
+		}) as ConvertedMessage[];
+
+		assert.equal(countCacheControls(out), 1);
+		assert.equal(textBlocks(out[0])[0].cache_control?.type, "ephemeral");
+	});
+
+	test("cache conversion is stable for repeated calls with the same input", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("last")],
+				name: undefined,
+			},
+		];
+		const options = { cacheFirstUserMessage: true, cacheConversation: true };
+
+		assert.deepEqual(convertMessages(messages, options), convertMessages(messages, options));
 	});
 });

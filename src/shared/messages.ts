@@ -118,12 +118,32 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
 	return text;
 }
 
+function applyCacheControlToMessage(msg: OpenAIChatMessage): boolean {
+	if (typeof msg.content === "string") {
+		if (msg.content.length === 0) {
+			return false;
+		}
+		msg.content = [{ type: "text", text: msg.content, cache_control: { type: "ephemeral" } }];
+		return true;
+	}
+	if (Array.isArray(msg.content) && msg.content.length > 0) {
+		for (let i = msg.content.length - 1; i >= 0; i--) {
+			const block = msg.content[i];
+			if (block.type === "text") {
+				block.cache_control = { type: "ephemeral" };
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 /**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
-	options?: { cacheSystemPrompt?: boolean }
+	options?: { cacheSystemPrompt?: boolean; cacheConversation?: boolean; cacheFirstUserMessage?: boolean }
 ): OpenAIChatMessage[] {
 	const out: OpenAIChatMessage[] = [];
 	for (const m of messages) {
@@ -209,6 +229,20 @@ export function convertMessages(
 				} else {
 					out.push({ role, content: text });
 				}
+			}
+		}
+	}
+	if (options?.cacheFirstUserMessage && out.length > 0) {
+		for (const msg of out) {
+			if (msg.role === "user" && applyCacheControlToMessage(msg)) {
+				break;
+			}
+		}
+	}
+	if (options?.cacheConversation && out.length > 0) {
+		for (let i = out.length - 1; i >= 0; i--) {
+			if (applyCacheControlToMessage(out[i])) {
+				break;
 			}
 		}
 	}
