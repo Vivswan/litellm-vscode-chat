@@ -1155,6 +1155,55 @@ suite("provider", () => {
 			assert.ok(infos.length > 0);
 		});
 
+		test("retries localhost model discovery with IPv4 loopback", async () => {
+			const originalFetch = global.fetch;
+			const attemptedUrls: string[] = [];
+			try {
+				global.fetch = async (url: string | URL | Request) => {
+					const urlStr = url.toString();
+					attemptedUrls.push(urlStr);
+					if (urlStr.startsWith("http://localhost:20128/")) {
+						const cause = new Error("connect ECONNREFUSED ::1:20128");
+						throw new Error("fetch failed", { cause });
+					}
+					if (urlStr === "http://127.0.0.1:20128/v1/model/info") {
+						return {
+							ok: true,
+							status: 200,
+							statusText: "OK",
+							json: async () => ({
+								object: "list",
+								data: [{ id: "test-model", object: "model", created: 0, owned_by: "test" }],
+							}),
+						} as unknown as Response;
+					}
+					throw new Error(`Unexpected URL: ${urlStr}`);
+				};
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://localhost:20128" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.deepEqual(attemptedUrls, [
+					"http://localhost:20128/v1/model/info",
+					"http://127.0.0.1:20128/v1/model/info",
+				]);
+				assert.ok(infos.length > 0);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
 		test("prompt caching support detected from model/info", async () => {
 			const originalFetch = global.fetch;
 			global.fetch = async () =>

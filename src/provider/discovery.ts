@@ -61,6 +61,20 @@ export interface FetchModelsResult {
 	models: LiteLLMModelItem[];
 }
 
+function getLocalhostIpv4BaseUrl(baseUrl: string): string | undefined {
+	try {
+		const url = new URL(baseUrl);
+		if (url.protocol !== "http:" || url.hostname !== "localhost") {
+			return undefined;
+		}
+
+		url.hostname = "127.0.0.1";
+		return url.toString().replace(/\/+$/, "");
+	} catch {
+		return undefined;
+	}
+}
+
 export async function fetchModels(
 	apiKey: string,
 	baseUrl: string,
@@ -84,6 +98,9 @@ export async function fetchModels(
 		headers.Authorization = `Bearer ${apiKey}`;
 		headers["X-API-Key"] = apiKey;
 	}
+
+	const fallbackBaseUrl = getLocalhostIpv4BaseUrl(baseUrl);
+	const baseUrls = fallbackBaseUrl && fallbackBaseUrl !== baseUrl ? [baseUrl, fallbackBaseUrl] : [baseUrl];
 
 	const readErrorText = async (resp: Response): Promise<string> => {
 		let text = "";
@@ -112,14 +129,31 @@ export async function fetchModels(
 		throw err;
 	};
 
-	log("Fetching from:", `${baseUrl}/v1/model/info`);
+	const fetchEndpoint = async (path: string): Promise<Response> => {
+		let lastError: unknown;
+		for (const candidateBaseUrl of baseUrls) {
+			const url = `${candidateBaseUrl}${path}`;
+			log("Fetching from:", url);
+			try {
+				return await fetch(url, {
+					method: "GET",
+					headers,
+					signal: AbortSignal.timeout(timeout),
+				});
+			} catch (error) {
+				lastError = error;
+				if (candidateBaseUrl !== baseUrls[baseUrls.length - 1]) {
+					log("Fetch failed, retrying with localhost IPv4 fallback", {
+						message: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}
+		}
+		throw lastError;
+	};
 
 	try {
-		const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
-			method: "GET",
-			headers,
-			signal: AbortSignal.timeout(timeout),
-		});
+		const infoResp = await fetchEndpoint("/v1/model/info");
 		log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
 		if (infoResp.ok) {
 			const parsed = (await infoResp.json()) as LiteLLMModelInfoResponse | LiteLLMModelsResponse;
@@ -153,12 +187,7 @@ export async function fetchModels(
 	}
 
 	try {
-		log("Fetching from:", `${baseUrl}/v1/models`);
-		const resp = await fetch(`${baseUrl}/v1/models`, {
-			method: "GET",
-			headers,
-			signal: AbortSignal.timeout(timeout),
-		});
+		const resp = await fetchEndpoint("/v1/models");
 		log("Response status:", `${resp.status} ${resp.statusText}`);
 		if (!resp.ok) {
 			await handleNonOk(resp);
