@@ -229,7 +229,9 @@ suite("shared/messages", () => {
 interface CacheableTextBlock {
 	type: string;
 	text: string;
-	cache_control?: { type: "ephemeral"; ttl?: "5m" | "1h" };
+	// Mirrors the on-the-wire CacheControl shape: 5m is encoded by omitting
+	// `ttl` entirely, so the only valid explicit value is "1h".
+	cache_control?: { type: "ephemeral"; ttl?: "1h" };
 }
 interface CacheableMessage {
 	role: string;
@@ -385,6 +387,54 @@ suite("shared/messages cache_control breakpoints", () => {
 		assert.ok(Array.isArray(out[0].content));
 		const blocks = out[0].content as CacheableTextBlock[];
 		assert.equal(blocks.filter((b) => b.cache_control).length, 1);
+	});
+
+	test("regression: rolling (5m) must not downgrade a firstUser (1h) marker on the same message", () => {
+		// Single user turn => firstUser and rolling both resolve to the same
+		// message. firstUser is 1h, rolling is 5m. The upgrade-only guard must
+		// keep the 1h marker rather than demoting it to 5m (which would also
+		// violate Bedrock's non-increasing-TTL ordering invariant).
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("only one user turn")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, {
+			cache: {
+				firstUser: { ttl: "1h" },
+				rolling: { ttl: "5m", placement: "always" },
+			},
+		}) as CacheableMessage[];
+		const user = out.find((m) => m.role === "user");
+		assert.ok(user && Array.isArray(user.content));
+		const tagged = (user.content as CacheableTextBlock[]).filter((b) => b.cache_control);
+		assert.equal(tagged.length, 1, "exactly one marker on the shared message");
+		assert.equal(tagged[0].cache_control?.ttl, "1h", "1h must survive; rolling 5m must not demote it");
+	});
+
+	test("rolling (1h) MAY upgrade a firstUser (5m) marker on the same message", () => {
+		// Symmetric to the downgrade guard: a longer rolling TTL is allowed to
+		// overwrite a shorter existing marker (upgrade is always safe).
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("only one user turn")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, {
+			cache: {
+				firstUser: { ttl: "5m" },
+				rolling: { ttl: "1h", placement: "always" },
+			},
+		}) as CacheableMessage[];
+		const user = out.find((m) => m.role === "user");
+		assert.ok(user && Array.isArray(user.content));
+		const tagged = (user.content as CacheableTextBlock[]).filter((b) => b.cache_control);
+		assert.equal(tagged.length, 1);
+		assert.equal(tagged[0].cache_control?.ttl, "1h", "longer rolling TTL may upgrade the existing 5m marker");
 	});
 
 	test("firstUser anchor skips assistant messages even if they come first", () => {

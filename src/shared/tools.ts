@@ -192,9 +192,8 @@ export function convertTools(
 	// tool with an ephemeral cache breakpoint so the whole tools prefix is
 	// cached and reused on every subsequent request. The TTL ("5m" default,
 	// omitted on the wire; "1h" emitted explicitly) is decided by the caller.
-	if (convertOptions?.cacheTools && toolDefs.length > 0) {
-		toolDefs[toolDefs.length - 1].cache_control =
-			convertOptions.cacheTools.ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+	if (convertOptions?.cacheTools) {
+		applyToolsCacheControl(toolDefs, convertOptions.cacheTools.ttl);
 	}
 
 	let tool_choice: "auto" | "required" | { type: "function"; function: { name: string } } = "auto";
@@ -207,4 +206,21 @@ export function convertTools(
 	}
 
 	return { tools: toolDefs, tool_choice };
+}
+
+/**
+ * Tag an already-converted tool list in place with an ephemeral cache
+ * breakpoint on its last entry. Exported so callers can size the tools array
+ * with a single (no-cache) {@link convertTools} pass and then add the cache
+ * marker afterwards, avoiding a second full sanitization pass when caching is
+ * enabled.
+ *
+ * No-op when the list is empty. The "5m" tier omits the wire `ttl` field;
+ * "1h" emits it explicitly.
+ */
+export function applyToolsCacheControl(toolDefs: OpenAIFunctionToolDef[] | undefined, ttl: "5m" | "1h"): void {
+	if (!toolDefs || toolDefs.length === 0) {
+		return;
+	}
+	toolDefs[toolDefs.length - 1].cache_control = ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
 }

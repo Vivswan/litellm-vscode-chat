@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type {
+	CacheControl,
 	OpenAIChatContentBlock,
 	OpenAIChatFileContentBlock,
 	OpenAIChatImageUrlContentBlock,
@@ -119,15 +120,39 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
 /** Cache TTL accepted by the breakpoint helpers. "5m" omits the wire field. */
 export type AnchorTtl = "5m" | "1h";
 
-/** Build a cache_control object, omitting `ttl` for the default 5m tier. */
-function buildCacheControl(ttl: AnchorTtl): { type: "ephemeral"; ttl?: "1h" } {
+/**
+ * Build a `cache_control` object, omitting `ttl` for the default 5m tier.
+ * Returns the shared {@link CacheControl} wire type so the on-the-wire shape
+ * stays in one place (see `types.ts`).
+ */
+function buildCacheControl(ttl: AnchorTtl): CacheControl {
 	return ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+}
+
+/** Numeric rank for a TTL so we can compare lifetimes (1h > 5m). */
+function ttlRank(ttl: AnchorTtl): number {
+	return ttl === "1h" ? 1 : 0;
+}
+
+/** Numeric rank for an existing wire `cache_control` marker. */
+function existingTtlRank(cc: CacheControl | undefined): number {
+	if (!cc) {
+		return -1;
+	}
+	return cc.ttl === "1h" ? 1 : 0;
 }
 
 /**
  * Apply an Anthropic ephemeral cache breakpoint to a message by tagging its
  * last text content block. String content is promoted to a single text block.
- * Returns true if a breakpoint was placed.
+ * Returns true if a breakpoint is present on the block after this call.
+ *
+ * Upgrade-only: if the target block already carries a `cache_control` marker
+ * with a *longer* lifetime (e.g. firstUser already tagged it 1h), we keep the
+ * longer one rather than demoting it to the requested (shorter) TTL. This
+ * prevents the rolling-last anchor (always 5m) from silently downgrading a
+ * first-user 1h anchor when both land on the same message — which would also
+ * violate Bedrock's non-increasing-TTL ordering invariant.
  */
 function applyCacheControlToMessage(msg: OpenAIChatMessage, ttl: AnchorTtl): boolean {
 	if (typeof msg.content === "string") {
@@ -141,7 +166,11 @@ function applyCacheControlToMessage(msg: OpenAIChatMessage, ttl: AnchorTtl): boo
 		for (let i = msg.content.length - 1; i >= 0; i--) {
 			const block = msg.content[i];
 			if (block.type === "text") {
-				block.cache_control = buildCacheControl(ttl);
+				// Only overwrite when the new TTL is at least as long-lived as any
+				// existing marker; never demote a longer cache lifetime.
+				if (ttlRank(ttl) >= existingTtlRank(block.cache_control)) {
+					block.cache_control = buildCacheControl(ttl);
+				}
 				return true;
 			}
 		}
