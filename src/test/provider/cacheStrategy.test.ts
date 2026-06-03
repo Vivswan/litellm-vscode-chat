@@ -102,9 +102,14 @@ suite("cacheStrategy resolveCachePlan", () => {
 	});
 
 	test("auto mode: firstUser and tools gated by tokenSizeAutoBreakpoint", () => {
+		// NOTE: tools is processed *before* system on the wire. Because auto pins
+		// system to 1h, a sub-breakpoint tools anchor would naturally resolve to 5m
+		// but is then promoted to 1h by the ordering invariant (a 5m block must not
+		// precede a 1h block). firstUser is processed *after* system, so a
+		// sub-breakpoint firstUser correctly stays 5m.
 		const below = resolveCachePlan(input({ mode: "auto", sizes: { tools: 5000, system: 5000, firstUser: 5000 } }));
-		assert.equal(below.firstUser.ttl, "5m", "firstUser below 8k -> 5m");
-		assert.equal(below.tools.ttl, "5m", "tools below 8k -> 5m");
+		assert.equal(below.firstUser.ttl, "5m", "firstUser below 8k stays 5m (it is after system)");
+		assert.equal(below.tools.ttl, "1h", "tools below 8k promoted to 1h (it precedes 1h system)");
 
 		const above = resolveCachePlan(input({ mode: "auto", sizes: { tools: 12000, system: 5000, firstUser: 9000 } }));
 		assert.equal(above.firstUser.ttl, "1h", "firstUser above 8k -> 1h");
@@ -153,5 +158,61 @@ suite("cacheStrategy resolveCachePlan", () => {
 		);
 		assert.equal(plan.firstUser.ttl, "1h", "size == breakpoint -> 1h");
 		assert.equal(plan.tools.ttl, "1h", "size == breakpoint -> 1h");
+	});
+});
+
+suite("cacheStrategy TTL ordering invariant (Bedrock/Anthropic)", () => {
+	// Processing order on the wire is tools -> system -> firstUser -> rolling.
+	// Bedrock rejects any request where a 1h block comes *after* a 5m block:
+	//   "a ttl='1h' cache_control block must not come after a ttl='5m' block".
+	// Across only the *enabled* anchors, TTL longevity must be non-increasing.
+	const rank = (ttl: "5m" | "1h") => (ttl === "1h" ? 1 : 0);
+
+	function assertNonIncreasing(plan: ReturnType<typeof resolveCachePlan>) {
+		const ordered = [plan.tools, plan.system, plan.firstUser, plan.rolling].filter((a) => a.enabled);
+		for (let i = 1; i < ordered.length; i++) {
+			assert.ok(
+				rank(ordered[i].ttl) <= rank(ordered[i - 1].ttl),
+				`anchor #${i} (${ordered[i].ttl}) must not have a longer TTL than its predecessor (${ordered[i - 1].ttl})`
+			);
+		}
+	}
+
+	test("regression: auto mode with small tools + large system never emits 5m-before-1h (opus-4-7 400)", () => {
+		// Exact shape that produced the fatal 400: tools below breakpoint (would be
+		// 5m) followed by the always-1h system prompt.
+		const plan = resolveCachePlan(input({ mode: "auto", sizes: { tools: 1500, system: 12000, firstUser: 1500 } }));
+		assert.equal(plan.system.ttl, "1h");
+		assert.equal(plan.tools.enabled, true);
+		assert.equal(plan.tools.ttl, "1h", "tools must be promoted to 1h so it does not precede the 1h system block");
+		assertNonIncreasing(plan);
+	});
+
+	test("invariant holds across a grid of modes and sizes", () => {
+		const modes: CacheMode[] = ["chat", "agent", "auto"];
+		const sizeOptions = [0, 500, 1500, 8000, 12000];
+		for (const mode of modes) {
+			for (const tools of sizeOptions) {
+				for (const system of sizeOptions) {
+					for (const firstUser of sizeOptions) {
+						for (const rollingPlacement of ["always", "stableTurnsOnly", "never"] as const) {
+							const plan = resolveCachePlan(input({ mode, rollingPlacement, sizes: { tools, system, firstUser } }));
+							assertNonIncreasing(plan);
+						}
+					}
+				}
+			}
+		}
+	});
+
+	test("disabled anchors do not participate in ordering (5m firstUser after suppressed system is fine)", () => {
+		// System suppressed by the floor; tools 5m, firstUser large -> 1h. Because
+		// system carries no marker, the only enabled blocks are tools(?) and
+		// firstUser; ensure no violation is introduced.
+		const plan = resolveCachePlan(
+			input({ mode: "chat", minCacheTokens: 1024, sizes: { tools: 5000, system: 200, firstUser: 5000 } })
+		);
+		assert.equal(plan.system.enabled, false);
+		assertNonIncreasing(plan);
 	});
 });
