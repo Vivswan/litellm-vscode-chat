@@ -138,7 +138,53 @@ export function resolveCachePlan(input: CacheStrategyInput): CachePlan {
 		placement: rollingPlacement,
 	};
 
-	return { mode, tools, system, firstUser, rolling };
+	const plan: CachePlan = { mode, tools, system, firstUser, rolling };
+	return enforceTtlOrdering(plan);
+}
+
+/**
+ * Enforce Anthropic/Bedrock's cache_control ordering invariant.
+ *
+ * Bedrock processes cache_control blocks in a fixed order — tools, then system,
+ * then messages (first-user, …, rolling-last) — and rejects any request where a
+ * longer TTL ("1h") appears *after* a shorter one ("5m"):
+ *
+ *   "a ttl='1h' cache_control block must not come after a ttl='5m' cache_control block"
+ *
+ * In `auto` mode this is easy to trip: the system prompt is always 1h, but the
+ * (earlier-processed) tools anchor drops to 5m whenever the tools block is below
+ * the size breakpoint — producing the illegal "5m tools → 1h system" sequence
+ * that returns a fatal 400 for Bedrock-routed models (e.g. claude-opus-4-7).
+ *
+ * We repair the plan by walking the anchors in processing order from the tail
+ * backwards and promoting any earlier *enabled* anchor whose TTL is shorter than
+ * a later enabled anchor's TTL up to that longer TTL. Promotion (rather than
+ * demotion) preserves the longest cache lifetime the user asked for while
+ * guaranteeing TTLs are non-increasing in processing order.
+ *
+ * Disabled anchors carry no cache_control marker, so they are skipped (they do
+ * not participate in the on-the-wire ordering).
+ */
+function enforceTtlOrdering(plan: CachePlan): CachePlan {
+	// Processing order on the wire: tools, system, firstUser, rolling-last.
+	const ordered: AnchorPlan[] = [plan.tools, plan.system, plan.firstUser, plan.rolling];
+	const rank = (ttl: CacheTtl): number => (ttl === "1h" ? 1 : 0);
+
+	// Track the maximum TTL rank seen among later (enabled) anchors and promote
+	// earlier enabled anchors up to it.
+	let maxLaterRank = 0;
+	for (let i = ordered.length - 1; i >= 0; i--) {
+		const anchor = ordered[i];
+		if (!anchor.enabled) {
+			continue;
+		}
+		if (rank(anchor.ttl) < maxLaterRank) {
+			anchor.ttl = "1h";
+		}
+		maxLaterRank = Math.max(maxLaterRank, rank(anchor.ttl));
+	}
+
+	return plan;
 }
 
 /** Coerce an arbitrary string into a valid {@link CacheMode} (default "auto"). */
