@@ -112,14 +112,14 @@
 					"minimum": 4000,
 					"maximum": 16000,
 					"default": 8000,
-					"description": "In 'auto' mode only: the estimated-token threshold above which the first user message and the tools array are cached at the extended 1-hour TTL instead of 5 minutes. Larger blocks are more expensive to recreate and more worth a longer-lived cache. Has no effect in 'off', 'chat', or 'agent' modes."
+					"description": "Deprecated / no longer affects TTL selection. In 'auto' mode all stable anchors (system, first user message, tools) now use the 1-hour TTL once they clear the minCacheTokens floor, because a 1h cache read costs the same as 5m and refreshes for free. Whether an anchor is cached at all is governed by 'minCacheTokens', not this setting. Retained for backward compatibility."
 				},
 				"litellm-vscode-chat.promptCaching.minCacheTokens": {
 					"type": "number",
 					"minimum": 256,
 					"maximum": 4096,
-					"default": 1024,
-					"description": "Minimum estimated block size (in tokens) for a cache_control breakpoint to be placed at all, in every mode. Blocks below this floor are not tagged because the provider will not cache a prefix shorter than its minimum cacheable length (1024 tokens for Anthropic Claude). Also suppresses caching of a tiny or absent system prompt."
+					"default": 4096,
+					"description": "Minimum estimated block size (in tokens) for a cache_control breakpoint to be placed at all, in every mode. Blocks below this floor are not tagged because the provider will not cache a prefix shorter than its minimum cacheable length. The default (4096) matches the minimum cacheable prefix of the latest Anthropic Claude models (e.g. Opus 4.5+/4.7); older models accept as low as 1024. Also suppresses caching of a tiny or absent system prompt."
 				},
 				"litellm-vscode-chat.promptCaching.rollingLastMessage": {
 					"type": "string",

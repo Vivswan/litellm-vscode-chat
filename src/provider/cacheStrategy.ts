@@ -79,8 +79,18 @@ const DISABLED: CachePlan = {
  *  - off:   nothing is cached.
  *  - chat:  all four anchors at 5m.
  *  - agent: system / firstUser / tools at 1h; rolling at 5m.
- *  - auto:  system 1h; firstUser & tools 1h iff their block ≥ breakpoint, else 5m;
+ *  - auto:  all three stable anchors (system / firstUser / tools) at 1h;
  *           rolling always 5m.
+ *
+ * Why `auto` no longer ties TTL to block size: for a *stable* prefix anchor a
+ * read from a 1h cache costs the same as a read from a 5m cache, and each cache
+ * hit refreshes the entry's lifetime for free. So once an anchor is worth
+ * caching at all, the 1h tier is essentially always the better economic choice —
+ * it only extends how long the (free-to-refresh) entry survives idle gaps. The
+ * size question is therefore "is this anchor big enough to bother caching?",
+ * which is exactly what the `minCacheTokens` floor answers — not "5m vs 1h".
+ * `tokenSizeAutoBreakpoint` is retained for backward compatibility and advanced
+ * tuning but no longer selects the TTL tier in `auto` mode.
  *
  * Universal rules (all modes):
  *  - If the model does not support prompt caching, returns the disabled plan.
@@ -92,43 +102,32 @@ const DISABLED: CachePlan = {
  *    regardless of mode.
  */
 export function resolveCachePlan(input: CacheStrategyInput): CachePlan {
-	const { mode, supportsPromptCaching, rollingPlacement, tokenSizeAutoBreakpoint, minCacheTokens, sizes } = input;
+	const { mode, supportsPromptCaching, rollingPlacement, minCacheTokens, sizes } = input;
 
 	if (mode === "off" || !supportsPromptCaching) {
 		return { ...DISABLED, mode: mode === "off" ? "off" : mode };
 	}
 
-	// Per-mode TTL decisions for the static anchors.
-	const ttlFor = (size: number): CacheTtl => {
-		switch (mode) {
-			case "chat":
-				return "5m";
-			case "agent":
-				return "1h";
-			case "auto":
-				return size >= tokenSizeAutoBreakpoint ? "1h" : "5m";
-			default:
-				return "5m";
-		}
-	};
-
-	// In auto mode the system prompt is always 1h when present (most-reused,
-	// never changes) — but still subject to the minCacheTokens floor below.
-	const systemTtl: CacheTtl = mode === "auto" ? "1h" : ttlFor(sizes.system);
+	// Per-mode TTL for the static (stable-prefix) anchors. In `auto` we lean 1h
+	// for every stable anchor: a 1h read costs the same as a 5m read and hits
+	// refresh the entry for free, so a longer lifetime is strictly better once
+	// an anchor clears the minCacheTokens floor. Size only gates whether to
+	// cache at all (the floor below), not the TTL tier.
+	const stableTtl: CacheTtl = mode === "chat" ? "5m" : "1h";
 
 	const meetsFloor = (size: number) => size >= minCacheTokens;
 
 	const system: AnchorPlan = {
 		enabled: meetsFloor(sizes.system),
-		ttl: systemTtl,
+		ttl: stableTtl,
 	};
 	const firstUser: AnchorPlan = {
 		enabled: meetsFloor(sizes.firstUser),
-		ttl: ttlFor(sizes.firstUser),
+		ttl: stableTtl,
 	};
 	const tools: AnchorPlan = {
 		enabled: meetsFloor(sizes.tools),
-		ttl: ttlFor(sizes.tools),
+		ttl: stableTtl,
 	};
 
 	// Rolling-last anchor is always 5m (volatile tail). Placement is orthogonal.
@@ -203,8 +202,8 @@ export function normalizeAutoBreakpoint(raw: unknown): number {
 	return Math.min(16000, Math.max(4000, Math.round(n)));
 }
 
-/** Clamp the nocache↔5m floor into the supported 256–4096 range (default 1024). */
+/** Clamp the nocache↔5m floor into the supported 256–4096 range (default 4096). */
 export function normalizeMinCacheTokens(raw: unknown): number {
-	const n = typeof raw === "number" && Number.isFinite(raw) ? raw : 1024;
+	const n = typeof raw === "number" && Number.isFinite(raw) ? raw : 4096;
 	return Math.min(4096, Math.max(256, Math.round(n)));
 }

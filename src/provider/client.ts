@@ -5,7 +5,7 @@ import type {
 	LanguageModelChatInformation,
 } from "vscode";
 import { convertMessages } from "../shared/messages";
-import { convertTools } from "../shared/tools";
+import { convertTools, applyToolsCacheControl } from "../shared/tools";
 import { validateRequest } from "../shared/validation";
 import {
 	estimateMessagesTokens,
@@ -73,14 +73,29 @@ export async function sendChatRequest(
 	}
 
 	const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
-	const cacheMode = normalizeMode(settings.get<string>("promptCaching.mode", "auto"));
+	// Back-compat: an earlier release used a boolean `promptCaching.enabled`
+	// switch instead of the current `promptCaching.mode` enum. If a user still
+	// has `enabled: false` in their settings and has NOT explicitly chosen a
+	// mode, honour the legacy opt-out by forcing mode "off" — otherwise the new
+	// "auto" default would silently re-enable caching for them.
+	const modeInspect = settings.inspect<string>("promptCaching.mode");
+	const modeExplicitlySet =
+		modeInspect?.globalValue !== undefined ||
+		modeInspect?.workspaceValue !== undefined ||
+		modeInspect?.workspaceFolderValue !== undefined;
+	const legacyEnabled = settings.get<boolean | undefined>("promptCaching.enabled", undefined);
+	let cacheMode = normalizeMode(settings.get<string>("promptCaching.mode", "auto"));
+	if (!modeExplicitlySet && legacyEnabled === false) {
+		cacheMode = "off";
+		log("Honouring legacy promptCaching.enabled=false; forcing prompt caching mode 'off'");
+	}
 	const rollingPlacement = normalizeRollingPlacement(
 		settings.get<string>("promptCaching.rollingLastMessage", "stableTurnsOnly")
 	);
 	const tokenSizeAutoBreakpoint = normalizeAutoBreakpoint(
 		settings.get<number>("promptCaching.tokenSizeAutoBreakpoint", 8000)
 	);
-	const minCacheTokens = normalizeMinCacheTokens(settings.get<number>("promptCaching.minCacheTokens", 1024));
+	const minCacheTokens = normalizeMinCacheTokens(settings.get<number>("promptCaching.minCacheTokens", 4096));
 	const rawRequestTimeout = settings.get<number>("requestTimeout", 300000);
 	// Validate and clamp requestTimeout to minimum 1000ms
 	const requestTimeout = Math.max(1000, Number.isFinite(rawRequestTimeout) ? rawRequestTimeout : 300000);
@@ -123,9 +138,13 @@ export async function sendChatRequest(
 		placedRollingOn,
 	});
 	validateRequest(messages);
-	const toolConfig = cachePlan.tools.enabled
-		? convertTools(options, { cacheTools: { ttl: cachePlan.tools.ttl } })
-		: baseToolConfig;
+	// Reuse the already-converted tools array (sized above) and tag it in place
+	// when caching is enabled, instead of re-running the full convertTools
+	// sanitization pass a second time.
+	if (cachePlan.tools.enabled) {
+		applyToolsCacheControl(baseToolConfig.tools, cachePlan.tools.ttl);
+	}
+	const toolConfig = baseToolConfig;
 
 	if (options.tools && options.tools.length > 128) {
 		throw new Error("Cannot have more than 128 tools per request.");

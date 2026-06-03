@@ -48,12 +48,12 @@ suite("cacheStrategy normalizers", () => {
 		assert.equal(normalizeAutoBreakpoint(8000.6), 8001);
 	});
 
-	test("normalizeMinCacheTokens clamps to 256-4096 and defaults to 1024", () => {
+	test("normalizeMinCacheTokens clamps to 256-4096 and defaults to 4096", () => {
 		assert.equal(normalizeMinCacheTokens(1024), 1024);
 		assert.equal(normalizeMinCacheTokens(0), 256);
 		assert.equal(normalizeMinCacheTokens(99999), 4096);
-		assert.equal(normalizeMinCacheTokens("x"), 1024);
-		assert.equal(normalizeMinCacheTokens(undefined), 1024);
+		assert.equal(normalizeMinCacheTokens("x"), 4096);
+		assert.equal(normalizeMinCacheTokens(undefined), 4096);
 	});
 });
 
@@ -96,24 +96,48 @@ suite("cacheStrategy resolveCachePlan", () => {
 	});
 
 	test("auto mode: system always 1h, rolling always 5m", () => {
-		const plan = resolveCachePlan(input({ mode: "auto", sizes: { tools: 2000, system: 2000, firstUser: 2000 } }));
+		const plan = resolveCachePlan(
+			input({ mode: "auto", minCacheTokens: 1024, sizes: { tools: 2000, system: 2000, firstUser: 2000 } })
+		);
 		assert.equal(plan.system.ttl, "1h", "system is 1h in auto even when small (still > minCacheTokens)");
 		assert.equal(plan.rolling.ttl, "5m");
 	});
 
-	test("auto mode: firstUser and tools gated by tokenSizeAutoBreakpoint", () => {
-		// NOTE: tools is processed *before* system on the wire. Because auto pins
-		// system to 1h, a sub-breakpoint tools anchor would naturally resolve to 5m
-		// but is then promoted to 1h by the ordering invariant (a 5m block must not
-		// precede a 1h block). firstUser is processed *after* system, so a
-		// sub-breakpoint firstUser correctly stays 5m.
-		const below = resolveCachePlan(input({ mode: "auto", sizes: { tools: 5000, system: 5000, firstUser: 5000 } }));
-		assert.equal(below.firstUser.ttl, "5m", "firstUser below 8k stays 5m (it is after system)");
-		assert.equal(below.tools.ttl, "1h", "tools below 8k promoted to 1h (it precedes 1h system)");
+	test("auto mode: all stable anchors are 1h regardless of size (size only gates the floor)", () => {
+		// Fix #7: in auto mode TTL is no longer tied to tokenSizeAutoBreakpoint.
+		// Every stable anchor (tools / system / firstUser) that clears the
+		// minCacheTokens floor uses 1h, because a 1h cache read costs the same as a
+		// 5m read and refreshes for free — a longer lifetime is strictly better.
+		const below = resolveCachePlan(
+			input({ mode: "auto", minCacheTokens: 1024, sizes: { tools: 5000, system: 5000, firstUser: 5000 } })
+		);
+		assert.equal(below.tools.ttl, "1h", "tools -> 1h regardless of size");
+		assert.equal(below.system.ttl, "1h", "system -> 1h regardless of size");
+		assert.equal(below.firstUser.ttl, "1h", "firstUser -> 1h regardless of size");
 
-		const above = resolveCachePlan(input({ mode: "auto", sizes: { tools: 12000, system: 5000, firstUser: 9000 } }));
-		assert.equal(above.firstUser.ttl, "1h", "firstUser above 8k -> 1h");
-		assert.equal(above.tools.ttl, "1h", "tools above 8k -> 1h");
+		const above = resolveCachePlan(
+			input({ mode: "auto", minCacheTokens: 1024, sizes: { tools: 12000, system: 5000, firstUser: 9000 } })
+		);
+		assert.equal(above.tools.ttl, "1h");
+		assert.equal(above.system.ttl, "1h");
+		assert.equal(above.firstUser.ttl, "1h");
+	});
+
+	test("auto mode: tokenSizeAutoBreakpoint no longer affects TTL selection", () => {
+		// Sweeping the breakpoint must not change any anchor's TTL in auto mode.
+		for (const bp of [4000, 8000, 16000]) {
+			const plan = resolveCachePlan(
+				input({
+					mode: "auto",
+					tokenSizeAutoBreakpoint: bp,
+					minCacheTokens: 1024,
+					sizes: { tools: 5000, system: 5000, firstUser: 5000 },
+				})
+			);
+			assert.equal(plan.tools.ttl, "1h", `bp=${bp} tools`);
+			assert.equal(plan.system.ttl, "1h", `bp=${bp} system`);
+			assert.equal(plan.firstUser.ttl, "1h", `bp=${bp} firstUser`);
+		}
 	});
 
 	test("minCacheTokens floor suppresses anchors below the floor in every mode", () => {
@@ -130,7 +154,9 @@ suite("cacheStrategy resolveCachePlan", () => {
 	});
 
 	test("degenerate absent system prompt (size 0) is not cached", () => {
-		const plan = resolveCachePlan(input({ mode: "auto", sizes: { tools: 12000, system: 0, firstUser: 12000 } }));
+		const plan = resolveCachePlan(
+			input({ mode: "auto", minCacheTokens: 1024, sizes: { tools: 12000, system: 0, firstUser: 12000 } })
+		);
 		assert.equal(plan.system.enabled, false, "absent system prompt must not be tagged");
 		assert.equal(plan.firstUser.enabled, true);
 		assert.equal(plan.tools.enabled, true);
@@ -152,12 +178,13 @@ suite("cacheStrategy resolveCachePlan", () => {
 		assert.equal(plan.system.ttl, "1h");
 	});
 
-	test("auto mode boundary: exactly at breakpoint counts as 1h (>=)", () => {
+	test("auto mode: anchors at/above floor are 1h (size no longer relevant to TTL)", () => {
 		const plan = resolveCachePlan(
-			input({ mode: "auto", tokenSizeAutoBreakpoint: 8000, sizes: { tools: 8000, system: 8000, firstUser: 8000 } })
+			input({ mode: "auto", minCacheTokens: 1024, sizes: { tools: 8000, system: 8000, firstUser: 8000 } })
 		);
-		assert.equal(plan.firstUser.ttl, "1h", "size == breakpoint -> 1h");
-		assert.equal(plan.tools.ttl, "1h", "size == breakpoint -> 1h");
+		assert.equal(plan.firstUser.ttl, "1h");
+		assert.equal(plan.tools.ttl, "1h");
+		assert.equal(plan.system.ttl, "1h");
 	});
 });
 
