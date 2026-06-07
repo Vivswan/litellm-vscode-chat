@@ -144,13 +144,15 @@
 		"prepare": "husky",
 		"vscode:prepublish": "bun run compile",
 		"compile": "tsc -p ./",
+		"setup-env": "bash scripts/setup-env.sh",
+		"setup-env:verify": "bash scripts/setup-env.sh --verify",
+		"setup-env:full": "bash scripts/setup-env.sh --full",
 		"lint:actions": "node scripts/lint-actions.js",
 		"lint": "eslint",
 		"format": "prettier --write .",
 		"watch": "tsc -watch -p ./",
 		"mock-server": "node scripts/mock-litellm-server.js",
 		"test": "bun run compile && vscode-test --label unit",
-		"host-fidelity-test": "node scripts/host-fidelity-test.js",
-		"bump-version": "node scripts/bump-version.js"
+		"host-fidelity-test": "node scripts/host-fidelity-test.js"
 	}
 }
