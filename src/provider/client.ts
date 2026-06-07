@@ -78,7 +78,8 @@ export async function sendChatRequest(
 	// has `enabled: false` in their settings and has NOT explicitly chosen a
 	// mode, honour the legacy opt-out by forcing mode "off" — otherwise the new
 	// "auto" default would silently re-enable caching for them.
-	const modeInspect = settings.inspect<string>("promptCaching.mode");
+	const modeInspect =
+		typeof settings.inspect === "function" ? settings.inspect<string>("promptCaching.mode") : undefined;
 	const modeExplicitlySet =
 		modeInspect?.globalValue !== undefined ||
 		modeInspect?.workspaceValue !== undefined ||

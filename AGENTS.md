@@ -9,8 +9,17 @@ This is a VS Code extension that integrates LiteLLM into GitHub Copilot Chat, al
 ## Build and Development Commands
 
 ```bash
-# Install dependencies
-bun install
+# Install dependencies on macOS/Linux, or shells with Bash
+bun run setup-env
+
+# Install dependencies on Windows PowerShell
+bun run setup-env:pwsh
+
+# Install dependencies and run compile/lint on macOS/Linux, or shells with Bash
+bun run setup-env:verify
+
+# Install dependencies and run compile/lint on Windows PowerShell
+bun run setup-env:verify:pwsh
 
 # Compile TypeScript to JavaScript
 bun run compile
@@ -25,10 +34,7 @@ bun run lint
 bun run format
 
 # Run all tests
-bun test
-
-# Bump version (updates package.json and CHANGELOG.md)
-bun run bump-version
+bun run test
 ```
 
 ## Development Workflow
@@ -39,7 +45,7 @@ Press `F5` to launch the Extension Development Host with the extension loaded.
 
 ### Running Tests
 
-Tests use the `@vscode/test-electron` framework. Run `bun test` to execute all tests, which compiles the project and runs the test suite.
+Tests use the `@vscode/test-electron` framework. Run `bun run test` to execute all tests, which compiles the project and runs the test suite.
 
 ### Code Style
 
@@ -259,14 +265,17 @@ Tool call handling is in `provider.ts`:
 ## CI/CD Structure
 
 Workflows are organized with reusable workflow patterns:
-- **`bump-version-reusable.yml`**: Reusable workflow for version bumping
 - **`format-check-reusable.yml`**: Reusable workflow for Prettier format checking
 - **`test-reusable.yml`**: Reusable workflow for running tests
 - **`ci.yml`**: Main CI pipeline that calls reusable workflows
-- **`release.yml`**: Deploys to VS Code Marketplace on `deploy` branch push
-- **`auto-format.yml`**: Auto-formats and commits when PR has `auto-format` label
+- **`release-please.yml`**: Uses release-please on `main` to create release PRs and publishes created releases to the VS Code Marketplace
+- **`copilot-setup-steps.yml`**: Prepares the Copilot coding agent environment using `scripts/setup-env.sh`
+- **`pr-title.yml`**: Enforces Conventional Commit PR titles for release-please
+- **`auto-format.yml`**: Auto-formats and commits when PR has `fix-lint` label
 
 Husky pre-commit hooks are disabled in CI using `CI=true` environment variable.
+
+Releases are managed by release-please from Conventional Commits. Do not manually bump `package.json`; merge the release-please PR to create the GitHub Release and publish the VSIX.
 
 ## Testing Notes
 

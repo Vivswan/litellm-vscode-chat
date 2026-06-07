@@ -5,14 +5,18 @@ on:
   push:
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - .devcontainer/devcontainer.json
       - package.json
       - bun.lock
+      - scripts/setup-env.sh
       - tsconfig.json
   pull_request:
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - .devcontainer/devcontainer.json
       - package.json
       - bun.lock
+      - scripts/setup-env.sh
       - tsconfig.json
 
 jobs:
@@ -31,11 +35,5 @@ jobs:
         with:
           bun-version-file: package.json
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Compile TypeScript
-        run: bun run compile
-
-      - name: Lint source
-        run: bun run lint
+      - name: Set up development environment
+        run: bash scripts/setup-env.sh --verify

@@ -1,0 +1,14 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "[ -d \"$CLAUDE_PROJECT_DIR/node_modules\" ] || bash \"$CLAUDE_PROJECT_DIR/scripts/setup-env.sh\""
+					}
+				]
+			}
+		]
+	}
+}

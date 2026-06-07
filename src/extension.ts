@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "./provider";
 import type { AggregatedStatus } from "./provider";
-import { IssueReporter } from "./issueReporter";
+import { IssueReporter, createIssueReporterEnv } from "./issueReporter";
 import { ServerRegistry } from "./extension/serverRegistry";
 import { StatusBarManager } from "./extension/status";
 import { registerHelpAndFeedbackCommand, registerTestCommands } from "./extension/commands";
@@ -60,7 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(outputChannel);
 	outputChannel.appendLine(`LiteLLM Extension activated (v${extVersion})`);
 
-	const issueReporter = new IssueReporter();
+	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri));
 	const registry = new ServerRegistry(context.globalState, context.secrets);
 	const provider = new LiteLLMChatModelProvider(context.secrets, ua, outputChannel, issueReporter);
 
