@@ -6,7 +6,7 @@
 
 repository:
   description: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
-  homepage: https://github.com/Vivswan/litellm-vscode-chat
+  homepage: https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat
   topics: litellm, vscode-extension, copilot-chat, llm, ai, typescript, bun
   has_issues: true
   has_wiki: false
