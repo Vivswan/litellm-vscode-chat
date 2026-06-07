@@ -259,7 +259,6 @@ Workflows are organized with reusable workflow patterns:
 - **`test-reusable.yml`**: Reusable workflow for running tests
 - **`ci.yml`**: Main CI pipeline that calls reusable workflows
 - **`release-please.yml`**: Uses release-please on `main` to create release PRs and publishes created releases to the VS Code Marketplace
-- **`codeql.yml`**: Runs CodeQL analysis for public repository events
 - **`copilot-setup-steps.yml`**: Prepares the Copilot coding agent environment using `scripts/setup-env.sh`
 - **`pr-title.yml`**: Enforces Conventional Commit PR titles for release-please
 - **`auto-format.yml`**: Auto-formats and commits when PR has `fix-lint` label
