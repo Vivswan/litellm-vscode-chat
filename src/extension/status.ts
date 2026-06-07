@@ -10,6 +10,13 @@ export interface ConnectionStatus {
 	lastChecked?: string;
 }
 
+export function formatSessionCostUsd(costUsd: number): string | undefined {
+	if (!Number.isFinite(costUsd) || costUsd <= 0) {
+		return undefined;
+	}
+	return costUsd < 0.0001 ? "<$0.0001" : `$${costUsd.toFixed(4)}`;
+}
+
 export class StatusBarManager {
 	private _connectionStatus: ConnectionStatus = { state: "not-configured" };
 	private readonly _statusBarItem: vscode.StatusBarItem;
@@ -43,19 +50,19 @@ export class StatusBarManager {
 	}
 
 	private costSuffix(): string {
-		if (this._sessionCostUsd <= 0) {
+		const formatted = formatSessionCostUsd(this._sessionCostUsd);
+		if (!formatted) {
 			return "";
 		}
-		const formatted = this._sessionCostUsd < 0.0001 ? "<0.0001" : this._sessionCostUsd.toFixed(4);
-		return ` - $${formatted}`;
+		return ` - ${formatted}`;
 	}
 
 	private costTooltipSuffix(): string {
-		if (this._sessionCostUsd <= 0) {
+		const formatted = formatSessionCostUsd(this._sessionCostUsd);
+		if (!formatted) {
 			return "";
 		}
-		const formatted = this._sessionCostUsd < 0.0001 ? "<0.0001" : this._sessionCostUsd.toFixed(4);
-		return `\nCumulative LiteLLM cost since this window started: $${formatted}`;
+		return `\nCumulative LiteLLM cost since this window started: ${formatted}`;
 	}
 
 	async updateStatusBar(status?: ConnectionStatus): Promise<void> {

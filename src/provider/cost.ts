@@ -47,8 +47,14 @@ export function getHeaderCost(response: Response): unknown {
 	return headers?.get?.("x-litellm-response-cost") ?? undefined;
 }
 
-function firstCostCandidate(values: unknown[]): unknown {
-	return values.find((value) => value !== undefined && value !== null);
+function firstCostCandidate(values: unknown[]): number | undefined {
+	for (const value of values) {
+		const normalized = normalizeNonNegativeNumber(value);
+		if (normalized !== undefined) {
+			return normalized;
+		}
+	}
+	return undefined;
 }
 
 export class ResponseCostTracker {

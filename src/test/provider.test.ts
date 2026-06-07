@@ -2,6 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import type { AggregatedStatus } from "../provider";
+import { formatSessionCostUsd } from "../extension/status";
 import { ResponseCostTracker, formatTokenPricing } from "../provider/cost";
 import { getModelParameters, type ModelRoute } from "../provider/request";
 
@@ -749,12 +750,26 @@ suite("provider", () => {
 			assert.deepEqual(tracker.finalize(), { costUsd: 0.05, source: "stream", estimated: false });
 		});
 
+		test("response cost tracker skips invalid explicit costs when selecting fallback candidates", () => {
+			const tracker = new ResponseCostTracker();
+
+			tracker.addUsage({ response_cost: Number.NaN, cost: "0.03", total_cost: 0.04 });
+
+			assert.deepEqual(tracker.finalize(), { costUsd: 0.03, source: "stream", estimated: false });
+		});
+
 		test("response cost tracker computes an estimated fallback from usage and route pricing", () => {
 			const tracker = new ResponseCostTracker({ inputCostPerToken: 0.001, outputCostPerToken: 0.002 });
 
 			tracker.addUsage({ prompt_tokens: 10, completion_tokens: 5 });
 
 			assert.deepEqual(tracker.finalize(), { costUsd: 0.02, source: "computed", estimated: true });
+		});
+
+		test("formats tiny cumulative session costs with the currency symbol before the threshold", () => {
+			assert.equal(formatSessionCostUsd(0.000099), "<$0.0001");
+			assert.equal(formatSessionCostUsd(0.0001), "$0.0001");
+			assert.equal(formatSessionCostUsd(0), undefined);
 		});
 	});
 
