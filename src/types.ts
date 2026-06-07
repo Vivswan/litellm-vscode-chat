@@ -13,6 +13,26 @@ export interface OpenAIToolCall {
 export interface OpenAIFunctionToolDef {
 	type: "function";
 	function: { name: string; description?: string; parameters?: object };
+	/**
+	 * Anthropic prompt-caching breakpoint. When present on the last tool
+	 * definition, the entire tools prefix is cached and reused across requests.
+	 * The optional `ttl` selects the cache lifetime: "5m" (default; omit the
+	 * field to use it) or "1h" (extended TTL — requires the gateway to forward
+	 * the extended-cache-ttl beta to the backend).
+	 */
+	cache_control?: CacheControl;
+}
+
+/**
+ * Anthropic ephemeral cache breakpoint as serialized on the wire. The default
+ * 5-minute lifetime is encoded by *omitting* `ttl` entirely; the field is only
+ * ever set explicitly to "1h" for the extended tier. (The 5m-vs-1h *input*
+ * decision is the internal `AnchorTtl` type in `shared/messages.ts`; this
+ * interface is the wire contract and therefore never carries "5m".)
+ */
+export interface CacheControl {
+	type: "ephemeral";
+	ttl?: "1h";
 }
 
 /**
@@ -30,9 +50,7 @@ export interface OpenAIChatMessage {
 export interface OpenAIChatTextContentBlock {
 	type: "text";
 	text: string;
-	cache_control?: {
-		type: "ephemeral";
-	};
+	cache_control?: CacheControl;
 }
 
 /** Image URL content block for vision input. */
