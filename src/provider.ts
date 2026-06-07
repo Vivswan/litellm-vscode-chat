@@ -27,6 +27,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
 	private _promptCachingSupport = new Map<string, boolean>();
 	private _statusCallback?: (status: AggregatedStatus) => void;
+	private _responseCostCallback?: (cost: number) => void;
 	private _hasShownNoConfigNotification = false;
 	private _toolCallIdCounter = 0;
 	private _modelRoutes = new Map<string, ModelRoute>();
@@ -41,6 +42,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
 		this._statusCallback = callback;
+	}
+
+	setResponseCostCallback(callback: (cost: number) => void): void {
+		this._responseCostCallback = callback;
 	}
 
 	setServerProvider(getServers: () => Promise<ServerWithKey[]>): void {
@@ -260,6 +265,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				this.secrets,
 				this.userAgent,
 				this._toolCallIdCounter,
+				(cost) => this._responseCostCallback?.(cost),
 				(msg, data) => this.log(msg, data),
 				(msg, err) => this.logError(msg, err)
 			);

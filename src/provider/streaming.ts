@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { tryParseJSONObject } from "../shared/json";
+import type { ResponseCostTracker } from "./cost";
 
 interface RequestState {
 	toolCallBuffers: Map<number, { id?: string; name?: string; args: string }>;
@@ -30,7 +31,11 @@ export class StreamProcessor {
 	private _toolCallIdCounter: number;
 	private _log: (message: string, data?: unknown) => void;
 
-	constructor(initialIdCounter: number, log: (message: string, data?: unknown) => void) {
+	constructor(
+		initialIdCounter: number,
+		log: (message: string, data?: unknown) => void,
+		private readonly costTracker?: ResponseCostTracker
+	) {
 		this._req = freshRequestState();
 		this._toolCallIdCounter = initialIdCounter;
 		this._log = log;
@@ -99,6 +104,7 @@ export class StreamProcessor {
 		if (usage) {
 			this._log("Token usage", usage);
 		}
+		this.costTracker?.addDelta(delta);
 
 		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
 		if (!choice) {

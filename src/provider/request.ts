@@ -10,6 +10,8 @@ export interface ModelRoute {
 	serverId: string;
 	rawModelId: string;
 	serverLabel: string;
+	inputCostPerToken?: number;
+	outputCostPerToken?: number;
 }
 
 export function getTokenConstraints(provider: LiteLLMProvider | undefined): {

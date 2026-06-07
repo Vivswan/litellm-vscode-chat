@@ -13,6 +13,7 @@ export interface ConnectionStatus {
 export class StatusBarManager {
 	private _connectionStatus: ConnectionStatus = { state: "not-configured" };
 	private readonly _statusBarItem: vscode.StatusBarItem;
+	private _sessionCostUsd = 0;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -33,6 +34,30 @@ export class StatusBarManager {
 		return this._connectionStatus;
 	}
 
+	addSessionCost(costUsd: number): void {
+		if (!Number.isFinite(costUsd) || costUsd <= 0) {
+			return;
+		}
+		this._sessionCostUsd += costUsd;
+		void this.updateStatusBar();
+	}
+
+	private costSuffix(): string {
+		if (this._sessionCostUsd <= 0) {
+			return "";
+		}
+		const formatted = this._sessionCostUsd < 0.0001 ? "<0.0001" : this._sessionCostUsd.toFixed(4);
+		return ` - $${formatted}`;
+	}
+
+	private costTooltipSuffix(): string {
+		if (this._sessionCostUsd <= 0) {
+			return "";
+		}
+		const formatted = this._sessionCostUsd < 0.0001 ? "<0.0001" : this._sessionCostUsd.toFixed(4);
+		return `\nCumulative LiteLLM cost since this window started: $${formatted}`;
+	}
+
 	async updateStatusBar(status?: ConnectionStatus): Promise<void> {
 		if (status) {
 			this._connectionStatus = status;
@@ -41,21 +66,21 @@ export class StatusBarManager {
 
 		switch (this._connectionStatus.state) {
 			case "not-configured":
-				this._statusBarItem.text = "$(warning) LiteLLM";
-				this._statusBarItem.tooltip = "Not configured - click to set up";
+				this._statusBarItem.text = `$(warning) LiteLLM${this.costSuffix()}`;
+				this._statusBarItem.tooltip = `Not configured - click to set up${this.costTooltipSuffix()}`;
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
 				break;
 			case "loading":
-				this._statusBarItem.text = "$(loading~spin) LiteLLM";
-				this._statusBarItem.tooltip = "Fetching models...";
+				this._statusBarItem.text = `$(loading~spin) LiteLLM${this.costSuffix()}`;
+				this._statusBarItem.tooltip = `Fetching models...${this.costTooltipSuffix()}`;
 				this._statusBarItem.backgroundColor = undefined;
 				break;
 			case "connected": {
 				const count = this._connectionStatus.totalModels ?? 0;
 				const serverCount = this._connectionStatus.serverStatuses?.length ?? 0;
 				const serverText = serverCount > 1 ? ` from ${serverCount} servers` : "";
-				this._statusBarItem.text = `$(check) LiteLLM (${count})`;
-				this._statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available${serverText}\nClick for diagnostics`;
+				this._statusBarItem.text = `$(check) LiteLLM (${count})${this.costSuffix()}`;
+				this._statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available${serverText}\nClick for diagnostics${this.costTooltipSuffix()}`;
 				this._statusBarItem.backgroundColor = undefined;
 				break;
 			}
@@ -63,14 +88,14 @@ export class StatusBarManager {
 				const count = this._connectionStatus.totalModels ?? 0;
 				const statuses = this._connectionStatus.serverStatuses ?? [];
 				const failedCount = statuses.filter((s) => s.state === "error").length;
-				this._statusBarItem.text = `$(warning) LiteLLM (${count})`;
-				this._statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available\n${failedCount} server${failedCount === 1 ? "" : "s"} unreachable\nClick for diagnostics`;
+				this._statusBarItem.text = `$(warning) LiteLLM (${count})${this.costSuffix()}`;
+				this._statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available\n${failedCount} server${failedCount === 1 ? "" : "s"} unreachable\nClick for diagnostics${this.costTooltipSuffix()}`;
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
 				break;
 			}
 			case "error":
-				this._statusBarItem.text = "$(error) LiteLLM";
-				this._statusBarItem.tooltip = `Connection failed\n${this._connectionStatus.error || "Unknown error"}\nClick for details`;
+				this._statusBarItem.text = `$(error) LiteLLM${this.costSuffix()}`;
+				this._statusBarItem.tooltip = `Connection failed\n${this._connectionStatus.error || "Unknown error"}\nClick for details${this.costTooltipSuffix()}`;
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
 				break;
 		}

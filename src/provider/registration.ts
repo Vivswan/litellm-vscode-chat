@@ -3,6 +3,8 @@ import type { LiteLLMModelItem } from "../types";
 import type { ServerWithKey } from "../extension/serverRegistry";
 import type { ModelRoute } from "./request";
 import { getTokenConstraints, buildExposedModelId } from "./request";
+import { normalizeNonNegativeNumber } from "../shared/numbers";
+import { formatTokenPricing } from "./cost";
 
 export interface RegistrationResult {
 	infos: LanguageModelChatInformation[];
@@ -32,11 +34,26 @@ export function buildModelInfos(
 	const routes = new Map<string, ModelRoute>();
 	const promptCaching = new Map<string, boolean>();
 
-	const registerRoute = (exposedId: string, rawId: string) => {
+	const providerPricing = (provider: LiteLLMModelItem["providers"][number]): string | undefined =>
+		formatTokenPricing(provider.input_cost_per_token, provider.output_cost_per_token);
+
+	const pricedDetail = (fallback: string, provider: LiteLLMModelItem["providers"][number]): string => {
+		const pricing = providerPricing(provider);
+		return pricing ? `${pricing} (${fallback})` : fallback;
+	};
+
+	const pricedTooltip = (title: string, provider: LiteLLMModelItem["providers"][number]): string => {
+		const pricing = providerPricing(provider);
+		return pricing ? `${title}\nPricing: ${pricing}` : title;
+	};
+
+	const registerRoute = (exposedId: string, rawId: string, provider?: LiteLLMModelItem["providers"][number]) => {
 		routes.set(exposedId, {
 			serverId: server.id,
 			rawModelId: rawId,
 			serverLabel: server.label,
+			inputCostPerToken: normalizeNonNegativeNumber(provider?.input_cost_per_token),
+			outputCostPerToken: normalizeNonNegativeNumber(provider?.output_cost_per_token),
 		});
 	};
 
@@ -52,13 +69,13 @@ export function buildModelInfos(
 			const constraints = getTokenConstraints(providers[0]);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			promptCaching.set(exposedId, providers[0].supports_prompt_caching === true);
-			registerRoute(exposedId, m.id);
+			registerRoute(exposedId, m.id, providers[0]);
 			return [
 				{
 					id: exposedId,
 					name: `${namePrefix}${m.id}`,
-					detail,
-					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+					detail: pricedDetail(detail, providers[0]),
+					tooltip: pricedTooltip(serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM", providers[0]),
 					family: "litellm",
 					version: "1.0.0",
 					maxInputTokens: constraints.maxInputTokens,
@@ -149,8 +166,8 @@ export function buildModelInfos(
 			entries.push({
 				id: exposedId,
 				name: `${namePrefix}${m.id} via ${p.provider}`,
-				detail,
-				tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
+				detail: pricedDetail(detail, p),
+				tooltip: pricedTooltip(`LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`, p),
 				family: "litellm",
 				version: "1.0.0",
 				maxInputTokens: constraints.maxInputTokens,
@@ -161,7 +178,7 @@ export function buildModelInfos(
 				},
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, p.supports_prompt_caching === true);
-			registerRoute(exposedId, rawId);
+			registerRoute(exposedId, rawId, p);
 		}
 
 		if (toolProviders.length === 0 && providers.length > 0) {
@@ -171,8 +188,8 @@ export function buildModelInfos(
 			entries.push({
 				id: exposedId,
 				name: `${namePrefix}${m.id}`,
-				detail,
-				tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+				detail: pricedDetail(detail, base),
+				tooltip: pricedTooltip(serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM", base),
 				family: "litellm",
 				version: "1.0.0",
 				maxInputTokens: constraints.maxInputTokens,
@@ -183,7 +200,7 @@ export function buildModelInfos(
 				},
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, base.supports_prompt_caching === true);
-			registerRoute(exposedId, m.id);
+			registerRoute(exposedId, m.id, base);
 		}
 
 		return entries;

@@ -5,7 +5,7 @@ import type {
 	LiteLLMModelsResponse,
 	LiteLLMProvider,
 } from "../types";
-import { normalizePositiveNumber } from "../shared/numbers";
+import { normalizeNonNegativeNumber, normalizePositiveNumber } from "../shared/numbers";
 
 export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 	const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
@@ -30,6 +30,8 @@ export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMM
 		max_tokens: maxTokens,
 		max_input_tokens: maxInputTokens,
 		max_output_tokens: maxOutputTokens,
+		input_cost_per_token: normalizeNonNegativeNumber(item.model_info?.input_cost_per_token),
+		output_cost_per_token: normalizeNonNegativeNumber(item.model_info?.output_cost_per_token),
 		source: "model_info",
 		supports_prompt_caching: item.model_info?.supports_prompt_caching ?? null,
 		supports_response_schema: item.model_info?.supports_response_schema ?? null,

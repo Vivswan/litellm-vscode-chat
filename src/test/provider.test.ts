@@ -2,7 +2,8 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import type { AggregatedStatus } from "../provider";
-import { getModelParameters } from "../provider/request";
+import { ResponseCostTracker, formatTokenPricing } from "../provider/cost";
+import { getModelParameters, type ModelRoute } from "../provider/request";
 
 suite("provider", () => {
 	test("prepareLanguageModelChatInformation returns array (no key -> empty)", async () => {
@@ -731,6 +732,32 @@ suite("provider", () => {
 		});
 	});
 
+	suite("pricing", () => {
+		test("formats per-token pricing as per-million-token display text", () => {
+			assert.equal(formatTokenPricing(2e-7, "5e-7"), "Input $0.20/M, Output $0.50/M");
+			assert.equal(formatTokenPricing(undefined, 0), "Output $0.00/M");
+			assert.equal(formatTokenPricing(-1, Number.NaN), undefined);
+		});
+
+		test("response cost tracker prefers streamed cost over header and de-dupes usage chunks", () => {
+			const tracker = new ResponseCostTracker({ inputCostPerToken: 0.001, outputCostPerToken: 0.002 });
+
+			tracker.addHeaderCost("0.03");
+			tracker.addUsage({ response_cost: 0.04 });
+			tracker.addUsage({ response_cost: 0.05 });
+
+			assert.deepEqual(tracker.finalize(), { costUsd: 0.05, source: "stream", estimated: false });
+		});
+
+		test("response cost tracker computes an estimated fallback from usage and route pricing", () => {
+			const tracker = new ResponseCostTracker({ inputCostPerToken: 0.001, outputCostPerToken: 0.002 });
+
+			tracker.addUsage({ prompt_tokens: 10, completion_tokens: 5 });
+
+			assert.deepEqual(tracker.finalize(), { costUsd: 0.02, source: "computed", estimated: true });
+		});
+	});
+
 	suite("request body construction", () => {
 		function createConfiguredProvider(): LiteLLMChatModelProvider {
 			return new LiteLLMChatModelProvider(
@@ -756,6 +783,16 @@ suite("provider", () => {
 
 		function sseStream(text: string): ReadableStream<Uint8Array> {
 			const chunk = `data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+			return new ReadableStream({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode(chunk));
+					controller.close();
+				},
+			});
+		}
+
+		function sseFromPayloads(payloads: Record<string, unknown>[]): ReadableStream<Uint8Array> {
+			const chunk = `${payloads.map((payload) => `data: ${JSON.stringify(payload)}\n\n`).join("")}data: [DONE]\n\n`;
 			return new ReadableStream({
 				start(controller) {
 					controller.enqueue(new TextEncoder().encode(chunk));
@@ -817,6 +854,15 @@ suite("provider", () => {
 			assert.deepEqual(body.response_format, { type: "json_object" });
 			assert.equal(body.reasoning_effort, "high");
 			assert.equal(body.top_k, 50);
+		});
+
+		test("keeps broad pass-through for arbitrary modelOptions", async () => {
+			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelOptions: { seed: 123, provider_specific_option: { enabled: true } },
+			});
+			assert.equal(body.seed, 123);
+			assert.deepEqual(body.provider_specific_option, { enabled: true });
 		});
 
 		test("does not overwrite provider-owned fields from modelOptions", async () => {
@@ -927,6 +973,73 @@ suite("provider", () => {
 				assert.strictEqual(body.top_p, 0.8);
 			} finally {
 				vscode.workspace.getConfiguration = originalGetConfig;
+			}
+		});
+
+		test("reports header response cost once when no streamed cost is present", async () => {
+			const originalFetch = global.fetch;
+			const provider = createConfiguredProvider();
+			const costs: number[] = [];
+			provider.setResponseCostCallback((cost) => costs.push(cost));
+			global.fetch = async () =>
+				({
+					ok: true,
+					headers: new Headers({ "x-litellm-response-cost": "0.12" }),
+					body: sseStream("ok"),
+				}) as unknown as Response;
+
+			try {
+				await provider.provideLanguageModelChatResponse(
+					modelInfo,
+					[
+						{
+							role: vscode.LanguageModelChatMessageRole.User,
+							content: [new vscode.LanguageModelTextPart("test")],
+							name: undefined,
+						},
+					],
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+				assert.deepEqual(costs, [0.12]);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
+		test("prefers streamed response cost over header and reports it once", async () => {
+			const originalFetch = global.fetch;
+			const provider = createConfiguredProvider();
+			const costs: number[] = [];
+			provider.setResponseCostCallback((cost) => costs.push(cost));
+			global.fetch = async () =>
+				({
+					ok: true,
+					headers: new Headers({ "x-litellm-response-cost": "0.12" }),
+					body: sseFromPayloads([
+						{ choices: [{ delta: { content: "ok" } }], usage: { response_cost: 0.2 } },
+						{ choices: [], usage: { response_cost: 0.25 } },
+					]),
+				}) as unknown as Response;
+
+			try {
+				await provider.provideLanguageModelChatResponse(
+					modelInfo,
+					[
+						{
+							role: vscode.LanguageModelChatMessageRole.User,
+							content: [new vscode.LanguageModelTextPart("test")],
+							name: undefined,
+						},
+					],
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+				assert.deepEqual(costs, [0.25]);
+			} finally {
+				global.fetch = originalFetch;
 			}
 		});
 	});
@@ -1399,6 +1512,56 @@ suite("provider", () => {
 			const modelEntry = infos.find((i) => i.id === "gpt-4o");
 			assert.ok(modelEntry);
 			assert.equal(modelEntry.capabilities.imageInput, true);
+		});
+
+		test("model/info pricing metadata is surfaced in picker detail and route metadata", async () => {
+			const originalFetch = global.fetch;
+			try {
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							data: [
+								{
+									model_name: "priced-model",
+									model_info: {
+										id: "priced-model",
+										supports_function_calling: true,
+										max_tokens: 8000,
+										max_input_tokens: 100000,
+										max_output_tokens: 8000,
+										input_cost_per_token: 2e-7,
+										output_cost_per_token: "5e-7",
+									},
+								},
+							],
+						}),
+					}) as unknown as Response;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				const modelEntry = infos.find((i) => i.id === "priced-model");
+				assert.ok(modelEntry);
+				assert.ok(modelEntry.detail?.includes("Input $0.20/M, Output $0.50/M"));
+				assert.ok(modelEntry.tooltip?.includes("Pricing: Input $0.20/M, Output $0.50/M"));
+				const routes = (provider as unknown as { _modelRoutes: Map<string, ModelRoute> })._modelRoutes;
+				assert.equal(routes.get("priced-model")?.inputCostPerToken, 2e-7);
+				assert.equal(routes.get("priced-model")?.outputCostPerToken, 5e-7);
+			} finally {
+				global.fetch = originalFetch;
+			}
 		});
 	});
 });
