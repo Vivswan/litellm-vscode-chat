@@ -132,7 +132,7 @@
 		"color": "#100f11",
 		"theme": "dark"
 	},
-	"homepage": "https://github.com/Vivswan/litellm-vscode-chat",
+	"homepage": "https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat",
 	"icon": "assets/logo.png",
 	"license": "MIT",
 	"lint-staged": {
