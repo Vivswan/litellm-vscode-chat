@@ -160,10 +160,7 @@ export function sanitizeSchema(input: unknown, propName?: string): Record<string
  * Convert VS Code tool definitions to OpenAI function tool definitions.
  * @param options Request options containing tools and toolMode.
  */
-export function convertTools(
-	options: vscode.ProvideLanguageModelChatResponseOptions,
-	convertOptions?: { cacheTools?: { ttl: "5m" | "1h" } }
-): {
+export function convertTools(options: vscode.ProvideLanguageModelChatResponseOptions): {
 	tools?: OpenAIFunctionToolDef[];
 	tool_choice?: "auto" | "required" | { type: "function"; function: { name: string } };
 } {
@@ -187,14 +184,6 @@ export function convertTools(
 				},
 			} satisfies OpenAIFunctionToolDef;
 		});
-
-	// The tools array is large and static across an agent session. Tag the last
-	// tool with an ephemeral cache breakpoint so the whole tools prefix is
-	// cached and reused on every subsequent request. The TTL ("5m" default,
-	// omitted on the wire; "1h" emitted explicitly) is decided by the caller.
-	if (convertOptions?.cacheTools) {
-		applyToolsCacheControl(toolDefs, convertOptions.cacheTools.ttl);
-	}
 
 	let tool_choice: "auto" | "required" | { type: "function"; function: { name: string } } = "auto";
 	if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {

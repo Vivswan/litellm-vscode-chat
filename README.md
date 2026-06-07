@@ -140,7 +140,7 @@ All `modelParameters` keys are passed through to LiteLLM — the extension does 
 
 ### Prompt Caching (Anthropic Claude)
 
-The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). When active, it places Anthropic's maximum of **4 `cache_control` breakpoints** per request so that the entire cacheable prefix — tools, system prompt, first user message, and the rolling conversation history — is reused on every subsequent agent round-trip. In a long agent session this typically reduces input-token cost by **70–80%**.
+The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). When active, it places up to Anthropic's maximum of **4 `cache_control` breakpoints** per request so that the entire cacheable prefix — tools, system prompt, first user message, and the rolling conversation history — is reused on every subsequent agent round-trip. In a long agent session this typically reduces input-token cost by **70–80%**.
 
 Each breakpoint can use one of two cache lifetimes (TTL):
 
@@ -160,8 +160,8 @@ Each breakpoint can use one of two cache lifetimes (TTL):
 | Setting | Type | Default | Purpose |
 |---|---|---|---|
 | `promptCaching.mode` | `off` \| `chat` \| `agent` \| `auto` | `auto` | The caching strategy (see table below). |
-| `promptCaching.tokenSizeAutoBreakpoint` | number (4000–16000) | `8000` | In `auto` mode only: the estimated-token threshold above which the first user message and tools array use the 1h TTL instead of 5m. |
-| `promptCaching.minCacheTokens` | number (256–4096) | `1024` | The minimum estimated block size for a breakpoint to be placed at all. Blocks below this floor are skipped (the provider won't cache a prefix shorter than its minimum). Applies in every mode. |
+| `promptCaching.tokenSizeAutoBreakpoint` | number (4000–16000) | `8000` | Deprecated compatibility setting; `auto` mode no longer uses this to choose TTLs. |
+| `promptCaching.minCacheTokens` | number (256–4096) | `4096` | The minimum estimated block size for a breakpoint to be placed at all. Blocks below this floor are skipped (the provider won't cache a prefix shorter than its minimum). Applies in every mode. |
 | `promptCaching.rollingLastMessage` | `always` \| `stableTurnsOnly` \| `never` | `stableTurnsOnly` | Where the rolling-last breakpoint is placed. Orthogonal to `mode` (which controls the TTL). |
 
 **Modes:**
@@ -171,7 +171,7 @@ Each breakpoint can use one of two cache lifetimes (TTL):
 | `off` | — | — | — | — | Disabling caching entirely. |
 | `chat` | 5m | 5m | 5m | 5m | Short, bursty interactive conversations. |
 | `agent` | 1h | 1h | 1h | 5m | Long agent runs over a long wall-clock window. |
-| `auto` *(default)* | 1h if ≥ breakpoint, else 5m | 1h | 1h if ≥ breakpoint, else 5m | 5m | A balanced default that needs no tuning. |
+| `auto` *(default)* | 1h | 1h | 1h | 5m | A balanced default that needs no tuning. |
 
 In all modes, an anchor smaller than `minCacheTokens` is silently skipped, and the rolling-last anchor's *placement* is governed by `rollingLastMessage`.
 
@@ -185,7 +185,7 @@ In all modes, an anchor smaller than `minCacheTokens` is silently skipped, and t
 
 **How it works:**
 
-Anthropic allows up to 4 `cache_control` breakpoints per request. The extension places them on the four highest-value positions, in canonical order:
+Anthropic allows up to 4 `cache_control` breakpoints per request. The extension can place them on the four highest-value positions, in canonical order:
 
 | Breakpoint | What is cached | Why it matters |
 |---|---|---|
@@ -194,7 +194,7 @@ Anthropic allows up to 4 `cache_control` breakpoints per request. The extension 
 | **First user message** | The original task + everything before it | Stable for the whole session; survives the TTL window even as later messages change |
 | **Last stable message** | The full conversation prefix up to the current turn | Ensures each agent round-trip reuses all prior turns |
 
-If a conversation has only a single user message the first-user and rolling-last breakpoints merge into one, keeping the total at or below 4.
+If VS Code splits the system prompt across multiple leading system messages, only the final leading system message is tagged, so the system prompt consumes one breakpoint. If a conversation has only a single user message the first-user and rolling-last breakpoints merge into one, keeping the total at or below 4.
 
 **Gating:**
 - Automatically detects prompt caching support from LiteLLM's `/v1/model/info` endpoint

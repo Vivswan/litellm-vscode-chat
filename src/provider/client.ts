@@ -108,8 +108,8 @@ export async function sendChatRequest(
 	const supportsPromptCaching = promptCachingSupport.get(model.id) === true;
 
 	// Measure each anchor's block size up front so the resolver can apply the
-	// auto-mode size gating and the universal minCacheTokens floor. Tools are
-	// sized from a no-cache conversion to avoid a chicken-and-egg dependency.
+	// universal minCacheTokens floor. Tools are sized from a no-cache conversion
+	// to avoid a chicken-and-egg dependency.
 	const baseToolConfig = convertTools(options);
 	const anchorSizes = {
 		tools: estimateToolTokens(baseToolConfig.tools),
