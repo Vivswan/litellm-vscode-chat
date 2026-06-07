@@ -22,7 +22,7 @@ On Windows without Bash, use PowerShell instead:
 ```powershell
 git clone https://github.com/<your-fork>/litellm-vscode-chat.git
 cd litellm-vscode-chat
-./scripts/setup-env.ps1
+bun run setup-env:pwsh
 ```
 
 ## Running checks

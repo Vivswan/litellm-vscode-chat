@@ -46,7 +46,13 @@ jobs:
         with:
           bun-version-file: package.json
 
-      - name: Set up development environment
+      - name: Set up development environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: bun run setup-env:pwsh
+
+      - name: Set up development environment (Unix)
+        if: runner.os != 'Windows'
         run: bash scripts/setup-env.sh
 
       - name: Lint

@@ -9,11 +9,17 @@ This is a VS Code extension that integrates LiteLLM into GitHub Copilot Chat, al
 ## Build and Development Commands
 
 ```bash
-# Install dependencies
+# Install dependencies on macOS/Linux, or shells with Bash
 bun run setup-env
 
-# Install dependencies and run compile/lint
+# Install dependencies on Windows PowerShell
+bun run setup-env:pwsh
+
+# Install dependencies and run compile/lint on macOS/Linux, or shells with Bash
 bun run setup-env:verify
+
+# Install dependencies and run compile/lint on Windows PowerShell
+bun run setup-env:verify:pwsh
 
 # Compile TypeScript to JavaScript
 bun run compile
