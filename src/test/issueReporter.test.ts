@@ -1,8 +1,11 @@
 import * as assert from "assert";
+import * as vscode from "vscode";
 import { IssueReporter, redactSecrets } from "../issueReporter";
 import type { DiagnosticsSnapshot } from "../issueReporter";
 
 suite("IssueReporter", () => {
+	const MAX_SAFE_URL_LENGTH = 8000;
+
 	function makeSnapshot(overrides?: Partial<DiagnosticsSnapshot>): DiagnosticsSnapshot {
 		return {
 			extensionVersion: "0.2.3",
@@ -15,6 +18,10 @@ suite("IssueReporter", () => {
 			recentLogs: [],
 			...overrides,
 		};
+	}
+
+	function getIssueBody(url: string): string {
+		return new URL(url).searchParams.get("body") ?? "";
 	}
 
 	test("buildIssueUrl produces valid GitHub URL with query params", () => {
@@ -99,6 +106,154 @@ suite("IssueReporter", () => {
 		);
 		assert.ok(body.includes("## Recent logs"));
 		assert.ok(body.includes("Fetching models"));
+	});
+
+	test("buildBody keeps recent logs before stack trace", () => {
+		const reporter = new IssueReporter();
+		const body = reporter.buildBody(
+			makeSnapshot({
+				latestError: {
+					source: "fetchModels",
+					message: "network failure",
+					stack: "Error: network failure\n    at fetchModels.ts:1",
+					timestamp: "2026-01-01T00:00:00.000Z",
+				},
+				recentLogs: ["[2026-01-01] ERROR: Failed to fetch models from server Default"],
+			})
+		);
+
+		assert.ok(body.indexOf("## Recent logs") < body.indexOf("Stack trace"));
+		assert.ok(body.includes("[2026-01-01] ERROR: Failed to fetch models from server Default"));
+	});
+
+	test("buildBody includes all buffered recent logs", () => {
+		const reporter = new IssueReporter();
+		const recentLogs = Array.from({ length: 25 }, (_, i) => `line ${i}`);
+		const body = reporter.buildBody(makeSnapshot({ recentLogs }));
+
+		assert.ok(body.includes("line 0"));
+		assert.ok(body.includes("line 24"));
+	});
+
+	test("buildIssueUrl does not truncate realistic diagnostics", () => {
+		const reporter = new IssueReporter();
+		const finalLog = '[2026-06-05T01:22:21.281Z] ERROR: Failed to fetch models from server "Default": fetch failed';
+		const url = reporter.buildIssueUrl(
+			makeSnapshot({
+				connectionState: "error",
+				modelCount: 0,
+				latestError: {
+					source: 'Failed to fetch models from server "Default"',
+					message: "Network Error: Failed to fetch models from https://internal.example.com/v1/models fetch failed",
+					stack: [
+						"Error: Network Error: Failed to fetch models from https://internal.example.com/v1/models fetch failed",
+						"    at fetchModels (c:\\Users\\user\\.vscode\\extensions\\vivswan.litellm-vscode-chat-0.2.6\\out\\provider\\discovery.js:166:25)",
+						"    at processTicksAndRejections (node:internal/process/task_queues:104:5)",
+						"    at LiteLLMChatModelProvider.prepareLanguageModelChatInformation (c:\\Users\\user\\.vscode\\extensions\\vivswan.litellm-vscode-chat-0.2.6\\out\\provider.js:119:25)",
+					].join("\n"),
+					timestamp: "2026-06-05T01:22:23.326Z",
+				},
+				recentLogs: [
+					"[2026-06-05T01:22:20.000Z] prepareLanguageModelChatInformation called",
+					"[2026-06-05T01:22:20.500Z] Fetching models from servers",
+					finalLog,
+				],
+			})
+		);
+		const body = getIssueBody(url);
+
+		assert.ok(url.length <= MAX_SAFE_URL_LENGTH);
+		assert.ok(body.includes(finalLog));
+		assert.ok(!body.includes("...(truncated)"));
+		assert.ok(!body.includes("full diagnostics copied to clipboard"));
+	});
+
+	test("buildIssueUrl drops oldest logs as whole lines when the report is too large", () => {
+		const reporter = new IssueReporter();
+		const logs = Array.from({ length: 50 }, (_, i) => `log ${i.toString().padStart(2, "0")} ${"x".repeat(140)}`);
+		const url = reporter.buildIssueUrl(
+			makeSnapshot({
+				latestError: {
+					source: "fetchModels",
+					message: "network failure",
+					stack: Array.from({ length: 40 }, (_, i) => `    at frame${i} (file${i}.ts:1:1)`).join("\n"),
+					timestamp: "2026-01-01T00:00:00.000Z",
+				},
+				recentLogs: logs,
+			})
+		);
+		const body = getIssueBody(url);
+
+		assert.ok(url.length <= MAX_SAFE_URL_LENGTH);
+		assert.ok(body.includes("older log lines omitted"));
+		assert.ok(!body.includes(logs[0]));
+		assert.ok(body.includes(logs[49]));
+		assert.ok(!body.includes("...(truncated)"));
+	});
+
+	test("openIssue copies full diagnostics when the URL body is compacted", async () => {
+		let clipboardText: string | undefined;
+		let savedText: string | undefined;
+		let notifiedFile: vscode.Uri | undefined;
+		let openedUri: string | undefined;
+		const diagnosticsFile = vscode.Uri.file("/tmp/litellm-diagnostics.md");
+		const reporter = new IssueReporter({
+			writeClipboard: async (text) => {
+				clipboardText = text;
+			},
+			saveDiagnosticsFile: async (text) => {
+				savedText = text;
+				return diagnosticsFile;
+			},
+			openExternal: async (uri) => {
+				openedUri = uri.toString(true);
+				return true;
+			},
+			showCompactedDiagnosticsMessage: async (file) => {
+				notifiedFile = file;
+			},
+		});
+		const logs = Array.from({ length: 50 }, (_, i) => `log ${i.toString().padStart(2, "0")} ${"x".repeat(140)}`);
+
+		await reporter.openIssue(
+			makeSnapshot({
+				latestError: {
+					source: "fetchModels",
+					message: "network failure",
+					stack: Array.from({ length: 40 }, (_, i) => `    at frame${i} (file${i}.ts:1:1)`).join("\n"),
+					timestamp: "2026-01-01T00:00:00.000Z",
+				},
+				recentLogs: logs,
+			})
+		);
+
+		assert.ok(openedUri);
+		assert.ok(openedUri.length <= MAX_SAFE_URL_LENGTH);
+		assert.ok(clipboardText?.includes(logs[0]));
+		assert.ok(clipboardText?.includes(logs[49]));
+		assert.equal(savedText, clipboardText);
+		assert.equal(notifiedFile?.toString(), diagnosticsFile.toString());
+		assert.ok(getIssueBody(openedUri).includes("saved to a diagnostics file"));
+	});
+
+	test("buildIssueUrl final fallback stays short for huge messages", () => {
+		const reporter = new IssueReporter();
+		const url = reporter.buildIssueUrl(
+			makeSnapshot({
+				latestError: {
+					source: "fetchModels",
+					message: `network failure ${"x".repeat(30000)}`,
+					timestamp: "2026-01-01T00:00:00.000Z",
+				},
+				recentLogs: [],
+			})
+		);
+		const body = getIssueBody(url);
+
+		assert.ok(url.length <= MAX_SAFE_URL_LENGTH);
+		assert.ok(body.includes("Full redacted diagnostics were too large to prefill in GitHub"));
+		assert.ok(body.includes("Please add the full diagnostics separately"));
+		assert.ok(!body.includes("x".repeat(1000)));
 	});
 
 	test("appendLog maintains rolling buffer", () => {

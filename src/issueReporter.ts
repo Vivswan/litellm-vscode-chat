@@ -2,8 +2,8 @@ import * as vscode from "vscode";
 
 const GITHUB_REPO_URL = "https://github.com/Vivswan/litellm-vscode-chat";
 const MAX_LOG_ENTRIES = 50;
-const MAX_BODY_LENGTH = 1500;
 const MAX_URL_LENGTH = 8000;
+const COMPACT_STACK_LINES = 8;
 
 export interface ErrorContext {
 	source: string;
@@ -24,9 +24,70 @@ export interface DiagnosticsSnapshot {
 	recentLogs: string[];
 }
 
+interface BodyOptions {
+	recentLogs?: string[];
+	omittedLogCount?: number;
+	stackMode?: "full" | "compact";
+	compactedDiagnosticsHint?: string;
+}
+
+interface IssuePayload {
+	url: string;
+	fullBody: string;
+	compacted: boolean;
+}
+
+export interface IssueReporterEnv {
+	writeClipboard(text: string): PromiseLike<void>;
+	openExternal(uri: vscode.Uri): PromiseLike<boolean>;
+	saveDiagnosticsFile?(contents: string): PromiseLike<vscode.Uri>;
+	showCompactedDiagnosticsMessage?(diagnosticsFile?: vscode.Uri): PromiseLike<void>;
+}
+
+const defaultIssueReporterEnv: IssueReporterEnv = {
+	writeClipboard: (text) => vscode.env.clipboard.writeText(text),
+	openExternal: (uri) => vscode.env.openExternal(uri),
+	showCompactedDiagnosticsMessage: async () => {
+		await vscode.window.showInformationMessage(
+			"LiteLLM: Full diagnostics were too large to prefill in GitHub and were copied to your clipboard. Please paste them into the issue."
+		);
+	},
+};
+
+export function createIssueReporterEnv(diagnosticsDirectory: vscode.Uri): IssueReporterEnv {
+	return {
+		...defaultIssueReporterEnv,
+		saveDiagnosticsFile: async (contents) => {
+			const directory = vscode.Uri.joinPath(diagnosticsDirectory, "issue-diagnostics");
+			await vscode.workspace.fs.createDirectory(directory);
+			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+			const file = vscode.Uri.joinPath(directory, `litellm-diagnostics-${timestamp}.md`);
+			await vscode.workspace.fs.writeFile(file, Buffer.from(contents, "utf8"));
+
+			const document = await vscode.workspace.openTextDocument(file);
+			await vscode.window.showTextDocument(document, { preview: false });
+			return file;
+		},
+		showCompactedDiagnosticsMessage: async (diagnosticsFile) => {
+			const choice = await vscode.window.showInformationMessage(
+				diagnosticsFile
+					? "LiteLLM: Full diagnostics were saved to a redacted log file and copied to your clipboard. Attach the file to the GitHub issue or paste the contents."
+					: "LiteLLM: Full diagnostics were too large to prefill in GitHub and were copied to your clipboard. Please paste them into the issue.",
+				...(diagnosticsFile ? ["Reveal File"] : [])
+			);
+
+			if (choice === "Reveal File" && diagnosticsFile) {
+				await vscode.commands.executeCommand("revealFileInOS", diagnosticsFile);
+			}
+		},
+	};
+}
+
 export class IssueReporter {
 	private _logBuffer: string[] = [];
 	private _latestError?: ErrorContext;
+
+	constructor(private readonly env: IssueReporterEnv = defaultIssueReporterEnv) {}
 
 	appendLog(message: string): void {
 		this._logBuffer.push(message);
@@ -55,29 +116,7 @@ export class IssueReporter {
 	}
 
 	buildIssueUrl(snapshot: DiagnosticsSnapshot): string {
-		const title = this.buildTitle(snapshot);
-		const body = this.buildBody(snapshot);
-		let truncatedBody = body.length > MAX_BODY_LENGTH ? body.slice(0, MAX_BODY_LENGTH) + "\n\n...(truncated)" : body;
-
-		const params = new URLSearchParams({
-			labels: "bug",
-			title,
-			body: truncatedBody,
-		});
-
-		let url = `${GITHUB_REPO_URL}/issues/new?${params.toString()}`;
-
-		if (url.length > MAX_URL_LENGTH) {
-			truncatedBody = body.slice(0, 800) + "\n\n...(truncated, full diagnostics copied to clipboard)";
-			const shortParams = new URLSearchParams({
-				labels: "bug",
-				title,
-				body: truncatedBody,
-			});
-			url = `${GITHUB_REPO_URL}/issues/new?${shortParams.toString()}`;
-		}
-
-		return url;
+		return this.buildIssuePayload(snapshot).url;
 	}
 
 	buildTitle(snapshot: DiagnosticsSnapshot): string {
@@ -88,8 +127,11 @@ export class IssueReporter {
 		return "[Bug] Issue report from diagnostics";
 	}
 
-	buildBody(snapshot: DiagnosticsSnapshot): string {
+	buildBody(snapshot: DiagnosticsSnapshot, options: BodyOptions = {}): string {
 		const sections: string[] = [];
+		const recentLogs = options.recentLogs ?? snapshot.recentLogs;
+		const stackMode = options.stackMode ?? "full";
+		const compactedDiagnosticsHint = options.compactedDiagnosticsHint ?? "full diagnostics omitted from URL";
 
 		sections.push("## What happened\n\n<!-- Describe what happened -->\n");
 		sections.push("## Expected behavior\n\n<!-- What did you expect to happen? -->\n");
@@ -122,22 +164,17 @@ export class IssueReporter {
 			diagLines.push(`- Source: ${snapshot.latestError.source}`);
 			diagLines.push(`- Time: ${snapshot.latestError.timestamp}`);
 			diagLines.push(`- Message: ${redactSecrets(snapshot.latestError.message)}`);
-			if (snapshot.latestError.stack) {
-				diagLines.push("");
-				diagLines.push("<details><summary>Stack trace</summary>");
-				diagLines.push("");
-				diagLines.push("```");
-				diagLines.push(redactSecrets(snapshot.latestError.stack));
-				diagLines.push("```");
-				diagLines.push("");
-				diagLines.push("</details>");
-			}
 		}
 		diagLines.push("");
 		sections.push(diagLines.join("\n"));
 
-		if (snapshot.recentLogs.length > 0) {
-			const logLines = snapshot.recentLogs.slice(-20).map((l) => redactSecrets(l));
+		if (recentLogs.length > 0 || options.omittedLogCount) {
+			const logLines = recentLogs.map((l) => redactSecrets(l));
+			if (options.omittedLogCount) {
+				logLines.unshift(
+					`... (${options.omittedLogCount} older log line${options.omittedLogCount === 1 ? "" : "s"} omitted; ${compactedDiagnosticsHint})`
+				);
+			}
 			sections.push(
 				[
 					"## Recent logs",
@@ -154,19 +191,159 @@ export class IssueReporter {
 			);
 		}
 
+		if (snapshot.latestError?.stack) {
+			const stack =
+				stackMode === "compact"
+					? compactStack(snapshot.latestError.stack, compactedDiagnosticsHint)
+					: snapshot.latestError.stack;
+			sections.push(
+				[
+					`<details><summary>${stackMode === "compact" ? "Stack trace (trimmed)" : "Stack trace"}</summary>`,
+					"",
+					"```",
+					redactSecrets(stack),
+					"```",
+					"",
+					"</details>",
+					"",
+				].join("\n")
+			);
+		}
+
 		return sections.join("\n");
 	}
 
 	async openIssue(snapshot: DiagnosticsSnapshot): Promise<void> {
-		const fullBody = this.buildBody(snapshot);
-		const url = this.buildIssueUrl(snapshot);
+		const compactedDiagnosticsHint = this.env.saveDiagnosticsFile
+			? "full diagnostics copied to clipboard and saved to a diagnostics file"
+			: "full diagnostics copied to clipboard";
+		const payload = this.buildIssuePayload(snapshot, compactedDiagnosticsHint);
+		let diagnosticsFile: vscode.Uri | undefined;
 
-		if (fullBody.length > MAX_BODY_LENGTH) {
-			await vscode.env.clipboard.writeText(fullBody);
+		if (payload.compacted) {
+			await this.env.writeClipboard(payload.fullBody);
+			diagnosticsFile = await this.env.saveDiagnosticsFile?.(payload.fullBody);
 		}
 
-		await vscode.env.openExternal(vscode.Uri.parse(url));
+		await this.env.openExternal(vscode.Uri.parse(payload.url));
+
+		if (payload.compacted) {
+			void this.env.showCompactedDiagnosticsMessage?.(diagnosticsFile);
+		}
 	}
+
+	private buildIssuePayload(
+		snapshot: DiagnosticsSnapshot,
+		compactedDiagnosticsHint = "full diagnostics omitted from URL"
+	): IssuePayload {
+		const title = this.buildTitle(snapshot);
+		const fullBody = this.buildBody(snapshot);
+		const fullUrl = createIssueUrl(title, fullBody);
+		if (fullUrl.length <= MAX_URL_LENGTH) {
+			return { url: fullUrl, fullBody, compacted: false };
+		}
+
+		const compactStackBody = this.buildBody(snapshot, { stackMode: "compact", compactedDiagnosticsHint });
+		const compactStackUrl = createIssueUrl(title, compactStackBody);
+		if (compactStackUrl.length <= MAX_URL_LENGTH) {
+			return { url: compactStackUrl, fullBody, compacted: true };
+		}
+
+		for (let omitted = 1; omitted <= snapshot.recentLogs.length; omitted++) {
+			const logs = snapshot.recentLogs.slice(omitted);
+			const body = this.buildBody(snapshot, {
+				recentLogs: logs,
+				omittedLogCount: omitted,
+				stackMode: "compact",
+				compactedDiagnosticsHint,
+			});
+			const url = createIssueUrl(title, body);
+			if (url.length <= MAX_URL_LENGTH) {
+				return { url, fullBody, compacted: true };
+			}
+		}
+
+		const fallbackBody = buildClipboardFallbackBody(snapshot, compactedDiagnosticsHint);
+		return {
+			url: createIssueUrl(title, fallbackBody),
+			fullBody,
+			compacted: true,
+		};
+	}
+}
+
+function createIssueUrl(title: string, body: string): string {
+	const params = new URLSearchParams({
+		labels: "bug",
+		title,
+		body,
+	});
+
+	return `${GITHUB_REPO_URL}/issues/new?${params.toString()}`;
+}
+
+function compactStack(stack: string, compactedDiagnosticsHint: string): string {
+	const lines = stack.split(/\r?\n/);
+	if (lines.length <= COMPACT_STACK_LINES) {
+		return stack;
+	}
+
+	const omitted = lines.length - COMPACT_STACK_LINES;
+	return [
+		...lines.slice(0, COMPACT_STACK_LINES),
+		`... (${omitted} stack line${omitted === 1 ? "" : "s"} omitted; ${compactedDiagnosticsHint})`,
+	].join("\n");
+}
+
+function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, compactedDiagnosticsHint: string): string {
+	const lines = [
+		"## What happened",
+		"",
+		"<!-- Describe what happened -->",
+		"",
+		"## Diagnostics",
+		"",
+		`- Connection state: ${snapshot.connectionState}`,
+		snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
+		`- API key configured: ${snapshot.apiKeyConfigured ? "yes" : "no"}`,
+		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
+	];
+
+	if (snapshot.latestError) {
+		lines.push("", "### Latest error", "");
+		lines.push(`- Source: ${snapshot.latestError.source}`);
+		lines.push(`- Time: ${snapshot.latestError.timestamp}`);
+		lines.push(`- Message: ${shortenLine(redactSecrets(snapshot.latestError.message.split(/\r?\n/)[0]), 500)}`);
+	}
+
+	lines.push(
+		"",
+		`Full redacted diagnostics were too large to prefill in GitHub. ${capitalizeFirst(compactedDiagnosticsHint)}. ${getCompactedDiagnosticsAction(compactedDiagnosticsHint)}`
+	);
+
+	return lines.filter((line): line is string => line !== null).join("\n");
+}
+
+function capitalizeFirst(text: string): string {
+	return text.length === 0 ? text : `${text[0].toUpperCase()}${text.slice(1)}`;
+}
+
+function getCompactedDiagnosticsAction(compactedDiagnosticsHint: string): string {
+	if (compactedDiagnosticsHint.includes("saved to a diagnostics file")) {
+		return "Please attach the generated file or paste the contents here.";
+	}
+	if (compactedDiagnosticsHint.includes("clipboard")) {
+		return "Please paste the copied contents here.";
+	}
+	return "Please add the full diagnostics separately.";
+}
+
+function shortenLine(text: string, maxLength: number): string {
+	if (text.length <= maxLength) {
+		return text;
+	}
+
+	return `${text.slice(0, maxLength)}...`;
 }
 
 export function redactSecrets(text: string): string {
