@@ -1,0 +1,15 @@
+{
+	"name": "LiteLLM VS Code Chat",
+	"image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+	"features": {
+		"ghcr.io/devcontainers-extra/features/bun:1": {
+			"version": "1.3.9"
+		}
+	},
+	"postCreateCommand": "bash scripts/setup-env.sh",
+	"customizations": {
+		"vscode": {
+			"extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+		}
+	}
+}

@@ -1,4 +1,9 @@
 import { defineConfig } from "@vscode/test-cli";
+import os from "node:os";
+import path from "node:path";
+
+const userDataDir = process.env.VSCODE_TEST_USER_DATA_DIR || path.join(os.tmpdir(), `litellm-vscode-test-${process.pid}`);
+const launchArgs = ["--user-data-dir", userDataDir];
 
 export default defineConfig([
 	{
@@ -15,6 +20,7 @@ export default defineConfig([
 			timeout: 20000,
 			color: true,
 		},
+		launchArgs,
 	},
 	{
 		label: "host-fidelity",
@@ -30,5 +36,6 @@ export default defineConfig([
 			LITELLM_REAL_MODEL: process.env.LITELLM_REAL_MODEL || "",
 			LITELLM_REAL_TIMEOUT: process.env.LITELLM_REAL_TIMEOUT || "",
 		},
+		launchArgs,
 	},
 ]);
