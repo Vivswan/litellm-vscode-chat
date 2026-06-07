@@ -28,7 +28,7 @@ bun run lint
 bun run format
 
 # Run all tests
-bun test
+bun run test
 ```
 
 ## Development Workflow
@@ -39,7 +39,7 @@ Press `F5` to launch the Extension Development Host with the extension loaded.
 
 ### Running Tests
 
-Tests use the `@vscode/test-electron` framework. Run `bun test` to execute all tests, which compiles the project and runs the test suite.
+Tests use the `@vscode/test-electron` framework. Run `bun run test` to execute all tests, which compiles the project and runs the test suite.
 
 ### Code Style
 
