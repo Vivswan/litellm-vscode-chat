@@ -12,6 +12,7 @@ import type { ModelRoute } from "./request";
 import { StreamProcessor } from "./streaming";
 import { resolveServer } from "./config";
 import type { ServerWithKey } from "../extension/serverRegistry";
+import { getHeaderCost, ResponseCostTracker } from "./cost";
 
 export interface ChatRequestContext {
 	model: LanguageModelChatInformation;
@@ -29,6 +30,7 @@ export async function sendChatRequest(
 	secrets: vscode.SecretStorage,
 	userAgent: string,
 	toolCallIdCounter: number,
+	onResponseCost: (cost: number) => void,
 	log: (message: string, data?: unknown) => void,
 	logError: (message: string, error: unknown) => void
 ): Promise<number> {
@@ -147,7 +149,21 @@ export async function sendChatRequest(
 		throw new Error("No response body from LiteLLM API");
 	}
 
-	const streamProcessor = new StreamProcessor(toolCallIdCounter, log);
-	await streamProcessor.processStreamingResponse(response.body, progress, token);
+	const costTracker = new ResponseCostTracker({
+		inputCostPerToken: route?.inputCostPerToken,
+		outputCostPerToken: route?.outputCostPerToken,
+	});
+	costTracker.addHeaderCost(getHeaderCost(response));
+
+	const streamProcessor = new StreamProcessor(toolCallIdCounter, log, costTracker);
+	try {
+		await streamProcessor.processStreamingResponse(response.body, progress, token);
+	} finally {
+		const finalizedCost = costTracker.finalize();
+		if (finalizedCost && finalizedCost.costUsd > 0) {
+			log("LiteLLM response cost finalized", finalizedCost);
+			onResponseCost(finalizedCost.costUsd);
+		}
+	}
 	return streamProcessor.toolCallIdCounter;
 }

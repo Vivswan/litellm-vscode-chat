@@ -63,6 +63,8 @@ export interface LiteLLMProvider {
 	supports_tools?: boolean;
 	supports_structured_output?: boolean;
 	context_length?: number;
+	input_cost_per_token?: number | null;
+	output_cost_per_token?: number | null;
 	// Model capability metadata (READ from /v1/models API endpoint)
 	// These define what the model CAN do, not what we ASK it to do.
 	// For customizing request parameters, use the modelParameters configuration.
@@ -133,6 +135,8 @@ export interface LiteLLMModelInfoItem {
 		max_tokens?: number | null;
 		max_input_tokens?: number | null;
 		max_output_tokens?: number | null;
+		input_cost_per_token?: number | null;
+		output_cost_per_token?: number | null;
 		litellm_provider?: string;
 		supports_function_calling?: boolean | null;
 		supports_tool_choice?: boolean | null;
