@@ -118,6 +118,25 @@ suite("shared/messages", () => {
 		assert.equal(content[0].type, "image_url");
 	});
 
+	test("accepts sticker-style image mime aliases", () => {
+		const imageData = new Uint8Array([0xff, 0xd8, 0xff]);
+		const dataPart = new vscode.LanguageModelDataPart(imageData, "image/jpg");
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [dataPart],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages);
+		const content = out[0].content as Array<{ type: string }>;
+		assert.ok(Array.isArray(content));
+		assert.equal(content.length, 1);
+		assert.equal(content[0].type, "image_url");
+		const imageBlock = content[0] as { type: string; image_url: { url: string } };
+		assert.ok(imageBlock.image_url.url.startsWith("data:image/jpg;base64,"));
+	});
+
 	test("handles multiple images in a single user message", () => {
 		const img1 = new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
 		const img2 = new vscode.LanguageModelDataPart(new Uint8Array([4, 5, 6]), "image/jpeg");
