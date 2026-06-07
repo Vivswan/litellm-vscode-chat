@@ -9,10 +9,20 @@ Thanks for your interest in improving `litellm-vscode-chat`! This guide covers h
 
 ## Setup
 
+On macOS, Linux, or any shell with Bash available:
+
 ```bash
 git clone https://github.com/<your-fork>/litellm-vscode-chat.git
 cd litellm-vscode-chat
 bun run setup-env
+```
+
+On Windows without Bash, use PowerShell instead:
+
+```powershell
+git clone https://github.com/<your-fork>/litellm-vscode-chat.git
+cd litellm-vscode-chat
+./scripts/setup-env.ps1
 ```
 
 ## Running checks
