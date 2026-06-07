@@ -1,0 +1,18 @@
+# Normalize all detected text files to LF in the repository.
+* text=auto eol=lf
+
+# Never apply text/EOL normalization to repo symlinks, so a Windows checkout
+# (core.symlinks=false) can't turn them into modified regular files.
+CLAUDE.md -text
+.github/copilot-instructions.md -text
+
+# Keep binary assets byte-for-byte unchanged.
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.vsix binary

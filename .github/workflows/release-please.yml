@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test-reusable.yml
+    with:
+      ref: ${{ github.sha }}
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [ test ]
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          target-branch: main
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Checkout released source
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.tag_name }}
+
+      - name: Set up Bun
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up development environment
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: bash scripts/setup-env.sh
+
+      - name: Compile the extension
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: bun run compile
+
+      - name: Package VSIX
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: bunx @vscode/vsce package -o extension.vsix
+
+      - name: Publish to VS Code Marketplace
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: bunx @vscode/vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ./extension.vsix
+
+      - name: Upload VSIX to GitHub Release
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: gh release upload "${{ steps.release.outputs.tag_name }}" extension.vsix --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
