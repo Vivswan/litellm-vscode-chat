@@ -142,41 +142,7 @@ suite("shared/tools", () => {
 		assert.equal(props.value.properties, undefined);
 	});
 
-	test("convertTools tags only the last tool when cacheTools is set (5m omits ttl)", () => {
-		const out = convertTools(
-			{
-				tools: [
-					{ name: "tool_a", description: "A", inputSchema: {} },
-					{ name: "tool_b", description: "B", inputSchema: {} },
-					{ name: "tool_c", description: "C", inputSchema: {} },
-				],
-				toolMode: vscode.LanguageModelChatToolMode.Auto,
-			},
-			{ cacheTools: { ttl: "5m" } }
-		);
-		assert.ok(out.tools && out.tools.length === 3);
-		assert.equal(out.tools[0].cache_control, undefined, "first tool must not be tagged");
-		assert.equal(out.tools[1].cache_control, undefined, "middle tool must not be tagged");
-		assert.deepEqual(out.tools[2].cache_control, { type: "ephemeral" }, "last tool must be tagged (5m omits ttl)");
-	});
-
-	test('convertTools emits ttl "1h" on the last tool when cacheTools ttl is "1h"', () => {
-		const out = convertTools(
-			{
-				tools: [
-					{ name: "tool_a", description: "A", inputSchema: {} },
-					{ name: "tool_b", description: "B", inputSchema: {} },
-				],
-				toolMode: vscode.LanguageModelChatToolMode.Auto,
-			},
-			{ cacheTools: { ttl: "1h" } }
-		);
-		assert.ok(out.tools && out.tools.length === 2);
-		assert.equal(out.tools[0].cache_control, undefined);
-		assert.deepEqual(out.tools[1].cache_control, { type: "ephemeral", ttl: "1h" });
-	});
-
-	test("convertTools does not tag any tool when cacheTools is omitted", () => {
+	test("convertTools does not tag tools by default", () => {
 		const out = convertTools({
 			tools: [{ name: "only_tool", description: "X", inputSchema: {} }],
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
@@ -209,22 +175,6 @@ suite("shared/tools", () => {
 		});
 		applyToolsCacheControl(out.tools, "1h");
 		assert.deepEqual(out.tools?.[1].cache_control, { type: "ephemeral", ttl: "1h" });
-	});
-
-	test("applyToolsCacheControl produces the same result as convertTools({ cacheTools })", () => {
-		// Equivalence guard: the single-pass path must match the legacy double-pass.
-		const options: vscode.ProvideLanguageModelChatResponseOptions = {
-			tools: [
-				{ name: "tool_a", description: "A", inputSchema: {} },
-				{ name: "tool_b", description: "B", inputSchema: {} },
-				{ name: "tool_c", description: "C", inputSchema: {} },
-			],
-			toolMode: vscode.LanguageModelChatToolMode.Auto,
-		};
-		const doublePass = convertTools(options, { cacheTools: { ttl: "1h" } });
-		const singlePass = convertTools(options);
-		applyToolsCacheControl(singlePass.tools, "1h");
-		assert.deepEqual(singlePass, doublePass);
 	});
 
 	test("applyToolsCacheControl is a no-op on empty/undefined lists", () => {

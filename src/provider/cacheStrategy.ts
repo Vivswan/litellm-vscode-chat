@@ -56,11 +56,11 @@ export interface CacheStrategyInput {
 	supportsPromptCaching: boolean;
 	/** Rolling-anchor placement (orthogonal to mode). */
 	rollingPlacement: RollingPlacement;
-	/** 5m↔1h size threshold in tokens (auto mode only). */
+	/** Deprecated compatibility setting; no longer affects auto TTL selection. */
 	tokenSizeAutoBreakpoint: number;
 	/** nocache↔5m floor in tokens (all modes). Anchors below this are skipped. */
 	minCacheTokens: number;
-	/** Estimated anchor sizes (for auto gating + min-floor checks). */
+	/** Estimated anchor sizes for min-floor checks. */
 	sizes: AnchorSizes;
 }
 
@@ -89,8 +89,8 @@ const DISABLED: CachePlan = {
  * it only extends how long the (free-to-refresh) entry survives idle gaps. The
  * size question is therefore "is this anchor big enough to bother caching?",
  * which is exactly what the `minCacheTokens` floor answers — not "5m vs 1h".
- * `tokenSizeAutoBreakpoint` is retained for backward compatibility and advanced
- * tuning but no longer selects the TTL tier in `auto` mode.
+ * `tokenSizeAutoBreakpoint` is retained for backward compatibility but no
+ * longer selects the TTL tier in `auto` mode.
  *
  * Universal rules (all modes):
  *  - If the model does not support prompt caching, returns the disabled plan.
@@ -150,10 +150,10 @@ export function resolveCachePlan(input: CacheStrategyInput): CachePlan {
  *
  *   "a ttl='1h' cache_control block must not come after a ttl='5m' cache_control block"
  *
- * In `auto` mode this is easy to trip: the system prompt is always 1h, but the
- * (earlier-processed) tools anchor drops to 5m whenever the tools block is below
- * the size breakpoint — producing the illegal "5m tools → 1h system" sequence
- * that returns a fatal 400 for Bedrock-routed models (e.g. claude-opus-4-7).
+ * Earlier versions of the resolver could mix 5m and 1h static anchors in a way
+ * that produced an illegal "5m tools → 1h system" sequence for Bedrock-routed
+ * models (e.g. claude-opus-4-7). Keep this guard so future mode or setting
+ * changes cannot reintroduce that fatal 400.
  *
  * We repair the plan by walking the anchors in processing order from the tail
  * backwards and promoting any earlier *enabled* anchor whose TTL is shorter than
@@ -196,7 +196,7 @@ export function normalizeRollingPlacement(raw: unknown): RollingPlacement {
 	return raw === "always" || raw === "never" || raw === "stableTurnsOnly" ? raw : "stableTurnsOnly";
 }
 
-/** Clamp the 5m↔1h breakpoint into the supported 4k–16k range (default 8000). */
+/** Clamp the deprecated compatibility breakpoint into the supported 4k–16k range (default 8000). */
 export function normalizeAutoBreakpoint(raw: unknown): number {
 	const n = typeof raw === "number" && Number.isFinite(raw) ? raw : 8000;
 	return Math.min(16000, Math.max(4000, Math.round(n)));

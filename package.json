@@ -100,9 +100,9 @@
 					],
 					"enumDescriptions": [
 						"Disable prompt caching entirely. No cache_control breakpoints are sent.",
-						"Optimise for interactive chat: place all four cache breakpoints (tools, system, first user message, rolling-last) at the default 5-minute TTL. Best for short bursty conversations where a longer-lived cache would rarely be reused before it expires anyway.",
-						"Optimise for long agent runs: cache the stable head (system prompt, first user message, tools array) at the extended 1-hour TTL, and the volatile rolling-last anchor at 5 minutes. Best when a session spans many tool round-trips over a long wall-clock window.",
-						"Default. Decide each breakpoint's TTL automatically from its estimated size: the system prompt is cached at 1 hour, the first user message and tools array at 1 hour when they exceed promptCaching.tokenSizeAutoBreakpoint (else 5 minutes), and the rolling-last anchor always at 5 minutes. Balances cost and reuse without manual tuning."
+						"Optimise for interactive chat: place eligible cache breakpoints (tools, system, first user message, rolling-last) at the default 5-minute TTL. Static anchors below promptCaching.minCacheTokens are skipped. Best for short bursty conversations where a longer-lived cache would rarely be reused before it expires anyway.",
+						"Optimise for long agent runs: cache eligible stable-head anchors (system prompt, first user message, tools array) at the extended 1-hour TTL, and the volatile rolling-last anchor at 5 minutes. Static anchors below promptCaching.minCacheTokens are skipped. Best when a session spans many tool round-trips over a long wall-clock window.",
+						"Default. Cache stable anchors (system prompt, first user message, tools array) at 1 hour once they meet promptCaching.minCacheTokens, and cache the rolling-last anchor at 5 minutes. promptCaching.tokenSizeAutoBreakpoint is retained for compatibility and no longer affects TTL selection."
 					],
 					"default": "auto",
 					"description": "Prompt-caching strategy for supported models (currently Anthropic Claude). Controls the cache TTL ('5m' vs extended '1h') applied to each cache_control breakpoint. Only affects models that advertise prompt caching support via LiteLLM's /v1/model/info endpoint. Note: the '1h' tier requires your LiteLLM gateway to forward the extended-cache-ttl beta to the backend; if it does not, those anchors silently fall back to 5 minutes."

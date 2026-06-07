@@ -342,6 +342,43 @@ suite("shared/messages cache_control breakpoints", () => {
 		assert.equal(countCacheControlMarkers(out), 0);
 	});
 
+	test("system anchor tags only the final leading system message", () => {
+		const systemRole = 0 as vscode.LanguageModelChatMessageRole;
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{ role: systemRole, content: [new vscode.LanguageModelTextPart("system part one")], name: undefined },
+			{ role: systemRole, content: [new vscode.LanguageModelTextPart("system part two")], name: undefined },
+			{ role: systemRole, content: [new vscode.LanguageModelTextPart("system part three")], name: undefined },
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("task")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("response")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, {
+			cache: {
+				system: { ttl: "1h" },
+				firstUser: { ttl: "1h" },
+				rolling: { ttl: "5m", placement: "always" },
+			},
+		}) as CacheableMessage[];
+
+		assert.equal(countCacheControlMarkers(out), 3, "system + firstUser + rolling should use three message markers");
+		const systemMessages = out.filter((m) => m.role === "system");
+		assert.equal(systemMessages.length, 3);
+		assert.equal(Array.isArray(systemMessages[0].content), false, "first system part must not be tagged");
+		assert.equal(Array.isArray(systemMessages[1].content), false, "middle system part must not be tagged");
+		assert.ok(Array.isArray(systemMessages[2].content), "final leading system part should be tagged");
+		const finalSystemBlocks = systemMessages[2].content as CacheableTextBlock[];
+		assert.equal(finalSystemBlocks.filter((b) => b.cache_control).length, 1);
+		assert.equal(finalSystemBlocks[0].cache_control?.ttl, "1h");
+	});
+
 	test("combining firstUser + rolling never exceeds 2 message-level markers", () => {
 		const out = convertMessages(buildAgentTranscript(), {
 			cache: {

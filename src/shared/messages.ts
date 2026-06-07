@@ -305,19 +305,25 @@ export function convertMessages(
 		} else {
 			const text = textParts.join("");
 			if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
-				if (role === "system" && options?.cache?.system) {
-					const content: OpenAIChatContentBlock[] = [
-						{
-							type: "text",
-							text,
-							cache_control: buildCacheControl(options.cache.system.ttl),
-						},
-					];
-					out.push({ role, content });
-				} else {
-					out.push({ role, content: text });
-				}
+				out.push({ role, content: text });
 			}
+		}
+	}
+
+	// System-prompt breakpoint: VS Code can split the leading system prompt
+	// across multiple messages. Tag only the final leading system message so the
+	// cached prefix still covers the entire system block without consuming more
+	// than one of Anthropic's four allowed cache_control breakpoints.
+	if (options?.cache?.system && out.length > 0) {
+		let lastLeadingSystem: OpenAIChatMessage | undefined;
+		for (const msg of out) {
+			if (msg.role !== "system") {
+				break;
+			}
+			lastLeadingSystem = msg;
+		}
+		if (lastLeadingSystem) {
+			applyCacheControlToMessage(lastLeadingSystem, options.cache.system.ttl);
 		}
 	}
 
@@ -341,7 +347,7 @@ export function convertMessages(
 	// Rolling conversation breakpoint: tag the last message so the entire
 	// prefix (system + tools + prior turns) is cached and reused on the next
 	// agent round-trip. Anthropic allows up to 4 breakpoints; combined with the
-	// system-prompt, last-tool, and first-user breakpoints this stays within
+	// single system-prompt, last-tool, and first-user breakpoints this stays within
 	// budget. If the rolling tag lands on the same message as the first-user
 	// tag (only one user message in the conversation), the helper is idempotent
 	// and we still emit a single cache_control marker for that message.

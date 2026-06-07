@@ -84,7 +84,7 @@ What the verdicts mean:
 **Goal:** confirm the `1h` tier is honoured (not silently downgraded to 5m by the
 gateway). This is the only check that needs wall-clock time.
 
-1. Mode `auto` (system/tools resolve to `1h` when large — confirm in the plan line).
+1. Mode `auto` (system/tools resolve to `1h` once they meet `minCacheTokens` — confirm in the plan line).
 2. **New chat.** Send **Prompt 1:**
    > Summarise in one sentence what prompt caching is.
    (This writes the cache.)
@@ -105,23 +105,22 @@ gateway). This is the only check that needs wall-clock time.
 
 ---
 
-## Test C — `firstUser` floor + 8k auto-gate
+## Test C — `firstUser` floor
 
-**Goal:** prove `minCacheTokens` suppresses tiny anchors and the breakpoint promotes
-large ones to `1h`.
+**Goal:** prove `minCacheTokens` suppresses tiny anchors and larger stable anchors use `1h`.
 
-1. Mode `auto`, defaults (`minCacheTokens: 1024`, `tokenSizeAutoBreakpoint: 8000`).
+1. Mode `auto`, defaults (`minCacheTokens: 4096`; `tokenSizeAutoBreakpoint` is deprecated).
 2. **New chat.** Tiny first message:
    > hi
 3. Send any follow-up so a request fires, then verify:
    ```powershell
    pwsh -File scripts/validate-cache-log.ps1 -Tail 1
    ```
-   - Plan line should show `firstUser=off` (first user message < 1024 tokens).
-4. **New chat.** Make the **first message large** — paste a long file or a ~10k-token
+   - Plan line should show `firstUser=off` (first user message < 4096 tokens).
+4. **New chat.** Make the **first message large** — paste a long file or a >4096-token
    block of text, then ask a question about it.
 5. Verify `-Tail 1`:
-   - Plan line should show `firstUser=1h` (first user message ≥ 8000 tokens).
+   - Plan line should show `firstUser=1h` (first user message ≥ `minCacheTokens`).
 
 ✅ **Pass criteria:** `firstUser` flips from `off` → `1h` as the first message grows.
 
@@ -134,9 +133,9 @@ large ones to `1h`.
 
 | `promptCaching.mode` | Expected plan line |
 |---|---|
-| `chat` | `tools=5m system=5m firstUser=5m-or-off rolling=5m/...` |
-| `agent` | `tools=1h system=1h firstUser=1h-or-off rolling=5m/...` |
-| `auto` | `tools=1h system=1h firstUser=1h-if-big-else-5m rolling=5m/...` |
+| `chat` | `tools=5m-or-off system=5m-or-off firstUser=5m-or-off rolling=5m/...` |
+| `agent` | `tools=1h-or-off system=1h-or-off firstUser=1h-or-off rolling=5m/...` |
+| `auto` | `tools=1h-or-off system=1h-or-off firstUser=1h-or-off rolling=5m/...` |
 | `off` | `active=False` and every turn → `caching OFF (no read)` |
 
 After changing the setting, **reload VS Code** (or start a new chat) so the new mode is
