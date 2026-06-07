@@ -1,0 +1,24 @@
+name: PR Title
+
+# release-please derives the next version from commit messages on main. Because
+# PRs are squash-merged, the squash commit subject defaults to the PR title, so
+# enforcing a Conventional Commit PR title is what keeps release-please working.
+# Examples: `feat: ...` (minor), `fix: ...` (patch), `feat!: ...` (major),
+# `chore: ...`/`docs: ...` (no release). release-please's own PRs ("chore(main):
+# release X.Y.Z") satisfy this too.
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title is a Conventional Commit
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

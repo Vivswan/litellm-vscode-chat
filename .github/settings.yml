@@ -1,0 +1,91 @@
+---
+# Repository settings managed by the Probot "Settings" GitHub App
+# (https://github.com/apps/settings). This file is inert unless that app is
+# installed on the repo. The `rulesets` block below is an experimental upstream
+# feature (repository-settings/app) -- its schema may still change.
+
+repository:
+  description: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
+  homepage: https://github.com/Vivswan/litellm-vscode-chat
+  topics: litellm, vscode-extension, copilot-chat, llm, ai, typescript, bun
+  has_issues: true
+  has_wiki: false
+  has_projects: false
+  has_discussions: false
+  default_branch: main
+  allow_squash_merge: true
+  allow_merge_commit: false
+  allow_rebase_merge: false
+  delete_branch_on_merge: true
+  allow_auto_merge: true
+  enable_vulnerability_alerts: true
+  enable_automated_security_fixes: true
+
+labels:
+  - name: dependencies
+    color: "0366d6"
+    description: Dependency updates
+  - name: bug
+    color: "d73a4a"
+    description: Something isn't working
+  - name: enhancement
+    color: "a2eeef"
+    description: New feature or request
+  - name: fix-lint
+    color: "fbca04"
+    description: Lint / formatting fixes
+
+# Branch ruleset for the default branch. Admins (RepositoryRole id 5) are in the
+# bypass list, so direct pushes to main still work. "Automatically request Copilot
+# code review" is the `copilot_code_review` rule below. "Require code quality
+# results" is NOT yet a documented ruleset rule type (public preview, no published
+# REST schema) -- enable it in the UI (Settings -> Rules -> Rulesets -> main).
+rulesets:
+  - name: main
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name:
+        include:
+          - "~DEFAULT_BRANCH"
+        exclude: []
+    rules:
+      - type: deletion
+      - type: non_fast_forward
+      - type: required_linear_history
+      - type: required_status_checks
+        parameters:
+          strict_required_status_checks_policy: false
+          do_not_enforce_on_create: true
+          required_status_checks:
+            # Single aggregate gate (ci.yml `all-green`, which `needs:` every CI
+            # job). Keeps this list stable when matrix jobs are added or renamed.
+            - context: all-green
+      - type: code_scanning
+        parameters:
+          code_scanning_tools:
+            - tool: CodeQL
+              security_alerts_threshold: high_or_higher
+              alerts_threshold: errors
+      - type: pull_request
+        parameters:
+          required_approving_review_count: 0
+          dismiss_stale_reviews_on_push: false
+          # Require an approving review from a CODEOWNER (.github/CODEOWNERS) before
+          # merge. Admins in bypass_actors can still merge without one.
+          require_code_owner_review: true
+          require_last_push_approval: false
+          required_review_thread_resolution: false
+          # Squash-only merges (enforced by the ruleset, not just repo settings).
+          allowed_merge_methods:
+            - squash
+      # Automatically request Copilot code review on PRs to main, including on
+      # each new push and on draft PRs.
+      - type: copilot_code_review
+        parameters:
+          review_on_push: true
+          review_draft_pull_requests: true
+    bypass_actors:
+      - actor_id: 5
+        actor_type: RepositoryRole
+        bypass_mode: always

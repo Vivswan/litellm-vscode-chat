@@ -1,6 +1,8 @@
 .env
-.claude/
-.codex/
+.claude/*
+!.claude/settings.json
+.codex/*
+!.codex/hooks.json
 .worktrees/
 
 # IDEs and editors

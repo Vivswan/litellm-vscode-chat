@@ -3,12 +3,16 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches: [ main, deploy ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, deploy ]
+    branches: [ main ]
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   actionlint:
@@ -27,3 +31,21 @@ jobs:
 
   format-check:
     uses: ./.github/workflows/format-check-reusable.yml
+
+  # Single aggregate gate: this is the ONLY CI context branch protection requires,
+  # so adding/renaming matrix jobs never desyncs .github/settings.yml.
+  all-green:
+    name: all-green
+    if: always()
+    needs: [ actionlint, test, format-check ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all CI jobs to have succeeded
+        run: |
+          results="${{ join(needs.*.result, ',') }}"
+          echo "needs results: $results"
+          case ",$results," in
+            *,failure,* | *,cancelled,* | *,skipped,*)
+              echo "::error::a required CI job did not succeed ($results)"; exit 1 ;;
+          esac
+          echo "all required CI jobs succeeded"

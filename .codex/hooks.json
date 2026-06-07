@@ -1,0 +1,17 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"matcher": "startup",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "[ -d node_modules ] || bash scripts/setup-env.sh",
+						"timeout": 120,
+						"statusMessage": "Initializing litellm-vscode-chat dependencies"
+					}
+				]
+			}
+		]
+	}
+}
