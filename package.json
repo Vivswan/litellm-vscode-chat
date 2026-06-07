@@ -144,6 +144,7 @@
 		"prepare": "husky",
 		"vscode:prepublish": "bun run compile",
 		"compile": "tsc -p ./",
+		"typecheck": "tsc --noEmit -p ./",
 		"setup-env": "bash scripts/setup-env.sh",
 		"setup-env:verify": "bash scripts/setup-env.sh --verify",
 		"setup-env:full": "bash scripts/setup-env.sh --full",
