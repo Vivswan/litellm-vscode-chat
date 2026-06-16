@@ -198,10 +198,11 @@ function dropUnsafeToolsAnchor(plan: CachePlan, toolsCache1hUnsupported: boolean
 	if (!toolsCache1hUnsupported || !plan.tools.enabled || plan.tools.ttl !== "1h") {
 		return plan;
 	}
+	// Only the stable anchors can hold a 1h TTL today; the rolling-last anchor is
+	// always 5m (volatile tail), so it can never be the "later 1h block" that
+	// forces the tools drop and is intentionally excluded here.
 	const laterHas1h =
-		(plan.system.enabled && plan.system.ttl === "1h") ||
-		(plan.firstUser.enabled && plan.firstUser.ttl === "1h") ||
-		(plan.rolling.enabled && plan.rolling.ttl === "1h");
+		(plan.system.enabled && plan.system.ttl === "1h") || (plan.firstUser.enabled && plan.firstUser.ttl === "1h");
 	if (laterHas1h) {
 		plan.tools = { enabled: false, ttl: plan.tools.ttl };
 	}

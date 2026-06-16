@@ -34,19 +34,34 @@ function isBedrockProvider(provider: string | undefined): boolean {
 }
 
 /**
- * Google Vertex AI / Gemini caches via a separate `CachedContent` handle and
- * rejects requests that combine cached content with tools / tool_config /
- * system instruction. LiteLLM's vertex_ai adapter switches into cached-content
- * mode as soon as it sees any inline `cache_control` marker, so emitting our
- * markers produces a fatal 400. Detect it from the LiteLLM provider name and
- * disable inline caching for these models (Vertex caches implicitly anyway).
+ * Native Google Gemini caches via a separate `CachedContent` handle and rejects
+ * requests that combine cached content with tools / tool_config / system
+ * instruction. LiteLLM's vertex_ai adapter switches into cached-content mode as
+ * soon as it sees any inline `cache_control` marker, so emitting our markers
+ * produces a fatal 400; Gemini's implicit server-side caching still applies
+ * with zero markers sent.
+ *
+ * IMPORTANT: scope this to *native Gemini only*. `vertex_ai` is LiteLLM's
+ * provider name for everything hosted on Vertex — including Anthropic Claude
+ * (`vertex_ai/claude-*`), Llama and Mistral — which use the same inline
+ * `cache_control` semantics as direct Anthropic and do NOT get Gemini's
+ * implicit caching. Disabling inline caching for those would silently turn off
+ * prompt caching entirely with no fallback. So we require a Gemini signal in
+ * the model id (or an explicit `gemini` provider name), not merely `vertex`.
  */
-function isVertexProvider(provider: string | undefined): boolean {
-	if (typeof provider !== "string") {
-		return false;
+function isGeminiCacheIncompatible(provider: string | undefined, modelId: string | undefined): boolean {
+	const p = typeof provider === "string" ? provider.toLowerCase() : "";
+	const id = typeof modelId === "string" ? modelId.toLowerCase() : "";
+	// A bare `gemini` provider is unambiguously native Gemini.
+	if (p.includes("gemini")) {
+		return true;
 	}
-	const p = provider.toLowerCase();
-	return p.includes("vertex") || p.includes("gemini");
+	// On Vertex, only the Gemini model family is incompatible; Claude/Llama/
+	// Mistral on Vertex keep working inline cache_control.
+	if (p.includes("vertex")) {
+		return id.includes("gemini");
+	}
+	return false;
 }
 
 function withUserSelectableMetadata(info: LanguageModelChatInformation): LanguageModelChatInformation {
@@ -94,7 +109,7 @@ export function buildModelInfos(
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			promptCaching.set(exposedId, providers[0].supports_prompt_caching === true);
 			toolsCacheNo1h.set(exposedId, isBedrockProvider(providers[0].provider));
-			cacheControlNoInline.set(exposedId, isVertexProvider(providers[0].provider));
+			cacheControlNoInline.set(exposedId, isGeminiCacheIncompatible(providers[0].provider, m.id));
 			registerRoute(exposedId, m.id);
 			return [
 				{
@@ -149,7 +164,7 @@ export function buildModelInfos(
 			const maxInput = Math.max(1, aggregateContextLen - maxOutput);
 			const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
 			const aggregateToolsCacheNo1h = toolProviders.some((p) => isBedrockProvider(p.provider));
-			const aggregateCacheControlNoInline = toolProviders.some((p) => isVertexProvider(p.provider));
+			const aggregateCacheControlNoInline = toolProviders.some((p) => isGeminiCacheIncompatible(p.provider, m.id));
 			const aggregateCapabilities = {
 				toolCalling: true,
 				imageInput: vision,
@@ -213,7 +228,7 @@ export function buildModelInfos(
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, p.supports_prompt_caching === true);
 			toolsCacheNo1h.set(exposedId, isBedrockProvider(p.provider));
-			cacheControlNoInline.set(exposedId, isVertexProvider(p.provider));
+			cacheControlNoInline.set(exposedId, isGeminiCacheIncompatible(p.provider, m.id));
 			registerRoute(exposedId, rawId);
 		}
 
@@ -237,7 +252,7 @@ export function buildModelInfos(
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, base.supports_prompt_caching === true);
 			toolsCacheNo1h.set(exposedId, isBedrockProvider(base.provider));
-			cacheControlNoInline.set(exposedId, isVertexProvider(base.provider));
+			cacheControlNoInline.set(exposedId, isGeminiCacheIncompatible(base.provider, m.id));
 			registerRoute(exposedId, m.id);
 		}
 
