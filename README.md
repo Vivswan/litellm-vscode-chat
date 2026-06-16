@@ -140,26 +140,75 @@ All `modelParameters` keys are passed through to LiteLLM — the extension does 
 
 ### Prompt Caching (Anthropic Claude)
 
-The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). Prompt caching reduces costs and improves response times by caching the system prompt across requests.
+The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). When active, it places up to Anthropic's maximum of **4 `cache_control` breakpoints** per request so that the entire cacheable prefix — tools, system prompt, first user message, and the rolling conversation history — is reused on every subsequent agent round-trip. In a long agent session this typically reduces input-token cost by **70–80%**.
+
+Each breakpoint can use one of two cache lifetimes (TTL):
+
+- **5m** — the default ephemeral cache (cheaper write, expires after 5 minutes of inactivity).
+- **1h** — an extended cache (more expensive write, repaid after a single reuse beyond the 5-minute window). Ideal for the stable head of long agent sessions.
 
 **To configure**: Add to your `settings.json`:
 
 ```json
 {
-  "litellm-vscode-chat.promptCaching.enabled": true
+  "litellm-vscode-chat.promptCaching.mode": "auto"
 }
 ```
 
+`mode` is the single high-level switch. The other three settings are optional fine-tuners.
+
+| Setting | Type | Default | Purpose |
+|---|---|---|---|
+| `promptCaching.mode` | `off` \| `chat` \| `agent` \| `auto` | `auto` | The caching strategy (see table below). |
+| `promptCaching.tokenSizeAutoBreakpoint` | number (4000–16000) | `8000` | Deprecated compatibility setting; `auto` mode no longer uses this to choose TTLs. |
+| `promptCaching.minCacheTokens` | number (256–4096) | `4096` | The minimum estimated block size for a breakpoint to be placed at all. Blocks below this floor are skipped (the provider won't cache a prefix shorter than its minimum). Applies in every mode. |
+| `promptCaching.rollingLastMessage` | `always` \| `stableTurnsOnly` \| `never` | `stableTurnsOnly` | Where the rolling-last breakpoint is placed. Orthogonal to `mode` (which controls the TTL). |
+
+**Modes:**
+
+| Mode | Tools | System | First user | Rolling-last | Best for |
+|---|---|---|---|---|---|
+| `off` | — | — | — | — | Disabling caching entirely. |
+| `chat` | 5m | 5m | 5m | 5m | Short, bursty interactive conversations. |
+| `agent` | 1h | 1h | 1h | 5m | Long agent runs over a long wall-clock window. |
+| `auto` *(default)* | 1h | 1h | 1h | 5m | A balanced default that needs no tuning. |
+
+In all modes, an anchor smaller than `minCacheTokens` is silently skipped, and the rolling-last anchor's *placement* is governed by `rollingLastMessage`.
+
+**Rolling-last placement (`rollingLastMessage`):**
+
+| Value | Behaviour |
+|---|---|
+| `always` | Tag whatever the last message is — even a volatile tool result. Maximum coverage, most fragile. |
+| `stableTurnsOnly` *(default)* | Skip the breakpoint when the last message is a tool result (`role: "tool"`) and tag the most recent stable turn instead. Avoids full cache misses caused by tool-result bytes that change between turns. |
+| `never` | Place no rolling-last breakpoint; keep only the static head anchors. |
+
 **How it works:**
+
+Anthropic allows up to 4 `cache_control` breakpoints per request. The extension can place them on the four highest-value positions, in canonical order:
+
+| Breakpoint | What is cached | Why it matters |
+|---|---|---|
+| **Last tool** | The entire tools array | Tools are large and static across an agent session |
+| **System message** | The system prompt | Always present, never changes within a session |
+| **First user message** | The original task + everything before it | Stable for the whole session; survives the TTL window even as later messages change |
+| **Last stable message** | The full conversation prefix up to the current turn | Ensures each agent round-trip reuses all prior turns |
+
+If VS Code splits the system prompt across multiple leading system messages, only the final leading system message is tagged, so the system prompt consumes one breakpoint. If a conversation has only a single user message the first-user and rolling-last breakpoints merge into one, keeping the total at or below 4.
+
+**Gating:**
 - Automatically detects prompt caching support from LiteLLM's `/v1/model/info` endpoint
-- Only affects models that explicitly support prompt caching (primarily Claude models)
-- Adds `cache_control` blocks to system messages when enabled
-- Disabled by default for models without support
+- Only affects models that explicitly advertise `supports_prompt_caching: true` (primarily Claude models)
+- Non-Anthropic models are unaffected even if a non-`off` mode is selected
+- When `promptCaching.mode` is `off`, zero `cache_control` markers are emitted anywhere
+
+**1h TTL caveat:** the extended (`1h`) cache tier requires your LiteLLM gateway to forward the extended-cache-ttl beta to the backend. If the gateway strips it, those anchors silently fall back to the standard 5-minute cache (harmless — never an error). The diagnostic log prints the resolved TTL per anchor so you can correlate against your gateway's cache behaviour.
 
 **Benefits:**
-- Reduced API costs (cached tokens are cheaper)
-- Faster response times (cached content doesn't need reprocessing)
-- Transparent to the user (works automatically when supported)
+- Reduced API costs (cached tokens are billed at ~10% of normal input price)
+- Faster response times (cached content is not reprocessed)
+- Transparent to the user — works automatically when the model supports it
+- Particularly effective for Copilot agent mode where the tools array and conversation history grow large across many round-trips
 
 ### Request Timeouts
 

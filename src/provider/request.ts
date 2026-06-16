@@ -64,20 +64,60 @@ export function buildExposedModelId(rawModelId: string, serverId: string, server
 export function estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRequestMessage[]): number {
 	let total = 0;
 	for (const m of msgs) {
-		for (const part of m.content) {
-			if (part instanceof vscode.LanguageModelTextPart) {
-				total += Math.ceil(part.value.length / 4);
-			} else if (part instanceof vscode.LanguageModelToolCallPart) {
-				total += Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / 4);
-			} else if (part instanceof vscode.LanguageModelDataPart) {
-				const mime = part.mimeType.toLowerCase();
-				if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-					total += Math.ceil(part.data.length / 4);
-				}
+		total += estimateSingleMessageTokens(m);
+	}
+	return total;
+}
+
+/** Estimate the token size of a single message's content (length/4 heuristic). */
+function estimateSingleMessageTokens(msg: vscode.LanguageModelChatRequestMessage): number {
+	let total = 0;
+	for (const part of msg.content) {
+		if (part instanceof vscode.LanguageModelTextPart) {
+			total += Math.ceil(part.value.length / 4);
+		} else if (part instanceof vscode.LanguageModelToolCallPart) {
+			total += Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / 4);
+		} else if (part instanceof vscode.LanguageModelDataPart) {
+			const mime = part.mimeType.toLowerCase();
+			if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
+				total += Math.ceil(part.data.length / 4);
 			}
 		}
 	}
 	return total;
+}
+
+/**
+ * Estimate the token size of the system-prompt block: the sum of all leading
+ * `system`-role messages (VS Code may split the system prompt across several).
+ */
+export function estimateSystemPromptTokens(msgs: readonly vscode.LanguageModelChatRequestMessage[]): number {
+	const USER = vscode.LanguageModelChatMessageRole.User as unknown as number;
+	const ASSISTANT = vscode.LanguageModelChatMessageRole.Assistant as unknown as number;
+	let total = 0;
+	for (const m of msgs) {
+		const r = m.role as unknown as number;
+		// Only the *leading* system block is cached, so stop accumulating once
+		// the conversation proper begins. A stray system-role message later in
+		// the transcript must not inflate the `system` anchor size (which would
+		// mis-drive the minCacheTokens floor and auto-mode TTL gating).
+		if (r === USER || r === ASSISTANT) {
+			break;
+		}
+		total += estimateSingleMessageTokens(m);
+	}
+	return total;
+}
+
+/** Estimate the token size of the first user message block. */
+export function estimateFirstUserTokens(msgs: readonly vscode.LanguageModelChatRequestMessage[]): number {
+	const USER = vscode.LanguageModelChatMessageRole.User as unknown as number;
+	for (const m of msgs) {
+		if ((m.role as unknown as number) === USER) {
+			return estimateSingleMessageTokens(m);
+		}
+	}
+	return 0;
 }
 
 export function estimateToolTokens(

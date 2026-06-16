@@ -91,9 +91,60 @@
 					"description": "Default maximum input tokens (if null, calculated as contextLength - maxOutputTokens)"
 				},
 				"litellm-vscode-chat.promptCaching.enabled": {
-					"type": "boolean",
-					"default": true,
-					"description": "Enable prompt caching for supported models (currently Anthropic Claude). Caches the system prompt to reduce costs and improve response times. Only affects models that advertise prompt caching support."
+					"type": [
+						"boolean",
+						"null"
+					],
+					"default": null,
+					"markdownDeprecationMessage": "**Deprecated.** Use `#litellm-vscode-chat.promptCaching.mode#` instead (`off` | `chat` | `agent` | `auto`). For backward compatibility, a value of `false` here is still honoured as `mode: \"off\"` only when `promptCaching.mode` has not been explicitly set.",
+					"deprecationMessage": "Deprecated: use litellm-vscode-chat.promptCaching.mode instead. A value of false is still honoured as mode 'off' when mode is not explicitly set.",
+					"description": "Deprecated. Superseded by litellm-vscode-chat.promptCaching.mode."
+				},
+				"litellm-vscode-chat.promptCaching.mode": {
+					"type": "string",
+					"enum": [
+						"off",
+						"chat",
+						"agent",
+						"auto"
+					],
+					"enumDescriptions": [
+						"Disable prompt caching entirely. No cache_control breakpoints are sent.",
+						"Optimise for interactive chat: place eligible cache breakpoints (tools, system, first user message, rolling-last) at the default 5-minute TTL. Static anchors below promptCaching.minCacheTokens are skipped. Best for short bursty conversations where a longer-lived cache would rarely be reused before it expires anyway.",
+						"Optimise for long agent runs: cache eligible stable-head anchors (system prompt, first user message, tools array) at the extended 1-hour TTL, and the volatile rolling-last anchor at 5 minutes. Static anchors below promptCaching.minCacheTokens are skipped. Best when a session spans many tool round-trips over a long wall-clock window.",
+						"Default. Cache stable anchors (system prompt, first user message, tools array) at 1 hour once they meet promptCaching.minCacheTokens, and cache the rolling-last anchor at 5 minutes. promptCaching.tokenSizeAutoBreakpoint is retained for compatibility and no longer affects TTL selection."
+					],
+					"default": "auto",
+					"description": "Prompt-caching strategy for supported models (currently Anthropic Claude). Controls the cache TTL ('5m' vs extended '1h') applied to each cache_control breakpoint. Only affects models that advertise prompt caching support via LiteLLM's /v1/model/info endpoint. Note: the '1h' tier requires your LiteLLM gateway to forward the extended-cache-ttl beta to the backend; if it does not, those anchors silently fall back to 5 minutes."
+				},
+				"litellm-vscode-chat.promptCaching.tokenSizeAutoBreakpoint": {
+					"type": "number",
+					"minimum": 4000,
+					"maximum": 16000,
+					"default": 8000,
+					"description": "Deprecated / no longer affects TTL selection. In 'auto' mode all stable anchors (system, first user message, tools) now use the 1-hour TTL once they clear the minCacheTokens floor, because a 1h cache read costs the same as 5m and refreshes for free. Whether an anchor is cached at all is governed by 'minCacheTokens', not this setting. Retained for backward compatibility."
+				},
+				"litellm-vscode-chat.promptCaching.minCacheTokens": {
+					"type": "number",
+					"minimum": 256,
+					"maximum": 4096,
+					"default": 4096,
+					"description": "Minimum estimated block size (in tokens) for a cache_control breakpoint to be placed at all, in every mode. Blocks below this floor are not tagged because the provider will not cache a prefix shorter than its minimum cacheable length. The default (4096) matches the minimum cacheable prefix of the latest Anthropic Claude models (e.g. Opus 4.5+/4.7); older models accept as low as 1024. Also suppresses caching of a tiny or absent system prompt."
+				},
+				"litellm-vscode-chat.promptCaching.rollingLastMessage": {
+					"type": "string",
+					"enum": [
+						"always",
+						"stableTurnsOnly",
+						"never"
+					],
+					"enumDescriptions": [
+						"Always tag the last message of every request with a cache_control breakpoint. Maximum cache coverage but most fragile: in long agent runs, a tool result whose bytes change between turns (truncation, embedded timestamps, file edits) will silently invalidate the rolling-last anchor and force a full cache miss on the next turn.",
+						"Default. Tag the last message only when it is plain user text, plain assistant text, or an assistant turn carrying tool_calls. Skip the breakpoint when the last message is a tool result (role: 'tool'), which is the most common cause of full cache misses inside the TTL window in tool-heavy agent sessions. Recommended for long agent runs that read large files or capture lots of terminal output.",
+						"Never tag a rolling-last breakpoint. Keep only the static anchors (tools + system + first user message). Lowest cache coverage but most predictable; useful for debugging or when you suspect the rolling anchor is misbehaving."
+					],
+					"default": "stableTurnsOnly",
+					"description": "Where to place the rolling-last cache_control breakpoint on the most recent message of every request. Orthogonal to promptCaching.mode (which controls the TTL); this controls placement. Has no effect when promptCaching.mode is 'off' or the model lacks supports_prompt_caching."
 				},
 				"litellm-vscode-chat.modelParameters": {
 					"type": "object",

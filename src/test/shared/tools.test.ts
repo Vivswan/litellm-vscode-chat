@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { convertTools } from "../../shared/tools";
+import { convertTools, applyToolsCacheControl } from "../../shared/tools";
 
 suite("shared/tools", () => {
 	test("convertTools returns function tool definitions", () => {
@@ -140,5 +140,45 @@ suite("shared/tools", () => {
 		assert.ok(Array.isArray(props.value.anyOf));
 		assert.equal(props.value.type, undefined);
 		assert.equal(props.value.properties, undefined);
+	});
+
+	test("convertTools does not tag tools by default", () => {
+		const out = convertTools({
+			tools: [{ name: "only_tool", description: "X", inputSchema: {} }],
+			toolMode: vscode.LanguageModelChatToolMode.Auto,
+		});
+		assert.equal(out.tools?.[0].cache_control, undefined);
+	});
+
+	test("applyToolsCacheControl tags the last tool of an already-converted list (5m omits ttl)", () => {
+		// Fix #5 (single-pass): size with a plain convertTools, then tag in place.
+		const out = convertTools({
+			tools: [
+				{ name: "tool_a", description: "A", inputSchema: {} },
+				{ name: "tool_b", description: "B", inputSchema: {} },
+			],
+			toolMode: vscode.LanguageModelChatToolMode.Auto,
+		});
+		assert.ok(out.tools && out.tools.length === 2);
+		applyToolsCacheControl(out.tools, "5m");
+		assert.equal(out.tools[0].cache_control, undefined, "only the last tool is tagged");
+		assert.deepEqual(out.tools[1].cache_control, { type: "ephemeral" }, "5m omits ttl");
+	});
+
+	test('applyToolsCacheControl emits ttl "1h" on the last tool', () => {
+		const out = convertTools({
+			tools: [
+				{ name: "tool_a", description: "A", inputSchema: {} },
+				{ name: "tool_b", description: "B", inputSchema: {} },
+			],
+			toolMode: vscode.LanguageModelChatToolMode.Auto,
+		});
+		applyToolsCacheControl(out.tools, "1h");
+		assert.deepEqual(out.tools?.[1].cache_control, { type: "ephemeral", ttl: "1h" });
+	});
+
+	test("applyToolsCacheControl is a no-op on empty/undefined lists", () => {
+		assert.doesNotThrow(() => applyToolsCacheControl(undefined, "1h"));
+		assert.doesNotThrow(() => applyToolsCacheControl([], "1h"));
 	});
 });

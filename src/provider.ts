@@ -26,6 +26,8 @@ export interface AggregatedStatus {
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
 	private _promptCachingSupport = new Map<string, boolean>();
+	private _toolsCacheNo1h = new Map<string, boolean>();
+	private _cacheControlNoInline = new Map<string, boolean>();
 	private _statusCallback?: (status: AggregatedStatus) => void;
 	private _hasShownNoConfigNotification = false;
 	private _toolCallIdCounter = 0;
@@ -135,6 +137,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		if (successfulCount > 0) {
 			this._modelRoutes.clear();
 			this._promptCachingSupport.clear();
+			this._toolsCacheNo1h.clear();
+			this._cacheControlNoInline.clear();
 		}
 
 		for (let i = 0; i < results.length; i++) {
@@ -166,6 +170,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			}
 			for (const [k, v] of reg.promptCaching) {
 				this._promptCachingSupport.set(k, v);
+			}
+			for (const [k, v] of reg.toolsCacheNo1h) {
+				this._toolsCacheNo1h.set(k, v);
+			}
+			for (const [k, v] of reg.cacheControlNoInline) {
+				this._cacheControlNoInline.set(k, v);
 			}
 
 			serverStatuses.push({
@@ -256,6 +266,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				{ model, messages, options, progress: trackingProgress, token },
 				this._modelRoutes,
 				this._promptCachingSupport,
+				this._toolsCacheNo1h,
+				this._cacheControlNoInline,
 				this._getServers,
 				this.secrets,
 				this.userAgent,

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { OpenAIFunctionToolDef } from "../types";
+import { buildCacheControl, type CacheTtl, type OpenAIFunctionToolDef } from "../types";
 
 function isIntegerLikePropertyName(propertyName: string | undefined): boolean {
 	if (!propertyName) {
@@ -195,4 +195,21 @@ export function convertTools(options: vscode.ProvideLanguageModelChatResponseOpt
 	}
 
 	return { tools: toolDefs, tool_choice };
+}
+
+/**
+ * Tag an already-converted tool list in place with an ephemeral cache
+ * breakpoint on its last entry. Exported so callers can size the tools array
+ * with a single (no-cache) {@link convertTools} pass and then add the cache
+ * marker afterwards, avoiding a second full sanitization pass when caching is
+ * enabled.
+ *
+ * No-op when the list is empty. The "5m" tier omits the wire `ttl` field;
+ * "1h" emits it explicitly.
+ */
+export function applyToolsCacheControl(toolDefs: OpenAIFunctionToolDef[] | undefined, ttl: CacheTtl): void {
+	if (!toolDefs || toolDefs.length === 0) {
+		return;
+	}
+	toolDefs[toolDefs.length - 1].cache_control = buildCacheControl(ttl);
 }
