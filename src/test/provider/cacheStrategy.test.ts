@@ -243,3 +243,100 @@ suite("cacheStrategy TTL ordering invariant (Bedrock/Anthropic)", () => {
 		assertNonIncreasing(plan);
 	});
 });
+
+suite("cacheStrategy Bedrock tools-1h downgrade workaround", () => {
+	// Bedrock silently honors the tools cachePoint only at 5m. When the plan
+	// would otherwise place a 1h tools marker before a 1h system block, the
+	// downgraded "5m tools -> 1h system" sequence trips Bedrock's ordering
+	// invariant. The resolver drops the tools marker entirely in that case.
+	test("drops the 1h tools marker when a later 1h anchor exists", () => {
+		const plan = resolveCachePlan(
+			input({ mode: "auto", toolsCache1hUnsupported: true, sizes: { tools: 12000, system: 12000, firstUser: 12000 } })
+		);
+		assert.equal(plan.tools.enabled, false, "tools marker must be dropped on Bedrock when a later 1h anchor exists");
+		assert.equal(plan.system.ttl, "1h", "system must still be cached at 1h");
+	});
+
+	test("keeps the tools marker when no later anchor is 1h (harmless 5m)", () => {
+		// chat mode -> everything 5m; the tools marker is honored as 5m and is safe.
+		const plan = resolveCachePlan(
+			input({ mode: "chat", toolsCache1hUnsupported: true, sizes: { tools: 12000, system: 12000, firstUser: 12000 } })
+		);
+		assert.equal(plan.tools.enabled, true, "5m tools marker is safe and must be kept");
+		assert.equal(plan.tools.ttl, "5m");
+	});
+
+	test("keeps the tools marker when tools is the only enabled anchor", () => {
+		const plan = resolveCachePlan(
+			input({ mode: "auto", toolsCache1hUnsupported: true, sizes: { tools: 12000, system: 200, firstUser: 200 } })
+		);
+		assert.equal(plan.system.enabled, false);
+		assert.equal(plan.firstUser.enabled, false);
+		assert.equal(plan.tools.enabled, true, "no later 1h anchor -> tools marker is safe to keep");
+	});
+
+	test("does not affect models without the Bedrock flag", () => {
+		const plan = resolveCachePlan(
+			input({ mode: "auto", toolsCache1hUnsupported: false, sizes: { tools: 12000, system: 12000, firstUser: 12000 } })
+		);
+		assert.equal(plan.tools.enabled, true, "direct Anthropic honors tools 1h; marker must be kept");
+		assert.equal(plan.tools.ttl, "1h");
+	});
+
+	test("keeps the 1h tools marker when the only later anchor is the 5m rolling tail", () => {
+		// system / firstUser are below the floor and disabled; the rolling tail is
+		// always 5m and is the *last* anchor, so enforceTtlOrdering can never
+		// promote it to 1h. The on-the-wire sequence is the legal "1h tools -> 5m
+		// rolling", so there is no later 1h anchor and the tools marker is safe.
+		const plan = resolveCachePlan(
+			input({
+				mode: "auto",
+				toolsCache1hUnsupported: true,
+				rollingPlacement: "always",
+				sizes: { tools: 12000, system: 200, firstUser: 200 },
+			})
+		);
+		assert.equal(plan.system.enabled, false);
+		assert.equal(plan.firstUser.enabled, false);
+		assert.equal(plan.rolling.ttl, "5m", "rolling tail is always 5m and cannot be promoted (it is last)");
+		assert.equal(plan.tools.enabled, true, "tools 1h is safe: the only later block is the 5m rolling tail");
+		assert.equal(plan.tools.ttl, "1h");
+	});
+});
+
+suite("cacheStrategy Vertex cache_control incompatibility", () => {
+	// Vertex / Gemini reject inline cache_control markers entirely; the resolver
+	// returns the fully disabled plan (no markers) and relies on Vertex's own
+	// implicit server-side caching.
+	test("disables all anchors in auto mode when cacheControlIncompatible", () => {
+		const plan = resolveCachePlan(input({ mode: "auto", cacheControlIncompatible: true }));
+		assert.equal(plan.tools.enabled, false);
+		assert.equal(plan.system.enabled, false);
+		assert.equal(plan.firstUser.enabled, false);
+		assert.equal(plan.rolling.enabled, false);
+		assert.equal(plan.mode, "auto", "mode is preserved in the disabled plan");
+	});
+
+	test("disables across all modes regardless of sizes", () => {
+		for (const mode of ["chat", "agent", "auto"] as const) {
+			const plan = resolveCachePlan(
+				input({ mode, cacheControlIncompatible: true, sizes: { tools: 99999, system: 99999, firstUser: 99999 } })
+			);
+			assert.equal(plan.tools.enabled, false, `${mode}: tools disabled`);
+			assert.equal(plan.system.enabled, false, `${mode}: system disabled`);
+			assert.equal(plan.firstUser.enabled, false, `${mode}: firstUser disabled`);
+			assert.equal(plan.rolling.enabled, false, `${mode}: rolling disabled`);
+		}
+	});
+
+	test("takes precedence over supportsPromptCaching", () => {
+		const plan = resolveCachePlan(input({ mode: "auto", supportsPromptCaching: true, cacheControlIncompatible: true }));
+		assert.equal(plan.system.enabled, false);
+		assert.equal(plan.mode, "auto");
+	});
+
+	test("does not affect models without the Vertex flag", () => {
+		const plan = resolveCachePlan(input({ mode: "auto", cacheControlIncompatible: false }));
+		assert.equal(plan.system.enabled, true, "normal models still cache the system anchor");
+	});
+});

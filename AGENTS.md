@@ -179,6 +179,13 @@ Prompt caching is controlled by the `promptCaching.mode` setting (`off` | `chat`
 - **`rollingLastMessage`** (default `stableTurnsOnly`): orthogonal to `mode`; controls *placement* of the rolling anchor (`always`/`stableTurnsOnly`/`never`), not its TTL.
 - **TTL wire format**: "5m" omits the `ttl` field entirely (Anthropic default); "1h" emits `ttl: "1h"`. The 1h tier requires the gateway to forward the extended-cache-ttl beta; otherwise it silently downgrades to 5m. The diagnostic log records the resolved per-anchor TTL and measured sizes.
 
+**Per-provider cache workarounds**
+
+The resolver is fed two per-model capability flags derived from `litellm_provider` in `/v1/model/info` (built into `toolsCacheNo1h` / `cacheControlNoInline` maps in `src/provider/registration.ts`, threaded through `provider.ts` → `client.ts` → `resolveCachePlan`). Different backends implement Anthropic-style caching differently, so a uniform plan that works on direct Anthropic can produce fatal 400s elsewhere:
+
+- **Bedrock tools-1h downgrade** (`toolsCache1hUnsupported`, providers matching `bedrock`): AWS Bedrock honors the extended 1h TTL on `system`/messages but silently downgrades the *tools* cachePoint to 5m even when 1h is requested. A uniform 1h plan therefore arrives on the wire as the illegal "5m tools → 1h system" sequence and trips Bedrock's non-increasing-TTL ordering invariant (a 400). The resolver repairs this in `dropUnsafeToolsAnchor`: when the tools anchor resolved to 1h **and** a later anchor (system/firstUser/rolling) is still 1h, it drops the tools marker entirely so the honored-1h `system` block leads. When no later anchor is 1h (e.g. `chat` mode, or only a 5m rolling tail follows), the tools marker is harmless and kept. Direct Anthropic (no flag) keeps tools 1h.
+- **Vertex / Gemini `cache_control` incompatibility** (`cacheControlIncompatible`, providers matching `vertex`/`gemini`): Google Vertex AI implements caching via a separate `CachedContent` handle, not inline `cache_control` markers. LiteLLM's `vertex_ai` adapter switches into cached-content mode on seeing **any** `cache_control` marker, but the request still carries tools + system instruction, which Vertex rejects ("Tool config, tools and system instruction should not be set in the request when using cached content") — a fatal 400. When this flag is set, `resolveCachePlan` early-returns the fully disabled plan (emitting no markers) and relies on Vertex's implicit server-side caching, which still produces cache reads with zero markers sent. This check runs before the `supportsPromptCaching` gate so the disabled plan still preserves `mode` for diagnostics.
+
 **Streaming Response Processing**
 
 The provider handles three formats for tool calls:

@@ -62,6 +62,33 @@ export interface CacheStrategyInput {
 	minCacheTokens: number;
 	/** Estimated anchor sizes for min-floor checks. */
 	sizes: AnchorSizes;
+	/**
+	 * Whether the target backend silently downgrades the *tools* cache_control
+	 * block to the 5m tier even when 1h is requested (observed on AWS Bedrock,
+	 * which honors 1h on `system`/messages but not on the tools cachePoint).
+	 *
+	 * When true, a 1h tools marker that precedes a 1h `system`/message block on
+	 * the wire would arrive as "5m tools → 1h system" and trip Bedrock's
+	 * non-increasing-TTL ordering invariant (a fatal 400). The resolver repairs
+	 * this by dropping the tools marker entirely so the honored-1h `system`
+	 * block leads. Defaults to false (direct Anthropic honors tools 1h).
+	 */
+	toolsCache1hUnsupported?: boolean;
+	/**
+	 * Whether the target backend rejects Anthropic-style inline `cache_control`
+	 * markers entirely (observed on Google Vertex AI / Gemini). Vertex implements
+	 * caching via a separate `CachedContent` handle and forbids sending tools /
+	 * tool_config / system instruction in a request that also references cached
+	 * content — so any `cache_control` marker we add makes LiteLLM's vertex_ai
+	 * adapter switch into cached-content mode and the still-present tools/system
+	 * trigger a fatal 400 ("Tool config, tools and system instruction should not
+	 * be set in the request when using cached content").
+	 *
+	 * When true the resolver returns the fully disabled plan: we emit no markers
+	 * and let Vertex's own implicit server-side caching handle reuse (which it
+	 * does automatically — observed cache_read without any markers).
+	 */
+	cacheControlIncompatible?: boolean;
 }
 
 const DISABLED: CachePlan = {
@@ -94,6 +121,9 @@ const DISABLED: CachePlan = {
  *
  * Universal rules (all modes):
  *  - If the model does not support prompt caching, returns the disabled plan.
+ *  - If the backend rejects inline `cache_control` markers entirely
+ *    (`cacheControlIncompatible`, e.g. Google Vertex / Gemini), returns the
+ *    disabled plan and relies on the backend's implicit server-side caching.
  *  - A static anchor whose estimated block size is below `minCacheTokens` is
  *    suppressed (the provider would not cache it anyway). This also handles the
  *    degenerate "tiny / missing system prompt" case.
@@ -103,6 +133,13 @@ const DISABLED: CachePlan = {
  */
 export function resolveCachePlan(input: CacheStrategyInput): CachePlan {
 	const { mode, supportsPromptCaching, rollingPlacement, minCacheTokens, sizes } = input;
+
+	// Vertex / Gemini reject inline cache_control markers entirely; emit none and
+	// rely on the backend's implicit server-side caching. Checked before the
+	// supportsPromptCaching gate so the disabled plan still preserves `mode`.
+	if (input.cacheControlIncompatible === true) {
+		return { ...DISABLED, mode: mode === "off" ? "off" : mode };
+	}
 
 	if (mode === "off" || !supportsPromptCaching) {
 		return { ...DISABLED, mode: mode === "off" ? "off" : mode };
@@ -138,7 +175,37 @@ export function resolveCachePlan(input: CacheStrategyInput): CachePlan {
 	};
 
 	const plan: CachePlan = { mode, tools, system, firstUser, rolling };
-	return enforceTtlOrdering(plan);
+	enforceTtlOrdering(plan);
+	return dropUnsafeToolsAnchor(plan, input.toolsCache1hUnsupported === true);
+}
+
+/**
+ * Work around backends (AWS Bedrock) that downgrade the *tools* cache_control
+ * block to 5m even when 1h is requested.
+ *
+ * Bedrock processes cache blocks tools → system → messages and rejects any 1h
+ * block that follows a 5m block. Because the tools cachePoint is silently
+ * downgraded to 5m while `system`/messages keep their requested 1h, a uniform
+ * 1h plan still arrives on the wire as the illegal "5m tools → 1h system"
+ * sequence — a fatal 400 we cannot prevent by tuning the requested TTL.
+ *
+ * The only safe repair is to drop the tools marker entirely whenever a later
+ * (still-1h) anchor exists, so the honored-1h `system` block becomes the first
+ * cached block. When no later anchor is 1h, the tools marker is harmless (it is
+ * simply honored as 5m by the backend) and is left in place.
+ */
+function dropUnsafeToolsAnchor(plan: CachePlan, toolsCache1hUnsupported: boolean): CachePlan {
+	if (!toolsCache1hUnsupported || !plan.tools.enabled || plan.tools.ttl !== "1h") {
+		return plan;
+	}
+	const laterHas1h =
+		(plan.system.enabled && plan.system.ttl === "1h") ||
+		(plan.firstUser.enabled && plan.firstUser.ttl === "1h") ||
+		(plan.rolling.enabled && plan.rolling.ttl === "1h");
+	if (laterHas1h) {
+		plan.tools = { enabled: false, ttl: plan.tools.ttl };
+	}
+	return plan;
 }
 
 /**

@@ -39,6 +39,8 @@ export async function sendChatRequest(
 	ctx: ChatRequestContext,
 	modelRoutes: Map<string, ModelRoute>,
 	promptCachingSupport: Map<string, boolean>,
+	toolsCacheNo1h: Map<string, boolean>,
+	cacheControlNoInline: Map<string, boolean>,
 	getServers: (() => Promise<ServerWithKey[]>) | undefined,
 	secrets: vscode.SecretStorage,
 	userAgent: string,
@@ -106,6 +108,16 @@ export async function sendChatRequest(
 		});
 	}
 	const supportsPromptCaching = promptCachingSupport.get(model.id) === true;
+	// AWS Bedrock honors 1h on system/messages but downgrades the tools
+	// cachePoint to 5m, tripping the non-increasing-TTL ordering invariant. The
+	// resolver drops the tools marker in that case.
+	const toolsCache1hUnsupported = toolsCacheNo1h.get(model.id) === true;
+	// Google Vertex / Gemini caches via a separate CachedContent handle and
+	// rejects requests that combine cached content with tools/system. Our inline
+	// cache_control markers make LiteLLM's vertex_ai adapter switch into
+	// cached-content mode and produce a fatal 400, so disable inline caching for
+	// these models entirely (Vertex caches implicitly server-side anyway).
+	const cacheControlIncompatible = cacheControlNoInline.get(model.id) === true;
 
 	// Measure each anchor's block size up front so the resolver can apply the
 	// universal minCacheTokens floor. Tools are sized from a no-cache conversion
@@ -124,6 +136,8 @@ export async function sendChatRequest(
 		tokenSizeAutoBreakpoint,
 		minCacheTokens,
 		sizes: anchorSizes,
+		toolsCache1hUnsupported,
+		cacheControlIncompatible,
 	});
 
 	const placedRollingOn: { role: string } = { role: "" };
@@ -192,8 +206,8 @@ export async function sendChatRequest(
 		modelId: rawModelId,
 		messageCount: messages.length,
 		caching:
-			cachePlan.mode === "off" || !supportsPromptCaching
-				? { mode: cachePlan.mode, active: false, supported: supportsPromptCaching }
+			cachePlan.mode === "off" || !supportsPromptCaching || cacheControlIncompatible
+				? { mode: cachePlan.mode, active: false, supported: supportsPromptCaching, cacheControlIncompatible }
 				: {
 						mode: cachePlan.mode,
 						active: true,
@@ -202,6 +216,8 @@ export async function sendChatRequest(
 						firstUser: cachePlan.firstUser.enabled ? cachePlan.firstUser.ttl : "off",
 						rollingLast: cachePlan.rolling.enabled ? `${cachePlan.rolling.ttl}/${cachePlan.rolling.placement}` : "off",
 						rollingPlacedOn: placedRollingOn.role || "skipped",
+						toolsCache1hUnsupported,
+						cacheControlIncompatible,
 						sizes: anchorSizes,
 					},
 	});
