@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { convertMessages } from "../../shared/messages";
+import type { CacheControl } from "../../types";
 
 interface OpenAIToolCall {
 	id: string;
@@ -229,9 +230,10 @@ suite("shared/messages", () => {
 interface CacheableTextBlock {
 	type: string;
 	text: string;
-	// Mirrors the on-the-wire CacheControl shape: 5m is encoded by omitting
-	// `ttl` entirely, so the only valid explicit value is "1h".
-	cache_control?: { type: "ephemeral"; ttl?: "1h" };
+	// Reuse the canonical wire contract from src/types.ts so this test stays
+	// aligned with production: 5m is encoded by omitting `ttl` entirely, so the
+	// only valid explicit value is "1h".
+	cache_control?: CacheControl;
 }
 interface CacheableMessage {
 	role: string;
@@ -377,6 +379,34 @@ suite("shared/messages cache_control breakpoints", () => {
 		const finalSystemBlocks = systemMessages[2].content as CacheableTextBlock[];
 		assert.equal(finalSystemBlocks.filter((b) => b.cache_control).length, 1);
 		assert.equal(finalSystemBlocks[0].cache_control?.ttl, "1h");
+	});
+
+	test("system anchor falls back to an earlier leading system message when the last is not taggable", () => {
+		// A trailing empty-string system message is non-taggable (no text to
+		// anchor). The system breakpoint must walk backwards to the previous
+		// leading system message rather than being silently dropped.
+		const systemRole = 0 as vscode.LanguageModelChatMessageRole;
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{ role: systemRole, content: [new vscode.LanguageModelTextPart("real system instructions")], name: undefined },
+			// Empty system content -> survives as a 0-length string and is not taggable.
+			{ role: systemRole, content: [new vscode.LanguageModelTextPart("")], name: undefined },
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("task")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, {
+			cache: { system: { ttl: "1h" } },
+		}) as CacheableMessage[];
+
+		const systemMessages = out.filter((m) => m.role === "system");
+		const tagged = systemMessages.filter((m) => Array.isArray(m.content) && (m.content as CacheableTextBlock[]).some((b) => b.cache_control));
+		assert.equal(tagged.length, 1, "exactly one leading system message must carry the cache_control marker");
+		const block = (tagged[0].content as CacheableTextBlock[]).find((b) => b.cache_control);
+		assert.equal(block?.text, "real system instructions", "fallback must tag the earlier taggable system message");
+		assert.equal(block?.cache_control?.ttl, "1h");
 	});
 
 	test("combining firstUser + rolling never exceeds 2 message-level markers", () => {

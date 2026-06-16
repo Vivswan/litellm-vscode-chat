@@ -119,6 +119,13 @@ export async function sendChatRequest(
 	// these models entirely (Vertex caches implicitly server-side anyway).
 	const cacheControlIncompatible = cacheControlNoInline.get(model.id) === true;
 
+	// Fail fast on oversized tool lists before doing any conversion/sizing work;
+	// the >128 case is a guaranteed failure, so there's no point sanitizing or
+	// estimating tokens for it.
+	if (options.tools && options.tools.length > 128) {
+		throw new Error("Cannot have more than 128 tools per request.");
+	}
+
 	// Measure each anchor's block size up front so the resolver can apply the
 	// universal minCacheTokens floor. Tools are sized from a no-cache conversion
 	// to avoid a chicken-and-egg dependency.
@@ -159,10 +166,6 @@ export async function sendChatRequest(
 		applyToolsCacheControl(baseToolConfig.tools, cachePlan.tools.ttl);
 	}
 	const toolConfig = baseToolConfig;
-
-	if (options.tools && options.tools.length > 128) {
-		throw new Error("Cannot have more than 128 tools per request.");
-	}
 
 	const inputTokenCount = estimateMessagesTokens(messages);
 	const toolTokenCount = estimateToolTokens(toolConfig.tools);

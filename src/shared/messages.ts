@@ -312,15 +312,24 @@ export function convertMessages(
 	// cached prefix still covers the entire system block without consuming more
 	// than one of Anthropic's four allowed cache_control breakpoints.
 	if (options?.cache?.system && out.length > 0) {
-		let lastLeadingSystem: OpenAIChatMessage | undefined;
+		// Collect the contiguous run of leading system messages, then walk it
+		// backwards tagging the first taggable one. applyCacheControlToMessage
+		// returns false for non-taggable messages (empty content / no text block);
+		// if the final leading system message is not taggable we fall back to an
+		// earlier one so the system breakpoint is not silently dropped when the
+		// plan enables it.
+		const leadingSystem: OpenAIChatMessage[] = [];
 		for (const msg of out) {
 			if (msg.role !== "system") {
 				break;
 			}
-			lastLeadingSystem = msg;
+			leadingSystem.push(msg);
 		}
-		if (lastLeadingSystem) {
-			applyCacheControlToMessage(lastLeadingSystem, options.cache.system.ttl);
+		const systemTtl = options.cache.system.ttl;
+		for (let i = leadingSystem.length - 1; i >= 0; i--) {
+			if (applyCacheControlToMessage(leadingSystem[i], systemTtl)) {
+				break;
+			}
 		}
 	}
 
