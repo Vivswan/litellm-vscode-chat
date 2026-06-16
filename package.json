@@ -90,6 +90,16 @@
 					"minimum": 1,
 					"description": "Default maximum input tokens (if null, calculated as contextLength - maxOutputTokens)"
 				},
+				"litellm-vscode-chat.promptCaching.enabled": {
+					"type": [
+						"boolean",
+						"null"
+					],
+					"default": null,
+					"markdownDeprecationMessage": "**Deprecated.** Use `#litellm-vscode-chat.promptCaching.mode#` instead (`off` | `chat` | `agent` | `auto`). For backward compatibility, a value of `false` here is still honoured as `mode: \"off\"` only when `promptCaching.mode` has not been explicitly set.",
+					"deprecationMessage": "Deprecated: use litellm-vscode-chat.promptCaching.mode instead. A value of false is still honoured as mode 'off' when mode is not explicitly set.",
+					"description": "Deprecated. Superseded by litellm-vscode-chat.promptCaching.mode."
+				},
 				"litellm-vscode-chat.promptCaching.mode": {
 					"type": "string",
 					"enum": [

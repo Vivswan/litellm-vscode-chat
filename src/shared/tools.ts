@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { OpenAIFunctionToolDef } from "../types";
+import { buildCacheControl, type CacheTtl, type OpenAIFunctionToolDef } from "../types";
 
 function isIntegerLikePropertyName(propertyName: string | undefined): boolean {
 	if (!propertyName) {
@@ -207,9 +207,9 @@ export function convertTools(options: vscode.ProvideLanguageModelChatResponseOpt
  * No-op when the list is empty. The "5m" tier omits the wire `ttl` field;
  * "1h" emits it explicitly.
  */
-export function applyToolsCacheControl(toolDefs: OpenAIFunctionToolDef[] | undefined, ttl: "5m" | "1h"): void {
+export function applyToolsCacheControl(toolDefs: OpenAIFunctionToolDef[] | undefined, ttl: CacheTtl): void {
 	if (!toolDefs || toolDefs.length === 0) {
 		return;
 	}
-	toolDefs[toolDefs.length - 1].cache_control = ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+	toolDefs[toolDefs.length - 1].cache_control = buildCacheControl(ttl);
 }

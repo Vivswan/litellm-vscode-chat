@@ -1,12 +1,14 @@
 import * as vscode from "vscode";
-import type {
-	CacheControl,
-	OpenAIChatContentBlock,
-	OpenAIChatFileContentBlock,
-	OpenAIChatImageUrlContentBlock,
-	OpenAIChatMessage,
-	OpenAIChatRole,
-	OpenAIToolCall,
+import {
+	buildCacheControl,
+	type CacheControl,
+	type CacheTtl,
+	type OpenAIChatContentBlock,
+	type OpenAIChatFileContentBlock,
+	type OpenAIChatImageUrlContentBlock,
+	type OpenAIChatMessage,
+	type OpenAIChatRole,
+	type OpenAIToolCall,
 } from "../types";
 
 function isImageMimeType(mime: string): boolean {
@@ -117,17 +119,12 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
 	return text;
 }
 
-/** Cache TTL accepted by the breakpoint helpers. "5m" omits the wire field. */
-export type AnchorTtl = "5m" | "1h";
-
 /**
- * Build a `cache_control` object, omitting `ttl` for the default 5m tier.
- * Returns the shared {@link CacheControl} wire type so the on-the-wire shape
- * stays in one place (see `types.ts`).
+ * Cache TTL accepted by the breakpoint helpers. Alias of the canonical
+ * {@link CacheTtl} (kept for readability at the message-tagging call sites).
+ * "5m" omits the wire field.
  */
-function buildCacheControl(ttl: AnchorTtl): CacheControl {
-	return ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
-}
+export type AnchorTtl = CacheTtl;
 
 /** Numeric rank for a TTL so we can compare lifetimes (1h > 5m). */
 function ttlRank(ttl: AnchorTtl): number {

@@ -11,8 +11,10 @@
  * policy can be unit-tested in isolation.
  */
 
+import type { CacheTtl } from "../types";
+
 export type CacheMode = "off" | "chat" | "agent" | "auto";
-export type CacheTtl = "5m" | "1h";
+export type { CacheTtl };
 export type RollingPlacement = "always" | "stableTurnsOnly" | "never";
 
 /** Resolved plan for a single static anchor. */

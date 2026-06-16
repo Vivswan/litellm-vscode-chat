@@ -26,13 +26,32 @@ export interface OpenAIFunctionToolDef {
 /**
  * Anthropic ephemeral cache breakpoint as serialized on the wire. The default
  * 5-minute lifetime is encoded by *omitting* `ttl` entirely; the field is only
- * ever set explicitly to "1h" for the extended tier. (The 5m-vs-1h *input*
- * decision is the internal `AnchorTtl` type in `shared/messages.ts`; this
- * interface is the wire contract and therefore never carries "5m".)
+ * ever set explicitly to "1h" for the extended tier. The 5m-vs-1h *input*
+ * decision is the canonical {@link CacheTtl} type below; this interface is the
+ * wire contract and therefore never carries "5m".
  */
 export interface CacheControl {
 	type: "ephemeral";
 	ttl?: "1h";
+}
+
+/**
+ * Canonical cache-lifetime tier used everywhere a 5m-vs-1h decision is made
+ * (the resolver in `provider/cacheStrategy.ts`, and the breakpoint builders in
+ * `shared/messages.ts` / `shared/tools.ts`). "5m" is the Anthropic default and
+ * omits the wire `ttl` field; "1h" is the extended tier. Kept here, next to the
+ * {@link CacheControl} wire type, so the lifetime vocabulary lives in one place.
+ */
+export type CacheTtl = "5m" | "1h";
+
+/**
+ * Build a `cache_control` wire object from a {@link CacheTtl}, omitting `ttl`
+ * for the default 5m tier and emitting `ttl: "1h"` for the extended tier. This
+ * is the single source of truth for the marker shape; every breakpoint helper
+ * should route through it rather than inlining the ternary.
+ */
+export function buildCacheControl(ttl: CacheTtl): CacheControl {
+	return ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
 }
 
 /**

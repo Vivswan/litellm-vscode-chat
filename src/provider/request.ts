@@ -64,18 +64,7 @@ export function buildExposedModelId(rawModelId: string, serverId: string, server
 export function estimateMessagesTokens(msgs: readonly vscode.LanguageModelChatRequestMessage[]): number {
 	let total = 0;
 	for (const m of msgs) {
-		for (const part of m.content) {
-			if (part instanceof vscode.LanguageModelTextPart) {
-				total += Math.ceil(part.value.length / 4);
-			} else if (part instanceof vscode.LanguageModelToolCallPart) {
-				total += Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / 4);
-			} else if (part instanceof vscode.LanguageModelDataPart) {
-				const mime = part.mimeType.toLowerCase();
-				if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-					total += Math.ceil(part.data.length / 4);
-				}
-			}
-		}
+		total += estimateSingleMessageTokens(m);
 	}
 	return total;
 }
