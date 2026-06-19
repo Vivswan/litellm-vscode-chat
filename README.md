@@ -201,6 +201,8 @@ You can attach custom headers to every LiteLLM request (both model discovery and
 
 Custom headers are merged into every request. If an API key is configured in the server manager, extension-managed auth headers (`Authorization` and `X-API-Key`) still take precedence.
 
+If a header value is secret (for example, API keys), set `litellm-vscode-chat.headers` in User settings instead of workspace settings to reduce the risk of committing secrets.
+
 ## Troubleshooting
 
 ### Mock LiteLLM Server (Local)

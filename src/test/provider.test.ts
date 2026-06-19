@@ -783,26 +783,32 @@ suite("provider", () => {
 			const originalFetch = global.fetch;
 			let capturedBody: Record<string, unknown> = {};
 			let capturedHeaders: Record<string, string> = {};
-			global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
-				capturedBody = JSON.parse(init?.body as string);
-				capturedHeaders = toHeaderMap(init?.headers);
-				return { ok: true, body: sseStream("ok") } as unknown as Response;
-			};
-			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
-			await provider.provideLanguageModelChatResponse(
-				model,
-				[
-					{
-						role: vscode.LanguageModelChatMessageRole.User,
-						content: [new vscode.LanguageModelTextPart("test")],
-						name: undefined,
-					},
-				],
-				opts as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				new vscode.CancellationTokenSource().token
-			);
-			global.fetch = originalFetch;
+			try {
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					capturedBody = JSON.parse(init?.body as string);
+					capturedHeaders = toHeaderMap(init?.headers);
+					return { ok: true, body: sseStream("ok") } as unknown as Response;
+				};
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				await provider.provideLanguageModelChatResponse(
+					model,
+					[
+						{
+							role: vscode.LanguageModelChatMessageRole.User,
+							content: [new vscode.LanguageModelTextPart("test")],
+							name: undefined,
+						},
+					],
+					opts as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+			} finally {
+				global.fetch = originalFetch;
+			}
 			return { body: capturedBody, headers: capturedHeaders };
 		}
 
@@ -868,7 +874,12 @@ suite("provider", () => {
 								return {};
 							}
 							if (key === "headers") {
-								return { "x-litellm-api-key": "proxy-key", "x-routing-env": "prod" };
+								return {
+									"x-litellm-api-key": "proxy-key",
+									"x-routing-env": "prod",
+									"Content-Type": "text/plain",
+									"User-Agent": "spoofed-agent",
+								};
 							}
 							return defaultValue;
 						},
@@ -882,6 +893,8 @@ suite("provider", () => {
 				});
 				assert.equal(headers["x-litellm-api-key"], "proxy-key");
 				assert.equal(headers["x-routing-env"], "prod");
+				assert.equal(headers["content-type"], "application/json");
+				assert.equal(headers["user-agent"], "GitHubCopilotChat/test VSCode/test");
 				assert.equal(headers.authorization, "Bearer test-key");
 				assert.equal(headers["x-api-key"], "test-key");
 			} finally {
@@ -1225,7 +1238,7 @@ suite("provider", () => {
 						return {
 							get: (key: string, defaultValue?: unknown) => {
 								if (key === "headers") {
-									return { "x-litellm-api-key": "proxy-key" };
+									return { "x-litellm-api-key": "proxy-key", "User-Agent": "spoofed-agent" };
 								}
 								return defaultValue;
 							},
@@ -1249,6 +1262,7 @@ suite("provider", () => {
 				);
 
 				assert.equal(firstCallHeaders["x-litellm-api-key"], "proxy-key");
+				assert.equal(firstCallHeaders["user-agent"], "GitHubCopilotChat/test VSCode/test");
 				assert.equal(firstCallHeaders.authorization, "Bearer test-key");
 				assert.equal(firstCallHeaders["x-api-key"], "test-key");
 			} finally {

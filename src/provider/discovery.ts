@@ -80,7 +80,7 @@ export async function fetchModels(
 		});
 	}
 	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
-	const headers: Record<string, string> = { "User-Agent": userAgent, ...customHeaders };
+	const headers: Record<string, string> = { ...customHeaders, "User-Agent": userAgent };
 	if (apiKey) {
 		headers.Authorization = `Bearer ${apiKey}`;
 		headers["X-API-Key"] = apiKey;

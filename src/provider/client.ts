@@ -111,9 +111,9 @@ export async function sendChatRequest(
 	});
 
 	const headers: Record<string, string> = {
+		...customHeaders,
 		"Content-Type": "application/json",
 		"User-Agent": userAgent,
-		...customHeaders,
 	};
 	if (apiKey) {
 		headers.Authorization = `Bearer ${apiKey}`;
