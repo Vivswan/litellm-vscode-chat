@@ -11,6 +11,7 @@ import { estimateMessagesTokens, estimateToolTokens, getModelParameters, buildRe
 import type { ModelRoute } from "./request";
 import { StreamProcessor } from "./streaming";
 import { resolveServer } from "./config";
+import { getCustomHeaders } from "./httpHeaders";
 import type { ServerWithKey } from "../extension/serverRegistry";
 
 export interface ChatRequestContext {
@@ -60,6 +61,7 @@ export async function sendChatRequest(
 
 	const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
 	const promptCachingEnabled = settings.get<boolean>("promptCaching.enabled", true);
+	const customHeaders = getCustomHeaders(log);
 	const rawRequestTimeout = settings.get<number>("requestTimeout", 300000);
 	// Validate and clamp requestTimeout to minimum 1000ms
 	const requestTimeout = Math.max(1000, Number.isFinite(rawRequestTimeout) ? rawRequestTimeout : 300000);
@@ -111,6 +113,7 @@ export async function sendChatRequest(
 	const headers: Record<string, string> = {
 		"Content-Type": "application/json",
 		"User-Agent": userAgent,
+		...customHeaders,
 	};
 	if (apiKey) {
 		headers.Authorization = `Bearer ${apiKey}`;

@@ -4,6 +4,17 @@ import { LiteLLMChatModelProvider } from "../provider";
 import type { AggregatedStatus } from "../provider";
 import { getModelParameters } from "../provider/request";
 
+function toHeaderMap(headersInit: RequestInit["headers"] | undefined): Record<string, string> {
+	if (!headersInit) {
+		return {};
+	}
+	const mapped: Record<string, string> = {};
+	new Headers(headersInit).forEach((value, key) => {
+		mapped[key] = value;
+	});
+	return mapped;
+}
+
 suite("provider", () => {
 	test("prepareLanguageModelChatInformation returns array (no key -> empty)", async () => {
 		const provider = new LiteLLMChatModelProvider(
@@ -764,15 +775,17 @@ suite("provider", () => {
 			});
 		}
 
-		async function captureRequestBody(
+		async function captureRequest(
 			provider: LiteLLMChatModelProvider,
 			model: vscode.LanguageModelChatInformation,
 			opts: unknown
-		): Promise<Record<string, unknown>> {
+		): Promise<{ body: Record<string, unknown>; headers: Record<string, string> }> {
 			const originalFetch = global.fetch;
 			let capturedBody: Record<string, unknown> = {};
+			let capturedHeaders: Record<string, string> = {};
 			global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
 				capturedBody = JSON.parse(init?.body as string);
+				capturedHeaders = toHeaderMap(init?.headers);
 				return { ok: true, body: sseStream("ok") } as unknown as Response;
 			};
 			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
@@ -790,7 +803,15 @@ suite("provider", () => {
 				new vscode.CancellationTokenSource().token
 			);
 			global.fetch = originalFetch;
-			return capturedBody;
+			return { body: capturedBody, headers: capturedHeaders };
+		}
+
+		async function captureRequestBody(
+			provider: LiteLLMChatModelProvider,
+			model: vscode.LanguageModelChatInformation,
+			opts: unknown
+		): Promise<Record<string, unknown>> {
+			return (await captureRequest(provider, model, opts)).body;
 		}
 
 		test("filters underscore-prefixed internal keys from modelOptions", async () => {
@@ -835,6 +856,37 @@ suite("provider", () => {
 				toolMode: vscode.LanguageModelChatToolMode.Auto,
 			});
 			assert.deepEqual(body.stream_options, { include_usage: true });
+		});
+
+		test("includes configured custom headers on chat requests", async () => {
+			const originalGetConfig = vscode.workspace.getConfiguration;
+			vscode.workspace.getConfiguration = ((section?: string) => {
+				if (section === "litellm-vscode-chat") {
+					return {
+						get: (key: string, defaultValue?: unknown) => {
+							if (key === "modelParameters") {
+								return {};
+							}
+							if (key === "headers") {
+								return { "x-litellm-api-key": "proxy-key", "x-routing-env": "prod" };
+							}
+							return defaultValue;
+						},
+					} as unknown as vscode.WorkspaceConfiguration;
+				}
+				return originalGetConfig(section);
+			}) as unknown as typeof vscode.workspace.getConfiguration;
+			try {
+				const { headers } = await captureRequest(createConfiguredProvider(), modelInfo, {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+				});
+				assert.equal(headers["x-litellm-api-key"], "proxy-key");
+				assert.equal(headers["x-routing-env"], "prod");
+				assert.equal(headers.authorization, "Bearer test-key");
+				assert.equal(headers["x-api-key"], "test-key");
+			} finally {
+				vscode.workspace.getConfiguration = originalGetConfig;
+			}
 		});
 
 		test("unmatched model gets built-in fallback defaults (temperature 0.7)", async () => {
@@ -1153,6 +1205,56 @@ suite("provider", () => {
 			assert.ok(modelInfoAttempted);
 			assert.ok(modelsAttempted);
 			assert.ok(infos.length > 0);
+		});
+
+		test("sends configured custom headers during model discovery", async () => {
+			const originalFetch = global.fetch;
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			let firstCallHeaders: Record<string, string> = {};
+			try {
+				global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+					firstCallHeaders = toHeaderMap(init?.headers);
+					return {
+						ok: true,
+						json: async () => ({ data: [] }),
+					} as unknown as Response;
+				};
+
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "headers") {
+									return { "x-litellm-api-key": "proxy-key" };
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.equal(firstCallHeaders["x-litellm-api-key"], "proxy-key");
+				assert.equal(firstCallHeaders.authorization, "Bearer test-key");
+				assert.equal(firstCallHeaders["x-api-key"], "test-key");
+			} finally {
+				global.fetch = originalFetch;
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
 		});
 
 		test("prompt caching support detected from model/info", async () => {

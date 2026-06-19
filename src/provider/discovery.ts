@@ -67,6 +67,7 @@ export async function fetchModels(
 	userAgent: string,
 	log: (message: string, data?: unknown) => void,
 	logError: (message: string, error: unknown) => void,
+	customHeaders: Record<string, string> = {},
 	discoveryTimeout?: number
 ): Promise<FetchModelsResult> {
 	// Validate and clamp timeout to minimum 1000ms (second line of defense)
@@ -79,7 +80,7 @@ export async function fetchModels(
 		});
 	}
 	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
-	const headers: Record<string, string> = { "User-Agent": userAgent };
+	const headers: Record<string, string> = { "User-Agent": userAgent, ...customHeaders };
 	if (apiKey) {
 		headers.Authorization = `Bearer ${apiKey}`;
 		headers["X-API-Key"] = apiKey;

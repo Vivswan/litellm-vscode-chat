@@ -17,6 +17,7 @@ import { fetchModels } from "./provider/discovery";
 import { buildModelInfos } from "./provider/registration";
 import { ensureServers } from "./provider/config";
 import { sendChatRequest } from "./provider/client";
+import { getCustomHeaders } from "./provider/httpHeaders";
 
 export interface AggregatedStatus {
 	serverStatuses: ServerStatus[];
@@ -103,6 +104,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
 		const rawDiscoveryTimeout = settings.get<number>("discoveryTimeout", 30000);
+		const customHeaders = getCustomHeaders((msg, data) => this.log(msg, data));
 		// Validate and clamp discoveryTimeout to minimum 1000ms
 		const discoveryTimeout = Math.max(1000, Number.isFinite(rawDiscoveryTimeout) ? rawDiscoveryTimeout : 30000);
 		if (rawDiscoveryTimeout !== discoveryTimeout) {
@@ -120,6 +122,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					this.userAgent,
 					(msg, data) => this.log(msg, data),
 					(msg, err) => this.logError(msg, err),
+					customHeaders,
 					discoveryTimeout
 				);
 				return { server, models: result.models };
