@@ -1,11 +1,22 @@
 import * as vscode from "vscode";
 import type { ServerWithKey } from "../extension/serverRegistry";
 
+export interface ResolvedServer {
+	baseUrl: string;
+	apiKey: string;
+	customHeaders?: Record<string, string>;
+}
+
+export function getGlobalCustomHeaders(): Record<string, string> {
+	const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
+	return config.get<Record<string, string>>("customHeaders", {});
+}
+
 export async function resolveServer(
 	serverId: string,
 	getServers: (() => Promise<ServerWithKey[]>) | undefined,
 	secrets: vscode.SecretStorage
-): Promise<{ baseUrl: string; apiKey: string } | undefined> {
+): Promise<ResolvedServer | undefined> {
 	if (serverId === "_legacy") {
 		return ensureConfig(secrets);
 	}
@@ -68,7 +79,7 @@ export async function ensureServers(
 
 export async function ensureConfig(
 	secrets: vscode.SecretStorage
-): Promise<{ baseUrl: string; apiKey: string } | undefined> {
+): Promise<ResolvedServer | undefined> {
 	const baseUrl = await secrets.get("litellm.baseUrl");
 	if (!baseUrl) {
 		return undefined;

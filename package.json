@@ -119,6 +119,14 @@
 					"default": 30000,
 					"minimum": 1000,
 					"description": "Request timeout in milliseconds for model discovery requests. Default is 30000ms (30 seconds)."
+				},
+				"litellm-vscode-chat.customHeaders": {
+					"type": "object",
+					"default": {},
+					"description": "Custom HTTP headers to include in all requests to LiteLLM servers. Useful for API gateways, reverse proxies, or custom authentication mechanisms (e.g., {\"x-litellm-api-key\": \"your-key\"}). Per-server headers can be configured through the server management UI.",
+					"additionalProperties": {
+						"type": "string"
+					}
 				}
 			}
 		}

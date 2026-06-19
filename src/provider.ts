@@ -15,7 +15,7 @@ import type { ModelRoute } from "./provider/request";
 
 import { fetchModels } from "./provider/discovery";
 import { buildModelInfos } from "./provider/registration";
-import { ensureServers } from "./provider/config";
+import { ensureServers, getGlobalCustomHeaders } from "./provider/config";
 import { sendChatRequest } from "./provider/client";
 
 export interface AggregatedStatus {
@@ -112,15 +112,19 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			});
 		}
 
+		const globalHeaders = getGlobalCustomHeaders();
+
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
+				const mergedHeaders = { ...globalHeaders, ...server.customHeaders };
 				const result = await fetchModels(
 					server.apiKey,
 					server.baseUrl,
 					this.userAgent,
 					(msg, data) => this.log(msg, data),
 					(msg, err) => this.logError(msg, err),
-					discoveryTimeout
+					discoveryTimeout,
+					Object.keys(mergedHeaders).length > 0 ? mergedHeaders : undefined
 				);
 				return { server, models: result.models };
 			})

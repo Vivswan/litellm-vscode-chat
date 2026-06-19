@@ -54,7 +54,38 @@ export async function addServerFlow(registry: ServerRegistry, outputChannel: vsc
 		return false;
 	}
 
-	await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim());
+	const headersInput = await vscode.window.showInputBox({
+		title: "LiteLLM: Add Server - Custom Headers (Optional)",
+		prompt: 'Enter custom HTTP headers as JSON (e.g., {"x-litellm-api-key": "key"}). Leave empty to skip.',
+		ignoreFocusOut: true,
+		placeHolder: '{"Header-Name": "value"}',
+		validateInput: (value) => {
+			if (!value.trim()) {
+				return null;
+			}
+			try {
+				const parsed = JSON.parse(value);
+				if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+					return "Must be a JSON object";
+				}
+				for (const v of Object.values(parsed)) {
+					if (typeof v !== "string") {
+						return "All header values must be strings";
+					}
+				}
+				return null;
+			} catch {
+				return "Invalid JSON format";
+			}
+		},
+	});
+	if (headersInput === undefined) {
+		return false;
+	}
+
+	const customHeaders = headersInput.trim() ? (JSON.parse(headersInput) as Record<string, string>) : undefined;
+
+	await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim(), customHeaders);
 	outputChannel.appendLine(`[${new Date().toISOString()}] Added server "${label.trim()}" at ${baseUrl.trim()}`);
 
 	vscode.window
@@ -152,7 +183,41 @@ export async function manageServerFlow(
 			return;
 		}
 
-		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim());
+		const existingHeaders = server.customHeaders ?? {};
+		const existingHeadersJson = Object.keys(existingHeaders).length > 0 ? JSON.stringify(existingHeaders) : "";
+		const headersInput = await vscode.window.showInputBox({
+			title: "LiteLLM: Edit Server - Custom Headers (Optional)",
+			prompt: 'Update custom HTTP headers as JSON (e.g., {"x-litellm-api-key": "key"}). Clear to remove.',
+			ignoreFocusOut: true,
+			placeHolder: '{"Header-Name": "value"}',
+			value: existingHeadersJson,
+			validateInput: (value) => {
+				if (!value.trim()) {
+					return null;
+				}
+				try {
+					const parsed = JSON.parse(value);
+					if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+						return "Must be a JSON object";
+					}
+					for (const v of Object.values(parsed)) {
+						if (typeof v !== "string") {
+							return "All header values must be strings";
+						}
+					}
+					return null;
+				} catch {
+					return "Invalid JSON format";
+				}
+			},
+		});
+		if (headersInput === undefined) {
+			return;
+		}
+
+		const customHeaders = headersInput.trim() ? (JSON.parse(headersInput) as Record<string, string>) : undefined;
+
+		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim(), customHeaders);
 		outputChannel.appendLine(`[${new Date().toISOString()}] Updated server "${label.trim()}"`);
 
 		vscode.window

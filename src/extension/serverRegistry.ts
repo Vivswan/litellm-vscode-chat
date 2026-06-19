@@ -4,6 +4,7 @@ export interface ServerConfig {
 	id: string;
 	label: string;
 	baseUrl: string;
+	customHeaders?: Record<string, string>;
 }
 
 export interface ServerWithKey extends ServerConfig {
@@ -36,13 +37,21 @@ export class ServerRegistry {
 		return this.globalState.get<ServerConfig[]>(REGISTRY_KEY, []);
 	}
 
-	async addServer(label: string, baseUrl: string, apiKey: string): Promise<ServerConfig> {
+	async addServer(
+		label: string,
+		baseUrl: string,
+		apiKey: string,
+		customHeaders?: Record<string, string>
+	): Promise<ServerConfig> {
 		const existingIds = new Set(this.getServers().map((s) => s.id));
 		let id = generateId();
 		while (existingIds.has(id)) {
 			id = generateId();
 		}
 		const server: ServerConfig = { id, label, baseUrl: baseUrl.replace(/\/+$/, "") };
+		if (customHeaders && Object.keys(customHeaders).length > 0) {
+			server.customHeaders = customHeaders;
+		}
 		const servers = this.getServers();
 		servers.push(server);
 		await this.globalState.update(REGISTRY_KEY, servers);
@@ -52,13 +61,23 @@ export class ServerRegistry {
 		return server;
 	}
 
-	async updateServer(id: string, label: string, baseUrl: string, apiKey: string | undefined): Promise<void> {
+	async updateServer(
+		id: string,
+		label: string,
+		baseUrl: string,
+		apiKey: string | undefined,
+		customHeaders?: Record<string, string>
+	): Promise<void> {
 		const servers = this.getServers();
 		const idx = servers.findIndex((s) => s.id === id);
 		if (idx === -1) {
 			return;
 		}
-		servers[idx] = { id, label, baseUrl: baseUrl.replace(/\/+$/, "") };
+		const updated: ServerConfig = { id, label, baseUrl: baseUrl.replace(/\/+$/, "") };
+		if (customHeaders && Object.keys(customHeaders).length > 0) {
+			updated.customHeaders = customHeaders;
+		}
+		servers[idx] = updated;
 		await this.globalState.update(REGISTRY_KEY, servers);
 		if (apiKey !== undefined) {
 			if (apiKey) {

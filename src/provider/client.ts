@@ -10,7 +10,7 @@ import { validateRequest } from "../shared/validation";
 import { estimateMessagesTokens, estimateToolTokens, getModelParameters, buildRequestBody } from "./request";
 import type { ModelRoute } from "./request";
 import { StreamProcessor } from "./streaming";
-import { resolveServer } from "./config";
+import { resolveServer, getGlobalCustomHeaders } from "./config";
 import type { ServerWithKey } from "../extension/serverRegistry";
 
 export interface ChatRequestContext {
@@ -38,12 +38,14 @@ export async function sendChatRequest(
 	let baseUrl: string;
 	let apiKey: string;
 	let rawModelId: string;
+	let serverCustomHeaders: Record<string, string> | undefined;
 
 	if (route) {
 		const server = await resolveServer(route.serverId, getServers, secrets);
 		if (server) {
 			baseUrl = server.baseUrl;
 			apiKey = server.apiKey;
+			serverCustomHeaders = server.customHeaders;
 		} else {
 			throw new Error(`Server "${route.serverLabel}" is no longer configured`);
 		}
@@ -115,6 +117,11 @@ export async function sendChatRequest(
 	if (apiKey) {
 		headers.Authorization = `Bearer ${apiKey}`;
 		headers["X-API-Key"] = apiKey;
+	}
+	const globalHeaders = getGlobalCustomHeaders();
+	const mergedCustomHeaders = { ...globalHeaders, ...serverCustomHeaders };
+	if (Object.keys(mergedCustomHeaders).length > 0) {
+		Object.assign(headers, mergedCustomHeaders);
 	}
 
 	log("Sending chat request", {
