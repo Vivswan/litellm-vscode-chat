@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.3.0...v0.3.1) (2026-06-21)
+
+
+### Bug Fixes
+
+* Add support for custom HTTP headers in LiteLLM provider configuration ([#159](https://github.com/Vivswan/litellm-vscode-chat/issues/159)) ([5c07e9a](https://github.com/Vivswan/litellm-vscode-chat/commit/5c07e9a3805ca437aa2758c2cc12cb8ea606a323))
+
 ## [0.3.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.2.7...v0.3.0) (2026-06-07)
 
 
