@@ -186,6 +186,24 @@ Configure timeout values for different types of requests. This is useful if you'
 
 **Note**: Minimum timeout is 1000ms (1 second) for both settings.
 
+### Custom HTTP Headers
+
+You can attach custom headers to every LiteLLM request (both model discovery and chat completions). This is useful when your gateway expects non-standard auth headers like `x-litellm-api-key`.
+
+**Security note**: Header values are stored in VS Code settings; if they include secrets, prefer **User** settings (not workspace) and avoid committing `.vscode/settings.json` to source control.
+```json
+{
+  "litellm-vscode-chat.headers": {
+    "x-litellm-api-key": "your-gateway-key",
+    "x-routing-env": "prod"
+  }
+}
+```
+
+Custom headers are merged into every request. If an API key is configured in the server manager, extension-managed auth headers (`Authorization` and `X-API-Key`) still take precedence.
+
+If a header value is secret (for example, API keys), set `litellm-vscode-chat.headers` in User settings instead of workspace settings to reduce the risk of committing secrets.
+
 ## Troubleshooting
 
 ### Mock LiteLLM Server (Local)
