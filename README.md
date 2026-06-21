@@ -190,6 +190,7 @@ Configure timeout values for different types of requests. This is useful if you'
 
 You can attach custom headers to every LiteLLM request (both model discovery and chat completions). This is useful when your gateway expects non-standard auth headers like `x-litellm-api-key`.
 
+**Security note**: Header values are stored in VS Code settings; if they include secrets, prefer **User** settings (not workspace) and avoid committing `.vscode/settings.json` to source control.
 ```json
 {
   "litellm-vscode-chat.headers": {
