@@ -103,6 +103,18 @@
 						"type": "object"
 					}
 				},
+				"litellm-vscode-chat.headers": {
+					"type": "object",
+					"default": {},
+					"description": "Custom HTTP headers to include with all LiteLLM requests (model discovery and chat completions). Useful for API gateways that require headers like x-litellm-api-key. If values contain secrets, prefer User settings (not workspace settings) to avoid accidental commits.",
+					"additionalProperties": {
+						"type": [
+							"string",
+							"number",
+							"boolean"
+						]
+					}
+				},
 				"litellm-vscode-chat.maskApiKeyInput": {
 					"type": "boolean",
 					"default": true,
