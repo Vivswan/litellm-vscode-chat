@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { ServerRegistry, OAuthInput, OAuthSecrets } from "./serverRegistry";
 import { DEFAULT_VIRTUAL_KEY_HEADER } from "../provider/auth";
+import { isValidHeaderName } from "../provider/httpHeaders";
 
 /**
  * Prompts for the OAuth client-credentials fields. `existing` pre-fills the
@@ -64,10 +65,17 @@ async function collectOAuthInput(existing?: OAuthSecrets): Promise<OAuthInput | 
 
 	const virtualKeyHeader = await vscode.window.showInputBox({
 		title: "LiteLLM: OAuth - Virtual Key Header",
-		prompt: "Header name for the virtual key",
+		prompt: `Header name for the virtual key (leave empty for the default ${DEFAULT_VIRTUAL_KEY_HEADER})`,
 		ignoreFocusOut: true,
 		value: existing?.virtualKeyHeader ?? DEFAULT_VIRTUAL_KEY_HEADER,
 		placeHolder: DEFAULT_VIRTUAL_KEY_HEADER,
+		validateInput: (value) => {
+			const trimmed = value.trim();
+			if (!trimmed) {
+				return null; // blank means use the default header name
+			}
+			return isValidHeaderName(trimmed) ? null : "Invalid header name (use letters, digits, and -._ only)";
+		},
 	});
 	if (virtualKeyHeader === undefined) {
 		return undefined;

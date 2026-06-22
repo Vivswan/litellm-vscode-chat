@@ -44,7 +44,7 @@ suite("provider/auth", () => {
 			});
 
 			assert.equal(headers.Authorization, "Bearer tok-123");
-			assert.equal(headers[DEFAULT_VIRTUAL_KEY_HEADER], "Bearer vkey");
+			assert.equal(headers[DEFAULT_VIRTUAL_KEY_HEADER], "vkey");
 			assert.equal(capturedUrl, "https://idp.example.com/token");
 			assert.ok(capturedBody.includes("grant_type=client_credentials"));
 			assert.ok(capturedBody.includes("client_id=cid"));
@@ -80,6 +80,32 @@ suite("provider/auth", () => {
 		}
 	});
 
+	test("short-lived tokens (expires_in <= 60) are still cached, not re-fetched every call", async () => {
+		const originalFetch = global.fetch;
+		let calls = 0;
+		try {
+			global.fetch = async () => {
+				calls++;
+				return {
+					ok: true,
+					json: async () => ({ access_token: "tok-short", expires_in: 30 }),
+				} as unknown as Response;
+			};
+
+			const server = {
+				id: "oauth-short",
+				apiKey: "",
+				auth: { type: "oauth" as const },
+				oauth: { idpUrl: "https://idp.example.com/token", clientId: "c", clientSecret: "s", virtualKey: "v" },
+			};
+			await resolveAuthHeaders(server);
+			await resolveAuthHeaders(server);
+			assert.equal(calls, 1, "a 30s token should remain cached for a usable window");
+		} finally {
+			global.fetch = originalFetch;
+		}
+	});
+
 	test("custom virtual-key header name is honored", async () => {
 		const originalFetch = global.fetch;
 		try {
@@ -99,7 +125,7 @@ suite("provider/auth", () => {
 				},
 			});
 
-			assert.equal(headers["X-Custom-Client"], "Bearer v");
+			assert.equal(headers["X-Custom-Client"], "v");
 			assert.equal(headers[DEFAULT_VIRTUAL_KEY_HEADER], undefined);
 		} finally {
 			global.fetch = originalFetch;

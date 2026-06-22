@@ -61,9 +61,12 @@ async function getOAuthToken(
 		throw new Error("OAuth token response did not include an access_token");
 	}
 
-	// Refresh a minute early so an in-flight request never carries a just-expired token.
+	// Refresh early so an in-flight request never carries a just-expired token, but
+	// clamp the skew so short-lived tokens (expires_in <= 60) stay cached for a usable
+	// window instead of being treated as already expired and re-fetched every call.
 	const expiresIn = typeof data.expires_in === "number" && data.expires_in > 0 ? data.expires_in : 300;
-	tokenCache.set(serverId, { token: data.access_token, expiresAt: now + (expiresIn - 60) * 1000 });
+	const refreshSkew = Math.min(60, Math.floor(expiresIn / 2));
+	tokenCache.set(serverId, { token: data.access_token, expiresAt: now + (expiresIn - refreshSkew) * 1000 });
 	return data.access_token;
 }
 
@@ -90,8 +93,11 @@ export async function resolveAuthHeaders(
 		const token = await getOAuthToken(server.id, server.oauth, timeout, log);
 		const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
 		if (server.oauth.virtualKey) {
+			// The virtual/client key is an opaque identifier: send it verbatim so servers
+			// that expect the value as-is work. If a gateway needs a prefix (e.g. "Bearer "),
+			// the user includes it in the virtual key value itself.
 			const headerName = server.oauth.virtualKeyHeader || DEFAULT_VIRTUAL_KEY_HEADER;
-			headers[headerName] = `Bearer ${server.oauth.virtualKey}`;
+			headers[headerName] = server.oauth.virtualKey;
 		}
 		return headers;
 	}

@@ -2,6 +2,11 @@ import * as vscode from "vscode";
 
 const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
+/** True if `name` is a valid RFC 7230 header field name (token characters only). */
+export function isValidHeaderName(name: string): boolean {
+	return HEADER_NAME_PATTERN.test(name);
+}
+
 function normalizeCustomHeaders(raw: unknown, log?: (message: string, data?: unknown) => void): Record<string, string> {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
 		return {};
