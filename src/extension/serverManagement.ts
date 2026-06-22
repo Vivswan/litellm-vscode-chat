@@ -1,5 +1,144 @@
 import * as vscode from "vscode";
-import type { ServerRegistry } from "./serverRegistry";
+import type { ServerRegistry, ServerAuthInput, ServerConfig } from "./serverRegistry";
+import { DEFAULT_VIRTUAL_KEY_HEADER } from "./serverRegistry";
+
+const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+interface ExistingAuth {
+	apiKey: string;
+	oauthClientSecret: string;
+	oauthVirtualKey: string;
+}
+
+/**
+ * Prompts the user to choose an auth method and collects the relevant credentials.
+ * Returns undefined if the user cancels at any step.
+ */
+async function collectAuthInput(server?: ServerConfig, existing?: ExistingAuth): Promise<ServerAuthInput | undefined> {
+	const currentMethod = server?.authMethod === "oauth2" ? "oauth2" : "apiKey";
+	const methodPick = await vscode.window.showQuickPick(
+		[
+			{
+				label: "$(key) API Key",
+				description: "Static API key sent as a Bearer token",
+				method: "apiKey" as const,
+				picked: currentMethod === "apiKey",
+			},
+			{
+				label: "$(shield) OAuth2 (client credentials)",
+				description: "Exchange client credentials for a short-lived token",
+				method: "oauth2" as const,
+				picked: currentMethod === "oauth2",
+			},
+		],
+		{
+			title: "LiteLLM: Authentication Method",
+			placeHolder: "Choose how to authenticate with this server",
+		}
+	);
+	if (!methodPick) {
+		return undefined;
+	}
+
+	const maskInput = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
+
+	if (methodPick.method === "apiKey") {
+		const apiKey = await vscode.window.showInputBox({
+			title: "LiteLLM: API Key",
+			prompt: existing?.apiKey ? "Update the API key" : "Enter the API key (leave empty if not required)",
+			ignoreFocusOut: true,
+			password: maskInput,
+			value: existing?.apiKey,
+		});
+		if (apiKey === undefined) {
+			return undefined;
+		}
+		return { authMethod: "apiKey", apiKey: apiKey.trim() };
+	}
+
+	const tokenUrl = await vscode.window.showInputBox({
+		title: "LiteLLM: OAuth2 Token URL",
+		prompt: "Enter the OAuth2 token endpoint (client-credentials grant)",
+		ignoreFocusOut: true,
+		placeHolder: "https://idp.example.com/oauth/token",
+		value: server?.oauthTokenUrl,
+		validateInput: (value) => {
+			if (!value.trim()) {
+				return "Token URL is required";
+			}
+			if (!value.startsWith("http://") && !value.startsWith("https://")) {
+				return "URL must start with http:// or https://";
+			}
+			return null;
+		},
+	});
+	if (tokenUrl === undefined) {
+		return undefined;
+	}
+
+	const clientId = await vscode.window.showInputBox({
+		title: "LiteLLM: OAuth2 Client ID",
+		prompt: "Enter the OAuth2 client ID",
+		ignoreFocusOut: true,
+		value: server?.oauthClientId,
+		validateInput: (value) => (value.trim() ? null : "Client ID is required"),
+	});
+	if (clientId === undefined) {
+		return undefined;
+	}
+
+	const clientSecret = await vscode.window.showInputBox({
+		title: "LiteLLM: OAuth2 Client Secret",
+		prompt: existing?.oauthClientSecret ? "Update the client secret" : "Enter the OAuth2 client secret",
+		ignoreFocusOut: true,
+		password: maskInput,
+		value: existing?.oauthClientSecret,
+		validateInput: (value) => (value.trim() ? null : "Client secret is required"),
+	});
+	if (clientSecret === undefined) {
+		return undefined;
+	}
+
+	const virtualKey = await vscode.window.showInputBox({
+		title: "LiteLLM: Virtual Key (optional)",
+		prompt: "Enter an optional virtual key sent in a custom header (leave empty to skip)",
+		ignoreFocusOut: true,
+		password: maskInput,
+		value: existing?.oauthVirtualKey,
+	});
+	if (virtualKey === undefined) {
+		return undefined;
+	}
+
+	const virtualKeyHeader = await vscode.window.showInputBox({
+		title: "LiteLLM: Virtual Key Header (optional)",
+		prompt: `Header used to send the virtual key (default: ${DEFAULT_VIRTUAL_KEY_HEADER})`,
+		ignoreFocusOut: true,
+		placeHolder: DEFAULT_VIRTUAL_KEY_HEADER,
+		value: server?.oauthVirtualKeyHeader,
+		validateInput: (value) => {
+			const trimmed = value.trim();
+			if (trimmed && !HEADER_NAME_PATTERN.test(trimmed)) {
+				return "Invalid HTTP header name";
+			}
+			return null;
+		},
+	});
+	if (virtualKeyHeader === undefined) {
+		return undefined;
+	}
+
+	return {
+		authMethod: "oauth2",
+		oauth: {
+			tokenUrl: tokenUrl.trim(),
+			clientId: clientId.trim(),
+			clientSecret: clientSecret.trim(),
+			virtualKey: virtualKey.trim() || undefined,
+			virtualKeyHeader: virtualKeyHeader.trim() || undefined,
+		},
+	};
+}
 
 export async function addServerFlow(registry: ServerRegistry, outputChannel: vscode.OutputChannel): Promise<boolean> {
 	const label = await vscode.window.showInputBox({
@@ -43,18 +182,12 @@ export async function addServerFlow(registry: ServerRegistry, outputChannel: vsc
 		return false;
 	}
 
-	const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
-	const apiKey = await vscode.window.showInputBox({
-		title: "LiteLLM: Add Server - API Key",
-		prompt: "Enter the API key (leave empty if not required)",
-		ignoreFocusOut: true,
-		password: maskApiKey,
-	});
-	if (apiKey === undefined) {
+	const auth = await collectAuthInput();
+	if (auth === undefined) {
 		return false;
 	}
 
-	await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim());
+	await registry.addServer(label.trim(), baseUrl.trim(), auth.apiKey ?? "", auth);
 	outputChannel.appendLine(`[${new Date().toISOString()}] Added server "${label.trim()}" at ${baseUrl.trim()}`);
 
 	vscode.window
@@ -139,20 +272,17 @@ export async function manageServerFlow(
 			return;
 		}
 
-		const existingApiKey = await registry.getApiKey(serverId);
-		const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
-		const apiKey = await vscode.window.showInputBox({
-			title: "LiteLLM: Edit Server - API Key",
-			prompt: existingApiKey ? "Update the API key" : "Enter the API key (leave empty if not required)",
-			ignoreFocusOut: true,
-			password: maskApiKey,
-			value: existingApiKey,
-		});
-		if (apiKey === undefined) {
+		const existing: ExistingAuth = {
+			apiKey: await registry.getApiKey(serverId),
+			oauthClientSecret: await registry.getOAuthClientSecret(serverId),
+			oauthVirtualKey: await registry.getOAuthVirtualKey(serverId),
+		};
+		const auth = await collectAuthInput(server, existing);
+		if (auth === undefined) {
 			return;
 		}
 
-		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim());
+		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), auth.apiKey, auth);
 		outputChannel.appendLine(`[${new Date().toISOString()}] Updated server "${label.trim()}"`);
 
 		vscode.window
@@ -198,7 +328,7 @@ export function registerManageCommand(
 				{ label: "$(add) Add Server", action: "add" },
 				...servers.map((s) => ({
 					label: `$(server) ${s.label}`,
-					description: s.baseUrl,
+					description: `${s.baseUrl} · ${s.authMethod === "oauth2" ? "OAuth2" : "API Key"}`,
 					action: `edit:${s.id}`,
 				})),
 				{ label: "$(testing-run-icon) Test All Servers", action: "test-all" },

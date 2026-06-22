@@ -18,6 +18,7 @@ import { buildModelInfos } from "./provider/registration";
 import { ensureServers } from "./provider/config";
 import { sendChatRequest } from "./provider/client";
 import { getCustomHeaders } from "./provider/httpHeaders";
+import { buildAuthFromServer } from "./provider/auth";
 
 export interface AggregatedStatus {
 	serverStatuses: ServerStatus[];
@@ -117,7 +118,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
 				const result = await fetchModels(
-					server.apiKey,
+					buildAuthFromServer(server),
 					server.baseUrl,
 					this.userAgent,
 					(msg, data) => this.log(msg, data),

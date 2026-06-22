@@ -13,8 +13,13 @@ export async function buildDiagnosticsSnapshot(
 ): Promise<DiagnosticsSnapshot> {
 	const servers = registry.getServers();
 	const serversWithKeys = await registry.getServersWithKeys();
-	const hasApiKey =
-		serversWithKeys.some((s) => s.apiKey.trim().length > 0) || !!(await context.secrets.get("litellm.apiKey"));
+	const hasConfiguredAuth = serversWithKeys.some((s) => {
+		if (s.authMethod === "oauth2") {
+			return !!(s.oauthTokenUrl && s.oauthClientId && s.oauthClientSecret);
+		}
+		return s.apiKey.trim().length > 0;
+	});
+	const hasApiKey = hasConfiguredAuth || !!(await context.secrets.get("litellm.apiKey"));
 	const hasBaseUrl = servers.length > 0 || !!(await context.secrets.get("litellm.baseUrl"));
 
 	return {
