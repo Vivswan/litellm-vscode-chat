@@ -6,6 +6,8 @@ import type {
 	LiteLLMProvider,
 } from "../types";
 import { normalizePositiveNumber } from "../shared/numbers";
+import { getAuthHeaders } from "./auth";
+import type { AuthContext } from "./auth";
 
 export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 	const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
@@ -62,7 +64,7 @@ export interface FetchModelsResult {
 }
 
 export async function fetchModels(
-	apiKey: string,
+	auth: AuthContext,
 	baseUrl: string,
 	userAgent: string,
 	log: (message: string, data?: unknown) => void,
@@ -79,12 +81,9 @@ export async function fetchModels(
 			clamped: timeout,
 		});
 	}
-	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
-	const headers: Record<string, string> = { ...customHeaders, "User-Agent": userAgent };
-	if (apiKey) {
-		headers.Authorization = `Bearer ${apiKey}`;
-		headers["X-API-Key"] = apiKey;
-	}
+	const authHeaders = await getAuthHeaders(auth, undefined, log);
+	log("fetchModels called", { baseUrl, hasApiKey: Object.keys(authHeaders).length > 0 });
+	const headers: Record<string, string> = { ...customHeaders, ...authHeaders, "User-Agent": userAgent };
 
 	const readErrorText = async (resp: Response): Promise<string> => {
 		let text = "";

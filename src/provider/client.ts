@@ -12,6 +12,7 @@ import type { ModelRoute } from "./request";
 import { StreamProcessor } from "./streaming";
 import { resolveServer } from "./config";
 import { getCustomHeaders } from "./httpHeaders";
+import { getAuthHeaders, buildAuthFromServer } from "./auth";
 import type { ServerWithKey } from "../extension/serverRegistry";
 
 export interface ChatRequestContext {
@@ -37,14 +38,14 @@ export async function sendChatRequest(
 
 	const route = modelRoutes.get(model.id);
 	let baseUrl: string;
-	let apiKey: string;
+	let server: ServerWithKey;
 	let rawModelId: string;
 
 	if (route) {
-		const server = await resolveServer(route.serverId, getServers, secrets);
-		if (server) {
-			baseUrl = server.baseUrl;
-			apiKey = server.apiKey;
+		const resolved = await resolveServer(route.serverId, getServers, secrets);
+		if (resolved) {
+			baseUrl = resolved.baseUrl;
+			server = resolved;
 		} else {
 			throw new Error(`Server "${route.serverLabel}" is no longer configured`);
 		}
@@ -55,7 +56,7 @@ export async function sendChatRequest(
 			throw new Error("LiteLLM configuration not found");
 		}
 		baseUrl = config.baseUrl;
-		apiKey = config.apiKey;
+		server = config;
 		rawModelId = model.id;
 	}
 
@@ -110,15 +111,13 @@ export async function sendChatRequest(
 		modelOptions: options.modelOptions as Record<string, unknown> | undefined,
 	});
 
+	const authHeaders = await getAuthHeaders(buildAuthFromServer(server), undefined, log);
 	const headers: Record<string, string> = {
 		...customHeaders,
+		...authHeaders,
 		"Content-Type": "application/json",
 		"User-Agent": userAgent,
 	};
-	if (apiKey) {
-		headers.Authorization = `Bearer ${apiKey}`;
-		headers["X-API-Key"] = apiKey;
-	}
 
 	log("Sending chat request", {
 		url: `${baseUrl}/v1/chat/completions`,

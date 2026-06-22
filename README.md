@@ -6,6 +6,7 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 
 - Access 100+ LLMs (OpenAI, Anthropic, Google, AWS, Azure, and more) through a unified API
 - **Multi-server support**: Connect to multiple LiteLLM servers simultaneously and aggregate models
+- **Flexible authentication**: Static API keys or OAuth2 client-credentials per server
 - Automatic provider selection with `cheapest` and `fastest` modes
 - **Multimodal support**: Vision (images), PDF/document attachments, and text/JSON data
 - Support for streaming, function calling, and thinking/reasoning tokens
@@ -16,14 +17,14 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 
 - VS Code 1.108.0 or higher
 - LiteLLM proxy running (self-hosted or cloud)
-- LiteLLM API key (if required by your setup)
+- LiteLLM API key or OAuth2 client credentials (if required by your setup)
 
 ## Quick Start
 
 1. Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
 2. Open VS Code's chat interface
 3. Click the model picker → "Manage Models..." → "LiteLLM"
-4. Add a server: enter a label, base URL (e.g., `http://localhost:4000`), and API key
+4. Add a server: enter a label, base URL (e.g., `http://localhost:4000`), and choose authentication (API key or OAuth2)
 5. Select models to add
 
 ## Configuration
@@ -37,8 +38,8 @@ To manage servers:
 - **Model Picker**: Chat interface → Model picker → "Manage Models..." → "LiteLLM"
 
 From the server manager you can:
-- **Add Server** — provide a unique label, base URL, and optional API key
-- **Edit Server** — update label, URL, or API key
+- **Add Server** — provide a unique label, base URL, and choose an authentication method (API key or OAuth2)
+- **Edit Server** — update label, URL, or authentication settings
 - **Remove Server** — delete a server and its stored credentials
 - **Test All Servers** — verify connectivity to every configured server
 
@@ -47,6 +48,25 @@ If no servers are configured, the "Manage" command jumps straight to the add flo
 Credentials are stored securely in VS Code's secret storage. Server metadata (label, URL) is stored in global state.
 
 **Upgrading from single-server**: Existing single-server configurations are automatically migrated into the server registry on first run.
+
+### Authentication
+
+Each server can authenticate using one of two methods, selected when you add or edit it:
+
+- **API Key** (default) — a static key sent as `Authorization: Bearer <key>` and `X-API-Key: <key>`. Leave the key blank if your proxy does not require one.
+- **OAuth2 (client credentials)** — the extension exchanges a client ID and secret for a short-lived bearer token using the OAuth2 `client_credentials` grant, then sends it the same way (`Authorization: Bearer <token>` and `X-API-Key: <token>`).
+
+When you choose OAuth2 you provide:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| **Token URL** | Yes | The identity provider's token endpoint (must be `http`/`https`). |
+| **Client ID** | Yes | The OAuth2 client identifier. |
+| **Client Secret** | Yes | The OAuth2 client secret. Stored in VS Code secret storage. |
+| **Virtual Key** | No | An optional value forwarded to your gateway in a dedicated header. Stored in VS Code secret storage. |
+| **Virtual Key Header** | No | The header used for the virtual key. Defaults to `X-LLM-API-CLIENT-ID`. |
+
+Tokens are cached in memory per server and refreshed automatically before they expire (using the `expires_in` returned by the identity provider, with a short safety margin). Client secrets and virtual keys are kept in VS Code's secret storage — only the non-secret fields (token URL, client ID, header name) are persisted in global state.
 
 ### Token Limits (Automatic)
 
@@ -294,9 +314,10 @@ The output channel logs:
 - Run `litellm --config your_config.yaml` to start the proxy with models
 
 **"Authentication failed"**
-- Your server requires an API key
-- Run "Manage LiteLLM Provider" and edit the server to update its API key
-- Verify the key is correct in your LiteLLM proxy configuration
+- Your server requires authentication
+- Run "Manage LiteLLM Provider" and edit the server to update its API key or OAuth2 settings
+- For API keys, verify the key is correct in your LiteLLM proxy configuration
+- For OAuth2, verify the token URL, client ID, and client secret are correct and that the identity provider is reachable
 
 **"Connection Error: Unable to connect"**
 - Verify the base URL is correct (e.g., `http://localhost:4000`)
