@@ -92,7 +92,9 @@ async function fetchOAuthToken(auth: OAuthAuth, fetchImpl: FetchLike, log?: LogF
 		});
 	} catch (error) {
 		const msg = error instanceof Error ? error.message : String(error);
-		throw new Error(`OAuth2 token request failed: unable to reach token endpoint ${auth.tokenUrl}. ${msg}`);
+		throw new Error(`OAuth2 token request failed: unable to reach token endpoint ${auth.tokenUrl}. ${msg}`, {
+			cause: error,
+		});
 	}
 
 	if (!response.ok) {
@@ -112,7 +114,9 @@ async function fetchOAuthToken(auth: OAuthAuth, fetchImpl: FetchLike, log?: LogF
 		parsed = (await response.json()) as OAuthTokenResponse;
 	} catch (error) {
 		const msg = error instanceof Error ? error.message : String(error);
-		throw new Error(`OAuth2 token request failed: could not parse token response as JSON. ${msg}`);
+		throw new Error(`OAuth2 token request failed: could not parse token response as JSON. ${msg}`, {
+			cause: error,
+		});
 	}
 
 	const accessToken = parsed.access_token;
