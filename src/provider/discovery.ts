@@ -62,7 +62,7 @@ export interface FetchModelsResult {
 }
 
 export async function fetchModels(
-	apiKey: string,
+	authHeaders: Record<string, string>,
 	baseUrl: string,
 	userAgent: string,
 	log: (message: string, data?: unknown) => void,
@@ -79,12 +79,9 @@ export async function fetchModels(
 			clamped: timeout,
 		});
 	}
-	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
-	const headers: Record<string, string> = { ...customHeaders, "User-Agent": userAgent };
-	if (apiKey) {
-		headers.Authorization = `Bearer ${apiKey}`;
-		headers["X-API-Key"] = apiKey;
-	}
+	log("fetchModels called", { baseUrl, hasAuth: Object.keys(authHeaders).length > 0 });
+	// Auth headers take precedence over custom headers; User-Agent is always forced.
+	const headers: Record<string, string> = { ...customHeaders, ...authHeaders, "User-Agent": userAgent };
 
 	const readErrorText = async (resp: Response): Promise<string> => {
 		let text = "";

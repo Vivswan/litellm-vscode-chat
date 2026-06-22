@@ -16,6 +16,7 @@ import type { ModelRoute } from "./provider/request";
 import { fetchModels } from "./provider/discovery";
 import { buildModelInfos } from "./provider/registration";
 import { ensureServers } from "./provider/config";
+import { resolveAuthHeaders } from "./provider/auth";
 import { sendChatRequest } from "./provider/client";
 import { getCustomHeaders } from "./provider/httpHeaders";
 
@@ -116,8 +117,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
+				const authHeaders = await resolveAuthHeaders(server, (msg, data) => this.log(msg, data), discoveryTimeout);
 				const result = await fetchModels(
-					server.apiKey,
+					authHeaders,
 					server.baseUrl,
 					this.userAgent,
 					(msg, data) => this.log(msg, data),

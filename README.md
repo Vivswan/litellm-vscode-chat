@@ -37,14 +37,26 @@ To manage servers:
 - **Model Picker**: Chat interface → Model picker → "Manage Models..." → "LiteLLM"
 
 From the server manager you can:
-- **Add Server** — provide a unique label, base URL, and optional API key
-- **Edit Server** — update label, URL, or API key
+- **Add Server** — provide a unique label, base URL, and choose an authentication method
+- **Edit Server** — update label, URL, or authentication method
 - **Remove Server** — delete a server and its stored credentials
 - **Test All Servers** — verify connectivity to every configured server
 
 If no servers are configured, the "Manage" command jumps straight to the add flow.
 
 Credentials are stored securely in VS Code's secret storage. Server metadata (label, URL) is stored in global state.
+
+#### Authentication methods
+
+When adding or editing a server you choose how it authenticates:
+
+- **API Key** — a static key sent as `Authorization: Bearer <key>` (and `X-API-Key`). Leave empty for a key-less proxy.
+- **OAuth (Client Credentials)** — for gateways that issue short-lived tokens from an identity provider. You provide:
+  - **Token URL (IDP)** — the OAuth token endpoint (e.g. `https://idp.example.com/auth/realms/<realm>/protocol/openid-connect/token`)
+  - **Client ID** / **Client Secret** — the `client_credentials` grant credentials
+  - **Virtual Key** (optional) — a client/virtual key sent in the `X-LLM-API-CLIENT-ID` header (the header name is configurable)
+
+  The extension exchanges the client credentials for an access token, caches it until shortly before it expires, and sends it as `Authorization: Bearer <token>` on both model discovery and chat requests. The client secret and virtual key are stored in VS Code's secret storage.
 
 **Upgrading from single-server**: Existing single-server configurations are automatically migrated into the server registry on first run.
 

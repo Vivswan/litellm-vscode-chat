@@ -11,6 +11,7 @@ import { estimateMessagesTokens, estimateToolTokens, getModelParameters, buildRe
 import type { ModelRoute } from "./request";
 import { StreamProcessor } from "./streaming";
 import { resolveServer } from "./config";
+import { resolveAuthHeaders } from "./auth";
 import { getCustomHeaders } from "./httpHeaders";
 import type { ServerWithKey } from "../extension/serverRegistry";
 
@@ -37,14 +38,14 @@ export async function sendChatRequest(
 
 	const route = modelRoutes.get(model.id);
 	let baseUrl: string;
-	let apiKey: string;
+	let authHeaders: Record<string, string>;
 	let rawModelId: string;
 
 	if (route) {
 		const server = await resolveServer(route.serverId, getServers, secrets);
 		if (server) {
 			baseUrl = server.baseUrl;
-			apiKey = server.apiKey;
+			authHeaders = await resolveAuthHeaders(server, log);
 		} else {
 			throw new Error(`Server "${route.serverLabel}" is no longer configured`);
 		}
@@ -55,7 +56,7 @@ export async function sendChatRequest(
 			throw new Error("LiteLLM configuration not found");
 		}
 		baseUrl = config.baseUrl;
-		apiKey = config.apiKey;
+		authHeaders = await resolveAuthHeaders(config, log);
 		rawModelId = model.id;
 	}
 
@@ -110,15 +111,13 @@ export async function sendChatRequest(
 		modelOptions: options.modelOptions as Record<string, unknown> | undefined,
 	});
 
+	// Auth headers take precedence over custom headers; Content-Type and User-Agent are always forced.
 	const headers: Record<string, string> = {
 		...customHeaders,
+		...authHeaders,
 		"Content-Type": "application/json",
 		"User-Agent": userAgent,
 	};
-	if (apiKey) {
-		headers.Authorization = `Bearer ${apiKey}`;
-		headers["X-API-Key"] = apiKey;
-	}
 
 	log("Sending chat request", {
 		url: `${baseUrl}/v1/chat/completions`,
