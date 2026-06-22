@@ -117,8 +117,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
 				const result = await fetchModels(
-					server.apiKey,
-					server.baseUrl,
+					server,
 					this.userAgent,
 					(msg, data) => this.log(msg, data),
 					(msg, err) => this.logError(msg, err),

@@ -14,7 +14,11 @@ export async function buildDiagnosticsSnapshot(
 	const servers = registry.getServers();
 	const serversWithKeys = await registry.getServersWithKeys();
 	const hasApiKey =
-		serversWithKeys.some((s) => s.apiKey.trim().length > 0) || !!(await context.secrets.get("litellm.apiKey"));
+		serversWithKeys.some(
+			(s) =>
+				s.apiKey.trim().length > 0 ||
+				(s.auth.type === "oauth2" && s.oauthClientId.trim().length > 0 && s.oauthClientSecret.length > 0)
+		) || !!(await context.secrets.get("litellm.apiKey"));
 	const hasBaseUrl = servers.length > 0 || !!(await context.secrets.get("litellm.baseUrl"));
 
 	return {
@@ -76,7 +80,7 @@ export function registerDiagnosticsCommand(
 				lines.push("");
 				lines.push("Server Details:");
 				for (const s of servers) {
-					lines.push(`  ${s.label}: ${s.baseUrl}`);
+					lines.push(`  ${s.label}: ${s.baseUrl} (${s.auth?.type === "oauth2" ? "OAuth2" : "API key"})`);
 				}
 			}
 

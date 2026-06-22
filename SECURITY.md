@@ -18,7 +18,7 @@ We aim to acknowledge new reports on a best-effort basis, typically within a few
 
 `litellm-vscode-chat` is a VS Code extension that connects VS Code's Language Model Chat Provider API to user-configured LiteLLM servers.
 
-- **Secrets stay in VS Code storage.** LiteLLM API keys are stored in VS Code SecretStorage. Server labels and base URLs are stored in VS Code global state.
+- **Secrets stay in VS Code storage.** LiteLLM API keys and OAuth2 client credentials are stored in VS Code SecretStorage. Server labels, base URLs, authentication methods, OAuth token URLs, and virtual-key header names are stored in VS Code global state.
 - **User-controlled endpoints.** The extension sends prompts, tool definitions, and supported attachment data to the LiteLLM server configured by the user. Only configure servers you trust.
 - **No bundled model provider credentials.** The extension does not ship provider API keys; model-provider credentials are managed by the user's LiteLLM deployment.
 - **Supply-chain posture.** Dependencies are pinned via the committed `bun.lock` and installed with `bun install --frozen-lockfile` in CI and setup scripts.

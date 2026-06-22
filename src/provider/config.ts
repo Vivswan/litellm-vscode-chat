@@ -5,7 +5,7 @@ export async function resolveServer(
 	serverId: string,
 	getServers: (() => Promise<ServerWithKey[]>) | undefined,
 	secrets: vscode.SecretStorage
-): Promise<{ baseUrl: string; apiKey: string } | undefined> {
+): Promise<ServerWithKey | undefined> {
 	if (serverId === "_legacy") {
 		return ensureConfig(secrets);
 	}
@@ -37,6 +37,10 @@ export async function ensureServers(
 				label: "Default",
 				baseUrl: baseUrl.replace(/\/+$/, ""),
 				apiKey,
+				auth: { type: "apiKey" },
+				oauthClientId: "",
+				oauthClientSecret: "",
+				oauthVirtualKey: "",
 			},
 		];
 	}
@@ -66,13 +70,20 @@ export async function ensureServers(
 	return undefined;
 }
 
-export async function ensureConfig(
-	secrets: vscode.SecretStorage
-): Promise<{ baseUrl: string; apiKey: string } | undefined> {
+export async function ensureConfig(secrets: vscode.SecretStorage): Promise<ServerWithKey | undefined> {
 	const baseUrl = await secrets.get("litellm.baseUrl");
 	if (!baseUrl) {
 		return undefined;
 	}
 	const apiKey = (await secrets.get("litellm.apiKey")) ?? "";
-	return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
+	return {
+		id: "_legacy",
+		label: "Default",
+		baseUrl: baseUrl.replace(/\/+$/, ""),
+		apiKey,
+		auth: { type: "apiKey" },
+		oauthClientId: "",
+		oauthClientSecret: "",
+		oauthVirtualKey: "",
+	};
 }

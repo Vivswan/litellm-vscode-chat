@@ -3,6 +3,9 @@ import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import type { AggregatedStatus } from "../provider";
 import { getModelParameters } from "../provider/request";
+import { clearOAuthTokenCache, getAuthHeaders } from "../provider/auth";
+import { fetchModels } from "../provider/discovery";
+import type { ServerWithKey } from "../extension/serverRegistry";
 
 function toHeaderMap(headersInit: RequestInit["headers"] | undefined): Record<string, string> {
 	if (!headersInit) {
@@ -14,6 +17,108 @@ function toHeaderMap(headersInit: RequestInit["headers"] | undefined): Record<st
 	});
 	return mapped;
 }
+
+function createOAuthServer(id = "oauth-server"): ServerWithKey {
+	return {
+		id,
+		label: "OAuth Server",
+		baseUrl: "http://test",
+		apiKey: "",
+		auth: {
+			type: "oauth2",
+			tokenUrl: "https://idp.example.com/oauth/token",
+			virtualKeyHeader: "X-LLM-API-CLIENT-ID",
+		},
+		oauthClientId: "client-id",
+		oauthClientSecret: "client-secret",
+		oauthVirtualKey: "virtual-key",
+	};
+}
+
+suite("oauth2 auth", () => {
+	test("exchanges client credentials and caches bearer tokens", async () => {
+		const originalFetch = global.fetch;
+		let tokenRequests = 0;
+		try {
+			clearOAuthTokenCache();
+			global.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+				tokenRequests++;
+				assert.equal(init?.method, "POST");
+				assert.equal(toHeaderMap(init?.headers)["content-type"], "application/x-www-form-urlencoded");
+				const body = new URLSearchParams(init?.body as string);
+				assert.equal(body.get("grant_type"), "client_credentials");
+				assert.equal(body.get("client_id"), "client-id");
+				assert.equal(body.get("client_secret"), "client-secret");
+				return {
+					ok: true,
+					json: async () => ({ access_token: "oauth-token", expires_in: 3600 }),
+				} as unknown as Response;
+			};
+
+			const server = createOAuthServer();
+			const firstHeaders = await getAuthHeaders(
+				server,
+				() => {},
+				() => {},
+				1000
+			);
+			const secondHeaders = await getAuthHeaders(
+				server,
+				() => {},
+				() => {},
+				1000
+			);
+
+			assert.equal(firstHeaders.Authorization, "Bearer oauth-token");
+			assert.equal(firstHeaders["X-LLM-API-CLIENT-ID"], "virtual-key");
+			assert.equal(firstHeaders["X-API-Key"], undefined);
+			assert.deepEqual(secondHeaders, firstHeaders);
+			assert.equal(tokenRequests, 1);
+		} finally {
+			clearOAuthTokenCache();
+			global.fetch = originalFetch;
+		}
+	});
+
+	test("sends OAuth2 headers during model discovery", async () => {
+		const originalFetch = global.fetch;
+		let modelHeaders: Record<string, string> = {};
+		try {
+			clearOAuthTokenCache();
+			global.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+				const requestUrl = String(url);
+				if (requestUrl === "https://idp.example.com/oauth/token") {
+					return {
+						ok: true,
+						json: async () => ({ access_token: "oauth-token", expires_in: 3600 }),
+					} as unknown as Response;
+				}
+				modelHeaders = toHeaderMap(init?.headers);
+				return {
+					ok: true,
+					json: async () => ({ data: [] }),
+				} as unknown as Response;
+			};
+
+			await fetchModels(
+				createOAuthServer("oauth-discovery"),
+				"GitHubCopilotChat/test VSCode/test",
+				() => {},
+				() => {},
+				{},
+				1000
+			);
+
+			assert.equal(modelHeaders.authorization, "Bearer oauth-token");
+			assert.equal(modelHeaders["x-llm-api-client-id"], "virtual-key");
+			assert.equal(modelHeaders["x-api-key"], undefined);
+			assert.equal(modelHeaders["user-agent"], "GitHubCopilotChat/test VSCode/test");
+		} finally {
+			clearOAuthTokenCache();
+			global.fetch = originalFetch;
+		}
+	});
+});
 
 suite("provider", () => {
 	test("prepareLanguageModelChatInformation returns array (no key -> empty)", async () => {

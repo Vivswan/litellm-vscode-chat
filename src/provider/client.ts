@@ -12,6 +12,7 @@ import type { ModelRoute } from "./request";
 import { StreamProcessor } from "./streaming";
 import { resolveServer } from "./config";
 import { getCustomHeaders } from "./httpHeaders";
+import { getAuthHeaders } from "./auth";
 import type { ServerWithKey } from "../extension/serverRegistry";
 
 export interface ChatRequestContext {
@@ -36,15 +37,13 @@ export async function sendChatRequest(
 	const { model, messages, options, progress, token } = ctx;
 
 	const route = modelRoutes.get(model.id);
-	let baseUrl: string;
-	let apiKey: string;
+	let server: ServerWithKey;
 	let rawModelId: string;
 
 	if (route) {
-		const server = await resolveServer(route.serverId, getServers, secrets);
-		if (server) {
-			baseUrl = server.baseUrl;
-			apiKey = server.apiKey;
+		const resolvedServer = await resolveServer(route.serverId, getServers, secrets);
+		if (resolvedServer) {
+			server = resolvedServer;
 		} else {
 			throw new Error(`Server "${route.serverLabel}" is no longer configured`);
 		}
@@ -54,8 +53,7 @@ export async function sendChatRequest(
 		if (!config) {
 			throw new Error("LiteLLM configuration not found");
 		}
-		baseUrl = config.baseUrl;
-		apiKey = config.apiKey;
+		server = config;
 		rawModelId = model.id;
 	}
 
@@ -110,23 +108,21 @@ export async function sendChatRequest(
 		modelOptions: options.modelOptions as Record<string, unknown> | undefined,
 	});
 
+	const authHeaders = await getAuthHeaders(server, log, logError, requestTimeout);
 	const headers: Record<string, string> = {
 		...customHeaders,
+		...authHeaders,
 		"Content-Type": "application/json",
 		"User-Agent": userAgent,
 	};
-	if (apiKey) {
-		headers.Authorization = `Bearer ${apiKey}`;
-		headers["X-API-Key"] = apiKey;
-	}
 
 	log("Sending chat request", {
-		url: `${baseUrl}/v1/chat/completions`,
+		url: `${server.baseUrl}/v1/chat/completions`,
 		modelId: rawModelId,
 		messageCount: messages.length,
 	});
 
-	const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+	const response = await fetch(`${server.baseUrl}/v1/chat/completions`, {
 		method: "POST",
 		headers,
 		body: JSON.stringify(requestBody),
@@ -139,7 +135,7 @@ export async function sendChatRequest(
 
 		if (response.status === 401) {
 			throw new Error(
-				`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+				`Authentication failed: Your LiteLLM server rejected the configured credentials. Please run the "Manage LiteLLM Provider" command to configure authentication.`
 			);
 		}
 

@@ -6,6 +6,8 @@ import type {
 	LiteLLMProvider,
 } from "../types";
 import { normalizePositiveNumber } from "../shared/numbers";
+import type { ServerWithKey } from "../extension/serverRegistry";
+import { getAuthHeaders } from "./auth";
 
 export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 	const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
@@ -62,8 +64,7 @@ export interface FetchModelsResult {
 }
 
 export async function fetchModels(
-	apiKey: string,
-	baseUrl: string,
+	server: ServerWithKey,
 	userAgent: string,
 	log: (message: string, data?: unknown) => void,
 	logError: (message: string, error: unknown) => void,
@@ -79,12 +80,9 @@ export async function fetchModels(
 			clamped: timeout,
 		});
 	}
-	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
-	const headers: Record<string, string> = { ...customHeaders, "User-Agent": userAgent };
-	if (apiKey) {
-		headers.Authorization = `Bearer ${apiKey}`;
-		headers["X-API-Key"] = apiKey;
-	}
+	log("fetchModels called", { baseUrl: server.baseUrl, authType: server.auth.type });
+	const authHeaders = await getAuthHeaders(server, log, logError, timeout);
+	const headers: Record<string, string> = { ...customHeaders, ...authHeaders, "User-Agent": userAgent };
 
 	const readErrorText = async (resp: Response): Promise<string> => {
 		let text = "";
@@ -100,7 +98,7 @@ export async function fetchModels(
 		const text = await readErrorText(resp);
 		if (resp.status === 401) {
 			const err = new Error(
-				`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+				`Authentication failed: Your LiteLLM server rejected the configured credentials. Please run the "Manage LiteLLM Provider" command to configure authentication.`
 			);
 			logError("Authentication error", err);
 			throw err;
@@ -113,10 +111,10 @@ export async function fetchModels(
 		throw err;
 	};
 
-	log("Fetching from:", `${baseUrl}/v1/model/info`);
+	log("Fetching from:", `${server.baseUrl}/v1/model/info`);
 
 	try {
-		const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
+		const infoResp = await fetch(`${server.baseUrl}/v1/model/info`, {
 			method: "GET",
 			headers,
 			signal: AbortSignal.timeout(timeout),
@@ -154,8 +152,8 @@ export async function fetchModels(
 	}
 
 	try {
-		log("Fetching from:", `${baseUrl}/v1/models`);
-		const resp = await fetch(`${baseUrl}/v1/models`, {
+		log("Fetching from:", `${server.baseUrl}/v1/models`);
+		const resp = await fetch(`${server.baseUrl}/v1/models`, {
 			method: "GET",
 			headers,
 			signal: AbortSignal.timeout(timeout),
@@ -182,25 +180,25 @@ export async function fetchModels(
 
 		if (causeMsg.includes("certificate has expired") || causeMsg.includes("CERT_HAS_EXPIRED")) {
 			const err = new Error(
-				`SSL Certificate Error: The SSL certificate for ${baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`
+				`SSL Certificate Error: The SSL certificate for ${server.baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`
 			);
 			logError("Certificate error", err);
 			throw err;
 		} else if (causeMsg.includes("certificate") || errMsg.includes("certificate")) {
 			const err = new Error(
-				`SSL Certificate Error: There is an issue with the SSL certificate for ${baseUrl}. Error: ${causeMsg || errMsg}`
+				`SSL Certificate Error: There is an issue with the SSL certificate for ${server.baseUrl}. Error: ${causeMsg || errMsg}`
 			);
 			logError("Certificate error", err);
 			throw err;
 		} else if (causeMsg.includes("ENOTFOUND") || causeMsg.includes("ECONNREFUSED")) {
 			const err = new Error(
-				`Connection Error: Unable to connect to ${baseUrl}. Please check that the server is running and the URL is correct.`
+				`Connection Error: Unable to connect to ${server.baseUrl}. Please check that the server is running and the URL is correct.`
 			);
 			logError("Connection error", err);
 			throw err;
 		} else {
 			const err = new Error(
-				`Network Error: Failed to fetch models from ${baseUrl}. ${errMsg}${causeMsg && causeMsg !== errMsg ? `. Cause: ${causeMsg}` : ""}`
+				`Network Error: Failed to fetch models from ${server.baseUrl}. ${errMsg}${causeMsg && causeMsg !== errMsg ? `. Cause: ${causeMsg}` : ""}`
 			);
 			logError("Network error", err);
 			throw err;
