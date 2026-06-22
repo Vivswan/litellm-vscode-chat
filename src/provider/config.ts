@@ -1,13 +1,16 @@
 import * as vscode from "vscode";
 import type { ServerWithKey } from "../extension/serverRegistry";
 
+export type ResolvedServer = Pick<ServerWithKey, "id" | "baseUrl" | "apiKey" | "auth" | "oauth">;
+
 export async function resolveServer(
 	serverId: string,
 	getServers: (() => Promise<ServerWithKey[]>) | undefined,
 	secrets: vscode.SecretStorage
-): Promise<{ baseUrl: string; apiKey: string } | undefined> {
+): Promise<ResolvedServer | undefined> {
 	if (serverId === "_legacy") {
-		return ensureConfig(secrets);
+		const config = await ensureConfig(secrets);
+		return config ? { id: "_legacy", baseUrl: config.baseUrl, apiKey: config.apiKey } : undefined;
 	}
 	if (!getServers) {
 		return undefined;

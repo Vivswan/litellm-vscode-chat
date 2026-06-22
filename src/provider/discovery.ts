@@ -6,6 +6,7 @@ import type {
 	LiteLLMProvider,
 } from "../types";
 import { normalizePositiveNumber } from "../shared/numbers";
+import { authFailureMessage } from "./auth";
 
 export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 	const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
@@ -62,13 +63,14 @@ export interface FetchModelsResult {
 }
 
 export async function fetchModels(
-	apiKey: string,
+	authHeaders: Record<string, string>,
 	baseUrl: string,
 	userAgent: string,
 	log: (message: string, data?: unknown) => void,
 	logError: (message: string, error: unknown) => void,
 	customHeaders: Record<string, string> = {},
-	discoveryTimeout?: number
+	discoveryTimeout?: number,
+	authMethod: "oauth" | "apikey" = "apikey"
 ): Promise<FetchModelsResult> {
 	// Validate and clamp timeout to minimum 1000ms (second line of defense)
 	const rawTimeout = discoveryTimeout ?? 30000;
@@ -79,12 +81,9 @@ export async function fetchModels(
 			clamped: timeout,
 		});
 	}
-	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
-	const headers: Record<string, string> = { ...customHeaders, "User-Agent": userAgent };
-	if (apiKey) {
-		headers.Authorization = `Bearer ${apiKey}`;
-		headers["X-API-Key"] = apiKey;
-	}
+	log("fetchModels called", { baseUrl, hasAuth: Object.keys(authHeaders).length > 0 });
+	// Auth headers take precedence over custom headers; User-Agent is always forced.
+	const headers: Record<string, string> = { ...customHeaders, ...authHeaders, "User-Agent": userAgent };
 
 	const readErrorText = async (resp: Response): Promise<string> => {
 		let text = "";
@@ -99,9 +98,7 @@ export async function fetchModels(
 	const handleNonOk = async (resp: Response): Promise<never> => {
 		const text = await readErrorText(resp);
 		if (resp.status === 401) {
-			const err = new Error(
-				`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
-			);
+			const err = new Error(authFailureMessage(authMethod));
 			logError("Authentication error", err);
 			throw err;
 		}

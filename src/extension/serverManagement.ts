@@ -1,5 +1,118 @@
 import * as vscode from "vscode";
-import type { ServerRegistry } from "./serverRegistry";
+import type { ServerRegistry, OAuthInput, OAuthSecrets } from "./serverRegistry";
+import { DEFAULT_VIRTUAL_KEY_HEADER } from "../provider/auth";
+import { isValidHeaderName } from "../provider/httpHeaders";
+
+/**
+ * Prompts for the OAuth client-credentials fields. `existing` pre-fills the
+ * inputs when editing. Returns undefined if the user cancels any step.
+ */
+async function collectOAuthInput(existing?: OAuthSecrets): Promise<OAuthInput | undefined> {
+	const idpUrl = await vscode.window.showInputBox({
+		title: "LiteLLM: OAuth - Token URL (IDP)",
+		prompt: "Enter the OAuth token endpoint that issues the access token",
+		ignoreFocusOut: true,
+		value: existing?.idpUrl,
+		placeHolder: "https://idp.example.com/auth/realms/<realm>/protocol/openid-connect/token",
+		validateInput: (value) => {
+			if (!value.trim()) {
+				return "Token URL is required";
+			}
+			if (!value.startsWith("http://") && !value.startsWith("https://")) {
+				return "URL must start with http:// or https://";
+			}
+			return null;
+		},
+	});
+	if (idpUrl === undefined) {
+		return undefined;
+	}
+
+	const clientId = await vscode.window.showInputBox({
+		title: "LiteLLM: OAuth - Client ID",
+		prompt: "Enter the OAuth client_id",
+		ignoreFocusOut: true,
+		value: existing?.clientId,
+		validateInput: (value) => (value.trim() ? null : "Client ID is required"),
+	});
+	if (clientId === undefined) {
+		return undefined;
+	}
+
+	const maskSecret = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
+	const clientSecret = await vscode.window.showInputBox({
+		title: "LiteLLM: OAuth - Client Secret",
+		prompt: existing ? "Update the OAuth client_secret" : "Enter the OAuth client_secret",
+		ignoreFocusOut: true,
+		password: maskSecret,
+		value: existing?.clientSecret,
+		validateInput: (value) => (value.trim() ? null : "Client Secret is required"),
+	});
+	if (clientSecret === undefined) {
+		return undefined;
+	}
+
+	const virtualKey = await vscode.window.showInputBox({
+		title: "LiteLLM: OAuth - Virtual Key",
+		prompt: `Enter the virtual/client key sent in the ${DEFAULT_VIRTUAL_KEY_HEADER} header (leave empty if not required)`,
+		ignoreFocusOut: true,
+		password: maskSecret,
+		value: existing?.virtualKey,
+	});
+	if (virtualKey === undefined) {
+		return undefined;
+	}
+
+	const virtualKeyHeader = await vscode.window.showInputBox({
+		title: "LiteLLM: OAuth - Virtual Key Header",
+		prompt: `Header name for the virtual key (leave empty for the default ${DEFAULT_VIRTUAL_KEY_HEADER})`,
+		ignoreFocusOut: true,
+		value: existing?.virtualKeyHeader ?? DEFAULT_VIRTUAL_KEY_HEADER,
+		placeHolder: DEFAULT_VIRTUAL_KEY_HEADER,
+		validateInput: (value) => {
+			const trimmed = value.trim();
+			if (!trimmed) {
+				return null; // blank means use the default header name
+			}
+			return isValidHeaderName(trimmed) ? null : "Invalid header name (use letters, digits, and -._ only)";
+		},
+	});
+	if (virtualKeyHeader === undefined) {
+		return undefined;
+	}
+
+	const trimmedHeader = virtualKeyHeader.trim();
+	return {
+		idpUrl: idpUrl.trim(),
+		clientId: clientId.trim(),
+		clientSecret: clientSecret.trim(),
+		virtualKey: virtualKey.trim(),
+		...(trimmedHeader && trimmedHeader !== DEFAULT_VIRTUAL_KEY_HEADER ? { virtualKeyHeader: trimmedHeader } : {}),
+	};
+}
+
+/** Asks the user which auth method to use. Returns undefined on cancel. */
+async function pickAuthType(current?: "apikey" | "oauth"): Promise<"apikey" | "oauth" | undefined> {
+	const items: (vscode.QuickPickItem & { value: "apikey" | "oauth" })[] = [
+		{
+			label: "$(key) API Key",
+			description: current === "apikey" ? "(current)" : undefined,
+			detail: "Static API key sent as a Bearer token",
+			value: "apikey",
+		},
+		{
+			label: "$(shield) OAuth (Client Credentials)",
+			description: current === "oauth" ? "(current)" : undefined,
+			detail: "Fetch a bearer token from an IDP using client_id / client_secret",
+			value: "oauth",
+		},
+	];
+	const pick = await vscode.window.showQuickPick(items, {
+		title: "LiteLLM: Authentication Method",
+		placeHolder: "How does this server authenticate?",
+	});
+	return pick?.value;
+}
 
 export async function addServerFlow(registry: ServerRegistry, outputChannel: vscode.OutputChannel): Promise<boolean> {
 	const label = await vscode.window.showInputBox({
@@ -43,18 +156,30 @@ export async function addServerFlow(registry: ServerRegistry, outputChannel: vsc
 		return false;
 	}
 
-	const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
-	const apiKey = await vscode.window.showInputBox({
-		title: "LiteLLM: Add Server - API Key",
-		prompt: "Enter the API key (leave empty if not required)",
-		ignoreFocusOut: true,
-		password: maskApiKey,
-	});
-	if (apiKey === undefined) {
+	const authType = await pickAuthType();
+	if (authType === undefined) {
 		return false;
 	}
 
-	await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim());
+	if (authType === "oauth") {
+		const oauth = await collectOAuthInput();
+		if (oauth === undefined) {
+			return false;
+		}
+		await registry.addOAuthServer(label.trim(), baseUrl.trim(), oauth);
+	} else {
+		const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
+		const apiKey = await vscode.window.showInputBox({
+			title: "LiteLLM: Add Server - API Key",
+			prompt: "Enter the API key (leave empty if not required)",
+			ignoreFocusOut: true,
+			password: maskApiKey,
+		});
+		if (apiKey === undefined) {
+			return false;
+		}
+		await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim());
+	}
 	outputChannel.appendLine(`[${new Date().toISOString()}] Added server "${label.trim()}" at ${baseUrl.trim()}`);
 
 	vscode.window
@@ -139,20 +264,34 @@ export async function manageServerFlow(
 			return;
 		}
 
-		const existingApiKey = await registry.getApiKey(serverId);
-		const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
-		const apiKey = await vscode.window.showInputBox({
-			title: "LiteLLM: Edit Server - API Key",
-			prompt: existingApiKey ? "Update the API key" : "Enter the API key (leave empty if not required)",
-			ignoreFocusOut: true,
-			password: maskApiKey,
-			value: existingApiKey,
-		});
-		if (apiKey === undefined) {
+		const currentAuthType = server.auth?.type === "oauth" ? "oauth" : "apikey";
+		const authType = await pickAuthType(currentAuthType);
+		if (authType === undefined) {
 			return;
 		}
 
-		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim());
+		if (authType === "oauth") {
+			const existingOAuth = await registry.getOAuthSecrets(server);
+			const oauth = await collectOAuthInput(existingOAuth);
+			if (oauth === undefined) {
+				return;
+			}
+			await registry.updateOAuthServer(serverId, label.trim(), baseUrl.trim(), oauth);
+		} else {
+			const existingApiKey = await registry.getApiKey(serverId);
+			const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
+			const apiKey = await vscode.window.showInputBox({
+				title: "LiteLLM: Edit Server - API Key",
+				prompt: existingApiKey ? "Update the API key" : "Enter the API key (leave empty if not required)",
+				ignoreFocusOut: true,
+				password: maskApiKey,
+				value: existingApiKey,
+			});
+			if (apiKey === undefined) {
+				return;
+			}
+			await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim());
+		}
 		outputChannel.appendLine(`[${new Date().toISOString()}] Updated server "${label.trim()}"`);
 
 		vscode.window
