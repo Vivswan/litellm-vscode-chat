@@ -3,6 +3,17 @@ import type { OAuthSecrets } from "../extension/serverRegistry";
 /** Default header the LiteLLM proxy expects the virtual/client key in. */
 export const DEFAULT_VIRTUAL_KEY_HEADER = "X-LLM-API-CLIENT-ID";
 
+/**
+ * Builds the user-facing message for a 401 from the LiteLLM server, tailored to
+ * how the server authenticates so OAuth users aren't told to "configure an API key".
+ */
+export function authFailureMessage(authMethod: "oauth" | "apikey"): string {
+	if (authMethod === "oauth") {
+		return `Authentication failed: the LiteLLM server rejected the OAuth access token. Run the "Manage LiteLLM Provider" command to verify the token URL, client ID/secret, and virtual key.`;
+	}
+	return `Authentication failed: your LiteLLM server requires a valid API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`;
+}
+
 interface CachedToken {
 	token: string;
 	expiresAt: number;

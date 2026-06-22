@@ -6,6 +6,7 @@ import type {
 	LiteLLMProvider,
 } from "../types";
 import { normalizePositiveNumber } from "../shared/numbers";
+import { authFailureMessage } from "./auth";
 
 export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 	const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;
@@ -68,7 +69,8 @@ export async function fetchModels(
 	log: (message: string, data?: unknown) => void,
 	logError: (message: string, error: unknown) => void,
 	customHeaders: Record<string, string> = {},
-	discoveryTimeout?: number
+	discoveryTimeout?: number,
+	authMethod: "oauth" | "apikey" = "apikey"
 ): Promise<FetchModelsResult> {
 	// Validate and clamp timeout to minimum 1000ms (second line of defense)
 	const rawTimeout = discoveryTimeout ?? 30000;
@@ -96,9 +98,7 @@ export async function fetchModels(
 	const handleNonOk = async (resp: Response): Promise<never> => {
 		const text = await readErrorText(resp);
 		if (resp.status === 401) {
-			const err = new Error(
-				`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
-			);
+			const err = new Error(authFailureMessage(authMethod));
 			logError("Authentication error", err);
 			throw err;
 		}

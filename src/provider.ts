@@ -125,7 +125,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 					(msg, data) => this.log(msg, data),
 					(msg, err) => this.logError(msg, err),
 					customHeaders,
-					discoveryTimeout
+					discoveryTimeout,
+					server.auth?.type === "oauth" ? "oauth" : "apikey"
 				);
 				return { server, models: result.models };
 			})

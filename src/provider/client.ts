@@ -11,7 +11,7 @@ import { estimateMessagesTokens, estimateToolTokens, getModelParameters, buildRe
 import type { ModelRoute } from "./request";
 import { StreamProcessor } from "./streaming";
 import { resolveServer } from "./config";
-import { resolveAuthHeaders } from "./auth";
+import { resolveAuthHeaders, authFailureMessage } from "./auth";
 import { getCustomHeaders } from "./httpHeaders";
 import type { ServerWithKey } from "../extension/serverRegistry";
 
@@ -39,6 +39,7 @@ export async function sendChatRequest(
 	const route = modelRoutes.get(model.id);
 	let baseUrl: string;
 	let authHeaders: Record<string, string>;
+	let authMethod: "oauth" | "apikey" = "apikey";
 	let rawModelId: string;
 
 	if (route) {
@@ -46,6 +47,7 @@ export async function sendChatRequest(
 		if (server) {
 			baseUrl = server.baseUrl;
 			authHeaders = await resolveAuthHeaders(server, log);
+			authMethod = server.auth?.type === "oauth" ? "oauth" : "apikey";
 		} else {
 			throw new Error(`Server "${route.serverLabel}" is no longer configured`);
 		}
@@ -137,9 +139,7 @@ export async function sendChatRequest(
 		logError("API error response", errorText);
 
 		if (response.status === 401) {
-			throw new Error(
-				`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
-			);
+			throw new Error(authFailureMessage(authMethod));
 		}
 
 		throw new Error(`LiteLLM API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`);

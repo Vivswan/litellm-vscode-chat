@@ -1,5 +1,10 @@
 import * as assert from "assert";
-import { resolveAuthHeaders, clearTokenCache, DEFAULT_VIRTUAL_KEY_HEADER } from "../../provider/auth";
+import {
+	resolveAuthHeaders,
+	clearTokenCache,
+	authFailureMessage,
+	DEFAULT_VIRTUAL_KEY_HEADER,
+} from "../../provider/auth";
 
 suite("provider/auth", () => {
 	teardown(() => {
@@ -150,6 +155,20 @@ suite("provider/auth", () => {
 		} finally {
 			global.fetch = originalFetch;
 		}
+	});
+
+	test("authFailureMessage tailors the 401 message to the auth method", () => {
+		const oauthMsg = authFailureMessage("oauth");
+		assert.ok(/OAuth access token/i.test(oauthMsg), "OAuth message should mention the access token");
+		assert.ok(/token URL|client ID|virtual key/i.test(oauthMsg), "OAuth message should point at OAuth fields");
+		assert.ok(
+			!/configure your API key/i.test(oauthMsg),
+			"OAuth message should not tell the user to configure an API key"
+		);
+
+		const apiKeyMsg = authFailureMessage("apikey");
+		assert.ok(/API key/i.test(apiKeyMsg), "API-key message should mention an API key");
+		assert.ok(!/OAuth/i.test(apiKeyMsg), "API-key message should not mention OAuth");
 	});
 
 	test("a failed token request throws", async () => {
