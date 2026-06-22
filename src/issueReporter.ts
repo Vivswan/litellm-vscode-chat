@@ -351,10 +351,14 @@ export function redactSecrets(text: string): string {
 		text
 			// JSON-encoded auth headers: "Authorization": "Bearer xxx" or "X-API-Key": "xxx"
 			.replace(/("(?:Authorization|X-API-Key)":\s*")((?:Bearer\s+)?)[^"]*(")/gi, "$1$2[REDACTED]$3")
+			// JSON-encoded OAuth virtual/client-key headers (default X-LLM-API-CLIENT-ID and custom variants)
+			.replace(/("[A-Za-z0-9-]*(?:client-id|virtual-key)":\s*")[^"]*(")/gi, "$1[REDACTED]$2")
 			// Bare auth header values
 			.replace(/(Bearer\s+)\S+/gi, "$1[REDACTED]")
 			.replace(/(X-API-Key:\s*)\S+/gi, "$1[REDACTED]")
 			.replace(/(Authorization:\s*)\S+/gi, "$1[REDACTED]")
+			// Bare OAuth virtual/client-key header values
+			.replace(/([A-Za-z0-9-]*(?:client-id|virtual-key):\s*)\S+/gi, "$1[REDACTED]")
 			.replace(/(api[_-]?key[=:\s]+)\S+/gi, "$1[REDACTED]")
 			// sk- prefixed API keys
 			.replace(/(sk-[a-zA-Z0-9]{4})[a-zA-Z0-9]+/g, "$1[REDACTED]")
