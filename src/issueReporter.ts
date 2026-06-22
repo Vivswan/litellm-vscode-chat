@@ -153,7 +153,7 @@ export class IssueReporter {
 			"",
 			`- Connection state: ${snapshot.connectionState}`,
 			snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
-			`- API key configured: ${snapshot.apiKeyConfigured ? "yes" : "no"}`,
+			`- Authentication configured: ${snapshot.apiKeyConfigured ? "yes" : "no"}`,
 			`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
 		].filter((l): l is string => l !== null);
 
@@ -305,7 +305,7 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, compactedDiag
 		"",
 		`- Connection state: ${snapshot.connectionState}`,
 		snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
-		`- API key configured: ${snapshot.apiKeyConfigured ? "yes" : "no"}`,
+		`- Authentication configured: ${snapshot.apiKeyConfigured ? "yes" : "no"}`,
 		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
 	];
 

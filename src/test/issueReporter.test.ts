@@ -78,7 +78,7 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("## Environment"));
 		assert.ok(body.includes("0.2.3"));
 		assert.ok(body.includes("## Diagnostics"));
-		assert.ok(body.includes("API key configured: yes"));
+		assert.ok(body.includes("Authentication configured: yes"));
 		assert.ok(body.includes("Model count: 5"));
 	});
 

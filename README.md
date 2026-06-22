@@ -16,14 +16,14 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 
 - VS Code 1.108.0 or higher
 - LiteLLM proxy running (self-hosted or cloud)
-- LiteLLM API key (if required by your setup)
+- LiteLLM API key or OAuth2 client-credentials details (if required by your setup)
 
 ## Quick Start
 
 1. Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
 2. Open VS Code's chat interface
 3. Click the model picker → "Manage Models..." → "LiteLLM"
-4. Add a server: enter a label, base URL (e.g., `http://localhost:4000`), and API key
+4. Add a server: enter a label, base URL (e.g., `http://localhost:4000`), and choose API key or OAuth2 authentication
 5. Select models to add
 
 ## Configuration
@@ -37,14 +37,18 @@ To manage servers:
 - **Model Picker**: Chat interface → Model picker → "Manage Models..." → "LiteLLM"
 
 From the server manager you can:
-- **Add Server** — provide a unique label, base URL, and optional API key
-- **Edit Server** — update label, URL, or API key
+- **Add Server** — provide a unique label, base URL, and authentication method
+- **Edit Server** — update label, URL, or authentication settings
 - **Remove Server** — delete a server and its stored credentials
 - **Test All Servers** — verify connectivity to every configured server
 
 If no servers are configured, the "Manage" command jumps straight to the add flow.
 
-Credentials are stored securely in VS Code's secret storage. Server metadata (label, URL) is stored in global state.
+Credentials are stored securely in VS Code's secret storage. Server metadata (label, URL, authentication method, OAuth token URL, and virtual-key header name) is stored in global state.
+
+Supported authentication methods:
+- **API Key** — sends the configured key as `Authorization: Bearer <key>` and `X-API-Key`.
+- **OAuth2 Client Credentials** — exchanges Token URL, Client ID, and Client Secret for a short-lived bearer token and refreshes it when needed. An optional virtual key/client identifier can be sent in a configurable header, defaulting to `X-LLM-API-CLIENT-ID`.
 
 **Upgrading from single-server**: Existing single-server configurations are automatically migrated into the server registry on first run.
 
@@ -200,7 +204,7 @@ You can attach custom headers to every LiteLLM request (both model discovery and
 }
 ```
 
-Custom headers are merged into every request. If an API key is configured in the server manager, extension-managed auth headers (`Authorization` and `X-API-Key`) still take precedence.
+Custom headers are merged into every request. If server-managed authentication is configured, extension-managed auth headers (`Authorization`, `X-API-Key`, and OAuth2 virtual-key headers) still take precedence.
 
 If a header value is secret (for example, API keys), set `litellm-vscode-chat.headers` in User settings instead of workspace settings to reduce the risk of committing secrets.
 
@@ -294,9 +298,9 @@ The output channel logs:
 - Run `litellm --config your_config.yaml` to start the proxy with models
 
 **"Authentication failed"**
-- Your server requires an API key
-- Run "Manage LiteLLM Provider" and edit the server to update its API key
-- Verify the key is correct in your LiteLLM proxy configuration
+- Your server rejected the configured API key or OAuth2 credentials
+- Run "Manage LiteLLM Provider" and edit the server to update its authentication settings
+- For OAuth2, verify the Token URL, Client ID, Client Secret, and optional virtual key/header with your IdP and LiteLLM gateway
 
 **"Connection Error: Unable to connect"**
 - Verify the base URL is correct (e.g., `http://localhost:4000`)
