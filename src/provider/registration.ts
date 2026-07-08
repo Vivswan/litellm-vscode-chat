@@ -8,6 +8,7 @@ export interface RegistrationResult {
 	infos: LanguageModelChatInformation[];
 	routes: Map<string, ModelRoute>;
 	promptCaching: Map<string, boolean>;
+	maxOutputTokensFromModelInfo: Map<string, number>;
 }
 
 function withUserSelectableMetadata(info: LanguageModelChatInformation): LanguageModelChatInformation {
@@ -31,6 +32,7 @@ export function buildModelInfos(
 ): RegistrationResult {
 	const routes = new Map<string, ModelRoute>();
 	const promptCaching = new Map<string, boolean>();
+	const maxOutputTokensFromModelInfo = new Map<string, number>();
 
 	const registerRoute = (exposedId: string, rawId: string) => {
 		routes.set(exposedId, {
@@ -38,6 +40,15 @@ export function buildModelInfos(
 			rawModelId: rawId,
 			serverLabel: server.label,
 		});
+	};
+
+	const recordModelInfoMaxOutput = (
+		exposedId: string,
+		constraints: { maxOutputTokens: number; maxOutputTokensFromModelInfo: boolean }
+	) => {
+		if (constraints.maxOutputTokensFromModelInfo) {
+			maxOutputTokensFromModelInfo.set(exposedId, constraints.maxOutputTokens);
+		}
 	};
 
 	const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
@@ -52,6 +63,7 @@ export function buildModelInfos(
 			const constraints = getTokenConstraints(providers[0]);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			promptCaching.set(exposedId, providers[0].supports_prompt_caching === true);
+			recordModelInfoMaxOutput(exposedId, constraints);
 			registerRoute(exposedId, m.id);
 			return [
 				{
@@ -103,6 +115,7 @@ export function buildModelInfos(
 			const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
 			const maxInput = Math.max(1, aggregateContextLen - maxOutput);
 			const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
+			const aggregateMaxOutputFromModelInfo = providerConstraints.every((c) => c.maxOutputTokensFromModelInfo);
 			const aggregateCapabilities = {
 				toolCalling: true,
 				imageInput: vision,
@@ -125,6 +138,10 @@ export function buildModelInfos(
 				capabilities: aggregateCapabilities,
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(cheapestId, aggregatePromptCaching);
+			recordModelInfoMaxOutput(cheapestId, {
+				maxOutputTokens: maxOutput,
+				maxOutputTokensFromModelInfo: aggregateMaxOutputFromModelInfo,
+			});
 			registerRoute(cheapestId, cheapestRaw);
 
 			entries.push({
@@ -139,6 +156,10 @@ export function buildModelInfos(
 				capabilities: aggregateCapabilities,
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(fastestId, aggregatePromptCaching);
+			recordModelInfoMaxOutput(fastestId, {
+				maxOutputTokens: maxOutput,
+				maxOutputTokensFromModelInfo: aggregateMaxOutputFromModelInfo,
+			});
 			registerRoute(fastestId, fastestRaw);
 		}
 
@@ -161,6 +182,7 @@ export function buildModelInfos(
 				},
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, p.supports_prompt_caching === true);
+			recordModelInfoMaxOutput(exposedId, constraints);
 			registerRoute(exposedId, rawId);
 		}
 
@@ -183,11 +205,12 @@ export function buildModelInfos(
 				},
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, base.supports_prompt_caching === true);
+			recordModelInfoMaxOutput(exposedId, constraints);
 			registerRoute(exposedId, m.id);
 		}
 
 		return entries;
 	});
 
-	return { infos: infos.map(withUserSelectableMetadata), routes, promptCaching };
+	return { infos: infos.map(withUserSelectableMetadata), routes, promptCaching, maxOutputTokensFromModelInfo };
 }

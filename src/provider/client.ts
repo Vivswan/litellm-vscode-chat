@@ -26,6 +26,7 @@ export async function sendChatRequest(
 	ctx: ChatRequestContext,
 	modelRoutes: Map<string, ModelRoute>,
 	promptCachingSupport: Map<string, boolean>,
+	maxOutputTokensFromModelInfo: Map<string, number>,
 	getServers: (() => Promise<ServerWithKey[]>) | undefined,
 	secrets: vscode.SecretStorage,
 	userAgent: string,
@@ -92,11 +93,14 @@ export async function sendChatRequest(
 
 	const modelParams = getModelParameters(model.id, modelRoutes);
 
+	const modelInfoMaxTokens = maxOutputTokensFromModelInfo.get(model.id);
 	let maxTokens: number;
 	if (typeof options.modelOptions?.max_tokens === "number") {
 		maxTokens = options.modelOptions.max_tokens;
 	} else if (typeof modelParams.max_tokens === "number") {
 		maxTokens = modelParams.max_tokens;
+	} else if (typeof modelInfoMaxTokens === "number") {
+		maxTokens = modelInfoMaxTokens;
 	} else {
 		maxTokens = Math.min(4096, model.maxOutputTokens);
 	}

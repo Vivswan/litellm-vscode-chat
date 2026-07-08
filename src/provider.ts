@@ -27,6 +27,7 @@ export interface AggregatedStatus {
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
 	private _promptCachingSupport = new Map<string, boolean>();
+	private _maxOutputTokensFromModelInfo = new Map<string, number>();
 	private _statusCallback?: (status: AggregatedStatus) => void;
 	private _hasShownNoConfigNotification = false;
 	private _toolCallIdCounter = 0;
@@ -138,6 +139,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		if (successfulCount > 0) {
 			this._modelRoutes.clear();
 			this._promptCachingSupport.clear();
+			this._maxOutputTokensFromModelInfo.clear();
 		}
 
 		for (let i = 0; i < results.length; i++) {
@@ -169,6 +171,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			}
 			for (const [k, v] of reg.promptCaching) {
 				this._promptCachingSupport.set(k, v);
+			}
+			for (const [k, v] of reg.maxOutputTokensFromModelInfo) {
+				this._maxOutputTokensFromModelInfo.set(k, v);
 			}
 
 			serverStatuses.push({
@@ -259,6 +264,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				{ model, messages, options, progress: trackingProgress, token },
 				this._modelRoutes,
 				this._promptCachingSupport,
+				this._maxOutputTokensFromModelInfo,
 				this._getServers,
 				this.secrets,
 				this.userAgent,

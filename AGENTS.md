@@ -157,7 +157,7 @@ The `modelParameters` setting uses longest-prefix matching, so `"gpt-4"` matches
 The extension uses a broad pass-through approach for model parameters rather than an allow-list:
 - **Provider-owned fields** (never overwritable): `model`, `messages`, `stream`, `tools`, `tool_choice`
 - **Internal fields** (filtered): Keys starting with `_` are skipped (VS Code injects internal fields like `_capturingTokenCorrelationId` into `modelOptions`)
-- **Special handling**: `max_tokens` has its own precedence logic (runtime > config > default clamped to model max)
+- **Special handling**: `max_tokens` has its own precedence logic (runtime `modelOptions` > `modelParameters` config > LiteLLM `model_info` `max_tokens`/`max_output_tokens` > hardcoded default clamped to model max). The `model_info`-derived value is tracked per model from `/v1/model/info` and threaded through `registration.ts` → `provider.ts` → `client.ts`.
 - **Everything else**: All keys from `modelParameters` config and `options.modelOptions` runtime are forwarded directly to LiteLLM
 
 This enables any LiteLLM/OpenAI-compatible parameter without extension updates: `response_format`, `reasoning_effort`, `seed`, `top_k`, `parallel_tool_calls`, `logprobs`, `modalities`, `metadata`, etc.
@@ -168,6 +168,7 @@ The provider fetches model metadata from LiteLLM's `/v1/model/info` endpoint:
 - **Fallback logic**: Tries `/v1/model/info` first, falls back to `/v1/models` on any error
 - **Model ID extraction**: Uses priority fallback (model_name → litellm_params.model → model_info.key → model_info.id)
 - **Prompt caching detection**: Tracks `supports_prompt_caching` flag per model
+- **Max output tokens**: When `model_info` advertises `max_output_tokens`/`max_tokens`, that value is recorded per model and used as the request `max_tokens` default (before the hardcoded 4096 fallback) unless overridden by runtime `modelOptions` or `modelParameters` config
 - **Extended metadata**: Captures `supports_response_schema`, `supports_reasoning`, `supports_pdf_input`, `supported_openai_params` for diagnostics and future use
 - **Vision detection**: Sets `imageInput` capability from `supports_vision`; includes `pdf` in `input_modalities` from `supports_pdf_input`
 - **Cache management**: Only clears cache on successful fetch to preserve data on failure

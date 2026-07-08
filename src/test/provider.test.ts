@@ -996,6 +996,134 @@ suite("provider", () => {
 		});
 	});
 
+	suite("max_tokens from model_info", () => {
+		const MODEL_ID = "test-model";
+		const MODEL_INFO_MAX_TOKENS = 12000;
+
+		function createConfiguredProvider(): LiteLLMChatModelProvider {
+			return new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+		}
+
+		function sseStream(text: string): ReadableStream<Uint8Array> {
+			const chunk = `data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+			return new ReadableStream({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode(chunk));
+					controller.close();
+				},
+			});
+		}
+
+		function modelInfoResponse(): unknown {
+			return {
+				data: [
+					{
+						model_name: MODEL_ID,
+						litellm_params: { model: MODEL_ID },
+						model_info: {
+							id: MODEL_ID,
+							key: MODEL_ID,
+							litellm_provider: "openai",
+							max_input_tokens: 128000,
+							max_output_tokens: MODEL_INFO_MAX_TOKENS,
+							max_tokens: MODEL_INFO_MAX_TOKENS,
+							supports_function_calling: true,
+						},
+					},
+				],
+			};
+		}
+
+		/** Register the model_info-backed model, send a chat request, and capture the outbound body. */
+		async function captureChatBody(opts: unknown): Promise<Record<string, unknown>> {
+			const originalFetch = global.fetch;
+			let capturedBody: Record<string, unknown> = {};
+			try {
+				global.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+					const urlStr = url.toString();
+					if (urlStr.includes("/v1/model/info")) {
+						return { ok: true, json: async () => modelInfoResponse() } as unknown as Response;
+					}
+					if (urlStr.includes("/v1/chat/completions")) {
+						capturedBody = JSON.parse(init?.body as string);
+						return { ok: true, body: sseStream("ok") } as unknown as Response;
+					}
+					throw new Error(`Unexpected URL: ${urlStr}`);
+				};
+
+				const provider = createConfiguredProvider();
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				const model = infos.find((i) => i.id === MODEL_ID);
+				assert.ok(model, `Expected model "${MODEL_ID}" to be registered`);
+				assert.strictEqual(model.maxOutputTokens, MODEL_INFO_MAX_TOKENS);
+
+				await provider.provideLanguageModelChatResponse(
+					model,
+					[
+						{
+							role: vscode.LanguageModelChatMessageRole.User,
+							content: [new vscode.LanguageModelTextPart("test")],
+							name: undefined,
+						},
+					],
+					opts as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+			} finally {
+				global.fetch = originalFetch;
+			}
+			return capturedBody;
+		}
+
+		test("uses model_info max_tokens when no override is provided", async () => {
+			const body = await captureChatBody({ toolMode: vscode.LanguageModelChatToolMode.Auto });
+			assert.strictEqual(body.max_tokens, MODEL_INFO_MAX_TOKENS);
+		});
+
+		test("modelOptions.max_tokens overrides model_info", async () => {
+			const body = await captureChatBody({
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelOptions: { max_tokens: 256 },
+			});
+			assert.strictEqual(body.max_tokens, 256);
+		});
+
+		test("modelParameters.max_tokens overrides model_info", async () => {
+			const originalGetConfig = vscode.workspace.getConfiguration;
+			vscode.workspace.getConfiguration = ((section?: string) => {
+				if (section === "litellm-vscode-chat") {
+					return {
+						get: (key: string, defaultValue?: unknown) => {
+							if (key === "modelParameters") {
+								return { [MODEL_ID]: { max_tokens: 512 } };
+							}
+							return defaultValue;
+						},
+					} as unknown as vscode.WorkspaceConfiguration;
+				}
+				return originalGetConfig(section);
+			}) as unknown as typeof vscode.workspace.getConfiguration;
+			try {
+				const body = await captureChatBody({ toolMode: vscode.LanguageModelChatToolMode.Auto });
+				assert.strictEqual(body.max_tokens, 512);
+			} finally {
+				vscode.workspace.getConfiguration = originalGetConfig;
+			}
+		});
+	});
+
 	suite("diagnostics", () => {
 		test("status callback reports successful fetch with model count", async () => {
 			const originalFetch = global.fetch;

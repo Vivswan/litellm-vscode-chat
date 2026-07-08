@@ -16,12 +16,15 @@ export function getTokenConstraints(provider: LiteLLMProvider | undefined): {
 	maxOutputTokens: number;
 	contextLength: number;
 	maxInputTokens: number;
+	maxOutputTokensFromModelInfo: boolean;
 } {
 	const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
 
+	const providerMaxOutputTokens =
+		normalizePositiveNumber(provider?.max_output_tokens) ?? normalizePositiveNumber(provider?.max_tokens);
+	const maxOutputTokensFromModelInfo = providerMaxOutputTokens !== undefined;
 	const maxOutputTokens =
-		normalizePositiveNumber(provider?.max_output_tokens) ??
-		normalizePositiveNumber(provider?.max_tokens) ??
+		providerMaxOutputTokens ??
 		normalizePositiveNumber(config.get<number>("defaultMaxOutputTokens", DEFAULT_MAX_OUTPUT_TOKENS)) ??
 		DEFAULT_MAX_OUTPUT_TOKENS;
 
@@ -36,7 +39,7 @@ export function getTokenConstraints(provider: LiteLLMProvider | undefined): {
 		normalizePositiveNumber(provider?.max_input_tokens) ??
 		Math.max(1, contextLength - maxOutputTokens);
 
-	return { maxOutputTokens, contextLength, maxInputTokens };
+	return { maxOutputTokens, contextLength, maxInputTokens, maxOutputTokensFromModelInfo };
 }
 
 export function getModelParameters(modelId: string, modelRoutes: Map<string, ModelRoute>): Record<string, unknown> {

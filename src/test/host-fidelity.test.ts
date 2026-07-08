@@ -323,6 +323,28 @@ suite("Host-Fidelity Tests (capture)", function () {
 			assert.ok(typeof body.max_tokens === "number", "max_tokens should be a number");
 		});
 
+		test("max_tokens defaults to the model_info value when no override is provided", async () => {
+			const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
+			// The capture server advertises max_tokens/max_output_tokens = 16000 in model_info.
+			// Without any runtime or config override, the request should honor that value
+			// instead of the hardcoded 4096 fallback.
+			assert.strictEqual(body.max_tokens, 16000, "max_tokens should come from model_info");
+		});
+
+		test("modelOptions.max_tokens overrides the model_info value", async () => {
+			const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")], {
+				modelOptions: { max_tokens: 256 },
+			});
+			assert.strictEqual(body.max_tokens, 256, "runtime max_tokens should take priority over model_info");
+		});
+
+		test("modelParameters.max_tokens overrides the model_info value", async () => {
+			await withModelParameters({ [model.id]: { max_tokens: 512 } }, async () => {
+				const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
+				assert.strictEqual(body.max_tokens, 512, "config max_tokens should take priority over model_info");
+			});
+		});
+
 		test("modelParameters merge onto built-in defaults through the host path", async () => {
 			await withModelParameters({ [model.id]: { top_p: 0.9 } }, async () => {
 				const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
