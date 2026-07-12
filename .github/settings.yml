@@ -89,3 +89,31 @@ rulesets:
       - actor_id: 5
         actor_type: RepositoryRole
         bypass_mode: always
+
+  # Reserve the `release-please--**` branch namespace for release-please itself:
+  # only admins (release-please runs with the admin RELEASE_PLEASE_TOKEN) and
+  # GitHub Actions (the documented GITHUB_TOKEN fallback when that secret is
+  # absent) can create, push to, or delete these branches. Deletion stays
+  # bypassable so delete_branch_on_merge keeps working for the admin who merges
+  # the release PR.
+  - name: release-please-branches
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name:
+        include:
+          - "refs/heads/release-please--**"
+        exclude: []
+    rules:
+      - type: creation
+      - type: update
+      - type: deletion
+    bypass_actors:
+      - actor_id: 5
+        actor_type: RepositoryRole
+        bypass_mode: always
+      # The GitHub Actions app (integration id 15368), so the GITHUB_TOKEN
+      # fallback in release-please.yml can still open the release PR.
+      - actor_id: 15368
+        actor_type: Integration
+        bypass_mode: always
