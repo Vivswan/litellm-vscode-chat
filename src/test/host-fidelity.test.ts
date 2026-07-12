@@ -380,8 +380,7 @@ suite("Host-Fidelity Tests (capture)", function () {
 			const content = userMsg!.content as Array<{ type: string }>;
 			const textBlock = content.find((b) => b.type === "text");
 			const imageBlock = content.find((b) => b.type === "image_url") as
-				| { type: string; image_url: { url: string } }
-				| undefined;
+				{ type: string; image_url: { url: string } } | undefined;
 			assert.ok(textBlock, "Should have a text block");
 			assert.ok(imageBlock, "Should have an image_url block");
 			assert.ok(
@@ -451,8 +450,7 @@ suite("Host-Fidelity Tests (capture)", function () {
 			assert.ok(userMsg, "Should have array content");
 			const content = userMsg!.content as Array<{ type: string }>;
 			const fileBlock = content.find((b) => b.type === "file") as
-				| { type: string; file: { file_data: string } }
-				| undefined;
+				{ type: string; file: { file_data: string } } | undefined;
 			assert.ok(fileBlock, "Should have a file block for PDF");
 			assert.ok(
 				fileBlock!.file.file_data.startsWith("data:application/pdf;base64,"),

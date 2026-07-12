@@ -116,8 +116,7 @@ export class StreamProcessor {
 			if (maybeThinking !== undefined) {
 				const vsAny = vscode as unknown as Record<string, unknown>;
 				const ThinkingCtor = vsAny["LanguageModelThinkingPart"] as
-					| (new (text: string, id?: string, metadata?: unknown) => unknown)
-					| undefined;
+					(new (text: string, id?: string, metadata?: unknown) => unknown) | undefined;
 				if (ThinkingCtor) {
 					let text = "";
 					let id: string | undefined;
