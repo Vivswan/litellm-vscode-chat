@@ -14,7 +14,8 @@ export async function buildDiagnosticsSnapshot(
 	const servers = registry.getServers();
 	const serversWithKeys = await registry.getServersWithKeys();
 	const hasApiKey =
-		serversWithKeys.some((s) => s.apiKey.trim().length > 0) || !!(await context.secrets.get("litellm.apiKey"));
+		serversWithKeys.some((s) => s.apiKey.trim().length > 0 || s.auth?.type === "oauth") ||
+		!!(await context.secrets.get("litellm.apiKey"));
 	const hasBaseUrl = servers.length > 0 || !!(await context.secrets.get("litellm.baseUrl"));
 
 	return {

@@ -330,4 +330,21 @@ suite("IssueReporter", () => {
 		assert.ok(!result.includes("secret-key-value"), "Should not leak API key");
 		assert.ok(result.includes("[REDACTED]"));
 	});
+
+	test("redactSecrets removes the default OAuth virtual-key header value", () => {
+		assert.equal(redactSecrets("X-LLM-API-CLIENT-ID: vk-secret123"), "X-LLM-API-CLIENT-ID: [REDACTED]");
+	});
+
+	test("redactSecrets removes custom virtual-key header values", () => {
+		const result = redactSecrets("X-Custom-Virtual-Key: abc999");
+		assert.ok(!result.includes("abc999"), "Should not leak the virtual key");
+		assert.ok(result.includes("[REDACTED]"));
+	});
+
+	test("redactSecrets handles JSON-encoded virtual-key headers", () => {
+		const json = '{"X-LLM-API-CLIENT-ID": "vk-secret123"}';
+		const result = redactSecrets(json);
+		assert.ok(!result.includes("vk-secret123"), "Should not leak the virtual key");
+		assert.ok(result.includes("[REDACTED]"));
+	});
 });
