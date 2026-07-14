@@ -36,10 +36,11 @@ labels:
     description: Lint / formatting fixes
 
 # Branch ruleset for the default branch. Admins (RepositoryRole id 5) are in the
-# bypass list, so direct pushes to main still work. "Automatically request Copilot
-# code review" is the `copilot_code_review` rule below. "Require code quality
-# results" is NOT yet a documented ruleset rule type (public preview, no published
-# REST schema) -- enable it in the UI (Settings -> Rules -> Rulesets -> main).
+# bypass list, so direct pushes to main still work.
+# "Automatically request Copilot code review" is the `copilot_code_review` rule
+# below. "Require code quality results" is NOT yet a documented ruleset rule type
+# (public preview, no published REST schema) -- enable it in the UI
+# (Settings -> Rules -> Rulesets -> main).
 rulesets:
   - name: main
     target: branch

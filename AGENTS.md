@@ -1,6 +1,12 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides canonical guidance to AI coding agents working with code in this repository.
+
+## Instruction Sources
+
+- `AGENTS.md` is the canonical, cross-agent source for repository architecture, development commands, and contribution rules.
+- `.github/copilot-instructions.md` is a symlink to this file so GitHub Copilot receives the same canonical guidance.
+- Keep shared project facts here instead of duplicating them across agent-specific configuration files.
 
 ## Project Overview
 
@@ -39,13 +45,28 @@ bun run test
 
 ## Development Workflow
 
-### Testing the Extension
+### Manual Extension Testing
 
-Press `F5` to launch the Extension Development Host with the extension loaded.
+For human interactive testing, press `F5` to launch the Extension Development Host with the extension loaded. Automated agents must not launch VS Code, the Extension Development Host, or another GUI for verification.
 
 ### Running Tests
 
 Tests use the `@vscode/test-electron` framework. Run `bun run test` to execute all tests, which compiles the project and runs the test suite.
+
+### Agent Environment Setup
+
+- `scripts/setup-env.sh` and `scripts/setup-env.ps1` are the shared setup implementations.
+- `bun run setup-env:verify` is the canonical macOS/Linux entry point used by local GitHub Copilot app sessions and the Copilot cloud agent.
+- `.github/github-app.yml` configures local GitHub Copilot app sessions.
+- `.github/workflows/copilot-setup-steps.yml` configures the ephemeral GitHub Actions environment used by Copilot cloud agent.
+- Keep setup logic in the shared scripts; the Copilot configuration files should only invoke it.
+
+### Automated Agent Validation
+
+- Run `bun run compile` after TypeScript changes.
+- Run `bun run lint` after source or test changes.
+- Run the relevant tests for the affected behavior; use `bun run test` for the full suite.
+- Do not launch GUI applications as part of automated validation.
 
 ### Code Style
 
@@ -58,6 +79,13 @@ Tests use the `@vscode/test-electron` framework. Run `bun run test` to execute a
 - **DO NOT** add "Co-Authored-By:" or similar attribution lines to commit messages
 - **DO NOT** add "Generated with" or similar markers to pull request descriptions
 - Keep commit messages and PR descriptions clean and focused on the actual changes
+
+### Code Review Guidance
+
+- Prioritize correctness, security, regressions, missing tests, and violations of the documented architecture.
+- Report concrete, actionable findings tied to the changed code.
+- Do not request style-only changes already handled by ESLint or Prettier.
+- Pay particular attention to streaming responses, tool-call pairing, multimodal conversion, token limits, request-field ownership, and SecretStorage handling.
 
 ## Architecture
 
