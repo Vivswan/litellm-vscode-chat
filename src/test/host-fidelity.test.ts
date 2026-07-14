@@ -810,6 +810,12 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 		while (Date.now() < deadline) {
 			lastServers = (await vscode.commands.executeCommand("litellm._test.getServers")) as ServerConfig[];
+			if (lastServers.length > 0) {
+				// A straggling refresh or teardown from a timed-out earlier test can
+				// re-register servers after the initial clear; clear again instead of
+				// waiting out the timeout.
+				await vscode.commands.executeCommand("litellm._test.clearServers");
+			}
 			lastCount = (await vscode.commands.executeCommand("litellm._test.refreshModels")) as number;
 
 			if (lastServers.length === 0 && lastCount === 0) {
