@@ -1,0 +1,9 @@
+scripts:
+  - name: Set up and verify development environment
+    command: bun run setup-env:verify
+    triggers:
+      - session.create
+
+automation:
+  auto_issue_session: false
+  remote_control: false
