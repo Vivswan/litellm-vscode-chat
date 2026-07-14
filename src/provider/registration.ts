@@ -3,6 +3,7 @@ import type { LiteLLMModelItem } from "../types";
 import type { ServerWithKey } from "../extension/serverRegistry";
 import type { ModelRoute } from "./request";
 import { getTokenConstraints, buildExposedModelId } from "./request";
+import { supportsReasoningEffort, withReasoningEffortConfiguration } from "./reasoning";
 
 export interface RegistrationResult {
 	infos: LanguageModelChatInformation[];
@@ -54,20 +55,23 @@ export function buildModelInfos(
 			promptCaching.set(exposedId, providers[0].supports_prompt_caching === true);
 			registerRoute(exposedId, m.id);
 			return [
-				{
-					id: exposedId,
-					name: `${namePrefix}${m.id}`,
-					detail,
-					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-					family: "litellm",
-					version: "1.0.0",
-					maxInputTokens: constraints.maxInputTokens,
-					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: {
-						toolCalling: providers[0].supports_tools !== false,
-						imageInput: vision,
-					},
-				} satisfies LanguageModelChatInformation,
+				withReasoningEffortConfiguration(
+					{
+						id: exposedId,
+						name: `${namePrefix}${m.id}`,
+						detail,
+						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+						family: "litellm",
+						version: "1.0.0",
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: {
+							toolCalling: providers[0].supports_tools !== false,
+							imageInput: vision,
+						},
+					} satisfies LanguageModelChatInformation,
+					supportsReasoningEffort(providers[0])
+				),
 			];
 		}
 
@@ -113,31 +117,43 @@ export function buildModelInfos(
 			const cheapestId = buildExposedModelId(cheapestRaw, server.id, serverCount);
 			const fastestId = buildExposedModelId(fastestRaw, server.id, serverCount);
 
-			entries.push({
-				id: cheapestId,
-				name: `${namePrefix}${m.id} (cheapest)`,
-				detail,
-				tooltip: `LiteLLM via the cheapest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
-				family: "litellm",
-				version: "1.0.0",
-				maxInputTokens: maxInput,
-				maxOutputTokens: maxOutput,
-				capabilities: aggregateCapabilities,
-			} satisfies LanguageModelChatInformation);
+			const aggregateReasoningEffort = toolProviders.every(supportsReasoningEffort);
+
+			entries.push(
+				withReasoningEffortConfiguration(
+					{
+						id: cheapestId,
+						name: `${namePrefix}${m.id} (cheapest)`,
+						detail,
+						tooltip: `LiteLLM via the cheapest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
+						family: "litellm",
+						version: "1.0.0",
+						maxInputTokens: maxInput,
+						maxOutputTokens: maxOutput,
+						capabilities: aggregateCapabilities,
+					} satisfies LanguageModelChatInformation,
+					aggregateReasoningEffort
+				)
+			);
 			promptCaching.set(cheapestId, aggregatePromptCaching);
 			registerRoute(cheapestId, cheapestRaw);
 
-			entries.push({
-				id: fastestId,
-				name: `${namePrefix}${m.id} (fastest)`,
-				detail,
-				tooltip: `LiteLLM via the fastest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
-				family: "litellm",
-				version: "1.0.0",
-				maxInputTokens: maxInput,
-				maxOutputTokens: maxOutput,
-				capabilities: aggregateCapabilities,
-			} satisfies LanguageModelChatInformation);
+			entries.push(
+				withReasoningEffortConfiguration(
+					{
+						id: fastestId,
+						name: `${namePrefix}${m.id} (fastest)`,
+						detail,
+						tooltip: `LiteLLM via the fastest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
+						family: "litellm",
+						version: "1.0.0",
+						maxInputTokens: maxInput,
+						maxOutputTokens: maxOutput,
+						capabilities: aggregateCapabilities,
+					} satisfies LanguageModelChatInformation,
+					aggregateReasoningEffort
+				)
+			);
 			promptCaching.set(fastestId, aggregatePromptCaching);
 			registerRoute(fastestId, fastestRaw);
 		}
@@ -146,20 +162,25 @@ export function buildModelInfos(
 			const constraints = getTokenConstraints(p);
 			const rawId = `${m.id}:${p.provider}`;
 			const exposedId = buildExposedModelId(rawId, server.id, serverCount);
-			entries.push({
-				id: exposedId,
-				name: `${namePrefix}${m.id} via ${p.provider}`,
-				detail,
-				tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
-				family: "litellm",
-				version: "1.0.0",
-				maxInputTokens: constraints.maxInputTokens,
-				maxOutputTokens: constraints.maxOutputTokens,
-				capabilities: {
-					toolCalling: true,
-					imageInput: vision,
-				},
-			} satisfies LanguageModelChatInformation);
+			entries.push(
+				withReasoningEffortConfiguration(
+					{
+						id: exposedId,
+						name: `${namePrefix}${m.id} via ${p.provider}`,
+						detail,
+						tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
+						family: "litellm",
+						version: "1.0.0",
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: {
+							toolCalling: true,
+							imageInput: vision,
+						},
+					} satisfies LanguageModelChatInformation,
+					supportsReasoningEffort(p)
+				)
+			);
 			promptCaching.set(exposedId, p.supports_prompt_caching === true);
 			registerRoute(exposedId, rawId);
 		}
@@ -168,20 +189,25 @@ export function buildModelInfos(
 			const base = providers[0];
 			const constraints = getTokenConstraints(base);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-			entries.push({
-				id: exposedId,
-				name: `${namePrefix}${m.id}`,
-				detail,
-				tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-				family: "litellm",
-				version: "1.0.0",
-				maxInputTokens: constraints.maxInputTokens,
-				maxOutputTokens: constraints.maxOutputTokens,
-				capabilities: {
-					toolCalling: false,
-					imageInput: vision,
-				},
-			} satisfies LanguageModelChatInformation);
+			entries.push(
+				withReasoningEffortConfiguration(
+					{
+						id: exposedId,
+						name: `${namePrefix}${m.id}`,
+						detail,
+						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+						family: "litellm",
+						version: "1.0.0",
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: {
+							toolCalling: false,
+							imageInput: vision,
+						},
+					} satisfies LanguageModelChatInformation,
+					supportsReasoningEffort(base)
+				)
+			);
 			promptCaching.set(exposedId, base.supports_prompt_caching === true);
 			registerRoute(exposedId, m.id);
 		}

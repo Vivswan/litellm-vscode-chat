@@ -846,6 +846,23 @@ suite("provider", () => {
 			assert.equal(body.top_k, 50);
 		});
 
+		test("forwards Configure Model reasoning effort", async () => {
+			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelConfiguration: { reasoningEffort: "high" },
+			});
+			assert.equal(body.reasoning_effort, "high");
+		});
+
+		test("runtime modelOptions override Configure Model reasoning effort", async () => {
+			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelConfiguration: { reasoningEffort: "high" },
+				modelOptions: { reasoning_effort: "low" },
+			});
+			assert.equal(body.reasoning_effort, "low");
+		});
+
 		test("does not overwrite provider-owned fields from modelOptions", async () => {
 			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
 				toolMode: vscode.LanguageModelChatToolMode.Auto,

@@ -13,6 +13,7 @@ import { StreamProcessor } from "./streaming";
 import { resolveServer } from "./config";
 import { getCustomHeaders } from "./httpHeaders";
 import type { ServerWithKey } from "../extension/serverRegistry";
+import { applyReasoningEffortConfiguration } from "./reasoning";
 
 export interface ChatRequestContext {
 	model: LanguageModelChatInformation;
@@ -90,7 +91,7 @@ export async function sendChatRequest(
 		throw new Error("Message exceeds token limit.");
 	}
 
-	const modelParams = getModelParameters(model.id, modelRoutes);
+	const modelParams = applyReasoningEffortConfiguration(getModelParameters(model.id, modelRoutes), options);
 
 	let maxTokens: number;
 	if (typeof options.modelOptions?.max_tokens === "number") {
