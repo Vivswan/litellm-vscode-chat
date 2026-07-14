@@ -39,19 +39,28 @@ export function getTokenConstraints(provider: LiteLLMProvider | undefined): {
 	return { maxOutputTokens, contextLength, maxInputTokens };
 }
 
-export function getModelParameters(modelId: string, modelRoutes: Map<string, ModelRoute>): Record<string, unknown> {
+export function getModelParameters(
+	modelId: string,
+	modelRoutes: Map<string, ModelRoute>,
+	reasoningEffortSupport?: ReadonlyMap<string, boolean>
+): Record<string, unknown> {
 	const route = modelRoutes.get(modelId);
 	const rawId = route?.rawModelId ?? modelId;
 	const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
 	const modelParameters = config.get<Record<string, Record<string, unknown>>>("modelParameters", {});
+	const reasoningEffort = config.get<string>("reasoningEffort", "default");
+	const defaults =
+		reasoningEffort !== "default" && reasoningEffortSupport?.get(modelId) === true
+			? { reasoning_effort: reasoningEffort }
+			: {};
 	if (route?.serverLabel) {
 		const scopedMatch = findLongestPrefixMatch(`${route.serverLabel}/${rawId}`, modelParameters);
 		if (scopedMatch) {
-			return { ...scopedMatch };
+			return { ...defaults, ...scopedMatch };
 		}
 	}
 	const match = findLongestPrefixMatch(rawId, modelParameters);
-	return match ? { ...match } : {};
+	return { ...defaults, ...(match ?? {}) };
 }
 
 export function buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {

@@ -522,6 +522,7 @@ suite("provider", () => {
 										provider: "provider-a",
 										status: "active",
 										supports_tools: true,
+										supported_openai_params: ["reasoning_effort"],
 										context_length: 100000,
 										max_output_tokens: 8000,
 									},
@@ -529,6 +530,7 @@ suite("provider", () => {
 										provider: "provider-b",
 										status: "active",
 										supports_tools: true,
+										supports_reasoning: false,
 										context_length: 50000,
 										max_output_tokens: 4000,
 									},
@@ -561,6 +563,13 @@ suite("provider", () => {
 			assert.equal(cheapestEntry.maxOutputTokens, 4000);
 			assert.equal(fastestEntry.maxOutputTokens, 4000);
 			assert.equal(cheapestEntry.maxInputTokens, 46000);
+
+			const reasoningSupport = (provider as unknown as { _reasoningEffortSupport: ReadonlyMap<string, boolean> })
+				._reasoningEffortSupport;
+			assert.equal(reasoningSupport.get("test-model:cheapest"), false);
+			assert.equal(reasoningSupport.get("test-model:fastest"), false);
+			assert.equal(reasoningSupport.get("test-model:provider-a"), true);
+			assert.equal(reasoningSupport.get("test-model:provider-b"), false);
 		});
 
 		test("provider max_output_tokens takes priority over max_tokens", async () => {
@@ -704,6 +713,105 @@ suite("provider", () => {
 			const params = getModelParameters("gpt-4", new Map());
 			vscode.workspace.getConfiguration = originalGetConfiguration;
 			assert.deepEqual(params, {});
+		});
+
+		test("applies the selected reasoning effort", () => {
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			try {
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "reasoningEffort") {
+									return "high";
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				assert.deepEqual(getModelParameters("test-model", new Map(), new Map([["test-model", true]])), {
+					reasoning_effort: "high",
+				});
+			} finally {
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
+		});
+
+		test("does not apply the selected reasoning effort to unsupported models", () => {
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			try {
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => (key === "reasoningEffort" ? "high" : defaultValue),
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				assert.deepEqual(getModelParameters("test-model", new Map(), new Map([["test-model", false]])), {});
+			} finally {
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
+		});
+
+		test("model-specific reasoning effort overrides the selected default", () => {
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			try {
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "reasoningEffort") {
+									return "high";
+								}
+								if (key === "modelParameters") {
+									return { "test-model": { reasoning_effort: "low" } };
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				assert.deepEqual(getModelParameters("test-model", new Map(), new Map([["test-model", true]])), {
+					reasoning_effort: "low",
+				});
+			} finally {
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
+		});
+
+		test("model-specific reasoning effort applies when model metadata is incomplete", () => {
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			try {
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => {
+								if (key === "reasoningEffort") {
+									return "high";
+								}
+								if (key === "modelParameters") {
+									return { "test-model": { reasoning_effort: "low" } };
+								}
+								return defaultValue;
+							},
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				assert.deepEqual(getModelParameters("test-model", new Map(), new Map([["test-model", false]])), {
+					reasoning_effort: "low",
+				});
+			} finally {
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
 		});
 
 		test("modelParameters supports various parameter types", () => {
@@ -1284,6 +1392,7 @@ suite("provider", () => {
 									id: "claude-3-5-sonnet-20241022",
 									supports_function_calling: true,
 									supports_prompt_caching: true,
+									supports_reasoning: true,
 									max_tokens: 8192,
 									max_input_tokens: 200000,
 								},
@@ -1310,6 +1419,9 @@ suite("provider", () => {
 			assert.ok(infos.length > 0);
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			assert.equal((provider as any)._promptCachingSupport.get("claude-3-5-sonnet-20241022"), true);
+			const reasoningSupport = (provider as unknown as { _reasoningEffortSupport: ReadonlyMap<string, boolean> })
+				._reasoningEffortSupport;
+			assert.equal(reasoningSupport.get("claude-3-5-sonnet-20241022"), true);
 		});
 
 		test("model/info numeric string token limits are parsed and max_output_tokens wins", async () => {

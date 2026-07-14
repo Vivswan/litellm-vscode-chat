@@ -26,6 +26,7 @@ export async function sendChatRequest(
 	ctx: ChatRequestContext,
 	modelRoutes: Map<string, ModelRoute>,
 	promptCachingSupport: Map<string, boolean>,
+	reasoningEffortSupport: ReadonlyMap<string, boolean>,
 	getServers: (() => Promise<ServerWithKey[]>) | undefined,
 	secrets: vscode.SecretStorage,
 	userAgent: string,
@@ -90,7 +91,7 @@ export async function sendChatRequest(
 		throw new Error("Message exceeds token limit.");
 	}
 
-	const modelParams = getModelParameters(model.id, modelRoutes);
+	const modelParams = getModelParameters(model.id, modelRoutes, reasoningEffortSupport);
 
 	let maxTokens: number;
 	if (typeof options.modelOptions?.max_tokens === "number") {

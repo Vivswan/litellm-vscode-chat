@@ -95,6 +95,29 @@
 					"default": true,
 					"description": "Enable prompt caching for supported models (currently Anthropic Claude). Caches the system prompt to reduce costs and improve response times. Only affects models that advertise prompt caching support."
 				},
+				"litellm-vscode-chat.reasoningEffort": {
+					"type": "string",
+					"default": "default",
+					"enum": [
+						"default",
+						"none",
+						"minimal",
+						"low",
+						"medium",
+						"high",
+						"xhigh"
+					],
+					"enumDescriptions": [
+						"Use the model or provider default.",
+						"Disable reasoning.",
+						"Use no more reasoning than necessary.",
+						"Use low reasoning effort.",
+						"Use medium reasoning effort.",
+						"Use high reasoning effort.",
+						"Use extra-high reasoning effort."
+					],
+					"description": "Reasoning effort to request from models that advertise support. Model-specific reasoning_effort values in modelParameters take precedence and can override incomplete model metadata."
+				},
 				"litellm-vscode-chat.modelParameters": {
 					"type": "object",
 					"default": {},

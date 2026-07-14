@@ -62,6 +62,17 @@ The extension automatically reads token limits from your LiteLLM server's model 
 
 **Priority**: LiteLLM model info → Workspace settings → Defaults
 
+### Reasoning Effort
+
+Select **Reasoning Effort** in VS Code Settings (`Ctrl+,` / `Cmd+,` → search "LiteLLM reasoning") to choose
+`none`, `minimal`, `low`, `medium`, `high`, or `xhigh` for models that support reasoning. The default leaves the
+parameter unspecified so the model or provider decides.
+
+The global selection is sent only when LiteLLM model info advertises reasoning support.
+
+For different values per model, set `reasoning_effort` in `modelParameters`; model-specific values take precedence
+over the global selection and can be used when model metadata is incomplete.
+
 ### Custom Model Parameters (Optional)
 
 Override default request parameters for specific models using the `modelParameters` setting. This is useful for models with specific requirements (like gpt-5 requiring `temperature: 1`) or to customize behavior per model.

@@ -8,6 +8,13 @@ export interface RegistrationResult {
 	infos: LanguageModelChatInformation[];
 	routes: Map<string, ModelRoute>;
 	promptCaching: Map<string, boolean>;
+	reasoningEffort: Map<string, boolean>;
+}
+
+function supportsReasoningEffort(provider: LiteLLMModelItem["providers"][number]): boolean {
+	return (
+		provider.supports_reasoning === true || provider.supported_openai_params?.includes("reasoning_effort") === true
+	);
 }
 
 function withUserSelectableMetadata(info: LanguageModelChatInformation): LanguageModelChatInformation {
@@ -31,6 +38,7 @@ export function buildModelInfos(
 ): RegistrationResult {
 	const routes = new Map<string, ModelRoute>();
 	const promptCaching = new Map<string, boolean>();
+	const reasoningEffort = new Map<string, boolean>();
 
 	const registerRoute = (exposedId: string, rawId: string) => {
 		routes.set(exposedId, {
@@ -52,6 +60,7 @@ export function buildModelInfos(
 			const constraints = getTokenConstraints(providers[0]);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			promptCaching.set(exposedId, providers[0].supports_prompt_caching === true);
+			reasoningEffort.set(exposedId, supportsReasoningEffort(providers[0]));
 			registerRoute(exposedId, m.id);
 			return [
 				{
@@ -75,6 +84,7 @@ export function buildModelInfos(
 			const constraints = getTokenConstraints(undefined);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			promptCaching.set(exposedId, false);
+			reasoningEffort.set(exposedId, false);
 			registerRoute(exposedId, m.id);
 			return [
 				{
@@ -103,6 +113,7 @@ export function buildModelInfos(
 			const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
 			const maxInput = Math.max(1, aggregateContextLen - maxOutput);
 			const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
+			const aggregateReasoningEffort = toolProviders.every(supportsReasoningEffort);
 			const aggregateCapabilities = {
 				toolCalling: true,
 				imageInput: vision,
@@ -125,6 +136,7 @@ export function buildModelInfos(
 				capabilities: aggregateCapabilities,
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(cheapestId, aggregatePromptCaching);
+			reasoningEffort.set(cheapestId, aggregateReasoningEffort);
 			registerRoute(cheapestId, cheapestRaw);
 
 			entries.push({
@@ -139,6 +151,7 @@ export function buildModelInfos(
 				capabilities: aggregateCapabilities,
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(fastestId, aggregatePromptCaching);
+			reasoningEffort.set(fastestId, aggregateReasoningEffort);
 			registerRoute(fastestId, fastestRaw);
 		}
 
@@ -161,6 +174,7 @@ export function buildModelInfos(
 				},
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, p.supports_prompt_caching === true);
+			reasoningEffort.set(exposedId, supportsReasoningEffort(p));
 			registerRoute(exposedId, rawId);
 		}
 
@@ -183,11 +197,12 @@ export function buildModelInfos(
 				},
 			} satisfies LanguageModelChatInformation);
 			promptCaching.set(exposedId, base.supports_prompt_caching === true);
+			reasoningEffort.set(exposedId, supportsReasoningEffort(base));
 			registerRoute(exposedId, m.id);
 		}
 
 		return entries;
 	});
 
-	return { infos: infos.map(withUserSelectableMetadata), routes, promptCaching };
+	return { infos: infos.map(withUserSelectableMetadata), routes, promptCaching, reasoningEffort };
 }
