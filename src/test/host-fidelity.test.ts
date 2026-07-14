@@ -87,7 +87,8 @@ async function waitForFreshModels(
 async function waitForPreparedModelIds(
 	timeoutMs: number,
 	acceptIds: (ids: string[]) => boolean,
-	expectedDescription: string
+	expectedDescription: string,
+	reassertTopology?: () => Promise<void>
 ): Promise<string[]> {
 	const deadline = Date.now() + timeoutMs;
 	let lastIds: string[] = [];
@@ -97,6 +98,10 @@ async function waitForPreparedModelIds(
 		if (acceptIds(lastIds)) {
 			return lastIds;
 		}
+		// A lost globalState update on slow hosts can leave the server registry
+		// on a stale topology; let the caller re-assert it instead of waiting
+		// out the timeout.
+		await reassertTopology?.();
 		await new Promise((r) => setTimeout(r, 200));
 	}
 
@@ -1047,19 +1052,28 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 		test("with one server, model IDs have no server prefix", async function () {
 			this.timeout(20000);
 
-			await vscode.commands.executeCommand("litellm._test.clearServers");
-			const soloConfig = (await vscode.commands.executeCommand(
-				"litellm._test.addServer",
-				"Solo",
-				baseUrlA,
-				"key-a"
-			)) as ServerConfig;
+			const setupSoloServer = async (): Promise<ServerConfig> => {
+				await vscode.commands.executeCommand("litellm._test.clearServers");
+				return (await vscode.commands.executeCommand(
+					"litellm._test.addServer",
+					"Solo",
+					baseUrlA,
+					"key-a"
+				)) as ServerConfig;
+			};
+			let soloConfig = await setupSoloServer();
 
 			try {
 				const ids = await waitForPreparedModelIds(
 					15000,
 					(ids) => ids.length > 0 && ids.every((id) => id === CAPTURE_MODEL_ID),
-					`single-server raw model ID ${CAPTURE_MODEL_ID}`
+					`single-server raw model ID ${CAPTURE_MODEL_ID}`,
+					async () => {
+						const servers = (await vscode.commands.executeCommand("litellm._test.getServers")) as ServerConfig[];
+						if (servers.length !== 1 || servers[0].id !== soloConfig.id) {
+							soloConfig = await setupSoloServer();
+						}
+					}
 				);
 				assert.ok(ids.length > 0, "Should have models");
 
