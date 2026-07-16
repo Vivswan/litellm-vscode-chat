@@ -1177,6 +1177,51 @@ suite("provider", () => {
 	});
 
 	suite("model info and fallback", () => {
+		test("registers duplicate model/info group entries once", async () => {
+			const originalFetch = global.fetch;
+			try {
+				global.fetch = async () =>
+					({
+						ok: true,
+						json: async () => ({
+							data: [
+								{
+									model_name: "glm-5.2",
+									litellm_params: { model: "volcengine/glm-5-2-260617" },
+									model_info: { litellm_provider: "volcengine" },
+								},
+								{
+									model_name: "glm-5.2",
+									litellm_params: { model: "dashscope/glm-5.2" },
+									model_info: { litellm_provider: "dashscope" },
+								},
+							],
+						}),
+					}) as unknown as Response;
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.deepEqual(
+					infos.map((info) => info.id),
+					["glm-5.2"]
+				);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
 		test("fallback from /v1/model/info to /v1/models on error", async () => {
 			const originalFetch = global.fetch;
 			let modelInfoAttempted = false;
