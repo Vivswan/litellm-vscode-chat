@@ -137,10 +137,17 @@ export async function fetchModels(
 				return { models };
 			}
 
-			const models = data
+			const mappedModels = data
 				.map((item) => mapModelInfoToLiteLLMModel(item as LiteLLMModelInfoItem))
 				.filter((m): m is LiteLLMModelItem => Boolean(m));
-			if (data.length > 0 && models.length === 0) {
+			const modelsById = new Map<string, LiteLLMModelItem>();
+			for (const model of mappedModels) {
+				if (!modelsById.has(model.id)) {
+					modelsById.set(model.id, model);
+				}
+			}
+			const models = [...modelsById.values()];
+			if (data.length > 0 && mappedModels.length === 0) {
 				log("model/info returned data but no mappable models; falling back", { dataLength: data.length });
 			} else {
 				log("Successfully fetched models:", models.length);
