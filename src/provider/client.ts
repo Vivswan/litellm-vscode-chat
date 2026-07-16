@@ -72,11 +72,14 @@ export async function sendChatRequest(
 		});
 	}
 	const supportsPromptCaching = promptCachingSupport.get(model.id) === true;
+	const cachingActive = promptCachingEnabled && supportsPromptCaching;
 	const openaiMessages = convertMessages(messages, {
-		cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
+		cacheSystemPrompt: cachingActive,
+		cacheConversation: cachingActive,
+		cacheFirstUserMessage: cachingActive,
 	});
 	validateRequest(messages);
-	const toolConfig = convertTools(options);
+	const toolConfig = convertTools(options, { cacheTools: cachingActive });
 
 	if (options.tools && options.tools.length > 128) {
 		throw new Error("Cannot have more than 128 tools per request.");

@@ -199,7 +199,7 @@ The provider fetches model metadata from LiteLLM's `/v1/model/info` endpoint:
 - **Extended metadata**: Captures `supports_response_schema`, `supports_reasoning`, `supports_pdf_input`, `supported_openai_params` for diagnostics and future use
 - **Vision detection**: Sets `imageInput` capability from `supports_vision`; includes `pdf` in `input_modalities` from `supports_pdf_input`
 - **Cache management**: Only clears cache on successful fetch to preserve data on failure
-- **Cache control**: Adds `cache_control` blocks to system messages for supported models when enabled
+- **Cache control**: Adds `cache_control` breakpoints to tools, the system prompt, the first user message, and the rolling conversation for supported models when enabled
 
 Prompt caching is controlled by `promptCaching.enabled` setting (default: true) and only affects models that advertise support.
 

@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { convertMessages } from "../../shared/messages";
+import type { OpenAIChatMessage, OpenAIChatTextContentBlock } from "../../types";
 
 interface OpenAIToolCall {
 	id: string;
@@ -13,6 +14,20 @@ interface ConvertedMessage {
 	name?: string;
 	tool_calls?: OpenAIToolCall[];
 	tool_call_id?: string;
+}
+
+function cacheControlCount(messages: OpenAIChatMessage[]): number {
+	return messages.reduce((count, message) => {
+		if (!Array.isArray(message.content)) {
+			return count;
+		}
+		return (
+			count +
+			message.content.filter(
+				(block) => block.type === "text" && (block as OpenAIChatTextContentBlock).cache_control !== undefined
+			).length
+		);
+	}, 0);
 }
 
 suite("shared/messages", () => {
@@ -223,5 +238,114 @@ suite("shared/messages", () => {
 		const out = convertMessages(messages);
 		assert.equal(typeof out[0].content, "string");
 		assert.equal(out[0].content, "test");
+	});
+
+	test("caches only the first user message when requested", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: 0 as vscode.LanguageModelChatMessageRole,
+				content: [new vscode.LanguageModelTextPart("system prompt")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("preamble")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("first task")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("follow-up")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, { cacheFirstUserMessage: true });
+
+		assert.equal(cacheControlCount(out), 1);
+		assert.deepEqual(out[2].content, [{ type: "text", text: "first task", cache_control: { type: "ephemeral" } }]);
+		assert.equal(out[0].content, "system prompt");
+		assert.equal(out[1].content, "preamble");
+		assert.equal(out[3].content, "follow-up");
+	});
+
+	test("caches the last text-bearing message and skips a trailing tool-call-only message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("task")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("working")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelToolCallPart("call1", "search", { q: "test" })],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, { cacheConversation: true });
+
+		assert.equal(cacheControlCount(out), 1);
+		assert.deepEqual(out[1].content, [{ type: "text", text: "working", cache_control: { type: "ephemeral" } }]);
+		assert.equal(out[2].content, undefined);
+	});
+
+	test("first-user and rolling cache markers are idempotent", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("single task")],
+				name: undefined,
+			},
+		];
+		const options = { cacheFirstUserMessage: true, cacheConversation: true };
+
+		const first = convertMessages(messages, options);
+		const second = convertMessages(messages, options);
+
+		assert.equal(cacheControlCount(first), 1);
+		assert.deepEqual(first, second);
+	});
+
+	test("combined message caching never uses more than three breakpoints", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: 0 as vscode.LanguageModelChatMessageRole,
+				content: [new vscode.LanguageModelTextPart("system one")],
+				name: undefined,
+			},
+			{
+				role: 0 as vscode.LanguageModelChatMessageRole,
+				content: [new vscode.LanguageModelTextPart("system two")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("task")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("response")],
+				name: undefined,
+			},
+		];
+
+		const out = convertMessages(messages, {
+			cacheSystemPrompt: true,
+			cacheFirstUserMessage: true,
+			cacheConversation: true,
+		});
+
+		assert.equal(cacheControlCount(out), 3);
 	});
 });

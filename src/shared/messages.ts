@@ -116,14 +116,35 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
 	return text;
 }
 
+function applyCacheControlToMessage(message: OpenAIChatMessage): boolean {
+	if (typeof message.content === "string") {
+		if (message.content.length === 0) {
+			return false;
+		}
+		message.content = [{ type: "text", text: message.content, cache_control: { type: "ephemeral" } }];
+		return true;
+	}
+	if (Array.isArray(message.content)) {
+		for (let i = message.content.length - 1; i >= 0; i--) {
+			const block = message.content[i];
+			if (block.type === "text") {
+				block.cache_control = { type: "ephemeral" };
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 /**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
-	options?: { cacheSystemPrompt?: boolean }
+	options?: { cacheSystemPrompt?: boolean; cacheConversation?: boolean; cacheFirstUserMessage?: boolean }
 ): OpenAIChatMessage[] {
 	const out: OpenAIChatMessage[] = [];
+	let systemPromptCached = false;
 	for (const m of messages) {
 		const role = mapRole(m);
 		const textParts: string[] = [];
@@ -195,7 +216,7 @@ export function convertMessages(
 		} else {
 			const text = textParts.join("");
 			if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
-				if (role === "system" && options?.cacheSystemPrompt) {
+				if (role === "system" && options?.cacheSystemPrompt && !systemPromptCached) {
 					const content: OpenAIChatContentBlock[] = [
 						{
 							type: "text",
@@ -204,11 +225,29 @@ export function convertMessages(
 						},
 					];
 					out.push({ role, content });
+					systemPromptCached = true;
 				} else {
 					out.push({ role, content: text });
 				}
 			}
 		}
 	}
+
+	if (options?.cacheFirstUserMessage) {
+		for (const message of out) {
+			if (message.role === "user" && applyCacheControlToMessage(message)) {
+				break;
+			}
+		}
+	}
+
+	if (options?.cacheConversation) {
+		for (let i = out.length - 1; i >= 0; i--) {
+			if (applyCacheControlToMessage(out[i])) {
+				break;
+			}
+		}
+	}
+
 	return out;
 }
