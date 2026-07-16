@@ -1220,6 +1220,48 @@ suite("provider", () => {
 			assert.ok(infos.length > 0);
 		});
 
+		test("blocked models from model/info are not registered", async () => {
+			const originalFetch = global.fetch;
+			let modelsAttempted = false;
+			try {
+				global.fetch = async (url: string | URL | Request) => {
+					if (url.toString().includes("/v1/models")) {
+						modelsAttempted = true;
+						throw new Error("Unexpected fallback");
+					}
+					return {
+						ok: true,
+						json: async () => ({
+							data: [
+								{ model_name: "active-model", model_info: { blocked: false } },
+								{ model_name: "blocked-model", model_info: { blocked: true } },
+							],
+						}),
+					} as unknown as Response;
+				};
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.ok(infos.some((info) => info.id === "active-model"));
+				assert.ok(!infos.some((info) => info.id === "blocked-model"));
+				assert.equal(modelsAttempted, false);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
 		test("sends configured custom headers during model discovery", async () => {
 			const originalFetch = global.fetch;
 			const originalGetConfiguration = vscode.workspace.getConfiguration;

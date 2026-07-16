@@ -130,18 +130,19 @@ export async function fetchModels(
 				log("First model/info sample:", JSON.stringify(data[0], null, 2));
 			}
 
-			const first = data[0] as LiteLLMModelItem | undefined;
+			const availableData = data.filter((item) => (item as LiteLLMModelInfoItem).model_info?.blocked !== true);
+			const first = availableData[0] as LiteLLMModelItem | undefined;
 			if (first && typeof (first as LiteLLMModelItem).id === "string" && Array.isArray(first.providers)) {
-				const models = data as LiteLLMModelItem[];
+				const models = availableData as LiteLLMModelItem[];
 				log("Successfully fetched models:", models.length);
 				return { models };
 			}
 
-			const models = data
+			const models = availableData
 				.map((item) => mapModelInfoToLiteLLMModel(item as LiteLLMModelInfoItem))
 				.filter((m): m is LiteLLMModelItem => Boolean(m));
-			if (data.length > 0 && models.length === 0) {
-				log("model/info returned data but no mappable models; falling back", { dataLength: data.length });
+			if (availableData.length > 0 && models.length === 0) {
+				log("model/info returned data but no mappable models; falling back", { dataLength: availableData.length });
 			} else {
 				log("Successfully fetched models:", models.length);
 				return { models };

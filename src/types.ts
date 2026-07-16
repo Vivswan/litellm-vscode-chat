@@ -126,6 +126,7 @@ export interface LiteLLMModelInfoItem {
 		model?: string;
 	};
 	model_info?: {
+		blocked?: boolean;
 		id?: string;
 		key?: string;
 		max_tokens?: number | null;
