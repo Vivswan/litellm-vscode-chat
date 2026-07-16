@@ -778,7 +778,11 @@ suite("provider", () => {
 		async function captureRequest(
 			provider: LiteLLMChatModelProvider,
 			model: vscode.LanguageModelChatInformation,
-			opts: unknown
+			opts: unknown,
+			request?: {
+				messages?: vscode.LanguageModelChatMessage[];
+				supportsPromptCaching?: boolean;
+			}
 		): Promise<{ body: Record<string, unknown>; headers: Record<string, string> }> {
 			const originalFetch = global.fetch;
 			let capturedBody: Record<string, unknown> = {};
@@ -793,9 +797,15 @@ suite("provider", () => {
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
+				if (request?.supportsPromptCaching) {
+					(provider as unknown as { _promptCachingSupport: Map<string, boolean> })._promptCachingSupport.set(
+						model.id,
+						true
+					);
+				}
 				await provider.provideLanguageModelChatResponse(
 					model,
-					[
+					request?.messages ?? [
 						{
 							role: vscode.LanguageModelChatMessageRole.User,
 							content: [new vscode.LanguageModelTextPart("test")],
@@ -862,6 +872,71 @@ suite("provider", () => {
 				toolMode: vscode.LanguageModelChatToolMode.Auto,
 			});
 			assert.deepEqual(body.stream_options, { include_usage: true });
+		});
+
+		test("prompt caching emits four breakpoints only for supported models", async () => {
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: 0 as vscode.LanguageModelChatMessageRole,
+					content: [new vscode.LanguageModelTextPart("system prompt")],
+					name: undefined,
+				},
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("original task")],
+					name: undefined,
+				},
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [new vscode.LanguageModelTextPart("working")],
+					name: undefined,
+				},
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("continue")],
+					name: undefined,
+				},
+			];
+			const options = {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				tools: [
+					{ name: "read_file", description: "Read", inputSchema: {} },
+					{ name: "write_file", description: "Write", inputSchema: {} },
+				],
+			};
+
+			const cached = await captureRequest(createConfiguredProvider(), modelInfo, options, {
+				messages,
+				supportsPromptCaching: true,
+			});
+			const uncached = await captureRequest(createConfiguredProvider(), modelInfo, options, { messages });
+
+			assert.equal((JSON.stringify(cached.body).match(/"cache_control"/g) ?? []).length, 4);
+			assert.equal((JSON.stringify(uncached.body).match(/"cache_control"/g) ?? []).length, 0);
+
+			const tools = cached.body.tools as Array<{ cache_control?: { type: string } }>;
+			assert.equal(tools[0].cache_control, undefined);
+			assert.deepEqual(tools[1].cache_control, { type: "ephemeral" });
+
+			const cachedMessages = cached.body.messages as Array<{
+				role: string;
+				content: string | Array<{ cache_control?: { type: string } }>;
+			}>;
+			assert.deepEqual((cachedMessages[0].content as Array<unknown>)[0], {
+				type: "text",
+				text: "system prompt",
+				cache_control: { type: "ephemeral" },
+			});
+			assert.deepEqual((cachedMessages[1].content as Array<unknown>)[0], {
+				type: "text",
+				text: "original task",
+				cache_control: { type: "ephemeral" },
+			});
+			assert.deepEqual((cachedMessages[3].content as Array<unknown>)[0], {
+				type: "text",
+				text: "continue",
+				cache_control: { type: "ephemeral" },
+			});
 		});
 
 		test("includes configured custom headers on chat requests", async () => {

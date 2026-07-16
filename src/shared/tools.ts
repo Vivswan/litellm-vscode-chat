@@ -160,7 +160,10 @@ export function sanitizeSchema(input: unknown, propName?: string): Record<string
  * Convert VS Code tool definitions to OpenAI function tool definitions.
  * @param options Request options containing tools and toolMode.
  */
-export function convertTools(options: vscode.ProvideLanguageModelChatResponseOptions): {
+export function convertTools(
+	options: vscode.ProvideLanguageModelChatResponseOptions,
+	convertOptions?: { cacheTools?: boolean }
+): {
 	tools?: OpenAIFunctionToolDef[];
 	tool_choice?: "auto" | "required" | { type: "function"; function: { name: string } };
 } {
@@ -184,6 +187,10 @@ export function convertTools(options: vscode.ProvideLanguageModelChatResponseOpt
 				},
 			} satisfies OpenAIFunctionToolDef;
 		});
+
+	if (convertOptions?.cacheTools && toolDefs.length > 0) {
+		toolDefs[toolDefs.length - 1].cache_control = { type: "ephemeral" };
+	}
 
 	let tool_choice: "auto" | "required" | { type: "function"; function: { name: string } } = "auto";
 	if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
