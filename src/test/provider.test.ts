@@ -1357,6 +1357,76 @@ suite("provider", () => {
 			}
 		});
 
+		test("model/info max_tokens is used in chat requests", async () => {
+			const originalFetch = global.fetch;
+			let capturedBody: Record<string, unknown> | undefined;
+			try {
+				global.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+					if (String(url).endsWith("/v1/model/info")) {
+						return {
+							ok: true,
+							json: async () => ({
+								data: [
+									{
+										model_name: "model-info-max-tokens",
+										model_info: {
+											max_tokens: 8192,
+										},
+									},
+								],
+							}),
+						} as unknown as Response;
+					}
+
+					capturedBody = JSON.parse(init?.body as string);
+					const chunk = `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+					return {
+						ok: true,
+						body: new ReadableStream({
+							start(controller) {
+								controller.enqueue(new TextEncoder().encode(chunk));
+								controller.close();
+							},
+						}),
+					} as unknown as Response;
+				};
+
+				const provider = new LiteLLMChatModelProvider(
+					{
+						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+						store: async () => {},
+						delete: async () => {},
+						onDidChange: (_listener: unknown) => ({ dispose() {} }),
+					} as unknown as vscode.SecretStorage,
+					"GitHubCopilotChat/test VSCode/test"
+				);
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				const model = infos.find((info) => info.id === "model-info-max-tokens");
+				assert.ok(model);
+
+				await provider.provideLanguageModelChatResponse(
+					model,
+					[
+						{
+							role: vscode.LanguageModelChatMessageRole.User,
+							content: [new vscode.LanguageModelTextPart("test")],
+							name: undefined,
+						},
+					],
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.equal(capturedBody?.max_tokens, 8192);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
 		test("model/info malformed numeric strings are ignored", async () => {
 			const originalFetch = global.fetch;
 			try {

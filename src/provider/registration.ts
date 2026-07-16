@@ -8,6 +8,7 @@ export interface RegistrationResult {
 	infos: LanguageModelChatInformation[];
 	routes: Map<string, ModelRoute>;
 	promptCaching: Map<string, boolean>;
+	maxTokensFromModelInfo: Map<string, boolean>;
 }
 
 function withUserSelectableMetadata(info: LanguageModelChatInformation): LanguageModelChatInformation {
@@ -31,6 +32,7 @@ export function buildModelInfos(
 ): RegistrationResult {
 	const routes = new Map<string, ModelRoute>();
 	const promptCaching = new Map<string, boolean>();
+	const maxTokensFromModelInfo = new Map<string, boolean>();
 
 	const registerRoute = (exposedId: string, rawId: string) => {
 		routes.set(exposedId, {
@@ -52,6 +54,10 @@ export function buildModelInfos(
 			const constraints = getTokenConstraints(providers[0]);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			promptCaching.set(exposedId, providers[0].supports_prompt_caching === true);
+			maxTokensFromModelInfo.set(
+				exposedId,
+				providers[0].max_output_tokens !== undefined || providers[0].max_tokens !== undefined
+			);
 			registerRoute(exposedId, m.id);
 			return [
 				{
@@ -189,5 +195,5 @@ export function buildModelInfos(
 		return entries;
 	});
 
-	return { infos: infos.map(withUserSelectableMetadata), routes, promptCaching };
+	return { infos: infos.map(withUserSelectableMetadata), routes, promptCaching, maxTokensFromModelInfo };
 }
