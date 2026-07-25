@@ -7,15 +7,7 @@ import type {
 	OpenAIChatRole,
 	OpenAIToolCall,
 } from "../types";
-
-function isImageMimeType(mime: string): boolean {
-	return mime.toLowerCase().startsWith("image/");
-}
-
-function isTextMimeType(mime: string): boolean {
-	const lower = mime.toLowerCase();
-	return lower.startsWith("text/") || lower === "application/json" || lower.endsWith("+json");
-}
+import { isImageMimeType, isTextMimeType } from "./mime";
 
 function convertDataPartToContentBlock(
 	part: vscode.LanguageModelDataPart

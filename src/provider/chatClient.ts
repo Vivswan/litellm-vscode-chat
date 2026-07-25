@@ -1,20 +1,21 @@
+import type * as vscode from "vscode";
 import type {
 	LanguageModelChatInformation,
 	LanguageModelChatRequestMessage,
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
-import * as vscode from "vscode";
 import type { Logger } from "../shared/logger";
 import { convertMessages } from "../shared/messages";
 import type { ServerWithKey } from "../shared/servers";
+import { getCustomHeaders, getDiscoveryTimeout, getRequestTimeout, isPromptCachingEnabled } from "../shared/settings";
+import { estimateMessagesTokens, estimateToolTokens } from "../shared/tokenEstimation";
 import { convertTools } from "../shared/tools";
 import { validateRequest } from "../shared/validation";
 import { resolveServer } from "./config";
 import type { FetchModelsResult } from "./discovery";
 import { fetchModels } from "./discovery";
-import { getCustomHeaders } from "./httpHeaders";
-import type { ModelRoute } from "./request";
-import { buildRequestBody, estimateMessagesTokens, estimateToolTokens, getModelParameters } from "./request";
+import type { ModelRoute } from "./modelCatalog";
+import { buildRequestBody, DEFAULT_MAX_TOKENS_CAP, getModelParameters, MAX_TOOLS_PER_REQUEST } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
 
@@ -77,17 +78,8 @@ export class ChatClient {
 	}
 
 	async fetchModels(server: ServerWithKey): Promise<FetchModelsResult> {
-		const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const rawDiscoveryTimeout = settings.get<number>("discoveryTimeout", 30000);
 		const customHeaders = getCustomHeaders(this.log);
-		// Validate and clamp discoveryTimeout to minimum 1000ms
-		const discoveryTimeout = Math.max(1000, Number.isFinite(rawDiscoveryTimeout) ? rawDiscoveryTimeout : 30000);
-		if (rawDiscoveryTimeout !== discoveryTimeout) {
-			this.log("Invalid discoveryTimeout configuration, using clamped value", {
-				configured: rawDiscoveryTimeout,
-				clamped: discoveryTimeout,
-			});
-		}
+		const discoveryTimeout = getDiscoveryTimeout(this.log);
 		return fetchModels({
 			server,
 			userAgent: this.userAgent,
@@ -128,18 +120,9 @@ export class ChatClient {
 			}
 		}
 
-		const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const promptCachingEnabled = settings.get<boolean>("promptCaching.enabled", true);
+		const promptCachingEnabled = isPromptCachingEnabled();
 		const customHeaders = getCustomHeaders(this.log);
-		const rawRequestTimeout = settings.get<number>("requestTimeout", 300000);
-		// Validate and clamp requestTimeout to minimum 1000ms
-		const requestTimeout = Math.max(1000, Number.isFinite(rawRequestTimeout) ? rawRequestTimeout : 300000);
-		if (rawRequestTimeout !== requestTimeout) {
-			this.log("Invalid requestTimeout configuration, using clamped value", {
-				configured: rawRequestTimeout,
-				clamped: requestTimeout,
-			});
-		}
+		const requestTimeout = getRequestTimeout(this.log);
 		const supportsPromptCaching = this._promptCachingSupport.get(model.id) === true;
 		const openaiMessages = convertMessages(messages, {
 			cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
@@ -147,11 +130,11 @@ export class ChatClient {
 		validateRequest(messages);
 		const toolConfig = convertTools(options);
 
-		if (options.tools && options.tools.length > 128) {
-			throw new Error("Cannot have more than 128 tools per request.");
+		if (options.tools && options.tools.length > MAX_TOOLS_PER_REQUEST) {
+			throw new Error(`Cannot have more than ${MAX_TOOLS_PER_REQUEST} tools per request.`);
 		}
 
-		const inputTokenCount = estimateMessagesTokens(messages);
+		const inputTokenCount = estimateMessagesTokens(messages, { includeMultimodal: false });
 		const toolTokenCount = estimateToolTokens(toolConfig.tools);
 		const tokenLimit = Math.max(1, model.maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {
@@ -167,7 +150,7 @@ export class ChatClient {
 		} else if (typeof modelParams.max_tokens === "number") {
 			maxTokens = modelParams.max_tokens;
 		} else {
-			maxTokens = Math.min(4096, model.maxOutputTokens);
+			maxTokens = Math.min(DEFAULT_MAX_TOKENS_CAP, model.maxOutputTokens);
 		}
 
 		const requestBody = buildRequestBody({
