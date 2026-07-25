@@ -1011,6 +1011,7 @@ suite("provider", () => {
 			global.fetch = originalFetch;
 
 			assert.ok(callbackStatus);
+			assert.strictEqual(callbackStatus!.silent, true, "The callback must carry the silent flag of the refresh");
 			assert.ok(callbackStatus!.totalModels > 0);
 			assert.ok(callbackStatus!.serverStatuses.every((s) => s.state === "ok"));
 		});

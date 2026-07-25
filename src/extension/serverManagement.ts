@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { dismissAction, openChatAction, showActionableMessage, testConnectionAction } from "./notifier";
 import type { ServerRegistry } from "./serverRegistry";
 
 export async function addServerFlow(registry: ServerRegistry, outputChannel: vscode.OutputChannel): Promise<boolean> {
@@ -57,15 +58,11 @@ export async function addServerFlow(registry: ServerRegistry, outputChannel: vsc
 	await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim());
 	outputChannel.appendLine(`[${new Date().toISOString()}] Added server "${label.trim()}" at ${baseUrl.trim()}`);
 
-	vscode.window
-		.showInformationMessage(`Server "${label.trim()}" added!`, "Test Connection", "Open Chat", "Dismiss")
-		.then((choice) => {
-			if (choice === "Test Connection") {
-				vscode.commands.executeCommand("litellm.testConnection");
-			} else if (choice === "Open Chat") {
-				vscode.commands.executeCommand("workbench.action.chat.open");
-			}
-		});
+	void showActionableMessage("info", `Server "${label.trim()}" added!`, [
+		testConnectionAction(),
+		openChatAction(),
+		dismissAction(),
+	]);
 
 	return true;
 }
@@ -155,13 +152,7 @@ export async function manageServerFlow(
 		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim());
 		outputChannel.appendLine(`[${new Date().toISOString()}] Updated server "${label.trim()}"`);
 
-		vscode.window
-			.showInformationMessage(`Server "${label.trim()}" updated!`, "Test Connection", "Dismiss")
-			.then((choice) => {
-				if (choice === "Test Connection") {
-					vscode.commands.executeCommand("litellm.testConnection");
-				}
-			});
+		void showActionableMessage("info", `Server "${label.trim()}" updated!`, [testConnectionAction(), dismissAction()]);
 	} else if (pick.action === "test") {
 		outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing all servers...`);
 		outputChannel.show(true);
