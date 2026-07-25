@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
-import { getModelParameters } from "../provider/request";
+import { findLongestPrefixMatch, getModelParameters } from "../provider/request";
 import { Logger } from "../shared/logger";
 import type { AggregatedStatus } from "../shared/servers";
 
@@ -577,6 +577,16 @@ suite("provider", () => {
 	});
 
 	suite("modelParameters configuration", () => {
+		test("findLongestPrefixMatch returns the longest matching prefix", () => {
+			const entries = { "gpt-4": "short", "gpt-4-turbo": "long" };
+			assert.strictEqual(findLongestPrefixMatch("gpt-4-turbo:openai", entries), "long");
+			assert.strictEqual(findLongestPrefixMatch("gpt-4o", entries), "short");
+		});
+
+		test("findLongestPrefixMatch returns undefined without a match", () => {
+			assert.strictEqual(findLongestPrefixMatch("claude-3", { "gpt-4": 1 }), undefined);
+		});
+
 		test("exact model ID match returns parameters", () => {
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
@@ -871,7 +881,7 @@ suite("provider", () => {
 			}
 		});
 
-		test("unmatched model gets built-in fallback defaults (temperature 0.7)", async () => {
+		test("no parameters are injected when the user configures none", async () => {
 			const originalGetConfig = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
 				if (section === "litellm-vscode-chat") {
@@ -890,40 +900,25 @@ suite("provider", () => {
 				const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 				});
-				assert.strictEqual(body.temperature, 0.7);
-			} finally {
-				vscode.workspace.getConfiguration = originalGetConfig;
-			}
-		});
-
-		test("gpt-5.5 model gets no built-in temperature", async () => {
-			const originalGetConfig = vscode.workspace.getConfiguration;
-			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat") {
-					return {
-						get: (key: string) => {
-							if (key === "modelParameters") {
-								return {};
-							}
-							return undefined;
-						},
-					};
+				assert.strictEqual(body.temperature, undefined, "No temperature may be injected");
+				const allowed = new Set([
+					"model",
+					"messages",
+					"stream",
+					"stream_options",
+					"max_tokens",
+					"tools",
+					"tool_choice",
+				]);
+				for (const key of Object.keys(body)) {
+					assert.ok(allowed.has(key), `Unexpected injected request field: ${key}`);
 				}
-				return originalGetConfig(section!);
-			}) as typeof vscode.workspace.getConfiguration;
-			try {
-				const body = await captureRequestBody(
-					createConfiguredProvider(),
-					{ ...modelInfo, id: "gpt-5.5:openai" },
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto }
-				);
-				assert.strictEqual(body.temperature, undefined);
 			} finally {
 				vscode.workspace.getConfiguration = originalGetConfig;
 			}
 		});
 
-		test("_replaceDefaults: true skips codebase defaults", async () => {
+		test("underscore-prefixed keys in modelParameters are not forwarded", async () => {
 			const originalGetConfig = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
 				if (section === "litellm-vscode-chat") {
@@ -942,35 +937,9 @@ suite("provider", () => {
 				const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 				});
-				assert.strictEqual(body.temperature, undefined);
 				assert.strictEqual(body.top_p, 0.9);
-				assert.strictEqual(body._replaceDefaults, undefined);
-			} finally {
-				vscode.workspace.getConfiguration = originalGetConfig;
-			}
-		});
-
-		test("user config without _replaceDefaults merges onto codebase defaults", async () => {
-			const originalGetConfig = vscode.workspace.getConfiguration;
-			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat") {
-					return {
-						get: (key: string) => {
-							if (key === "modelParameters") {
-								return { "test-model": { top_p: 0.8 } };
-							}
-							return undefined;
-						},
-					};
-				}
-				return originalGetConfig(section!);
-			}) as typeof vscode.workspace.getConfiguration;
-			try {
-				const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-				});
-				assert.strictEqual(body.temperature, 0.7);
-				assert.strictEqual(body.top_p, 0.8);
+				assert.strictEqual(body._replaceDefaults, undefined, "Retired extension metadata must not reach the server");
+				assert.strictEqual(body.temperature, undefined);
 			} finally {
 				vscode.workspace.getConfiguration = originalGetConfig;
 			}

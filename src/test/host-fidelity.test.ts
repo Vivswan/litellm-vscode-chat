@@ -332,21 +332,21 @@ suite("Host-Fidelity Tests (capture)", () => {
 			assert.ok(typeof body.max_tokens === "number", "max_tokens should be a number");
 		});
 
-		test("modelParameters merge onto built-in defaults through the host path", async () => {
-			await withModelParameters({ [model.id]: { top_p: 0.9 } }, async () => {
-				const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
-				assert.strictEqual(body.temperature, 0.7, "Built-in default temperature should still be present");
-				assert.strictEqual(body.top_p, 0.9, "Configured parameter should be merged into the request");
-				assert.strictEqual(body._replaceDefaults, undefined, "Extension metadata must not leak into the request");
-			});
+		test("no temperature is injected through the host path unless configured", async () => {
+			const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
+			assert.strictEqual(body.temperature, undefined, "No temperature may be injected without configuration");
 		});
 
-		test("_replaceDefaults skips built-in defaults through the host path", async () => {
-			await withModelParameters({ [model.id]: { _replaceDefaults: true, top_p: 0.9 } }, async () => {
+		test("configured modelParameters pass through the host path unchanged", async () => {
+			await withModelParameters({ [model.id]: { _replaceDefaults: true, top_p: 0.9, temperature: 0.4 } }, async () => {
 				const { body } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
-				assert.strictEqual(body.temperature, undefined, "Built-in temperature should be omitted when replacing");
-				assert.strictEqual(body.top_p, 0.9, "Configured parameter should still be forwarded");
-				assert.strictEqual(body._replaceDefaults, undefined, "Extension metadata must not leak into the request");
+				assert.strictEqual(body.temperature, 0.4, "Configured temperature should be forwarded");
+				assert.strictEqual(body.top_p, 0.9, "Configured parameter should be forwarded");
+				assert.strictEqual(
+					body._replaceDefaults,
+					undefined,
+					"Retired extension metadata must not leak into the request"
+				);
 			});
 		});
 
