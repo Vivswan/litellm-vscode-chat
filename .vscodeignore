@@ -1,10 +1,29 @@
+# Sources, tests, and build inputs — the package ships compiled JS from out/ only
+src/**
+out/test/**
+**/*.ts
+**/*.map
+**/tsconfig*.json
+
+# Tooling and development environment
+scripts/**
+node_modules/**
 .vscode/**
 .vscode-test/**
-src/**
+.vscode-test.mjs
+.devcontainer/**
+.github/**
+.husky/**
+biome.json
+bun.lock
+.editorconfig
+.gitattributes
 .gitignore
-.yarnrc
-webpack.config.js
-vsc-extension-quickstart.md
-**/tsconfig.json
-**/*.map
-**/*.ts
+
+# Repository docs and release automation (not needed at runtime)
+AGENTS.md
+CLAUDE.md
+CONTRIBUTING.md
+SECURITY.md
+release-please-config.json
+.release-please-manifest.json

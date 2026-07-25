@@ -10,11 +10,13 @@ async function main(): Promise<void> {
 		.map((entry) => path.join(workflowsDir, entry.name))
 		.sort();
 
-	const lint = await createLinter();
 	const findings: LintResult[] = [];
 
 	for (const file of files) {
 		const input = await fs.readFile(file, "utf8");
+		// A fresh linter per file: reusing one instance grows the WASM memory
+		// across calls until the actionlint wrapper crashes out of bounds.
+		const lint = await createLinter();
 		findings.push(...lint(input, path.relative(process.cwd(), file)));
 	}
 

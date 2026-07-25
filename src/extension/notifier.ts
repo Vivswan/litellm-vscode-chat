@@ -47,6 +47,10 @@ export function openChatAction(label = "Open Chat"): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand("workbench.action.chat.open") };
 }
 
+export function openSettingsAction(query: string, label = "Open Settings"): MessageAction {
+	return { label, run: () => void vscode.commands.executeCommand("workbench.action.openSettings", query) };
+}
+
 export function dismissAction(): MessageAction {
 	return { label: "Dismiss", run: () => {} };
 }
