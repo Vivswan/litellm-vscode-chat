@@ -1,15 +1,83 @@
 import * as vscode from "vscode";
 import { tryParseJSONObject } from "../shared/json";
+import type { ChatCompletionChunk, ChunkChoice, ChunkDelta, ToolCallBuffer } from "../types";
+import { parseChunk } from "../types";
+import type { TextParseResult, TextToolCall } from "./textToolCallParser";
+import { TextToolCallParser } from "./textToolCallParser";
+
+export type ThinkingPartCtor = new (text: string, id?: string, metadata?: unknown) => vscode.LanguageModelResponsePart;
+
+// LanguageModelThinkingPart is still a proposed API, and hosts may expose
+// proposed classes behind throwing getters, so the single property read is
+// probed once at module load. A probe failure is kept for the processor to log.
+const defaultThinkingProbe: { ctor: ThinkingPartCtor | undefined; error?: string } = (() => {
+	try {
+		const ctor = (vscode as unknown as Record<string, unknown>).LanguageModelThinkingPart;
+		return { ctor: typeof ctor === "function" ? (ctor as unknown as ThinkingPartCtor) : undefined };
+	} catch (e) {
+		return { ctor: undefined, error: String(e) };
+	}
+})();
+
+export interface ThinkingContent {
+	text: string;
+	id?: string;
+	metadata?: unknown;
+}
+
+/**
+ * Extract thinking/reasoning text from a streaming choice. Covers the three
+ * provider formats: a structured thinking object (choice- or delta-level),
+ * a reasoning_content string, and a reasoning string.
+ */
+export function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefined): ThinkingContent | undefined {
+	const raw = choice.thinking ?? delta?.thinking ?? delta?.reasoning_content ?? delta?.reasoning;
+	if (raw === undefined) {
+		return undefined;
+	}
+	if (typeof raw === "string") {
+		return raw ? { text: raw } : undefined;
+	}
+	const text = typeof raw.text === "string" ? raw.text : "";
+	return text ? { text, id: raw.id, metadata: raw.metadata } : undefined;
+}
+
+function normalizeToolCallIndex(index: number | string | undefined): number {
+	if (typeof index === "number") {
+		return index;
+	}
+	if (typeof index === "string" && index.trim() !== "") {
+		const parsed = Number(index);
+		if (Number.isFinite(parsed)) {
+			return parsed;
+		}
+	}
+	return 0;
+}
 
 interface RequestState {
-	toolCallBuffers: Map<number, { id?: string; name?: string; args: string }>;
+	toolCallBuffers: Map<number, ToolCallBuffer>;
 	completedToolCallIndices: Set<number>;
 	hasEmittedAssistantText: boolean;
 	emittedBeginToolCallsHint: boolean;
-	textToolParserBuffer: string;
-	textToolActive: undefined | { name?: string; index?: number; argBuffer: string; emitted?: boolean };
-	emittedTextToolCallKeys: Set<string>;
-	emittedTextToolCallIds: Set<string>;
+	textParser: TextToolCallParser;
+	/** Inline calls already decided (emitted or deduped) while provisional, so their completion is not re-emitted. */
+	handledTextCallSeqs: Set<number>;
+	/** name:index pairs from inline headers, deduping re-sent inline calls that carry an explicit index. */
+	inlineEmittedIndexIds: Set<string>;
+	/** name:args keys of emitted inline calls, deduping re-sent inline calls without an explicit index. */
+	inlineEmittedContentKeys: Set<string>;
+	/**
+	 * Per-channel counts of emitted name:args keys. A call arriving on one
+	 * channel consumes one pending count from the other channel (the same call
+	 * surfaced twice) and is suppressed; with no pending count it emits and
+	 * increments its own channel. N delta plus M inline occurrences of the same
+	 * key therefore emit max(N, M) calls, so identical parallel calls on one
+	 * channel all survive while cross-channel duplicates collapse in either
+	 * arrival order.
+	 */
+	deltaEmittedCounts: Map<string, number>;
+	inlineEmittedCounts: Map<string, number>;
 }
 
 export function freshRequestState(): RequestState {
@@ -18,10 +86,12 @@ export function freshRequestState(): RequestState {
 		completedToolCallIndices: new Set(),
 		hasEmittedAssistantText: false,
 		emittedBeginToolCallsHint: false,
-		textToolParserBuffer: "",
-		textToolActive: undefined,
-		emittedTextToolCallKeys: new Set(),
-		emittedTextToolCallIds: new Set(),
+		textParser: new TextToolCallParser(),
+		handledTextCallSeqs: new Set(),
+		inlineEmittedIndexIds: new Set(),
+		inlineEmittedContentKeys: new Set(),
+		deltaEmittedCounts: new Map(),
+		inlineEmittedCounts: new Map(),
 	};
 }
 
@@ -29,11 +99,20 @@ export class StreamProcessor {
 	private _req: RequestState;
 	private _toolCallIdCounter: number;
 	private _log: (message: string, data?: unknown) => void;
+	private _thinkingPartCtor: ThinkingPartCtor | undefined;
 
-	constructor(initialIdCounter: number, log: (message: string, data?: unknown) => void) {
+	constructor(
+		initialIdCounter: number,
+		log: (message: string, data?: unknown) => void,
+		thinkingPartCtor: ThinkingPartCtor | null | undefined = defaultThinkingProbe.ctor
+	) {
 		this._req = freshRequestState();
 		this._toolCallIdCounter = initialIdCounter;
 		this._log = log;
+		this._thinkingPartCtor = thinkingPartCtor ?? undefined;
+		if (thinkingPartCtor === defaultThinkingProbe.ctor && defaultThinkingProbe.error) {
+			this._log("LanguageModelThinkingPart probe failed", { error: defaultThinkingProbe.error });
+		}
 	}
 
 	get toolCallIdCounter(): number {
@@ -70,102 +149,71 @@ export class StreamProcessor {
 					}
 					const data = line.slice(6);
 					if (data === "[DONE]") {
-						await this.flushToolCallBuffers(progress, false);
-						await this.flushActiveTextToolCall(progress);
+						this.finishStream(progress, !token.isCancellationRequested);
 						continue;
 					}
 
+					let chunk: ChatCompletionChunk | undefined;
 					try {
-						const parsed = JSON.parse(data);
-						await this.processDelta(parsed, progress);
+						chunk = parseChunk(JSON.parse(data));
 					} catch (e) {
 						this._log("Skipping malformed SSE line", { error: String(e), data: data.slice(0, 200) });
+						continue;
 					}
+					if (!chunk) {
+						this._log("Skipping malformed SSE line", { data: data.slice(0, 200) });
+						continue;
+					}
+					this.processDelta(chunk, progress, token);
 				}
 			}
+			this.finishStream(progress, !token.isCancellationRequested);
 		} finally {
 			reader.releaseLock();
 			this._req = freshRequestState();
 		}
 	}
 
-	async processDelta(
-		delta: Record<string, unknown>,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>
-	): Promise<boolean> {
+	processDelta(
+		chunk: ChatCompletionChunk,
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		token?: vscode.CancellationToken
+	): boolean {
 		let emitted = false;
 
-		const usage = delta.usage as Record<string, unknown> | undefined;
-		if (usage) {
-			this._log("Token usage", usage);
+		if (chunk.usage) {
+			this._log("Token usage", chunk.usage);
 		}
 
-		const choice = (delta.choices as Record<string, unknown>[] | undefined)?.[0];
+		const choice = chunk.choices?.[0];
 		if (!choice) {
 			return false;
 		}
+		const delta = choice.delta;
 
-		const deltaObj = choice.delta as Record<string, unknown> | undefined;
-
-		try {
-			const maybeThinking =
-				(choice as Record<string, unknown> | undefined)?.thinking ??
-				(deltaObj as Record<string, unknown> | undefined)?.thinking ??
-				(deltaObj as Record<string, unknown> | undefined)?.reasoning_content ??
-				(deltaObj as Record<string, unknown> | undefined)?.reasoning;
-			if (maybeThinking !== undefined) {
-				const vsAny = vscode as unknown as Record<string, unknown>;
-				const ThinkingCtor = vsAny.LanguageModelThinkingPart as
-					| (new (
-							text: string,
-							id?: string,
-							metadata?: unknown
-					  ) => unknown)
-					| undefined;
-				if (ThinkingCtor) {
-					let text = "";
-					let id: string | undefined;
-					let metadata: unknown;
-					if (maybeThinking && typeof maybeThinking === "object") {
-						const mt = maybeThinking as Record<string, unknown>;
-						text = typeof mt.text === "string" ? (mt.text as string) : "";
-						id = typeof mt.id === "string" ? (mt.id as string) : undefined;
-						metadata = mt.metadata;
-					} else if (typeof maybeThinking === "string") {
-						text = maybeThinking;
-					}
-					if (text) {
-						progress.report(
-							new (ThinkingCtor as new (text: string, id?: string, metadata?: unknown) => unknown)(
-								text,
-								id,
-								metadata
-							) as unknown as vscode.LanguageModelResponsePart
-						);
-						emitted = true;
-					}
-				}
+		const thinking = extractThinking(choice, delta);
+		if (thinking && this._thinkingPartCtor) {
+			let part: vscode.LanguageModelResponsePart | undefined;
+			try {
+				part = new this._thinkingPartCtor(thinking.text, thinking.id, thinking.metadata);
+			} catch (e) {
+				this._log("Failed to construct thinking part", { error: String(e) });
 			}
-		} catch {
-			// ignore errors here temporarily
+			if (part) {
+				progress.report(part);
+				emitted = true;
+			}
 		}
 
-		if (deltaObj?.content !== undefined && deltaObj.content !== null) {
-			if (Array.isArray(deltaObj.content)) {
-				for (const block of deltaObj.content as Array<Record<string, unknown>>) {
-					if (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") {
-						const res = this.processTextContent(block.text as string, progress);
-						if (res.emittedText) {
-							this._req.hasEmittedAssistantText = true;
-						}
-						if (res.emittedAny) {
-							emitted = true;
-						}
-					}
-				}
-			} else {
-				const content = String(deltaObj.content);
-				const res = this.processTextContent(content, progress);
+		if (delta?.content !== undefined && delta.content !== null) {
+			const texts =
+				typeof delta.content === "string"
+					? [delta.content]
+					: delta.content.flatMap((block) =>
+							block.type === "text" && typeof block.text === "string" ? [block.text] : []
+						);
+			for (const text of texts) {
+				const res = this.processTextContent(text, progress);
 				if (res.emittedText) {
 					this._req.hasEmittedAssistantText = true;
 				}
@@ -175,39 +223,35 @@ export class StreamProcessor {
 			}
 		}
 
-		if (deltaObj?.tool_calls) {
-			const toolCalls = deltaObj.tool_calls as Array<Record<string, unknown>>;
-
-			if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && toolCalls.length > 0) {
+		if (delta?.tool_calls) {
+			if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && delta.tool_calls.length > 0) {
 				progress.report(new vscode.LanguageModelTextPart(" "));
 				this._req.emittedBeginToolCallsHint = true;
 			}
 
-			for (const tc of toolCalls) {
-				const idx = (tc.index as number) ?? 0;
+			for (const tc of delta.tool_calls) {
+				const idx = normalizeToolCallIndex(tc.index);
 				if (this._req.completedToolCallIndices.has(idx)) {
 					continue;
 				}
 				const buf = this._req.toolCallBuffers.get(idx) ?? { args: "" };
-				if (tc.id && typeof tc.id === "string") {
+				if (tc.id) {
 					buf.id = tc.id;
 				}
-				const func = tc.function as Record<string, unknown> | undefined;
-				if (func?.name && typeof func.name === "string") {
-					buf.name = func.name;
+				if (tc.function?.name) {
+					buf.name = tc.function.name;
 				}
-				if (typeof func?.arguments === "string") {
-					buf.args += func.arguments;
+				if (typeof tc.function?.arguments === "string") {
+					buf.args += tc.function.arguments;
 				}
 				this._req.toolCallBuffers.set(idx, buf);
 
-				await this.tryEmitBufferedToolCall(idx, progress);
+				this.tryEmitBufferedToolCall(idx, progress);
 			}
 		}
 
-		const finish = (choice.finish_reason as string | undefined) ?? undefined;
-		if (finish === "tool_calls" || finish === "stop") {
-			await this.flushToolCallBuffers(progress, true);
+		if (choice.finish_reason === "tool_calls" || choice.finish_reason === "stop") {
+			this.finishStream(progress, !token?.isCancellationRequested);
 		}
 
 		return emitted;
@@ -217,232 +261,177 @@ export class StreamProcessor {
 		input: string,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>
 	): { emittedText: boolean; emittedAny: boolean } {
-		const BEGIN = "<|tool_call_begin|>";
-		const ARG_BEGIN = "<|tool_call_argument_begin|>";
-		const END = "<|tool_call_end|>";
+		return this.handleTextParse(this._req.textParser.push(input), progress);
+	}
 
-		let data = this._req.textToolParserBuffer + input;
-		this._req.textToolParserBuffer = "";
+	private handleTextParse(
+		result: TextParseResult,
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>
+	): { emittedText: boolean; emittedAny: boolean } {
 		let emittedText = false;
 		let emittedAny = false;
-		let visibleOut = "";
 
-		while (data.length > 0) {
-			if (!this._req.textToolActive) {
-				const b = data.indexOf(BEGIN);
-				if (b === -1) {
-					const longestPartialPrefix = ((): number => {
-						for (let k = Math.min(BEGIN.length - 1, data.length - 1); k > 0; k--) {
-							if (data.endsWith(BEGIN.slice(0, k))) {
-								return k;
-							}
-						}
-						return 0;
-					})();
-					if (longestPartialPrefix > 0) {
-						const visible = data.slice(0, data.length - longestPartialPrefix);
-						if (visible) {
-							visibleOut += this.stripControlTokens(visible);
-						}
-						this._req.textToolParserBuffer = data.slice(data.length - longestPartialPrefix);
-					} else {
-						visibleOut += this.stripControlTokens(data);
-					}
-					data = "";
-					break;
-				}
-				const pre = data.slice(0, b);
-				if (pre) {
-					visibleOut += this.stripControlTokens(pre);
-				}
-				data = data.slice(b + BEGIN.length);
-
-				const a = data.indexOf(ARG_BEGIN);
-				const e = data.indexOf(END);
-				let delimIdx: number;
-				let delimKind: "arg" | "end";
-				if (a !== -1 && (e === -1 || a < e)) {
-					delimIdx = a;
-					delimKind = "arg";
-				} else if (e !== -1) {
-					delimIdx = e;
-					delimKind = "end";
-				} else {
-					this._req.textToolParserBuffer = BEGIN + data;
-					data = "";
-					break;
-				}
-
-				const header = data.slice(0, delimIdx).trim();
-				const m = header.match(/^([A-Za-z0-9_\-.]+)(?::(\d+))?/);
-				const name = m?.[1] ?? undefined;
-				const index = m?.[2] ? Number(m?.[2]) : undefined;
-				this._req.textToolActive = { name, index, argBuffer: "", emitted: false };
-				if (delimKind === "arg") {
-					data = data.slice(delimIdx + ARG_BEGIN.length);
-				} else {
-					data = data.slice(delimIdx + END.length);
-					const did = this.emitTextToolCallIfValid(progress, this._req.textToolActive, "{}");
-					if (did) {
-						this._req.textToolActive.emitted = true;
-						emittedAny = true;
-					}
-					this._req.textToolActive = undefined;
-				}
+		for (const event of result.events) {
+			if (event.type === "text") {
+				progress.report(new vscode.LanguageModelTextPart(event.text));
+				emittedText = true;
+				emittedAny = true;
 				continue;
 			}
-
-			const e2 = data.indexOf(END);
-			if (e2 === -1) {
-				this._req.textToolActive.argBuffer += data;
-				if (!this._req.textToolActive.emitted) {
-					const did = this.emitTextToolCallIfValid(
-						progress,
-						this._req.textToolActive,
-						this._req.textToolActive.argBuffer
-					);
-					if (did) {
-						this._req.textToolActive.emitted = true;
-						emittedAny = true;
-					}
-				}
-				data = "";
-				break;
-			} else {
-				this._req.textToolActive.argBuffer += data.slice(0, e2);
-				data = data.slice(e2 + END.length);
-				if (!this._req.textToolActive.emitted) {
-					const did = this.emitTextToolCallIfValid(
-						progress,
-						this._req.textToolActive,
-						this._req.textToolActive.argBuffer
-					);
-					if (did) {
-						emittedAny = true;
-					}
-				}
-				this._req.textToolActive = undefined;
+			const call = event.call;
+			if (this._req.handledTextCallSeqs.has(call.seq)) {
+				continue;
+			}
+			const parsed = tryParseJSONObject(call.args);
+			if (!parsed.ok) {
+				this._log("Dropping inline tool call with invalid JSON arguments", {
+					name: call.name,
+					snippet: call.args.slice(0, 200),
+				});
+				continue;
+			}
+			if (this.emitInlineToolCall(call, parsed.value, progress)) {
+				emittedAny = true;
 			}
 		}
 
-		const textToEmit = visibleOut;
-		if (textToEmit && textToEmit.length > 0) {
-			progress.report(new vscode.LanguageModelTextPart(textToEmit));
-			emittedText = true;
-			emittedAny = true;
+		const provisional = result.provisionalCall;
+		if (provisional && !this._req.handledTextCallSeqs.has(provisional.seq)) {
+			const parsed = tryParseJSONObject(provisional.args);
+			if (parsed.ok) {
+				this._req.handledTextCallSeqs.add(provisional.seq);
+				if (this.emitInlineToolCall(provisional, parsed.value, progress)) {
+					emittedAny = true;
+				}
+			}
 		}
 
 		return { emittedText, emittedAny };
 	}
 
-	private emitTextToolCallIfValid(
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		call: { name?: string; index?: number; argBuffer: string; emitted?: boolean },
-		argText: string
+	private emitInlineToolCall(
+		call: TextToolCall,
+		parsedArgs: Record<string, unknown>,
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>
 	): boolean {
 		const name = call.name ?? "unknown_tool";
-		const parsed = tryParseJSONObject(argText);
-		if (!parsed.ok) {
-			return false;
-		}
-		const canonical = JSON.stringify(parsed.value);
-		const key = `${name}:${canonical}`;
+		const contentKey = `${name}:${JSON.stringify(parsedArgs)}`;
 		if (typeof call.index === "number") {
-			const idKey = `${name}:${call.index}`;
-			if (this._req.emittedTextToolCallIds.has(idKey)) {
+			if (this._req.inlineEmittedIndexIds.has(`${name}:${call.index}`)) {
 				return false;
 			}
-			this._req.emittedTextToolCallIds.add(idKey);
-		} else if (this._req.emittedTextToolCallKeys.has(key)) {
+		} else if (this._req.inlineEmittedContentKeys.has(contentKey)) {
 			return false;
 		}
-		this._req.emittedTextToolCallKeys.add(key);
-		const id = `tct_${++this._toolCallIdCounter}`;
-		progress.report(new vscode.LanguageModelToolCallPart(id, name, parsed.value));
+		const emitted = this.emitToolCall(progress, { name, parsedArgs });
+		// Registered even when suppressed as a cross-channel duplicate: either way
+		// this inline call is accounted for, and a replay of it must not emit.
+		if (typeof call.index === "number") {
+			this._req.inlineEmittedIndexIds.add(`${name}:${call.index}`);
+		}
+		this._req.inlineEmittedContentKeys.add(contentKey);
+		return emitted;
+	}
+
+	private emitToolCall(
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		call: { id?: string; name: string; parsedArgs: Record<string, unknown> },
+		bufferIndex?: number
+	): boolean {
+		const source = bufferIndex === undefined ? "inline" : "delta";
+		const key = `${call.name}:${JSON.stringify(call.parsedArgs)}`;
+		const ownCounts = source === "inline" ? this._req.inlineEmittedCounts : this._req.deltaEmittedCounts;
+		const otherCounts = source === "inline" ? this._req.deltaEmittedCounts : this._req.inlineEmittedCounts;
+
+		const retireBuffer = () => {
+			if (bufferIndex !== undefined) {
+				this._req.toolCallBuffers.delete(bufferIndex);
+				this._req.completedToolCallIndices.add(bufferIndex);
+			}
+		};
+
+		const pending = otherCounts.get(key) ?? 0;
+		if (pending > 0) {
+			if (pending === 1) {
+				otherCounts.delete(key);
+			} else {
+				otherCounts.set(key, pending - 1);
+			}
+			retireBuffer();
+			this._log("Suppressing tool call already emitted via the other channel", { name: call.name, source });
+			return false;
+		}
+
+		ownCounts.set(key, (ownCounts.get(key) ?? 0) + 1);
+		const id = call.id ?? `call_${++this._toolCallIdCounter}`;
+		progress.report(new vscode.LanguageModelToolCallPart(id, call.name, call.parsedArgs));
+		retireBuffer();
 		return true;
 	}
 
-	private async flushActiveTextToolCall(progress: vscode.Progress<vscode.LanguageModelResponsePart>): Promise<void> {
-		if (!this._req.textToolActive) {
+	private tryEmitBufferedToolCall(index: number, progress: vscode.Progress<vscode.LanguageModelResponsePart>): void {
+		const buf = this._req.toolCallBuffers.get(index);
+		if (!buf?.name) {
 			return;
 		}
-		const argText = this._req.textToolActive.argBuffer;
-		const parsed = tryParseJSONObject(argText);
+		const parsed = tryParseJSONObject(buf.args);
 		if (!parsed.ok) {
 			return;
 		}
-		this.emitTextToolCallIfValid(progress, this._req.textToolActive, argText);
-		this._req.textToolActive = undefined;
+		this.emitToolCall(progress, { id: buf.id, name: buf.name, parsedArgs: parsed.value }, index);
 	}
 
-	private async tryEmitBufferedToolCall(
-		index: number,
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>
-	): Promise<void> {
-		const buf = this._req.toolCallBuffers.get(index);
-		if (!buf) {
-			return;
-		}
-		if (!buf.name) {
-			return;
-		}
-		const canParse = tryParseJSONObject(buf.args);
-		if (!canParse.ok) {
-			return;
-		}
-		const id = buf.id ?? `call_${++this._toolCallIdCounter}`;
-		const parameters = canParse.value;
-		try {
-			const canonical = JSON.stringify(parameters);
-			this._req.emittedTextToolCallKeys.add(`${buf.name}:${canonical}`);
-		} catch {
-			/* ignore */
-		}
-		progress.report(new vscode.LanguageModelToolCallPart(id, buf.name, parameters));
-		this._req.toolCallBuffers.delete(index);
-		this._req.completedToolCallIndices.add(index);
-	}
-
-	private async flushToolCallBuffers(
-		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		throwOnInvalid: boolean
-	): Promise<void> {
-		if (this._req.toolCallBuffers.size === 0) {
-			return;
-		}
-		for (const [idx, buf] of Array.from(this._req.toolCallBuffers.entries())) {
+	/** Flushes every buffer, logging each invalid one; returns the invalid count. */
+	private flushToolCallBuffers(progress: vscode.Progress<vscode.LanguageModelResponsePart>): number {
+		let invalidCount = 0;
+		for (const [index, buf] of Array.from(this._req.toolCallBuffers.entries())) {
 			const parsed = tryParseJSONObject(buf.args);
 			if (!parsed.ok) {
-				if (throwOnInvalid) {
-					console.error("[LiteLLM Model Provider] Invalid JSON for tool call", {
-						idx,
-						snippet: (buf.args || "").slice(0, 200),
-					});
-					throw new Error("Invalid JSON for tool call");
-				}
+				this._log("Invalid JSON for tool call", { index, snippet: (buf.args || "").slice(0, 200) });
+				invalidCount++;
+				this._req.toolCallBuffers.delete(index);
 				continue;
 			}
-			const id = buf.id ?? `call_${++this._toolCallIdCounter}`;
-			const name = buf.name ?? "unknown_tool";
-			try {
-				const canonical = JSON.stringify(parsed.value);
-				this._req.emittedTextToolCallKeys.add(`${name}:${canonical}`);
-			} catch {
-				/* ignore */
-			}
-			progress.report(new vscode.LanguageModelToolCallPart(id, name, parsed.value));
-			this._req.toolCallBuffers.delete(idx);
-			this._req.completedToolCallIndices.add(idx);
+			this.emitToolCall(progress, { id: buf.id, name: buf.name ?? "unknown_tool", parsedArgs: parsed.value }, index);
 		}
+		return invalidCount;
 	}
 
-	private stripControlTokens(text: string): string {
-		try {
-			return text
-				.replace(/<\|[a-zA-Z0-9_-]+_section_(?:begin|end)\|>/g, "")
-				.replace(/<\|tool_call_(?:argument_)?(?:begin|end)\|>/g, "");
-		} catch {
-			return text;
+	/**
+	 * Single end-of-stream path shared by finish_reason, [DONE], and EOF.
+	 * Every dropped buffer is logged first; unparseable leftovers then throw
+	 * when throwOnInvalid is set (i.e. unless the request was cancelled).
+	 */
+	private finishStream(progress: vscode.Progress<vscode.LanguageModelResponsePart>, throwOnInvalid: boolean): void {
+		let invalidCount = this.flushToolCallBuffers(progress);
+
+		const rest = this._req.textParser.flush();
+		const call = rest.provisionalCall;
+		if (call && !this._req.handledTextCallSeqs.has(call.seq)) {
+			const parsed = tryParseJSONObject(call.args);
+			if (parsed.ok) {
+				this._req.handledTextCallSeqs.add(call.seq);
+				this.emitInlineToolCall(call, parsed.value, progress);
+			} else {
+				this._log("Dropping unterminated inline tool call with invalid JSON arguments", {
+					name: call.name,
+					snippet: call.args.slice(0, 200),
+				});
+				invalidCount++;
+			}
+		}
+		const trailingText = rest.events
+			.filter((e): e is { type: "text"; text: string } => e.type === "text")
+			.map((e) => e.text)
+			.join("");
+		if (trailingText) {
+			this._log("Dropping trailing partial control token text at end of stream", {
+				text: trailingText.slice(0, 200),
+			});
+		}
+
+		if (invalidCount > 0 && throwOnInvalid) {
+			throw new Error("Invalid JSON for tool call");
 		}
 	}
 }
