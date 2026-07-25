@@ -31,7 +31,12 @@
 		"rules": {
 			"preset": "recommended",
 			"correctness": {
-				"noUnusedVariables": "error"
+				"noUnusedVariables": "error",
+				"noUnusedImports": "error",
+				"noUnusedFunctionParameters": "error"
+			},
+			"suspicious": {
+				"noExplicitAny": "error"
 			},
 			"style": {
 				"noNonNullAssertion": "off",
