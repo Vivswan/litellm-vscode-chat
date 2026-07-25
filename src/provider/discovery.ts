@@ -1,3 +1,4 @@
+import { normalizePositiveNumber } from "../shared/numbers";
 import type {
 	LiteLLMModelInfoItem,
 	LiteLLMModelInfoResponse,
@@ -5,7 +6,6 @@ import type {
 	LiteLLMModelsResponse,
 	LiteLLMProvider,
 } from "../types";
-import { normalizePositiveNumber } from "../shared/numbers";
 
 export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
 	const modelId = item.model_name ?? item.litellm_params?.model ?? item.model_info?.key ?? item.model_info?.id;

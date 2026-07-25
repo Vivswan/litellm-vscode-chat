@@ -115,17 +115,22 @@ export class StreamProcessor {
 				(deltaObj as Record<string, unknown> | undefined)?.reasoning;
 			if (maybeThinking !== undefined) {
 				const vsAny = vscode as unknown as Record<string, unknown>;
-				const ThinkingCtor = vsAny["LanguageModelThinkingPart"] as
-					(new (text: string, id?: string, metadata?: unknown) => unknown) | undefined;
+				const ThinkingCtor = vsAny.LanguageModelThinkingPart as
+					| (new (
+							text: string,
+							id?: string,
+							metadata?: unknown
+					  ) => unknown)
+					| undefined;
 				if (ThinkingCtor) {
 					let text = "";
 					let id: string | undefined;
 					let metadata: unknown;
 					if (maybeThinking && typeof maybeThinking === "object") {
 						const mt = maybeThinking as Record<string, unknown>;
-						text = typeof mt["text"] === "string" ? (mt["text"] as string) : "";
-						id = typeof mt["id"] === "string" ? (mt["id"] as string) : undefined;
-						metadata = mt["metadata"];
+						text = typeof mt.text === "string" ? (mt.text as string) : "";
+						id = typeof mt.id === "string" ? (mt.id as string) : undefined;
+						metadata = mt.metadata;
 					} else if (typeof maybeThinking === "string") {
 						text = maybeThinking;
 					}
@@ -317,7 +322,6 @@ export class StreamProcessor {
 					}
 				}
 				this._req.textToolActive = undefined;
-				continue;
 			}
 		}
 

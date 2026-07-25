@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import type { LiteLLMProvider } from "../types";
 import { normalizePositiveNumber } from "../shared/numbers";
+import type { LiteLLMProvider } from "../types";
 import { findLongestPrefixMatch, getModelDefaults } from "./modelDefaults";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;

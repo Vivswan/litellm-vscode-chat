@@ -1,8 +1,8 @@
-import { LanguageModelChatInformation } from "vscode";
-import type { LiteLLMModelItem } from "../types";
+import type { LanguageModelChatInformation } from "vscode";
 import type { ServerWithKey } from "../extension/serverRegistry";
+import type { LiteLLMModelItem } from "../types";
 import type { ModelRoute } from "./request";
-import { getTokenConstraints, buildExposedModelId } from "./request";
+import { buildExposedModelId, getTokenConstraints } from "./request";
 
 export interface RegistrationResult {
 	infos: LanguageModelChatInformation[];

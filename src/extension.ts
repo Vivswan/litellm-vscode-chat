@@ -1,12 +1,12 @@
 import * as vscode from "vscode";
-import { LiteLLMChatModelProvider } from "./provider";
-import type { AggregatedStatus } from "./provider";
-import { IssueReporter, createIssueReporterEnv } from "./issueReporter";
+import { registerHelpAndFeedbackCommand, registerTestCommands } from "./extension/commands";
+import { buildDiagnosticsSnapshot, registerDiagnosticsCommand } from "./extension/diagnostics";
+import { registerManageCommand } from "./extension/serverManagement";
 import { ServerRegistry } from "./extension/serverRegistry";
 import { StatusBarManager } from "./extension/status";
-import { registerHelpAndFeedbackCommand, registerTestCommands } from "./extension/commands";
-import { registerManageCommand } from "./extension/serverManagement";
-import { registerDiagnosticsCommand, buildDiagnosticsSnapshot } from "./extension/diagnostics";
+import { createIssueReporterEnv, IssueReporter } from "./issueReporter";
+import type { AggregatedStatus } from "./provider";
+import { LiteLLMChatModelProvider } from "./provider";
 
 const GITHUB_DOCS = "https://github.com/Vivswan/litellm-vscode-chat#quick-start";
 

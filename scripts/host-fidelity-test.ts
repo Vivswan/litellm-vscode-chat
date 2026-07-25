@@ -1,5 +1,5 @@
-#!/usr/bin/env node
-// scripts/host-fidelity-test.js
+#!/usr/bin/env bun
+// scripts/host-fidelity-test.ts
 // Wrapper for running the host-fidelity tests.
 //
 // Without arguments: runs against the built-in capture server (deterministic).
@@ -12,7 +12,7 @@
 // Or via environment variables:
 //   LITELLM_REAL_BASE_URL=http://localhost:4000 LITELLM_REAL_API_KEY=sk-xxx LITELLM_REAL_MODEL=gpt-4o-mini:cheapest bun run host-fidelity-test
 
-const { execSync } = require("child_process");
+import { execSync } from "node:child_process";
 
 // Parse positional args (after --)
 const args = process.argv.slice(2);
@@ -46,6 +46,7 @@ try {
 		stdio: "inherit",
 		env: process.env,
 	});
-} catch (e) {
-	process.exit(e.status || 1);
+} catch (error) {
+	const status = (error as { status?: number }).status;
+	process.exit(status ?? 1);
 }

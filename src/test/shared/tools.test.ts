@@ -1,4 +1,4 @@
-import * as assert from "assert";
+import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { convertTools } from "../../shared/tools";
 
@@ -113,7 +113,7 @@ suite("shared/tools", () => {
 		assert.ok(out.tools);
 		const params = out.tools![0].function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
-		assert.equal(props.item["$ref"], "#/$defs/Item");
+		assert.equal(props.item.$ref, "#/$defs/Item");
 		assert.equal(props.item.type, undefined);
 		assert.equal(props.item.properties, undefined);
 	});

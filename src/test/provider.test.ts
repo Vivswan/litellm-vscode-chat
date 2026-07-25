@@ -1,7 +1,7 @@
-import * as assert from "assert";
+import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { LiteLLMChatModelProvider } from "../provider";
 import type { AggregatedStatus } from "../provider";
+import { LiteLLMChatModelProvider } from "../provider";
 import { getModelParameters } from "../provider/request";
 
 function toHeaderMap(headersInit: RequestInit["headers"] | undefined): Record<string, string> {
@@ -286,9 +286,15 @@ suite("provider", () => {
 					if (section === "litellm-vscode-chat") {
 						return {
 							get: (key: string, defaultValue?: unknown) => {
-								if (key === "defaultMaxOutputTokens") return 20000;
-								if (key === "defaultContextLength") return 200000;
-								if (key === "defaultMaxInputTokens") return null;
+								if (key === "defaultMaxOutputTokens") {
+									return 20000;
+								}
+								if (key === "defaultContextLength") {
+									return 200000;
+								}
+								if (key === "defaultMaxInputTokens") {
+									return null;
+								}
 								return defaultValue;
 							},
 						} as unknown as vscode.WorkspaceConfiguration;
@@ -354,7 +360,9 @@ suite("provider", () => {
 					if (section === "litellm-vscode-chat") {
 						return {
 							get: (key: string, defaultValue?: unknown) => {
-								if (key === "defaultMaxInputTokens") return 50000;
+								if (key === "defaultMaxInputTokens") {
+									return 50000;
+								}
 								return defaultValue;
 							},
 						} as unknown as vscode.WorkspaceConfiguration;
@@ -419,7 +427,9 @@ suite("provider", () => {
 					if (section === "litellm-vscode-chat") {
 						return {
 							get: (key: string, defaultValue?: unknown) => {
-								if (key === "defaultMaxInputTokens") return 48000;
+								if (key === "defaultMaxInputTokens") {
+									return 48000;
+								}
 								return defaultValue;
 							},
 						} as unknown as vscode.WorkspaceConfiguration;
@@ -617,13 +627,16 @@ suite("provider", () => {
 		test("exact model ID match returns parameters", () => {
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string, defaultValue?: unknown) => {
-							if (key === "modelParameters") return { "gpt-4": { temperature: 0.8, max_tokens: 8000 } };
+							if (key === "modelParameters") {
+								return { "gpt-4": { temperature: 0.8, max_tokens: 8000 } };
+							}
 							return defaultValue;
 						},
 					} as unknown as vscode.WorkspaceConfiguration;
+				}
 				return originalGetConfiguration(section);
 			}) as unknown as typeof vscode.workspace.getConfiguration;
 
@@ -635,13 +648,16 @@ suite("provider", () => {
 		test("prefix match returns parameters", () => {
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string, defaultValue?: unknown) => {
-							if (key === "modelParameters") return { "gpt-4": { temperature: 0.7 } };
+							if (key === "modelParameters") {
+								return { "gpt-4": { temperature: 0.7 } };
+							}
 							return defaultValue;
 						},
 					} as unknown as vscode.WorkspaceConfiguration;
+				}
 				return originalGetConfiguration(section);
 			}) as unknown as typeof vscode.workspace.getConfiguration;
 
@@ -653,18 +669,20 @@ suite("provider", () => {
 		test("longest prefix match takes precedence", () => {
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string, defaultValue?: unknown) => {
-							if (key === "modelParameters")
+							if (key === "modelParameters") {
 								return {
 									gpt: { temperature: 0.5 },
 									"gpt-4": { temperature: 0.7 },
 									"gpt-4-turbo": { temperature: 0.9 },
 								};
+							}
 							return defaultValue;
 						},
 					} as unknown as vscode.WorkspaceConfiguration;
+				}
 				return originalGetConfiguration(section);
 			}) as unknown as typeof vscode.workspace.getConfiguration;
 
@@ -676,13 +694,16 @@ suite("provider", () => {
 		test("no match returns empty object", () => {
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string, defaultValue?: unknown) => {
-							if (key === "modelParameters") return { "gpt-4": { temperature: 0.7 } };
+							if (key === "modelParameters") {
+								return { "gpt-4": { temperature: 0.7 } };
+							}
 							return defaultValue;
 						},
 					} as unknown as vscode.WorkspaceConfiguration;
+				}
 				return originalGetConfiguration(section);
 			}) as unknown as typeof vscode.workspace.getConfiguration;
 
@@ -694,10 +715,11 @@ suite("provider", () => {
 		test("empty configuration returns empty object", () => {
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
-						get: (key: string, defaultValue?: unknown) => defaultValue,
+						get: (_key: string, defaultValue?: unknown) => defaultValue,
 					} as unknown as vscode.WorkspaceConfiguration;
+				}
 				return originalGetConfiguration(section);
 			}) as unknown as typeof vscode.workspace.getConfiguration;
 
@@ -709,10 +731,10 @@ suite("provider", () => {
 		test("modelParameters supports various parameter types", () => {
 			const originalGetConfiguration = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string, defaultValue?: unknown) => {
-							if (key === "modelParameters")
+							if (key === "modelParameters") {
 								return {
 									"test-model": {
 										temperature: 0.8,
@@ -723,9 +745,11 @@ suite("provider", () => {
 										stop: ["END", "STOP"],
 									},
 								};
+							}
 							return defaultValue;
 						},
 					} as unknown as vscode.WorkspaceConfiguration;
+				}
 				return originalGetConfiguration(section);
 			}) as unknown as typeof vscode.workspace.getConfiguration;
 
@@ -905,13 +929,16 @@ suite("provider", () => {
 		test("unmatched model gets built-in fallback defaults (temperature 0.7)", async () => {
 			const originalGetConfig = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string) => {
-							if (key === "modelParameters") return {};
+							if (key === "modelParameters") {
+								return {};
+							}
 							return undefined;
 						},
 					};
+				}
 				return originalGetConfig(section!);
 			}) as typeof vscode.workspace.getConfiguration;
 			try {
@@ -927,13 +954,16 @@ suite("provider", () => {
 		test("gpt-5.5 model gets no built-in temperature", async () => {
 			const originalGetConfig = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string) => {
-							if (key === "modelParameters") return {};
+							if (key === "modelParameters") {
+								return {};
+							}
 							return undefined;
 						},
 					};
+				}
 				return originalGetConfig(section!);
 			}) as typeof vscode.workspace.getConfiguration;
 			try {
@@ -951,13 +981,16 @@ suite("provider", () => {
 		test("_replaceDefaults: true skips codebase defaults", async () => {
 			const originalGetConfig = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string) => {
-							if (key === "modelParameters") return { "test-model": { _replaceDefaults: true, top_p: 0.9 } };
+							if (key === "modelParameters") {
+								return { "test-model": { _replaceDefaults: true, top_p: 0.9 } };
+							}
 							return undefined;
 						},
 					};
+				}
 				return originalGetConfig(section!);
 			}) as typeof vscode.workspace.getConfiguration;
 			try {
@@ -975,13 +1008,16 @@ suite("provider", () => {
 		test("user config without _replaceDefaults merges onto codebase defaults", async () => {
 			const originalGetConfig = vscode.workspace.getConfiguration;
 			vscode.workspace.getConfiguration = ((section?: string) => {
-				if (section === "litellm-vscode-chat")
+				if (section === "litellm-vscode-chat") {
 					return {
 						get: (key: string) => {
-							if (key === "modelParameters") return { "test-model": { top_p: 0.8 } };
+							if (key === "modelParameters") {
+								return { "test-model": { top_p: 0.8 } };
+							}
 							return undefined;
 						},
 					};
+				}
 				return originalGetConfig(section!);
 			}) as typeof vscode.workspace.getConfiguration;
 			try {
@@ -1308,7 +1344,7 @@ suite("provider", () => {
 			global.fetch = originalFetch;
 
 			assert.ok(infos.length > 0);
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			// biome-ignore lint/suspicious/noExplicitAny: reaches into a private field
 			assert.equal((provider as any)._promptCachingSupport.get("claude-3-5-sonnet-20241022"), true);
 		});
 
@@ -1434,7 +1470,7 @@ suite("provider", () => {
 			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			global.fetch = originalFetch;
 
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			// biome-ignore lint/suspicious/noExplicitAny: reaches into a private field
 			assert.equal((provider as any)._promptCachingSupport.get("gpt-4"), false);
 		});
 

@@ -9,14 +9,14 @@ fi
 # Run formatting on staged files
 bunx lint-staged
 
-# Check formatting for all files
-bunx prettier --write .
+# Format, apply safe lint fixes, and sort imports across the repo
+bunx biome check --write .
 
 # Check if any files were modified by formatting
 if ! git diff --exit-code; then
 	echo ""
 	echo "❌ Formatting changes detected!"
-	echo "Files were modified by prettier. Please review and stage the changes, then commit again."
+	echo "Files were modified by biome. Please review and stage the changes, then commit again."
 	exit 1
 fi
 
@@ -40,6 +40,9 @@ if (tM > eM || (tM === eM && tm > em)) {
 
 # Run linting
 bun run lint
+
+# Type-check the bun-run helper scripts (not covered by compile)
+bunx tsc --noEmit -p tsconfig.scripts.json
 
 # Run tests
 bun run test

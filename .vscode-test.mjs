@@ -1,8 +1,9 @@
-import { defineConfig } from "@vscode/test-cli";
 import os from "node:os";
 import path from "node:path";
+import { defineConfig } from "@vscode/test-cli";
 
-const userDataDir = process.env.VSCODE_TEST_USER_DATA_DIR || path.join(os.tmpdir(), `litellm-vscode-test-${process.pid}`);
+const userDataDir =
+	process.env.VSCODE_TEST_USER_DATA_DIR || path.join(os.tmpdir(), `litellm-vscode-test-${process.pid}`);
 const launchArgs = ["--user-data-dir", userDataDir];
 
 export default defineConfig([

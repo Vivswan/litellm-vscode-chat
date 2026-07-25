@@ -211,13 +211,13 @@ If a header value is secret (for example, API keys), set `litellm-vscode-chat.he
 For quick manual testing, you can run a tiny mock LiteLLM server that serves a static model list and canned chat replies.
 
 ```bash
-node scripts/mock-litellm-server.js
+bun scripts/mock-litellm-server.ts
 ```
 
 Optional port override:
 
 ```bash
-PORT=4001 node scripts/mock-litellm-server.js
+PORT=4001 bun scripts/mock-litellm-server.ts
 ```
 
 Then set your base URL to `http://localhost:4000` (or the port you chose).
