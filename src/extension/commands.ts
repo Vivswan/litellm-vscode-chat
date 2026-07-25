@@ -1,9 +1,105 @@
 import * as vscode from "vscode";
+import type { IssueReporter } from "../issueReporter";
+import { buildDiagnosticsSnapshot } from "./diagnostics";
+import {
+	openChatAction,
+	reconfigureAction,
+	reportIssueAction,
+	showActionableMessage,
+	viewOutputAction,
+} from "./notifier";
 import type { ServerConfig, ServerRegistry } from "./serverRegistry";
+import type { ConnectionStatus } from "./status";
 
 const GITHUB_REPO = "https://github.com/Vivswan/litellm-vscode-chat";
 const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
 const GITHUB_DOCS = `${GITHUB_REPO}#quick-start`;
+
+interface ModelInfoProvider {
+	prepareLanguageModelChatInformation(
+		options: { silent: boolean },
+		token: vscode.CancellationToken
+	): Promise<vscode.LanguageModelChatInformation[]>;
+}
+
+export function registerTestConnectionCommand(
+	context: vscode.ExtensionContext,
+	registry: ServerRegistry,
+	provider: ModelInfoProvider,
+	statusBar: { updateStatusBar(status: ConnectionStatus): Promise<void> },
+	outputChannel: vscode.OutputChannel
+): void {
+	context.subscriptions.push(
+		vscode.commands.registerCommand("litellm.testConnection", async () => {
+			if (registry.getServers().length === 0) {
+				void showActionableMessage(
+					"error",
+					"LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.",
+					[]
+				);
+				return;
+			}
+
+			outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing connection to all servers...`);
+			outputChannel.show(true);
+
+			try {
+				await statusBar.updateStatusBar({ state: "loading" });
+
+				const models = await provider.prepareLanguageModelChatInformation(
+					{ silent: false },
+					new vscode.CancellationTokenSource().token
+				);
+
+				if (models.length === 0) {
+					outputChannel.appendLine(`[${new Date().toISOString()}] WARNING: No models returned`);
+					void showActionableMessage(
+						"warning",
+						"LiteLLM: Connected but no models returned. Check your LiteLLM proxy configuration.",
+						[viewOutputAction(outputChannel), reconfigureAction(), reportIssueAction()]
+					);
+				} else {
+					outputChannel.appendLine(`[${new Date().toISOString()}] SUCCESS: Found ${models.length} models`);
+					void showActionableMessage(
+						"info",
+						`LiteLLM: Connection successful! Found ${models.length} model${models.length === 1 ? "" : "s"}.`,
+						[viewOutputAction(outputChannel, "View Models"), openChatAction()]
+					);
+				}
+			} catch (error) {
+				const errorMsg = error instanceof Error ? error.message : String(error);
+				outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: ${errorMsg}`);
+				void showActionableMessage("error", `LiteLLM: Connection failed - ${errorMsg}`, [
+					viewOutputAction(outputChannel),
+					reconfigureAction(),
+					reportIssueAction(),
+				]);
+			}
+		})
+	);
+}
+
+export function registerReportIssueCommand(
+	context: vscode.ExtensionContext,
+	registry: ServerRegistry,
+	getConnectionStatus: () => ConnectionStatus,
+	extVersion: string,
+	vscodeVersion: string,
+	issueReporter: IssueReporter
+): void {
+	context.subscriptions.push(
+		vscode.commands.registerCommand("litellm.reportIssue", async () => {
+			const snapshot = await buildDiagnosticsSnapshot(
+				registry,
+				getConnectionStatus(),
+				extVersion,
+				vscodeVersion,
+				issueReporter
+			);
+			await issueReporter.openIssue(snapshot);
+		})
+	);
+}
 
 export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
@@ -35,12 +131,7 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 export function registerTestCommands(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
-	provider: {
-		prepareLanguageModelChatInformation: (
-			options: { silent: boolean },
-			token: vscode.CancellationToken
-		) => Promise<vscode.LanguageModelChatInformation[]>;
-	}
+	provider: ModelInfoProvider
 ): void {
 	if (context.extensionMode === vscode.ExtensionMode.Production) {
 		return;

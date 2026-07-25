@@ -11,6 +11,7 @@ import * as vscode from "vscode";
 import type { ServerStatus, ServerWithKey } from "./extension/serverRegistry";
 import type { IssueReporter } from "./issueReporter";
 import { sendChatRequest } from "./provider/client";
+import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
 import { fetchModels } from "./provider/discovery";
 import { getCustomHeaders } from "./provider/httpHeaders";
@@ -20,15 +21,16 @@ import type { ModelRoute } from "./provider/request";
 export interface AggregatedStatus {
 	serverStatuses: ServerStatus[];
 	totalModels: number;
+	silent: boolean;
 }
 
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _promptCachingSupport = new Map<string, boolean>();
 	private _statusCallback?: (status: AggregatedStatus) => void;
-	private _hasShownNoConfigNotification = false;
 	private _toolCallIdCounter = 0;
 	private _modelRoutes = new Map<string, ModelRoute>();
 	private _getServers?: () => Promise<ServerWithKey[]>;
+	private _configurationPrompt?: ConfigurationPrompt;
 
 	constructor(
 		private readonly userAgent: string,
@@ -42,6 +44,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 	setServerProvider(getServers: () => Promise<ServerWithKey[]>): void {
 		this._getServers = getServers;
+	}
+
+	setConfigurationPrompt(prompt: ConfigurationPrompt): void {
+		this._configurationPrompt = prompt;
 	}
 
 	private log(message: string, data?: unknown): void {
@@ -75,23 +81,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	): Promise<LanguageModelChatInformation[]> {
 		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
 
-		const servers = await ensureServers(options.silent, this._getServers);
+		const servers = await ensureServers(options.silent, this._getServers, this._configurationPrompt);
 		if (!servers || servers.length === 0) {
 			this.log("No servers configured, returning empty array");
 
-			if (options.silent && !this._hasShownNoConfigNotification) {
-				this._hasShownNoConfigNotification = true;
-				vscode.window
-					.showWarningMessage("LiteLLM: No servers configured. Click to configure.", "Configure Now", "Dismiss")
-					.then((choice) => {
-						if (choice === "Configure Now") {
-							vscode.commands.executeCommand("litellm.manage");
-						}
-					});
-			}
-
 			if (this._statusCallback) {
-				this._statusCallback({ serverStatuses: [], totalModels: 0 });
+				this._statusCallback({ serverStatuses: [], totalModels: 0, silent: options.silent });
 			}
 			return [];
 		}
@@ -180,42 +175,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		this.log("Final model count:", allInfos.length);
 
 		if (this._statusCallback) {
-			this._statusCallback({ serverStatuses, totalModels: allInfos.length });
-		}
-
-		if (allInfos.length === 0 && successfulCount > 0) {
-			vscode.window
-				.showWarningMessage(
-					"LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.",
-					"Check Server",
-					"Reconfigure",
-					"Report Issue"
-				)
-				.then((choice) => {
-					if (choice === "Check Server") {
-						vscode.commands.executeCommand("litellm.testConnection");
-					} else if (choice === "Reconfigure") {
-						vscode.commands.executeCommand("litellm.manage");
-					} else if (choice === "Report Issue") {
-						vscode.commands.executeCommand("litellm.reportIssue");
-					}
-				});
+			this._statusCallback({ serverStatuses, totalModels: allInfos.length, silent: options.silent });
 		}
 
 		if (successfulCount === 0 && servers.length > 0) {
-			const firstError = serverStatuses.find((s) => s.error)?.error ?? "Unknown error";
 			if (options.silent) {
-				vscode.window
-					.showErrorMessage(`LiteLLM: ${firstError}`, "Reconfigure", "Report Issue", "Dismiss")
-					.then((choice) => {
-						if (choice === "Reconfigure") {
-							vscode.commands.executeCommand("litellm.manage");
-						} else if (choice === "Report Issue") {
-							vscode.commands.executeCommand("litellm.reportIssue");
-						}
-					});
 				return [];
 			}
+			const firstError = serverStatuses.find((s) => s.error)?.error ?? "Unknown error";
 			throw new Error(firstError);
 		}
 

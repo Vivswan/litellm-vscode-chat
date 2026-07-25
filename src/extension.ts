@@ -1,6 +1,12 @@
 import * as vscode from "vscode";
-import { registerHelpAndFeedbackCommand, registerTestCommands } from "./extension/commands";
-import { buildDiagnosticsSnapshot, registerDiagnosticsCommand } from "./extension/diagnostics";
+import {
+	registerHelpAndFeedbackCommand,
+	registerReportIssueCommand,
+	registerTestCommands,
+	registerTestConnectionCommand,
+} from "./extension/commands";
+import { registerDiagnosticsCommand } from "./extension/diagnostics";
+import { createConfigurationPrompt, Notifier, reconfigureAction, showActionableMessage } from "./extension/notifier";
 import { registerManageCommand } from "./extension/serverManagement";
 import { ServerRegistry } from "./extension/serverRegistry";
 import { StatusBarManager } from "./extension/status";
@@ -25,6 +31,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const provider = new LiteLLMChatModelProvider(ua, outputChannel, issueReporter);
 
 	provider.setServerProvider(() => registry.getServersWithKeys());
+	provider.setConfigurationPrompt(createConfigurationPrompt());
 
 	// The provider must not see a half-migrated registry, so migration completes before registration.
 	try {
@@ -41,29 +48,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Test-only commands
 	registerTestCommands(context, registry, provider);
 
-	// Status bar
+	// Status bar and refresh notifications share the same status callback,
+	// isolated so one consumer's failure cannot starve the other.
 	const statusBar = new StatusBarManager(context, outputChannel);
+	const notifier = new Notifier();
 	provider.setStatusCallback((aggStatus: AggregatedStatus) => {
-		statusBar.handleAggregatedStatus(aggStatus);
+		try {
+			statusBar.handleAggregatedStatus(aggStatus);
+		} catch (error) {
+			outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Status bar update failed: ${String(error)}`);
+		}
+		try {
+			notifier.handleAggregatedStatus(aggStatus);
+		} catch (error) {
+			outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Notifier update failed: ${String(error)}`);
+		}
 	});
 
 	// Welcome message
 	const hasShownWelcome = context.globalState.get<boolean>(HAS_SHOWN_WELCOME_KEY, false);
 	if (!hasShownWelcome && registry.getServers().length === 0) {
-		vscode.window
-			.showInformationMessage("Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.", "Configure Now", "Documentation")
-			.then(
-				(choice) => {
-					if (choice === "Configure Now") {
-						vscode.commands.executeCommand("litellm.manage");
-					} else if (choice === "Documentation") {
-						vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS));
-					}
-				},
-				(error) => {
-					outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Welcome message failed: ${String(error)}`);
-				}
-			);
+		showActionableMessage("info", "Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.", [
+			reconfigureAction("Configure Now"),
+			{ label: "Documentation", run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS)) },
+		]).catch((error) => {
+			outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Welcome message failed: ${String(error)}`);
+		});
 	}
 	if (!hasShownWelcome) {
 		await context.globalState.update(HAS_SHOWN_WELCOME_KEY, true);
@@ -73,75 +83,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	registerManageCommand(context, registry, outputChannel);
 
 	// Test connection command
-	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.testConnection", async () => {
-			if (registry.getServers().length === 0) {
-				vscode.window.showErrorMessage("LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.");
-				return;
-			}
-
-			outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing connection to all servers...`);
-			outputChannel.show(true);
-
-			try {
-				await statusBar.updateStatusBar({ state: "loading" });
-
-				const models = await provider.prepareLanguageModelChatInformation(
-					{ silent: false },
-					new vscode.CancellationTokenSource().token
-				);
-
-				if (models.length === 0) {
-					outputChannel.appendLine(`[${new Date().toISOString()}] WARNING: No models returned`);
-					vscode.window
-						.showWarningMessage(
-							`LiteLLM: Connected but no models returned. Check your LiteLLM proxy configuration.`,
-							"View Output",
-							"Reconfigure",
-							"Report Issue"
-						)
-						.then((choice) => {
-							if (choice === "View Output") {
-								outputChannel.show();
-							} else if (choice === "Reconfigure") {
-								vscode.commands.executeCommand("litellm.manage");
-							} else if (choice === "Report Issue") {
-								vscode.commands.executeCommand("litellm.reportIssue");
-							}
-						});
-				} else {
-					outputChannel.appendLine(`[${new Date().toISOString()}] SUCCESS: Found ${models.length} models`);
-					vscode.window
-						.showInformationMessage(
-							`LiteLLM: Connection successful! Found ${models.length} model${models.length === 1 ? "" : "s"}.`,
-							"View Models",
-							"Open Chat"
-						)
-						.then((choice) => {
-							if (choice === "View Models") {
-								outputChannel.show();
-							} else if (choice === "Open Chat") {
-								vscode.commands.executeCommand("workbench.action.chat.open");
-							}
-						});
-				}
-			} catch (error) {
-				const errorMsg = error instanceof Error ? error.message : String(error);
-				outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: ${errorMsg}`);
-				vscode.window
-					.showErrorMessage(`LiteLLM: Connection failed - ${errorMsg}`, "View Output", "Reconfigure", "Report Issue")
-					.then((choice) => {
-						if (choice === "View Output") {
-							outputChannel.show();
-						} else if (choice === "Reconfigure") {
-							vscode.commands.executeCommand("litellm.manage");
-						} else if (choice === "Report Issue") {
-							vscode.commands.executeCommand("litellm.reportIssue");
-						}
-					});
-			}
-		})
-	);
+	registerTestConnectionCommand(context, registry, provider, statusBar, outputChannel);
 
 	// Diagnostics command
 	registerDiagnosticsCommand(context, registry, () => statusBar.connectionStatus, outputChannel);
@@ -150,17 +92,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	registerHelpAndFeedbackCommand(context);
 
 	// Report Issue command
-	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.reportIssue", async () => {
-			const snapshot = await buildDiagnosticsSnapshot(
-				registry,
-				statusBar.connectionStatus,
-				extVersion,
-				vscodeVersion,
-				issueReporter
-			);
-			await issueReporter.openIssue(snapshot);
-		})
+	registerReportIssueCommand(
+		context,
+		registry,
+		() => statusBar.connectionStatus,
+		extVersion,
+		vscodeVersion,
+		issueReporter
 	);
 }
 

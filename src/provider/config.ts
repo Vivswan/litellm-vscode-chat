@@ -1,5 +1,13 @@
-import * as vscode from "vscode";
 import type { ServerWithKey } from "../extension/serverRegistry";
+
+/**
+ * Injected by the extension layer so the provider layer never touches
+ * vscode.window. Resolves true when the user completed a configuration flow,
+ * signalling the caller to re-check the server list.
+ */
+export interface ConfigurationPrompt {
+	promptToConfigure(): Promise<boolean>;
+}
 
 export async function resolveServer(
 	serverId: string,
@@ -14,7 +22,8 @@ export async function resolveServer(
 
 export async function ensureServers(
 	silent: boolean,
-	getServers: (() => Promise<ServerWithKey[]>) | undefined
+	getServers: (() => Promise<ServerWithKey[]>) | undefined,
+	prompt?: ConfigurationPrompt
 ): Promise<ServerWithKey[] | undefined> {
 	if (getServers) {
 		const servers = await getServers();
@@ -23,26 +32,17 @@ export async function ensureServers(
 		}
 	}
 
-	if (silent) {
+	if (silent || !prompt) {
 		return undefined;
 	}
 
-	const result = await vscode.window.showErrorMessage(
-		"LiteLLM is not configured. Set up your connection to use this provider.",
-		"Configure Now",
-		"Learn More"
-	);
-
-	if (result === "Configure Now") {
-		await vscode.commands.executeCommand("litellm.manage");
+	if (await prompt.promptToConfigure()) {
 		if (getServers) {
 			const servers = await getServers();
 			if (servers.length > 0) {
 				return servers;
 			}
 		}
-	} else if (result === "Learn More") {
-		vscode.env.openExternal(vscode.Uri.parse("https://github.com/Vivswan/litellm-vscode-chat#quick-start"));
 	}
 
 	return undefined;
