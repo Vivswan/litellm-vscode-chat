@@ -44,10 +44,6 @@ export function registerTestCommands(
 ): void {
 	if (context.extensionMode !== vscode.ExtensionMode.Production) {
 		context.subscriptions.push(
-			vscode.commands.registerCommand("litellm._test.setSecrets", async (baseUrl: string, apiKey: string) => {
-				await context.secrets.store("litellm.baseUrl", baseUrl);
-				await context.secrets.store("litellm.apiKey", apiKey || "");
-			}),
 			vscode.commands.registerCommand("litellm._test.refreshModels", async () => {
 				const infos = await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
@@ -75,8 +71,6 @@ export function registerTestCommands(
 				for (const s of registry.getServers()) {
 					await registry.removeServer(s.id);
 				}
-				await context.secrets.delete("litellm.baseUrl");
-				await context.secrets.delete("litellm.apiKey");
 			}),
 			vscode.commands.registerCommand("litellm._test.getServers", () => {
 				return registry.getServers();

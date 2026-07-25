@@ -27,7 +27,6 @@ export async function sendChatRequest(
 	modelRoutes: Map<string, ModelRoute>,
 	promptCachingSupport: Map<string, boolean>,
 	getServers: (() => Promise<ServerWithKey[]>) | undefined,
-	secrets: vscode.SecretStorage,
 	userAgent: string,
 	toolCallIdCounter: number,
 	log: (message: string, data?: unknown) => void,
@@ -41,7 +40,7 @@ export async function sendChatRequest(
 	let rawModelId: string;
 
 	if (route) {
-		const server = await resolveServer(route.serverId, getServers, secrets);
+		const server = await resolveServer(route.serverId, getServers);
 		if (server) {
 			baseUrl = server.baseUrl;
 			apiKey = server.apiKey;
@@ -50,13 +49,16 @@ export async function sendChatRequest(
 		}
 		rawModelId = route.rawModelId;
 	} else {
-		const config = await resolveServer("_legacy", undefined, secrets);
-		if (!config) {
-			throw new Error("LiteLLM configuration not found");
+		const servers = getServers ? await getServers() : [];
+		if (servers.length === 1) {
+			baseUrl = servers[0].baseUrl;
+			apiKey = servers[0].apiKey;
+			rawModelId = model.id;
+		} else {
+			throw new Error(
+				`Model "${model.id}" is not registered with any configured server. Refresh the model list and try again.`
+			);
 		}
-		baseUrl = config.baseUrl;
-		apiKey = config.apiKey;
-		rawModelId = model.id;
 	}
 
 	const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");

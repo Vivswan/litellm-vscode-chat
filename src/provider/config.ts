@@ -3,12 +3,8 @@ import type { ServerWithKey } from "../extension/serverRegistry";
 
 export async function resolveServer(
 	serverId: string,
-	getServers: (() => Promise<ServerWithKey[]>) | undefined,
-	secrets: vscode.SecretStorage
-): Promise<{ baseUrl: string; apiKey: string } | undefined> {
-	if (serverId === "_legacy") {
-		return ensureConfig(secrets);
-	}
+	getServers: (() => Promise<ServerWithKey[]>) | undefined
+): Promise<ServerWithKey | undefined> {
 	if (!getServers) {
 		return undefined;
 	}
@@ -18,27 +14,13 @@ export async function resolveServer(
 
 export async function ensureServers(
 	silent: boolean,
-	getServers: (() => Promise<ServerWithKey[]>) | undefined,
-	secrets: vscode.SecretStorage
+	getServers: (() => Promise<ServerWithKey[]>) | undefined
 ): Promise<ServerWithKey[] | undefined> {
 	if (getServers) {
 		const servers = await getServers();
 		if (servers.length > 0) {
 			return servers;
 		}
-	}
-
-	const baseUrl = await secrets.get("litellm.baseUrl");
-	if (baseUrl) {
-		const apiKey = (await secrets.get("litellm.apiKey")) ?? "";
-		return [
-			{
-				id: "_legacy",
-				label: "Default",
-				baseUrl: baseUrl.replace(/\/+$/, ""),
-				apiKey,
-			},
-		];
 	}
 
 	if (silent) {
@@ -64,15 +46,4 @@ export async function ensureServers(
 	}
 
 	return undefined;
-}
-
-export async function ensureConfig(
-	secrets: vscode.SecretStorage
-): Promise<{ baseUrl: string; apiKey: string } | undefined> {
-	const baseUrl = await secrets.get("litellm.baseUrl");
-	if (!baseUrl) {
-		return undefined;
-	}
-	const apiKey = (await secrets.get("litellm.apiKey")) ?? "";
-	return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
 }

@@ -31,7 +31,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _getServers?: () => Promise<ServerWithKey[]>;
 
 	constructor(
-		private readonly secrets: vscode.SecretStorage,
 		private readonly userAgent: string,
 		private readonly outputChannel?: vscode.OutputChannel,
 		private readonly issueReporter?: IssueReporter
@@ -76,7 +75,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	): Promise<LanguageModelChatInformation[]> {
 		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
 
-		const servers = await ensureServers(options.silent, this._getServers, this.secrets);
+		const servers = await ensureServers(options.silent, this._getServers);
 		if (!servers || servers.length === 0) {
 			this.log("No servers configured, returning empty array");
 
@@ -252,7 +251,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				this._modelRoutes,
 				this._promptCachingSupport,
 				this._getServers,
-				this.secrets,
 				this.userAgent,
 				this._toolCallIdCounter,
 				(msg, data) => this.log(msg, data),

@@ -7,52 +7,12 @@ import { StatusBarManager } from "./extension/status";
 import { createIssueReporterEnv, IssueReporter } from "./issueReporter";
 import type { AggregatedStatus } from "./provider";
 import { LiteLLMChatModelProvider } from "./provider";
+import { HAS_SHOWN_WELCOME_KEY } from "./shared/storageKeys";
 
 const GITHUB_DOCS = "https://github.com/Vivswan/litellm-vscode-chat#quick-start";
 
-function normalizeVersionRange(versionRange: unknown): string | undefined {
-	if (typeof versionRange !== "string") {
-		return undefined;
-	}
-
-	return versionRange.trim().replace(/^[~^<>=\s]+/, "");
-}
-
-function isVersionCompatible(current: string, required: string): boolean {
-	const parse = (v: string) =>
-		v
-			.split(".")
-			.slice(0, 3)
-			.map((n) => parseInt(n.replace(/[^0-9]/g, ""), 10));
-	const [cMaj, cMin, cPat] = parse(current);
-	const [rMaj, rMin, rPat] = parse(required);
-	if (cMaj !== rMaj) {
-		return cMaj > rMaj;
-	}
-	if (cMin !== rMin) {
-		return cMin > rMin;
-	}
-	return cPat >= rPat;
-}
-
-export function activate(context: vscode.ExtensionContext) {
-	const ext = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
-	const minVersion = normalizeVersionRange(ext?.packageJSON?.engines?.vscode);
-	if (minVersion && !isVersionCompatible(vscode.version, minVersion)) {
-		vscode.window
-			.showErrorMessage(
-				`LiteLLM requires VS Code ${minVersion} or higher. You have ${vscode.version}. Please update VS Code.`,
-				"Download Update"
-			)
-			.then((sel) => {
-				if (sel) {
-					vscode.env.openExternal(vscode.Uri.parse("https://code.visualstudio.com/"));
-				}
-			});
-		return;
-	}
-
-	const extVersion = ext?.packageJSON?.version ?? "unknown";
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
 	const vscodeVersion = vscode.version;
 	const ua = `litellm-vscode-chat/${extVersion} VSCode/${vscodeVersion}`;
 
@@ -62,15 +22,19 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri));
 	const registry = new ServerRegistry(context.globalState, context.secrets);
-	const provider = new LiteLLMChatModelProvider(context.secrets, ua, outputChannel, issueReporter);
+	const provider = new LiteLLMChatModelProvider(ua, outputChannel, issueReporter);
 
 	provider.setServerProvider(() => registry.getServersWithKeys());
 
-	registry.migrateLegacy().then((migrated) => {
+	// The provider must not see a half-migrated registry, so migration completes before registration.
+	try {
+		const migrated = await registry.migrateLegacy();
 		if (migrated) {
 			outputChannel.appendLine(`[${new Date().toISOString()}] Migrated legacy single-server config to server registry`);
 		}
-	});
+	} catch (error) {
+		outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Legacy config migration failed: ${String(error)}`);
+	}
 
 	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
 
@@ -84,29 +48,25 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Welcome message
-	const hasShownWelcome = context.globalState.get<boolean>("litellm.hasShownWelcome", false);
-	if (!hasShownWelcome) {
-		const servers = registry.getServers();
-		if (servers.length === 0) {
-			context.secrets.get("litellm.baseUrl").then((baseUrl) => {
-				if (!baseUrl) {
-					vscode.window
-						.showInformationMessage(
-							"Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.",
-							"Configure Now",
-							"Documentation"
-						)
-						.then((choice) => {
-							if (choice === "Configure Now") {
-								vscode.commands.executeCommand("litellm.manage");
-							} else if (choice === "Documentation") {
-								vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS));
-							}
-						});
+	const hasShownWelcome = context.globalState.get<boolean>(HAS_SHOWN_WELCOME_KEY, false);
+	if (!hasShownWelcome && registry.getServers().length === 0) {
+		vscode.window
+			.showInformationMessage("Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.", "Configure Now", "Documentation")
+			.then(
+				(choice) => {
+					if (choice === "Configure Now") {
+						vscode.commands.executeCommand("litellm.manage");
+					} else if (choice === "Documentation") {
+						vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS));
+					}
+				},
+				(error) => {
+					outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Welcome message failed: ${String(error)}`);
 				}
-			});
-		}
-		context.globalState.update("litellm.hasShownWelcome", true);
+			);
+	}
+	if (!hasShownWelcome) {
+		await context.globalState.update(HAS_SHOWN_WELCOME_KEY, true);
 	}
 
 	// Server management command
@@ -115,13 +75,9 @@ export function activate(context: vscode.ExtensionContext) {
 	// Test connection command
 	context.subscriptions.push(
 		vscode.commands.registerCommand("litellm.testConnection", async () => {
-			const servers = registry.getServers();
-			if (servers.length === 0) {
-				const baseUrl = await context.secrets.get("litellm.baseUrl");
-				if (!baseUrl) {
-					vscode.window.showErrorMessage("LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.");
-					return;
-				}
+			if (registry.getServers().length === 0) {
+				vscode.window.showErrorMessage("LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.");
+				return;
 			}
 
 			outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing connection to all servers...`);
@@ -198,7 +154,6 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand("litellm.reportIssue", async () => {
 			const snapshot = await buildDiagnosticsSnapshot(
 				registry,
-				context,
 				statusBar.connectionStatus,
 				extVersion,
 				vscodeVersion,

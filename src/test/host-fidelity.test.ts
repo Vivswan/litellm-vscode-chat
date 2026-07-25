@@ -161,7 +161,8 @@ suite("Host-Fidelity Tests (capture)", () => {
 		baseUrl = `http://localhost:${server.port}`;
 
 		await ensureActivated();
-		await vscode.commands.executeCommand("litellm._test.setSecrets", baseUrl, "test-key");
+		await vscode.commands.executeCommand("litellm._test.clearServers");
+		await vscode.commands.executeCommand("litellm._test.addServer", "Default", baseUrl, "test-key");
 
 		const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
 		assert.ok(models.length > 0, "Expected at least one litellm model to be registered");
@@ -1110,7 +1111,8 @@ suite("Host-Fidelity Tests (live)", () => {
 		this.timeout(REAL_TIMEOUT || 30000);
 
 		await ensureActivated();
-		await vscode.commands.executeCommand("litellm._test.setSecrets", REAL_BASE_URL, REAL_API_KEY);
+		await vscode.commands.executeCommand("litellm._test.clearServers");
+		await vscode.commands.executeCommand("litellm._test.addServer", "Default", REAL_BASE_URL, REAL_API_KEY);
 
 		allModels = await waitForFreshModels({ vendor: "litellm" }, 15000);
 		assert.ok(allModels.length > 0, "Expected at least one litellm model to be registered");
