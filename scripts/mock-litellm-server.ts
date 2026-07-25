@@ -1,6 +1,6 @@
-#!/usr/bin/env node
-const http = require("http");
-const { URL } = require("url");
+#!/usr/bin/env bun
+import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import { URL } from "node:url";
 
 const PORT = Number(process.env.PORT || 4000);
 
@@ -39,7 +39,18 @@ const MODELS = {
 	],
 };
 
-const readBody = (req) =>
+interface ChatMessage {
+	role?: string;
+	content?: unknown;
+}
+
+interface ChatCompletionRequest {
+	stream?: boolean;
+	model?: string;
+	messages?: ChatMessage[];
+}
+
+const readBody = (req: IncomingMessage): Promise<string> =>
 	new Promise((resolve, reject) => {
 		let data = "";
 		req.on("data", (chunk) => {
@@ -49,7 +60,7 @@ const readBody = (req) =>
 		req.on("error", reject);
 	});
 
-const sendJson = (res, statusCode, body) => {
+const sendJson = (res: ServerResponse, statusCode: number, body: unknown): void => {
 	const json = JSON.stringify(body);
 	res.writeHead(statusCode, {
 		"Content-Type": "application/json",
@@ -58,7 +69,7 @@ const sendJson = (res, statusCode, body) => {
 	res.end(json);
 };
 
-const sendSse = (res, chunks) => {
+const sendSse = (res: ServerResponse, chunks: unknown[]): void => {
 	res.writeHead(200, {
 		"Content-Type": "text/event-stream",
 		"Cache-Control": "no-cache",
@@ -88,21 +99,21 @@ const server = http.createServer(async (req, res) => {
 
 	if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
 		const raw = await readBody(req);
-		let payload;
+		let payload: ChatCompletionRequest;
 		try {
-			payload = raw ? JSON.parse(raw) : {};
+			payload = raw ? (JSON.parse(raw) as ChatCompletionRequest) : {};
 		} catch {
 			return sendJson(res, 400, { error: { message: "Invalid JSON" } });
 		}
 
 		const stream = payload.stream === true;
-		const userMessage =
-			Array.isArray(payload.messages) &&
-			payload.messages
-				.filter((m) => m && m.role === "user")
-				.map((m) => m.content)
-				.join(" ")
-				.slice(0, 200);
+		const userMessage = Array.isArray(payload.messages)
+			? payload.messages
+					.filter((m) => m && m.role === "user")
+					.map((m) => m.content)
+					.join(" ")
+					.slice(0, 200)
+			: "";
 
 		const content = userMessage ? `Mock LiteLLM response to: ${userMessage}` : "Hello from mock LiteLLM.";
 

@@ -8,19 +8,15 @@
 	"main": "./out/extension.js",
 	"devDependencies": {
 		"actionlint": "^2.0.6",
-		"@eslint/js": "^10.0.0",
-		"@stylistic/eslint-plugin": "^5.10.0",
+		"@biomejs/biome": "^2.5.4",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^25.9.1",
 		"@types/vscode": "^1.120.0",
 		"@vscode/test-cli": "^0.0.15",
 		"@vscode/test-electron": "^2.5.2",
-		"eslint": "^10.5.0",
 		"husky": "^9.1.7",
 		"lint-staged": "^17.0.8",
-		"prettier": "^3.9.4",
-		"typescript": "^6.0.3",
-		"typescript-eslint": "^8.62.0"
+		"typescript": "^6.0.3"
 	},
 	"badges": [
 		{
@@ -148,7 +144,7 @@
 	"icon": "assets/logo.png",
 	"license": "MIT",
 	"lint-staged": {
-		"*.{js,ts,json,md,yml,yaml}": "prettier --write"
+		"*.{js,mjs,cjs,ts,jsx,tsx}": "biome format --write --no-errors-on-unmatched"
 	},
 	"packageManager": "bun@1.3.9",
 	"publisher": "vivswan",
@@ -156,19 +152,19 @@
 		"prepare": "husky",
 		"vscode:prepublish": "bun run compile",
 		"compile": "tsc -p ./",
-		"typecheck": "tsc --noEmit -p ./",
+		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p tsconfig.scripts.json",
 		"setup-env": "bash scripts/setup-env.sh",
 		"setup-env:verify": "bash scripts/setup-env.sh --verify",
 		"setup-env:full": "bash scripts/setup-env.sh --full",
 		"setup-env:pwsh": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/setup-env.ps1",
 		"setup-env:verify:pwsh": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/setup-env.ps1 -Verify",
 		"setup-env:full:pwsh": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/setup-env.ps1 -Full",
-		"lint:actions": "node scripts/lint-actions.js",
-		"lint": "eslint",
-		"format": "prettier --write .",
+		"lint:actions": "bun scripts/lint-actions.ts",
+		"lint": "biome lint .",
+		"format": "biome format --write .",
 		"watch": "tsc -watch -p ./",
-		"mock-server": "node scripts/mock-litellm-server.js",
+		"mock-server": "bun scripts/mock-litellm-server.ts",
 		"test": "bun run compile && vscode-test --label unit",
-		"host-fidelity-test": "node scripts/host-fidelity-test.js"
+		"host-fidelity-test": "bun scripts/host-fidelity-test.ts"
 	}
 }

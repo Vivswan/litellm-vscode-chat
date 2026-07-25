@@ -36,7 +36,7 @@ bun run watch
 # Run linter
 bun run lint
 
-# Format code with Prettier
+# Format code with Biome
 bun run format
 
 # Run all tests
@@ -63,16 +63,15 @@ Tests use the `@vscode/test-electron` framework. Run `bun run test` to execute a
 
 ### Automated Agent Validation
 
-- Run `bun run compile` after TypeScript changes.
+- Run `bun run compile` after TypeScript changes. It only covers `src/`; after changing `scripts/*.ts`, also run `bun run typecheck`, which checks both.
 - Run `bun run lint` after source or test changes.
 - Run the relevant tests for the affected behavior; use `bun run test` for the full suite.
 - Do not launch GUI applications as part of automated validation.
 
 ### Code Style
 
-- **Linting**: ESLint with TypeScript rules
-- **Formatting**: Prettier with tabs (width 2), semicolons, 120 character line width
-- **Pre-commit hooks**: Husky runs Prettier on staged files via lint-staged
+- **Linting and formatting**: Biome (`biome.json`), with tabs (width 2), semicolons, 120 character line width
+- **Pre-commit hooks**: Husky runs `biome format` on staged files via lint-staged, then `biome check --write` across the repo
 
 ### Git Commit and PR Conventions
 
@@ -84,7 +83,7 @@ Tests use the `@vscode/test-electron` framework. Run `bun run test` to execute a
 
 - Prioritize correctness, security, regressions, missing tests, and violations of the documented architecture.
 - Report concrete, actionable findings tied to the changed code.
-- Do not request style-only changes already handled by ESLint or Prettier.
+- Do not request style-only changes already handled by Biome.
 - Pay particular attention to streaming responses, tool-call pairing, multimodal conversion, token limits, request-field ownership, and SecretStorage handling.
 
 ## Architecture
@@ -289,7 +288,7 @@ Tool call handling is in `provider.ts`:
 ## CI/CD Structure
 
 Workflows are organized with reusable workflow patterns:
-- **`format-check-reusable.yml`**: Reusable workflow for Prettier format checking
+- **`format-check-reusable.yml`**: Reusable workflow for Biome format and lint checking (`biome ci`)
 - **`test-reusable.yml`**: Reusable workflow for running tests
 - **`ci.yml`**: Main CI pipeline that calls reusable workflows
 - **`release-please.yml`**: Uses release-please on `main` to create release PRs and publishes created releases to the VS Code Marketplace

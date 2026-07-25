@@ -31,10 +31,10 @@ From the project directory:
 
 ```bash
 bun run lint:actions # lint GitHub Actions workflows
-bun run lint         # run ESLint
+bun run lint         # run Biome lint
 bun run compile      # compile TypeScript
 bun run test         # run the VS Code extension tests
-bun run format       # format files with Prettier
+bun run format       # format files with Biome
 ```
 
 A Husky pre-commit hook runs formatting, workflow linting, source linting, and tests when dependencies are installed.
@@ -43,8 +43,7 @@ A Husky pre-commit hook runs formatting, workflow linting, source linting, and t
 
 Conventions live in [AGENTS.md](AGENTS.md). In short:
 
-- Prettier enforces formatting.
-- ESLint enforces TypeScript lint rules.
+- Biome enforces formatting and TypeScript lint rules.
 - Keep changes focused and avoid unrelated fixes.
 
 ## Submitting a pull request

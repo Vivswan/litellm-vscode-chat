@@ -1,18 +1,18 @@
-import * as vscode from "vscode";
 import type {
+	LanguageModelChatInformation,
 	LanguageModelChatRequestMessage,
 	ProvideLanguageModelChatResponseOptions,
-	LanguageModelChatInformation,
 } from "vscode";
+import * as vscode from "vscode";
+import type { ServerWithKey } from "../extension/serverRegistry";
 import { convertMessages } from "../shared/messages";
 import { convertTools } from "../shared/tools";
 import { validateRequest } from "../shared/validation";
-import { estimateMessagesTokens, estimateToolTokens, getModelParameters, buildRequestBody } from "./request";
-import type { ModelRoute } from "./request";
-import { StreamProcessor } from "./streaming";
 import { resolveServer } from "./config";
 import { getCustomHeaders } from "./httpHeaders";
-import type { ServerWithKey } from "../extension/serverRegistry";
+import type { ModelRoute } from "./request";
+import { buildRequestBody, estimateMessagesTokens, estimateToolTokens, getModelParameters } from "./request";
+import { StreamProcessor } from "./streaming";
 
 export interface ChatRequestContext {
 	model: LanguageModelChatInformation;

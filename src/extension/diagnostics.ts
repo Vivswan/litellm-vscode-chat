@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
+import type { DiagnosticsSnapshot, IssueReporter } from "../issueReporter";
 import type { ServerRegistry } from "./serverRegistry";
-import type { IssueReporter, DiagnosticsSnapshot } from "../issueReporter";
 import type { ConnectionStatus } from "./status";
 
 export async function buildDiagnosticsSnapshot(

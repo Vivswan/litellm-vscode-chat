@@ -36,8 +36,11 @@ jobs:
       - name: Set up development environment
         run: bash scripts/setup-env.sh
 
-      - name: Check formatting
-        run: bunx prettier --check .
+      - name: Check formatting and lint
+        run: bunx biome ci .
+
+      - name: Type-check helper scripts
+        run: bunx tsc --noEmit -p tsconfig.scripts.json
 
       - name: Verify @types/vscode matches engines.vscode
         run: |

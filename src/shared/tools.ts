@@ -107,7 +107,7 @@ export function sanitizeSchema(input: unknown, propName?: string): Record<string
 	const hasComposite = ["anyOf", "oneOf", "allOf"].some(
 		(k) => Array.isArray(schema[k]) && (schema[k] as unknown[]).length > 0
 	);
-	const hasRef = typeof schema["$ref"] === "string";
+	const hasRef = typeof schema.$ref === "string";
 	const hasConst = "const" in schema;
 
 	let t = schema.type as string | undefined;
