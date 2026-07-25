@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Programmable capture server for host-fidelity tests.
  *
@@ -6,8 +5,10 @@
  * The server captures inbound request bodies and returns scenario-specific
  * SSE responses, enabling deterministic testing of the VS Code LM API path.
  */
-const http = require("http");
-const { URL } = require("url");
+
+import type { IncomingMessage, ServerResponse } from "node:http";
+import http from "node:http";
+import { URL } from "node:url";
 
 const MODEL_ID = "openai/gpt-5-mini-flex";
 
@@ -44,9 +45,37 @@ const MODELS = {
 	],
 };
 
+export interface SseScenario {
+	type: "sse";
+	chunks: unknown[];
+}
+
+export interface SseDelayedScenario {
+	type: "sse-delayed";
+	delayMs: number;
+	chunks: unknown[];
+}
+
+export interface ErrorScenario {
+	type: "error";
+	statusCode: number;
+	body: unknown;
+}
+
+export type Scenario = SseScenario | SseDelayedScenario | ErrorScenario;
+
+export interface CaptureServer {
+	start(): Promise<void>;
+	readonly port: number;
+	setScenario(name: string): void;
+	getLastRequest(): Record<string, unknown> | null;
+	addScenario(name: string, config: Scenario): void;
+	close(): Promise<void>;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const readBody = (req) =>
+const readBody = (req: IncomingMessage): Promise<string> =>
 	new Promise((resolve, reject) => {
 		let data = "";
 		req.on("data", (chunk) => {
@@ -56,7 +85,7 @@ const readBody = (req) =>
 		req.on("error", reject);
 	});
 
-const sendJson = (res, statusCode, body) => {
+const sendJson = (res: ServerResponse, statusCode: number, body: unknown): void => {
 	const json = JSON.stringify(body);
 	res.writeHead(statusCode, {
 		"Content-Type": "application/json",
@@ -65,7 +94,7 @@ const sendJson = (res, statusCode, body) => {
 	res.end(json);
 };
 
-const sendSse = (res, chunks) => {
+const sendSse = (res: ServerResponse, chunks: unknown[]): void => {
 	res.writeHead(200, {
 		"Content-Type": "text/event-stream",
 		"Cache-Control": "no-cache",
@@ -78,14 +107,14 @@ const sendSse = (res, chunks) => {
 	res.end();
 };
 
-const sendSseDelayed = (res, chunks, delayMs) => {
+const sendSseDelayed = (res: ServerResponse, chunks: unknown[], delayMs: number): void => {
 	res.writeHead(200, {
 		"Content-Type": "text/event-stream",
 		"Cache-Control": "no-cache",
 		Connection: "keep-alive",
 	});
 	let i = 0;
-	const next = () => {
+	const next = (): void => {
 		if (res.destroyed) {
 			return;
 		}
@@ -103,7 +132,7 @@ const sendSseDelayed = (res, chunks, delayMs) => {
 
 // ── Built-in Scenarios ───────────────────────────────────────────────────────
 
-function makeChunk(delta, finishReason) {
+function makeChunk(delta: Record<string, unknown>, finishReason?: string): Record<string, unknown> {
 	return {
 		id: "chatcmpl-capture",
 		object: "chat.completion.chunk",
@@ -117,7 +146,7 @@ function makeChunk(delta, finishReason) {
 	};
 }
 
-const BUILTIN_SCENARIOS = {
+const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 	"text-only": {
 		type: "sse",
 		chunks: [makeChunk({ role: "assistant", content: "Hello from capture server" }), makeChunk({}, "stop")],
@@ -341,10 +370,10 @@ const BUILTIN_SCENARIOS = {
 
 // ── Factory ──────────────────────────────────────────────────────────────────
 
-function createCaptureServer() {
-	let lastRequest = null;
+export function createCaptureServer(): CaptureServer {
+	let lastRequest: Record<string, unknown> | null = null;
 	let activeScenario = "text-only";
-	const scenarios = new Map(Object.entries(BUILTIN_SCENARIOS));
+	const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 
 	const server = http.createServer(async (req, res) => {
 		const url = new URL(req.url || "/", `http://${req.headers.host}`);
@@ -380,7 +409,7 @@ function createCaptureServer() {
 		if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
 			const raw = await readBody(req);
 			try {
-				lastRequest = raw ? JSON.parse(raw) : {};
+				lastRequest = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
 			} catch {
 				lastRequest = { _parseError: true, _raw: raw };
 				return sendJson(res, 400, { error: { message: "Invalid JSON" } });
@@ -410,9 +439,10 @@ function createCaptureServer() {
 
 	return {
 		start() {
-			return new Promise((resolve, reject) => {
+			return new Promise<void>((resolve, reject) => {
 				server.listen(0, () => {
-					resolvedPort = server.address().port;
+					const address = server.address();
+					resolvedPort = typeof address === "object" && address !== null ? address.port : 0;
 					resolve();
 				});
 				server.on("error", reject);
@@ -423,7 +453,7 @@ function createCaptureServer() {
 			return resolvedPort;
 		},
 
-		setScenario(name) {
+		setScenario(name: string) {
 			if (!scenarios.has(name)) {
 				throw new Error(`Unknown scenario: ${name}`);
 			}
@@ -434,16 +464,14 @@ function createCaptureServer() {
 			return lastRequest;
 		},
 
-		addScenario(name, config) {
+		addScenario(name: string, config: Scenario) {
 			scenarios.set(name, config);
 		},
 
 		close() {
-			return new Promise((resolve) => {
-				server.close(resolve);
+			return new Promise<void>((resolve) => {
+				server.close(() => resolve());
 			});
 		},
 	};
 }
-
-module.exports = { createCaptureServer };

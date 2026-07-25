@@ -43,7 +43,9 @@ export interface OpenAIChatImageUrlContentBlock {
 
 /** Structured content blocks used in chat messages. */
 export type OpenAIChatContentBlock =
-	OpenAIChatTextContentBlock | OpenAIChatImageUrlContentBlock | OpenAIChatFileContentBlock;
+	| OpenAIChatTextContentBlock
+	| OpenAIChatImageUrlContentBlock
+	| OpenAIChatFileContentBlock;
 
 /** File content block for document input (PDFs, etc.). */
 export interface OpenAIChatFileContentBlock {

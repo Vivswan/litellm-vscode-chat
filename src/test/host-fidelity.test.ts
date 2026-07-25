@@ -1,5 +1,6 @@
-import * as assert from "assert";
+import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { type CaptureServer, createCaptureServer } from "./capture-server";
 
 /**
  * Host-fidelity test suite.
@@ -15,20 +16,6 @@ import * as vscode from "vscode";
  *   2. Live mode: when LITELLM_REAL_BASE_URL is set, runs smoke tests
  *      against a real LiteLLM server through the host API.
  */
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { createCaptureServer } = require("../../scripts/capture-server") as {
-	createCaptureServer: () => CaptureServer;
-};
-
-interface CaptureServer {
-	start(): Promise<void>;
-	port: number;
-	setScenario(name: string): void;
-	getLastRequest(): Record<string, unknown> | null;
-	addScenario(name: string, config: unknown): void;
-	close(): Promise<void>;
-}
 
 interface ServerConfig {
 	id: string;
@@ -151,12 +138,12 @@ function findModelByServerId(
 	models: vscode.LanguageModelChat[],
 	serverId: string
 ): vscode.LanguageModelChat | undefined {
-	return models.find((m) => m.id.startsWith(serverId + "/"));
+	return models.find((m) => m.id.startsWith(`${serverId}/`));
 }
 
 // ── Capture-Mode Tests (deterministic) ───────────────────────────────────────
 
-suite("Host-Fidelity Tests (capture)", function () {
+suite("Host-Fidelity Tests (capture)", () => {
 	if (IS_LIVE) {
 		test("SKIPPED: running in live mode, capture tests disabled", () => {});
 		return;
@@ -181,7 +168,7 @@ suite("Host-Fidelity Tests (capture)", function () {
 		model = models[0];
 	});
 
-	suiteTeardown(async function () {
+	suiteTeardown(async () => {
 		if (server) {
 			await server.close();
 		}
@@ -385,7 +372,8 @@ suite("Host-Fidelity Tests (capture)", function () {
 			const content = userMsg!.content as Array<{ type: string }>;
 			const textBlock = content.find((b) => b.type === "text");
 			const imageBlock = content.find((b) => b.type === "image_url") as
-				{ type: string; image_url: { url: string } } | undefined;
+				| { type: string; image_url: { url: string } }
+				| undefined;
 			assert.ok(textBlock, "Should have a text block");
 			assert.ok(imageBlock, "Should have an image_url block");
 			assert.ok(
@@ -455,7 +443,8 @@ suite("Host-Fidelity Tests (capture)", function () {
 			assert.ok(userMsg, "Should have array content");
 			const content = userMsg!.content as Array<{ type: string }>;
 			const fileBlock = content.find((b) => b.type === "file") as
-				{ type: string; file: { file_data: string } } | undefined;
+				| { type: string; file: { file_data: string } }
+				| undefined;
 			assert.ok(fileBlock, "Should have a file block for PDF");
 			assert.ok(
 				fileBlock!.file.file_data.startsWith("data:application/pdf;base64,"),
@@ -623,7 +612,7 @@ suite("Host-Fidelity Tests (capture)", function () {
 			assert.ok(text.includes("The answer is 42"), `Expected answer text, got: "${text}"`);
 
 			const vsAny = vscode as unknown as Record<string, unknown>;
-			if (vsAny["LanguageModelThinkingPart"]) {
+			if (vsAny.LanguageModelThinkingPart) {
 				const thinkingParts = parts.filter(
 					(p) => (p as Record<string, unknown>).constructor?.name === "LanguageModelThinkingPart"
 				);
@@ -684,7 +673,7 @@ suite("Host-Fidelity Tests (capture)", function () {
 			assert.ok(parts.length < 6 || cancelled, "Stream should have been interrupted by cancellation");
 		});
 
-		test("HTTP 400 error surfaces as rejection", async function () {
+		test("HTTP 400 error surfaces as rejection", async () => {
 			server.setScenario("error-400");
 			try {
 				await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
@@ -694,7 +683,7 @@ suite("Host-Fidelity Tests (capture)", function () {
 			}
 		});
 
-		test("HTTP 401 error surfaces as rejection", async function () {
+		test("HTTP 401 error surfaces as rejection", async () => {
 			server.setScenario("error-401");
 			try {
 				await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
@@ -712,7 +701,7 @@ suite("Host-Fidelity Tests (capture)", function () {
 
 			// If LanguageModelThinkingPart is available, check it was emitted
 			const vsAny = vscode as unknown as Record<string, unknown>;
-			if (vsAny["LanguageModelThinkingPart"]) {
+			if (vsAny.LanguageModelThinkingPart) {
 				const thinkingParts = parts.filter(
 					(p) => (p as Record<string, unknown>).constructor?.name === "LanguageModelThinkingPart"
 				);
@@ -768,7 +757,7 @@ suite("Host-Fidelity Tests (capture)", function () {
 
 // ── Multi-Server Tests (capture) ────────────────────────────────────────────
 
-suite("Host-Fidelity Tests (multi-server)", function () {
+suite("Host-Fidelity Tests (multi-server)", () => {
 	if (IS_LIVE) {
 		test("SKIPPED: running in live mode, multi-server capture tests disabled", () => {});
 		return;
@@ -851,7 +840,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 		await setupTwoServers();
 	});
 
-	suiteTeardown(async function () {
+	suiteTeardown(async () => {
 		await vscode.commands.executeCommand("litellm._test.clearServers");
 		if (serverA) {
 			await serverA.close();
@@ -953,14 +942,14 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 					{ vendor: "litellm" },
 					15000,
 					(models) =>
-						models.some((m) => m.id.startsWith(serverIdA + "/")) &&
-						models.every((m) => !m.id.startsWith(serverIdB + "/")),
+						models.some((m) => m.id.startsWith(`${serverIdA}/`)) &&
+						models.every((m) => !m.id.startsWith(`${serverIdB}/`)),
 					`models from healthy server ${serverIdA} only`
 				);
 				assert.ok(models.length > 0, "Should still have models from the healthy server");
 
-				const fromA = models.filter((m) => m.id.startsWith(serverIdA + "/"));
-				const fromB = models.filter((m) => m.id.startsWith(serverIdB + "/"));
+				const fromA = models.filter((m) => m.id.startsWith(`${serverIdA}/`));
+				const fromB = models.filter((m) => m.id.startsWith(`${serverIdB}/`));
 				assert.ok(fromA.length > 0, "Should have models from ServerA");
 				assert.strictEqual(fromB.length, 0, "Should have no models from failed ServerB");
 			} finally {
@@ -1078,7 +1067,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 				assert.ok(ids.length > 0, "Should have models");
 
 				for (const id of ids) {
-					assert.ok(!id.startsWith(soloConfig.id + "/"), `Single-server model ID should not have server prefix: ${id}`);
+					assert.ok(!id.startsWith(`${soloConfig.id}/`), `Single-server model ID should not have server prefix: ${id}`);
 				}
 			} finally {
 				await setupTwoServers();
@@ -1104,7 +1093,7 @@ suite("Host-Fidelity Tests (multi-server)", function () {
 
 // ── Live-Mode Tests (real LiteLLM server via host API) ───────────────────────
 
-suite("Host-Fidelity Tests (live)", function () {
+suite("Host-Fidelity Tests (live)", () => {
 	if (!IS_LIVE) {
 		test("SKIPPED: set LITELLM_REAL_BASE_URL to run live host-fidelity tests", () => {
 			console.log(
@@ -1193,7 +1182,7 @@ suite("Host-Fidelity Tests (live)", function () {
 	suite("raw HTTP endpoints", () => {
 		const headers: Record<string, string> = {};
 		if (REAL_API_KEY) {
-			headers["Authorization"] = `Bearer ${REAL_API_KEY}`;
+			headers.Authorization = `Bearer ${REAL_API_KEY}`;
 			headers["X-API-Key"] = REAL_API_KEY;
 		}
 
@@ -1319,7 +1308,6 @@ suite("Host-Fidelity Tests (live)", function () {
 							{},
 							cts.token
 						);
-						// eslint-disable-next-line @typescript-eslint/no-unused-vars
 						for await (const _ of response.stream) {
 							parts++;
 						}

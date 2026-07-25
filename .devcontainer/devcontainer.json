@@ -9,7 +9,7 @@
 	"postCreateCommand": "bash scripts/setup-env.sh",
 	"customizations": {
 		"vscode": {
-			"extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+			"extensions": ["biomejs.biome"]
 		}
 	}
 }

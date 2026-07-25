@@ -1,7 +1,7 @@
-import * as assert from "assert";
+import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { IssueReporter, redactSecrets } from "../issueReporter";
 import type { DiagnosticsSnapshot } from "../issueReporter";
+import { IssueReporter, redactSecrets } from "../issueReporter";
 
 suite("IssueReporter", () => {
 	const MAX_SAFE_URL_LENGTH = 8000;

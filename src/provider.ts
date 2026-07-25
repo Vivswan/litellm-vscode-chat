@@ -1,23 +1,21 @@
-import * as vscode from "vscode";
-import {
+import type {
 	CancellationToken,
 	LanguageModelChatInformation,
-	LanguageModelChatRequestMessage,
 	LanguageModelChatProvider,
+	LanguageModelChatRequestMessage,
 	LanguageModelResponsePart,
 	Progress,
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
-
+import * as vscode from "vscode";
+import type { ServerStatus, ServerWithKey } from "./extension/serverRegistry";
 import type { IssueReporter } from "./issueReporter";
-import type { ServerWithKey, ServerStatus } from "./extension/serverRegistry";
-import type { ModelRoute } from "./provider/request";
-
-import { fetchModels } from "./provider/discovery";
-import { buildModelInfos } from "./provider/registration";
-import { ensureServers } from "./provider/config";
 import { sendChatRequest } from "./provider/client";
+import { ensureServers } from "./provider/config";
+import { fetchModels } from "./provider/discovery";
 import { getCustomHeaders } from "./provider/httpHeaders";
+import { buildModelInfos } from "./provider/registration";
+import type { ModelRoute } from "./provider/request";
 
 export interface AggregatedStatus {
 	serverStatuses: ServerStatus[];
@@ -25,7 +23,6 @@ export interface AggregatedStatus {
 }
 
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
-	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
 	private _promptCachingSupport = new Map<string, boolean>();
 	private _statusCallback?: (status: AggregatedStatus) => void;
 	private _hasShownNoConfigNotification = false;
@@ -282,11 +279,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				lastChecked: new Date().toISOString(),
 			});
 		}
-
-		this._chatEndpoints = allInfos.map((info) => ({
-			model: info.id,
-			modelMaxPromptTokens: info.maxInputTokens + info.maxOutputTokens,
-		}));
 
 		this.log("Final model count:", allInfos.length);
 
