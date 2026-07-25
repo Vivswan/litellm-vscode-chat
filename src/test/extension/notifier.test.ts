@@ -1,8 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { Notifier } from "../../extension/notifier";
-import type { ServerStatus } from "../../extension/serverRegistry";
-import type { AggregatedStatus } from "../../provider";
+import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
 
 suite("extension/notifier", () => {
 	let toasts: { kind: "info" | "warning" | "error"; message: string; buttons: string[] }[];

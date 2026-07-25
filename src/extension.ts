@@ -11,8 +11,9 @@ import { registerManageCommand } from "./extension/serverManagement";
 import { ServerRegistry } from "./extension/serverRegistry";
 import { StatusBarManager } from "./extension/status";
 import { createIssueReporterEnv, IssueReporter } from "./issueReporter";
-import type { AggregatedStatus } from "./provider";
 import { LiteLLMChatModelProvider } from "./provider";
+import { Logger } from "./shared/logger";
+import type { AggregatedStatus } from "./shared/servers";
 import { HAS_SHOWN_WELCOME_KEY } from "./shared/storageKeys";
 
 const GITHUB_DOCS = "https://github.com/Vivswan/litellm-vscode-chat#quick-start";
@@ -27,8 +28,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	outputChannel.appendLine(`LiteLLM Extension activated (v${extVersion})`);
 
 	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri));
+	const logger = new Logger(outputChannel, issueReporter);
 	const registry = new ServerRegistry(context.globalState, context.secrets);
-	const provider = new LiteLLMChatModelProvider(ua, outputChannel, issueReporter);
+	const provider = new LiteLLMChatModelProvider(ua, logger);
 
 	provider.setServerProvider(() => registry.getServersWithKeys());
 	provider.setConfigurationPrompt(createConfigurationPrompt());
@@ -37,10 +39,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	try {
 		const migrated = await registry.migrateLegacy();
 		if (migrated) {
-			outputChannel.appendLine(`[${new Date().toISOString()}] Migrated legacy single-server config to server registry`);
+			logger.log("Migrated legacy single-server config to server registry");
 		}
 	} catch (error) {
-		outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Legacy config migration failed: ${String(error)}`);
+		logger.error("Legacy config migration failed", error);
 	}
 
 	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
@@ -50,18 +52,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	// Status bar and refresh notifications share the same status callback,
 	// isolated so one consumer's failure cannot starve the other.
-	const statusBar = new StatusBarManager(context, outputChannel);
+	const statusBar = new StatusBarManager(context, logger);
 	const notifier = new Notifier();
 	provider.setStatusCallback((aggStatus: AggregatedStatus) => {
 		try {
 			statusBar.handleAggregatedStatus(aggStatus);
 		} catch (error) {
-			outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Status bar update failed: ${String(error)}`);
+			logger.error("Status bar update failed", error);
 		}
 		try {
 			notifier.handleAggregatedStatus(aggStatus);
 		} catch (error) {
-			outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Notifier update failed: ${String(error)}`);
+			logger.error("Notifier update failed", error);
 		}
 	});
 
@@ -72,7 +74,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			reconfigureAction("Configure Now"),
 			{ label: "Documentation", run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS)) },
 		]).catch((error) => {
-			outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: Welcome message failed: ${String(error)}`);
+			logger.error("Welcome message failed", error);
 		});
 	}
 	if (!hasShownWelcome) {
@@ -80,10 +82,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	}
 
 	// Server management command
-	registerManageCommand(context, registry, outputChannel);
+	registerManageCommand(context, registry, logger);
 
 	// Test connection command
-	registerTestConnectionCommand(context, registry, provider, statusBar, outputChannel);
+	registerTestConnectionCommand(context, registry, provider, statusBar, outputChannel, logger);
 
 	// Diagnostics command
 	registerDiagnosticsCommand(context, registry, () => statusBar.connectionStatus, outputChannel);

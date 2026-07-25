@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
+import type { Logger } from "../shared/logger";
 import { dismissAction, openChatAction, showActionableMessage, testConnectionAction } from "./notifier";
 import type { ServerRegistry } from "./serverRegistry";
 
-export async function addServerFlow(registry: ServerRegistry, outputChannel: vscode.OutputChannel): Promise<boolean> {
+export async function addServerFlow(registry: ServerRegistry, logger: Logger): Promise<boolean> {
 	const label = await vscode.window.showInputBox({
 		title: "LiteLLM: Add Server - Label",
 		prompt: "Enter a unique label for this server (e.g., 'Production', 'Local Dev')",
@@ -56,7 +57,7 @@ export async function addServerFlow(registry: ServerRegistry, outputChannel: vsc
 	}
 
 	await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim());
-	outputChannel.appendLine(`[${new Date().toISOString()}] Added server "${label.trim()}" at ${baseUrl.trim()}`);
+	logger.log(`Added server "${label.trim()}" at ${baseUrl.trim()}`);
 
 	void showActionableMessage("info", `Server "${label.trim()}" added!`, [
 		testConnectionAction(),
@@ -67,11 +68,7 @@ export async function addServerFlow(registry: ServerRegistry, outputChannel: vsc
 	return true;
 }
 
-export async function manageServerFlow(
-	registry: ServerRegistry,
-	serverId: string,
-	outputChannel: vscode.OutputChannel
-): Promise<void> {
+export async function manageServerFlow(registry: ServerRegistry, serverId: string, logger: Logger): Promise<void> {
 	const servers = registry.getServers();
 	const server = servers.find((s) => s.id === serverId);
 	if (!server) {
@@ -150,12 +147,10 @@ export async function manageServerFlow(
 		}
 
 		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim());
-		outputChannel.appendLine(`[${new Date().toISOString()}] Updated server "${label.trim()}"`);
+		logger.log(`Updated server "${label.trim()}"`);
 
 		void showActionableMessage("info", `Server "${label.trim()}" updated!`, [testConnectionAction(), dismissAction()]);
 	} else if (pick.action === "test") {
-		outputChannel.appendLine(`\n[${new Date().toISOString()}] Testing all servers...`);
-		outputChannel.show(true);
 		await vscode.commands.executeCommand("litellm.testConnection");
 	} else if (pick.action === "remove") {
 		const confirm = await vscode.window.showWarningMessage(
@@ -165,7 +160,7 @@ export async function manageServerFlow(
 		);
 		if (confirm === "Remove") {
 			await registry.removeServer(serverId);
-			outputChannel.appendLine(`[${new Date().toISOString()}] Removed server "${server.label}"`);
+			logger.log(`Removed server "${server.label}"`);
 			vscode.window.showInformationMessage(`Server "${server.label}" removed.`);
 		}
 	}
@@ -174,14 +169,14 @@ export async function manageServerFlow(
 export function registerManageCommand(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
-	outputChannel: vscode.OutputChannel
+	logger: Logger
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand("litellm.manage", async () => {
 			const servers = registry.getServers();
 
 			if (servers.length === 0) {
-				await addServerFlow(registry, outputChannel);
+				await addServerFlow(registry, logger);
 				return;
 			}
 
@@ -205,12 +200,12 @@ export function registerManageCommand(
 			}
 
 			if (pick.action === "add") {
-				await addServerFlow(registry, outputChannel);
+				await addServerFlow(registry, logger);
 			} else if (pick.action === "test-all") {
 				await vscode.commands.executeCommand("litellm.testConnection");
 			} else if (pick.action.startsWith("edit:")) {
 				const serverId = pick.action.slice(5);
-				await manageServerFlow(registry, serverId, outputChannel);
+				await manageServerFlow(registry, serverId, logger);
 			}
 		})
 	);

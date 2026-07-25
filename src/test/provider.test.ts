@@ -1,8 +1,9 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { AggregatedStatus } from "../provider";
 import { LiteLLMChatModelProvider } from "../provider";
 import { getModelParameters } from "../provider/request";
+import { Logger } from "../shared/logger";
+import type { AggregatedStatus } from "../shared/servers";
 
 function toHeaderMap(headersInit: RequestInit["headers"] | undefined): Record<string, string> {
 	if (!headersInit) {
@@ -20,17 +21,18 @@ function toHeaderMap(headersInit: RequestInit["headers"] | undefined): Record<st
  * server list when `baseUrl` is omitted (the "not configured" case).
  */
 function makeProvider(baseUrl?: string, apiKey = "test-key", outputChannel?: vscode.OutputChannel) {
-	const provider = new LiteLLMChatModelProvider("GitHubCopilotChat/test VSCode/test", outputChannel);
+	const logger = outputChannel ? new Logger(outputChannel) : undefined;
+	const provider = new LiteLLMChatModelProvider("GitHubCopilotChat/test VSCode/test", logger);
 	const servers = baseUrl === undefined ? [] : [{ id: "srv1", label: "Default", baseUrl, apiKey }];
 	provider.setServerProvider(() => Promise.resolve(servers));
 	return provider;
 }
 
 suite("provider", () => {
-	test("prepareLanguageModelChatInformation returns empty array with no configured servers", async () => {
+	test("provideLanguageModelChatInformation returns empty array with no configured servers", async () => {
 		const provider = makeProvider();
 
-		const infos = await provider.prepareLanguageModelChatInformation(
+		const infos = await provider.provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
 		);
@@ -207,7 +209,7 @@ suite("provider", () => {
 
 			const provider = makeProvider("http://test");
 
-			const infos = await provider.prepareLanguageModelChatInformation(
+			const infos = await provider.provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);
@@ -241,7 +243,7 @@ suite("provider", () => {
 
 				const provider = makeProvider("http://test");
 
-				const infos = await provider.prepareLanguageModelChatInformation(
+				const infos = await provider.provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
@@ -303,7 +305,7 @@ suite("provider", () => {
 
 				const provider = makeProvider("http://test");
 
-				const infos = await provider.prepareLanguageModelChatInformation(
+				const infos = await provider.provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
@@ -363,7 +365,7 @@ suite("provider", () => {
 
 				const provider = makeProvider("http://test");
 
-				const infos = await provider.prepareLanguageModelChatInformation(
+				const infos = await provider.provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
@@ -422,7 +424,7 @@ suite("provider", () => {
 
 				const provider = makeProvider("http://test");
 
-				const infos = await provider.prepareLanguageModelChatInformation(
+				const infos = await provider.provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
@@ -467,7 +469,7 @@ suite("provider", () => {
 
 				const provider = makeProvider("http://test");
 
-				const infos = await provider.prepareLanguageModelChatInformation(
+				const infos = await provider.provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
@@ -517,7 +519,7 @@ suite("provider", () => {
 
 			const provider = makeProvider("http://test");
 
-			const infos = await provider.prepareLanguageModelChatInformation(
+			const infos = await provider.provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);
@@ -562,7 +564,7 @@ suite("provider", () => {
 
 			const provider = makeProvider("http://test");
 
-			const infos = await provider.prepareLanguageModelChatInformation(
+			const infos = await provider.provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);
@@ -756,7 +758,7 @@ suite("provider", () => {
 					capturedHeaders = toHeaderMap(init?.headers);
 					return { ok: true, body: sseStream("ok") } as unknown as Response;
 				};
-				await provider.prepareLanguageModelChatInformation(
+				await provider.provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
@@ -1007,7 +1009,7 @@ suite("provider", () => {
 			provider.setStatusCallback((status: AggregatedStatus) => {
 				callbackStatus = status;
 			});
-			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			global.fetch = originalFetch;
 
 			assert.ok(callbackStatus);
@@ -1027,7 +1029,7 @@ suite("provider", () => {
 			provider.setStatusCallback((status: AggregatedStatus) => {
 				callbackStatus = status;
 			});
-			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			global.fetch = originalFetch;
 
 			assert.ok(callbackStatus);
@@ -1046,7 +1048,7 @@ suite("provider", () => {
 			provider.setStatusCallback((status: AggregatedStatus) => {
 				callbackStatus = status;
 			});
-			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			global.fetch = originalFetch;
 
 			assert.ok(callbackStatus);
@@ -1059,7 +1061,7 @@ suite("provider", () => {
 			provider.setStatusCallback((status: AggregatedStatus) => {
 				callbackStatus = status;
 			});
-			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 
 			assert.ok(callbackStatus);
 			assert.equal(callbackStatus!.totalModels, 0);
@@ -1075,10 +1077,10 @@ suite("provider", () => {
 			} as unknown as vscode.OutputChannel;
 
 			const provider = makeProvider(undefined, "test-key", mockOutputChannel);
-			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 
 			assert.ok(logs.length > 0);
-			assert.ok(logs.some((log) => log.includes("prepareLanguageModelChatInformation")));
+			assert.ok(logs.some((log) => log.includes("provideLanguageModelChatInformation")));
 			assert.ok(logs.some((log) => log.includes("No") && (log.includes("config") || log.includes("servers"))));
 		});
 
@@ -1096,7 +1098,7 @@ suite("provider", () => {
 			} as unknown as vscode.OutputChannel;
 
 			const provider = makeProvider("http://test", "test-key", mockOutputChannel);
-			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			global.fetch = originalFetch;
 
 			assert.ok(logs.length > 0);
@@ -1131,7 +1133,7 @@ suite("provider", () => {
 			};
 
 			const provider = makeProvider("http://test");
-			const infos = await provider.prepareLanguageModelChatInformation(
+			const infos = await provider.provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);
@@ -1170,7 +1172,7 @@ suite("provider", () => {
 				}) as unknown as typeof vscode.workspace.getConfiguration;
 
 				const provider = makeProvider("http://test");
-				await provider.prepareLanguageModelChatInformation(
+				await provider.provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
@@ -1207,7 +1209,7 @@ suite("provider", () => {
 				}) as unknown as Response;
 
 			const provider = makeProvider("http://test");
-			const infos = await provider.prepareLanguageModelChatInformation(
+			const infos = await provider.provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);
@@ -1215,7 +1217,7 @@ suite("provider", () => {
 
 			assert.ok(infos.length > 0);
 			// biome-ignore lint/suspicious/noExplicitAny: reaches into a private field
-			assert.equal((provider as any)._promptCachingSupport.get("claude-3-5-sonnet-20241022"), true);
+			assert.equal((provider as any)._client._promptCachingSupport.get("claude-3-5-sonnet-20241022"), true);
 		});
 
 		test("model/info numeric string token limits are parsed and max_output_tokens wins", async () => {
@@ -1241,7 +1243,7 @@ suite("provider", () => {
 					}) as unknown as Response;
 
 				const provider = makeProvider("http://test");
-				const infos = await provider.prepareLanguageModelChatInformation(
+				const infos = await provider.provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
@@ -1278,7 +1280,7 @@ suite("provider", () => {
 					}) as unknown as Response;
 
 				const provider = makeProvider("http://test");
-				const infos = await provider.prepareLanguageModelChatInformation(
+				const infos = await provider.provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				);
@@ -1313,11 +1315,11 @@ suite("provider", () => {
 				}) as unknown as Response;
 
 			const provider = makeProvider("http://test");
-			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			global.fetch = originalFetch;
 
 			// biome-ignore lint/suspicious/noExplicitAny: reaches into a private field
-			assert.equal((provider as any)._promptCachingSupport.get("gpt-4"), false);
+			assert.equal((provider as any)._client._promptCachingSupport.get("gpt-4"), false);
 		});
 
 		test("model ID extracted with fallback priority", async () => {
@@ -1337,7 +1339,7 @@ suite("provider", () => {
 				}) as unknown as Response;
 
 			const provider = makeProvider("http://test");
-			const infos = await provider.prepareLanguageModelChatInformation(
+			const infos = await provider.provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);
@@ -1371,7 +1373,7 @@ suite("provider", () => {
 				}) as unknown as Response;
 
 			const provider = makeProvider("http://test");
-			const infos = await provider.prepareLanguageModelChatInformation(
+			const infos = await provider.provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);

@@ -43,5 +43,27 @@
 				"useBlockStatements": "warn"
 			}
 		}
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["src/provider.ts", "src/provider/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["**/extension/**"],
+										"message": "The provider layer must not import from src/extension; move shared code to src/shared."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		}
+	]
 }
