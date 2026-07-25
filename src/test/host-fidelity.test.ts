@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { type CaptureServer, createCaptureServer } from "./capture-server";
+import { type CaptureServer, createCaptureServer, SLOW_STREAM_CHUNK_COUNT } from "./capture-server";
 
 /**
  * Host-fidelity test suite.
@@ -33,30 +33,52 @@ const CAPTURE_MODEL_ID = "openai/gpt-5-mini-flex";
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Force a model refresh from the currently configured server, then return
- * the freshly-registered models. This avoids returning stale models from
- * a previous backend by explicitly triggering prepareLanguageModelChatInformation
- * and then waiting for the host to process the new list.
+ * Registry mutations are deterministic: the litellm._test.* commands resolve
+ * only after the provider refresh completes and return the fresh prepared
+ * model IDs (or null when superseded by a newer mutation). These wrappers
+ * assert the mutation was not superseded and hand back the topology.
  */
-async function waitForFreshModels(
-	selector: vscode.LanguageModelChatSelector,
+async function clearServers(): Promise<string[]> {
+	const modelIds = (await vscode.commands.executeCommand("litellm._test.clearServers")) as string[] | null;
+	assert.ok(modelIds !== null, "clearServers was superseded by a concurrent registry mutation");
+	return modelIds;
+}
+
+async function addServer(
+	label: string,
+	baseUrl: string,
+	apiKey: string
+): Promise<{ server: ServerConfig; modelIds: string[] }> {
+	const result = (await vscode.commands.executeCommand("litellm._test.addServer", label, baseUrl, apiKey)) as {
+		server: ServerConfig;
+		modelIds: string[] | null;
+	};
+	assert.ok(result.modelIds !== null, `addServer(${label}) was superseded by a concurrent registry mutation`);
+	return { server: result.server, modelIds: result.modelIds };
+}
+
+/** True when the host's model list is exactly the expected set of IDs. */
+function hostMatches(models: vscode.LanguageModelChat[], expectedIds: string[]): boolean {
+	const actual = models.map((model) => model.id).sort();
+	const expected = [...expectedIds].sort();
+	return actual.length === expected.length && actual.every((id, i) => id === expected[i]);
+}
+
+/**
+ * Wait for the host to reflect the current model topology. The host ingests
+ * refreshed model lists asynchronously and offers no completion signal, so
+ * polling vscode.lm.selectChatModels is the only way to observe propagation.
+ */
+async function waitForHostModels(
 	timeoutMs: number,
-	acceptModels: (models: vscode.LanguageModelChat[]) => boolean = (models) => models.length > 0,
-	expectedDescription = "models"
+	acceptModels: (models: vscode.LanguageModelChat[]) => boolean,
+	expectedDescription: string
 ): Promise<vscode.LanguageModelChat[]> {
 	const deadline = Date.now() + timeoutMs;
-	let lastRefreshAt = 0;
 	let lastIds: string[] = [];
-	while (Date.now() < deadline) {
-		// Re-trigger refresh while polling so topology changes like
-		// two servers -> one server don't get stuck on an empty host list
-		// if the first refresh races with registry propagation.
-		if (Date.now() - lastRefreshAt >= 1000) {
-			await vscode.commands.executeCommand("litellm._test.refreshModels");
-			lastRefreshAt = Date.now();
-		}
 
-		const models = await vscode.lm.selectChatModels(selector);
+	while (Date.now() < deadline) {
+		const models = await vscode.lm.selectChatModels({ vendor: "litellm" });
 		lastIds = models.map((model) => model.id);
 		if (acceptModels(models)) {
 			return models;
@@ -65,38 +87,28 @@ async function waitForFreshModels(
 	}
 
 	throw new Error(
-		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription} with selector ${JSON.stringify(selector)}. Last model IDs: ${
+		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription}. Last model IDs: ${
 			lastIds.length > 0 ? lastIds.join(", ") : "(none)"
 		}`
 	);
 }
 
-async function waitForPreparedModelIds(
-	timeoutMs: number,
-	acceptIds: (ids: string[]) => boolean,
-	expectedDescription: string,
-	reassertTopology?: () => Promise<void>
-): Promise<string[]> {
-	const deadline = Date.now() + timeoutMs;
-	let lastIds: string[] = [];
+/** The LanguageModelThinkingPart class, when the host exposes it (proposed API). */
+function getThinkingPartClass(): (new (...args: never[]) => object) | undefined {
+	return (vscode as unknown as Record<string, unknown>).LanguageModelThinkingPart as
+		| (new (
+				...args: never[]
+		  ) => object)
+		| undefined;
+}
 
-	while (Date.now() < deadline) {
-		lastIds = (await vscode.commands.executeCommand("litellm._test.refreshModelIds")) as string[];
-		if (acceptIds(lastIds)) {
-			return lastIds;
-		}
-		// A lost globalState update on slow hosts can leave the server registry
-		// on a stale topology; let the caller re-assert it instead of waiting
-		// out the timeout.
-		await reassertTopology?.();
-		await new Promise((r) => setTimeout(r, 200));
+/** Extract thinking parts from collected stream parts (empty when the host lacks the class). */
+function extractThinkingParts(parts: unknown[]): Array<{ value?: string }> {
+	const thinkingPartClass = getThinkingPartClass();
+	if (!thinkingPartClass) {
+		return [];
 	}
-
-	throw new Error(
-		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription}. Last prepared model IDs: ${
-			lastIds.length > 0 ? lastIds.join(", ") : "(none)"
-		}`
-	);
+	return parts.filter((p) => p instanceof thinkingPartClass) as Array<{ value?: string }>;
 }
 
 /** Collect all parts from a streaming response. */
@@ -161,11 +173,15 @@ suite("Host-Fidelity Tests (capture)", () => {
 		baseUrl = `http://localhost:${server.port}`;
 
 		await ensureActivated();
-		await vscode.commands.executeCommand("litellm._test.clearServers");
-		await vscode.commands.executeCommand("litellm._test.addServer", "Default", baseUrl, "test-key");
+		await clearServers();
+		const { modelIds } = await addServer("Default", baseUrl, "test-key");
+		assert.ok(modelIds.length > 0, "Expected the capture server to expose at least one model");
 
-		const models = await waitForFreshModels({ vendor: "litellm" }, 15000);
-		assert.ok(models.length > 0, "Expected at least one litellm model to be registered");
+		const models = await waitForHostModels(
+			15000,
+			(models) => hostMatches(models, modelIds),
+			`host to expose capture-server models (${modelIds.join(", ")})`
+		);
 		model = models[0];
 	});
 
@@ -611,17 +627,19 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const { parts } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
 			const text = extractText(parts);
 			assert.ok(text.includes("The answer is 42"), `Expected answer text, got: "${text}"`);
+		});
 
-			const vsAny = vscode as unknown as Record<string, unknown>;
-			if (vsAny.LanguageModelThinkingPart) {
-				const thinkingParts = parts.filter(
-					(p) => (p as Record<string, unknown>).constructor?.name === "LanguageModelThinkingPart"
-				);
-				if (thinkingParts.length > 0) {
-					const thinkingText = (thinkingParts[0] as { value?: string }).value ?? "";
-					assert.ok(thinkingText.length > 0, "ThinkingPart should have non-empty text");
-				}
+		test("reasoning content emits ThinkingPart", async function () {
+			if (!getThinkingPartClass()) {
+				console.log("Skipping: host does not expose LanguageModelThinkingPart");
+				this.skip();
 			}
+			server.setScenario("reasoning");
+			const { parts } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
+			const thinkingParts = extractThinkingParts(parts);
+			assert.ok(thinkingParts.length > 0, "Expected at least one ThinkingPart from reasoning_content");
+			const thinkingText = thinkingParts.map((p) => p.value ?? "").join("");
+			assert.ok(thinkingText.length > 0, "ThinkingPart should have non-empty text");
 		});
 
 		test("usage-only final chunk does not break streaming", async () => {
@@ -652,14 +670,13 @@ suite("Host-Fidelity Tests (capture)", () => {
 		});
 
 		test("cancellation stops the stream", async function () {
-			this.timeout(10000);
+			this.timeout(15000);
 			server.setScenario("slow-stream");
 
 			const cts = new vscode.CancellationTokenSource();
 			const response = await model.sendRequest([vscode.LanguageModelChatMessage.User("hi")], {}, cts.token);
 
 			const parts: unknown[] = [];
-			let cancelled = false;
 			try {
 				for await (const part of response.stream) {
 					parts.push(part);
@@ -668,10 +685,14 @@ suite("Host-Fidelity Tests (capture)", () => {
 					}
 				}
 			} catch {
-				cancelled = true;
+				// Cancellation may surface as a thrown error; the part count below
+				// is what proves the stream actually stopped early.
 			}
 
-			assert.ok(parts.length < 6 || cancelled, "Stream should have been interrupted by cancellation");
+			assert.ok(
+				parts.length < SLOW_STREAM_CHUNK_COUNT / 2,
+				`Cancellation should stop the stream early: collected ${parts.length} of ${SLOW_STREAM_CHUNK_COUNT} chunks`
+			);
 		});
 
 		test("HTTP 400 error surfaces as rejection", async () => {
@@ -694,23 +715,27 @@ suite("Host-Fidelity Tests (capture)", () => {
 			}
 		});
 
-		test("structured thinking object produces ThinkingPart or text", async () => {
+		test("structured thinking object produces answer text", async () => {
 			server.setScenario("thinking-structured");
 			const { parts } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
 			const text = extractText(parts);
 			assert.ok(text.includes("Here is my answer"), `Expected answer text, got: "${text}"`);
+		});
 
-			// If LanguageModelThinkingPart is available, check it was emitted
-			const vsAny = vscode as unknown as Record<string, unknown>;
-			if (vsAny.LanguageModelThinkingPart) {
-				const thinkingParts = parts.filter(
-					(p) => (p as Record<string, unknown>).constructor?.name === "LanguageModelThinkingPart"
-				);
-				if (thinkingParts.length > 0) {
-					const thinkingText = (thinkingParts[0] as { value?: string }).value ?? "";
-					assert.ok(thinkingText.includes("step by step"), "ThinkingPart should contain thinking text");
-				}
+		test("structured thinking object emits ThinkingPart", async function () {
+			if (!getThinkingPartClass()) {
+				console.log("Skipping: host does not expose LanguageModelThinkingPart");
+				this.skip();
 			}
+			server.setScenario("thinking-structured");
+			const { parts } = await sendAndCapture([vscode.LanguageModelChatMessage.User("hi")]);
+			const thinkingParts = extractThinkingParts(parts);
+			assert.ok(thinkingParts.length > 0, "Expected at least one ThinkingPart from structured thinking");
+			const thinkingText = thinkingParts.map((p) => p.value ?? "").join("");
+			assert.ok(
+				thinkingText.includes("step by step"),
+				`ThinkingPart should contain thinking text, got: "${thinkingText}"`
+			);
 		});
 
 		test("text followed by tool call in same response", async () => {
@@ -770,60 +795,22 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 	let baseUrlB: string;
 	let serverIdA: string;
 	let serverIdB: string;
+	let twoServerModelIds: string[] = [];
 
 	async function setupTwoServers() {
-		await vscode.commands.executeCommand("litellm._test.clearServers");
-		const configA = (await vscode.commands.executeCommand(
-			"litellm._test.addServer",
-			"ServerA",
-			baseUrlA,
-			"key-a"
-		)) as ServerConfig;
-		const configB = (await vscode.commands.executeCommand(
-			"litellm._test.addServer",
-			"ServerB",
-			baseUrlB,
-			"key-b"
-		)) as ServerConfig;
-		serverIdA = configA.id;
-		serverIdB = configB.id;
+		await clearServers();
+		const resultA = await addServer("ServerA", baseUrlA, "key-a");
+		const resultB = await addServer("ServerB", baseUrlB, "key-b");
+		serverIdA = resultA.server.id;
+		serverIdB = resultB.server.id;
+		twoServerModelIds = resultB.modelIds;
 	}
 
 	async function waitForTwoServerModels(timeoutMs: number): Promise<vscode.LanguageModelChat[]> {
-		return waitForFreshModels(
-			{ vendor: "litellm" },
+		return waitForHostModels(
 			timeoutMs,
-			(models) => Boolean(findModelByServerId(models, serverIdA) && findModelByServerId(models, serverIdB)),
-			`models from both configured servers (${serverIdA}, ${serverIdB})`
-		);
-	}
-
-	async function waitForNoConfiguredServers(timeoutMs: number): Promise<number> {
-		const deadline = Date.now() + timeoutMs;
-		let lastCount = -1;
-		let lastServers: ServerConfig[] = [];
-
-		while (Date.now() < deadline) {
-			lastServers = (await vscode.commands.executeCommand("litellm._test.getServers")) as ServerConfig[];
-			if (lastServers.length > 0) {
-				// A straggling refresh or teardown from a timed-out earlier test can
-				// re-register servers after the initial clear; clear again instead of
-				// waiting out the timeout.
-				await vscode.commands.executeCommand("litellm._test.clearServers");
-			}
-			lastCount = (await vscode.commands.executeCommand("litellm._test.refreshModels")) as number;
-
-			if (lastServers.length === 0 && lastCount === 0) {
-				return lastCount;
-			}
-
-			await new Promise((r) => setTimeout(r, 200));
-		}
-
-		throw new Error(
-			`Timeout (${timeoutMs}ms) waiting for empty registry. Last servers: ${
-				lastServers.length > 0 ? lastServers.map((server) => server.id).join(", ") : "(none)"
-			}; last model count: ${lastCount}`
+			(models) => hostMatches(models, twoServerModelIds),
+			`models from both configured servers (${twoServerModelIds.join(", ")})`
 		);
 	}
 
@@ -842,7 +829,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 	});
 
 	suiteTeardown(async () => {
-		await vscode.commands.executeCommand("litellm._test.clearServers");
+		await clearServers();
 		if (serverA) {
 			await serverA.close();
 		}
@@ -939,12 +926,20 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			await serverB.close();
 
 			try {
-				const models = await waitForFreshModels(
-					{ vendor: "litellm" },
+				// One explicit refresh sees the dead server; then wait for the host to catch up.
+				const ids = (await vscode.commands.executeCommand("litellm._test.refreshModelIds")) as string[];
+				assert.ok(
+					ids.some((id) => id.startsWith(`${serverIdA}/`)),
+					`Prepared models should include the healthy server ${serverIdA}, got: ${ids.join(", ")}`
+				);
+				assert.ok(
+					ids.every((id) => !id.startsWith(`${serverIdB}/`)),
+					`Prepared models should exclude the failed server ${serverIdB}, got: ${ids.join(", ")}`
+				);
+
+				const models = await waitForHostModels(
 					15000,
-					(models) =>
-						models.some((m) => m.id.startsWith(`${serverIdA}/`)) &&
-						models.every((m) => !m.id.startsWith(`${serverIdB}/`)),
+					(models) => hostMatches(models, ids),
 					`models from healthy server ${serverIdA} only`
 				);
 				assert.ok(models.length > 0, "Should still have models from the healthy server");
@@ -1042,33 +1037,14 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 		test("with one server, model IDs have no server prefix", async function () {
 			this.timeout(20000);
 
-			const setupSoloServer = async (): Promise<ServerConfig> => {
-				await vscode.commands.executeCommand("litellm._test.clearServers");
-				return (await vscode.commands.executeCommand(
-					"litellm._test.addServer",
-					"Solo",
-					baseUrlA,
-					"key-a"
-				)) as ServerConfig;
-			};
-			let soloConfig = await setupSoloServer();
-
 			try {
-				const ids = await waitForPreparedModelIds(
-					15000,
-					(ids) => ids.length > 0 && ids.every((id) => id === CAPTURE_MODEL_ID),
-					`single-server raw model ID ${CAPTURE_MODEL_ID}`,
-					async () => {
-						const servers = (await vscode.commands.executeCommand("litellm._test.getServers")) as ServerConfig[];
-						if (servers.length !== 1 || servers[0].id !== soloConfig.id) {
-							soloConfig = await setupSoloServer();
-						}
-					}
-				);
-				assert.ok(ids.length > 0, "Should have models");
+				await clearServers();
+				const { server: soloConfig, modelIds } = await addServer("Solo", baseUrlA, "key-a");
+				assert.ok(modelIds.length > 0, "Should have models");
 
-				for (const id of ids) {
+				for (const id of modelIds) {
 					assert.ok(!id.startsWith(`${soloConfig.id}/`), `Single-server model ID should not have server prefix: ${id}`);
+					assert.strictEqual(id, CAPTURE_MODEL_ID, `Single-server model ID should be the raw model ID: ${id}`);
 				}
 			} finally {
 				await setupTwoServers();
@@ -1080,11 +1056,12 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 		test("empty registry returns no models", async function () {
 			this.timeout(20000);
 
-			await vscode.commands.executeCommand("litellm._test.clearServers");
-
 			try {
-				const count = await waitForNoConfiguredServers(15000);
-				assert.strictEqual(count, 0, "Empty registry should return 0 models");
+				const modelIds = await clearServers();
+				assert.deepStrictEqual(modelIds, [], "Empty registry should return no models");
+
+				const servers = (await vscode.commands.executeCommand("litellm._test.getServers")) as ServerConfig[];
+				assert.strictEqual(servers.length, 0, "Registry should be empty after clearServers");
 			} finally {
 				await setupTwoServers();
 			}
@@ -1111,11 +1088,15 @@ suite("Host-Fidelity Tests (live)", () => {
 		this.timeout(REAL_TIMEOUT || 30000);
 
 		await ensureActivated();
-		await vscode.commands.executeCommand("litellm._test.clearServers");
-		await vscode.commands.executeCommand("litellm._test.addServer", "Default", REAL_BASE_URL, REAL_API_KEY);
+		await clearServers();
+		const { modelIds } = await addServer("Default", REAL_BASE_URL, REAL_API_KEY);
+		assert.ok(modelIds.length > 0, "Expected at least one litellm model from the real server");
 
-		allModels = await waitForFreshModels({ vendor: "litellm" }, 15000);
-		assert.ok(allModels.length > 0, "Expected at least one litellm model to be registered");
+		allModels = await waitForHostModels(
+			15000,
+			(models) => hostMatches(models, modelIds),
+			"host to expose models from the real server"
+		);
 
 		if (REAL_MODEL_ID) {
 			const match = allModels.find((m) => m.id === REAL_MODEL_ID || m.name === REAL_MODEL_ID);
@@ -1190,11 +1171,10 @@ suite("Host-Fidelity Tests (live)", () => {
 
 		test("/v1/model/info returns data", async () => {
 			const resp = await fetch(`${REAL_BASE_URL}/v1/model/info`, { headers });
-			if (resp.ok) {
-				const body = (await resp.json()) as { data?: unknown[] };
-				assert.ok(Array.isArray(body.data), "/v1/model/info should return a data array");
-				assert.ok(body.data.length > 0, "/v1/model/info data should be non-empty");
-			}
+			assert.ok(resp.ok, `/v1/model/info returned ${resp.status} ${resp.statusText}`);
+			const body = (await resp.json()) as { data?: unknown[] };
+			assert.ok(Array.isArray(body.data), "/v1/model/info should return a data array");
+			assert.ok(body.data.length > 0, "/v1/model/info data should be non-empty");
 		});
 
 		test("/v1/models returns data", async () => {
@@ -1292,12 +1272,17 @@ suite("Host-Fidelity Tests (live)", () => {
 		test("cancellation terminates stream", async function () {
 			this.timeout(REAL_TIMEOUT || 30000);
 
+			const cancelDelayMs = 2000;
 			const cts = new vscode.CancellationTokenSource();
-			setTimeout(() => cts.cancel(), 2000);
+			let cancelledAt = 0;
+			setTimeout(() => {
+				cancelledAt = Date.now();
+				cts.cancel();
+			}, cancelDelayMs);
 
 			let parts = 0;
 			let threw = false;
-
+			let endedAt = 0;
 			let timedOut = false;
 
 			// VS Code's stream iterator may not terminate on cancellation,
@@ -1316,6 +1301,7 @@ suite("Host-Fidelity Tests (live)", () => {
 					} catch {
 						threw = true;
 					}
+					endedAt = Date.now();
 				})(),
 				new Promise<void>((resolve) =>
 					setTimeout(() => {
@@ -1326,11 +1312,20 @@ suite("Host-Fidelity Tests (live)", () => {
 			]);
 
 			console.log(`Cancellation test: ${parts} parts, threw=${threw}, timedOut=${timedOut}`);
-			// Test passes if: stream threw, some parts arrived before cancel, or
-			// the race timeout fired (meaning cancel didn't propagate but we didn't hang forever)
+			if (timedOut) {
+				assert.fail(`Cancellation did not terminate the stream: still streaming 15s in (${parts} parts)`);
+			}
+			if (cancelledAt === 0 || endedAt < cancelledAt) {
+				if (threw) {
+					assert.fail(`Request failed before cancellation fired (${parts} parts) — cancellation was never exercised`);
+				}
+				console.log("Skipping: stream completed before cancellation fired, so cancellation was never exercised");
+				this.skip();
+			}
+			const msAfterCancel = endedAt - cancelledAt;
 			assert.ok(
-				threw || parts > 0 || timedOut,
-				"Cancellation should interrupt the stream or the race timeout should fire"
+				msAfterCancel < 5000,
+				`Stream continued ${msAfterCancel}ms after cancellation — it likely ran to completion instead of stopping`
 			);
 		});
 	});

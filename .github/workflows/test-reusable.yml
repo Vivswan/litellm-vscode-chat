@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: ''
+      suite:
+        description: 'Test suite to run (unit or host-fidelity)'
+        required: false
+        type: string
+        default: 'unit'
   workflow_dispatch:
     inputs:
       os:
@@ -25,6 +30,11 @@ on:
         required: false
         type: string
         default: ''
+      suite:
+        description: 'Test suite to run (unit or host-fidelity)'
+        required: false
+        type: string
+        default: 'unit'
 
 jobs:
   test:
@@ -63,8 +73,8 @@ jobs:
 
       - name: Run tests (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a bun run test
+        run: xvfb-run -a bun run ${{ inputs.suite == 'host-fidelity' && 'host-fidelity-test' || 'test' }}
 
       - name: Run tests (Windows/macOS)
         if: runner.os != 'Linux'
-        run: bun run test
+        run: bun run ${{ inputs.suite == 'host-fidelity' && 'host-fidelity-test' || 'test' }}

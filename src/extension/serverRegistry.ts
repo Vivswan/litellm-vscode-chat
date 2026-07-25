@@ -40,22 +40,86 @@ function normalizeBaseUrl(baseUrl: string): string {
 	return baseUrl.replace(/\/+$/, "");
 }
 
+interface PersistedRegistry {
+	version: number;
+	servers: ServerConfig[];
+}
+
+function parsePersistedRegistry(raw: unknown): PersistedRegistry {
+	// Registries written before versioning were a bare array.
+	if (Array.isArray(raw)) {
+		return { version: 0, servers: raw.filter(isServerConfig) };
+	}
+	if (typeof raw === "object" && raw !== null) {
+		const candidate = raw as Partial<PersistedRegistry>;
+		if (typeof candidate.version === "number" && Array.isArray(candidate.servers)) {
+			return { version: candidate.version, servers: candidate.servers.filter(isServerConfig) };
+		}
+	}
+	return { version: 0, servers: [] };
+}
+
 export class ServerRegistry {
+	// VS Code merges all of an extension's globalState keys into one blob and
+	// broadcasts changes back to each extension host, so a naive read-modify-write
+	// lets a stale broadcast (e.g. a concurrent status-bar persist) revert a
+	// registry write. The in-memory list is authoritative for this window; the
+	// persisted blob carries a version so that snapshots from other windows are
+	// adopted only when strictly newer, and stale broadcasts are ignored.
+	// Simultaneous mutations from two windows remain last-write-wins.
+	private servers: ServerConfig[];
+	private version: number;
+	private persisting = false;
+	private lastWrittenBlob: unknown;
+
 	constructor(
 		private readonly globalState: vscode.Memento,
 		private readonly secrets: vscode.SecretStorage
-	) {}
+	) {
+		const stored = parsePersistedRegistry(this.globalState.get<unknown>(SERVER_REGISTRY_KEY));
+		this.servers = [...stored.servers];
+		this.version = stored.version;
+	}
+
+	private syncFromStorage(): void {
+		// No adoption while our own write is in flight, and never from the blob we
+		// wrote ourselves: Memento caches updates optimistically, so after a failed
+		// persist the cache can still hold our rejected snapshot.
+		if (this.persisting) {
+			return;
+		}
+		const raw = this.globalState.get<unknown>(SERVER_REGISTRY_KEY);
+		if (raw === this.lastWrittenBlob) {
+			return;
+		}
+		const stored = parsePersistedRegistry(raw);
+		if (stored.version > this.version) {
+			this.servers = [...stored.servers];
+			this.version = stored.version;
+		}
+	}
+
+	private async persist(): Promise<void> {
+		const next = this.version + 1;
+		const blob: PersistedRegistry = { version: next, servers: [...this.servers] };
+		this.lastWrittenBlob = blob;
+		this.persisting = true;
+		try {
+			await this.globalState.update(SERVER_REGISTRY_KEY, blob);
+			this.version = next;
+		} finally {
+			this.persisting = false;
+		}
+	}
 
 	getServers(): ServerConfig[] {
-		const raw = this.globalState.get<unknown>(SERVER_REGISTRY_KEY, []);
-		if (!Array.isArray(raw)) {
-			return [];
-		}
-		return raw.filter(isServerConfig);
+		this.syncFromStorage();
+		return [...this.servers];
 	}
 
 	async addServer(label: string, baseUrl: string, apiKey: string): Promise<ServerConfig> {
-		const existingIds = new Set(this.getServers().map((s) => s.id));
+		this.syncFromStorage();
+		const existingIds = new Set(this.servers.map((s) => s.id));
 		let id = generateId();
 		while (existingIds.has(id)) {
 			id = generateId();
@@ -66,11 +130,11 @@ export class ServerRegistry {
 		if (apiKey) {
 			await this.secrets.store(apiKeySecret(id), apiKey);
 		}
+		this.servers.push(server);
 		try {
-			const servers = this.getServers();
-			servers.push(server);
-			await this.globalState.update(SERVER_REGISTRY_KEY, servers);
+			await this.persist();
 		} catch (error) {
+			this.servers = this.servers.filter((s) => s.id !== id);
 			if (apiKey) {
 				try {
 					await this.secrets.delete(apiKeySecret(id));
@@ -84,13 +148,19 @@ export class ServerRegistry {
 	}
 
 	async updateServer(id: string, label: string, baseUrl: string, apiKey: string | undefined): Promise<void> {
-		const servers = this.getServers();
-		const idx = servers.findIndex((s) => s.id === id);
+		this.syncFromStorage();
+		const idx = this.servers.findIndex((s) => s.id === id);
 		if (idx === -1) {
 			return;
 		}
-		servers[idx] = { id, label, baseUrl: normalizeBaseUrl(baseUrl) };
-		await this.globalState.update(SERVER_REGISTRY_KEY, servers);
+		const previous = this.servers[idx];
+		this.servers[idx] = { id, label, baseUrl: normalizeBaseUrl(baseUrl) };
+		try {
+			await this.persist();
+		} catch (error) {
+			this.servers[idx] = previous;
+			throw error;
+		}
 		if (apiKey !== undefined) {
 			if (apiKey) {
 				await this.secrets.store(apiKeySecret(id), apiKey);
@@ -101,8 +171,15 @@ export class ServerRegistry {
 	}
 
 	async removeServer(id: string): Promise<void> {
-		const servers = this.getServers().filter((s) => s.id !== id);
-		await this.globalState.update(SERVER_REGISTRY_KEY, servers);
+		this.syncFromStorage();
+		const previous = this.servers;
+		this.servers = this.servers.filter((s) => s.id !== id);
+		try {
+			await this.persist();
+		} catch (error) {
+			this.servers = previous;
+			throw error;
+		}
 		await this.secrets.delete(apiKeySecret(id));
 	}
 

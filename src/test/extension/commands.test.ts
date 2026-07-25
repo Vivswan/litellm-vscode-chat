@@ -75,4 +75,27 @@ suite("extension/commands", () => {
 			mock.restore();
 		}
 	});
+
+	suite("test-only mutation commands", () => {
+		teardown(async () => {
+			await vscode.commands.executeCommand("litellm._test.clearServers");
+		});
+
+		test("mutations are serialized and a superseded mutation returns null", async () => {
+			await vscode.commands.executeCommand("litellm._test.clearServers");
+
+			// Fire both without awaiting: the addServer mutation is enqueued first,
+			// clearServers second, so the final state must be empty and the
+			// superseded addServer must report null instead of model IDs.
+			const addPromise = vscode.commands.executeCommand("litellm._test.addServer", "Racer", "http://127.0.0.1:9", "");
+			const clearPromise = vscode.commands.executeCommand("litellm._test.clearServers");
+			const [addResult, clearResult] = await Promise.all([addPromise, clearPromise]);
+
+			const add = addResult as { server?: { label: string }; modelIds: string[] | null };
+			assert.strictEqual(add.server?.label, "Racer", "The superseded mutation itself must still be applied");
+			assert.strictEqual(add.modelIds, null, "A superseded mutation must report null model IDs");
+			assert.deepStrictEqual(clearResult, [], "The last mutation returns the fresh (empty) model list");
+			assert.deepStrictEqual(await vscode.commands.executeCommand("litellm._test.getServers"), []);
+		});
+	});
 });
