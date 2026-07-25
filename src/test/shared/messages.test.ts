@@ -83,9 +83,19 @@ suite("shared/messages", () => {
 			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [toolResult], name: undefined },
 		];
 		const out = convertMessages(messages) as ConvertedMessage[];
-		const hasToolCalls = out.some((m: ConvertedMessage) => Array.isArray(m.tool_calls));
-		const hasToolMsg = out.some((m: ConvertedMessage) => m.role === "tool");
-		assert.ok(hasToolCalls && hasToolMsg);
+		assert.equal(out.length, 2);
+
+		const assistantMsg = out[0];
+		assert.equal(assistantMsg.role, "assistant");
+		assert.ok(Array.isArray(assistantMsg.tool_calls) && assistantMsg.tool_calls.length === 1);
+		assert.equal(assistantMsg.tool_calls[0].id, "abc");
+		assert.equal(assistantMsg.tool_calls[0].function.name, "toolA");
+		assert.deepEqual(JSON.parse(assistantMsg.tool_calls[0].function.arguments), { foo: 1 });
+
+		const toolMsg = out[1];
+		assert.equal(toolMsg.role, "tool", "Tool results must ride in a tool-role message");
+		assert.equal(toolMsg.tool_call_id, "abc", "The result must be paired to the originating call ID");
+		assert.equal(toolMsg.content, "result");
 	});
 
 	test("handles mixed text + tool calls in one assistant message", () => {
@@ -262,5 +272,49 @@ suite("shared/messages", () => {
 		const out = convertMessages(messages);
 		assert.equal(typeof out[0].content, "string");
 		assert.equal(out[0].content, "test");
+	});
+
+	suite("cacheSystemPrompt", () => {
+		const systemMsg: vscode.LanguageModelChatRequestMessage = {
+			role: 3 as vscode.LanguageModelChatMessageRole,
+			content: [new vscode.LanguageModelTextPart("you are helpful")],
+			name: undefined,
+		};
+
+		test("on: system content becomes an array whose block carries an ephemeral cache_control", () => {
+			const out = convertMessages([systemMsg], { cacheSystemPrompt: true });
+			assert.equal(out.length, 1);
+			assert.equal(out[0].role, "system");
+			assert.deepStrictEqual(out[0].content, [
+				{ type: "text", text: "you are helpful", cache_control: { type: "ephemeral" } },
+			]);
+		});
+
+		test("off: system content stays a plain string", () => {
+			for (const options of [undefined, { cacheSystemPrompt: false }]) {
+				const out = convertMessages([systemMsg], options);
+				assert.equal(out.length, 1);
+				assert.equal(out[0].role, "system");
+				assert.strictEqual(out[0].content, "you are helpful");
+			}
+		});
+
+		test("on: user and assistant content is not wrapped in cache_control blocks", () => {
+			const messages: vscode.LanguageModelChatMessage[] = [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("hi")],
+					name: undefined,
+				},
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [new vscode.LanguageModelTextPart("hello")],
+					name: undefined,
+				},
+			];
+			const out = convertMessages(messages, { cacheSystemPrompt: true });
+			assert.strictEqual(out[0].content, "hi");
+			assert.strictEqual(out[1].content, "hello");
+		});
 	});
 });
