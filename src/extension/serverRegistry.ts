@@ -1,30 +1,11 @@
 import type * as vscode from "vscode";
+import type { ServerConfig, ServerWithKey } from "../shared/servers";
 import {
 	apiKeySecret,
 	LEGACY_API_KEY_SECRET,
 	LEGACY_BASE_URL_SECRET,
 	SERVER_REGISTRY_KEY,
 } from "../shared/storageKeys";
-
-export interface ServerConfig {
-	id: string;
-	label: string;
-	baseUrl: string;
-}
-
-export interface ServerWithKey extends ServerConfig {
-	apiKey: string;
-}
-
-export interface ServerStatus {
-	serverId: string;
-	label: string;
-	baseUrl: string;
-	state: "ok" | "error";
-	modelCount: number;
-	error?: string;
-	lastChecked: string;
-}
 
 function isServerConfig(value: unknown): value is ServerConfig {
 	if (typeof value !== "object" || value === null) {

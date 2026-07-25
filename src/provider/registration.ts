@@ -1,5 +1,5 @@
 import type { LanguageModelChatInformation } from "vscode";
-import type { ServerWithKey } from "../extension/serverRegistry";
+import type { ServerWithKey } from "../shared/servers";
 import type { LiteLLMModelItem } from "../types";
 import type { ModelRoute } from "./request";
 import { buildExposedModelId, getTokenConstraints } from "./request";

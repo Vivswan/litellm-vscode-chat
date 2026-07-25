@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import type { AggregatedStatus } from "../provider";
 import type { ConfigurationPrompt } from "../provider/config";
+import type { AggregatedStatus } from "../shared/servers";
 
 const GITHUB_DOCS = "https://github.com/Vivswan/litellm-vscode-chat#quick-start";
 

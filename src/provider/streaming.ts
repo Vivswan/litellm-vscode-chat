@@ -7,6 +7,15 @@ import { TextToolCallParser } from "./textToolCallParser";
 
 export type ThinkingPartCtor = new (text: string, id?: string, metadata?: unknown) => vscode.LanguageModelResponsePart;
 
+/**
+ * Hands out tool-call ID numbers. Owned by the ChatClient and shared across
+ * concurrent requests, so next() must advance state synchronously — two
+ * overlapping streams may interleave calls but can never receive the same ID.
+ */
+export interface ToolCallIdSource {
+	next(): number;
+}
+
 // LanguageModelThinkingPart is still a proposed API, and hosts may expose
 // proposed classes behind throwing getters, so the single property read is
 // probed once at module load. A probe failure is kept for the processor to log.
@@ -97,26 +106,22 @@ export function freshRequestState(): RequestState {
 
 export class StreamProcessor {
 	private _req: RequestState;
-	private _toolCallIdCounter: number;
+	private _toolCallIds: ToolCallIdSource;
 	private _log: (message: string, data?: unknown) => void;
 	private _thinkingPartCtor: ThinkingPartCtor | undefined;
 
 	constructor(
-		initialIdCounter: number,
+		toolCallIds: ToolCallIdSource,
 		log: (message: string, data?: unknown) => void,
 		thinkingPartCtor: ThinkingPartCtor | null | undefined = defaultThinkingProbe.ctor
 	) {
 		this._req = freshRequestState();
-		this._toolCallIdCounter = initialIdCounter;
+		this._toolCallIds = toolCallIds;
 		this._log = log;
 		this._thinkingPartCtor = thinkingPartCtor ?? undefined;
 		if (thinkingPartCtor === defaultThinkingProbe.ctor && defaultThinkingProbe.error) {
 			this._log("LanguageModelThinkingPart probe failed", { error: defaultThinkingProbe.error });
 		}
-	}
-
-	get toolCallIdCounter(): number {
-		return this._toolCallIdCounter;
 	}
 
 	resetState(): void {
@@ -363,7 +368,7 @@ export class StreamProcessor {
 		}
 
 		ownCounts.set(key, (ownCounts.get(key) ?? 0) + 1);
-		const id = call.id ?? `call_${++this._toolCallIdCounter}`;
+		const id = call.id ?? `call_${this._toolCallIds.next()}`;
 		progress.report(new vscode.LanguageModelToolCallPart(id, call.name, call.parsedArgs));
 		retireBuffer();
 		return true;

@@ -8,35 +8,26 @@ import type {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 import * as vscode from "vscode";
-import type { ServerStatus, ServerWithKey } from "./extension/serverRegistry";
-import type { IssueReporter } from "./issueReporter";
-import { sendChatRequest } from "./provider/client";
+import { ChatClient } from "./provider/chatClient";
 import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
-import { fetchModels } from "./provider/discovery";
-import { getCustomHeaders } from "./provider/httpHeaders";
 import { buildModelInfos } from "./provider/registration";
 import type { ModelRoute } from "./provider/request";
-
-export interface AggregatedStatus {
-	serverStatuses: ServerStatus[];
-	totalModels: number;
-	silent: boolean;
-}
+import type { Logger } from "./shared/logger";
+import type { AggregatedStatus, ServerStatus, ServerWithKey } from "./shared/servers";
 
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
-	private _promptCachingSupport = new Map<string, boolean>();
+	private readonly _client: ChatClient;
 	private _statusCallback?: (status: AggregatedStatus) => void;
-	private _toolCallIdCounter = 0;
-	private _modelRoutes = new Map<string, ModelRoute>();
 	private _getServers?: () => Promise<ServerWithKey[]>;
 	private _configurationPrompt?: ConfigurationPrompt;
 
 	constructor(
-		private readonly userAgent: string,
-		private readonly outputChannel?: vscode.OutputChannel,
-		private readonly issueReporter?: IssueReporter
-	) {}
+		userAgent: string,
+		private readonly logger?: Logger
+	) {
+		this._client = new ChatClient({ userAgent, logger });
+	}
 
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
 		this._statusCallback = callback;
@@ -44,6 +35,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 	setServerProvider(getServers: () => Promise<ServerWithKey[]>): void {
 		this._getServers = getServers;
+		this._client.setServerProvider(getServers);
 	}
 
 	setConfigurationPrompt(prompt: ConfigurationPrompt): void {
@@ -51,35 +43,18 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	private log(message: string, data?: unknown): void {
-		if (this.outputChannel) {
-			const timestamp = new Date().toISOString();
-			const line =
-				data !== undefined
-					? `[${timestamp}] ${message}: ${JSON.stringify(data, null, 2)}`
-					: `[${timestamp}] ${message}`;
-			this.outputChannel.appendLine(line);
-			this.issueReporter?.appendLog(line);
-		}
+		this.logger?.log(message, data);
 	}
 
 	private logError(message: string, error: unknown): void {
-		const errorMsg = error instanceof Error ? error.message : String(error);
-		if (this.outputChannel) {
-			const timestamp = new Date().toISOString();
-			this.outputChannel.appendLine(`[${timestamp}] ERROR: ${message}: ${errorMsg}`);
-			this.issueReporter?.appendLog(`[${timestamp}] ERROR: ${message}: ${errorMsg}`);
-			if (error instanceof Error && error.stack) {
-				this.outputChannel.appendLine(`Stack trace: ${error.stack}`);
-			}
-		}
-		this.issueReporter?.recordError(message, error);
+		this.logger?.error(message, error);
 	}
 
-	async prepareLanguageModelChatInformation(
+	async provideLanguageModelChatInformation(
 		options: { silent: boolean },
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
-		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
+		this.log("provideLanguageModelChatInformation called", { silent: options.silent });
 
 		const servers = await ensureServers(options.silent, this._getServers, this._configurationPrompt);
 		if (!servers || servers.length === 0) {
@@ -93,43 +68,20 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
 
-		const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const rawDiscoveryTimeout = settings.get<number>("discoveryTimeout", 30000);
-		const customHeaders = getCustomHeaders((msg, data) => this.log(msg, data));
-		// Validate and clamp discoveryTimeout to minimum 1000ms
-		const discoveryTimeout = Math.max(1000, Number.isFinite(rawDiscoveryTimeout) ? rawDiscoveryTimeout : 30000);
-		if (rawDiscoveryTimeout !== discoveryTimeout) {
-			this.log("Invalid discoveryTimeout configuration, using clamped value", {
-				configured: rawDiscoveryTimeout,
-				clamped: discoveryTimeout,
-			});
-		}
-
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
-				const result = await fetchModels(
-					server.apiKey,
-					server.baseUrl,
-					this.userAgent,
-					(msg, data) => this.log(msg, data),
-					(msg, err) => this.logError(msg, err),
-					customHeaders,
-					discoveryTimeout
-				);
+				const result = await this._client.fetchModels(server);
 				return { server, models: result.models };
 			})
 		);
 
 		const serverStatuses: ServerStatus[] = [];
 		const allInfos: LanguageModelChatInformation[] = [];
+		const allRoutes = new Map<string, ModelRoute>();
+		const allPromptCaching = new Map<string, boolean>();
 
 		const successfulCount = results.filter((r) => r.status === "fulfilled").length;
 		const serverCount = servers.length;
-
-		if (successfulCount > 0) {
-			this._modelRoutes.clear();
-			this._promptCachingSupport.clear();
-		}
 
 		for (let i = 0; i < results.length; i++) {
 			const result = results[i];
@@ -156,10 +108,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg));
 			allInfos.push(...reg.infos);
 			for (const [k, v] of reg.routes) {
-				this._modelRoutes.set(k, v);
+				allRoutes.set(k, v);
 			}
 			for (const [k, v] of reg.promptCaching) {
-				this._promptCachingSupport.set(k, v);
+				allPromptCaching.set(k, v);
 			}
 
 			serverStatuses.push({
@@ -170,6 +122,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 				modelCount: reg.infos.length,
 				lastChecked: new Date().toISOString(),
 			});
+		}
+
+		// Registrations are only replaced after at least one server answered, so
+		// existing routes survive a total outage.
+		if (successfulCount > 0) {
+			this._client.applyRegistration(allRoutes, allPromptCaching, true);
 		}
 
 		this.log("Final model count:", allInfos.length);
@@ -189,13 +147,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		return allInfos;
 	}
 
-	async provideLanguageModelChatInformation(
-		options: { silent: boolean },
-		_token: CancellationToken
-	): Promise<LanguageModelChatInformation[]> {
-		return this.prepareLanguageModelChatInformation({ silent: options.silent ?? false }, _token);
-	}
-
 	async provideLanguageModelChatResponse(
 		model: LanguageModelChatInformation,
 		messages: readonly LanguageModelChatRequestMessage[],
@@ -213,16 +164,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			},
 		};
 		try {
-			this._toolCallIdCounter = await sendChatRequest(
-				{ model, messages, options, progress: trackingProgress, token },
-				this._modelRoutes,
-				this._promptCachingSupport,
-				this._getServers,
-				this.userAgent,
-				this._toolCallIdCounter,
-				(msg, data) => this.log(msg, data),
-				(msg, err) => this.logError(msg, err)
-			);
+			await this._client.send({ model, messages, options, progress: trackingProgress, token });
 		} catch (err) {
 			this.logError("Chat request failed", err);
 			throw err;

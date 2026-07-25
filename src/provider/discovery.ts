@@ -1,4 +1,5 @@
 import { normalizePositiveNumber } from "../shared/numbers";
+import type { ServerWithKey } from "../shared/servers";
 import type {
 	LiteLLMModelInfoItem,
 	LiteLLMModelInfoResponse,
@@ -61,15 +62,18 @@ export interface FetchModelsResult {
 	models: LiteLLMModelItem[];
 }
 
-export async function fetchModels(
-	apiKey: string,
-	baseUrl: string,
-	userAgent: string,
-	log: (message: string, data?: unknown) => void,
-	logError: (message: string, error: unknown) => void,
-	customHeaders: Record<string, string> = {},
-	discoveryTimeout?: number
-): Promise<FetchModelsResult> {
+export interface FetchModelsRequest {
+	server: ServerWithKey;
+	userAgent: string;
+	customHeaders: Record<string, string>;
+	discoveryTimeout?: number;
+	log: (message: string, data?: unknown) => void;
+	logError: (message: string, error: unknown) => void;
+}
+
+export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
+	const { userAgent, customHeaders, discoveryTimeout, log, logError } = request;
+	const { apiKey, baseUrl } = request.server;
 	// Validate and clamp timeout to minimum 1000ms (second line of defense)
 	const rawTimeout = discoveryTimeout ?? 30000;
 	const timeout = Math.max(1000, Number.isFinite(rawTimeout) ? rawTimeout : 30000);

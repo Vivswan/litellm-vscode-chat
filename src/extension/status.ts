@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import type { AggregatedStatus } from "../provider";
+import type { Logger } from "../shared/logger";
+import type { AggregatedStatus, ServerStatus } from "../shared/servers";
 import { LAST_CONNECTION_STATUS_KEY } from "../shared/storageKeys";
-import type { ServerStatus } from "./serverRegistry";
 
 export interface ConnectionStatus {
 	state: "not-configured" | "loading" | "connected" | "degraded" | "error";
@@ -36,7 +36,7 @@ export class StatusBarManager {
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
-		private readonly outputChannel: vscode.OutputChannel
+		private readonly logger: Logger
 	) {
 		this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 		this._statusBarItem.command = "litellm.showDiagnostics";
@@ -102,7 +102,7 @@ export class StatusBarManager {
 		const { serverStatuses, totalModels } = aggStatus;
 
 		if (serverStatuses.length === 0) {
-			this.outputChannel.appendLine(`[${now}] No servers configured`);
+			this.logger.log("No servers configured");
 			void this.updateStatusBar({ state: "not-configured", lastChecked: now });
 			return;
 		}
@@ -112,7 +112,7 @@ export class StatusBarManager {
 
 		if (okCount === 0) {
 			const firstError = serverStatuses.find((s) => s.error)?.error ?? "All servers failed";
-			this.outputChannel.appendLine(`[${now}] All servers failed: ${firstError}`);
+			this.logger.log(`All servers failed: ${firstError}`);
 			void this.updateStatusBar({
 				state: "error",
 				error: firstError,
@@ -121,9 +121,7 @@ export class StatusBarManager {
 				lastChecked: now,
 			});
 		} else if (errCount > 0) {
-			this.outputChannel.appendLine(
-				`[${now}] Partial success: ${okCount} ok, ${errCount} failed, ${totalModels} models`
-			);
+			this.logger.log(`Partial success: ${okCount} ok, ${errCount} failed, ${totalModels} models`);
 			void this.updateStatusBar({
 				state: "degraded",
 				serverStatuses,
@@ -131,7 +129,7 @@ export class StatusBarManager {
 				lastChecked: now,
 			});
 		} else if (totalModels === 0) {
-			this.outputChannel.appendLine(`[${now}] Warning: All servers returned 0 models`);
+			this.logger.log("Warning: All servers returned 0 models");
 			void this.updateStatusBar({
 				state: "error",
 				error: "Servers returned 0 models",
@@ -140,7 +138,7 @@ export class StatusBarManager {
 				lastChecked: now,
 			});
 		} else {
-			this.outputChannel.appendLine(`[${now}] Successfully fetched ${totalModels} models from ${okCount} server(s)`);
+			this.logger.log(`Successfully fetched ${totalModels} models from ${okCount} server(s)`);
 			void this.updateStatusBar({
 				state: "connected",
 				serverStatuses,

@@ -2,6 +2,17 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor, type ThinkingPartCtor } from "../../provider/streaming";
 
+/** A standalone tool-call ID source with an observable count, mirroring the ChatClient's. */
+function idSource(): { next(): number; readonly count: number } {
+	let count = 0;
+	return {
+		next: () => ++count,
+		get count() {
+			return count;
+		},
+	};
+}
+
 function collector(): {
 	parts: vscode.LanguageModelResponsePart[];
 	progress: vscode.Progress<vscode.LanguageModelResponsePart>;
@@ -56,7 +67,7 @@ function sseStream(chunks: string[], onEnd?: () => void): ReadableStream<Uint8Ar
 
 suite("provider/streaming", () => {
 	test("processDelta emits text content from string delta", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
@@ -70,7 +81,7 @@ suite("provider/streaming", () => {
 	});
 
 	test("processDelta handles tool calls in delta", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
@@ -97,7 +108,7 @@ suite("provider/streaming", () => {
 
 	test("processDelta logs token usage", async () => {
 		const logs: string[] = [];
-		const stream = new StreamProcessor(0, (msg, data) => {
+		const stream = new StreamProcessor(idSource(), (msg, data) => {
 			logs.push(data !== undefined ? `${msg}: ${JSON.stringify(data)}` : msg);
 		});
 		const parts: vscode.LanguageModelResponsePart[] = [];
@@ -115,7 +126,7 @@ suite("provider/streaming", () => {
 	});
 
 	test("processTextContent strips control tokens", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
@@ -133,7 +144,7 @@ suite("provider/streaming", () => {
 	});
 
 	test("processTextContent parses inline tool calls", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
@@ -151,7 +162,8 @@ suite("provider/streaming", () => {
 	});
 
 	test("buffered tool call without id gets generated call_N id and advances the counter", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const ids = idSource();
+		const stream = new StreamProcessor(ids, () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
@@ -165,11 +177,11 @@ suite("provider/streaming", () => {
 		) as vscode.LanguageModelToolCallPart;
 		assert.ok(toolPart, "Should emit the buffered tool call");
 		assert.equal(toolPart.callId, "call_1");
-		assert.equal(stream.toolCallIdCounter, 1);
+		assert.equal(ids.count, 1);
 	});
 
 	test("tool call arguments split across deltas emit exactly once, including after finish_reason", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
@@ -200,7 +212,7 @@ suite("provider/streaming", () => {
 	});
 
 	test("partial inline begin token held across chunk boundary", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
@@ -219,7 +231,7 @@ suite("provider/streaming", () => {
 	});
 
 	test("a spacer text part is emitted between assistant text and the first tool call delta", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
@@ -234,7 +246,7 @@ suite("provider/streaming", () => {
 	});
 
 	test("structured content block arrays emit their text blocks", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
@@ -261,7 +273,7 @@ suite("provider/streaming", () => {
 
 suite("provider/streaming tool call index normalization", () => {
 	test("numeric-string index from a proxy shares the buffer with its numeric twin", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
 		await stream.processDelta(
@@ -285,7 +297,7 @@ suite("provider/streaming dedup across channels", () => {
 	const INLINE_DUP = '<|tool_call_begin|>dup<|tool_call_argument_begin|>{"x":1}<|tool_call_end|>';
 
 	test("delta-then-inline emits exactly one part", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
 		await stream.processDelta(
@@ -300,7 +312,7 @@ suite("provider/streaming dedup across channels", () => {
 	});
 
 	test("inline-then-delta emits exactly one part", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
 		stream.processTextContent(INLINE_DUP, progress);
@@ -316,7 +328,7 @@ suite("provider/streaming dedup across channels", () => {
 	});
 
 	test("two identical calls at different delta indices both emit", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
 		await stream.processDelta(
@@ -344,7 +356,7 @@ suite("provider/streaming dedup across channels", () => {
 	});
 
 	test("suppression consumes one pending count: inline, then two delta twins emit one more", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
 		stream.processTextContent(INLINE_DUP, progress);
@@ -373,7 +385,7 @@ suite("provider/streaming dedup across channels", () => {
 	});
 
 	test("two delta twins then two inline copies emit exactly two calls", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
 		await stream.processDelta(
@@ -398,7 +410,7 @@ suite("provider/streaming dedup across channels", () => {
 	});
 
 	test("an inline replay of a consumed cross-channel duplicate stays suppressed", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
 		await stream.processDelta(
@@ -418,7 +430,7 @@ suite("provider/streaming inline token byte-boundary splits", () => {
 	test("full inline call split at every byte offset yields identical output", () => {
 		const full = 'Hello <|tool_call_begin|>my_tool<|tool_call_argument_begin|>{"a":1}<|tool_call_end|> world';
 		for (let i = 1; i < full.length; i++) {
-			const stream = new StreamProcessor(0, () => {});
+			const stream = new StreamProcessor(idSource(), () => {});
 			const { parts, progress } = collector();
 			stream.processTextContent(full.slice(0, i), progress);
 			stream.processTextContent(full.slice(i), progress);
@@ -439,7 +451,7 @@ suite("provider/streaming inline token byte-boundary splits", () => {
 	test("argument-less inline call split at every byte offset yields identical output", () => {
 		const full = "before <|tool_call_begin|>ping<|tool_call_end|> after";
 		for (let i = 1; i < full.length; i++) {
-			const stream = new StreamProcessor(0, () => {});
+			const stream = new StreamProcessor(idSource(), () => {});
 			const { parts, progress } = collector();
 			stream.processTextContent(full.slice(0, i), progress);
 			stream.processTextContent(full.slice(i), progress);
@@ -469,7 +481,7 @@ suite("provider/streaming thinking parts", () => {
 	const fakeCtor = FakeThinkingPart as unknown as ThinkingPartCtor;
 
 	test("structured thinking object emits a thinking part", async () => {
-		const stream = new StreamProcessor(0, () => {}, fakeCtor);
+		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
 
 		await stream.processDelta({ choices: [{ delta: { thinking: { text: "deep", id: "t1" } } }] }, progress);
@@ -482,7 +494,7 @@ suite("provider/streaming thinking parts", () => {
 	});
 
 	test("reasoning_content string emits a thinking part", async () => {
-		const stream = new StreamProcessor(0, () => {}, fakeCtor);
+		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
 
 		await stream.processDelta({ choices: [{ delta: { reasoning_content: "steps" } }] }, progress);
@@ -492,7 +504,7 @@ suite("provider/streaming thinking parts", () => {
 	});
 
 	test("reasoning string emits a thinking part", async () => {
-		const stream = new StreamProcessor(0, () => {}, fakeCtor);
+		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
 
 		await stream.processDelta({ choices: [{ delta: { reasoning: "why" } }] }, progress);
@@ -508,7 +520,7 @@ suite("provider/streaming thinking parts", () => {
 				throw new Error("boom");
 			}
 		} as unknown as ThinkingPartCtor;
-		const stream = new StreamProcessor(0, (msg) => logs.push(msg), throwingCtor);
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg), throwingCtor);
 		const { parts, progress } = collector();
 
 		await stream.processDelta({ choices: [{ delta: { thinking: "x", content: "visible" } }] }, progress);
@@ -521,7 +533,7 @@ suite("provider/streaming thinking parts", () => {
 	});
 
 	test("no thinking part is emitted when the constructor is unavailable", async () => {
-		const stream = new StreamProcessor(0, () => {}, null);
+		const stream = new StreamProcessor(idSource(), () => {}, null);
 		const { parts, progress } = collector();
 
 		await stream.processDelta({ choices: [{ delta: { reasoning_content: "hidden" } }] }, progress);
@@ -537,7 +549,7 @@ suite("provider/streaming end-of-stream policy", () => {
 
 	test("[DONE] without finish_reason rejects on truncated tool call JSON", async () => {
 		const logs: string[] = [];
-		const stream = new StreamProcessor(0, (msg) => logs.push(msg));
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg));
 		const { progress } = collector();
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{\\"a\\":"}}]}}]}\n',
@@ -553,7 +565,7 @@ suite("provider/streaming end-of-stream policy", () => {
 
 	test("finish_reason with truncated tool call JSON rejects instead of being swallowed as a malformed line", async () => {
 		const logs: string[] = [];
-		const stream = new StreamProcessor(0, (msg) => logs.push(msg));
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg));
 		const { progress } = collector();
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{\\"a\\":"}}]}}]}\n',
@@ -568,7 +580,7 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("unterminated inline tool call with invalid JSON rejects at [DONE]", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { progress } = collector();
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"content":"<|tool_call_begin|>t<|tool_call_argument_begin|>{\\"a\\":"}}]}\n',
@@ -580,7 +592,7 @@ suite("provider/streaming end-of-stream policy", () => {
 
 	test("cancellation downgrades unparseable leftovers to logged drops", async () => {
 		const logs: string[] = [];
-		const stream = new StreamProcessor(0, (msg) => logs.push(msg));
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg));
 		const { parts, progress } = collector();
 		const source = new vscode.CancellationTokenSource();
 		const body = sseStream(
@@ -600,7 +612,7 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("stream end without [DONE] flushes buffered calls, falling back to unknown_tool", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]}}]}\n',
@@ -615,7 +627,7 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("stream end without [DONE] rejects on truncated tool call JSON", async () => {
-		const stream = new StreamProcessor(0, () => {});
+		const stream = new StreamProcessor(idSource(), () => {});
 		const { progress } = collector();
 		const body = sseStream([
 			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{\\"a\\":"}}]}}]}\n',
@@ -626,7 +638,7 @@ suite("provider/streaming end-of-stream policy", () => {
 
 	test("cancellation downgrades an unterminated inline call with invalid JSON to a logged drop", async () => {
 		const logs: string[] = [];
-		const stream = new StreamProcessor(0, (msg) => logs.push(msg));
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg));
 		const { parts, progress } = collector();
 		const source = new vscode.CancellationTokenSource();
 		const body = sseStream(
@@ -645,7 +657,7 @@ suite("provider/streaming end-of-stream policy", () => {
 
 	test("cancellation arriving with a finish_reason chunk downgrades invalid buffers to logged drops", async () => {
 		const logs: string[] = [];
-		const stream = new StreamProcessor(0, (msg) => logs.push(msg));
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg));
 		const { parts, progress } = collector();
 		const source = new vscode.CancellationTokenSource();
 		const encoder = new TextEncoder();
@@ -683,7 +695,7 @@ suite("provider/streaming end-of-stream policy", () => {
 suite("provider/streaming SSE transport", () => {
 	test("mid-line splits reassemble and a malformed line is skipped, logged, and does not stop the stream", async () => {
 		const logs: Array<{ msg: string; data?: unknown }> = [];
-		const stream = new StreamProcessor(0, (msg, data) => logs.push({ msg, data }));
+		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }));
 		const { parts, progress } = collector();
 		const body = sseStream([
 			'data: {"choices":[{"del',

@@ -1,4 +1,4 @@
-import type { ServerWithKey } from "../extension/serverRegistry";
+import type { ServerWithKey } from "../shared/servers";
 
 /**
  * Injected by the extension layer so the provider layer never touches
