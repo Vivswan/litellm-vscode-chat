@@ -174,7 +174,11 @@ export class StreamProcessor {
 			}
 			this.finishStream(progress, !token.isCancellationRequested);
 		} finally {
-			reader.releaseLock();
+			try {
+				reader.releaseLock();
+			} catch {
+				// The stream may already be errored (e.g. aborted fetch); the lock is moot then.
+			}
 			this._req = freshRequestState();
 		}
 	}

@@ -61,7 +61,6 @@ export interface LiteLLMProvider {
 	provider: string;
 	status: string;
 	supports_tools?: boolean;
-	supports_structured_output?: boolean;
 	context_length?: number;
 	// Model capability metadata (READ from /v1/models API endpoint)
 	// These define what the model CAN do, not what we ASK it to do.
@@ -90,35 +89,15 @@ export interface LiteLLMArchitecture {
 	output_modalities?: string[];
 }
 
+/**
+ * Normalized model entry used internally after discovery. Both discovery
+ * endpoints are narrowed and normalized into this shape, so `providers` is
+ * always an array (possibly empty for bare /v1/models entries).
+ */
 export interface LiteLLMModelItem {
 	id: string;
-	object: string;
-	created: number;
-	owned_by: string;
 	providers: LiteLLMProvider[];
 	architecture?: LiteLLMArchitecture;
-}
-
-/**
- * Extra model information (deprecated).
- */
-// Deprecated: extra model info was previously fetched from external APIs
-export interface LiteLLMExtraModelInfo {
-	id: string;
-	pipeline_tag?: string;
-}
-
-/**
- * Response envelope for the LiteLLM models listing.
- */
-export interface LiteLLMModelsResponse {
-	object: string;
-	data: LiteLLMModelItem[];
-}
-
-/** LiteLLM /v1/model/info response envelope. */
-export interface LiteLLMModelInfoResponse {
-	data: LiteLLMModelInfoItem[];
 }
 
 /** LiteLLM model metadata entry from /v1/model/info. */
@@ -229,7 +208,7 @@ export interface ChatCompletionChunk {
 	usage?: ChunkUsage | null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

@@ -3,11 +3,11 @@ import { isToolResultPart } from "./messages";
 
 /**
  * Validate the request message sequence for correct tool call/result pairing.
+ * Diagnostic detail travels in the thrown error so the boundary logs it once.
  */
 export function validateRequest(messages: readonly vscode.LanguageModelChatRequestMessage[]): void {
 	const lastMessage = messages[messages.length - 1];
 	if (!lastMessage) {
-		console.error("[LiteLLM Model Provider] No messages in request");
 		throw new Error("Invalid request: no messages.");
 	}
 
@@ -28,11 +28,7 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 			while (toolCallIds.size > 0) {
 				const nextMessage = messages[nextMessageIdx++];
 				if (!nextMessage || nextMessage.role !== vscode.LanguageModelChatMessageRole.User) {
-					console.error(
-						"[LiteLLM Model Provider] Validation failed: missing tool result for call IDs:",
-						Array.from(toolCallIds)
-					);
-					throw new Error(errMsg);
+					throw new Error(`${errMsg} Missing results for call IDs: ${Array.from(toolCallIds).join(", ")}.`);
 				}
 
 				nextMessage.content.forEach((part) => {
@@ -40,8 +36,7 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 						const ctorName =
 							(Object.getPrototypeOf(part as object) as { constructor?: { name?: string } } | undefined)?.constructor
 								?.name ?? typeof part;
-						console.error("[LiteLLM Model Provider] Validation failed: expected tool result part, got:", ctorName);
-						throw new Error(errMsg);
+						throw new Error(`${errMsg} Got ${ctorName} instead.`);
 					}
 					const callId = (part as { callId: string }).callId;
 					toolCallIds.delete(callId);

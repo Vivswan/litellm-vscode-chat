@@ -138,6 +138,52 @@ suite("provider", () => {
 		);
 	});
 
+	test("user cancellation rejects with CancellationError and is not logged as an error", async () => {
+		const lines: string[] = [];
+		const channel = { appendLine: (line: string) => lines.push(line) } as unknown as vscode.OutputChannel;
+		const provider = makeProvider("http://test", "test-key", channel);
+
+		const originalFetch = global.fetch;
+		const cts = new vscode.CancellationTokenSource();
+		global.fetch = ((_url: unknown, init?: RequestInit) =>
+			new Promise((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () => {
+					reject(new DOMException("The operation was aborted.", "AbortError"));
+				});
+			})) as unknown as typeof fetch;
+		try {
+			const pending = provider.provideLanguageModelChatResponse(
+				{
+					id: "m",
+					name: "m",
+					family: "litellm",
+					version: "1.0.0",
+					maxInputTokens: 1000,
+					maxOutputTokens: 1000,
+					capabilities: {},
+				} as unknown as vscode.LanguageModelChatInformation,
+				[
+					{
+						role: vscode.LanguageModelChatMessageRole.User,
+						content: [new vscode.LanguageModelTextPart("hi")],
+						name: undefined,
+					},
+				],
+				{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				cts.token
+			);
+			setTimeout(() => cts.cancel(), 20);
+			await assert.rejects(pending, (err: unknown) => err instanceof vscode.CancellationError);
+			assert.ok(
+				!lines.some((l) => l.includes("ERROR:")),
+				`Cancellation must not produce an error log. Lines: ${lines.join(" | ")}`
+			);
+		} finally {
+			global.fetch = originalFetch;
+		}
+	});
+
 	test("provideLanguageModelChatResponse throws for unregistered model when multiple servers are configured", async () => {
 		const provider = new LiteLLMChatModelProvider("GitHubCopilotChat/test VSCode/test");
 		provider.setServerProvider(() =>

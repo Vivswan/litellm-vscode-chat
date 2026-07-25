@@ -9,6 +9,8 @@ import type {
 } from "../types";
 import { isImageMimeType, isTextMimeType } from "./mime";
 
+type LogFn = (message: string, data?: unknown) => void;
+
 function convertDataPartToContentBlock(
 	part: vscode.LanguageModelDataPart
 ): OpenAIChatImageUrlContentBlock | OpenAIChatFileContentBlock | null {
@@ -59,26 +61,32 @@ export function isToolResultPart(value: unknown): value is { callId: string; con
 	if (!value || typeof value !== "object") {
 		return false;
 	}
+	// Tool-call parts must never be treated as tool results, regardless of
+	// which order callers check part types in.
+	if (value instanceof vscode.LanguageModelToolCallPart) {
+		return false;
+	}
 	const obj = value as Record<string, unknown>;
 	const hasCallId = typeof obj.callId === "string";
 	const hasContent = "content" in obj;
 	return hasCallId && hasContent;
 }
 
-function mapRole(message: vscode.LanguageModelChatRequestMessage): Exclude<OpenAIChatRole, "tool"> {
-	const USER = vscode.LanguageModelChatMessageRole.User as unknown as number;
-	const ASSISTANT = vscode.LanguageModelChatMessageRole.Assistant as unknown as number;
-	const r = message.role as unknown as number;
-	if (r === USER) {
+function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): Exclude<OpenAIChatRole, "tool"> {
+	if (message.role === vscode.LanguageModelChatMessageRole.User) {
 		return "user";
 	}
-	if (r === ASSISTANT) {
+	if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
 		return "assistant";
+	}
+	// VS Code sends role 3 for system messages via a proposed API; the stable enum only declares User and Assistant.
+	if ((message.role as number) !== 3) {
+		log?.("Unknown message role; treating as system", { role: message.role });
 	}
 	return "system";
 }
 
-export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }): string {
+export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }, log?: LogFn): string {
 	let text = "";
 	for (const c of pr.content ?? []) {
 		if (c instanceof vscode.LanguageModelTextPart) {
@@ -88,7 +96,7 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
 			if (decoded !== null) {
 				text += decoded;
 			} else if (isImageMimeType(c.mimeType)) {
-				console.log("[LiteLLM Model Provider] Tool returned image data which cannot be forwarded as tool result text");
+				log?.("Tool returned image data which cannot be forwarded as tool result text");
 			}
 		} else if (isPromptTsxPart(c)) {
 			const extracted = extractPromptTsxText(c);
@@ -113,11 +121,12 @@ export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }):
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
-	options?: { cacheSystemPrompt?: boolean }
+	options?: { cacheSystemPrompt?: boolean; log?: LogFn }
 ): OpenAIChatMessage[] {
+	const log = options?.log;
 	const out: OpenAIChatMessage[] = [];
 	for (const m of messages) {
-		const role = mapRole(m);
+		const role = mapRole(m, log);
 		const textParts: string[] = [];
 		const toolCalls: OpenAIToolCall[] = [];
 		const toolResults: { callId: string; content: string }[] = [];
@@ -138,7 +147,7 @@ export function convertMessages(
 				toolCalls.push({ id, type: "function", function: { name: part.name, arguments: args } });
 			} else if (isToolResultPart(part)) {
 				const callId = (part as { callId?: string }).callId ?? "";
-				const content = collectToolResultText(part as { content?: ReadonlyArray<unknown> });
+				const content = collectToolResultText(part as { content?: ReadonlyArray<unknown> }, log);
 				toolResults.push({ callId, content });
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				const block = convertDataPartToContentBlock(part);
@@ -154,9 +163,7 @@ export function convertMessages(
 					if (decoded !== null) {
 						textParts.push(decoded);
 					} else {
-						console.log(
-							`[LiteLLM Model Provider] Skipping unsupported LanguageModelDataPart with MIME type: ${part.mimeType}`
-						);
+						log?.(`Skipping unsupported LanguageModelDataPart with MIME type: ${part.mimeType}`);
 					}
 				}
 			} else if (isPromptTsxPart(part)) {

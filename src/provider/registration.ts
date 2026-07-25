@@ -10,7 +10,18 @@ export interface RegistrationResult {
 	promptCaching: Map<string, boolean>;
 }
 
-function withUserSelectableMetadata(info: LanguageModelChatInformation): LanguageModelChatInformation {
+/**
+ * LanguageModelChatInformation extended with the user-selectable flag in both
+ * places VS Code has looked for it across chatProvider API proposal versions.
+ */
+interface UserSelectableModelInfo extends LanguageModelChatInformation {
+	/** Read at the top level by VS Code 1.120+ (current chatProvider proposal); required for the chat model picker. */
+	readonly isUserSelectable: boolean;
+	/** Read from metadata by older VS Code builds (pre-1.120 chatProvider proposal); kept for backward compatibility. */
+	readonly metadata: Record<string, unknown>;
+}
+
+function withUserSelectableMetadata(info: LanguageModelChatInformation): UserSelectableModelInfo {
 	const existingMetadata = (info as LanguageModelChatInformation & { metadata?: Record<string, unknown> }).metadata;
 
 	return {
@@ -20,7 +31,7 @@ function withUserSelectableMetadata(info: LanguageModelChatInformation): Languag
 			...existingMetadata,
 			isUserSelectable: true,
 		},
-	} as LanguageModelChatInformation;
+	};
 }
 
 export function buildModelInfos(
@@ -42,7 +53,7 @@ export function buildModelInfos(
 
 	const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
 		log(`Processing model: ${m.id} from server "${server.label}"`);
-		const providers = m?.providers ?? [];
+		const providers = m.providers;
 		const modalities = m.architecture?.input_modalities ?? [];
 		const vision = Array.isArray(modalities) && modalities.includes("image");
 		const detail = serverCount > 1 ? server.label : "LiteLLM";

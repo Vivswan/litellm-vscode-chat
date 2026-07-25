@@ -105,4 +105,68 @@ suite("provider/chatClient", () => {
 			global.fetch = originalFetch;
 		}
 	});
+
+	test("user cancellation aborts the in-flight fetch and throws CancellationError", async () => {
+		const originalFetch = global.fetch;
+		let observedSignal: AbortSignal | undefined;
+		try {
+			global.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+				observedSignal = init?.signal ?? undefined;
+				const signal = init?.signal;
+				// Behave like a real fetch: the body stream errors when the request signal aborts.
+				const stream = new ReadableStream<Uint8Array>({
+					start(controller) {
+						signal?.addEventListener("abort", () => controller.error(signal.reason ?? new Error("aborted")));
+					},
+				});
+				return { ok: true, body: stream } as unknown as Response;
+			}) as unknown as typeof fetch;
+
+			const client = new ChatClient({ userAgent: "test-agent" });
+			client.setServerProvider(() =>
+				Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://test", apiKey: "k" }])
+			);
+
+			const cts = new vscode.CancellationTokenSource();
+			const sendPromise = client.send({
+				model,
+				messages,
+				options,
+				progress: collector().progress,
+				token: cts.token,
+			});
+			setTimeout(() => cts.cancel(), 20);
+
+			await assert.rejects(sendPromise, (err: unknown) => {
+				assert.ok(err instanceof vscode.CancellationError, `Expected CancellationError, got ${String(err)}`);
+				return true;
+			});
+			assert.ok(observedSignal, "fetch should receive an AbortSignal");
+			assert.strictEqual(observedSignal.aborted, true, "Cancellation must abort the fetch signal");
+		} finally {
+			global.fetch = originalFetch;
+		}
+	});
+
+	test("request timeout surfaces an actionable error naming the requestTimeout setting", async () => {
+		const originalFetch = global.fetch;
+		try {
+			global.fetch = (async () => {
+				throw new DOMException("The operation timed out.", "TimeoutError");
+			}) as unknown as typeof fetch;
+
+			const client = new ChatClient({ userAgent: "test-agent" });
+			client.setServerProvider(() =>
+				Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://test", apiKey: "k" }])
+			);
+
+			const token = new vscode.CancellationTokenSource().token;
+			await assert.rejects(
+				client.send({ model, messages, options, progress: collector().progress, token }),
+				/requestTimeout/
+			);
+		} finally {
+			global.fetch = originalFetch;
+		}
+	});
 });

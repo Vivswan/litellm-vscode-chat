@@ -1,9 +1,9 @@
-import type * as vscode from "vscode";
 import type {
 	LanguageModelChatInformation,
 	LanguageModelChatRequestMessage,
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
+import * as vscode from "vscode";
 import type { Logger } from "../shared/logger";
 import { convertMessages } from "../shared/messages";
 import type { ServerWithKey } from "../shared/servers";
@@ -51,9 +51,6 @@ export class ChatClient {
 	private readonly log = (message: string, data?: unknown): void => {
 		this.logger?.log(message, data);
 	};
-	private readonly logError = (message: string, error: unknown): void => {
-		this.logger?.error(message, error);
-	};
 
 	constructor(options: ChatClientOptions) {
 		this.userAgent = options.userAgent;
@@ -86,7 +83,6 @@ export class ChatClient {
 			customHeaders,
 			discoveryTimeout,
 			log: this.log,
-			logError: this.logError,
 		});
 	}
 
@@ -126,6 +122,7 @@ export class ChatClient {
 		const supportsPromptCaching = this._promptCachingSupport.get(model.id) === true;
 		const openaiMessages = convertMessages(messages, {
 			cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
+			log: this.log,
 		});
 		validateRequest(messages);
 		const toolConfig = convertTools(options);
@@ -138,8 +135,9 @@ export class ChatClient {
 		const toolTokenCount = estimateToolTokens(toolConfig.tools);
 		const tokenLimit = Math.max(1, model.maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {
-			this.logError("Message exceeds token limit", { total: inputTokenCount + toolTokenCount, tokenLimit });
-			throw new Error("Message exceeds token limit.");
+			throw new Error(
+				`Message exceeds token limit (estimated ${inputTokenCount + toolTokenCount} tokens, limit ${tokenLimit}).`
+			);
 		}
 
 		const modelParams = getModelParameters(model.id, this._modelRoutes);
@@ -178,33 +176,52 @@ export class ChatClient {
 			messageCount: messages.length,
 		});
 
-		const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-			method: "POST",
-			headers,
-			body: JSON.stringify(requestBody),
-			signal: AbortSignal.timeout(requestTimeout),
-		});
+		// User cancellation must abort the in-flight fetch, not just stop the
+		// read loop, so the token is bridged onto an AbortController combined
+		// with the request timeout.
+		const cancelController = new AbortController();
+		const cancelListener = token.onCancellationRequested(() => cancelController.abort());
 
-		if (!response.ok) {
-			const errorText = await response.text();
-			this.logError("API error response", errorText);
+		try {
+			const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+				method: "POST",
+				headers,
+				body: JSON.stringify(requestBody),
+				signal: AbortSignal.any([cancelController.signal, AbortSignal.timeout(requestTimeout)]),
+			});
 
-			if (response.status === 401) {
+			if (!response.ok) {
+				const errorText = await response.text();
+
+				if (response.status === 401) {
+					throw new Error(
+						`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+					);
+				}
+
 				throw new Error(
-					`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
+					`LiteLLM API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`
 				);
 			}
 
-			throw new Error(
-				`LiteLLM API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`
-			);
-		}
+			if (!response.body) {
+				throw new Error("No response body from LiteLLM API");
+			}
 
-		if (!response.body) {
-			throw new Error("No response body from LiteLLM API");
+			const streamProcessor = new StreamProcessor(this.toolCallIds, this.log);
+			await streamProcessor.processStreamingResponse(response.body, progress, token);
+		} catch (err) {
+			if (token.isCancellationRequested) {
+				throw new vscode.CancellationError();
+			}
+			if (err instanceof DOMException && err.name === "TimeoutError") {
+				throw new Error(
+					`LiteLLM request timed out after ${requestTimeout}ms. Increase the "litellm-vscode-chat.requestTimeout" setting if your model needs more time.`
+				);
+			}
+			throw err;
+		} finally {
+			cancelListener.dispose();
 		}
-
-		const streamProcessor = new StreamProcessor(this.toolCallIds, this.log);
-		await streamProcessor.processStreamingResponse(response.body, progress, token);
 	}
 }
