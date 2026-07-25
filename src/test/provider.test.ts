@@ -15,35 +15,30 @@ function toHeaderMap(headersInit: RequestInit["headers"] | undefined): Record<st
 	return mapped;
 }
 
+/**
+ * Create a provider wired to a single configured server, or to an empty
+ * server list when `baseUrl` is omitted (the "not configured" case).
+ */
+function makeProvider(baseUrl?: string, apiKey = "test-key", outputChannel?: vscode.OutputChannel) {
+	const provider = new LiteLLMChatModelProvider("GitHubCopilotChat/test VSCode/test", outputChannel);
+	const servers = baseUrl === undefined ? [] : [{ id: "srv1", label: "Default", baseUrl, apiKey }];
+	provider.setServerProvider(() => Promise.resolve(servers));
+	return provider;
+}
+
 suite("provider", () => {
-	test("prepareLanguageModelChatInformation returns array (no key -> empty)", async () => {
-		const provider = new LiteLLMChatModelProvider(
-			{
-				get: async () => undefined,
-				store: async () => {},
-				delete: async () => {},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
-			} as unknown as vscode.SecretStorage,
-			"GitHubCopilotChat/test VSCode/test"
-		);
+	test("prepareLanguageModelChatInformation returns empty array with no configured servers", async () => {
+		const provider = makeProvider();
 
 		const infos = await provider.prepareLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
 		);
-		assert.ok(Array.isArray(infos));
+		assert.deepStrictEqual(infos, []);
 	});
 
 	test("provideTokenCount counts simple string", async () => {
-		const provider = new LiteLLMChatModelProvider(
-			{
-				get: async () => undefined,
-				store: async () => {},
-				delete: async () => {},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
-			} as unknown as vscode.SecretStorage,
-			"GitHubCopilotChat/test VSCode/test"
-		);
+		const provider = makeProvider();
 
 		const est = await provider.provideTokenCount(
 			{
@@ -63,15 +58,7 @@ suite("provider", () => {
 	});
 
 	test("provideTokenCount counts message parts", async () => {
-		const provider = new LiteLLMChatModelProvider(
-			{
-				get: async () => undefined,
-				store: async () => {},
-				delete: async () => {},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
-			} as unknown as vscode.SecretStorage,
-			"GitHubCopilotChat/test VSCode/test"
-		);
+		const provider = makeProvider();
 
 		const msg: vscode.LanguageModelChatMessage = {
 			role: vscode.LanguageModelChatMessageRole.User,
@@ -96,15 +83,7 @@ suite("provider", () => {
 	});
 
 	test("provideTokenCount estimates tokens for image parts", async () => {
-		const provider = new LiteLLMChatModelProvider(
-			{
-				get: async () => undefined,
-				store: async () => {},
-				delete: async () => {},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
-			} as unknown as vscode.SecretStorage,
-			"GitHubCopilotChat/test VSCode/test"
-		);
+		const provider = makeProvider();
 		const imageData = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 		const msg: vscode.LanguageModelChatMessage = {
 			role: vscode.LanguageModelChatMessageRole.User,
@@ -128,17 +107,9 @@ suite("provider", () => {
 	});
 
 	test("provideLanguageModelChatResponse throws without configuration", async () => {
-		const provider = new LiteLLMChatModelProvider(
-			{
-				get: async () => undefined,
-				store: async () => {},
-				delete: async () => {},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
-			} as unknown as vscode.SecretStorage,
-			"GitHubCopilotChat/test VSCode/test"
-		);
+		const provider = makeProvider();
 
-		let threw = false;
+		let error: unknown;
 		try {
 			await provider.provideLanguageModelChatResponse(
 				{
@@ -155,10 +126,54 @@ suite("provider", () => {
 				{ report: () => {} },
 				new vscode.CancellationTokenSource().token
 			);
-		} catch {
-			threw = true;
+		} catch (e) {
+			error = e;
 		}
-		assert.ok(threw);
+		assert.ok(error instanceof Error);
+		assert.ok(
+			error.message.includes('Model "m" is not registered with any configured server'),
+			`Unexpected error message: ${error.message}`
+		);
+	});
+
+	test("provideLanguageModelChatResponse throws for unregistered model when multiple servers are configured", async () => {
+		const provider = new LiteLLMChatModelProvider("GitHubCopilotChat/test VSCode/test");
+		provider.setServerProvider(() =>
+			Promise.resolve([
+				{ id: "srv1", label: "One", baseUrl: "http://one.test", apiKey: "k1" },
+				{ id: "srv2", label: "Two", baseUrl: "http://two.test", apiKey: "k2" },
+			])
+		);
+
+		const originalFetch = global.fetch;
+		let fetchCalled = false;
+		global.fetch = (async () => {
+			fetchCalled = true;
+			throw new Error("fetch must not be called");
+		}) as unknown as typeof fetch;
+		try {
+			await assert.rejects(
+				provider.provideLanguageModelChatResponse(
+					{
+						id: "m",
+						name: "m",
+						family: "litellm",
+						version: "1.0.0",
+						maxInputTokens: 1000,
+						maxOutputTokens: 1000,
+						capabilities: {},
+					} as unknown as vscode.LanguageModelChatInformation,
+					[],
+					{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				),
+				/not registered with any configured server/
+			);
+			assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no route");
+		} finally {
+			global.fetch = originalFetch;
+		}
 	});
 
 	suite("token constraints", () => {
@@ -190,15 +205,7 @@ suite("provider", () => {
 					}),
 				}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 
 			const infos = await provider.prepareLanguageModelChatInformation(
 				{ silent: true },
@@ -232,15 +239,7 @@ suite("provider", () => {
 						}),
 					}) as unknown as Response;
 
-				const provider = new LiteLLMChatModelProvider(
-					{
-						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-						store: async () => {},
-						delete: async () => {},
-						onDidChange: (_listener: unknown) => ({ dispose() {} }),
-					} as unknown as vscode.SecretStorage,
-					"GitHubCopilotChat/test VSCode/test"
-				);
+				const provider = makeProvider("http://test");
 
 				const infos = await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
@@ -302,15 +301,7 @@ suite("provider", () => {
 					return originalGetConfiguration(section);
 				}) as unknown as typeof vscode.workspace.getConfiguration;
 
-				const provider = new LiteLLMChatModelProvider(
-					{
-						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-						store: async () => {},
-						delete: async () => {},
-						onDidChange: (_listener: unknown) => ({ dispose() {} }),
-					} as unknown as vscode.SecretStorage,
-					"GitHubCopilotChat/test VSCode/test"
-				);
+				const provider = makeProvider("http://test");
 
 				const infos = await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
@@ -370,15 +361,7 @@ suite("provider", () => {
 					return originalGetConfiguration(section);
 				}) as unknown as typeof vscode.workspace.getConfiguration;
 
-				const provider = new LiteLLMChatModelProvider(
-					{
-						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-						store: async () => {},
-						delete: async () => {},
-						onDidChange: (_listener: unknown) => ({ dispose() {} }),
-					} as unknown as vscode.SecretStorage,
-					"GitHubCopilotChat/test VSCode/test"
-				);
+				const provider = makeProvider("http://test");
 
 				const infos = await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
@@ -437,15 +420,7 @@ suite("provider", () => {
 					return originalGetConfiguration(section);
 				}) as unknown as typeof vscode.workspace.getConfiguration;
 
-				const provider = new LiteLLMChatModelProvider(
-					{
-						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-						store: async () => {},
-						delete: async () => {},
-						onDidChange: (_listener: unknown) => ({ dispose() {} }),
-					} as unknown as vscode.SecretStorage,
-					"GitHubCopilotChat/test VSCode/test"
-				);
+				const provider = makeProvider("http://test");
 
 				const infos = await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
@@ -490,15 +465,7 @@ suite("provider", () => {
 					return originalGetConfiguration(section);
 				}) as unknown as typeof vscode.workspace.getConfiguration;
 
-				const provider = new LiteLLMChatModelProvider(
-					{
-						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-						store: async () => {},
-						delete: async () => {},
-						onDidChange: (_listener: unknown) => ({ dispose() {} }),
-					} as unknown as vscode.SecretStorage,
-					"GitHubCopilotChat/test VSCode/test"
-				);
+				const provider = makeProvider("http://test");
 
 				const infos = await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
@@ -548,15 +515,7 @@ suite("provider", () => {
 					}),
 				}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 
 			const infos = await provider.prepareLanguageModelChatInformation(
 				{ silent: true },
@@ -601,15 +560,7 @@ suite("provider", () => {
 					}),
 				}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 
 			const infos = await provider.prepareLanguageModelChatInformation(
 				{ silent: true },
@@ -768,15 +719,7 @@ suite("provider", () => {
 
 	suite("request body construction", () => {
 		function createConfiguredProvider(): LiteLLMChatModelProvider {
-			return new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			return makeProvider("http://test");
 		}
 
 		const modelInfo = {
@@ -1059,15 +1002,7 @@ suite("provider", () => {
 					}),
 				}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 			let callbackStatus: AggregatedStatus | undefined;
 			provider.setStatusCallback((status: AggregatedStatus) => {
 				callbackStatus = status;
@@ -1086,15 +1021,7 @@ suite("provider", () => {
 				throw new Error("Network error");
 			};
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 			let callbackStatus: AggregatedStatus | undefined;
 			provider.setStatusCallback((status: AggregatedStatus) => {
 				callbackStatus = status;
@@ -1113,15 +1040,7 @@ suite("provider", () => {
 			global.fetch = async () =>
 				({ ok: true, json: async () => ({ object: "list", data: [] }) }) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 			let callbackStatus: AggregatedStatus | undefined;
 			provider.setStatusCallback((status: AggregatedStatus) => {
 				callbackStatus = status;
@@ -1134,15 +1053,7 @@ suite("provider", () => {
 		});
 
 		test("status callback reports missing configuration", async () => {
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async () => undefined,
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider();
 			let callbackStatus: AggregatedStatus | undefined;
 			provider.setStatusCallback((status: AggregatedStatus) => {
 				callbackStatus = status;
@@ -1162,16 +1073,7 @@ suite("provider", () => {
 				dispose: () => {},
 			} as unknown as vscode.OutputChannel;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async () => undefined,
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test",
-				mockOutputChannel
-			);
+			const provider = makeProvider(undefined, "test-key", mockOutputChannel);
 			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 
 			assert.ok(logs.length > 0);
@@ -1192,16 +1094,7 @@ suite("provider", () => {
 				dispose: () => {},
 			} as unknown as vscode.OutputChannel;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test",
-				mockOutputChannel
-			);
+			const provider = makeProvider("http://test", "test-key", mockOutputChannel);
 			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			global.fetch = originalFetch;
 
@@ -1236,15 +1129,7 @@ suite("provider", () => {
 				throw new Error("Unexpected URL");
 			};
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 			const infos = await provider.prepareLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
@@ -1283,15 +1168,7 @@ suite("provider", () => {
 					return originalGetConfiguration(section);
 				}) as unknown as typeof vscode.workspace.getConfiguration;
 
-				const provider = new LiteLLMChatModelProvider(
-					{
-						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-						store: async () => {},
-						delete: async () => {},
-						onDidChange: (_listener: unknown) => ({ dispose() {} }),
-					} as unknown as vscode.SecretStorage,
-					"GitHubCopilotChat/test VSCode/test"
-				);
+				const provider = makeProvider("http://test");
 				await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
@@ -1328,15 +1205,7 @@ suite("provider", () => {
 					}),
 				}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 			const infos = await provider.prepareLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
@@ -1370,15 +1239,7 @@ suite("provider", () => {
 						}),
 					}) as unknown as Response;
 
-				const provider = new LiteLLMChatModelProvider(
-					{
-						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-						store: async () => {},
-						delete: async () => {},
-						onDidChange: (_listener: unknown) => ({ dispose() {} }),
-					} as unknown as vscode.SecretStorage,
-					"GitHubCopilotChat/test VSCode/test"
-				);
+				const provider = makeProvider("http://test");
 				const infos = await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
@@ -1415,15 +1276,7 @@ suite("provider", () => {
 						}),
 					}) as unknown as Response;
 
-				const provider = new LiteLLMChatModelProvider(
-					{
-						get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-						store: async () => {},
-						delete: async () => {},
-						onDidChange: (_listener: unknown) => ({ dispose() {} }),
-					} as unknown as vscode.SecretStorage,
-					"GitHubCopilotChat/test VSCode/test"
-				);
+				const provider = makeProvider("http://test");
 				const infos = await provider.prepareLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
@@ -1458,15 +1311,7 @@ suite("provider", () => {
 					}),
 				}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 			await provider.prepareLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			global.fetch = originalFetch;
 
@@ -1490,15 +1335,7 @@ suite("provider", () => {
 					}),
 				}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 			const infos = await provider.prepareLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
@@ -1532,15 +1369,7 @@ suite("provider", () => {
 					}),
 				}) as unknown as Response;
 
-			const provider = new LiteLLMChatModelProvider(
-				{
-					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
-					store: async () => {},
-					delete: async () => {},
-					onDidChange: (_listener: unknown) => ({ dispose() {} }),
-				} as unknown as vscode.SecretStorage,
-				"GitHubCopilotChat/test VSCode/test"
-			);
+			const provider = makeProvider("http://test");
 			const infos = await provider.prepareLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token

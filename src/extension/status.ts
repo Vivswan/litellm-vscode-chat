@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { AggregatedStatus } from "../provider";
+import { LAST_CONNECTION_STATUS_KEY } from "../shared/storageKeys";
 import type { ServerStatus } from "./serverRegistry";
 
 export interface ConnectionStatus {
@@ -8,6 +9,25 @@ export interface ConnectionStatus {
 	serverStatuses?: ServerStatus[];
 	error?: string;
 	lastChecked?: string;
+}
+
+const CONNECTION_STATES: ReadonlyArray<ConnectionStatus["state"]> = [
+	"not-configured",
+	"loading",
+	"connected",
+	"degraded",
+	"error",
+];
+
+function isConnectionStatus(value: unknown): value is ConnectionStatus {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const candidate = value as Partial<ConnectionStatus>;
+	if (typeof candidate.state !== "string" || !(CONNECTION_STATES as readonly string[]).includes(candidate.state)) {
+		return false;
+	}
+	return candidate.serverStatuses === undefined || Array.isArray(candidate.serverStatuses);
 }
 
 export class StatusBarManager {
@@ -22,8 +42,8 @@ export class StatusBarManager {
 		this._statusBarItem.command = "litellm.showDiagnostics";
 		context.subscriptions.push(this._statusBarItem);
 
-		const lastStatus = context.globalState.get<ConnectionStatus>("litellm.lastConnectionStatus");
-		if (lastStatus) {
+		const lastStatus = context.globalState.get<unknown>(LAST_CONNECTION_STATUS_KEY);
+		if (isConnectionStatus(lastStatus)) {
 			this._connectionStatus = lastStatus;
 		}
 		this.updateStatusBar();
@@ -36,7 +56,7 @@ export class StatusBarManager {
 	async updateStatusBar(status?: ConnectionStatus): Promise<void> {
 		if (status) {
 			this._connectionStatus = status;
-			await this.context.globalState.update("litellm.lastConnectionStatus", status);
+			await this.context.globalState.update(LAST_CONNECTION_STATUS_KEY, status);
 		}
 
 		switch (this._connectionStatus.state) {

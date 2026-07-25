@@ -5,7 +5,6 @@ import type { ConnectionStatus } from "./status";
 
 export async function buildDiagnosticsSnapshot(
 	registry: ServerRegistry,
-	context: vscode.ExtensionContext,
 	connectionStatus: ConnectionStatus,
 	extVersion: string,
 	vscodeVersion: string,
@@ -13,9 +12,8 @@ export async function buildDiagnosticsSnapshot(
 ): Promise<DiagnosticsSnapshot> {
 	const servers = registry.getServers();
 	const serversWithKeys = await registry.getServersWithKeys();
-	const hasApiKey =
-		serversWithKeys.some((s) => s.apiKey.trim().length > 0) || !!(await context.secrets.get("litellm.apiKey"));
-	const hasBaseUrl = servers.length > 0 || !!(await context.secrets.get("litellm.baseUrl"));
+	const hasApiKey = serversWithKeys.some((s) => s.apiKey.trim().length > 0);
+	const hasBaseUrl = servers.length > 0;
 
 	return {
 		extensionVersion: extVersion,
