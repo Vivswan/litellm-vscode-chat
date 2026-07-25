@@ -99,22 +99,7 @@ Override default request parameters for specific models using the `modelParamete
 - `seed` - Deterministic output
 - And any other parameter supported by your LiteLLM and model provider backend
 
-All `modelParameters` keys are passed through to LiteLLM — the extension does not filter or restrict which parameters you can set. The reserved key `_replaceDefaults` is extension metadata and is never forwarded.
-
-**Built-in defaults**: The extension applies `temperature: 0.7` by default. Some models (e.g., `gpt-5.5`) have built-in overrides that suppress the default temperature. User `modelParameters` entries merge on top of these defaults.
-
-**`_replaceDefaults`**: Set `"_replaceDefaults": true` in a model entry to skip built-in request-parameter defaults for that model (for example, the default `temperature`) and use only the request parameters you supply from configuration:
-
-```json
-{
-  "litellm-vscode-chat.modelParameters": {
-    "gpt-4": {
-      "_replaceDefaults": true,
-      "top_p": 0.9
-    }
-  }
-}
-```
+All non-reserved `modelParameters` keys are passed through to LiteLLM — the extension does not restrict which parameters you can set, and it never injects parameters you did not set. When you configure nothing, your model provider's own defaults apply. Keys starting with `_` are reserved for extension metadata and are never forwarded.
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
@@ -136,7 +121,7 @@ All `modelParameters` keys are passed through to LiteLLM — the extension does 
 }
 ```
 
-**Parameter precedence**: Runtime options > User config > Defaults
+**Parameter precedence**: Runtime options > User config. Any parameter left unset by both falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one, capped at 4096 when nothing sets it).
 
 ### Prompt Caching (Anthropic Claude)
 

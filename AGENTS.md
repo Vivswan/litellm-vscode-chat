@@ -137,7 +137,6 @@ The modules under `src/provider/`:
 - `request.ts` matches `modelParameters` config (`getModelParameters`) and builds request bodies (`buildRequestBody`).
 - `streaming.ts` (`StreamProcessor`) parses SSE chunks through the typed `parseChunk` contract and emits response parts, deduplicating tool calls that arrive on both the delta and inline channels.
 - `textToolCallParser.ts` (`TextToolCallParser`) is the pure incremental scanner for `<|tool_call_begin|>` sequences embedded in streamed text, returning ordered text/call events.
-- `modelDefaults.ts` holds `findLongestPrefixMatch` and the built-in per-model request defaults applied by `buildRequestBody` unless a `modelParameters` entry sets `_replaceDefaults: true`.
 
 ### Shared modules
 
@@ -178,10 +177,10 @@ The `modelParameters` setting uses longest-prefix matching, so `"gpt-4"` matches
 
 ### Request parameter pass-through
 
-The extension forwards parameters broadly rather than keeping an allow-list:
+The extension forwards parameters broadly rather than keeping an allow-list, and it never injects a parameter the user did not set (the model provider's own defaults apply):
 
 - Provider-owned fields, never overwritable: `model`, `messages`, `stream`, `stream_options`, `tools`, `tool_choice`.
-- Keys starting with `_` in runtime `modelOptions` are skipped (VS Code injects internal fields there).
+- Keys starting with `_` are skipped in both `modelParameters` config (retired extension metadata) and runtime `modelOptions` (VS Code injects internal fields there).
 - Everything else from `modelParameters` config and runtime `modelOptions` goes to LiteLLM unchanged, so any LiteLLM/OpenAI-compatible parameter works without extension updates.
 
 Requests always set `stream_options: { include_usage: true }`; token usage from the final streaming chunk is logged to the output channel.
