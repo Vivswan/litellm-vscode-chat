@@ -33,6 +33,23 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private _modelRoutes = new Map<string, ModelRoute>();
 	private _getServers?: () => Promise<ServerWithKey[]>;
 
+	/**
+	 * In-flight model discovery promise. Used to coalesce concurrent
+	 * `provideLanguageModelChatInformation` / `prepareLanguageModelChatInformation`
+	 * invocations into a single network round-trip (single-flight).
+	 */
+	private _modelFetchInflight: Promise<LanguageModelChatInformation[]> | undefined;
+	/**
+	 * Cached model list, populated after a successful fetch. Served from cache
+	 * when the cache age is below `refreshIntervalMs` and the configured server
+	 * list (by id + baseUrl) has not changed.
+	 */
+	private _cachedModelInfos: LanguageModelChatInformation[] | undefined;
+	private _cachedServerStatuses: ServerStatus[] | undefined;
+	private _cachedSuccessfulCount = 0;
+	private _cachedServersHash: string | undefined;
+	private _cachedFetchedAt: number | undefined;
+
 	constructor(
 		private readonly secrets: vscode.SecretStorage,
 		private readonly userAgent: string,
@@ -77,43 +94,128 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		options: { silent: boolean },
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
-		this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
+		// Single-flight: if a fetch is already running, join it instead of starting a new one.
+		if (this._modelFetchInflight) {
+			this.log("Joining in-flight model fetch");
+			return this._modelFetchInflight;
+		}
 
-		const servers = await ensureServers(options.silent, this._getServers, this.secrets);
-		if (!servers || servers.length === 0) {
-			this.log("No servers configured, returning empty array");
+		// Reserve the inflight slot synchronously — before any `await` — so that
+		// concurrent callers coalesce onto a single promise.
+		let resolve!: (value: LanguageModelChatInformation[]) => void;
+		let reject!: (reason: unknown) => void;
+		const inflight = new Promise<LanguageModelChatInformation[]>((res, rej) => {
+			resolve = res;
+			reject = rej;
+		});
+		inflight.finally(() => {
+			if (this._modelFetchInflight === inflight) {
+				this._modelFetchInflight = undefined;
+			}
+		});
+		this._modelFetchInflight = inflight;
 
-			if (options.silent && !this._hasShownNoConfigNotification) {
-				this._hasShownNoConfigNotification = true;
-				vscode.window
-					.showWarningMessage("LiteLLM: No servers configured. Click to configure.", "Configure Now", "Dismiss")
-					.then((choice) => {
-						if (choice === "Configure Now") {
-							vscode.commands.executeCommand("litellm.manage");
+		try {
+			this.log("prepareLanguageModelChatInformation called", { silent: options.silent });
+
+			const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
+			const rawRefreshInterval = settings.get<number>("refreshInterval", 900000);
+			const refreshIntervalMs = Math.max(0, Number.isFinite(rawRefreshInterval) ? rawRefreshInterval : 900000);
+			if (rawRefreshInterval !== refreshIntervalMs) {
+				this.log("Invalid refreshInterval configuration, using clamped value", {
+					configured: rawRefreshInterval,
+					clamped: refreshIntervalMs,
+				});
+			}
+
+			const servers = await ensureServers(options.silent, this._getServers, this.secrets);
+			if (!servers || servers.length === 0) {
+				this.log("No servers configured, returning empty array");
+
+				if (options.silent && !this._hasShownNoConfigNotification) {
+					this._hasShownNoConfigNotification = true;
+					vscode.window
+						.showWarningMessage("LiteLLM: No servers configured. Click to configure.", "Configure Now", "Dismiss")
+						.then((choice) => {
+							if (choice === "Configure Now") {
+								vscode.commands.executeCommand("litellm.manage");
+							}
+						});
+				}
+
+				if (this._statusCallback) {
+					this._statusCallback({ serverStatuses: [], totalModels: 0 });
+				}
+				resolve([]);
+				return [];
+			}
+
+			// TTL cache: serve cached model list when it is fresh and the configured
+			// server list (by id + baseUrl) has not changed since the cache was populated.
+			const serversHash = computeServersHash(servers);
+			if (refreshIntervalMs > 0) {
+				const cached = this._cachedModelInfos;
+				const cachedFetchedAt = this._cachedFetchedAt;
+				const cachedServersHash = this._cachedServersHash;
+				if (
+					cached !== undefined &&
+					cachedFetchedAt !== undefined &&
+					cachedServersHash !== undefined &&
+					cachedServersHash === serversHash
+				) {
+					const ageMs = Date.now() - cachedFetchedAt;
+					if (ageMs < refreshIntervalMs) {
+						this.log("Serving cached model list", {
+							ageMs,
+							refreshIntervalMs,
+							models: cached.length,
+						});
+						if (this._statusCallback && this._cachedServerStatuses) {
+							this._statusCallback({
+								serverStatuses: this._cachedServerStatuses,
+								totalModels: cached.length,
+							});
 						}
-					});
+						resolve(cached);
+						return cached;
+					}
+				}
 			}
 
-			if (this._statusCallback) {
-				this._statusCallback({ serverStatuses: [], totalModels: 0 });
+			this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
+
+			const rawDiscoveryTimeout = settings.get<number>("discoveryTimeout", 30000);
+			const customHeaders = getCustomHeaders((msg, data) => this.log(msg, data));
+			const discoveryTimeout = Math.max(1000, Number.isFinite(rawDiscoveryTimeout) ? rawDiscoveryTimeout : 30000);
+			if (rawDiscoveryTimeout !== discoveryTimeout) {
+				this.log("Invalid discoveryTimeout configuration, using clamped value", {
+					configured: rawDiscoveryTimeout,
+					clamped: discoveryTimeout,
+				});
 			}
-			return [];
+
+			const result = await this.fetchModelsFromServers(
+				servers,
+				discoveryTimeout,
+				customHeaders,
+				serversHash,
+				options.silent
+			);
+			resolve(result);
+			return result;
+		} catch (error) {
+			reject(error);
+			throw error;
 		}
+	}
 
-		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
-
-		const settings = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const rawDiscoveryTimeout = settings.get<number>("discoveryTimeout", 30000);
-		const customHeaders = getCustomHeaders((msg, data) => this.log(msg, data));
-		// Validate and clamp discoveryTimeout to minimum 1000ms
-		const discoveryTimeout = Math.max(1000, Number.isFinite(rawDiscoveryTimeout) ? rawDiscoveryTimeout : 30000);
-		if (rawDiscoveryTimeout !== discoveryTimeout) {
-			this.log("Invalid discoveryTimeout configuration, using clamped value", {
-				configured: rawDiscoveryTimeout,
-				clamped: discoveryTimeout,
-			});
-		}
-
+	private async fetchModelsFromServers(
+		servers: ServerWithKey[],
+		discoveryTimeout: number,
+		customHeaders: Record<string, string>,
+		serversHash: string,
+		silent: boolean
+	): Promise<LanguageModelChatInformation[]> {
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
 				const result = await fetchModels(
@@ -188,6 +290,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		this.log("Final model count:", allInfos.length);
 
+		// Only populate the cache when at least one server returned successfully.
+		// If all servers failed, leave the cache untouched so the next call retries.
+		if (successfulCount > 0) {
+			this._cachedModelInfos = allInfos;
+			this._cachedServerStatuses = serverStatuses;
+			this._cachedSuccessfulCount = successfulCount;
+			this._cachedServersHash = serversHash;
+			this._cachedFetchedAt = Date.now();
+		}
+
 		if (this._statusCallback) {
 			this._statusCallback({ serverStatuses, totalModels: allInfos.length });
 		}
@@ -213,7 +325,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 
 		if (successfulCount === 0 && servers.length > 0) {
 			const firstError = serverStatuses.find((s) => s.error)?.error ?? "Unknown error";
-			if (options.silent) {
+			if (silent) {
 				vscode.window
 					.showErrorMessage(`LiteLLM: ${firstError}`, "Reconfigure", "Report Issue", "Dismiss")
 					.then((choice) => {
@@ -229,6 +341,33 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		return allInfos;
+	}
+
+	/**
+	 * Drops the cached model list so the next call to
+	 * `provideLanguageModelChatInformation` triggers a fresh fetch.
+	 *
+	 * Wire this from configuration changes that affect what should be returned:
+	 * - edits to `litellm-vscode-chat.headers` or `litellm-vscode-chat.discoveryTimeout`
+	 *   (those change the actual HTTP request)
+	 * - edits to `litellm-vscode-chat.refreshInterval` (the new TTL should take
+	 *   effect immediately)
+	 * - user-initiated actions that semantically expect fresh data, e.g. the
+	 *   "Test Connection" command.
+	 *
+	 * Note: server add/edit/remove does NOT need to call this explicitly — the
+	 * built-in hash check on `(id, baseUrl)` invalidates the cache when the
+	 * configured server list changes.
+	 */
+	invalidateModelCache(): void {
+		if (this._cachedModelInfos !== undefined || this._cachedFetchedAt !== undefined) {
+			this.log("Model cache invalidated");
+		}
+		this._cachedModelInfos = undefined;
+		this._cachedServerStatuses = undefined;
+		this._cachedSuccessfulCount = 0;
+		this._cachedServersHash = undefined;
+		this._cachedFetchedAt = undefined;
 	}
 
 	async provideLanguageModelChatInformation(
@@ -298,4 +437,23 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			return totalTokens;
 		}
 	}
+}
+
+/**
+ * Stable hash of the configured server list, used to invalidate the model cache
+ * whenever the user adds, removes, edits, or reorders servers. Order-independent
+ * so reordering the same set of servers does not invalidate the cache.
+ */
+export function computeServersHash(servers: readonly ServerWithKey[]): string {
+	const entries = servers
+		.map((s) => `${s.id}\u0000${s.baseUrl}`)
+		.sort()
+		.join("\u0001");
+	// Cheap, deterministic, no crypto needed — collisions would only force one
+	// extra refetch per cache window which is harmless.
+	let hash = 5381;
+	for (let i = 0; i < entries.length; i++) {
+		hash = ((hash << 5) + hash + entries.charCodeAt(i)) | 0;
+	}
+	return `srv:${entries.length}:${hash.toString(36)}`;
 }

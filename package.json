@@ -131,6 +131,12 @@
 					"default": 30000,
 					"minimum": 1000,
 					"description": "Request timeout in milliseconds for model discovery requests. Default is 30000ms (30 seconds)."
+				},
+				"litellm-vscode-chat.refreshInterval": {
+					"type": "number",
+					"default": 900000,
+					"minimum": 0,
+					"description": "How long to cache the model list (in milliseconds) before refreshing from the LiteLLM server. Default is 900000ms (15 minutes). Concurrent discovery calls within this window are deduplicated. Set to 0 to disable caching and always refetch (single-flight deduplication is still applied)."
 				}
 			}
 		}

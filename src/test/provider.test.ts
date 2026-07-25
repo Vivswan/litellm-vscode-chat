@@ -1517,4 +1517,283 @@ suite("provider", () => {
 			assert.equal(modelEntry.capabilities.imageInput, true);
 		});
 	});
+
+	suite("model discovery caching", () => {
+		const fakeServers = [{ id: "srv-1", label: "Server 1", baseUrl: "http://test", apiKey: "test-key" }];
+
+		function makeProvider() {
+			return new LiteLLMChatModelProvider(
+				{
+					get: async (key: string) => (key === "litellm.baseUrl" ? "http://test" : "test-key"),
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage,
+				"GitHubCopilotChat/test VSCode/test"
+			);
+		}
+
+		function configureGetServers(provider: LiteLLMChatModelProvider, servers = fakeServers) {
+			provider.setServerProvider(async () => servers);
+		}
+
+		test("concurrent prepare calls share a single fetch (single-flight)", async () => {
+			const originalFetch = global.fetch;
+			let fetchCount = 0;
+			let release: (() => void) | undefined;
+			const inflight = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			try {
+				global.fetch = async () => {
+					fetchCount++;
+					await inflight; // hold the request until we release, so concurrent callers pile up
+					return {
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
+								},
+							],
+						}),
+					} as unknown as Response;
+				};
+
+				const provider = makeProvider();
+				configureGetServers(provider);
+
+				const p1 = provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				const p2 = provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				const p3 = provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				release!();
+
+				const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+
+				assert.strictEqual(fetchCount, 1, "Only one /v1/model/info fetch should occur for concurrent calls");
+				assert.deepStrictEqual(r1, r2, "Concurrent callers must receive the same result reference");
+				assert.deepStrictEqual(r2, r3);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
+		test("second call within the TTL window reuses the cache (no new fetch)", async () => {
+			const originalFetch = global.fetch;
+			let fetchCount = 0;
+			try {
+				global.fetch = async () => {
+					fetchCount++;
+					return {
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
+								},
+							],
+						}),
+					} as unknown as Response;
+				};
+
+				const provider = makeProvider();
+				configureGetServers(provider);
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.strictEqual(
+					fetchCount,
+					1,
+					"Sequential calls within the default TTL (15 min) must not trigger additional fetches"
+				);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
+		test("refreshInterval set to 0 disables the TTL cache but keeps single-flight", async () => {
+			const originalFetch = global.fetch;
+			const originalGetConfiguration = vscode.workspace.getConfiguration;
+			let fetchCount = 0;
+			try {
+				global.fetch = async () => {
+					fetchCount++;
+					return {
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
+								},
+							],
+						}),
+					} as unknown as Response;
+				};
+
+				vscode.workspace.getConfiguration = ((section?: string) => {
+					if (section === "litellm-vscode-chat") {
+						return {
+							get: (key: string, defaultValue?: unknown) => (key === "refreshInterval" ? 0 : defaultValue),
+						} as unknown as vscode.WorkspaceConfiguration;
+					}
+					return originalGetConfiguration(section);
+				}) as unknown as typeof vscode.workspace.getConfiguration;
+
+				const provider = makeProvider();
+				configureGetServers(provider);
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+
+				assert.strictEqual(
+					fetchCount,
+					2,
+					"TTL disabled (0) means every call performs a fresh fetch (single-flight still applies)"
+				);
+			} finally {
+				global.fetch = originalFetch;
+				vscode.workspace.getConfiguration = originalGetConfiguration;
+			}
+		});
+
+		test("invalidateModelCache forces the next call to re-fetch", async () => {
+			const originalFetch = global.fetch;
+			let fetchCount = 0;
+			try {
+				global.fetch = async () => {
+					fetchCount++;
+					return {
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
+								},
+							],
+						}),
+					} as unknown as Response;
+				};
+
+				const provider = makeProvider();
+				configureGetServers(provider);
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				assert.strictEqual(fetchCount, 1);
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				assert.strictEqual(fetchCount, 1, "Within TTL, cache should serve the request");
+
+				provider.invalidateModelCache();
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				assert.strictEqual(fetchCount, 2, "After invalidateModelCache, a fresh fetch must occur");
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
+		test("adding a new server invalidates the cache automatically via the server hash", async () => {
+			const originalFetch = global.fetch;
+			let fetchCount = 0;
+			try {
+				global.fetch = async () => {
+					fetchCount++;
+					return {
+						ok: true,
+						json: async () => ({
+							object: "list",
+							data: [
+								{
+									id: "test-model",
+									object: "model",
+									created: 0,
+									owned_by: "test",
+									providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
+								},
+							],
+						}),
+					} as unknown as Response;
+				};
+
+				const provider = makeProvider();
+				configureGetServers(provider, [{ id: "srv-1", label: "Server 1", baseUrl: "http://test", apiKey: "test-key" }]);
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				assert.strictEqual(fetchCount, 1);
+
+				// simulate the user adding a second server via the registry
+				configureGetServers(provider, [
+					{ id: "srv-1", label: "Server 1", baseUrl: "http://test", apiKey: "test-key" },
+					{ id: "srv-2", label: "Server 2", baseUrl: "http://test2", apiKey: "test-key-2" },
+				]);
+
+				await provider.prepareLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
+				);
+				assert.strictEqual(fetchCount, 3, "New server must trigger a fresh fetch (2 servers = 2 fetch calls)");
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+	});
 });

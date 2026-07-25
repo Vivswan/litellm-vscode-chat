@@ -130,6 +130,10 @@ export function activate(context: vscode.ExtensionContext) {
 			try {
 				await statusBar.updateStatusBar({ state: "loading" });
 
+				// A manual test connection should always reflect the current server state,
+				// not whatever the TTL cache happens to hold.
+				provider.invalidateModelCache();
+
 				const models = await provider.prepareLanguageModelChatInformation(
 					{ silent: false },
 					new vscode.CancellationTokenSource().token
@@ -189,6 +193,20 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Diagnostics command
 	registerDiagnosticsCommand(context, registry, () => statusBar.connectionStatus, outputChannel);
+
+	// Invalidate the model cache when relevant settings change so the next
+	// discovery call fetches fresh data.
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (
+				event.affectsConfiguration("litellm-vscode-chat.headers") ||
+				event.affectsConfiguration("litellm-vscode-chat.refreshInterval") ||
+				event.affectsConfiguration("litellm-vscode-chat.discoveryTimeout")
+			) {
+				provider.invalidateModelCache();
+			}
+		})
+	);
 
 	// Help & Feedback command
 	registerHelpAndFeedbackCommand(context);
