@@ -150,8 +150,9 @@
 	"publisher": "vivswan",
 	"scripts": {
 		"prepare": "husky",
-		"vscode:prepublish": "bun run compile",
+		"vscode:prepublish": "bun run compile:prod",
 		"compile": "tsc -p ./",
+		"compile:prod": "rm -rf out && tsc -p tsconfig.prod.json",
 		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p tsconfig.scripts.json",
 		"setup-env": "bash scripts/setup-env.sh",
 		"setup-env:verify": "bash scripts/setup-env.sh --verify",
