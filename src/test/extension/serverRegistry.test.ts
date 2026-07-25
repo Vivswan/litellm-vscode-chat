@@ -14,8 +14,11 @@ interface Fakes {
 	secretStore: Map<string, string>;
 }
 
-function createRegistry(): Fakes {
+function createRegistry(initialRegistryValue?: unknown): Fakes {
 	const mementoStore = new Map<string, unknown>();
+	if (initialRegistryValue !== undefined) {
+		mementoStore.set(SERVER_REGISTRY_KEY, initialRegistryValue);
+	}
 	const memento = {
 		get: (key: string, defaultValue?: unknown) => (mementoStore.has(key) ? mementoStore.get(key) : defaultValue),
 		update: async (key: string, value: unknown) => {
@@ -233,16 +236,14 @@ suite("extension/serverRegistry", () => {
 
 	suite("getServers validation", () => {
 		test("non-array registry content yields an empty list", () => {
-			const { registry, mementoStore } = createRegistry();
-			mementoStore.set(SERVER_REGISTRY_KEY, { not: "an array" });
+			const { registry } = createRegistry({ not: "an array" });
 
 			assert.deepStrictEqual(registry.getServers(), []);
 		});
 
 		test("malformed entries are filtered out", () => {
-			const { registry, mementoStore } = createRegistry();
 			const valid = { id: "srv1", label: "Valid", baseUrl: "http://valid:4000" };
-			mementoStore.set(SERVER_REGISTRY_KEY, [
+			const { registry } = createRegistry([
 				valid,
 				null,
 				"nonsense",
@@ -251,6 +252,93 @@ suite("extension/serverRegistry", () => {
 			]);
 
 			assert.deepStrictEqual(registry.getServers(), [valid]);
+		});
+
+		test("a stale globalState broadcast cannot revert an in-flight registration", async () => {
+			const existing = { id: "srv1", label: "Existing", baseUrl: "http://existing:4000" };
+			const { registry, mementoStore } = createRegistry({ version: 3, servers: [existing] });
+
+			// Simulate VS Code delivering a stale storage blob after construction,
+			// the way a concurrent status-bar persist can revert the Memento cache.
+			mementoStore.set(SERVER_REGISTRY_KEY, { version: 2, servers: [] });
+
+			const added = await registry.addServer("New", "http://new:4000", "");
+
+			assert.deepStrictEqual(registry.getServers(), [existing, added]);
+			assert.deepStrictEqual(
+				mementoStore.get(SERVER_REGISTRY_KEY),
+				{ version: 4, servers: [existing, added] },
+				"The persisted blob must contain both servers"
+			);
+		});
+
+		test("a newer snapshot from another window is adopted before mutating", async () => {
+			const mine = { id: "srv1", label: "Mine", baseUrl: "http://mine:4000" };
+			const { registry, mementoStore } = createRegistry({ version: 1, servers: [mine] });
+
+			// Another window added a server and persisted a strictly newer version.
+			const theirs = { id: "srv2", label: "Theirs", baseUrl: "http://theirs:4000" };
+			mementoStore.set(SERVER_REGISTRY_KEY, { version: 5, servers: [mine, theirs] });
+
+			const added = await registry.addServer("New", "http://new:4000", "");
+
+			assert.deepStrictEqual(registry.getServers(), [mine, theirs, added]);
+			assert.deepStrictEqual(mementoStore.get(SERVER_REGISTRY_KEY), {
+				version: 6,
+				servers: [mine, theirs, added],
+			});
+		});
+
+		test("a pre-versioning bare-array registry is readable and upgraded on write", async () => {
+			const legacyShaped = { id: "srv1", label: "Old", baseUrl: "http://old:4000" };
+			const { registry, mementoStore } = createRegistry([legacyShaped]);
+
+			assert.deepStrictEqual(registry.getServers(), [legacyShaped]);
+
+			const added = await registry.addServer("New", "http://new:4000", "");
+			assert.deepStrictEqual(mementoStore.get(SERVER_REGISTRY_KEY), {
+				version: 1,
+				servers: [legacyShaped, added],
+			});
+		});
+
+		test("a failed persist's optimistic cache residue is not re-adopted after rollback", async () => {
+			// VS Code's Memento caches an update before the async write settles, so a
+			// failed persist can leave the rejected snapshot readable in the cache.
+			const mementoStore = new Map<string, unknown>();
+			let failNextUpdate = false;
+			const memento = {
+				get: (key: string, defaultValue?: unknown) => (mementoStore.has(key) ? mementoStore.get(key) : defaultValue),
+				update: async (key: string, value: unknown) => {
+					mementoStore.set(key, value);
+					if (failNextUpdate) {
+						failNextUpdate = false;
+						throw new Error("persist failed");
+					}
+				},
+			} as unknown as vscode.Memento;
+			const secretStore = new Map<string, string>();
+			const secrets = {
+				get: async (key: string) => secretStore.get(key),
+				store: async (key: string, value: string) => {
+					secretStore.set(key, value);
+				},
+				delete: async (key: string) => {
+					secretStore.delete(key);
+				},
+				onDidChange: (_listener: unknown) => ({ dispose() {} }),
+			} as unknown as vscode.SecretStorage;
+			const registry = new ServerRegistry(memento, secrets);
+			const first = await registry.addServer("First", "http://first:4000", "");
+
+			failNextUpdate = true;
+			await assert.rejects(registry.addServer("Broken", "http://broken:4000", ""), /persist failed/);
+
+			assert.deepStrictEqual(registry.getServers(), [first], "The rejected snapshot must not be re-adopted");
+
+			const again = await registry.addServer("Again", "http://again:4000", "");
+			assert.deepStrictEqual(registry.getServers(), [first, again]);
+			assert.deepStrictEqual(mementoStore.get(SERVER_REGISTRY_KEY), { version: 2, servers: [first, again] });
 		});
 	});
 

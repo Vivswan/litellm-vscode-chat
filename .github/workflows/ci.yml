@@ -29,6 +29,14 @@ jobs:
     with:
       os: 'matrix'
 
+  # Burn-in: intentionally NOT in all-green's needs, so it cannot block merges.
+  # Promote it to required (add to all-green) after ~20 consecutive green runs on main.
+  host-fidelity:
+    uses: ./.github/workflows/test-reusable.yml
+    with:
+      os: 'ubuntu-latest'
+      suite: 'host-fidelity'
+
   format-check:
     uses: ./.github/workflows/format-check-reusable.yml
 

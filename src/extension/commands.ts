@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { ServerRegistry } from "./serverRegistry";
+import type { ServerConfig, ServerRegistry } from "./serverRegistry";
 
 const GITHUB_REPO = "https://github.com/Vivswan/litellm-vscode-chat";
 const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
@@ -42,39 +42,66 @@ export function registerTestCommands(
 		) => Promise<vscode.LanguageModelChatInformation[]>;
 	}
 ): void {
-	if (context.extensionMode !== vscode.ExtensionMode.Production) {
-		context.subscriptions.push(
-			vscode.commands.registerCommand("litellm._test.refreshModels", async () => {
-				const infos = await provider.prepareLanguageModelChatInformation(
-					{ silent: true },
-					new vscode.CancellationTokenSource().token
-				);
-				return infos.length;
-			}),
-			vscode.commands.registerCommand("litellm._test.refreshModelIds", async () => {
-				const infos = await provider.prepareLanguageModelChatInformation(
-					{ silent: true },
-					new vscode.CancellationTokenSource().token
-				);
-				return infos.map((info) => info.id);
-			}),
-			vscode.commands.registerCommand(
-				"litellm._test.addServer",
-				async (label: string, baseUrl: string, apiKey: string) => {
-					return registry.addServer(label, baseUrl, apiKey || "");
-				}
-			),
-			vscode.commands.registerCommand("litellm._test.removeServer", async (serverId: string) => {
-				await registry.removeServer(serverId);
-			}),
-			vscode.commands.registerCommand("litellm._test.clearServers", async () => {
+	if (context.extensionMode === vscode.ExtensionMode.Production) {
+		return;
+	}
+
+	const refreshModelIds = async (): Promise<string[]> => {
+		const infos = await provider.prepareLanguageModelChatInformation(
+			{ silent: true },
+			new vscode.CancellationTokenSource().token
+		);
+		return infos.map((info) => info.id);
+	};
+
+	// Mutations run serialized so a straggler's refresh can never overwrite the
+	// provider state a newer mutation just established. The generation counter
+	// marks a superseded mutation's result as null so its caller (typically a
+	// timed-out test) knows its view is stale.
+	let generation = 0;
+	let queue: Promise<unknown> = Promise.resolve();
+	const mutateAndRefresh = (mutate: () => Promise<void>): Promise<string[] | null> => {
+		const gen = ++generation;
+		const run = async () => {
+			await mutate();
+			const modelIds = await refreshModelIds();
+			return gen === generation ? modelIds : null;
+		};
+		const result = queue.then(run, run);
+		queue = result.then(
+			() => undefined,
+			() => undefined
+		);
+		return result;
+	};
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand("litellm._test.refreshModels", async () => {
+			return (await refreshModelIds()).length;
+		}),
+		vscode.commands.registerCommand("litellm._test.refreshModelIds", refreshModelIds),
+		vscode.commands.registerCommand(
+			"litellm._test.addServer",
+			async (label: string, baseUrl: string, apiKey: string) => {
+				let server: ServerConfig | undefined;
+				const modelIds = await mutateAndRefresh(async () => {
+					server = await registry.addServer(label, baseUrl, apiKey || "");
+				});
+				return { server, modelIds };
+			}
+		),
+		vscode.commands.registerCommand("litellm._test.removeServer", async (serverId: string) => {
+			return mutateAndRefresh(() => registry.removeServer(serverId));
+		}),
+		vscode.commands.registerCommand("litellm._test.clearServers", async () => {
+			return mutateAndRefresh(async () => {
 				for (const s of registry.getServers()) {
 					await registry.removeServer(s.id);
 				}
-			}),
-			vscode.commands.registerCommand("litellm._test.getServers", () => {
-				return registry.getServers();
-			})
-		);
-	}
+			});
+		}),
+		vscode.commands.registerCommand("litellm._test.getServers", () => {
+			return registry.getServers();
+		})
+	);
 }

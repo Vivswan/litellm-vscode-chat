@@ -12,6 +12,9 @@ import { URL } from "node:url";
 
 const MODEL_ID = "openai/gpt-5-mini-flex";
 
+/** Total content chunks in the "slow-stream" scenario; cancellation tests assert against this. */
+export const SLOW_STREAM_CHUNK_COUNT = 50;
+
 const MODEL_INFO = {
 	data: [
 		{
@@ -270,10 +273,7 @@ const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		delayMs: 100,
 		chunks: [
 			makeChunk({ role: "assistant", content: "chunk1 " }),
-			makeChunk({ content: "chunk2 " }),
-			makeChunk({ content: "chunk3 " }),
-			makeChunk({ content: "chunk4 " }),
-			makeChunk({ content: "chunk5 " }),
+			...Array.from({ length: SLOW_STREAM_CHUNK_COUNT - 1 }, (_, i) => makeChunk({ content: `chunk${i + 2} ` })),
 			makeChunk({}, "stop"),
 		],
 	},
