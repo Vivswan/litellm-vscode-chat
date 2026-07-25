@@ -110,31 +110,33 @@ The source tree has three layers plus two standalone modules:
 
 ### Extension layer
 
-`src/extension.ts` activates the extension: it creates the "LiteLLM" output channel, constructs the `IssueReporter`, `ServerRegistry`, and `LiteLLMChatModelProvider`, wires the provider to the registry, runs the legacy-config migration, registers the provider under vendor ID `"litellm"`, and registers the commands. The two layers are not yet strictly separated: types flow in both directions (the provider imports `ServerWithKey`/`ServerStatus` from `serverRegistry.ts`, the extension imports `AggregatedStatus` from the provider), and the provider currently shows some notifications itself.
+`src/extension.ts` activates the extension: it creates the "LiteLLM" output channel, constructs the `IssueReporter`, the shared `Logger`, the `ServerRegistry`, and the `LiteLLMChatModelProvider`, wires the provider to the registry and the configuration prompt, awaits the legacy-config migration, registers the provider under vendor ID `"litellm"`, and registers the commands. The layers are separated: shared domain types (`ServerConfig`, `ServerWithKey`, `ServerStatus`, `AggregatedStatus`) live in `src/shared/servers.ts`, and a Biome override turns any import from the extension layer inside `src/provider/**` into a lint error.
 
 The modules under `src/extension/`:
 
-- `serverRegistry.ts` owns server storage. The list of servers (`id`, `label`, `baseUrl`) lives in `globalState` under `litellm.serverRegistry`; each server's API key lives in SecretStorage under `litellm.apiKey.<id>`. `migrateLegacy()` converts the old single-server secrets (`litellm.baseUrl`, `litellm.apiKey`) into a registry entry named "Default" and deletes them; those legacy keys exist only for this migration.
+- `serverRegistry.ts` owns server storage. The registry is authoritative in memory and persists to `globalState` under `litellm.serverRegistry` as a version-stamped blob (snapshots from other windows are adopted only when strictly newer, so stale storage broadcasts cannot revert a registration); each server's API key lives in SecretStorage under `litellm.apiKey.<id>`. `migrateLegacy()` converts the old single-server secrets (`litellm.baseUrl`, `litellm.apiKey`) into a registry entry named "Default" and deletes them; those legacy keys exist only for this migration.
 - `serverManagement.ts` implements the `litellm.manage` quick-pick flows for adding, editing, and removing servers.
 - `status.ts` (`StatusBarManager`) renders the status bar item with five states (not configured, loading, connected with model count, degraded when some servers fail, error) and persists the last `ConnectionStatus` in `globalState` under `litellm.lastConnectionStatus` so the state survives reloads.
+- `notifier.ts` owns user-facing toasts: `showActionableMessage` plus shared action factories, `createConfigurationPrompt()` for the interactive configure-then-continue flow, and the `Notifier`, which consumes the provider's status callback and toasts once per failure condition on silent refreshes (deduped until a successful refresh resets the signature). Non-silent refreshes never toast from the Notifier; their caller surfaces the result.
 - `diagnostics.ts` builds the diagnostics snapshot and registers `litellm.showDiagnostics`.
-- `commands.ts` registers `litellm.helpAndFeedback` and, outside production mode, the `litellm._test.*` commands (`setSecrets`, `refreshModels`, `refreshModelIds`, `addServer`, `removeServer`, `clearServers`, `getServers`) that the host-fidelity tests drive.
+- `commands.ts` registers `litellm.testConnection`, `litellm.reportIssue`, `litellm.helpAndFeedback`, and, outside production mode, the `litellm._test.*` commands the host-fidelity tests drive. The test mutation commands (`addServer`, `removeServer`, `clearServers`) run serialized, refresh models after mutating, and resolve with the fresh model IDs (or null when superseded by a newer mutation).
 
-Commands contributed in `package.json`: `litellm.manage`, `litellm.testConnection`, `litellm.showDiagnostics`, `litellm.helpAndFeedback`, and `litellm.reportIssue`. The `testConnection` and `reportIssue` handlers currently live inline in `extension.ts`.
+Commands contributed in `package.json`: `litellm.manage`, `litellm.testConnection`, `litellm.showDiagnostics`, `litellm.helpAndFeedback`, and `litellm.reportIssue`.
 
 ### Provider layer
 
-`src/provider.ts` (`LiteLLMChatModelProvider`) implements VS Code's `LanguageModelChatProvider`. It fetches models from every configured server, aggregates them into `LanguageModelChatInformation` entries, reports per-server status through a callback the extension registers (`setStatusCallback`), and delegates chat requests. It also implements `provideTokenCount` with rough heuristics (length/4 for text, flat estimates for images and PDFs).
+`src/provider.ts` (`LiteLLMChatModelProvider`) implements VS Code's `LanguageModelChatProvider` as a facade over one `ChatClient`. `provideLanguageModelChatInformation` fetches models from every configured server, aggregates them into `LanguageModelChatInformation` entries, and reports per-server status (with the refresh's `silent` flag) through the callback the extension registers; `provideLanguageModelChatResponse` delegates to the client; `provideTokenCount` uses the shared token estimation with multimodal estimates.
 
 The modules under `src/provider/`:
 
-- `config.ts` resolves which servers to use (`ensureServers`, `resolveServer`), including an interactive configure-then-continue prompt in non-silent mode and the legacy single-server fallback.
+- `chatClient.ts` (`ChatClient`) owns the `/v1/chat/completions` call (message conversion, validation, token-limit rejection, headers, timeout, streaming) plus the model routes, the prompt-caching map, and the tool-call ID counter that stream processors mint IDs from.
+- `config.ts` resolves which servers to use (`ensureServers`, `resolveServer`); the interactive configure-then-continue prompt is injected from the extension layer as a `ConfigurationPrompt`.
 - `discovery.ts` (`fetchModels`) calls `/v1/model/info` and falls back to `/v1/models` on any error, normalizing both into `LiteLLMModelItem`s.
 - `registration.ts` (`buildModelInfos`) turns fetched models into chat-model entries, registers routes, and records per-model prompt-caching support.
-- `request.ts` builds request bodies (`buildRequestBody`), resolves token constraints (`getTokenConstraints`), matches `modelParameters` config (`getModelParameters`), estimates tokens, and defines `ModelRoute` and `buildExposedModelId`.
-- `client.ts` (`sendChatRequest`) owns the `/v1/chat/completions` call: message conversion, validation, token-limit rejection, headers, timeout, and handing the response stream to the stream processor.
-- `streaming.ts` (`StreamProcessor`) parses SSE chunks and emits response parts.
-- `httpHeaders.ts` reads the `headers` setting for custom HTTP headers.
+- `modelCatalog.ts` defines `ModelRoute`, `buildExposedModelId`, and `getTokenConstraints`.
+- `request.ts` matches `modelParameters` config (`getModelParameters`) and builds request bodies (`buildRequestBody`).
+- `streaming.ts` (`StreamProcessor`) parses SSE chunks through the typed `parseChunk` contract and emits response parts, deduplicating tool calls that arrive on both the delta and inline channels.
+- `textToolCallParser.ts` (`TextToolCallParser`) is the pure incremental scanner for `<|tool_call_begin|>` sequences embedded in streamed text, returning ordered text/call events.
 - `modelDefaults.ts` holds `findLongestPrefixMatch` and the built-in per-model request defaults applied by `buildRequestBody` unless a `modelParameters` entry sets `_replaceDefaults: true`.
 
 ### Shared modules
@@ -143,6 +145,12 @@ The modules under `src/provider/`:
 - `tools.ts` (`convertTools`, `sanitizeSchema`, `sanitizeFunctionName`) converts VS Code tool definitions to OpenAI function definitions. `ToolMode.Required` maps to a named function choice for a single tool and `tool_choice: "required"` for several. `sanitizeSchema` preserves composite schemas (`anyOf`/`oneOf`/`allOf`), `$ref` and `definitions`/`$defs`, and widely supported keywords, and converts `number` to `integer` for ID-like property names.
 - `validation.ts` (`validateRequest`) checks tool call/result pairing in message sequences.
 - `json.ts` (`tryParseJSONObject`) safely parses tool-call argument JSON.
+- `settings.ts` has one accessor per `litellm-vscode-chat.*` setting, each reading fresh per call and validating exactly once (`clampTimeout` for the two timeouts).
+- `tokenEstimation.ts` holds the token heuristics (`CHARS_PER_TOKEN`, `IMAGE_TOKEN_ESTIMATE`, `PDF_TOKEN_ESTIMATE`) behind `estimatePartTokens(part, { includeMultimodal })`; the chat rejection path counts text only, `provideTokenCount` includes multimodal estimates.
+- `mime.ts` (`isTextMimeType`, `isImageMimeType`) is the single home for MIME classification.
+- `servers.ts` holds the cross-layer domain types (`ServerConfig`, `ServerWithKey`, `ServerStatus`, `AggregatedStatus`).
+- `logger.ts` (`Logger`) writes timestamped lines to the output channel and the issue-report buffer; every module logs through it.
+- `storageKeys.ts` centralizes every Memento and SecretStorage key.
 - `numbers.ts` (`normalizePositiveNumber`) validates numeric config values.
 
 ### Multi-server model registration
@@ -205,8 +213,7 @@ The provider reports an `AggregatedStatus` (per-server statuses plus total model
 ### Adding a new configuration option
 
 1. Add the property to `package.json` under `contributes.configuration.properties`.
-2. Read the value where it is used (`vscode.workspace.getConfiguration("litellm-vscode-chat")`), following the existing accessors in `src/provider/httpHeaders.ts` and `src/provider/request.ts`.
-3. Validate and clamp the raw value once at the read site.
+2. Add an accessor for it in `src/shared/settings.ts`, validating the raw value there, and read it through that accessor.
 
 ### Extending tool call support
 
@@ -219,7 +226,7 @@ Tool call handling is in `src/provider/streaming.ts` (`StreamProcessor`): `proce
 - Authentication failures (401) prompt the user to run "Manage LiteLLM Provider".
 - In silent mode the provider returns an empty model list instead of throwing, so the UI keeps working.
 - Invalid standard tool-call JSON is logged and throws when a `tool_calls` or `stop` finish reason arrives (though the broad per-SSE-line catch currently swallows that error); buffers still pending at `[DONE]` or cancellation are dropped without logging.
-- Log through the provider's `log`/`logError` so messages reach both the output channel and issue reports. A few older `console.*` call sites remain in `src/shared/` and `src/provider/streaming.ts`; do not add more.
+- Log through the shared `Logger` so messages reach both the output channel and issue reports. A few older `console.*` call sites remain in `src/shared/`; do not add more.
 
 ## CI/CD structure
 

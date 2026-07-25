@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { Logger } from "../shared/logger";
+import { getMaskApiKeyInput } from "../shared/settings";
 import { dismissAction, openChatAction, showActionableMessage, testConnectionAction } from "./notifier";
 import type { ServerRegistry } from "./serverRegistry";
 
@@ -45,7 +46,7 @@ export async function addServerFlow(registry: ServerRegistry, logger: Logger): P
 		return false;
 	}
 
-	const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
+	const maskApiKey = getMaskApiKeyInput();
 	const apiKey = await vscode.window.showInputBox({
 		title: "LiteLLM: Add Server - API Key",
 		prompt: "Enter the API key (leave empty if not required)",
@@ -134,7 +135,7 @@ export async function manageServerFlow(registry: ServerRegistry, serverId: strin
 		}
 
 		const existingApiKey = await registry.getApiKey(serverId);
-		const maskApiKey = vscode.workspace.getConfiguration("litellm-vscode-chat").get<boolean>("maskApiKeyInput", true);
+		const maskApiKey = getMaskApiKeyInput();
 		const apiKey = await vscode.window.showInputBox({
 			title: "LiteLLM: Edit Server - API Key",
 			prompt: existingApiKey ? "Update the API key" : "Enter the API key (leave empty if not required)",

@@ -7,14 +7,14 @@ import type {
 	Progress,
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
-import * as vscode from "vscode";
 import { ChatClient } from "./provider/chatClient";
 import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
+import type { ModelRoute } from "./provider/modelCatalog";
 import { buildModelInfos } from "./provider/registration";
-import type { ModelRoute } from "./provider/request";
 import type { Logger } from "./shared/logger";
 import type { AggregatedStatus, ServerStatus, ServerWithKey } from "./shared/servers";
+import { CHARS_PER_TOKEN, estimateMessagesTokens } from "./shared/tokenEstimation";
 
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	private readonly _client: ChatClient;
@@ -177,24 +177,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		_token: CancellationToken
 	): Promise<number> {
 		if (typeof text === "string") {
-			return Math.ceil(text.length / 4);
-		} else {
-			let totalTokens = 0;
-			for (const part of text.content) {
-				if (part instanceof vscode.LanguageModelTextPart) {
-					totalTokens += Math.ceil(part.value.length / 4);
-				} else if (part instanceof vscode.LanguageModelDataPart) {
-					const mime = part.mimeType.toLowerCase();
-					if (mime.startsWith("image/")) {
-						totalTokens += 765;
-					} else if (mime === "application/pdf") {
-						totalTokens += 500;
-					} else if (mime.startsWith("text/") || mime === "application/json" || mime.endsWith("+json")) {
-						totalTokens += Math.ceil(part.data.length / 4);
-					}
-				}
-			}
-			return totalTokens;
+			return Math.ceil(text.length / CHARS_PER_TOKEN);
 		}
+		return estimateMessagesTokens([text], { includeMultimodal: true });
 	}
 }

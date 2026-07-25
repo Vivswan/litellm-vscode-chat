@@ -66,7 +66,8 @@ export interface FetchModelsRequest {
 	server: ServerWithKey;
 	userAgent: string;
 	customHeaders: Record<string, string>;
-	discoveryTimeout?: number;
+	/** Pre-validated by settings.getDiscoveryTimeout(); used as-is. */
+	discoveryTimeout: number;
 	log: (message: string, data?: unknown) => void;
 	logError: (message: string, error: unknown) => void;
 }
@@ -74,15 +75,6 @@ export interface FetchModelsRequest {
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
 	const { userAgent, customHeaders, discoveryTimeout, log, logError } = request;
 	const { apiKey, baseUrl } = request.server;
-	// Validate and clamp timeout to minimum 1000ms (second line of defense)
-	const rawTimeout = discoveryTimeout ?? 30000;
-	const timeout = Math.max(1000, Number.isFinite(rawTimeout) ? rawTimeout : 30000);
-	if (rawTimeout !== timeout) {
-		log("Invalid discoveryTimeout provided, using clamped value", {
-			provided: rawTimeout,
-			clamped: timeout,
-		});
-	}
 	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
 	const headers: Record<string, string> = { ...customHeaders, "User-Agent": userAgent };
 	if (apiKey) {
@@ -123,7 +115,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
 			method: "GET",
 			headers,
-			signal: AbortSignal.timeout(timeout),
+			signal: AbortSignal.timeout(discoveryTimeout),
 		});
 		log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
 		if (infoResp.ok) {
@@ -162,7 +154,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		const resp = await fetch(`${baseUrl}/v1/models`, {
 			method: "GET",
 			headers,
-			signal: AbortSignal.timeout(timeout),
+			signal: AbortSignal.timeout(discoveryTimeout),
 		});
 		log("Response status:", `${resp.status} ${resp.statusText}`);
 		if (!resp.ok) {
