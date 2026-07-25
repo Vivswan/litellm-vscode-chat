@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { convertMessages } from "../../shared/messages";
+import { convertMessages, isToolResultPart } from "../../shared/messages";
 
 interface OpenAIToolCall {
 	id: string;
@@ -16,6 +16,45 @@ interface ConvertedMessage {
 }
 
 suite("shared/messages", () => {
+	test("role 3 maps to system without logging an unknown role", () => {
+		const logged: string[] = [];
+		const messages = [
+			{
+				role: 3 as vscode.LanguageModelChatMessageRole,
+				content: [new vscode.LanguageModelTextPart("you are helpful")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { log: (m) => logged.push(m) }) as unknown as { role: string }[];
+		assert.equal(out[0].role, "system");
+		assert.deepEqual(logged, []);
+	});
+
+	test("unknown role maps to system and is logged", () => {
+		const logged: { message: string; data?: unknown }[] = [];
+		const messages = [
+			{
+				role: 99 as vscode.LanguageModelChatMessageRole,
+				content: [new vscode.LanguageModelTextPart("mystery")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { log: (message, data) => logged.push({ message, data }) }) as unknown as {
+			role: string;
+		}[];
+		assert.equal(out[0].role, "system");
+		assert.equal(logged.length, 1);
+		assert.ok(logged[0].message.includes("Unknown message role"));
+		assert.deepEqual(logged[0].data, { role: 99 });
+	});
+
+	test("isToolResultPart rejects tool-call parts regardless of caller branch order", () => {
+		const toolCall = new vscode.LanguageModelToolCallPart("call1", "search", { q: "hi" });
+		assert.equal(isToolResultPart(toolCall), false);
+		const toolResult = new vscode.LanguageModelToolResultPart("call1", [new vscode.LanguageModelTextPart("ok")]);
+		assert.equal(isToolResultPart(toolResult), true);
+	});
+
 	test("maps user/assistant text", () => {
 		const messages: vscode.LanguageModelChatMessage[] = [
 			{

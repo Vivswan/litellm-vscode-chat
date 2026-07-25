@@ -46,6 +46,16 @@
 	},
 	"overrides": [
 		{
+			"includes": ["src/**", "!src/test/**"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noConsole": "error"
+					}
+				}
+			}
+		},
+		{
 			"includes": ["src/provider.ts", "src/provider/**"],
 			"linter": {
 				"rules": {

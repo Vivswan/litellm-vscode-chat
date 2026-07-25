@@ -220,12 +220,13 @@ Tool call handling is in `src/provider/streaming.ts` (`StreamProcessor`): `proce
 
 ### Error handling strategy
 
-- Model fetch: any `/v1/model/info` error falls back to `/v1/models`.
-- Network and certificate errors produce specific, actionable messages.
+- Model fetch: any `/v1/model/info` error falls back to `/v1/models`. Payload entries are narrowed element-wise with type guards; a malformed entry is skipped with a log line rather than aborting registration, and a nonempty payload with zero usable entries triggers the same fallback.
+- Network and certificate errors produce specific, actionable messages. HTTP-status errors (like 401) are classified separately from network failures and are never re-wrapped as network errors.
 - Authentication failures (401) prompt the user to run "Manage LiteLLM Provider".
 - In silent mode the provider returns an empty model list instead of throwing, so the UI keeps working.
+- Errors are logged once, at the provider boundary (`src/provider.ts`); `discovery.ts` and `chatClient.ts` construct specific errors and throw without logging, so the issue-report buffer is not double-filled. User cancellation aborts the in-flight fetch and surfaces as `vscode.CancellationError`, which is not logged.
 - Invalid standard tool-call JSON is logged and throws when a `tool_calls` or `stop` finish reason arrives (though the broad per-SSE-line catch currently swallows that error); buffers still pending at `[DONE]` or cancellation are dropped without logging.
-- Log through the shared `Logger` so messages reach both the output channel and issue reports. A few older `console.*` call sites remain in `src/shared/`; do not add more.
+- Log through the shared `Logger` so messages reach both the output channel and issue reports. `console.*` is banned in `src/` outside tests (Biome `noConsole`); shared helpers take an optional `log` callback instead.
 
 ## CI/CD structure
 

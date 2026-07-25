@@ -7,6 +7,7 @@ import type {
 	Progress,
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
+import { CancellationError } from "vscode";
 import { ChatClient } from "./provider/chatClient";
 import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
@@ -166,7 +167,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		try {
 			await this._client.send({ model, messages, options, progress: trackingProgress, token });
 		} catch (err) {
-			this.logError("Chat request failed", err);
+			// User-initiated cancellation is not an error; logging it would
+			// pollute the issue-report buffer and clobber the latest real error.
+			if (!(err instanceof CancellationError)) {
+				this.logError("Chat request failed", err);
+			}
 			throw err;
 		}
 	}
