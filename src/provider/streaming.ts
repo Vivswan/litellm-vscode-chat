@@ -1,7 +1,11 @@
 import * as vscode from "vscode";
 import { tryParseJSONObject } from "../shared/json";
 import type { ThinkingPartCtor } from "../shared/thinkingPart";
-import { thinkingPartCtor, thinkingPartProbeError } from "../shared/thinkingPart";
+import {
+	logMissingThinkingPartSupportOnce,
+	logThinkingPartProbeErrorOnce,
+	thinkingPartCtor,
+} from "../shared/thinkingPart";
 import type { TextParseResult, TextToolCall } from "./textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "./textToolCallParser";
 import type {
@@ -157,8 +161,8 @@ export class StreamProcessor {
 		this._toolCallIds = toolCallIds;
 		this._log = log;
 		this._thinkingPartCtor = partCtor ?? undefined;
-		if (partCtor === thinkingPartCtor && thinkingPartProbeError) {
-			this._log("LanguageModelThinkingPart probe failed", { error: thinkingPartProbeError });
+		if (partCtor === thinkingPartCtor) {
+			logThinkingPartProbeErrorOnce(this._log);
 		}
 	}
 
@@ -238,19 +242,26 @@ export class StreamProcessor {
 		}
 		const delta = choice.delta;
 
-		for (const thinking of extractThinking(choice, delta)) {
-			if (!this._thinkingPartCtor) {
-				break;
-			}
-			let part: vscode.LanguageModelResponsePart | undefined;
-			try {
-				part = new this._thinkingPartCtor(thinking.text, thinking.id, thinking.metadata);
-			} catch (e) {
-				this._log("Failed to construct thinking part", { error: String(e) });
-			}
-			if (part) {
-				progress.report(part);
-				emitted = true;
+		// Thinking parts pass through as-is: the host merges adjacent thinking
+		// parts itself (empty chunks and non-thinking output separate runs) and
+		// mints an id when a part has none, so minting ids here would only risk
+		// colliding with wire ids or the host's thinking-title cache.
+		const thinkingContents = extractThinking(choice, delta);
+		if (thinkingContents.length > 0 && !this._thinkingPartCtor) {
+			logMissingThinkingPartSupportOnce(this._log);
+		}
+		if (this._thinkingPartCtor) {
+			for (const thinking of thinkingContents) {
+				let part: vscode.LanguageModelResponsePart | undefined;
+				try {
+					part = new this._thinkingPartCtor(thinking.text, thinking.id, thinking.metadata);
+				} catch (e) {
+					this._log("Failed to construct thinking part", { error: String(e) });
+				}
+				if (part) {
+					progress.report(part);
+					emitted = true;
+				}
 			}
 		}
 
