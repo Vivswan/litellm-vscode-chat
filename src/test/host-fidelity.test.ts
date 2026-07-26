@@ -129,8 +129,8 @@ suite("Host-Fidelity Tests (capture)", () => {
 			assert.ok(model.maxInputTokens > 0, `maxInputTokens should be positive, got ${model.maxInputTokens}`);
 		});
 
-		test("model has expected family", () => {
-			assert.strictEqual(model.family, "litellm");
+		test("model family follows the server's litellm_provider", () => {
+			assert.strictEqual(model.family, "openai", "the capture server advertises litellm_provider: openai");
 		});
 
 		test("countTokens returns positive for text", async () => {
@@ -1038,14 +1038,14 @@ suite("Host-Fidelity Tests (live)", () => {
 		test("target model has expected properties", () => {
 			assert.ok(model.maxInputTokens > 0, "maxInputTokens should be positive");
 			assert.strictEqual(model.vendor, "litellm");
-			assert.strictEqual(model.family, "litellm");
+			assert.ok(model.family.length > 0, "family should be the litellm_provider or the litellm fallback");
 		});
 
 		test("all models have required fields", () => {
 			for (const m of allModels) {
 				assert.ok(m.id, `Model should have an id`);
 				assert.ok(m.name, `Model ${m.id} should have a name`);
-				assert.strictEqual(m.family, "litellm", `Model ${m.id} family should be 'litellm'`);
+				assert.ok(m.family.length > 0, `Model ${m.id} should have a non-empty family`);
 				assert.ok(m.maxInputTokens > 0, `Model ${m.id} maxInputTokens should be positive`);
 			}
 		});

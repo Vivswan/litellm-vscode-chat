@@ -3,7 +3,7 @@ import type { TokenDefaults } from "../shared/settings";
 import type { LiteLLMModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildExposedModelId, deriveTokenConstraints } from "./modelCatalog";
-import type { LiteLLMModelItem } from "./schemas";
+import type { LiteLLMModelItem, LiteLLMProvider } from "./schemas";
 
 export interface RegistrationResult {
 	infos: LiteLLMModelInfo[];
@@ -11,27 +11,13 @@ export interface RegistrationResult {
 }
 
 /**
- * LiteLLMModelInfo extended with the user-selectable flag in both places VS
- * Code has looked for it across chatProvider API proposal versions.
+ * The family a single-provider entry registers under. Real provider names
+ * (LiteLLM's litellm_provider, or a providers-array entry's name) make
+ * `vscode.lm.selectChatModels({ family })` useful to other extensions; a
+ * blank name falls back to the generic "litellm".
  */
-interface UserSelectableModelInfo extends LiteLLMModelInfo {
-	/** Read at the top level by VS Code 1.120+ (current chatProvider proposal); required for the chat model picker. */
-	readonly isUserSelectable: boolean;
-	/** Read from metadata by older VS Code builds (pre-1.120 chatProvider proposal); kept for backward compatibility. */
-	readonly metadata: Record<string, unknown>;
-}
-
-function withUserSelectableMetadata(info: LiteLLMModelInfo): UserSelectableModelInfo {
-	const existingMetadata = (info as LiteLLMModelInfo & { metadata?: Record<string, unknown> }).metadata;
-
-	return {
-		...info,
-		isUserSelectable: true,
-		metadata: {
-			...existingMetadata,
-			isUserSelectable: true,
-		},
-	};
+function familyFromProvider(provider: LiteLLMProvider): string {
+	return provider.provider.length > 0 ? provider.provider : "litellm";
 }
 
 export function buildModelInfos(
@@ -52,13 +38,28 @@ export function buildModelInfos(
 		});
 	};
 
+	const detail = serverCount > 1 ? server.label : "LiteLLM";
+	const namePrefix = serverCount > 1 ? `[${server.label}] ` : "";
+	/**
+	 * Fields every registered model carries. isBYOK marks the model as served
+	 * with user-supplied credentials; the host currently derives true for
+	 * non-builtin providers, and the explicit flag pins the value against a
+	 * future host default change. isUserSelectable must be an explicit true:
+	 * the host's MCP sampling-model picker and local chat sessions use plain
+	 * truthy checks, so an absent flag excluded these models there.
+	 */
+	const common = {
+		detail,
+		version: "1.0.0",
+		isBYOK: true,
+		isUserSelectable: true,
+	} as const;
+
 	const infos: LiteLLMModelInfo[] = models.flatMap((m) => {
 		log(`Processing model: ${m.id} from server "${server.label}"`);
 		const providers = m.providers;
 		const modalities = m.architecture?.input_modalities ?? [];
 		const vision = Array.isArray(modalities) && modalities.includes("image");
-		const detail = serverCount > 1 ? server.label : "LiteLLM";
-		const namePrefix = serverCount > 1 ? `[${server.label}] ` : "";
 
 		const soleProvider = providers.length === 1 ? providers[0] : undefined;
 		if (soleProvider !== undefined && soleProvider.source === "model_info") {
@@ -67,12 +68,11 @@ export function buildModelInfos(
 			registerRoute(exposedId, m.id);
 			return [
 				{
+					...common,
 					id: exposedId,
 					name: `${namePrefix}${m.id}`,
-					detail,
 					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-					family: "litellm",
-					version: "1.0.0",
+					family: familyFromProvider(soleProvider),
 					maxInputTokens: constraints.maxInputTokens,
 					maxOutputTokens: constraints.maxOutputTokens,
 					capabilities: {
@@ -90,12 +90,11 @@ export function buildModelInfos(
 			registerRoute(exposedId, m.id);
 			return [
 				{
+					...common,
 					id: exposedId,
 					name: `${namePrefix}${m.id}`,
-					detail,
 					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
 					family: "litellm",
-					version: "1.0.0",
 					maxInputTokens: constraints.maxInputTokens,
 					maxOutputTokens: constraints.maxOutputTokens,
 					capabilities: {
@@ -127,12 +126,11 @@ export function buildModelInfos(
 			const fastestId = buildExposedModelId(fastestRaw, server.id, serverCount);
 
 			entries.push({
+				...common,
 				id: cheapestId,
 				name: `${namePrefix}${m.id} (cheapest)`,
-				detail,
 				tooltip: `LiteLLM via the cheapest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
 				family: "litellm",
-				version: "1.0.0",
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
@@ -141,12 +139,11 @@ export function buildModelInfos(
 			registerRoute(cheapestId, cheapestRaw);
 
 			entries.push({
+				...common,
 				id: fastestId,
 				name: `${namePrefix}${m.id} (fastest)`,
-				detail,
 				tooltip: `LiteLLM via the fastest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
 				family: "litellm",
-				version: "1.0.0",
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
@@ -160,12 +157,11 @@ export function buildModelInfos(
 			const rawId = `${m.id}:${p.provider}`;
 			const exposedId = buildExposedModelId(rawId, server.id, serverCount);
 			entries.push({
+				...common,
 				id: exposedId,
 				name: `${namePrefix}${m.id} via ${p.provider}`,
-				detail,
 				tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
-				family: "litellm",
-				version: "1.0.0",
+				family: familyFromProvider(p),
 				maxInputTokens: constraints.maxInputTokens,
 				maxOutputTokens: constraints.maxOutputTokens,
 				capabilities: {
@@ -182,12 +178,11 @@ export function buildModelInfos(
 			const constraints = deriveTokenConstraints(base, tokenDefaults);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			entries.push({
+				...common,
 				id: exposedId,
 				name: `${namePrefix}${m.id}`,
-				detail,
 				tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-				family: "litellm",
-				version: "1.0.0",
+				family: familyFromProvider(base),
 				maxInputTokens: constraints.maxInputTokens,
 				maxOutputTokens: constraints.maxOutputTokens,
 				capabilities: {
@@ -202,5 +197,5 @@ export function buildModelInfos(
 		return entries;
 	});
 
-	return { infos: infos.map(withUserSelectableMetadata), routes };
+	return { infos, routes };
 }

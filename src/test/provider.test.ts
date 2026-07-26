@@ -1,7 +1,9 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
-import { makeModelInfo, makeProvider, userMessage, withFetch } from "./testUtils";
+import { buildModelInfos } from "../provider/registration";
+import { discoveryHandlers, mswServer, useMsw } from "./mocks/handlers";
+import { expectDefined, makeModelInfo, makeProvider, userMessage, withFetch } from "./testUtils";
 
 suite("provider", () => {
 	test("provideLanguageModelChatInformation returns empty array with no configured servers", async () => {
@@ -153,5 +155,126 @@ suite("provider", () => {
 				assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no route");
 			}
 		);
+	});
+
+	// This nested suite mocks the network with msw; it stays after the withFetch
+	// tests above so the interceptor never overlaps their fetch swaps.
+	suite("registered model shape", () => {
+		useMsw();
+
+		test("providers-array models register per-provider families, aggregates keep litellm", async () => {
+			mswServer.use(
+				...discoveryHandlers({
+					object: "list",
+					data: [
+						{
+							id: "multi-model",
+							object: "model",
+							created: 0,
+							owned_by: "test",
+							providers: [
+								{ provider: "groq", status: "active", supports_tools: true },
+								{ provider: "together", status: "active", supports_tools: true },
+							],
+						},
+					],
+				})
+			);
+
+			const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			const familyOf = (id: string) =>
+				expectDefined(
+					infos.find((i) => i.id === id),
+					`missing entry ${id}`
+				).family;
+			assert.strictEqual(familyOf("multi-model:cheapest"), "litellm", "aggregates keep the generic family");
+			assert.strictEqual(familyOf("multi-model:fastest"), "litellm", "aggregates keep the generic family");
+			assert.strictEqual(familyOf("multi-model:groq"), "groq");
+			assert.strictEqual(familyOf("multi-model:together"), "together");
+			for (const info of infos) {
+				assert.strictEqual(info.isBYOK, true, `${info.id} runs on the user's own credentials`);
+				assert.strictEqual(info.isUserSelectable, true, `${info.id} must be selectable in the model picker`);
+				assert.ok(!("metadata" in info), `${info.id} must not carry the retired metadata duplicate`);
+			}
+		});
+
+		test("a model whose providers all lack tools registers once with its first provider's family", async () => {
+			mswServer.use(
+				...discoveryHandlers({
+					object: "list",
+					data: [
+						{
+							id: "no-tools-model",
+							object: "model",
+							created: 0,
+							owned_by: "test",
+							providers: [
+								{ provider: "perplexity", status: "active", supports_tools: false },
+								{ provider: "other", status: "active", supports_tools: false },
+							],
+						},
+					],
+				})
+			);
+
+			const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+			assert.strictEqual(infos.length, 1, "no aggregates or per-provider entries without tool support");
+			const info = expectDefined(infos[0]);
+			assert.strictEqual(info.id, "no-tools-model");
+			assert.strictEqual(info.family, "perplexity", "the base entry takes its first provider's family");
+			assert.strictEqual(info.capabilities.toolCalling, false);
+		});
+
+		test("every entry flavor emits exactly the registered field set", () => {
+			const { infos } = buildModelInfos(
+				[
+					{ id: "sole", providers: [{ provider: "openai", status: "ok", source: "model_info" }] },
+					{ id: "bare", providers: [] },
+					{
+						id: "multi",
+						providers: [
+							{ provider: "groq", status: "active", supports_tools: true },
+							{ provider: "together", status: "active", supports_tools: true },
+						],
+					},
+					{ id: "no-tools", providers: [{ provider: "perplexity", status: "active", supports_tools: false }] },
+				],
+				{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
+				1,
+				() => {},
+				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+			);
+
+			assert.deepStrictEqual(
+				infos.map((i) => i.id),
+				["sole", "bare", "multi:cheapest", "multi:fastest", "multi:groq", "multi:together", "no-tools"],
+				"all five entry flavors must be exercised"
+			);
+			const expectedKeys = [
+				"capabilities",
+				"detail",
+				"family",
+				"id",
+				"isBYOK",
+				"isUserSelectable",
+				"litellm",
+				"maxInputTokens",
+				"maxOutputTokens",
+				"name",
+				"tooltip",
+				"version",
+			];
+			for (const info of infos) {
+				assert.deepStrictEqual(Object.keys(info).sort(), expectedKeys, `unexpected field set on ${info.id}`);
+			}
+		});
 	});
 });
