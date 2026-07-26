@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { runConnectionTest } from "../../extension/commands";
+import { runConnectionTest, runModelSync } from "../../extension/commands";
 import type { ConnectionStatus } from "../../extension/status";
 import { Logger } from "../../shared/logger";
 import { expectDefined, makeServerStatus } from "../testUtils";
@@ -91,51 +91,51 @@ suite("extension/commands", () => {
 		}
 	});
 
+	interface Toast {
+		kind: "info" | "warning" | "error";
+		message: string;
+	}
+
+	function makeStatusBar(initial: ConnectionStatus) {
+		let current = initial;
+		return {
+			get connectionStatus() {
+				return current;
+			},
+			updateStatusBar: async (status?: ConnectionStatus) => {
+				if (status) {
+					current = status;
+				}
+			},
+		};
+	}
+
+	const outputChannel = { show: () => {} } as unknown as vscode.OutputChannel;
+
+	async function withToasts(fn: () => Promise<void>): Promise<Toast[]> {
+		const toasts: Toast[] = [];
+		const origInfo = vscode.window.showInformationMessage;
+		const origWarn = vscode.window.showWarningMessage;
+		const origError = vscode.window.showErrorMessage;
+		const record = (kind: Toast["kind"]) => async (message: string) => {
+			toasts.push({ kind, message });
+			return undefined;
+		};
+		(vscode.window as Record<string, unknown>).showInformationMessage = record("info");
+		(vscode.window as Record<string, unknown>).showWarningMessage = record("warning");
+		(vscode.window as Record<string, unknown>).showErrorMessage = record("error");
+		try {
+			await fn();
+		} finally {
+			(vscode.window as Record<string, unknown>).showInformationMessage = origInfo;
+			(vscode.window as Record<string, unknown>).showWarningMessage = origWarn;
+			(vscode.window as Record<string, unknown>).showErrorMessage = origError;
+		}
+		return toasts;
+	}
+
 	suite("runConnectionTest", () => {
-		interface Toast {
-			kind: "info" | "warning" | "error";
-			message: string;
-		}
-
-		function makeStatusBar(initial: ConnectionStatus) {
-			let current = initial;
-			return {
-				get connectionStatus() {
-					return current;
-				},
-				updateStatusBar: async (status?: ConnectionStatus) => {
-					if (status) {
-						current = status;
-					}
-				},
-			};
-		}
-
-		const outputChannel = { show: () => {} } as unknown as vscode.OutputChannel;
 		const logger = new Logger({ info: () => {}, error: () => {} });
-
-		async function withToasts(fn: () => Promise<void>): Promise<Toast[]> {
-			const toasts: Toast[] = [];
-			const origInfo = vscode.window.showInformationMessage;
-			const origWarn = vscode.window.showWarningMessage;
-			const origError = vscode.window.showErrorMessage;
-			const record = (kind: Toast["kind"]) => async (message: string) => {
-				toasts.push({ kind, message });
-				return undefined;
-			};
-			(vscode.window as Record<string, unknown>).showInformationMessage = record("info");
-			(vscode.window as Record<string, unknown>).showWarningMessage = record("warning");
-			(vscode.window as Record<string, unknown>).showErrorMessage = record("error");
-			try {
-				await fn();
-			} finally {
-				(vscode.window as Record<string, unknown>).showInformationMessage = origInfo;
-				(vscode.window as Record<string, unknown>).showWarningMessage = origWarn;
-				(vscode.window as Record<string, unknown>).showErrorMessage = origError;
-			}
-			return toasts;
-		}
-
 		test("reports the last known group statuses when the refresh cannot fetch them itself", async () => {
 			// After the migration the host owns group fetches: the triggered
 			// refresh returns nothing and reports nothing.
@@ -249,6 +249,127 @@ suite("extension/commands", () => {
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "error");
 			assert.ok(toast.message.includes("No servers configured"), toast.message);
+		});
+	});
+
+	suite("runModelSync", () => {
+		test("the Sync Models Now command is contributed and registered", async () => {
+			const commands = await vscode.commands.getCommands(true);
+			assert.ok(commands.includes("litellm.syncModels"), "litellm.syncModels must be registered on activation");
+		});
+
+		test("asks the host to re-resolve and reports the synced model count from the status", async () => {
+			const lines: string[] = [];
+			const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
+			const statusBar = makeStatusBar({
+				state: "connected",
+				totalModels: 3,
+				serverStatuses: [makeServerStatus({ modelCount: 3 })],
+			});
+			let refreshed = 0;
+			const provider = {
+				refreshViaHost: async () => {
+					refreshed += 1;
+				},
+			};
+
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+
+			assert.strictEqual(refreshed, 1, "the sync must trigger the cache-dropping host refresh");
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "info");
+			assert.ok(toast.message.includes("found 3 models"), toast.message);
+			assert.ok(
+				lines.some((line) => line.includes("Model sync finished: 3 models")),
+				`Expected the outcome in the log. Lines: ${lines.join(" | ")}`
+			);
+		});
+
+		test("reports the error outcome the refresh left behind instead of claiming success", async () => {
+			const lines: string[] = [];
+			const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
+			const statusBar = makeStatusBar({ state: "connected", totalModels: 2 });
+			const provider = {
+				refreshViaHost: async () => {
+					await statusBar.updateStatusBar({ state: "error", error: "ECONNREFUSED", totalModels: 0 });
+				},
+			};
+
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "error");
+			assert.ok(toast.message.includes("ECONNREFUSED"), toast.message);
+			assert.ok(
+				lines.some((line) => line.includes("Model sync failed: ECONNREFUSED")),
+				`The log must carry the real outcome, not "finished". Lines: ${lines.join(" | ")}`
+			);
+		});
+
+		test("reports the degraded outcome with the failing server count", async () => {
+			const logger = new Logger({ info: () => {}, error: () => {} });
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				refreshViaHost: async () => {
+					await statusBar.updateStatusBar({
+						state: "degraded",
+						totalModels: 2,
+						serverStatuses: [makeServerStatus({ modelCount: 2 }), makeServerStatus({ state: "error", error: "down" })],
+					});
+				},
+			};
+
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "warning");
+			assert.ok(toast.message.includes("2 models available"), toast.message);
+			assert.ok(toast.message.includes("1 server unreachable"), toast.message);
+		});
+
+		test("a second invocation while one is running is refused", async () => {
+			const logger = new Logger({ info: () => {}, error: () => {} });
+			const statusBar = makeStatusBar({ state: "connected", totalModels: 1 });
+			let release: (() => void) | undefined;
+			const blocked = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			let refreshed = 0;
+			const provider = {
+				refreshViaHost: async () => {
+					refreshed += 1;
+					await blocked;
+				},
+			};
+
+			const toasts = await withToasts(async () => {
+				const first = runModelSync(provider, statusBar, outputChannel, logger);
+				const second = runModelSync(provider, statusBar, outputChannel, logger);
+				expectDefined(release)();
+				await Promise.all([first, second]);
+			});
+
+			assert.strictEqual(refreshed, 1, "the reentrant invocation must not clear and refresh again mid-run");
+			assert.strictEqual(toasts.length, 1, "the reentrant invocation must not produce a second toast");
+		});
+
+		test("logs a failing refresh and still reports from the status", async () => {
+			const errors: string[] = [];
+			const logger = new Logger({ info: () => {}, error: (line: string) => errors.push(line) });
+			const statusBar = makeStatusBar({ state: "connected", totalModels: 1 });
+			const provider = {
+				refreshViaHost: async () => {
+					throw new Error("host unavailable");
+				},
+			};
+
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+
+			assert.ok(
+				errors.some((line) => line.includes("Model sync failed")),
+				`Expected the failure to be logged. Errors: ${errors.join(" | ")}`
+			);
+			assert.strictEqual(toasts.length, 1, "the outcome toast must still be shown");
 		});
 	});
 

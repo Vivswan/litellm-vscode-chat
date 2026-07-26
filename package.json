@@ -69,6 +69,10 @@
 				"title": "LiteLLM: Test Connection"
 			},
 			{
+				"command": "litellm.syncModels",
+				"title": "LiteLLM: Sync Models Now"
+			},
+			{
 				"command": "litellm.showDiagnostics",
 				"title": "LiteLLM: Show Diagnostics"
 			},
@@ -146,6 +150,12 @@
 					"default": 30000,
 					"minimum": 1000,
 					"description": "Request timeout in milliseconds for model discovery requests. Default is 30000ms (30 seconds)."
+				},
+				"litellm-vscode-chat.discoveryCacheTtl": {
+					"type": "number",
+					"default": 3600000,
+					"minimum": 0,
+					"description": "How long, in milliseconds, discovered model lists are reused before the server is asked again. Default is 3600000 (1 hour). Higher values avoid repeated discovery requests when VS Code re-resolves providers in bursts, but models added or removed on the server take up to this long to appear; lower values pick up server-side changes sooner at the cost of more requests. Set to 0 to ask the server on every refresh (simultaneous refreshes still share one request). Run 'LiteLLM: Sync Models Now' to refresh immediately regardless of this setting."
 				}
 			}
 		}

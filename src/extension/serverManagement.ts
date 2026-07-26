@@ -299,6 +299,7 @@ export function registerManageCommand(
 					action: `edit:${s.id}`,
 				})),
 				{ label: "$(testing-run-icon) Test All Servers", action: "test-all" },
+				{ label: "$(sync) Sync Models Now", action: "sync-models" },
 			];
 
 			const pick = await vscode.window.showQuickPick(items, {
@@ -314,6 +315,8 @@ export function registerManageCommand(
 				await addServerFlow(registry, logger, isMigrated);
 			} else if (pick.action === "test-all") {
 				await vscode.commands.executeCommand("litellm.testConnection");
+			} else if (pick.action === "sync-models") {
+				await vscode.commands.executeCommand("litellm.syncModels");
 			} else if (pick.action.startsWith("edit:")) {
 				const serverId = pick.action.slice(5);
 				await manageServerFlow(registry, serverId, logger, isMigrated);

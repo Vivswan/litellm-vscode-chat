@@ -171,6 +171,18 @@ Configure timeout values for different types of requests. This is useful if you'
 
 **Note**: Minimum timeout is 1000ms (1 second) for both settings.
 
+### Model List Caching
+
+VS Code re-resolves language model providers often, sometimes several times within a second. To avoid hammering your server's `/v1/model/info` endpoint, the extension caches each server's discovered model list for one hour by default. Failed lookups are never cached, and simultaneous refreshes share a single request.
+
+```json
+{
+  "litellm-vscode-chat.discoveryCacheTtl": 3600000
+}
+```
+
+Lower the value (milliseconds) if models change often on your server, or set it to `0` to fetch on every refresh. To pick up server-side changes right away, run **LiteLLM: Sync Models Now** from the Command Palette; **LiteLLM: Test Connection** also refreshes over the network.
+
 ### Custom HTTP Headers
 
 You can attach custom headers to every LiteLLM request (both model discovery and chat completions). This is useful when your gateway expects non-standard auth headers like `x-litellm-api-key`.

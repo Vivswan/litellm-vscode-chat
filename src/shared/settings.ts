@@ -9,6 +9,7 @@ const CONFIG_SECTION = "litellm-vscode-chat";
 export const MIN_TIMEOUT_MS = 1000;
 export const DEFAULT_DISCOVERY_TIMEOUT_MS = 30000;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 300000;
+export const DEFAULT_DISCOVERY_CACHE_TTL_MS = 3600000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
 
@@ -17,17 +18,22 @@ function getConfig(): vscode.WorkspaceConfiguration {
 }
 
 /**
- * Validate a configured timeout: non-finite values fall back to the default,
- * finite values are clamped to the minimum. Logs whenever the effective value
- * differs from the configured one.
+ * Validate a configured millisecond duration: non-finite values fall back to
+ * the default, finite values are clamped to the minimum. Logs whenever the
+ * effective value differs from the configured one.
  */
-export function clampTimeout(raw: unknown, fallback: number, name: string, log?: LogFn): number {
+function clampDuration(raw: unknown, fallback: number, minimum: number, name: string, log?: LogFn): number {
 	const candidate = typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
-	const clamped = Math.max(MIN_TIMEOUT_MS, candidate);
+	const clamped = Math.max(minimum, candidate);
 	if (clamped !== raw) {
 		log?.(`Invalid ${name} configuration, using clamped value`, { configured: raw, clamped });
 	}
 	return clamped;
+}
+
+/** Validate a configured timeout; see clampDuration. */
+export function clampTimeout(raw: unknown, fallback: number, name: string, log?: LogFn): number {
+	return clampDuration(raw, fallback, MIN_TIMEOUT_MS, name, log);
 }
 
 export function getDiscoveryTimeout(log?: LogFn): number {
@@ -38,6 +44,16 @@ export function getDiscoveryTimeout(log?: LogFn): number {
 export function getRequestTimeout(log?: LogFn): number {
 	const raw = getConfig().get<number>("requestTimeout", DEFAULT_REQUEST_TIMEOUT_MS);
 	return clampTimeout(raw, DEFAULT_REQUEST_TIMEOUT_MS, "requestTimeout", log);
+}
+
+/**
+ * How long cached model-discovery results are served, in milliseconds. 0 is a
+ * valid configuration: it disables serving from the cache (concurrent
+ * refreshes still coalesce into one request).
+ */
+export function getDiscoveryCacheTtl(log?: LogFn): number {
+	const raw = getConfig().get<number>("discoveryCacheTtl", DEFAULT_DISCOVERY_CACHE_TTL_MS);
+	return clampDuration(raw, DEFAULT_DISCOVERY_CACHE_TTL_MS, 0, "discoveryCacheTtl", log);
 }
 
 export function isPromptCachingEnabled(): boolean {
