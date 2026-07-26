@@ -1,9 +1,12 @@
-# Sources, tests, and build inputs — the package ships compiled JS from out/ only
+# Sources, tests, and build inputs — the package ships the bundled dist/extension.js only
 src/**
-out/test/**
+out/**
+dist/**
+!dist/extension.js
 **/*.ts
 **/*.map
 **/tsconfig*.json
+esbuild.mjs
 
 # Tooling and development environment
 scripts/**

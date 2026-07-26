@@ -5,15 +5,17 @@
 		"type": "git",
 		"url": "https://github.com/Vivswan/litellm-vscode-chat"
 	},
-	"main": "./out/extension.js",
+	"main": "./dist/extension.js",
 	"devDependencies": {
-		"actionlint": "^2.0.6",
 		"@biomejs/biome": "^2.5.4",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^25.9.1",
 		"@types/vscode": "^1.120.0",
 		"@vscode/test-cli": "^0.0.15",
 		"@vscode/test-electron": "^2.5.2",
+		"@vscode/vsce": "^3.9.2",
+		"actionlint": "^2.0.6",
+		"esbuild": "^0.28.1",
 		"husky": "^9.1.7",
 		"lint-staged": "^17.0.8",
 		"typescript": "^6.0.3"
@@ -94,7 +96,7 @@
 				"litellm-vscode-chat.modelParameters": {
 					"type": "object",
 					"default": {},
-						"description": "Model-specific request parameters to customize API behavior. Supports max_tokens, temperature, top_p, frequency_penalty, presence_penalty, stop, etc. Uses longest prefix matching (e.g., 'gpt-4' matches 'gpt-4-turbo:openai'). For multi-server setups, prefix with the server label to scope parameters to a specific server (e.g., 'Production/gpt-4'). Server-scoped entries take priority over unscoped ones. Only parameters you set are sent; the extension never injects defaults.",
+					"description": "Model-specific request parameters to customize API behavior. Supports max_tokens, temperature, top_p, frequency_penalty, presence_penalty, stop, etc. Uses longest prefix matching (e.g., 'gpt-4' matches 'gpt-4-turbo:openai'). For multi-server setups, prefix with the server label to scope parameters to a specific server (e.g., 'Production/gpt-4'). Server-scoped entries take priority over unscoped ones. Only parameters you set are sent; the extension never injects defaults.",
 					"additionalProperties": {
 						"type": "object"
 					}
@@ -150,9 +152,11 @@
 	"publisher": "vivswan",
 	"scripts": {
 		"prepare": "husky",
-		"vscode:prepublish": "bun run compile:prod",
+		"vscode:prepublish": "tsc -p tsconfig.prod.json && bun run bundle",
 		"compile": "tsc -p ./",
-		"compile:prod": "rm -rf out && tsc -p tsconfig.prod.json",
+		"bundle": "node esbuild.mjs --production && bun scripts/generate-third-party-notices.ts",
+		"bundle:dev": "node esbuild.mjs",
+		"bundle:watch": "node esbuild.mjs --watch",
 		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p tsconfig.scripts.json",
 		"setup-env": "bash scripts/setup-env.sh",
 		"setup-env:verify": "bash scripts/setup-env.sh --verify",
@@ -165,7 +169,7 @@
 		"format": "biome format --write .",
 		"watch": "tsc -watch -p ./",
 		"mock-server": "bun scripts/mock-litellm-server.ts",
-		"test": "bun run compile && vscode-test --label unit",
+		"test": "bun run compile && bun run bundle:dev && vscode-test --label unit",
 		"host-fidelity-test": "bun scripts/host-fidelity-test.ts"
 	}
 }

@@ -12,28 +12,46 @@
 				"reveal": "never",
 				"group": "watchers"
 			},
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			}
+			"group": "build"
 		},
 		{
 			"type": "npm",
-			"script": "watch-tests",
-			"problemMatcher": "$tsc-watch",
+			"script": "bundle:watch",
 			"isBackground": true,
 			"presentation": {
 				"reveal": "never",
 				"group": "watchers"
 			},
-			"group": "build"
+			"group": "build",
+			"problemMatcher": {
+				"owner": "esbuild",
+				"fileLocation": "relative",
+				"pattern": [
+					{
+						"regexp": "^✘ \\[ERROR\\] (.*)$",
+						"message": 1
+					},
+					{
+						"regexp": "^    (.*):(\\d+):(\\d+):$",
+						"file": 1,
+						"line": 2,
+						"column": 3
+					}
+				],
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": "\\[watch\\] build started",
+					"endsPattern": "\\[watch\\] build finished"
+				}
+			}
 		},
 		{
-			"label": "tasks: watch-tests",
-			"dependsOn": [
-				"npm: watch",
-				"npm: watch-tests"
-			],
+			"label": "watch-all",
+			"dependsOn": ["npm: watch", "npm: bundle:watch"],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
 			"problemMatcher": []
 		}
 	]

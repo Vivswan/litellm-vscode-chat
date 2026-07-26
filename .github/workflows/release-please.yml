@@ -49,17 +49,17 @@ jobs:
         if: ${{ steps.release.outputs.release_created == 'true' }}
         run: bash scripts/setup-env.sh
 
-      - name: Compile the extension
+      - name: Type-check and bundle the extension
         if: ${{ steps.release.outputs.release_created == 'true' }}
-        run: bun run compile
+        run: bun run vscode:prepublish
 
       - name: Package VSIX
         if: ${{ steps.release.outputs.release_created == 'true' }}
-        run: bunx @vscode/vsce package -o extension.vsix
+        run: bunx vsce package -o extension.vsix
 
       - name: Publish to VS Code Marketplace
         if: ${{ steps.release.outputs.release_created == 'true' }}
-        run: bunx @vscode/vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ./extension.vsix
+        run: bunx vsce publish --pat ${{ secrets.MARKETPLACE_TOKEN }} --packagePath ./extension.vsix
 
       - name: Upload VSIX to GitHub Release
         if: ${{ steps.release.outputs.release_created == 'true' }}

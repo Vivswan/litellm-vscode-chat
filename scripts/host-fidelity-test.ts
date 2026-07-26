@@ -42,7 +42,7 @@ if (baseUrl) {
 }
 
 try {
-	execSync("bun run compile && vscode-test --config .vscode-test.mjs --label host-fidelity", {
+	execSync("bun run compile && bun run bundle:dev && vscode-test --config .vscode-test.mjs --label host-fidelity", {
 		stdio: "inherit",
 		env: process.env,
 	});

@@ -14,6 +14,9 @@ node_modules
 .vscode-test/
 *.vsix
 
+# Generated at bundle time from runtime dependencies' license files
+ThirdPartyNotices.txt
+
 # Auto-generated VS Code type definitions
 /vscode.d.ts
 
