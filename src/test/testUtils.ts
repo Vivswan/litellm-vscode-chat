@@ -196,3 +196,35 @@ export async function captureRequestBody(
 ): Promise<Record<string, unknown>> {
 	return (await captureRequest(provider, model, opts, overrides)).body;
 }
+
+export interface FakeExtensionStorage {
+	memento: vscode.Memento;
+	secrets: vscode.SecretStorage;
+	mementoStore: Map<string, unknown>;
+	secretStore: Map<string, string>;
+}
+
+/** Map-backed Memento and SecretStorage fakes covering what ServerRegistry and friends consume. */
+export function makeExtensionStorage(initialMemento?: Record<string, unknown>): FakeExtensionStorage {
+	const mementoStore = new Map<string, unknown>(Object.entries(initialMemento ?? {}));
+	const memento = {
+		get: (key: string, defaultValue?: unknown) => (mementoStore.has(key) ? mementoStore.get(key) : defaultValue),
+		update: async (key: string, value: unknown) => {
+			mementoStore.set(key, value);
+		},
+	} as unknown as vscode.Memento;
+
+	const secretStore = new Map<string, string>();
+	const secrets = {
+		get: async (key: string) => secretStore.get(key),
+		store: async (key: string, value: string) => {
+			secretStore.set(key, value);
+		},
+		delete: async (key: string) => {
+			secretStore.delete(key);
+		},
+		onDidChange: (_listener: unknown) => ({ dispose() {} }),
+	} as unknown as vscode.SecretStorage;
+
+	return { memento, secrets, mementoStore, secretStore };
+}
