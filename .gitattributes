@@ -5,6 +5,7 @@
 # (core.symlinks=false) can't turn them into modified regular files.
 CLAUDE.md -text
 .github/copilot-instructions.md -text
+.github/agents.md -text
 
 # Keep binary assets byte-for-byte unchanged.
 *.ico binary

@@ -43,7 +43,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	// sees the whole picture. Statuses accumulate here keyed by server ID; the
 	// group-agnostic call (normally the first of a refresh cycle) advances the
 	// cycle counter. An entry survives the cycle after its last report and is
-	// evicted at the second cycle boundary — that one-cycle grace is
+	// evicted at the second cycle boundary; that one-cycle grace is
 	// load-bearing: it keeps servers not yet re-fetched in the current sweep
 	// visible, so the merged view never flickers mid-sweep. Two fallbacks
 	// cover hosts that skip the group-agnostic call: re-seeing a group within
@@ -310,8 +310,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * Ask the host to re-resolve this provider by firing the change event: the
 	 * host then makes the group-agnostic call and one call per configured
 	 * group, a real round trip in both eras. The wait is bounded and armed
-	 * only by per-group reports — the groupless report alone proves nothing
-	 * about groups — resolving once group reports have gone quiet for
+	 * only by per-group reports (the groupless report alone proves nothing
+	 * about groups), resolving once group reports have gone quiet for
 	 * `quietMs`, or at `deadlineMs`. Zero group reports by the deadline (the
 	 * event went nowhere, or the host only made the groupless call) falls back
 	 * to probing the group servers already observed in the status window.
@@ -339,7 +339,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	/**
-	 * Fetch models from every group server observed in the status window — a
+	 * Fetch models from every group server observed in the status window: a
 	 * real network round trip per group. Fallback for hosts that do not react
 	 * to the change event; outcomes land in the merged status.
 	 */

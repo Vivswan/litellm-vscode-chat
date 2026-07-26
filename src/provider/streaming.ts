@@ -9,7 +9,7 @@ export type ThinkingPartCtor = new (text: string, id?: string, metadata?: unknow
 
 /**
  * Hands out tool-call ID numbers. Owned by the ChatClient and shared across
- * concurrent requests, so next() must advance state synchronously — two
+ * concurrent requests, so next() must advance state synchronously: two
  * overlapping streams may interleave calls but can never receive the same ID.
  */
 export interface ToolCallIdSource {

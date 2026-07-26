@@ -1,8 +1,8 @@
 ---
-# Repository settings managed by the Probot "Settings" GitHub App
-# (https://github.com/apps/settings). This file is inert unless that app is
-# installed on the repo. The `rulesets` block below is an experimental upstream
-# feature (repository-settings/app) -- its schema may still change.
+# Repository settings, applied from Vivswan/repo-platform's settings-repos
+# run via repo-settings-as-code. Carrying this file is the opt-in for the
+# in-repo settings home; a central settings/repos/litellm-vscode-chat.yml in
+# repo-platform would win over it.
 
 repository:
   description: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
@@ -34,6 +34,14 @@ labels:
   - name: fix-lint
     color: "fbca04"
     description: Lint / formatting fixes
+  # release-please manages these two; listing them here keeps the settings
+  # sync from deleting them (it removes any label not declared in this file).
+  - name: "autorelease: pending"
+    color: "ededed"
+    description: release-please release PR awaiting merge/tag
+  - name: "autorelease: tagged"
+    color: "ededed"
+    description: release-please release PR has been tagged
 
 # Branch ruleset for the default branch. Admins (RepositoryRole id 5) are in the
 # bypass list, so direct pushes to main still work.

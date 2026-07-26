@@ -4,8 +4,8 @@ Thanks for your interest in improving `litellm-vscode-chat`! This guide covers h
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) — package manager and runtime
-- VS Code — required by the extension test harness
+- [Bun](https://bun.sh): package manager and runtime
+- VS Code: required by the extension test harness
 
 ## Setup
 

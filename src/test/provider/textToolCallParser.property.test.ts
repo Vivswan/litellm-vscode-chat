@@ -33,7 +33,7 @@ const toolName = fc.string({ unit: nameChar, minLength: 1, maxLength: 8 });
 // Plain-text pieces never contain ">", so text regions cannot accidentally
 // assemble a complete control token; complete strippable tokens are generated
 // deliberately as noise segments instead. Partial-token fragments are fair
-// game in text — surviving arbitrary chunk boundaries is the point.
+// game in text: surviving arbitrary chunk boundaries is the point.
 const plainPiece = fc.string({ maxLength: 12 }).map((s) => s.replace(/>/g, ""));
 const tokenFragmentPiece = fc.constantFrom(
 	"<",

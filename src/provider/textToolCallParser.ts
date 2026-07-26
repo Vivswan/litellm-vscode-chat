@@ -94,7 +94,7 @@ function isPartialControlToken(tail: string): boolean {
 
 /**
  * How many trailing characters must be held back because the chunk may end in
- * the middle of a control token — the begin token that opens a call, but also
+ * the middle of a control token: the begin token that opens a call, but also
  * the strippable shapes (section markers, stray end/argument tokens), which
  * would otherwise leak into visible text when split across chunk boundaries.
  */

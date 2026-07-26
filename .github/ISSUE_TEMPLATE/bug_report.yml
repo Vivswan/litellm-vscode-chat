@@ -1,0 +1,33 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: |
+        1. ...
+        2. Expected ..., got ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, VS Code version, extension version, and LiteLLM server/proxy version.
+      placeholder: |
+        - OS:
+        - VS Code version:
+        - extension version:
+        - LiteLLM server/proxy version:
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots (optional)
+      description: Redact anything that looks like a credential or key.
+    validations:
+      required: false

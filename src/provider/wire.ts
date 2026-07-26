@@ -5,7 +5,7 @@ import { isRecord } from "../shared/json";
  * per-line narrowing the stream processor runs on the hot path. The rules are
  * deliberate: unknown or malformed fields are ignored rather than rejected,
  * numeric-string tool-call indexes are accepted, and only a non-object
- * payload yields undefined — never drop a chunk for fields we don't know.
+ * payload yields undefined; never drop a chunk for fields we don't know.
  */
 
 /** Buffer used to accumulate streamed tool call parts until arguments are valid JSON. */
