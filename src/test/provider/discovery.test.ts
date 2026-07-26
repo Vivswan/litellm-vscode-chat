@@ -585,5 +585,59 @@ suite("provider/discovery", () => {
 			);
 			assert.strictEqual(unknown.provider.supported_openai_params, null);
 		});
+
+		test("cost fields land on the mapped provider and malformed values degrade to absent", () => {
+			const mapped = deployment({
+				input_cost_per_token: 0.000003,
+				output_cost_per_token: 0,
+				cache_read_input_token_cost: "0.0000003" as unknown as number,
+				cache_creation_input_token_cost: -0.000001,
+			});
+			assert.strictEqual(mapped.provider.input_cost_per_token, 0.000003);
+			assert.strictEqual(mapped.provider.output_cost_per_token, 0, "a zero cost is real data, not absence");
+			assert.strictEqual(mapped.provider.cache_read_input_token_cost, undefined, "a string cost never parses");
+			assert.strictEqual(mapped.provider.cache_creation_input_token_cost, undefined, "a negative cost never parses");
+		});
+
+		test("pricing merges only when every deployment agrees exactly per field", () => {
+			const merged = mergeModelDeployments(
+				[
+					deployment({
+						input_cost_per_token: 0.000003,
+						output_cost_per_token: 0.000015,
+						cache_read_input_token_cost: 0.0000003,
+					}),
+					deployment({
+						input_cost_per_token: 0.000003,
+						output_cost_per_token: 0.00001,
+					}),
+				],
+				DEFAULTS
+			);
+			assert.strictEqual(merged.provider.input_cost_per_token, 0.000003, "every deployment agrees, so the cost holds");
+			assert.strictEqual(merged.provider.output_cost_per_token, null, "disagreeing costs must not survive the merge");
+			assert.strictEqual(
+				merged.provider.cache_read_input_token_cost,
+				null,
+				"a cost only some deployments report must not survive the merge"
+			);
+		});
+
+		test("agreement on zero and joint absence both survive the merge honestly", () => {
+			const merged = mergeModelDeployments(
+				[
+					deployment({ input_cost_per_token: 0, output_cost_per_token: 0.000015 }),
+					deployment({ input_cost_per_token: 0, output_cost_per_token: 0.000015 }),
+				],
+				DEFAULTS
+			);
+			assert.strictEqual(merged.provider.input_cost_per_token, 0, "an agreed zero cost is data, not absence");
+			assert.strictEqual(merged.provider.output_cost_per_token, 0.000015, "other agreed fields stay unaffected");
+			assert.strictEqual(
+				merged.provider.cache_read_input_token_cost,
+				null,
+				"a cost no deployment reports stays unknown"
+			);
+		});
 	});
 });
