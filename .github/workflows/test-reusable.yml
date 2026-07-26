@@ -14,7 +14,7 @@ on:
         type: string
         default: ''
       suite:
-        description: 'Test suite to run (unit or host-fidelity)'
+        description: 'Test suite to run (unit, host-fidelity, or docker)'
         required: false
         type: string
         default: 'unit'
@@ -31,7 +31,7 @@ on:
         type: string
         default: ''
       suite:
-        description: 'Test suite to run (unit or host-fidelity)'
+        description: 'Test suite to run (unit, host-fidelity, or docker)'
         required: false
         type: string
         default: 'unit'
@@ -75,8 +75,8 @@ jobs:
       # one coverage-enforcing OS keeps CI time in check.
       - name: Run tests (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a bun run ${{ inputs.suite == 'host-fidelity' && 'host-fidelity-test' || 'test:coverage' }}
+        run: xvfb-run -a bun run ${{ inputs.suite == 'host-fidelity' && 'host-fidelity-test' || inputs.suite == 'docker' && 'test:docker' || 'test:coverage' }}
 
       - name: Run tests (Windows/macOS)
         if: runner.os != 'Linux'
-        run: bun run ${{ inputs.suite == 'host-fidelity' && 'host-fidelity-test' || 'test' }}
+        run: bun run ${{ inputs.suite == 'host-fidelity' && 'host-fidelity-test' || inputs.suite == 'docker' && 'test:docker' || 'test' }}

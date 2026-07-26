@@ -7,7 +7,7 @@ const ARG_BEGIN = "<|tool_call_argument_begin|>";
 const ARG_END = "<|tool_call_argument_end|>";
 const END = "<|tool_call_end|>";
 
-const NUM_RUNS = 200;
+const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 // Pinned: a required CI gate must not fail on unrelated changes via seed luck.
 const SEED = 20260726;
 

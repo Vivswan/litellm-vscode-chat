@@ -1,6 +1,20 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { type CaptureServer, createCaptureServer, SLOW_STREAM_CHUNK_COUNT } from "./capture-server";
+import { type CaptureServer, createCaptureServer } from "./capture-server";
+import {
+	addServer,
+	clearServers,
+	collectStream,
+	ensureActivated,
+	extractText,
+	extractThinkingParts,
+	extractToolCalls,
+	getThinkingPartClass,
+	hostMatches,
+	type ServerConfig,
+	waitForHostModels,
+} from "./hostApiHelpers";
+import { SLOW_STREAM_CHUNK_COUNT } from "./scenarios";
 import { expectDefined } from "./testUtils";
 
 /**
@@ -18,12 +32,6 @@ import { expectDefined } from "./testUtils";
  *      against a real LiteLLM server through the host API.
  */
 
-interface ServerConfig {
-	id: string;
-	label: string;
-	baseUrl: string;
-}
-
 const REAL_BASE_URL = process.env.LITELLM_REAL_BASE_URL || "";
 const REAL_API_KEY = process.env.LITELLM_REAL_API_KEY ?? "";
 const REAL_MODEL_ID = process.env.LITELLM_REAL_MODEL || "";
@@ -32,116 +40,6 @@ const IS_LIVE = !!REAL_BASE_URL;
 const CAPTURE_MODEL_ID = "openai/gpt-5-mini-flex";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Registry mutations are deterministic: the litellm._test.* commands resolve
- * only after the provider refresh completes and return the fresh prepared
- * model IDs (or null when superseded by a newer mutation). These wrappers
- * assert the mutation was not superseded and hand back the topology.
- */
-async function clearServers(): Promise<string[]> {
-	const modelIds = (await vscode.commands.executeCommand("litellm._test.clearServers")) as string[] | null;
-	assert.ok(modelIds !== null, "clearServers was superseded by a concurrent registry mutation");
-	return modelIds;
-}
-
-async function addServer(
-	label: string,
-	baseUrl: string,
-	apiKey: string
-): Promise<{ server: ServerConfig; modelIds: string[] }> {
-	const result = (await vscode.commands.executeCommand("litellm._test.addServer", label, baseUrl, apiKey)) as {
-		server: ServerConfig;
-		modelIds: string[] | null;
-	};
-	assert.ok(result.modelIds !== null, `addServer(${label}) was superseded by a concurrent registry mutation`);
-	return { server: result.server, modelIds: result.modelIds };
-}
-
-/** True when the host's model list is exactly the expected set of IDs. */
-function hostMatches(models: vscode.LanguageModelChat[], expectedIds: string[]): boolean {
-	const actual = models.map((model) => model.id).sort();
-	const expected = [...expectedIds].sort();
-	return actual.length === expected.length && actual.every((id, i) => id === expected[i]);
-}
-
-/**
- * Wait for the host to reflect the current model topology. The host ingests
- * refreshed model lists asynchronously and offers no completion signal, so
- * polling vscode.lm.selectChatModels is the only way to observe propagation.
- */
-async function waitForHostModels(
-	timeoutMs: number,
-	acceptModels: (models: vscode.LanguageModelChat[]) => boolean,
-	expectedDescription: string
-): Promise<vscode.LanguageModelChat[]> {
-	const deadline = Date.now() + timeoutMs;
-	let lastIds: string[] = [];
-
-	while (Date.now() < deadline) {
-		const models = await vscode.lm.selectChatModels({ vendor: "litellm" });
-		lastIds = models.map((model) => model.id);
-		if (acceptModels(models)) {
-			return models;
-		}
-		await new Promise((r) => setTimeout(r, 200));
-	}
-
-	throw new Error(
-		`Timeout (${timeoutMs}ms) waiting for ${expectedDescription}. Last model IDs: ${
-			lastIds.length > 0 ? lastIds.join(", ") : "(none)"
-		}`
-	);
-}
-
-/** The LanguageModelThinkingPart class, when the host exposes it (proposed API). */
-function getThinkingPartClass(): (new (...args: never[]) => object) | undefined {
-	return (vscode as unknown as Record<string, unknown>).LanguageModelThinkingPart as
-		| (new (
-				...args: never[]
-		  ) => object)
-		| undefined;
-}
-
-/** Extract thinking parts from collected stream parts (empty when the host lacks the class). */
-function extractThinkingParts(parts: unknown[]): Array<{ value?: string }> {
-	const thinkingPartClass = getThinkingPartClass();
-	if (!thinkingPartClass) {
-		return [];
-	}
-	return parts.filter((p) => p instanceof thinkingPartClass) as Array<{ value?: string }>;
-}
-
-/** Collect all parts from a streaming response. */
-async function collectStream(response: vscode.LanguageModelChatResponse): Promise<unknown[]> {
-	const parts: unknown[] = [];
-	for await (const part of response.stream) {
-		parts.push(part);
-	}
-	return parts;
-}
-
-/** Extract concatenated text from collected stream parts. */
-function extractText(parts: unknown[]): string {
-	return parts
-		.filter((p) => p instanceof vscode.LanguageModelTextPart)
-		.map((p) => (p as vscode.LanguageModelTextPart).value)
-		.join("");
-}
-
-/** Extract tool call parts from collected stream parts. */
-function extractToolCalls(parts: unknown[]): vscode.LanguageModelToolCallPart[] {
-	return parts.filter((p) => p instanceof vscode.LanguageModelToolCallPart) as vscode.LanguageModelToolCallPart[];
-}
-
-/** Ensure the extension is activated. */
-async function ensureActivated(): Promise<void> {
-	const ext = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
-	assert.ok(ext, "Extension not found; check publisher.name in package.json");
-	if (!ext.isActive) {
-		await ext.activate();
-	}
-}
 
 /**
  * Find a model whose ID starts with the given server ID prefix.
@@ -1100,9 +998,16 @@ suite("Host-Fidelity Tests (live)", () => {
 		const { modelIds } = await addServer("Default", REAL_BASE_URL, REAL_API_KEY);
 		assert.ok(modelIds.length > 0, "Expected at least one litellm model from the real server");
 
+		// Set equality after dedupe, not containment: wildcard servers list
+		// duplicate IDs (the host deduplicates on registration), and containment
+		// alone could pass on a stale superset mid-propagation.
+		const expectedIds = new Set(modelIds);
 		allModels = await waitForHostModels(
 			15000,
-			(models) => hostMatches(models, modelIds),
+			(models) => {
+				const actual = new Set(models.map((m) => m.id));
+				return actual.size === expectedIds.size && [...expectedIds].every((id) => actual.has(id));
+			},
 			"host to expose models from the real server"
 		);
 

@@ -191,21 +191,41 @@ If a header value is secret (for example, API keys), set `litellm-vscode-chat.he
 
 ## Troubleshooting
 
-### Mock LiteLLM Server (Local)
+### Local LiteLLM stack (Docker or Podman)
 
-For quick manual testing, you can run a tiny mock LiteLLM server that serves a static model list and canned chat replies.
-
-```bash
-bun scripts/mock-litellm-server.ts
-```
-
-Optional port override:
+For local testing you can run a real LiteLLM proxy in Docker, backed by a fake OpenAI server that replies with canned responses of every shape the extension handles: plain text, tool calls (single, chunked, parallel, inline control tokens), reasoning and thinking variants, refusals, URL citations, usage trailers, and HTTP errors.
 
 ```bash
-PORT=4001 bun scripts/mock-litellm-server.ts
+cp .env.example .env   # optional; only needed for real provider keys or port changes
+bun run docker:up
 ```
 
-Then set your base URL to `http://localhost:4000` (or the port you chose).
+Then add a server in the extension with base URL `http://localhost:4000` and API key `sk-test-1234`.
+
+Each canned response is its own model, so you pick the shape you want to test from the Copilot model picker: `fake/text-only`, `fake/tool-call-chunked`, `fake/thinking-blocks`, `fake/error-429`, and so on. The full list lives in `src/test/scenarios.ts`. `fake/dynamic` plays whatever scenario you select at runtime:
+
+```bash
+curl -X PUT localhost:8090/_test/scenario -d parallel-tool-calls
+```
+
+The config also routes `openai/*`, `anthropic/*`, and `github/*` model names to the real providers when the matching key is set in `.env`, plus a bare `*` passthrough for anything else LiteLLM can infer. Note that these wildcard entries make LiteLLM list its whole known-model catalog, so expect a long model list in the picker.
+
+Useful commands:
+
+```bash
+bun run test:docker    # run the docker test suites against the stack (starts and stops it)
+bun run docker:logs    # follow container logs
+bun run docker:down    # stop the stack and remove volumes
+bun run generate-config  # regenerate docker/litellm-config.yaml after editing scenarios
+```
+
+The stack also works with Podman: the scripts try `docker compose` first, then `podman compose`, and `COMPOSE_CMD` overrides the choice. The compose provider must support `up --wait`; Podman with the docker-compose provider does, while older `podman-compose` releases may not. On SELinux hosts, change the bind mounts in `docker-compose.yml` from `:ro` to `:ro,z`.
+
+The existing host-fidelity suite can target the stack too:
+
+```bash
+bun run host-fidelity-test -- http://localhost:4000 sk-test-1234 fake/long-text
+```
 
 ### Status Bar Indicator
 

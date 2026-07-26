@@ -31,6 +31,19 @@ export function estimatePartTokens(part: unknown, options: TokenEstimationOption
 			return Math.ceil(part.data.length / CHARS_PER_TOKEN);
 		}
 	}
+	// Thinking parts (a proposed API class) reach here as unrecognized objects
+	// carrying a string value; their text plus any replayed signature or
+	// redacted payload is serialized onto the wire, so it counts.
+	if (part && typeof part === "object" && typeof (part as { value?: unknown }).value === "string") {
+		const record = part as { value: string; metadata?: unknown };
+		const metadata =
+			record.metadata && typeof record.metadata === "object"
+				? (record.metadata as { signature?: unknown; data?: unknown })
+				: undefined;
+		const signatureLength = typeof metadata?.signature === "string" ? metadata.signature.length : 0;
+		const dataLength = typeof metadata?.data === "string" ? metadata.data.length : 0;
+		return Math.ceil((record.value.length + signatureLength + dataLength) / CHARS_PER_TOKEN);
+	}
 	return 0;
 }
 

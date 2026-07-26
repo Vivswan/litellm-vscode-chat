@@ -9,6 +9,9 @@ dist/**
 
 # Tooling and development environment
 scripts/**
+docker-compose.yml
+docker/**
+.env.example
 node_modules/**
 .vscode/**
 .vscode-test/**

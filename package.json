@@ -170,9 +170,13 @@
 		"lint": "biome lint .",
 		"format": "biome format --write .",
 		"watch": "tsc -watch -p ./",
-		"mock-server": "bun scripts/mock-litellm-server.ts",
+		"docker:up": "bun scripts/compose.ts up -d --wait",
+		"docker:down": "bun scripts/compose.ts down -v",
+		"docker:logs": "bun scripts/compose.ts logs -f",
+		"generate-config": "bun scripts/generate-litellm-config.ts",
 		"test": "bun run compile && bun run bundle:dev && vscode-test --label unit",
 		"test:coverage": "bun run compile && bun run bundle:dev && vscode-test --label unit --coverage && bun scripts/check-coverage.ts",
+		"test:docker": "bun scripts/docker-test.ts",
 		"host-fidelity-test": "bun scripts/host-fidelity-test.ts"
 	},
 	"dependencies": {
