@@ -154,6 +154,35 @@ function coerceJsonPayload(value: unknown, baseUrl: string): unknown {
 }
 
 /**
+ * The SDK's retry backoff sleep does not observe the abort signal, so a
+ * server sending a large Retry-After could stall a retried call well past
+ * the discovery timeout. Racing the call against its signal restores the
+ * hard bound.
+ */
+function boundedBySignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	// The call may lose the race; its eventual rejection must not surface as unhandled.
+	promise.catch(() => {});
+	return new Promise<T>((resolve, reject) => {
+		const onAbort = () => reject(signal.reason ?? new Error("The operation was aborted"));
+		if (signal.aborted) {
+			onAbort();
+			return;
+		}
+		signal.addEventListener("abort", onAbort, { once: true });
+		promise.then(
+			(value) => {
+				signal.removeEventListener("abort", onAbort);
+				resolve(value);
+			},
+			(error) => {
+				signal.removeEventListener("abort", onAbort);
+				reject(error);
+			}
+		);
+	});
+}
+
+/**
  * Narrow a /v1/model/info payload element-wise. Entries with a model-info
  * identifier take the documented mapping (model_name first); entries shaped
  * like models-listing items pass through; anything else is skipped with a
@@ -184,13 +213,16 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	log("Fetching from:", `${baseUrl}/v1/model/info`);
 
 	try {
-		// The signal bounds the whole call including any retries; the per-request
-		// timeout keeps the SDK's own 600 s default from overriding ours.
+		// The per-request timeout keeps the SDK's own 600 s default from
+		// overriding ours; boundedBySignal makes the signal a hard whole-call
+		// bound across retries. Retries are safe here (idempotent GET) and stay
+		// off for chat requests.
+		const infoSignal = AbortSignal.timeout(discoveryTimeout);
 		const parsedInfo: unknown = coerceJsonPayload(
-			await client.get("/model/info", {
-				signal: AbortSignal.timeout(discoveryTimeout),
-				timeout: discoveryTimeout,
-			}),
+			await boundedBySignal(
+				client.get("/model/info", { signal: infoSignal, timeout: discoveryTimeout, maxRetries: 2 }),
+				infoSignal
+			),
 			baseUrl
 		);
 		if (isRecord(parsedInfo) && Array.isArray(parsedInfo.data)) {
@@ -222,7 +254,10 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	let parsed: unknown;
 	try {
 		parsed = coerceJsonPayload(
-			await client.get("/models", { signal: timeoutSignal, timeout: discoveryTimeout }),
+			await boundedBySignal(
+				client.get("/models", { signal: timeoutSignal, timeout: discoveryTimeout, maxRetries: 2 }),
+				timeoutSignal
+			),
 			baseUrl
 		);
 	} catch (error) {
