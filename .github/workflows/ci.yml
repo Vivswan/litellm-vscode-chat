@@ -150,12 +150,13 @@ jobs:
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       && github.ref == 'refs/heads/main'
     # The publishing ceiling for the repo-owned release.yml jobs (release
-    # assets, ghcr, npm/PyPI trusted publishing); nested jobs can only
-    # narrow it, never raise it.
+    # assets and their build provenance, ghcr, npm/PyPI trusted publishing);
+    # nested jobs can only narrow it, never raise it.
     permissions:
       contents: write
       pull-requests: write
       packages: write
       id-token: write
+      attestations: write
     uses: ./.github/workflows/release.yml
     secrets: inherit
