@@ -533,7 +533,7 @@ suite("provider/request contract", () => {
 					createConfiguredProvider(),
 					modelInfo,
 					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{ messages: chatMessages, discoveryPayload: cachingDiscoveryPayload(true) }
+					{ messages: chatMessages, discoveryPayload: cachingDiscoveryPayload(true), useDiscoveredModel: true }
 				)
 			);
 			const content = systemEntry(body);
@@ -549,7 +549,7 @@ suite("provider/request contract", () => {
 					createConfiguredProvider(),
 					modelInfo,
 					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{ messages: chatMessages, discoveryPayload: cachingDiscoveryPayload(false) }
+					{ messages: chatMessages, discoveryPayload: cachingDiscoveryPayload(false), useDiscoveredModel: true }
 				)
 			);
 			const content = systemEntry(body);
@@ -562,7 +562,7 @@ suite("provider/request contract", () => {
 					createConfiguredProvider(),
 					modelInfo,
 					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{ messages: chatMessages, discoveryPayload: cachingDiscoveryPayload(true) }
+					{ messages: chatMessages, discoveryPayload: cachingDiscoveryPayload(true), useDiscoveredModel: true }
 				)
 			);
 			const content = systemEntry(body);

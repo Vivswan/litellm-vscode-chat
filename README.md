@@ -14,7 +14,7 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 
 ## Requirements
 
-- VS Code 1.108.0 or higher
+- VS Code 1.129.0 or higher
 - LiteLLM proxy running (self-hosted or cloud)
 - LiteLLM API key (if required by your setup)
 

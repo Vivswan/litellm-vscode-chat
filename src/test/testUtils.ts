@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
+import type { LiteLLMModelInfo } from "../provider/groupModels";
 import { Logger } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse } from "./mocks/handlers";
@@ -93,9 +94,7 @@ export function createConfiguredProvider(): LiteLLMChatModelProvider {
 	return makeProvider("http://litellm.test");
 }
 
-export function makeModelInfo(
-	overrides: Partial<Record<keyof vscode.LanguageModelChatInformation, unknown>> = {}
-): vscode.LanguageModelChatInformation {
+export function makeModelInfo(overrides: Partial<LiteLLMModelInfo> = {}): LiteLLMModelInfo {
 	return {
 		id: "test-model",
 		name: "test-model",
@@ -104,8 +103,9 @@ export function makeModelInfo(
 		maxInputTokens: 100000,
 		maxOutputTokens: 8000,
 		capabilities: {},
+		litellm: { supportsPromptCaching: false },
 		...overrides,
-	} as unknown as vscode.LanguageModelChatInformation;
+	};
 }
 
 export function userMessage(text: string): vscode.LanguageModelChatRequestMessage {
@@ -151,6 +151,13 @@ export interface CapturedRequest {
 export interface CaptureRequestOverrides {
 	messages?: vscode.LanguageModelChatRequestMessage[];
 	discoveryPayload?: JsonBodyType;
+	/**
+	 * Send the chat request with the model object discovery returned (matched
+	 * by id) instead of the hand-built one, mirroring the host contract of
+	 * handing the provider's own info objects back. Required for behavior that
+	 * rides on the model object, such as prompt-caching support.
+	 */
+	useDiscoveredModel?: boolean;
 }
 
 /**
@@ -162,7 +169,7 @@ export interface CaptureRequestOverrides {
  */
 export async function captureRequest(
 	provider: LiteLLMChatModelProvider,
-	model: vscode.LanguageModelChatInformation,
+	model: LiteLLMModelInfo,
 	opts: unknown,
 	overrides: CaptureRequestOverrides = {}
 ): Promise<CapturedRequest> {
@@ -178,9 +185,18 @@ export async function captureRequest(
 			return sseTextResponse("ok");
 		})
 	);
-	await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+	const infos = await provider.provideLanguageModelChatInformation(
+		{ silent: true },
+		new vscode.CancellationTokenSource().token
+	);
+	const discovered = overrides.useDiscoveredModel
+		? expectDefined(
+				infos.find((info) => info.id === model.id),
+				`discovery returned no model with id "${model.id}"`
+			)
+		: undefined;
 	await provider.provideLanguageModelChatResponse(
-		model,
+		discovered ?? model,
 		overrides.messages ?? [userMessage("test")],
 		opts as vscode.ProvideLanguageModelChatResponseOptions,
 		{ report: () => {} },
@@ -191,7 +207,7 @@ export async function captureRequest(
 
 export async function captureRequestBody(
 	provider: LiteLLMChatModelProvider,
-	model: vscode.LanguageModelChatInformation,
+	model: LiteLLMModelInfo,
 	opts: unknown,
 	overrides: CaptureRequestOverrides = {}
 ): Promise<Record<string, unknown>> {

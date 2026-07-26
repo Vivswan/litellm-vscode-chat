@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { tryParseJSONObject } from "../shared/json";
+import type { ThinkingPartCtor } from "../shared/thinkingPart";
+import { thinkingPartCtor, thinkingPartProbeError } from "../shared/thinkingPart";
 import type { TextParseResult, TextToolCall } from "./textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "./textToolCallParser";
 import type {
@@ -12,8 +14,6 @@ import type {
 } from "./wire";
 import { parseChunk } from "./wire";
 
-export type ThinkingPartCtor = new (text: string, id?: string, metadata?: unknown) => vscode.LanguageModelResponsePart;
-
 /**
  * Hands out tool-call ID numbers. Owned by the ChatClient and shared across
  * concurrent requests, so next() must advance state synchronously: two
@@ -22,18 +22,6 @@ export type ThinkingPartCtor = new (text: string, id?: string, metadata?: unknow
 export interface ToolCallIdSource {
 	next(): number;
 }
-
-// LanguageModelThinkingPart is still a proposed API, and hosts may expose
-// proposed classes behind throwing getters, so the single property read is
-// probed once at module load. A probe failure is kept for the processor to log.
-const defaultThinkingProbe: { ctor: ThinkingPartCtor | undefined; error?: string } = (() => {
-	try {
-		const ctor: unknown = Reflect.get(vscode, "LanguageModelThinkingPart");
-		return { ctor: typeof ctor === "function" ? (ctor as ThinkingPartCtor) : undefined };
-	} catch (e) {
-		return { ctor: undefined, error: String(e) };
-	}
-})();
 
 interface ThinkingContent {
 	text: string;
@@ -163,14 +151,14 @@ export class StreamProcessor {
 	constructor(
 		toolCallIds: ToolCallIdSource,
 		log: (message: string, data?: unknown) => void,
-		thinkingPartCtor: ThinkingPartCtor | null | undefined = defaultThinkingProbe.ctor
+		partCtor: ThinkingPartCtor | null | undefined = thinkingPartCtor
 	) {
 		this._req = freshRequestState();
 		this._toolCallIds = toolCallIds;
 		this._log = log;
-		this._thinkingPartCtor = thinkingPartCtor ?? undefined;
-		if (thinkingPartCtor === defaultThinkingProbe.ctor && defaultThinkingProbe.error) {
-			this._log("LanguageModelThinkingPart probe failed", { error: defaultThinkingProbe.error });
+		this._thinkingPartCtor = partCtor ?? undefined;
+		if (partCtor === thinkingPartCtor && thinkingPartProbeError) {
+			this._log("LanguageModelThinkingPart probe failed", { error: thinkingPartProbeError });
 		}
 	}
 

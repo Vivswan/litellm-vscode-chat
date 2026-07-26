@@ -48,17 +48,25 @@ jobs:
       - name: Type-aware promise linting
         run: bun run lint:types
 
-      - name: Verify @types/vscode matches engines.vscode
+      - name: Verify @types/vscode does not exceed engines.vscode
         run: |
           node -e "
-          const pkg = require('./package.json');
-          const expected = '^' + pkg.engines.vscode.replace(/^[~^<>=\s]+/, '');
-          const actual = pkg.devDependencies['@types/vscode'];
-          if (actual !== expected) {
-            console.error('@types/vscode must be ' + expected + ' to match engines.vscode, got ' + actual);
+          const parse = (value, label) => {
+            const m = /^(\d+)\.(\d+)\.(\d+)/.exec(String(value).replace(/^[~^>=\s]+/, ''));
+            if (!m) {
+              console.error('Cannot parse ' + label + ': ' + value);
+              process.exit(1);
+            }
+            return [Number(m[1]), Number(m[2])];
+          };
+          const engines = parse(require('./package.json').engines.vscode, 'engines.vscode');
+          const installed = require('@types/vscode/package.json').version;
+          const types = parse(installed, 'installed @types/vscode');
+          if (types[0] !== engines[0] || types[1] > engines[1]) {
+            console.error('Installed @types/vscode (' + installed + ') must not be newer than engines.vscode (' + require('./package.json').engines.vscode + '): newer typings would allow APIs the minimum supported host lacks');
             process.exit(1);
           }
-          console.log('@types/vscode matches engines.vscode: ' + actual);
+          console.log('Installed @types/vscode ' + installed + ' is within engines.vscode ' + require('./package.json').engines.vscode);
           "
 
       # The dev compile puts out/ on disk first, so this proves .vscodeignore

@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { ChatClient } from "../../provider/chatClient";
+import type { LiteLLMModelInfo } from "../../provider/groupModels";
 import { withFetch } from "../testUtils";
 
 function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: string): void; close(): void } {
@@ -48,7 +49,8 @@ const model = {
 	maxInputTokens: 100000,
 	maxOutputTokens: 8000,
 	capabilities: {},
-} as unknown as vscode.LanguageModelChatInformation;
+	litellm: { supportsPromptCaching: false },
+} satisfies LiteLLMModelInfo;
 
 const messages: vscode.LanguageModelChatRequestMessage[] = [
 	{
