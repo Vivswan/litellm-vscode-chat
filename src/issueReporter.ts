@@ -368,7 +368,7 @@ export function redactSecrets(text: string): string {
 			.replace(/(sk-[a-zA-Z0-9]{4})[a-zA-Z0-9]+/g, "$1[REDACTED]")
 			// Credentials embedded in URLs
 			.replace(/(https?:\/\/)[^/\s]*:[^@/\s]*@/g, "$1[REDACTED]@")
-			// Full http(s) URLs — replace host+path with just the scheme and a placeholder
+			// Full http(s) URLs: replace host+path with just the scheme and a placeholder
 			.replace(/https?:\/\/[^\s"')>\]]+/g, (match) => {
 				try {
 					const u = new URL(match);

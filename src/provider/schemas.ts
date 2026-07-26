@@ -120,7 +120,7 @@ export function modelInfoId(value: unknown): string | undefined {
 /**
  * Raw /v1/model/info entry: any object carrying at least one usable model
  * identifier among model_name, litellm_params.model, model_info.key, and
- * model_info.id. Field types beyond the identifier stay unvalidated — the
+ * model_info.id. Field types beyond the identifier stay unvalidated: the
  * mapping step reads them defensively.
  */
 export const rawModelInfoItemSchema = z

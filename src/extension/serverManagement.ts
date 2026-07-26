@@ -27,7 +27,7 @@ export function ensureRegistryMutable(): boolean {
 /**
  * Full mutation guard: the migration lock, plus a completion re-check that
  * closes the window between a migration finishing and this command's UI-mode
- * decision — a server added into an already-migrated registry would only be
+ * decision: a server added into an already-migrated registry would only be
  * cleaned up as an orphan.
  */
 export function canMutateRegistry(isMigrated: () => boolean): boolean {

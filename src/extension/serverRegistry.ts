@@ -164,7 +164,7 @@ export class ServerRegistry {
 		// A server the group migration skipped (a name collision, or an edit
 		// that raced the seeding) is naturally resolved by renaming or
 		// repointing it, so the skip marker lifts as soon as the entry mutation
-		// persists — independent of the secret operations below, which may fail
+		// persists, independent of the secret operations below, which may fail
 		// transiently and must not leave the server permanently skipped.
 		// This read-filter-write can race a marker another window adds in the
 		// same instant; that self-heals by re-skipping (one extra notice), so

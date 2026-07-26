@@ -1,51 +1,44 @@
+# This file is managed by Vivswan/repo-platform.
+# Local edits may be replaced during template updates.
 name: Auto Assign
 
 on:
   workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue or PR number to assign (for items whose creation fired no workflow)
+        required: false
+        default: ""
   issues:
     types: [opened]
   pull_request:
     types: [opened, synchronize]
+  # Code scanning alerts have no creation trigger for Actions, so assign them
+  # after each CI run completes (CodeQL analyzes inside CI's gate, and a
+  # reusable-workflow call creates no separate run to watch), with a weekly
+  # cron as a catch-up. The code_scanning input gates the actual alert job.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  schedule:
+    - cron: "23 6 * * 1"
+
+# security-events is granted unconditionally: a reusable-workflow call is
+# statically validated against the permissions of EVERY job in the called
+# file regardless of each job's `if:`, so the alert-assignment job's
+# permissions must be grantable even where code scanning is disabled. The
+# code_scanning input below keeps that job from actually running there.
+# contents:read lets the reusable workflow read CODEOWNERS to decide who
+# gets assigned (falling back to the repo owner).
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  security-events: write
 
 jobs:
-  assign:
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      pull-requests: write
-    steps:
-      - name: Assign issue to owner
-        if: github.event_name == 'issues'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            await github.rest.issues.addAssignees({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              assignees: ['${{ github.repository_owner }}']
-            });
-
-      - name: Assign PR to owner
-        if: github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v9
-        with:
-          script: |
-            await github.rest.issues.addAssignees({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              assignees: ['${{ github.repository_owner }}']
-            });
-
-      - name: Add fix-lint label to same-repo PRs
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v9
-        with:
-          script: |
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              labels: ['fix-lint']
-            });
+  auto-assign:
+    uses: Vivswan/repo-platform/.github/workflows/reusable-auto-assign.yml@main
+    with:
+      code_scanning: true
+      issue: ${{ inputs.issue || '' }}

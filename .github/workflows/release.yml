@@ -1,0 +1,59 @@
+# Repo-owned release pipeline, called by the managed ci.yml on top of the
+# all-green gate. Generated once by Vivswan/repo-platform and
+# never overwritten by template sync: by default it just runs the managed
+# release-please machinery, and this file is where jobs BEFORE the release
+# (make release-please `needs:` them) and AFTER it (gated on its outputs,
+# e.g. packaging and publishing) go. Everything runs in the same workflow
+# run, so it works with the default GITHUB_TOKEN too, which cannot trigger
+# `on: release` workflows.
+
+name: Release
+
+on:
+  workflow_call:
+
+jobs:
+  release-please:
+    uses: ./.github/workflows/release-please.yml
+    secrets: inherit
+
+  # Package the released tag and publish it: VSIX to the VS Code
+  # Marketplace (MARKETPLACE_TOKEN is an Azure DevOps PAT) and as a release
+  # asset. vscode:prepublish runs the production typecheck, the esbuild
+  # bundle, and the ThirdPartyNotices generation.
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout released source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up development environment
+        run: bash scripts/setup-env.sh
+
+      - name: Type-check and bundle the extension
+        run: bun run vscode:prepublish
+
+      - name: Package VSIX
+        run: bunx vsce package -o extension.vsix
+
+      - name: Publish to VS Code Marketplace
+        run: bunx vsce publish --pat "$MARKETPLACE_TOKEN" --packagePath ./extension.vsix
+        env:
+          MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+
+      - name: Upload VSIX to GitHub Release
+        run: gh release upload "$RELEASE_TAG" extension.vsix --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}

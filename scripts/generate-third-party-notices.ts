@@ -35,7 +35,7 @@ async function main(): Promise<void> {
 	try {
 		metafile = JSON.parse(await fs.readFile(metafilePath, "utf8")) as EsbuildMetafile;
 	} catch {
-		throw new Error(`Missing or unreadable ${metafilePath} — run the production bundle first (bun run bundle).`);
+		throw new Error(`Missing or unreadable ${metafilePath}; run the production bundle first (bun run bundle).`);
 	}
 	const deps = bundledPackages(metafile);
 
@@ -47,7 +47,7 @@ async function main(): Promise<void> {
 	];
 
 	if (deps.length === 0) {
-		sections.push("(none — the extension currently bundles no third-party code)");
+		sections.push("(none: the extension currently bundles no third-party code)");
 	}
 
 	for (const dep of deps) {

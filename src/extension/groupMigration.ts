@@ -169,7 +169,7 @@ function matchesSeededConfig(server: ServerWithKey, record: SeededGroup): boolea
  * interleave between that read and the write; the residual race degrades
  * safely because the unions are monotonic and recovery is idempotent: a lost
  * seeded record resurfaces as a marker-less duplicate on the next activation
- * — the retained-entry skip-and-notify path — never as a silent deletion.
+ * (the retained-entry skip-and-notify path), never as a silent deletion.
  */
 
 async function persistSeededRecord(globalState: vscode.Memento, record: SeededGroup): Promise<SeededGroup[]> {
@@ -201,14 +201,14 @@ type ExecuteCommand = (command: string, ...args: unknown[]) => Thenable<unknown>
  * Hand every registry server to VS Code as a named provider group, one server
  * at a time: seed the group, persist a progress record (with a non-secret key
  * fingerprint), merge the server's label into the label map, and remove the
- * registry entry — but only after re-reading the registry and confirming the
+ * registry entry, but only after re-reading the registry and confirming the
  * entry still matches what was seeded, since another window may have edited
  * it meanwhile. Entries whose group cannot be verified (a mid-seed edit, or a
  * pre-existing group with the same name) are marked skipped, left in place,
  * and announced once; the user resolves them manually. Finalization is
  * state-derived: whenever progress records exist and the registry is empty,
  * the completion flag is set, per-record secrets are re-deleted, and the
- * progress is cleared — including on a later activation after a crash.
+ * progress is cleared, including on a later activation after a crash.
  * Returns true when the migration completed during this call.
  */
 export async function migrateServersToProviderGroups(
@@ -279,7 +279,7 @@ export async function migrateServersToProviderGroups(
 			const name = disambiguateGroupName(current.label, usedNames);
 			// A crash while a submission is in flight would make the retry collide
 			// with our own group. The marker written before each submission tells
-			// that case apart from a foreign name collision — but only when the
+			// that case apart from a foreign name collision, but only when the
 			// server's current identity still matches what the marker recorded.
 			// An ordinary rejection clears it: only an accepted-but-lost
 			// submission (a crash) may leave the marker standing.
