@@ -10,17 +10,24 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { ScenarioCapabilities } from "../src/test/scenarios";
+import type { ScenarioCapabilities, ScenarioDeployment } from "../src/test/scenarios";
 import { SCENARIO_CAPABILITIES, SCENARIO_NAMES } from "../src/test/scenarios";
 
 const CONFIG_PATH = path.join(process.cwd(), "docker", "litellm-config.yaml");
 const FAKE_API_BASE = "http://fake-openai:8080/v1";
 
+/** The limits every single-deployment scenario model advertises. */
+const DEFAULT_DEPLOYMENT: ScenarioDeployment = { maxInputTokens: 128000, maxOutputTokens: 16000 };
+
 /** The fuzzer drives arbitrary shapes through fake/dynamic, so it advertises everything. */
 const DYNAMIC_CAPABILITIES: ScenarioCapabilities = { tools: true, vision: true, pdfInput: true, reasoning: true };
 
-function modelInfoLines(capabilities: ScenarioCapabilities): string[] {
-	const lines = ["      max_input_tokens: 128000", "      max_output_tokens: 16000", "      max_tokens: 16000"];
+function modelInfoLines(capabilities: ScenarioCapabilities, deployment: ScenarioDeployment): string[] {
+	const lines = [
+		`      max_input_tokens: ${deployment.maxInputTokens}`,
+		`      max_output_tokens: ${deployment.maxOutputTokens}`,
+		`      max_tokens: ${deployment.maxOutputTokens}`,
+	];
 	if (capabilities.tools) {
 		lines.push("      supports_function_calling: true", "      supports_tool_choice: true");
 	}
@@ -39,19 +46,25 @@ function modelInfoLines(capabilities: ScenarioCapabilities): string[] {
 	return lines;
 }
 
-function fakeModelEntry(name: string, capabilities: ScenarioCapabilities): string {
+function fakeDeploymentEntry(name: string, capabilities: ScenarioCapabilities, deployment: ScenarioDeployment): string {
 	return [
 		`  - model_name: fake/${name}`,
 		"    litellm_params:",
-		`      model: openai/${name}`,
+		`      model: openai/${deployment.upstreamModel ?? name}`,
 		`      api_base: ${FAKE_API_BASE}`,
 		"      api_key: fake-key",
 		"      # Forward params LiteLLM would otherwise reject for plain openai",
 		"      # models; the extension's pass-through contract is under test.",
 		'      allowed_openai_params: ["reasoning_effort", "verbosity"]',
 		"    model_info:",
-		...modelInfoLines(capabilities),
+		...modelInfoLines(capabilities, deployment),
 	].join("\n");
+}
+
+/** One entry per deployment; a multi-deployment scenario becomes a LiteLLM load-balancing group. */
+function fakeModelEntry(name: string, capabilities: ScenarioCapabilities): string {
+	const deployments = capabilities.deployments ?? [DEFAULT_DEPLOYMENT];
+	return deployments.map((deployment) => fakeDeploymentEntry(name, capabilities, deployment)).join("\n\n");
 }
 
 function realProviderEntry(prefix: string, envVar: string): string {
@@ -73,6 +86,11 @@ function generateConfig(): string {
 		const capabilities = SCENARIO_CAPABILITIES[name];
 		if (!capabilities) {
 			throw new Error(`Scenario "${name}" has no SCENARIO_CAPABILITIES entry`);
+		}
+		for (const deployment of capabilities.deployments ?? []) {
+			if (deployment.upstreamModel !== undefined && !/^[a-z0-9][a-z0-9-]*$/.test(deployment.upstreamModel)) {
+				throw new Error(`Upstream model "${deployment.upstreamModel}" must match [a-z0-9][a-z0-9-]*`);
+			}
 		}
 		return fakeModelEntry(name, capabilities);
 	});

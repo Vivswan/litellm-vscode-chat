@@ -62,6 +62,8 @@ export interface LiteLLMModelInfoItem {
 	model_info?: {
 		id?: string;
 		key?: string;
+		/** True when the proxy has paused this deployment; blocked deployments must not register. */
+		blocked?: boolean | null;
 		max_tokens?: number | null | undefined;
 		max_input_tokens?: number | null | undefined;
 		max_output_tokens?: number | null | undefined;

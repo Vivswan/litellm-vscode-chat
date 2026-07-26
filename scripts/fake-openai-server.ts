@@ -20,11 +20,28 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import { URL } from "node:url";
 import type { Scenario } from "../src/test/scenarios";
-import { BUILTIN_SCENARIOS, collapseChunks, readBody, sendJson, sendSse, sendSseDelayed } from "../src/test/scenarios";
+import {
+	BUILTIN_SCENARIOS,
+	collapseChunks,
+	readBody,
+	SCENARIO_UPSTREAM_ALIASES,
+	sendJson,
+	sendSse,
+	sendSseDelayed,
+} from "../src/test/scenarios";
 
 const PORT = Number(process.env.PORT || 8080);
 
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
+// Extra upstream model names (multi-deployment scenarios) answer with their
+// target scenario's response.
+for (const [alias, target] of Object.entries(SCENARIO_UPSTREAM_ALIASES)) {
+	const scenario = BUILTIN_SCENARIOS[target];
+	if (!scenario) {
+		throw new Error(`Upstream alias "${alias}" targets unknown scenario "${target}"`);
+	}
+	scenarios.set(alias, scenario);
+}
 let dynamicScenario = "text-only";
 let lastRequest: Record<string, unknown> | null = null;
 

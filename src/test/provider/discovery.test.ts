@@ -1,9 +1,30 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import { createServerClient } from "../../provider/clients";
-import { fetchModels, isLiteLLMModelInfoItem, isLiteLLMModelItem } from "../../provider/discovery";
-import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, useMsw } from "../mocks/handlers";
-import { expectDefined, withFetch } from "../testUtils";
+import {
+	fetchModels,
+	isLiteLLMModelInfoItem,
+	isLiteLLMModelItem,
+	type MappedModelInfo,
+	mapModelInfoEntry,
+	mergeModelDeployments,
+} from "../../provider/discovery";
+import { deriveTokenConstraints } from "../../provider/modelCatalog";
+import { buildModelInfos } from "../../provider/registration";
+import type { LiteLLMModelInfoItem } from "../../provider/schemas";
+import type { TokenDefaults } from "../../shared/settings";
+import {
+	discoveryHandlers,
+	emptyErrorResponse,
+	MODEL_INFO_URL,
+	MODELS_URL,
+	mswServer,
+	useMsw,
+} from "../mocks/handlers";
+import { expectDefined, withConfig, withFetch } from "../testUtils";
+
+/** Fixed per-pass defaults snapshot, mirroring the provider's single read per refresh. */
+const TEST_TOKEN_DEFAULTS: TokenDefaults = { maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined };
 
 function request(log: (message: string, data?: unknown) => void = () => {}) {
 	const client = createServerClient({
@@ -17,6 +38,7 @@ function request(log: (message: string, data?: unknown) => void = () => {}) {
 		client,
 		baseUrl: "http://litellm.test",
 		discoveryTimeout: 5000,
+		tokenDefaults: TEST_TOKEN_DEFAULTS,
 		log,
 	};
 }
@@ -178,6 +200,203 @@ suite("provider/discovery", () => {
 			);
 		});
 
+		test("blocked model/info entries are dropped while active models register", async () => {
+			let modelsEndpointCalled = false;
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () =>
+					HttpResponse.json({
+						data: [
+							{ model_name: "paused-model", model_info: { blocked: true, supports_function_calling: true } },
+							{ model_name: "active-model", model_info: { supports_function_calling: true } },
+						],
+					})
+				),
+				http.get(MODELS_URL, () => {
+					modelsEndpointCalled = true;
+					return HttpResponse.json({ object: "list", data: [{ id: "paused-model" }, { id: "active-model" }] });
+				})
+			);
+
+			const logs: string[] = [];
+			const { models } = await fetchModels(request((m) => logs.push(m)));
+
+			assert.deepStrictEqual(
+				models.map((m) => m.id),
+				["active-model"]
+			);
+			assert.strictEqual(modelsEndpointCalled, false, "Active entries must not trigger the /v1/models fallback");
+			assert.ok(
+				logs.some((m) => m.includes("Skipping blocked model/info entry")),
+				`Expected a blocked-skip log line, got: ${logs.join(" | ")}`
+			);
+		});
+
+		test("an all-blocked model/info payload yields no models and never falls back to /v1/models", async () => {
+			let modelsEndpointCalled = false;
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () =>
+					HttpResponse.json({
+						data: [
+							{ model_name: "paused-a", model_info: { blocked: true } },
+							{ model_name: "paused-b", model_info: { blocked: true } },
+						],
+					})
+				),
+				http.get(MODELS_URL, () => {
+					modelsEndpointCalled = true;
+					return HttpResponse.json({ object: "list", data: [{ id: "paused-a" }, { id: "paused-b" }] });
+				})
+			);
+
+			const { models } = await fetchModels(request());
+
+			assert.deepStrictEqual(models, []);
+			assert.strictEqual(
+				modelsEndpointCalled,
+				false,
+				"The /v1/models fallback would re-list the blocked models; an all-blocked payload must stay empty"
+			);
+		});
+
+		test("garbage plus blocked entries fail closed: empty list, no /v1/models fallback (deliberate)", async () => {
+			// A recognized-but-blocked entry counts as usable on purpose: falling
+			// back to /v1/models here would re-list the blocked model, so the
+			// garbage entry is skipped, the blocked one filtered, and the result
+			// stays empty.
+			let modelsEndpointCalled = false;
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () =>
+					HttpResponse.json({
+						data: [{ nothing: "usable" }, 17, { model_name: "paused-model", model_info: { blocked: true } }],
+					})
+				),
+				http.get(MODELS_URL, () => {
+					modelsEndpointCalled = true;
+					return HttpResponse.json({ object: "list", data: [{ id: "paused-model" }] });
+				})
+			);
+
+			const { models } = await fetchModels(request());
+
+			assert.deepStrictEqual(models, []);
+			assert.strictEqual(
+				modelsEndpointCalled,
+				false,
+				"One blocked-but-recognized entry must keep the payload fail-closed instead of falling back"
+			);
+		});
+
+		test("load-balanced duplicate model/info entries merge into one model with intersected capabilities", async () => {
+			mswServer.use(
+				...discoveryHandlers({
+					data: [
+						{
+							model_name: "balanced-model",
+							model_info: {
+								supports_function_calling: true,
+								supports_vision: true,
+								supports_reasoning: true,
+								supports_prompt_caching: true,
+								max_input_tokens: 128000,
+								max_output_tokens: 16000,
+								supported_openai_params: ["temperature", "seed"],
+							},
+						},
+						{
+							model_name: "balanced-model",
+							model_info: {
+								supports_function_calling: true,
+								supports_vision: false,
+								supports_reasoning: true,
+								supports_prompt_caching: false,
+								max_input_tokens: 64000,
+								max_output_tokens: 8000,
+								supported_openai_params: ["temperature"],
+							},
+						},
+					],
+				})
+			);
+
+			const { models } = await fetchModels(request());
+
+			assert.strictEqual(models.length, 1, "One deployment entry per model_name must collapse to one model");
+			const model = expectDefined(models[0]);
+			assert.strictEqual(model.id, "balanced-model");
+			assert.strictEqual(model.providers.length, 1, "The merge must keep the sole-provider registration path");
+			const provider = expectDefined(model.providers[0]);
+			assert.strictEqual(provider.source, "model_info");
+			assert.strictEqual(provider.max_input_tokens, 64000);
+			assert.strictEqual(provider.max_output_tokens, 8000);
+			assert.strictEqual(provider.context_length, 64000);
+			assert.strictEqual(provider.supports_tools, true);
+			assert.strictEqual(provider.supports_reasoning, true);
+			assert.strictEqual(provider.supports_prompt_caching, false);
+			assert.deepStrictEqual(provider.supported_openai_params, ["temperature"]);
+			assert.strictEqual(model.architecture, undefined, "Vision holds only when every deployment advertises it");
+		});
+
+		test("a blocked deployment does not drag down the surviving deployment's limits", async () => {
+			mswServer.use(
+				...discoveryHandlers({
+					data: [
+						{
+							model_name: "half-paused",
+							model_info: {
+								blocked: true,
+								supports_function_calling: false,
+								max_input_tokens: 1000,
+								max_output_tokens: 100,
+							},
+						},
+						{
+							model_name: "half-paused",
+							model_info: { supports_function_calling: true, max_input_tokens: 128000, max_output_tokens: 16000 },
+						},
+					],
+				})
+			);
+
+			const { models } = await fetchModels(request());
+
+			assert.strictEqual(models.length, 1);
+			const provider = expectDefined(expectDefined(models[0]).providers[0]);
+			assert.strictEqual(provider.max_input_tokens, 128000);
+			assert.strictEqual(provider.max_output_tokens, 16000);
+			assert.strictEqual(provider.supports_tools, true, "The blocked deployment must not veto tool support");
+		});
+
+		test("the passed defaults snapshot wins over live settings from discovery through registration", async () => {
+			// The provider reads getTokenDefaults() once per refresh and threads
+			// that snapshot through fetchModels and buildModelInfos. Live settings
+			// diverging mid-pass must not leak into either stage: one deployment
+			// has no output limit, so its standalone limit comes from the
+			// snapshot's default and caps the merged model.
+			const snapshot: TokenDefaults = { maxOutputTokens: 2048, contextLength: 32000, maxInputTokens: undefined };
+			mswServer.use(
+				...discoveryHandlers({
+					data: [
+						{ model_name: "snapshot-model", model_info: { max_input_tokens: 128000, max_output_tokens: 16000 } },
+						{ model_name: "snapshot-model", model_info: { max_input_tokens: 128000 } },
+					],
+				})
+			);
+
+			const infos = await withConfig({ defaultMaxOutputTokens: 999, defaultContextLength: 777 }, async () => {
+				const { models } = await fetchModels({ ...request(), tokenDefaults: snapshot });
+				const server = { id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "test-key" };
+				return buildModelInfos(models, server, 1, () => {}, snapshot).infos;
+			});
+
+			const info = expectDefined(infos.find((i) => i.id === "snapshot-model"));
+			assert.strictEqual(info.maxOutputTokens, 2048, "the snapshot's default output limit must win, not the live 999");
+			assert.strictEqual(
+				info.maxInputTokens,
+				128000,
+				"the deployments' own input limit stays untouched by live settings"
+			);
+		});
+
 		test("401 from /v1/models surfaces as an authentication error, not a network error", async () => {
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => emptyErrorResponse(500)),
@@ -264,6 +483,107 @@ suite("provider/discovery", () => {
 				["plain-model"],
 				"A JSON body with a non-JSON content type must not silently fall back"
 			);
+		});
+	});
+
+	suite("mergeModelDeployments", () => {
+		/** The same fixed snapshot the fetchModels helper threads; tests never read workspace settings. */
+		const DEFAULTS = TEST_TOKEN_DEFAULTS;
+
+		/** Build a deployment through the production mapper, never by hand. */
+		function deployment(modelInfo: NonNullable<LiteLLMModelInfoItem["model_info"]>): MappedModelInfo {
+			return expectDefined(mapModelInfoEntry({ model_name: "balanced", model_info: modelInfo }));
+		}
+
+		test("a single deployment passes through unchanged", () => {
+			const sole = deployment({ max_output_tokens: 8000, supports_prompt_caching: true, supports_vision: true });
+			assert.strictEqual(mergeModelDeployments([sole], DEFAULTS), sole);
+		});
+
+		test("merged token advertisement equals the minimum of the standalone advertisements (A/B case)", () => {
+			// A advertises input/output limits; B advertises only max_tokens, so
+			// standing alone B's input budget collapses to max(1, 8000 - 8000) = 1.
+			// A raw per-field merge would keep A's 128000 input alongside B's 8000
+			// output and advertise more than B could ever serve.
+			const a = deployment({ max_input_tokens: 128000, max_output_tokens: 16000 });
+			const b = deployment({ max_tokens: 8000 });
+			const merged = mergeModelDeployments([a, b], DEFAULTS);
+
+			const standalone = [a, b].map((d) => deriveTokenConstraints(d.provider, DEFAULTS));
+			const constraints = deriveTokenConstraints(merged.provider, DEFAULTS);
+			assert.strictEqual(constraints.maxOutputTokens, Math.min(...standalone.map((c) => c.maxOutputTokens)));
+			assert.strictEqual(constraints.contextLength, Math.min(...standalone.map((c) => c.contextLength)));
+			assert.strictEqual(constraints.maxInputTokens, Math.min(...standalone.map((c) => c.maxInputTokens)));
+			assert.strictEqual(constraints.maxOutputTokens, 8000);
+			assert.strictEqual(constraints.contextLength, 8000);
+			assert.strictEqual(constraints.maxInputTokens, 1);
+		});
+
+		test("a deployment without any output limit contributes the configured default, not another's value", () => {
+			const limited = deployment({ max_output_tokens: 16000, max_input_tokens: 128000 });
+			const unlimited = deployment({ max_input_tokens: 128000 });
+			const merged = mergeModelDeployments([limited, unlimited], DEFAULTS);
+			const constraints = deriveTokenConstraints(merged.provider, DEFAULTS);
+			assert.strictEqual(
+				constraints.maxOutputTokens,
+				DEFAULTS.maxOutputTokens,
+				"standalone, the second deployment would advertise the default output limit; the merge must not exceed it"
+			);
+		});
+
+		test("tool support holds only when every deployment supports it", () => {
+			const both = mergeModelDeployments(
+				[deployment({ supports_function_calling: true }), deployment({ supports_tool_choice: true })],
+				DEFAULTS
+			);
+			assert.strictEqual(both.provider.supports_tools, true);
+			const oneOut = mergeModelDeployments(
+				[deployment({ supports_function_calling: true }), deployment({ supports_function_calling: false })],
+				DEFAULTS
+			);
+			assert.strictEqual(oneOut.provider.supports_tools, false);
+		});
+
+		test("capability flags AND across deployments and stay unknown when any deployment leaves them unknown", () => {
+			const merged = mergeModelDeployments(
+				[
+					deployment({ supports_reasoning: true, supports_prompt_caching: true, supports_pdf_input: true }),
+					deployment({ supports_reasoning: true, supports_prompt_caching: false }),
+				],
+				DEFAULTS
+			);
+			assert.strictEqual(merged.provider.supports_reasoning, true);
+			assert.strictEqual(merged.provider.supports_prompt_caching, false);
+			assert.strictEqual(merged.provider.supports_pdf_input, null);
+		});
+
+		test("input modalities intersect across deployments", () => {
+			const merged = mergeModelDeployments(
+				[
+					deployment({ supports_vision: true, supports_pdf_input: true }),
+					deployment({ supports_vision: true }),
+					deployment({ supports_vision: true, supports_pdf_input: true }),
+				],
+				DEFAULTS
+			);
+			assert.deepStrictEqual(merged.inputModalities, ["image"]);
+		});
+
+		test("supported_openai_params intersect, and go unknown when any deployment omits them", () => {
+			const intersected = mergeModelDeployments(
+				[
+					deployment({ supported_openai_params: ["temperature", "seed", "top_p"] }),
+					deployment({ supported_openai_params: ["seed", "temperature"] }),
+				],
+				DEFAULTS
+			);
+			assert.deepStrictEqual(intersected.provider.supported_openai_params, ["temperature", "seed"]);
+
+			const unknown = mergeModelDeployments(
+				[deployment({ supported_openai_params: ["temperature"] }), deployment({})],
+				DEFAULTS
+			);
+			assert.strictEqual(unknown.provider.supported_openai_params, null);
 		});
 	});
 });

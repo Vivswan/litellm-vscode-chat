@@ -1,5 +1,5 @@
 import { normalizePositiveNumber } from "../shared/numbers";
-import { getTokenDefaults } from "../shared/settings";
+import type { TokenDefaults } from "../shared/settings";
 import type { LiteLLMProvider } from "./schemas";
 
 export interface ModelRoute {
@@ -15,13 +15,23 @@ export function buildExposedModelId(rawModelId: string, serverId: string, server
 	return `${serverId}/${rawModelId}`;
 }
 
-export function getTokenConstraints(provider: LiteLLMProvider | undefined): {
+export interface TokenConstraints {
 	maxOutputTokens: number;
 	contextLength: number;
 	maxInputTokens: number;
-} {
-	const defaults = getTokenDefaults();
+}
 
+/**
+ * The effective token constraints a provider entry advertises under the given
+ * defaults. The single home of the fallback rules; every caller receives the
+ * refresh pass's one defaults snapshot (read at the top of the provider's
+ * refresh and threaded through discovery and registration), so deployment
+ * merging and registration always agree.
+ */
+export function deriveTokenConstraints(
+	provider: LiteLLMProvider | undefined,
+	defaults: TokenDefaults
+): TokenConstraints {
 	const maxOutputTokens =
 		normalizePositiveNumber(provider?.max_output_tokens) ??
 		normalizePositiveNumber(provider?.max_tokens) ??

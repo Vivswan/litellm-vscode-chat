@@ -1,7 +1,8 @@
 import type { ServerWithKey } from "../shared/servers";
+import type { TokenDefaults } from "../shared/settings";
 import type { LiteLLMModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
-import { buildExposedModelId, getTokenConstraints } from "./modelCatalog";
+import { buildExposedModelId, deriveTokenConstraints } from "./modelCatalog";
 import type { LiteLLMModelItem } from "./schemas";
 
 export interface RegistrationResult {
@@ -37,7 +38,9 @@ export function buildModelInfos(
 	models: LiteLLMModelItem[],
 	server: ServerWithKey,
 	serverCount: number,
-	log: (message: string) => void
+	log: (message: string) => void,
+	/** The refresh pass's defaults snapshot; the same one discovery merged deployments with. */
+	tokenDefaults: TokenDefaults
 ): RegistrationResult {
 	const routes = new Map<string, ModelRoute>();
 
@@ -59,7 +62,7 @@ export function buildModelInfos(
 
 		const soleProvider = providers.length === 1 ? providers[0] : undefined;
 		if (soleProvider !== undefined && soleProvider.source === "model_info") {
-			const constraints = getTokenConstraints(soleProvider);
+			const constraints = deriveTokenConstraints(soleProvider, tokenDefaults);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			registerRoute(exposedId, m.id);
 			return [
@@ -82,7 +85,7 @@ export function buildModelInfos(
 		}
 
 		if (providers.length === 0) {
-			const constraints = getTokenConstraints(undefined);
+			const constraints = deriveTokenConstraints(undefined, tokenDefaults);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			registerRoute(exposedId, m.id);
 			return [
@@ -108,7 +111,7 @@ export function buildModelInfos(
 		const entries: LiteLLMModelInfo[] = [];
 
 		if (toolProviders.length > 0) {
-			const providerConstraints = toolProviders.map((p) => getTokenConstraints(p));
+			const providerConstraints = toolProviders.map((p) => deriveTokenConstraints(p, tokenDefaults));
 			const aggregateContextLen = Math.min(...providerConstraints.map((c) => c.contextLength));
 			const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
 			const maxInput = Math.max(1, aggregateContextLen - maxOutput);
@@ -153,7 +156,7 @@ export function buildModelInfos(
 		}
 
 		for (const p of toolProviders) {
-			const constraints = getTokenConstraints(p);
+			const constraints = deriveTokenConstraints(p, tokenDefaults);
 			const rawId = `${m.id}:${p.provider}`;
 			const exposedId = buildExposedModelId(rawId, server.id, serverCount);
 			entries.push({
@@ -176,7 +179,7 @@ export function buildModelInfos(
 
 		const base = providers[0];
 		if (toolProviders.length === 0 && base !== undefined) {
-			const constraints = getTokenConstraints(base);
+			const constraints = deriveTokenConstraints(base, tokenDefaults);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			entries.push({
 				id: exposedId,
