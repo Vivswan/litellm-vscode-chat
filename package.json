@@ -197,7 +197,7 @@
 		"lint-staged": "^17.0.8",
 		"msw": "^2.15.0",
 		"typescript": "^6.0.3",
-		"typescript-eslint": "8.64.1-alpha.9"
+		"typescript-eslint": "8.64.1-alpha.10"
 	},
 	"lint-staged": {
 		"*.{js,mjs,cjs,ts,jsx,tsx}": "biome format --write --no-errors-on-unmatched"
