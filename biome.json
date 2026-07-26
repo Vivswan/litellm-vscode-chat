@@ -6,7 +6,7 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": ["**", "!**/out", "!**/.vscode-test", "!**/.worktrees", "!**/*.d.ts"]
+		"includes": ["**", "!**/out", "!**/dist", "!**/.vscode-test", "!**/.worktrees", "!**/*.d.ts"]
 	},
 	"formatter": {
 		"enabled": true,

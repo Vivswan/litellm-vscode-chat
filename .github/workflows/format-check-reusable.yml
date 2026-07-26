@@ -55,16 +55,29 @@ jobs:
           console.log('@types/vscode matches engines.vscode: ' + actual);
           "
 
-      # The dev compile puts out/test on disk first, so this proves .vscodeignore
+      # The dev compile puts out/ on disk first, so this proves .vscodeignore
       # excludes it rather than passing because the files were never built.
       - name: Verify the packaged file list stays clean
         run: |
           bun run compile
-          listing="$(bunx --yes @vscode/vsce ls)"
+          bun run bundle
+          listing="$(bunx vsce ls)"
           echo "$listing"
-          forbidden='^(out/test/|src/|node_modules/|scripts/|\.github/|\.husky/)|^(bun\.lock|biome\.json|AGENTS\.md|CLAUDE\.md|\.vscode-test\.mjs)$|\.ts$|\.map$'
+          forbidden='^(out/|src/|node_modules/|scripts/|\.github/|\.husky/)|^(bun\.lock|biome\.json|AGENTS\.md|CLAUDE\.md|\.vscode-test\.mjs|esbuild\.mjs)$|\.ts$|\.map$'
           if echo "$listing" | grep -E "$forbidden"; then
             echo "::error::vsce would package files that must stay out of the VSIX (matches above)"
+            exit 1
+          fi
+          if ! echo "$listing" | grep -qx 'dist/extension.js'; then
+            echo "::error::dist/extension.js is missing from the packaged file list"
+            exit 1
+          fi
+          if ! echo "$listing" | grep -qx 'ThirdPartyNotices.txt'; then
+            echo "::error::ThirdPartyNotices.txt is missing from the packaged file list"
+            exit 1
+          fi
+          if echo "$listing" | grep -E '^dist/' | grep -vx 'dist/extension.js'; then
+            echo "::error::unexpected files under dist/ would be packaged (matches above)"
             exit 1
           fi
           echo "Packaged file list is clean ($(echo "$listing" | wc -l | tr -d ' ') files)"

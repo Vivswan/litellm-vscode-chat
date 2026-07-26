@@ -27,8 +27,14 @@ bun run setup-env:verify
 # Install dependencies and run compile/lint on Windows PowerShell
 bun run setup-env:verify:pwsh
 
-# Compile TypeScript to JavaScript (src/ only)
+# Compile TypeScript to JavaScript (src/ only, per-file output in out/ for tests)
 bun run compile
+
+# Bundle the extension into dist/extension.js (production: minified, regenerates ThirdPartyNotices.txt)
+bun run bundle
+
+# Development bundle of dist/extension.js (no minify)
+bun run bundle:dev
 
 # Typecheck src/ and scripts/
 bun run typecheck
@@ -60,7 +66,7 @@ For human interactive testing, press `F5` to launch the Extension Development Ho
 
 ### Running tests
 
-Tests use the `@vscode/test-electron` framework, configured in `.vscode-test.mjs` with two labels:
+Tests use the `@vscode/test-electron` framework, configured in `.vscode-test.mjs` with two labels. The extension host activates the extension from the bundled `dist/extension.js` (`main` in package.json), while the test files themselves run from the per-file `out/` compile — both test entry points build both.
 
 - `unit`: every test file under `out/test/` except `host-fidelity.test.js`. This is what `bun run test` runs.
 - `host-fidelity`: `src/test/host-fidelity.test.ts` only. It reads `LITELLM_REAL_BASE_URL`, `LITELLM_REAL_API_KEY`, `LITELLM_REAL_MODEL`, and `LITELLM_REAL_TIMEOUT` from the environment; live suites skip themselves when the base URL is unset. `bun run host-fidelity-test` drives it via `scripts/host-fidelity-test.ts`.
