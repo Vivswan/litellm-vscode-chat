@@ -48,6 +48,21 @@ Credentials are stored securely in VS Code's secret storage. Server metadata (la
 
 **Upgrading from single-server**: Existing single-server configurations are automatically migrated into the server registry on first run.
 
+### OAuth Authentication (Optional)
+
+Some LiteLLM gateways sit behind an identity provider and reject static API keys. For those, configure OAuth2 client-credentials authentication on the server: open the native "Manage Language Models" editor for the LiteLLM provider and fill in the optional fields alongside the base URL.
+
+| Field | Description |
+|-------|-------------|
+| OAuth Token URL | The identity provider's token endpoint, e.g. `https://idp.example.com/oauth2/token` |
+| OAuth Client ID | Client ID for the client-credentials grant |
+| OAuth Client Secret | Client secret; stored in VS Code's secret storage |
+| OAuth Scopes | Optional space-separated scopes to request with the token |
+| Virtual Key Header | Optional name of a custom header carrying a LiteLLM virtual key, e.g. `x-litellm-api-key` |
+| Virtual Key Value | The virtual key itself; stored in VS Code's secret storage |
+
+When the token URL and client ID are both set, the extension exchanges the client credentials for a short-lived bearer token and sends it as the `Authorization` header on every request to that server, refreshing it shortly before it expires. A static API key configured on the same server keeps going out as the `X-API-Key` header alongside the bearer token, for gateways that check both. If the gateway additionally expects a virtual key, set both virtual key fields and the header is sent along with every request. The token exchange is bounded by the discovery timeout, and a rejected token is discarded so the next request fetches a fresh one.
+
 ### Token Limits (Automatic)
 
 The extension automatically reads token limits from your LiteLLM server's model info. You can configure fallback defaults in VS Code settings:

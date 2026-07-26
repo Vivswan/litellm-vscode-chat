@@ -51,6 +51,39 @@
 							"secret": true,
 							"title": "API Key",
 							"description": "LiteLLM API key. Leave empty for servers without authentication."
+						},
+						"oauthTokenUrl": {
+							"type": "string",
+							"format": "uri",
+							"title": "OAuth Token URL",
+							"description": "OAuth2 token endpoint for client-credentials authentication, e.g. https://idp.example.com/oauth2/token. Set this together with the client ID to authenticate with a short-lived bearer token instead of a static API key."
+						},
+						"oauthClientId": {
+							"type": "string",
+							"title": "OAuth Client ID",
+							"description": "Client ID for the OAuth2 client-credentials grant. Required together with the token URL."
+						},
+						"oauthClientSecret": {
+							"type": "string",
+							"secret": true,
+							"title": "OAuth Client Secret",
+							"description": "Client secret for the OAuth2 client-credentials grant. Leave empty for public clients."
+						},
+						"oauthScopes": {
+							"type": "string",
+							"title": "OAuth Scopes",
+							"description": "Space-separated scopes to request with the token, e.g. \"litellm.read litellm.write\". Leave empty to request none."
+						},
+						"virtualKeyHeader": {
+							"type": "string",
+							"title": "Virtual Key Header",
+							"description": "Name of a custom header carrying a LiteLLM virtual key, e.g. x-litellm-api-key. Sent on every request to this server when both the header and its value are set."
+						},
+						"virtualKeyValue": {
+							"type": "string",
+							"secret": true,
+							"title": "Virtual Key Value",
+							"description": "The virtual key sent in the header named above."
 						}
 					},
 					"required": [

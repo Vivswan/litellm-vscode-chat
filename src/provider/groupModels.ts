@@ -1,5 +1,7 @@
 import type { LanguageModelChatInformation } from "vscode";
 import { fingerprint } from "../shared/fingerprint";
+import { isRecord } from "../shared/json";
+import { isValidHeaderValue, type OAuthConfig, type VirtualKeyConfig } from "./auth";
 
 /**
  * Support for VS Code-managed provider groups. The host stores one
@@ -14,6 +16,10 @@ import { fingerprint } from "../shared/fingerprint";
 export interface GroupServer {
 	baseUrl: string;
 	apiKey: string;
+	/** Client-credentials authentication; present only when the configuration names a token URL and client ID. */
+	oauth?: OAuthConfig;
+	/** Gateway virtual key; present only when the configuration names both a header and a value. */
+	virtualKey?: VirtualKeyConfig;
 }
 
 /** LiteLLM facts attached to a model object, carried across the host round trip. */
@@ -32,13 +38,23 @@ export interface LiteLLMModelInfo extends LanguageModelChatInformation {
 const GROUP_CLIENT_ID_PREFIX = "group:";
 
 /**
- * Two groups may point at one base URL with different keys, so group identity
- * includes a non-secret fingerprint of the key. Rotating a group's key
- * therefore mints a new identity: the group double-counts in the status
- * window for one cycle until the old identity ages out, which self-heals.
+ * Two groups may point at one base URL with different credentials, so group
+ * identity includes a non-secret fingerprint over the whole credential
+ * material: API key, OAuth client credentials, and virtual key. Rotating any
+ * of them mints a new identity: the group double-counts in the status window
+ * for one cycle until the old identity ages out, which self-heals. Servers
+ * without OAuth or a virtual key fingerprint the API key alone, so their
+ * identities survive this field addition unchanged.
  */
 export function groupClientId(server: GroupServer): string {
-	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(server.apiKey)}:${server.baseUrl}`;
+	const credentials = [
+		server.apiKey,
+		...(server.oauth
+			? ["oauth", server.oauth.tokenUrl, server.oauth.clientId, server.oauth.clientSecret, server.oauth.scopes ?? ""]
+			: []),
+		...(server.virtualKey ? ["virtual-key", server.virtualKey.header, server.virtualKey.value] : []),
+	].join("\n");
+	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(credentials)}:${server.baseUrl}`;
 }
 
 /**
@@ -49,24 +65,109 @@ export function isGroupClientId(serverId: unknown): boolean {
 	return typeof serverId === "string" && serverId.startsWith(GROUP_CLIENT_ID_PREFIX);
 }
 
+/** A non-empty string after trimming, or undefined; the lenient unit of configuration narrowing. */
+function usableString(value: unknown): string | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** RFC 9110 header-name token; anything else would make the transport throw at request time. */
+const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+/**
+ * OAuth is present as one typed unit or not at all: a usable token URL and
+ * client ID make the unit, anything less degrades to absent. The secret is
+ * taken verbatim (an empty one means a public client) and scopes are optional.
+ */
+function narrowOAuth(
+	tokenUrl: unknown,
+	clientId: unknown,
+	clientSecret: unknown,
+	scopes: unknown
+): OAuthConfig | undefined {
+	const usableTokenUrl = usableString(tokenUrl);
+	const usableClientId = usableString(clientId);
+	if (usableTokenUrl === undefined || usableClientId === undefined) {
+		return undefined;
+	}
+	const usableScopes = usableString(scopes);
+	return {
+		tokenUrl: usableTokenUrl,
+		clientId: usableClientId,
+		clientSecret: typeof clientSecret === "string" ? clientSecret : "",
+		...(usableScopes !== undefined ? { scopes: usableScopes } : {}),
+	};
+}
+
+type NarrowLog = (message: string, data?: unknown) => void;
+
+/** One warning per rejected header name, so per-request re-narrowing does not spam the log. */
+const reportedInvalidVirtualKeys = new Set<string>();
+
+/**
+ * The virtual key is present only with a valid header name and a value in
+ * the header-value charset; anything less degrades to absent. The value is
+ * trimmed first (the platform strips leading and trailing whitespace from
+ * header values anyway), then rejected if interior CR/LF or other control
+ * octets remain: those would make the platform's Headers throw a TypeError
+ * that embeds the full plaintext value. A rejection is logged once per
+ * header name so typos are diagnosable; the value never reaches the log.
+ */
+function narrowVirtualKey(header: unknown, value: unknown, log?: NarrowLog): VirtualKeyConfig | undefined {
+	if (header === undefined && value === undefined) {
+		return undefined;
+	}
+	const usableHeader = usableString(header);
+	const usableValue = usableString(value);
+	if (
+		usableHeader !== undefined &&
+		usableValue !== undefined &&
+		HEADER_NAME_PATTERN.test(usableHeader) &&
+		isValidHeaderValue(usableValue)
+	) {
+		return { header: usableHeader, value: usableValue };
+	}
+	const name = usableHeader ?? "(not set)";
+	if (log !== undefined && !reportedInvalidVirtualKeys.has(name)) {
+		reportedInvalidVirtualKeys.add(name);
+		log("Ignoring the configured virtual key: the header name or value cannot be sent as an HTTP header", {
+			header: name,
+		});
+	}
+	return undefined;
+}
+
 /**
  * Narrow a group configuration to a usable server. Returns undefined when the
  * configuration is not an object or has no usable baseUrl; a missing or
- * non-string apiKey means a keyless server.
+ * non-string apiKey means a keyless server, and partial or malformed OAuth
+ * and virtual-key fields degrade to absent rather than failing the group.
+ * Unknown fields are ignored for forward compatibility.
  */
-export function parseGroupConfiguration(configuration: unknown): GroupServer | undefined {
-	if (typeof configuration !== "object" || configuration === null) {
+export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog): GroupServer | undefined {
+	if (!isRecord(configuration)) {
 		return undefined;
 	}
-	const { baseUrl: rawBaseUrl, apiKey: rawApiKey } = configuration as { baseUrl?: unknown; apiKey?: unknown };
-	if (typeof rawBaseUrl !== "string") {
+	const baseUrl = usableString(configuration.baseUrl)?.replace(/\/+$/, "");
+	if (baseUrl === undefined || baseUrl.length === 0) {
 		return undefined;
 	}
-	const baseUrl = rawBaseUrl.trim().replace(/\/+$/, "");
-	if (!baseUrl) {
-		return undefined;
-	}
-	return { baseUrl, apiKey: typeof rawApiKey === "string" ? rawApiKey : "" };
+	const oauth = narrowOAuth(
+		configuration.oauthTokenUrl,
+		configuration.oauthClientId,
+		configuration.oauthClientSecret,
+		configuration.oauthScopes
+	);
+	const virtualKey = narrowVirtualKey(configuration.virtualKeyHeader, configuration.virtualKeyValue, log);
+	return {
+		baseUrl,
+		apiKey: typeof configuration.apiKey === "string" ? configuration.apiKey : "",
+		...(oauth !== undefined ? { oauth } : {}),
+		...(virtualKey !== undefined ? { virtualKey } : {}),
+	};
 }
 
 /**
@@ -80,14 +181,29 @@ export function attachGroupServer(info: LiteLLMModelInfo, server: GroupServer): 
 
 /**
  * The model's attached server, re-validated because model objects come back
- * across the host boundary and only their shape is trustworthy, not their type.
+ * across the host boundary and only their shape is trustworthy, not their
+ * type. OAuth and virtual-key sub-objects get the same lenient narrowing as
+ * the group configuration: malformed ones degrade to absent.
  */
-export function getGroupServer(model: LiteLLMModelInfo): GroupServer | undefined {
-	const candidate = model.litellm?.server;
-	if (candidate !== undefined && typeof candidate.baseUrl === "string" && typeof candidate.apiKey === "string") {
-		return candidate;
+export function getGroupServer(model: LiteLLMModelInfo, log?: NarrowLog): GroupServer | undefined {
+	const candidate: unknown = model.litellm?.server;
+	if (!isRecord(candidate) || typeof candidate.baseUrl !== "string" || typeof candidate.apiKey !== "string") {
+		return undefined;
 	}
-	return undefined;
+	const rawOAuth: unknown = candidate.oauth;
+	const rawVirtualKey: unknown = candidate.virtualKey;
+	const oauth = isRecord(rawOAuth)
+		? narrowOAuth(rawOAuth.tokenUrl, rawOAuth.clientId, rawOAuth.clientSecret, rawOAuth.scopes)
+		: undefined;
+	const virtualKey = isRecord(rawVirtualKey)
+		? narrowVirtualKey(rawVirtualKey.header, rawVirtualKey.value, log)
+		: undefined;
+	return {
+		baseUrl: candidate.baseUrl,
+		apiKey: candidate.apiKey,
+		...(oauth !== undefined ? { oauth } : {}),
+		...(virtualKey !== undefined ? { virtualKey } : {}),
+	};
 }
 
 export function modelSupportsPromptCaching(model: LiteLLMModelInfo): boolean {

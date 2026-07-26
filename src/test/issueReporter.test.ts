@@ -395,4 +395,35 @@ suite("IssueReporter", () => {
 		assert.ok(!result.includes("secret-key-value"), "Should not leak API key");
 		assert.ok(result.includes("[REDACTED]"));
 	});
+
+	test("redactSecrets removes OAuth client secrets and access tokens", () => {
+		const bare = redactSecrets("token exchange failed: client_secret=oauth-secret-value access_token: tok-value");
+		assert.ok(!bare.includes("oauth-secret-value"), "Should not leak the client secret");
+		assert.ok(!bare.includes("tok-value"), "Should not leak the access token");
+		assert.ok(bare.includes("client_secret=[REDACTED]"));
+		assert.ok(bare.includes("access_token: [REDACTED]"));
+	});
+
+	test("redactSecrets handles JSON-encoded OAuth material", () => {
+		const json = '{"client_secret": "oauth-secret-value", "access_token": "tok-value", "expires_in": 3600}';
+		const result = redactSecrets(json);
+		assert.ok(!result.includes("oauth-secret-value"), "Should not leak the client secret");
+		assert.ok(!result.includes("tok-value"), "Should not leak the access token");
+		assert.ok(result.includes('"expires_in": 3600'), "Non-secret fields survive");
+	});
+
+	test("redactSecrets consumes escaped quotes inside JSON-encoded secrets", () => {
+		const json =
+			'{"Authorization": "Bearer to\\"ken-TAIL", "client_secret": "ab\\"cd-TAIL-\\\\ef", "access_token": "to\\"k-TAIL", "expires_in": 3600}';
+		const result = redactSecrets(json);
+		assert.ok(!result.includes("TAIL"), `An escaped quote ended the match early and leaked the suffix: ${result}`);
+		assert.ok(result.includes('"expires_in": 3600'), "Non-secret fields survive");
+	});
+
+	test("redactSecrets over-redacts bare token mentions, deliberately erring toward safety", () => {
+		// "endpoint" here is prose, not a secret; the bare patterns cannot tell
+		// and redact it anyway. That is the accepted trade-off: never weaken the
+		// patterns to preserve prose.
+		assert.equal(redactSecrets("access_token endpoint failed"), "access_token [REDACTED] failed");
+	});
 });
