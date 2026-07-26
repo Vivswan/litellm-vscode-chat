@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { type CaptureServer, createCaptureServer, SLOW_STREAM_CHUNK_COUNT } from "./capture-server";
+import { expectDefined } from "./testUtils";
 
 /**
  * Host-fidelity test suite.
@@ -182,7 +183,7 @@ suite("Host-Fidelity Tests (capture)", () => {
 			(models) => hostMatches(models, modelIds),
 			`host to expose capture-server models (${modelIds.join(", ")})`
 		);
-		model = models[0];
+		model = expectDefined(models[0], "host returned no models");
 	});
 
 	suiteTeardown(async () => {
@@ -223,7 +224,7 @@ suite("Host-Fidelity Tests (capture)", () => {
 		test("selectChatModels returns model with vendor litellm", async () => {
 			const models = await vscode.lm.selectChatModels({ vendor: "litellm" });
 			assert.ok(models.length > 0, "Expected at least one model");
-			assert.strictEqual(models[0].vendor, "litellm");
+			assert.strictEqual(expectDefined(models[0]).vendor, "litellm");
 		});
 
 		test("model has positive token limits", () => {
@@ -363,11 +364,10 @@ suite("Host-Fidelity Tests (capture)", () => {
 			// Filter out any system messages the host may inject
 			const nonSystem = messages.filter((m) => m.role !== "system");
 			assert.ok(nonSystem.length >= 5, `Expected at least 5 non-system messages, got ${nonSystem.length}`);
-			assert.strictEqual(nonSystem[0].role, "user");
-			assert.strictEqual(nonSystem[1].role, "assistant");
-			assert.strictEqual(nonSystem[2].role, "user");
-			assert.strictEqual(nonSystem[3].role, "assistant");
-			assert.strictEqual(nonSystem[4].role, "user");
+			assert.deepStrictEqual(
+				nonSystem.slice(0, 5).map((m) => m.role),
+				["user", "assistant", "user", "assistant", "user"]
+			);
 		});
 
 		test("image data part is converted to image_url content block", async () => {
@@ -386,7 +386,7 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const messages = body.messages as Array<{ role: string; content: unknown }>;
 			const userMsg = messages.find((m) => m.role === "user" && Array.isArray(m.content));
 			assert.ok(userMsg, "User message with image should have array content");
-			const content = userMsg!.content as Array<{ type: string }>;
+			const content = userMsg.content as Array<{ type: string }>;
 			const textBlock = content.find((b) => b.type === "text");
 			const imageBlock = content.find((b) => b.type === "image_url") as
 				| { type: string; image_url: { url: string } }
@@ -394,7 +394,7 @@ suite("Host-Fidelity Tests (capture)", () => {
 			assert.ok(textBlock, "Should have a text block");
 			assert.ok(imageBlock, "Should have an image_url block");
 			assert.ok(
-				imageBlock!.image_url.url.startsWith("data:image/png;base64,"),
+				imageBlock.image_url.url.startsWith("data:image/png;base64,"),
 				"image_url should contain base64 PNG data URL"
 			);
 		});
@@ -418,7 +418,7 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const messages = body.messages as Array<{ role: string; content: unknown }>;
 			const userMsg = messages.find((m) => m.role === "user" && Array.isArray(m.content));
 			assert.ok(userMsg, "Should have array content");
-			const content = userMsg!.content as Array<{ type: string }>;
+			const content = userMsg.content as Array<{ type: string }>;
 			const imageBlocks = content.filter((b) => b.type === "image_url");
 			assert.strictEqual(imageBlocks.length, 2, "Should have 2 image_url blocks");
 		});
@@ -440,12 +440,13 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const messages = body.messages as Array<{ role: string; content: unknown }>;
 			const userMsg = messages.find((m) => m.role === "user" && Array.isArray(m.content));
 			assert.ok(userMsg, "Should have array content");
-			const content = userMsg!.content as Array<{ type: string; text?: string }>;
-			assert.strictEqual(content[0].type, "text");
-			assert.strictEqual(content[0].text, "before");
-			assert.strictEqual(content[1].type, "image_url");
-			assert.strictEqual(content[2].type, "text");
-			assert.strictEqual(content[2].text, "after");
+			const content = userMsg.content as Array<{ type: string; text?: string }>;
+			assert.deepStrictEqual(
+				content.map((c) => c.type),
+				["text", "image_url", "text"]
+			);
+			assert.strictEqual(expectDefined(content[0]).text, "before");
+			assert.strictEqual(expectDefined(content[2]).text, "after");
 		});
 
 		test("PDF data part is converted to file content block", async () => {
@@ -458,13 +459,13 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const messages = body.messages as Array<{ role: string; content: unknown }>;
 			const userMsg = messages.find((m) => m.role === "user" && Array.isArray(m.content));
 			assert.ok(userMsg, "Should have array content");
-			const content = userMsg!.content as Array<{ type: string }>;
+			const content = userMsg.content as Array<{ type: string }>;
 			const fileBlock = content.find((b) => b.type === "file") as
 				| { type: string; file: { file_data: string } }
 				| undefined;
 			assert.ok(fileBlock, "Should have a file block for PDF");
 			assert.ok(
-				fileBlock!.file.file_data.startsWith("data:application/pdf;base64,"),
+				fileBlock.file.file_data.startsWith("data:application/pdf;base64,"),
 				"file_data should contain base64 PDF data URL"
 			);
 		});
@@ -480,8 +481,8 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const userMsg = messages.find((m) => m.role === "user");
 			assert.ok(userMsg, "Should have user message");
 			// JSON data part should be decoded as text, so content should be a string
-			assert.strictEqual(typeof userMsg!.content, "string", "JSON data part should be decoded as inline text");
-			assert.ok((userMsg!.content as string).includes('{"key":"value"}'), "Decoded JSON should be present in content");
+			assert.strictEqual(typeof userMsg.content, "string", "JSON data part should be decoded as inline text");
+			assert.ok((userMsg.content as string).includes('{"key":"value"}'), "Decoded JSON should be present in content");
 		});
 
 		test("tool call and tool result round-trip is correctly serialized", async () => {
@@ -510,16 +511,18 @@ suite("Host-Fidelity Tests (capture)", () => {
 			// Find assistant message with tool_calls
 			const assistantMsg = messages.find((m) => m.role === "assistant" && Array.isArray(m.tool_calls));
 			assert.ok(assistantMsg, "Should have an assistant message with tool_calls");
-			assert.strictEqual(assistantMsg!.tool_calls!.length, 1, "Should have exactly one tool call");
-			assert.strictEqual(assistantMsg!.tool_calls![0].function.name, "get_weather");
-			const args = JSON.parse(assistantMsg!.tool_calls![0].function.arguments);
+			const calls = expectDefined(assistantMsg.tool_calls);
+			assert.strictEqual(calls.length, 1, "Should have exactly one tool call");
+			const call = expectDefined(calls[0]);
+			assert.strictEqual(call.function.name, "get_weather");
+			const args = JSON.parse(call.function.arguments);
 			assert.strictEqual(args.location, "Paris");
 
 			// Find tool result message
 			const toolMsg = messages.find((m) => m.role === "tool");
 			assert.ok(toolMsg, "Should have a tool result message");
-			assert.strictEqual(toolMsg!.tool_call_id, "call_abc", "Tool result should reference the tool call ID");
-			assert.ok(String(toolMsg!.content).includes("22C"), "Tool result content should contain the weather data");
+			assert.strictEqual(toolMsg.tool_call_id, "call_abc", "Tool result should reference the tool call ID");
+			assert.ok(String(toolMsg.content).includes("22C"), "Tool result content should contain the weather data");
 		});
 
 		test("mixed text + tool calls in one assistant message are preserved", async () => {
@@ -544,8 +547,8 @@ suite("Host-Fidelity Tests (capture)", () => {
 
 			const assistantWithTool = messages.find((m) => m.role === "assistant" && Array.isArray(m.tool_calls));
 			assert.ok(assistantWithTool, "Should have assistant message with tool_calls");
-			assert.ok(String(assistantWithTool!.content).includes("search"), "Assistant message should contain text content");
-			assert.strictEqual(assistantWithTool!.tool_calls![0].function.name, "search");
+			assert.ok(String(assistantWithTool.content).includes("search"), "Assistant message should contain text content");
+			assert.strictEqual(expectDefined(assistantWithTool.tool_calls?.[0]).function.name, "search");
 		});
 
 		test("tool definitions arrive correctly in request body", async () => {
@@ -571,10 +574,11 @@ suite("Host-Fidelity Tests (capture)", () => {
 			}>;
 			assert.ok(Array.isArray(tools), "tools should be an array");
 			assert.strictEqual(tools.length, 1, "Should have exactly 1 tool");
-			assert.strictEqual(tools[0].type, "function");
-			assert.strictEqual(tools[0].function.name, "get_weather");
-			assert.strictEqual(tools[0].function.description, "Get weather for a location");
-			const params = tools[0].function.parameters;
+			const tool = expectDefined(tools[0]);
+			assert.strictEqual(tool.type, "function");
+			assert.strictEqual(tool.function.name, "get_weather");
+			assert.strictEqual(tool.function.description, "Get weather for a location");
+			const params = tool.function.parameters;
 			assert.strictEqual(params.type, "object");
 			const props = params.properties as Record<string, Record<string, unknown>>;
 			assert.ok(props.location, "Should have location property");
@@ -599,9 +603,10 @@ suite("Host-Fidelity Tests (capture)", () => {
 				],
 			});
 			const tools = body.tools as Array<{ function: { name: string } }>;
-			assert.strictEqual(tools.length, 2);
-			assert.strictEqual(tools[0].function.name, "get_weather");
-			assert.strictEqual(tools[1].function.name, "get_time");
+			assert.deepStrictEqual(
+				tools.map((t) => t.function.name),
+				["get_weather", "get_time"]
+			);
 		});
 	});
 
@@ -654,8 +659,9 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const { parts } = await sendAndCapture([vscode.LanguageModelChatMessage.User("weather in Paris")]);
 			const toolCalls = extractToolCalls(parts);
 			assert.strictEqual(toolCalls.length, 1, `Expected 1 tool call, got ${toolCalls.length}`);
-			assert.strictEqual(toolCalls[0].name, "get_weather");
-			const input = toolCalls[0].input as Record<string, unknown>;
+			const call = expectDefined(toolCalls[0]);
+			assert.strictEqual(call.name, "get_weather");
+			const input = call.input as Record<string, unknown>;
 			assert.strictEqual(input.location, "Paris");
 		});
 
@@ -664,8 +670,9 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const { parts } = await sendAndCapture([vscode.LanguageModelChatMessage.User("weather in Paris")]);
 			const toolCalls = extractToolCalls(parts);
 			assert.strictEqual(toolCalls.length, 1, `Expected 1 tool call, got ${toolCalls.length}`);
-			assert.strictEqual(toolCalls[0].name, "get_weather");
-			const input = toolCalls[0].input as Record<string, unknown>;
+			const call = expectDefined(toolCalls[0]);
+			assert.strictEqual(call.name, "get_weather");
+			const input = call.input as Record<string, unknown>;
 			assert.strictEqual(input.location, "Paris");
 		});
 
@@ -745,8 +752,9 @@ suite("Host-Fidelity Tests (capture)", () => {
 			assert.ok(text.includes("check that for you"), `Expected preamble text, got: "${text}"`);
 			const toolCalls = extractToolCalls(parts);
 			assert.strictEqual(toolCalls.length, 1, `Expected 1 tool call, got ${toolCalls.length}`);
-			assert.strictEqual(toolCalls[0].name, "get_weather");
-			const input = toolCalls[0].input as Record<string, unknown>;
+			const call = expectDefined(toolCalls[0]);
+			assert.strictEqual(call.name, "get_weather");
+			const input = call.input as Record<string, unknown>;
 			assert.strictEqual(input.location, "London");
 		});
 
@@ -881,7 +889,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			const modelFromA = findModelByServerId(models, serverIdA);
 			assert.ok(modelFromA, "Should have a model from ServerA");
 
-			const responseA = await modelFromA!.sendRequest(
+			const responseA = await modelFromA.sendRequest(
 				[vscode.LanguageModelChatMessage.User("hi")],
 				{},
 				new vscode.CancellationTokenSource().token
@@ -902,7 +910,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			const modelFromA = findModelByServerId(models, serverIdA);
 			assert.ok(modelFromA, "Should have a model from ServerA");
 
-			const response = await modelFromA!.sendRequest(
+			const response = await modelFromA.sendRequest(
 				[vscode.LanguageModelChatMessage.User("hi")],
 				{},
 				new vscode.CancellationTokenSource().token
@@ -979,7 +987,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			);
 
 			try {
-				const response = await modelFromA!.sendRequest(
+				const response = await modelFromA.sendRequest(
 					[vscode.LanguageModelChatMessage.User("hi")],
 					{},
 					new vscode.CancellationTokenSource().token
@@ -1014,7 +1022,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			);
 
 			try {
-				const response = await modelFromB!.sendRequest(
+				const response = await modelFromB.sendRequest(
 					[vscode.LanguageModelChatMessage.User("hi")],
 					{},
 					new vscode.CancellationTokenSource().token
@@ -1109,7 +1117,7 @@ suite("Host-Fidelity Tests (live)", () => {
 					(m as unknown as Record<string, unknown>).capabilities &&
 					((m as unknown as Record<string, unknown>).capabilities as Record<string, unknown>).toolCalling === true
 			);
-			model = toolCapable ?? allModels[0];
+			model = expectDefined(toolCapable ?? allModels[0], "server returned no models");
 		}
 		console.log(`Using model: ${model.id} (${model.name})`);
 	});
@@ -1360,10 +1368,11 @@ suite("Host-Fidelity Tests (live)", () => {
 			// In auto mode, the model may choose to call the tool or answer directly — both are valid
 			assert.ok(toolCalls.length > 0 || text.length > 0, "Should receive either a tool call or text response");
 			if (toolCalls.length > 0) {
-				assert.strictEqual(toolCalls[0].name, "get_weather", "Tool call should be for get_weather");
-				assert.ok(toolCalls[0].callId, "Tool call should have an ID");
-				assert.ok(typeof toolCalls[0].input === "object", "Tool call should have input object");
-				console.log(`Tool call: ${toolCalls[0].name}(${JSON.stringify(toolCalls[0].input)})`);
+				const call = expectDefined(toolCalls[0]);
+				assert.strictEqual(call.name, "get_weather", "Tool call should be for get_weather");
+				assert.ok(call.callId, "Tool call should have an ID");
+				assert.ok(typeof call.input === "object", "Tool call should have input object");
+				console.log(`Tool call: ${call.name}(${JSON.stringify(call.input)})`);
 			} else {
 				console.log(`Model answered directly: "${text.slice(0, 100)}"`);
 			}
@@ -1394,7 +1403,7 @@ suite("Host-Fidelity Tests (live)", () => {
 			assert.ok(parts.length > 0, "Should receive response with multiple tools available");
 			const toolCalls = extractToolCalls(parts);
 			if (toolCalls.length > 0) {
-				console.log(`Chose tool: ${toolCalls[0].name}`);
+				console.log(`Chose tool: ${expectDefined(toolCalls[0]).name}`);
 			}
 		});
 	});

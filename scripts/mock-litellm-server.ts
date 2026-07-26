@@ -82,7 +82,7 @@ const sendSse = (res: ServerResponse, chunks: unknown[]): void => {
 	res.end();
 };
 
-const server = http.createServer(async (req, res) => {
+const handleRequest = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
 	const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
 	if (req.method === "GET" && url.pathname === "/health") {
@@ -160,6 +160,13 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	sendJson(res, 404, { error: { message: "Not found" } });
+};
+
+const server = http.createServer((req, res) => {
+	handleRequest(req, res).catch(() => {
+		// A failed handler must not hang the connection open.
+		res.destroy();
+	});
 });
 
 server.listen(PORT, () => {

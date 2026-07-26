@@ -86,9 +86,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		const successfulCount = results.filter((r) => r.status === "fulfilled").length;
 		const serverCount = servers.length;
 
-		for (let i = 0; i < results.length; i++) {
-			const result = results[i];
+		for (const [i, result] of results.entries()) {
 			const server = servers[i];
+			if (server === undefined) {
+				// Unreachable: allSettled preserves input length; the guard exists
+				// for noUncheckedIndexedAccess.
+				continue;
+			}
 
 			if (result.status === "rejected") {
 				const errorMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);

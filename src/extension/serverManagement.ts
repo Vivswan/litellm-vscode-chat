@@ -92,7 +92,7 @@ export function warnAboutOrphanedModelParameters(
 	);
 }
 
-export async function addServerFlow(registry: ServerRegistry, logger: Logger): Promise<boolean> {
+async function addServerFlow(registry: ServerRegistry, logger: Logger): Promise<boolean> {
 	const label = await promptForServerLabel(registry);
 	if (label === undefined) {
 		return false;
@@ -120,7 +120,7 @@ export async function addServerFlow(registry: ServerRegistry, logger: Logger): P
 	return true;
 }
 
-export async function manageServerFlow(registry: ServerRegistry, serverId: string, logger: Logger): Promise<void> {
+async function manageServerFlow(registry: ServerRegistry, serverId: string, logger: Logger): Promise<void> {
 	const servers = registry.getServers();
 	const server = servers.find((s) => s.id === serverId);
 	if (!server) {
@@ -180,7 +180,7 @@ export async function manageServerFlow(registry: ServerRegistry, serverId: strin
 		if (confirm === "Remove") {
 			await registry.removeServer(serverId);
 			logger.log(`Removed server "${server.label}"`);
-			vscode.window.showInformationMessage(`Server "${server.label}" removed.`);
+			void vscode.window.showInformationMessage(`Server "${server.label}" removed.`);
 		}
 	}
 }

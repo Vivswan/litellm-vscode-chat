@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { AggregatedStatus } from "../../shared/servers";
-import { jsonResponse, makeProvider, withFetch } from "../testUtils";
+import { expectDefined, jsonResponse, makeProvider, withFetch } from "../testUtils";
 
 suite("provider/diagnostics", () => {
 	test("status callback reports successful fetch with model count", async () => {
@@ -35,9 +35,13 @@ suite("provider/diagnostics", () => {
 		);
 
 		assert.ok(callbackStatus);
-		assert.strictEqual(callbackStatus!.silent, true, "The callback must carry the silent flag of the refresh");
-		assert.ok(callbackStatus!.totalModels > 0);
-		assert.ok(callbackStatus!.serverStatuses.every((s) => s.state === "ok"));
+		assert.strictEqual(
+			expectDefined(callbackStatus).silent,
+			true,
+			"The callback must carry the silent flag of the refresh"
+		);
+		assert.ok(expectDefined(callbackStatus).totalModels > 0);
+		assert.ok(expectDefined(callbackStatus).serverStatuses.every((s) => s.state === "ok"));
 	});
 
 	test("status callback reports error on fetch failure", async () => {
@@ -54,9 +58,9 @@ suite("provider/diagnostics", () => {
 		);
 
 		assert.ok(callbackStatus);
-		assert.equal(callbackStatus!.totalModels, 0);
-		assert.ok(callbackStatus!.serverStatuses.some((s) => s.state === "error"));
-		assert.ok(callbackStatus!.serverStatuses.some((s) => s.error?.includes("Network")));
+		assert.equal(expectDefined(callbackStatus).totalModels, 0);
+		assert.ok(expectDefined(callbackStatus).serverStatuses.some((s) => s.state === "error"));
+		assert.ok(expectDefined(callbackStatus).serverStatuses.some((s) => s.error?.includes("Network")));
 	});
 
 	test("status callback reports empty model list", async () => {
@@ -71,7 +75,7 @@ suite("provider/diagnostics", () => {
 		);
 
 		assert.ok(callbackStatus);
-		assert.equal(callbackStatus!.totalModels, 0);
+		assert.equal(expectDefined(callbackStatus).totalModels, 0);
 	});
 
 	test("status callback reports missing configuration", async () => {
@@ -83,8 +87,8 @@ suite("provider/diagnostics", () => {
 		await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 
 		assert.ok(callbackStatus);
-		assert.equal(callbackStatus!.totalModels, 0);
-		assert.equal(callbackStatus!.serverStatuses.length, 0);
+		assert.equal(expectDefined(callbackStatus).totalModels, 0);
+		assert.equal(expectDefined(callbackStatus).serverStatuses.length, 0);
 	});
 
 	test("output channel receives log messages", async () => {

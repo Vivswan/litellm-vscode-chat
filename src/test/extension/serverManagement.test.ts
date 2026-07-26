@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { warnAboutOrphanedModelParameters } from "../../extension/serverManagement";
+import { expectDefined } from "../testUtils";
 
 suite("extension/serverManagement", () => {
 	suite("warnAboutOrphanedModelParameters", () => {
@@ -24,17 +25,19 @@ suite("extension/serverManagement", () => {
 		test("warns when modelParameters keys are scoped to the old label", () => {
 			warnAboutOrphanedModelParameters("Production", "Prod", ["Production/gpt-4", "Production/claude", "gpt-4"]);
 			assert.strictEqual(toasts.length, 1);
-			assert.ok(toasts[0].message.includes('"Production/"'), toasts[0].message);
-			assert.ok(toasts[0].message.includes('"Prod/"'), toasts[0].message);
-			assert.ok(toasts[0].message.includes("2 modelParameters entries"), toasts[0].message);
-			assert.ok(toasts[0].message.includes('"Production/gpt-4"'), toasts[0].message);
-			assert.deepStrictEqual(toasts[0].buttons, ["Open Settings", "Dismiss"]);
+			const toast = expectDefined(toasts[0]);
+			assert.ok(toast.message.includes('"Production/"'), toast.message);
+			assert.ok(toast.message.includes('"Prod/"'), toast.message);
+			assert.ok(toast.message.includes("2 modelParameters entries"), toast.message);
+			assert.ok(toast.message.includes('"Production/gpt-4"'), toast.message);
+			assert.deepStrictEqual(toast.buttons, ["Open Settings", "Dismiss"]);
 		});
 
 		test("uses singular phrasing for a single orphaned entry", () => {
 			warnAboutOrphanedModelParameters("Production", "Prod", ["Production/gpt-4"]);
 			assert.strictEqual(toasts.length, 1);
-			assert.ok(toasts[0].message.includes("1 modelParameters entry "), toasts[0].message);
+			const toast = expectDefined(toasts[0]);
+			assert.ok(toast.message.includes("1 modelParameters entry "), toast.message);
 		});
 
 		test("does not warn when no keys use the old label prefix", () => {

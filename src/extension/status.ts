@@ -40,7 +40,8 @@ export class StatusBarManager {
 		if (isConnectionStatus(lastStatus)) {
 			this._connectionStatus = lastStatus;
 		}
-		this.updateStatusBar();
+		// Rendering without an argument never persists, so nothing needs awaiting.
+		void this.updateStatusBar();
 	}
 
 	get connectionStatus(): ConnectionStatus {

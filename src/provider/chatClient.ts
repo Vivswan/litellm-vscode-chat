@@ -31,7 +31,7 @@ export interface ChatRequestContext {
 
 export interface ChatClientOptions {
 	userAgent: string;
-	logger?: Logger;
+	logger?: Logger | undefined;
 }
 
 /**
@@ -40,7 +40,7 @@ export interface ChatClientOptions {
  */
 export class ChatClient {
 	private readonly userAgent: string;
-	private readonly logger?: Logger;
+	private readonly logger?: Logger | undefined;
 	private getServers?: () => Promise<ServerWithKey[]>;
 	private readonly clients = new ServerClientCache();
 	private readonly _modelRoutes = new Map<string, ModelRoute>();
@@ -117,10 +117,11 @@ export class ChatClient {
 			rawModelId = route.rawModelId;
 		} else {
 			const servers = this.getServers ? await this.getServers() : [];
-			if (servers.length === 1) {
-				serverId = servers[0].id;
-				baseUrl = servers[0].baseUrl;
-				apiKey = servers[0].apiKey;
+			const [soleServer] = servers;
+			if (servers.length === 1 && soleServer !== undefined) {
+				serverId = soleServer.id;
+				baseUrl = soleServer.baseUrl;
+				apiKey = soleServer.apiKey;
 				rawModelId = model.id;
 			} else {
 				throw new Error(

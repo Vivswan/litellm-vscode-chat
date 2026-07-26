@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { StreamProcessor, type ThinkingPartCtor } from "../../provider/streaming";
+import { expectDefined } from "../testUtils";
 
 /** A standalone tool-call ID source with an observable count, mirroring the ChatClient's. */
 function idSource(): { next(): number; readonly count: number } {
@@ -71,7 +72,7 @@ suite("provider/streaming", () => {
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
-		const emitted = await stream.processDelta({ choices: [{ delta: { content: "Hello world" } }] }, progress);
+		const emitted = stream.processDelta({ choices: [{ delta: { content: "Hello world" } }] }, progress);
 
 		assert.ok(emitted, "Should report emitted = true");
 		assert.ok(parts.length > 0, "Should emit at least one part");
@@ -85,7 +86,7 @@ suite("provider/streaming", () => {
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
-		await stream.processDelta(
+		stream.processDelta(
 			{
 				choices: [
 					{
@@ -114,7 +115,7 @@ suite("provider/streaming", () => {
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
-		await stream.processDelta(
+		stream.processDelta(
 			{ choices: [], usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 } },
 			progress
 		);
@@ -167,7 +168,7 @@ suite("provider/streaming", () => {
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
-		await stream.processDelta(
+		stream.processDelta(
 			{ choices: [{ delta: { tool_calls: [{ index: 0, function: { name: "no_id_tool", arguments: "{}" } }] } }] },
 			progress
 		);
@@ -185,7 +186,7 @@ suite("provider/streaming", () => {
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
-		await stream.processDelta(
+		stream.processDelta(
 			{
 				choices: [
 					{
@@ -197,11 +198,11 @@ suite("provider/streaming", () => {
 		);
 		assert.equal(parts.length, 0, "Should not emit while arguments are incomplete JSON");
 
-		await stream.processDelta(
+		stream.processDelta(
 			{ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':"b"}' } }] } }] },
 			progress
 		);
-		await stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }, progress);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }, progress);
 
 		const toolParts = parts.filter((p) => p instanceof vscode.LanguageModelToolCallPart);
 		assert.equal(toolParts.length, 1, "Should emit exactly one tool call part");
@@ -235,8 +236,8 @@ suite("provider/streaming", () => {
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
-		await stream.processDelta({ choices: [{ delta: { content: "Answer" } }] }, progress);
-		await stream.processDelta(
+		stream.processDelta({ choices: [{ delta: { content: "Answer" } }] }, progress);
+		stream.processDelta(
 			{ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_x", function: { name: "t", arguments: "{}" } }] } }] },
 			progress
 		);
@@ -250,7 +251,7 @@ suite("provider/streaming", () => {
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
-		await stream.processDelta(
+		stream.processDelta(
 			{
 				choices: [
 					{
@@ -276,20 +277,21 @@ suite("provider/streaming tool call index normalization", () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		await stream.processDelta(
+		stream.processDelta(
 			{ choices: [{ delta: { tool_calls: [{ index: "0", id: "c9", function: { name: "s", arguments: '{"k"' } }] } }] },
 			progress
 		);
-		await stream.processDelta(
+		stream.processDelta(
 			{ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':"v"}' } }] } }] },
 			progress
 		);
-		await stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }, progress);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }, progress);
 
 		const toolParts = toolCallsOf(parts);
 		assert.equal(toolParts.length, 1, "String and numeric index must address the same buffer");
-		assert.equal(toolParts[0].callId, "c9");
-		assert.deepEqual(toolParts[0].input, { k: "v" });
+		const dedupCall = expectDefined(toolParts[0]);
+		assert.equal(dedupCall.callId, "c9");
+		assert.deepEqual(dedupCall.input, { k: "v" });
 	});
 });
 
@@ -300,7 +302,7 @@ suite("provider/streaming dedup across channels", () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		await stream.processDelta(
+		stream.processDelta(
 			{
 				choices: [{ delta: { tool_calls: [{ index: 0, id: "d1", function: { name: "dup", arguments: '{"x":1}' } }] } }],
 			},
@@ -316,13 +318,13 @@ suite("provider/streaming dedup across channels", () => {
 		const { parts, progress } = collector();
 
 		stream.processTextContent(INLINE_DUP, progress);
-		await stream.processDelta(
+		stream.processDelta(
 			{
 				choices: [{ delta: { tool_calls: [{ index: 0, id: "d1", function: { name: "dup", arguments: '{"x":1}' } }] } }],
 			},
 			progress
 		);
-		await stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }, progress);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }, progress);
 
 		assert.equal(toolCallsOf(parts).length, 1);
 	});
@@ -331,7 +333,7 @@ suite("provider/streaming dedup across channels", () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		await stream.processDelta(
+		stream.processDelta(
 			{
 				choices: [
 					{
@@ -360,7 +362,7 @@ suite("provider/streaming dedup across channels", () => {
 		const { parts, progress } = collector();
 
 		stream.processTextContent(INLINE_DUP, progress);
-		await stream.processDelta(
+		stream.processDelta(
 			{
 				choices: [
 					{
@@ -375,7 +377,7 @@ suite("provider/streaming dedup across channels", () => {
 			},
 			progress
 		);
-		await stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }, progress);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }, progress);
 
 		assert.equal(
 			toolCallsOf(parts).length,
@@ -388,7 +390,7 @@ suite("provider/streaming dedup across channels", () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		await stream.processDelta(
+		stream.processDelta(
 			{
 				choices: [
 					{
@@ -413,7 +415,7 @@ suite("provider/streaming dedup across channels", () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		await stream.processDelta(
+		stream.processDelta(
 			{
 				choices: [{ delta: { tool_calls: [{ index: 0, id: "d1", function: { name: "dup", arguments: '{"x":1}' } }] } }],
 			},
@@ -443,8 +445,9 @@ suite("provider/streaming inline token byte-boundary splits", () => {
 			);
 			const toolParts = toolCallsOf(parts);
 			assert.equal(toolParts.length, 1, `Tool call count diverged at split offset ${i}`);
-			assert.equal(toolParts[0].name, "my_tool", `Tool name diverged at split offset ${i}`);
-			assert.deepEqual(toolParts[0].input, { a: 1 }, `Tool args diverged at split offset ${i}`);
+			const call = expectDefined(toolParts[0]);
+			assert.equal(call.name, "my_tool", `Tool name diverged at split offset ${i}`);
+			assert.deepEqual(call.input, { a: 1 }, `Tool args diverged at split offset ${i}`);
 		}
 	});
 
@@ -464,8 +467,9 @@ suite("provider/streaming inline token byte-boundary splits", () => {
 			);
 			const toolParts = toolCallsOf(parts);
 			assert.equal(toolParts.length, 1, `Tool call count diverged at split offset ${i}`);
-			assert.equal(toolParts[0].name, "ping", `Tool name diverged at split offset ${i}`);
-			assert.deepEqual(toolParts[0].input, {}, `Tool args diverged at split offset ${i}`);
+			const call = expectDefined(toolParts[0]);
+			assert.equal(call.name, "ping", `Tool name diverged at split offset ${i}`);
+			assert.deepEqual(call.input, {}, `Tool args diverged at split offset ${i}`);
 		}
 	});
 });
@@ -484,7 +488,7 @@ suite("provider/streaming thinking parts", () => {
 		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
 
-		await stream.processDelta({ choices: [{ delta: { thinking: { text: "deep", id: "t1" } } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { thinking: { text: "deep", id: "t1" } } }] }, progress);
 
 		assert.equal(parts.length, 1);
 		const part = parts[0] as unknown as FakeThinkingPart;
@@ -497,7 +501,7 @@ suite("provider/streaming thinking parts", () => {
 		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
 
-		await stream.processDelta({ choices: [{ delta: { reasoning_content: "steps" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { reasoning_content: "steps" } }] }, progress);
 
 		assert.equal(parts.length, 1);
 		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "steps");
@@ -507,7 +511,7 @@ suite("provider/streaming thinking parts", () => {
 		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
 		const { parts, progress } = collector();
 
-		await stream.processDelta({ choices: [{ delta: { reasoning: "why" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { reasoning: "why" } }] }, progress);
 
 		assert.equal(parts.length, 1);
 		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "why");
@@ -523,7 +527,7 @@ suite("provider/streaming thinking parts", () => {
 		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg), throwingCtor);
 		const { parts, progress } = collector();
 
-		await stream.processDelta({ choices: [{ delta: { thinking: "x", content: "visible" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { thinking: "x", content: "visible" } }] }, progress);
 
 		assert.ok(
 			logs.some((l) => l.includes("Failed to construct thinking part")),
@@ -536,7 +540,7 @@ suite("provider/streaming thinking parts", () => {
 		const stream = new StreamProcessor(idSource(), () => {}, null);
 		const { parts, progress } = collector();
 
-		await stream.processDelta({ choices: [{ delta: { reasoning_content: "hidden" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { reasoning_content: "hidden" } }] }, progress);
 
 		assert.equal(parts.length, 0);
 	});
@@ -546,6 +550,78 @@ suite("provider/streaming end-of-stream policy", () => {
 	function token(): vscode.CancellationToken {
 		return new vscode.CancellationTokenSource().token;
 	}
+
+	test("trailing text held back by the control-token scanner is emitted at end of stream", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream(['data: {"choices":[{"delta":{"content":"hello <|note"}}]}\n', "data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		assert.strictEqual(visibleTextOf(parts), "hello <|note", "Ordinary text ending in <|identifier must not be lost");
+	});
+
+	test("a truncated structural tool-call token at end of stream is still dropped", async () => {
+		const logs: string[] = [];
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg));
+		const { parts, progress } = collector();
+		const body = sseStream(['data: {"choices":[{"delta":{"content":"done <|tool_call_beg"}}]}\n', "data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		assert.strictEqual(visibleTextOf(parts), "done ", "The truncated begin token must not leak");
+		assert.ok(
+			logs.some((l) => l.includes("Dropping trailing partial control token text")),
+			"The drop must be logged"
+		);
+	});
+
+	test("call-internal held text never leaks when the stream truncates after argument-end", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const chunk = 'x <|tool_call_begin|>t<|tool_call_argument_begin|>{"x":1}<|tool_call_argument_end|><|';
+		const body = sseStream([`data: {"choices":[{"delta":{"content":${JSON.stringify(chunk)}}}]}\n`, "data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		assert.strictEqual(visibleTextOf(parts), "x ", "The held partial end token is call-internal, not visible text");
+		const calls = toolCallsOf(parts);
+		assert.strictEqual(calls.length, 1, "The provisional call has complete JSON args and must be recovered");
+		assert.deepStrictEqual(calls[0]?.input, { x: 1 });
+	});
+
+	test("a truncated section marker at end of stream is dropped as protocol text", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream(['data: {"choices":[{"delta":{"content":"a<|calls_section_begin|"}}]}\n', "data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		assert.strictEqual(visibleTextOf(parts), "a", "A half-received section marker must not leak");
+	});
+
+	test("a reply ending in a bare < or <| keeps those characters", async () => {
+		for (const tail of ["5 <", "a <|"]) {
+			const stream = new StreamProcessor(idSource(), () => {});
+			const { parts, progress } = collector();
+			const body = sseStream([`data: {"choices":[{"delta":{"content":${JSON.stringify(tail)}}}]}\n`, "data: [DONE]\n"]);
+			await stream.processStreamingResponse(body, progress, token());
+			assert.strictEqual(visibleTextOf(parts), tail, `Trailing ${JSON.stringify(tail)} must not be dropped`);
+		}
+	});
+
+	test("a call opened by a complete begin token but never terminated is dropped at end of stream", async () => {
+		const logs: string[] = [];
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg));
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"ok <|tool_call_begin|>get_weather"}}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		assert.strictEqual(visibleTextOf(parts), "ok ", "A truncated call must not leak its tokens into visible text");
+		assert.ok(
+			logs.some((l) => l.includes("Dropping trailing partial control token text")),
+			"The drop must be logged"
+		);
+	});
 
 	test("[DONE] without finish_reason rejects on truncated tool call JSON", async () => {
 		const logs: string[] = [];
@@ -622,8 +698,9 @@ suite("provider/streaming end-of-stream policy", () => {
 
 		const toolParts = toolCallsOf(parts);
 		assert.equal(toolParts.length, 1);
-		assert.equal(toolParts[0].name, "unknown_tool");
-		assert.equal(toolParts[0].callId, "call_1");
+		const call = expectDefined(toolParts[0]);
+		assert.equal(call.name, "unknown_tool");
+		assert.equal(call.callId, "call_1");
 	});
 
 	test("stream end without [DONE] rejects on truncated tool call JSON", async () => {

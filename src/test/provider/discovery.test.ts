@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { createServerClient } from "../../provider/clients";
 import { fetchModels, isLiteLLMModelInfoItem, isLiteLLMModelItem } from "../../provider/discovery";
+import { expectDefined } from "../testUtils";
 
 function request(log: (message: string, data?: unknown) => void = () => {}) {
 	const client = createServerClient({
@@ -146,8 +147,9 @@ suite("provider/discovery", () => {
 				const { models } = await fetchModels(request((m) => logs.push(m)));
 
 				assert.strictEqual(models.length, 1);
-				assert.strictEqual(models[0].id, "bare-model");
-				assert.deepStrictEqual(models[0].providers, []);
+				const model = expectDefined(models[0]);
+				assert.strictEqual(model.id, "bare-model");
+				assert.deepStrictEqual(model.providers, []);
 				assert.ok(
 					logs.some((m) => m.includes("Skipping malformed models entry")),
 					"Malformed /v1/models entries should be skipped with a log line"
@@ -172,8 +174,9 @@ suite("provider/discovery", () => {
 					})) as unknown as typeof fetch;
 				const { models } = await fetchModels(request((msg) => logs.push(msg)));
 				assert.strictEqual(models.length, 1);
-				assert.strictEqual(models[0].providers.length, 1, "Only the well-formed provider survives");
-				assert.strictEqual(models[0].providers[0].provider, "openai");
+				const model = expectDefined(models[0]);
+				assert.strictEqual(model.providers.length, 1, "Only the well-formed provider survives");
+				assert.strictEqual(expectDefined(model.providers[0]).provider, "openai");
 				assert.ok(
 					logs.some((l) => l.includes("Skipping malformed provider entry")),
 					"Dropped provider entries must be logged"

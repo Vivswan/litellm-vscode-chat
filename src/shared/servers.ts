@@ -20,7 +20,7 @@ export interface ServerStatus {
 	baseUrl: string;
 	state: "ok" | "error";
 	modelCount: number;
-	error?: string;
+	error?: string | undefined;
 	lastChecked: string;
 }
 

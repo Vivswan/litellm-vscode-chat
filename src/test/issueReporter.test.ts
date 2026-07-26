@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { DiagnosticsSnapshot } from "../issueReporter";
 import { IssueReporter, redactSecrets } from "../issueReporter";
+import { expectDefined } from "./testUtils";
 
 suite("IssueReporter", () => {
 	const MAX_SAFE_URL_LENGTH = 8000;
@@ -186,8 +187,8 @@ suite("IssueReporter", () => {
 
 		assert.ok(url.length <= MAX_SAFE_URL_LENGTH);
 		assert.ok(body.includes("older log lines omitted"));
-		assert.ok(!body.includes(logs[0]));
-		assert.ok(body.includes(logs[49]));
+		assert.ok(!body.includes(expectDefined(logs[0])));
+		assert.ok(body.includes(expectDefined(logs[49])));
 		assert.ok(!body.includes("...(truncated)"));
 	});
 
@@ -229,8 +230,8 @@ suite("IssueReporter", () => {
 
 		assert.ok(openedUri);
 		assert.ok(openedUri.length <= MAX_SAFE_URL_LENGTH);
-		assert.ok(clipboardText?.includes(logs[0]));
-		assert.ok(clipboardText?.includes(logs[49]));
+		assert.ok(clipboardText?.includes(expectDefined(logs[0])));
+		assert.ok(clipboardText?.includes(expectDefined(logs[49])));
 		assert.equal(savedText, clipboardText);
 		assert.equal(notifiedFile?.toString(), diagnosticsFile.toString());
 		assert.ok(getIssueBody(openedUri).includes("saved to a diagnostics file"));
@@ -263,8 +264,8 @@ suite("IssueReporter", () => {
 		}
 		const logs = reporter.getRecentLogs();
 		assert.equal(logs.length, 50);
-		assert.ok(logs[0].includes("line 10"));
-		assert.ok(logs[49].includes("line 59"));
+		assert.ok(expectDefined(logs[0]).includes("line 10"));
+		assert.ok(expectDefined(logs[49]).includes("line 59"));
 	});
 
 	test("recordError captures message and stack", () => {

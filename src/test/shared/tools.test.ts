@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { convertTools } from "../../shared/tools";
+import { expectDefined } from "../testUtils";
 
 suite("shared/tools", () => {
 	test("convertTools returns function tool definitions", () => {
@@ -17,8 +18,10 @@ suite("shared/tools", () => {
 
 		assert.ok(out);
 		assert.equal(out.tool_choice, "auto");
-		assert.ok(Array.isArray(out.tools) && out.tools[0].type === "function");
-		assert.equal(out.tools[0].function.name, "do_something");
+		assert.ok(Array.isArray(out.tools));
+		const tool = expectDefined(out.tools[0]);
+		assert.equal(tool.type, "function");
+		assert.equal(tool.function.name, "do_something");
 	});
 
 	test("convertTools respects ToolMode.Required for single tool", () => {
@@ -53,10 +56,11 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
-		const params = out.tools![0].function.parameters as Record<string, unknown>;
+		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
-		assert.ok(Array.isArray(props.value.anyOf), "anyOf should be preserved");
-		assert.equal((props.value.anyOf as unknown[]).length, 2);
+		const value = expectDefined(props.value);
+		assert.ok(Array.isArray(value.anyOf), "anyOf should be preserved");
+		assert.equal((value.anyOf as unknown[]).length, 2);
 	});
 
 	test("schema preserves const keyword", () => {
@@ -71,9 +75,9 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
-		const params = out.tools![0].function.parameters as Record<string, unknown>;
+		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
-		assert.equal(props.action.const, "submit", "const keyword should be preserved");
+		assert.equal(expectDefined(props.action).const, "submit", "const keyword should be preserved");
 	});
 
 	test("schema does not force type on const-only nodes", () => {
@@ -88,11 +92,12 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
-		const params = out.tools![0].function.parameters as Record<string, unknown>;
+		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
-		assert.equal(props.action.const, "submit");
-		assert.equal(props.action.type, undefined);
-		assert.equal(props.action.properties, undefined);
+		const action = expectDefined(props.action);
+		assert.equal(action.const, "submit");
+		assert.equal(action.type, undefined);
+		assert.equal(action.properties, undefined);
 	});
 
 	test("schema does not force type on $ref-only nodes", () => {
@@ -111,11 +116,12 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
-		const params = out.tools![0].function.parameters as Record<string, unknown>;
+		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
-		assert.equal(props.item.$ref, "#/$defs/Item");
-		assert.equal(props.item.type, undefined);
-		assert.equal(props.item.properties, undefined);
+		const item = expectDefined(props.item);
+		assert.equal(item.$ref, "#/$defs/Item");
+		assert.equal(item.type, undefined);
+		assert.equal(item.properties, undefined);
 	});
 
 	test("schema does not force type on type-less anyOf nodes", () => {
@@ -135,10 +141,11 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
-		const params = out.tools![0].function.parameters as Record<string, unknown>;
+		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
-		assert.ok(Array.isArray(props.value.anyOf));
-		assert.equal(props.value.type, undefined);
-		assert.equal(props.value.properties, undefined);
+		const value = expectDefined(props.value);
+		assert.ok(Array.isArray(value.anyOf));
+		assert.equal(value.type, undefined);
+		assert.equal(value.properties, undefined);
 	});
 });

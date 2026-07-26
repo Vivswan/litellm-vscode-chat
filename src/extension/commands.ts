@@ -127,7 +127,14 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 				feature: GITHUB_NEW_ISSUE_FEATURE,
 				docs: GITHUB_DOCS,
 			};
-			vscode.env.openExternal(vscode.Uri.parse(urls[choice.id]));
+			const url = urls[choice.id];
+			if (url === undefined) {
+				// Loud failure so a future quick-pick entry without a matching URL
+				// cannot silently do nothing.
+				void vscode.window.showErrorMessage(`LiteLLM: no destination configured for "${choice.id}"`);
+				return;
+			}
+			void vscode.env.openExternal(vscode.Uri.parse(url));
 		})
 	);
 }

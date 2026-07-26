@@ -15,8 +15,8 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 		if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
 			const toolCallIds = new Set(
 				message.content
-					.filter((part) => part instanceof vscode.LanguageModelToolCallPart)
-					.map((part) => (part as unknown as vscode.LanguageModelToolCallPart).callId)
+					.filter((part): part is vscode.LanguageModelToolCallPart => part instanceof vscode.LanguageModelToolCallPart)
+					.map((part) => part.callId)
 			);
 			if (toolCallIds.size === 0) {
 				return;

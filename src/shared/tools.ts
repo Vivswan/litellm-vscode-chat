@@ -22,7 +22,7 @@ function isIntegerLikePropertyName(propertyName: string | undefined): boolean {
 	return integerMarkers.some((m) => lowered.includes(m)) || lowered.endsWith("_id");
 }
 
-export function sanitizeFunctionName(name: unknown): string {
+function sanitizeFunctionName(name: unknown): string {
 	if (typeof name !== "string" || !name) {
 		return "tool";
 	}
@@ -77,7 +77,7 @@ function pruneUnknownSchemaKeywords(schema: unknown): Record<string, unknown> {
 	return out;
 }
 
-export function sanitizeSchema(input: unknown, propName?: string): Record<string, unknown> {
+function sanitizeSchema(input: unknown, propName?: string): Record<string, unknown> {
 	if (!input || typeof input !== "object" || Array.isArray(input)) {
 		return { type: "object", properties: {} } as Record<string, unknown>;
 	}
@@ -187,8 +187,9 @@ export function convertTools(options: vscode.ProvideLanguageModelChatResponseOpt
 
 	let tool_choice: "auto" | "required" | { type: "function"; function: { name: string } } = "auto";
 	if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
-		if (tools.length === 1) {
-			tool_choice = { type: "function", function: { name: sanitizeFunctionName(tools[0].name) } };
+		const [soleTool] = tools;
+		if (tools.length === 1 && soleTool !== undefined) {
+			tool_choice = { type: "function", function: { name: sanitizeFunctionName(soleTool.name) } };
 		} else {
 			tool_choice = "required";
 		}

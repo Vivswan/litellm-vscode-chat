@@ -38,7 +38,7 @@ export interface RequestBodyParams {
 	maxTokens: number;
 	modelParams: Record<string, unknown>;
 	toolConfig: { tools?: OpenAIFunctionToolDef[]; tool_choice?: unknown };
-	modelOptions?: Record<string, unknown>;
+	modelOptions?: Record<string, unknown> | undefined;
 }
 
 /**
