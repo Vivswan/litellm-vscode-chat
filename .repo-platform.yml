@@ -1,0 +1,5 @@
+# This file is managed by Vivswan/repo-platform. Its presence
+# marks this repository as participating in push sync. `modules` is this
+# repo's module selection - edit it and the next sync applies the change.
+
+modules: ["agents", "bun", "release-please", "issue-templates", "pr-title", "auto-assign"]

@@ -37,10 +37,10 @@ To manage servers:
 - **Model Picker**: Chat interface → Model picker → "Manage Models..." → "LiteLLM"
 
 From the server manager you can:
-- **Add Server** — provide a unique label, base URL, and optional API key
-- **Edit Server** — update label, URL, or API key
-- **Remove Server** — delete a server and its stored credentials
-- **Test All Servers** — verify connectivity to every configured server
+- **Add Server**: provide a unique label, base URL, and optional API key
+- **Edit Server**: update label, URL, or API key
+- **Remove Server**: delete a server and its stored credentials
+- **Test All Servers**: verify connectivity to every configured server
 
 If no servers are configured, the "Manage" command jumps straight to the add flow.
 
@@ -99,7 +99,7 @@ Override default request parameters for specific models using the `modelParamete
 - `seed` - Deterministic output
 - And any other parameter supported by your LiteLLM and model provider backend
 
-All non-reserved `modelParameters` keys are passed through to LiteLLM — the extension does not restrict which parameters you can set, and it never injects parameters you did not set. When you configure nothing, your model provider's own defaults apply. Keys starting with `_` are reserved for extension metadata and are never forwarded.
+All non-reserved `modelParameters` keys are passed through to LiteLLM: the extension does not restrict which parameters you can set, and it never injects parameters you did not set. When you configure nothing, your model provider's own defaults apply. Keys starting with `_` are reserved for extension metadata and are never forwarded.
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
@@ -213,10 +213,10 @@ The LiteLLM status bar indicator (bottom right corner) shows your connection sta
 
 | Icon | Status | Description |
 |------|--------|-------------|
-| `⚠️ LiteLLM` | Not Configured | No servers configured - click to set up |
+| `⚠ LiteLLM` | Not Configured | No servers configured - click to set up |
 | `⟳ LiteLLM` | Loading | Fetching models from servers |
 | `✓ LiteLLM (N)` | Connected | All servers reachable with N models available |
-| `⚠️ LiteLLM (N)` | Degraded | Some servers unreachable, N models from reachable servers |
+| `⚠ LiteLLM (N)` | Degraded | Some servers unreachable, N models from reachable servers |
 | `✗ LiteLLM` | Error | All servers failed - click for diagnostics |
 
 Click the status bar indicator at any time to view detailed diagnostics.

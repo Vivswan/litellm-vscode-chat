@@ -137,7 +137,7 @@ function extractToolCalls(parts: unknown[]): vscode.LanguageModelToolCallPart[] 
 /** Ensure the extension is activated. */
 async function ensureActivated(): Promise<void> {
 	const ext = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
-	assert.ok(ext, "Extension not found — check publisher.name in package.json");
+	assert.ok(ext, "Extension not found; check publisher.name in package.json");
 	if (!ext.isActive) {
 		await ext.activate();
 	}
@@ -1325,7 +1325,7 @@ suite("Host-Fidelity Tests (live)", () => {
 			}
 			if (cancelledAt === 0 || endedAt < cancelledAt) {
 				if (threw) {
-					assert.fail(`Request failed before cancellation fired (${parts} parts) — cancellation was never exercised`);
+					assert.fail(`Request failed before cancellation fired (${parts} parts); cancellation was never exercised`);
 				}
 				console.log("Skipping: stream completed before cancellation fired, so cancellation was never exercised");
 				this.skip();
@@ -1333,7 +1333,7 @@ suite("Host-Fidelity Tests (live)", () => {
 			const msAfterCancel = endedAt - cancelledAt;
 			assert.ok(
 				msAfterCancel < 5000,
-				`Stream continued ${msAfterCancel}ms after cancellation — it likely ran to completion instead of stopping`
+				`Stream continued ${msAfterCancel}ms after cancellation; it likely ran to completion instead of stopping`
 			);
 		});
 	});
@@ -1365,7 +1365,7 @@ suite("Host-Fidelity Tests (live)", () => {
 			const toolCalls = extractToolCalls(parts);
 			const text = extractText(parts);
 
-			// In auto mode, the model may choose to call the tool or answer directly — both are valid
+			// In auto mode, the model may choose to call the tool or answer directly; both are valid
 			assert.ok(toolCalls.length > 0 || text.length > 0, "Should receive either a tool call or text response");
 			if (toolCalls.length > 0) {
 				const call = expectDefined(toolCalls[0]);
@@ -1378,7 +1378,7 @@ suite("Host-Fidelity Tests (live)", () => {
 			}
 		});
 
-		test("multiple tools available — model responds", async function () {
+		test("multiple tools available: model responds", async function () {
 			this.timeout(REAL_TIMEOUT || 30000);
 
 			const response = await model.sendRequest(

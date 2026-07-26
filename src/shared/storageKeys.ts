@@ -24,7 +24,7 @@ export const GROUP_MIGRATION_COMPLETE_KEY = "litellm.groupMigrationComplete";
 export const SEEDED_PROVIDER_GROUPS_KEY = "litellm.seededProviderGroups";
 
 /**
- * globalState: registry server IDs the migration must leave alone — their
+ * globalState: registry server IDs the migration must leave alone: their
  * group's configuration could not be verified (a name collision or an edit
  * that raced the seeding), so removing the entry could destroy the only
  * correct copy. The user resolves them manually.
