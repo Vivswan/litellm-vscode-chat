@@ -5,7 +5,9 @@
 			"release-type": "node",
 			"include-component-in-tag": false,
 			"include-v-in-tag": true,
-			"changelog-path": "CHANGELOG.md"
+			"changelog-path": "CHANGELOG.md",
+			"bump-minor-pre-major": true,
+			"bump-patch-for-minor-pre-major": true
 		}
 	}
 }
