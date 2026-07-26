@@ -31,6 +31,25 @@ export interface ThinkingBlock {
 	metadata?: unknown;
 }
 
+/**
+ * One entry of a thinking_blocks array, LiteLLM's mapping of Anthropic
+ * extended thinking. "thinking" entries carry text plus the signature needed
+ * to replay the block in a later turn; "redacted_thinking" entries carry only
+ * opaque data.
+ */
+export interface ThinkingBlockDelta {
+	type?: string | undefined;
+	thinking?: string | undefined;
+	signature?: string | undefined;
+	data?: string | undefined;
+}
+
+/** URL citation attached to a streamed content delta by web-search-enabled models. */
+export interface ChunkAnnotation {
+	type?: string | undefined;
+	url_citation?: { url?: string | undefined; title?: string | undefined } | undefined;
+}
+
 /** Content block inside a structured streaming delta; only text blocks are rendered. */
 interface ChunkContentBlock {
 	type?: string | undefined;
@@ -51,8 +70,11 @@ export interface ChunkDelta {
 	content?: string | ChunkContentBlock[] | null | undefined;
 	tool_calls?: StreamedToolCall[] | undefined;
 	thinking?: string | ThinkingBlock | undefined;
+	thinking_blocks?: ThinkingBlockDelta[] | undefined;
 	reasoning_content?: string | undefined;
 	reasoning?: string | undefined;
+	refusal?: string | undefined;
+	annotations?: ChunkAnnotation[] | undefined;
 }
 
 /** A single choice in a streaming chunk. Some providers put thinking on the choice instead of the delta. */
@@ -99,6 +121,36 @@ function narrowThinking(raw: unknown): string | ThinkingBlock | undefined {
 	return undefined;
 }
 
+function narrowThinkingBlocks(raw: unknown): ThinkingBlockDelta[] | undefined {
+	if (!Array.isArray(raw)) {
+		return undefined;
+	}
+	return raw.filter(isRecord).map((block) => ({
+		type: typeof block.type === "string" ? block.type : undefined,
+		thinking: typeof block.thinking === "string" ? block.thinking : undefined,
+		signature: typeof block.signature === "string" ? block.signature : undefined,
+		data: typeof block.data === "string" ? block.data : undefined,
+	}));
+}
+
+function narrowAnnotations(raw: unknown): ChunkAnnotation[] | undefined {
+	if (!Array.isArray(raw)) {
+		return undefined;
+	}
+	return raw.filter(isRecord).map((annotation) => {
+		const citation = isRecord(annotation.url_citation) ? annotation.url_citation : undefined;
+		return {
+			type: typeof annotation.type === "string" ? annotation.type : undefined,
+			url_citation: citation
+				? {
+						url: typeof citation.url === "string" ? citation.url : undefined,
+						title: typeof citation.title === "string" ? citation.title : undefined,
+					}
+				: undefined,
+		};
+	});
+}
+
 function narrowContent(raw: unknown): string | ChunkContentBlock[] | null | undefined {
 	if (raw === undefined) {
 		return undefined;
@@ -139,8 +191,11 @@ function narrowDelta(raw: unknown): ChunkDelta | undefined {
 		content: narrowContent(raw.content),
 		tool_calls: Array.isArray(raw.tool_calls) ? raw.tool_calls.filter(isRecord).map(narrowToolCall) : undefined,
 		thinking: narrowThinking(raw.thinking),
+		thinking_blocks: narrowThinkingBlocks(raw.thinking_blocks),
 		reasoning_content: typeof raw.reasoning_content === "string" ? raw.reasoning_content : undefined,
 		reasoning: typeof raw.reasoning === "string" ? raw.reasoning : undefined,
+		refusal: typeof raw.refusal === "string" ? raw.refusal : undefined,
+		annotations: narrowAnnotations(raw.annotations),
 	};
 }
 

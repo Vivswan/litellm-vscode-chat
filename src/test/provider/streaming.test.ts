@@ -544,6 +544,205 @@ suite("provider/streaming thinking parts", () => {
 
 		assert.equal(parts.length, 0);
 	});
+
+	test("thinking_blocks emit one part per block and suppress the duplicate reasoning_content", async () => {
+		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			{
+				choices: [
+					{
+						delta: {
+							reasoning_content: "step one",
+							thinking_blocks: [{ type: "thinking", thinking: "step one", signature: "sig-1" }],
+						},
+					},
+				],
+			},
+			progress
+		);
+
+		assert.equal(parts.length, 1, "The block and reasoning_content carry the same text; only the block may emit");
+		const part = parts[0] as unknown as FakeThinkingPart;
+		assert.equal(part.text, "step one");
+		assert.deepEqual(part.metadata, { type: "thinking", signature: "sig-1" });
+	});
+
+	test("a redacted thinking block emits an empty-text part carrying the opaque data", async () => {
+		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			{ choices: [{ delta: { thinking_blocks: [{ type: "redacted_thinking", data: "opaque" }] } }] },
+			progress
+		);
+
+		assert.equal(parts.length, 1);
+		const part = parts[0] as unknown as FakeThinkingPart;
+		assert.equal(part.text, "");
+		assert.deepEqual(part.metadata, { type: "redacted_thinking", data: "opaque" });
+	});
+
+	test("an empty choice-level thinking string does not suppress populated delta thinking", async () => {
+		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
+		const { parts, progress } = collector();
+
+		stream.processDelta({ choices: [{ thinking: "", delta: { thinking: "deep" } }] }, progress);
+
+		assert.equal(parts.length, 1);
+		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "deep");
+	});
+
+	test("an empty reasoning_content does not suppress populated reasoning", async () => {
+		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
+		const { parts, progress } = collector();
+
+		stream.processDelta({ choices: [{ delta: { reasoning_content: "", reasoning: "why" } }] }, progress);
+
+		assert.equal(parts.length, 1);
+		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "why");
+	});
+
+	test("contentless thinking_blocks do not suppress populated reasoning_content", async () => {
+		const stream = new StreamProcessor(idSource(), () => {}, fakeCtor);
+		const { parts, progress } = collector();
+
+		stream.processDelta({ choices: [{ delta: { thinking_blocks: [{}], reasoning_content: "steps" } }] }, progress);
+
+		assert.equal(parts.length, 1);
+		assert.equal((parts[0] as unknown as FakeThinkingPart).text, "steps");
+	});
+});
+
+suite("provider/streaming refusal and annotations", () => {
+	test("refusal deltas surface as response text and are logged once", async () => {
+		const logs: string[] = [];
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg));
+		const { parts, progress } = collector();
+
+		stream.processDelta({ choices: [{ delta: { refusal: "I cannot help" } }] }, progress);
+		stream.processDelta({ choices: [{ delta: { refusal: " with that." } }] }, progress);
+
+		assert.equal(visibleTextOf(parts), "I cannot help with that.");
+		assert.equal(logs.filter((l) => l.includes("Model refused the request")).length, 1);
+	});
+
+	test("url citations from annotations emit one sources trailer at end of stream", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			{
+				choices: [
+					{
+						delta: {
+							content: "The sky is blue.",
+							annotations: [
+								{ type: "url_citation", url_citation: { url: "https://example.test/sky", title: "Sky" } },
+								{ type: "url_citation", url_citation: { url: "https://example.test/sky", title: "Sky again" } },
+							],
+						},
+					},
+				],
+			},
+			progress
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+		// The [DONE] line runs the end-of-stream path a second time; the trailer must not repeat.
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+
+		const text = visibleTextOf(parts);
+		assert.ok(text.includes("The sky is blue."), "Content must still render");
+		assert.equal(text.match(/Sources:/g)?.length, 1, "Exactly one sources trailer");
+		assert.ok(text.includes("[Sky](https://example.test/sky)"), "Citation renders as a markdown link");
+		assert.equal(text.match(/example\.test\/sky/g)?.length, 1, "Duplicate URLs collapse to one entry");
+	});
+
+	test("annotations without a url are ignored", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			{ choices: [{ delta: { content: "text", annotations: [{ type: "url_citation" }] } }] },
+			progress
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+
+		assert.equal(visibleTextOf(parts), "text");
+	});
+
+	test("citation titles and urls are escaped in the sources trailer", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			{
+				choices: [
+					{
+						delta: {
+							content: "cited",
+							annotations: [
+								{
+									type: "url_citation",
+									url_citation: { url: "https://example.test/a (b)", title: "Line]\nbreak [x]" },
+								},
+							],
+						},
+					},
+				],
+			},
+			progress
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+
+		const text = visibleTextOf(parts);
+		assert.ok(text.includes("[Line\\] break \\[x\\]]"), `title must be escaped and newline-flattened, got ${text}`);
+		assert.ok(text.includes("(https://example.test/a%20%28b%29)"), `url must be percent-encoded, got ${text}`);
+	});
+});
+
+suite("provider/streaming pass-through of unhandled modern fields", () => {
+	test("an audio output delta is skipped without dropping surrounding output", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			`data: ${JSON.stringify({
+				choices: [{ delta: { role: "assistant", audio: { id: "a1", data: "UklGRg==", transcript: "spoken" } } }],
+			})}\n\n`,
+			`data: ${JSON.stringify({ choices: [{ delta: { content: "Text alongside audio." } }] })}\n\n`,
+			"data: [DONE]\n\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, new vscode.CancellationTokenSource().token);
+
+		assert.equal(visibleTextOf(parts), "Text alongside audio.");
+	});
+
+	test("usage token detail objects are logged wholesale", async () => {
+		const logged: { message: string; data?: unknown }[] = [];
+		const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }));
+		const { progress } = collector();
+
+		stream.processDelta(
+			{
+				choices: [],
+				usage: {
+					prompt_tokens: 120,
+					completion_tokens: 80,
+					total_tokens: 200,
+					prompt_tokens_details: { cached_tokens: 90 },
+					completion_tokens_details: { reasoning_tokens: 40 },
+				},
+			},
+			progress
+		);
+
+		const usageLog = logged.find((l) => l.message === "Token usage");
+		const data = expectDefined(usageLog?.data) as Record<string, unknown>;
+		assert.deepEqual(data.prompt_tokens_details, { cached_tokens: 90 });
+		assert.deepEqual(data.completion_tokens_details, { reasoning_tokens: 40 });
+	});
 });
 
 suite("provider/streaming end-of-stream policy", () => {

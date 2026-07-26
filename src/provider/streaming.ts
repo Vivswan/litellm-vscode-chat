@@ -2,7 +2,14 @@ import * as vscode from "vscode";
 import { tryParseJSONObject } from "../shared/json";
 import type { TextParseResult, TextToolCall } from "./textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "./textToolCallParser";
-import type { ChatCompletionChunk, ChunkChoice, ChunkDelta, ToolCallBuffer } from "./wire";
+import type {
+	ChatCompletionChunk,
+	ChunkChoice,
+	ChunkDelta,
+	ThinkingBlock,
+	ThinkingBlockDelta,
+	ToolCallBuffer,
+} from "./wire";
 import { parseChunk } from "./wire";
 
 export type ThinkingPartCtor = new (text: string, id?: string, metadata?: unknown) => vscode.LanguageModelResponsePart;
@@ -34,21 +41,55 @@ interface ThinkingContent {
 	metadata?: unknown;
 }
 
-/**
- * Extract thinking/reasoning text from a streaming choice. Covers the three
- * provider formats: a structured thinking object (choice- or delta-level),
- * a reasoning_content string, and a reasoning string.
- */
-function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefined): ThinkingContent | undefined {
-	const raw = choice.thinking ?? delta?.thinking ?? delta?.reasoning_content ?? delta?.reasoning;
+function structuredThinkingContents(raw: string | ThinkingBlock | undefined): ThinkingContent[] {
 	if (raw === undefined) {
-		return undefined;
+		return [];
 	}
 	if (typeof raw === "string") {
-		return raw ? { text: raw } : undefined;
+		return raw ? [{ text: raw }] : [];
 	}
 	const text = typeof raw.text === "string" ? raw.text : "";
-	return text ? { text, id: raw.id, metadata: raw.metadata } : undefined;
+	return text ? [{ text, id: raw.id, metadata: raw.metadata }] : [];
+}
+
+function thinkingBlockContents(blocks: readonly ThinkingBlockDelta[] | undefined): ThinkingContent[] {
+	if (!blocks) {
+		return [];
+	}
+	return blocks.flatMap((block): ThinkingContent[] => {
+		if (block.type === "redacted_thinking") {
+			return block.data ? [{ text: "", metadata: { type: block.type, data: block.data } }] : [];
+		}
+		const text = block.thinking ?? "";
+		const metadata = block.signature !== undefined ? { type: block.type, signature: block.signature } : undefined;
+		return text || metadata ? [{ text, metadata }] : [];
+	});
+}
+
+/**
+ * Extract thinking/reasoning content from a streaming choice. Covers the four
+ * provider formats: a structured thinking object (choice- or delta-level), a
+ * thinking_blocks array (Anthropic extended thinking via LiteLLM, whose text
+ * duplicates reasoning_content but whose signature and redacted data exist
+ * nowhere else), a reasoning_content string, and a reasoning string. Each
+ * format wins only when it yields usable content, so an empty higher-priority
+ * field never suppresses a populated lower-priority one.
+ */
+function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefined): ThinkingContent[] {
+	const choiceStructured = structuredThinkingContents(choice.thinking);
+	if (choiceStructured.length > 0) {
+		return choiceStructured;
+	}
+	const deltaStructured = structuredThinkingContents(delta?.thinking);
+	if (deltaStructured.length > 0) {
+		return deltaStructured;
+	}
+	const blocks = thinkingBlockContents(delta?.thinking_blocks);
+	if (blocks.length > 0) {
+		return blocks;
+	}
+	const reasoning = delta?.reasoning_content || delta?.reasoning;
+	return reasoning ? [{ text: reasoning }] : [];
 }
 
 function normalizeToolCallIndex(index: number | string | undefined): number {
@@ -87,6 +128,12 @@ interface RequestState {
 	 */
 	deltaEmittedCounts: Map<string, number>;
 	inlineEmittedCounts: Map<string, number>;
+	/** Whether a refusal delta was already logged for this request. */
+	loggedRefusal: boolean;
+	/** Citation URL to title, collected from annotation deltas and emitted once at end of stream. */
+	citations: Map<string, string>;
+	/** Set once the citations trailer has been emitted; finishStream runs more than once per stream. */
+	emittedCitations: boolean;
 }
 
 function freshRequestState(): RequestState {
@@ -101,6 +148,9 @@ function freshRequestState(): RequestState {
 		inlineEmittedContentKeys: new Set(),
 		deltaEmittedCounts: new Map(),
 		inlineEmittedCounts: new Map(),
+		loggedRefusal: false,
+		citations: new Map(),
+		emittedCitations: false,
 	};
 }
 
@@ -200,8 +250,10 @@ export class StreamProcessor {
 		}
 		const delta = choice.delta;
 
-		const thinking = extractThinking(choice, delta);
-		if (thinking && this._thinkingPartCtor) {
+		for (const thinking of extractThinking(choice, delta)) {
+			if (!this._thinkingPartCtor) {
+				break;
+			}
 			let part: vscode.LanguageModelResponsePart | undefined;
 			try {
 				part = new this._thinkingPartCtor(thinking.text, thinking.id, thinking.metadata);
@@ -211,6 +263,26 @@ export class StreamProcessor {
 			if (part) {
 				progress.report(part);
 				emitted = true;
+			}
+		}
+
+		if (delta?.refusal) {
+			if (!this._req.loggedRefusal) {
+				this._req.loggedRefusal = true;
+				// No content: refusal text can echo user data into issue reports.
+				this._log("Model refused the request");
+			}
+			progress.report(new vscode.LanguageModelTextPart(delta.refusal));
+			this._req.hasEmittedAssistantText = true;
+			emitted = true;
+		}
+
+		if (delta?.annotations) {
+			for (const annotation of delta.annotations) {
+				const url = annotation.url_citation?.url;
+				if (url && !this._req.citations.has(url)) {
+					this._req.citations.set(url, annotation.url_citation?.title ?? url);
+				}
 			}
 		}
 
@@ -444,6 +516,19 @@ export class StreamProcessor {
 			} else {
 				progress.report(new vscode.LanguageModelTextPart(trailingText));
 			}
+		}
+
+		if (this._req.citations.size > 0 && !this._req.emittedCitations) {
+			this._req.emittedCitations = true;
+			const escapeTitle = (title: string) => title.replace(/[\r\n]+/g, " ").replace(/[[\]\\]/g, "\\$&");
+			// encodeURIComponent leaves "(" and ")" alone, and those break
+			// markdown link targets; everything else needs UTF-8-safe encoding.
+			const escapeUrl = (url: string) =>
+				url.replace(/[\s()]/g, (c) => (c === "(" ? "%28" : c === ")" ? "%29" : encodeURIComponent(c)));
+			const lines = Array.from(this._req.citations.entries()).map(
+				([url, title]) => `- [${escapeTitle(title)}](${escapeUrl(url)})`
+			);
+			progress.report(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
 		}
 
 		if (invalidCount > 0 && throwOnInvalid) {

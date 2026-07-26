@@ -1,0 +1,29 @@
+# Docker-stack burn-in: runs the docker suite, the stream fuzzer, and the
+# host-fidelity live suite against the dockerized LiteLLM proxy (a real
+# proxy hop in front of the fake OpenAI backend). Deliberately outside the
+# all-green gate (a checks.yml job would aggregate into it), so a red run
+# never blocks merges. Promote it into checks.yml after ~20 consecutive
+# green runs on main.
+
+name: Docker Stack
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  docker-stack:
+    uses: ./.github/workflows/test-reusable.yml
+    with:
+      os: 'ubuntu-latest'
+      suite: 'docker'

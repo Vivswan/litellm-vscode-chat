@@ -50,6 +50,20 @@ suite("shared/tokenEstimation", () => {
 		assert.strictEqual(estimatePartTokens({ some: "object" }, withMultimodal), 0);
 	});
 
+	test("thinking parts count their text plus replayed signature and redacted data", () => {
+		const signed = { value: "x".repeat(8), metadata: { type: "thinking", signature: "s".repeat(4) } };
+		assert.strictEqual(estimatePartTokens(signed, withMultimodal), Math.ceil(12 / CHARS_PER_TOKEN));
+
+		const redacted = { value: "", metadata: { type: "redacted_thinking", data: "d".repeat(9) } };
+		assert.strictEqual(estimatePartTokens(redacted, withMultimodal), Math.ceil(9 / CHARS_PER_TOKEN));
+
+		const plain = { value: "just thinking text" };
+		assert.strictEqual(
+			estimatePartTokens(plain, withMultimodal),
+			Math.ceil("just thinking text".length / CHARS_PER_TOKEN)
+		);
+	});
+
 	test("estimateMessagesTokens sums parts across messages", () => {
 		const messages: vscode.LanguageModelChatMessage[] = [
 			{

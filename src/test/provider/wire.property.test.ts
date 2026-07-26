@@ -2,14 +2,16 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import {
 	type ChatCompletionChunk,
+	type ChunkAnnotation,
 	type ChunkChoice,
 	type ChunkDelta,
 	parseChunk,
 	type StreamedToolCall,
 	type ThinkingBlock,
+	type ThinkingBlockDelta,
 } from "../../provider/wire";
 
-const NUM_RUNS = 200;
+const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 // Pinned: a required CI gate must not fail on unrelated changes via seed luck.
 const SEED = 20260726;
 
@@ -45,6 +47,24 @@ function assertToolCall(call: StreamedToolCall, label: string): void {
 	}
 }
 
+function assertThinkingBlockDelta(block: ThinkingBlockDelta, label: string): void {
+	assert.ok(isPlainRecord(block), `${label} must be a record`);
+	assertOptionalString(block.type, `${label}.type`);
+	assertOptionalString(block.thinking, `${label}.thinking`);
+	assertOptionalString(block.signature, `${label}.signature`);
+	assertOptionalString(block.data, `${label}.data`);
+}
+
+function assertAnnotation(annotation: ChunkAnnotation, label: string): void {
+	assert.ok(isPlainRecord(annotation), `${label} must be a record`);
+	assertOptionalString(annotation.type, `${label}.type`);
+	if (annotation.url_citation !== undefined) {
+		assert.ok(isPlainRecord(annotation.url_citation), `${label}.url_citation must be a record or undefined`);
+		assertOptionalString(annotation.url_citation.url, `${label}.url_citation.url`);
+		assertOptionalString(annotation.url_citation.title, `${label}.url_citation.title`);
+	}
+}
+
 function assertDelta(delta: ChunkDelta, label: string): void {
 	assert.ok(isPlainRecord(delta), `${label} must be a record`);
 	assertOptionalString(delta.role, `${label}.role`);
@@ -63,8 +83,21 @@ function assertDelta(delta: ChunkDelta, label: string): void {
 		}
 	}
 	assertThinking(delta.thinking, `${label}.thinking`);
+	if (delta.thinking_blocks !== undefined) {
+		assert.ok(Array.isArray(delta.thinking_blocks), `${label}.thinking_blocks must be an array or undefined`);
+		for (const [i, block] of delta.thinking_blocks.entries()) {
+			assertThinkingBlockDelta(block, `${label}.thinking_blocks[${i}]`);
+		}
+	}
 	assertOptionalString(delta.reasoning_content, `${label}.reasoning_content`);
 	assertOptionalString(delta.reasoning, `${label}.reasoning`);
+	assertOptionalString(delta.refusal, `${label}.refusal`);
+	if (delta.annotations !== undefined) {
+		assert.ok(Array.isArray(delta.annotations), `${label}.annotations must be an array or undefined`);
+		for (const [i, annotation] of delta.annotations.entries()) {
+			assertAnnotation(annotation, `${label}.annotations[${i}]`);
+		}
+	}
 }
 
 function assertChoice(choice: ChunkChoice, label: string): void {
@@ -123,8 +156,38 @@ const deltaShaped = fc.record(
 		content: fuzzValue,
 		tool_calls: fc.oneof(fuzzValue, fc.array(fc.oneof(fuzzValue, toolCallShaped), { maxLength: 3 })),
 		thinking: fuzzValue,
+		thinking_blocks: fc.oneof(
+			fuzzValue,
+			fc.array(
+				fc.oneof(
+					fuzzValue,
+					fc.record(
+						{ type: fuzzValue, thinking: fuzzValue, signature: fuzzValue, data: fuzzValue },
+						{ requiredKeys: [] }
+					)
+				),
+				{ maxLength: 3 }
+			)
+		),
 		reasoning_content: fuzzValue,
 		reasoning: fuzzValue,
+		refusal: fuzzValue,
+		annotations: fc.oneof(
+			fuzzValue,
+			fc.array(
+				fc.oneof(
+					fuzzValue,
+					fc.record(
+						{
+							type: fuzzValue,
+							url_citation: fc.oneof(fuzzValue, fc.record({ url: fuzzValue, title: fuzzValue }, { requiredKeys: [] })),
+						},
+						{ requiredKeys: [] }
+					)
+				),
+				{ maxLength: 3 }
+			)
+		),
 	},
 	{ requiredKeys: [] }
 );

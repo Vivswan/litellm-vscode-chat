@@ -21,12 +21,23 @@ export interface OpenAIFunctionToolDef {
 export type OpenAIChatRole = "system" | "user" | "assistant" | "tool";
 
 /** OpenAI-style chat message used for router requests. */
+/**
+ * Anthropic extended-thinking block replayed on an assistant message.
+ * LiteLLM forwards these to Anthropic so multi-turn tool use keeps its
+ * signed thinking context; other providers never receive them because only
+ * blocks that arrived with a signature (or redacted data) are replayed.
+ */
+export type OpenAIThinkingBlock =
+	| { type: "thinking"; thinking: string; signature: string }
+	| { type: "redacted_thinking"; data: string };
+
 export interface OpenAIChatMessage {
 	role: OpenAIChatRole;
 	content?: string | OpenAIChatContentBlock[] | undefined;
 	name?: string;
 	tool_calls?: OpenAIToolCall[];
 	tool_call_id?: string;
+	thinking_blocks?: OpenAIThinkingBlock[];
 }
 
 /** Text content block for chat messages. */

@@ -6,6 +6,7 @@ import type {
 	OpenAIChatImageUrlContentBlock,
 	OpenAIChatMessage,
 	OpenAIChatRole,
+	OpenAIThinkingBlock,
 	OpenAIToolCall,
 } from "./wire";
 
@@ -116,6 +117,75 @@ function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }, log?: L
 	return text;
 }
 
+// LanguageModelThinkingPart is a proposed API that hosts may expose behind
+// throwing getters, so the single property read is probed once at module load.
+const thinkingPartClass: (new (...args: never[]) => object) | undefined = (() => {
+	try {
+		const ctor: unknown = Reflect.get(vscode, "LanguageModelThinkingPart");
+		return typeof ctor === "function" ? (ctor as new (...args: never[]) => object) : undefined;
+	} catch {
+		return undefined;
+	}
+})();
+
+interface ThinkingHistoryEntry {
+	text: string;
+	signature?: string;
+	redactedData?: string;
+}
+
+/**
+ * Read a thinking part from assistant history. Recognized via the proposed
+ * LanguageModelThinkingPart class when the host exposes it, otherwise by the
+ * replay metadata this extension itself attaches while streaming (a signature
+ * or redacted data).
+ */
+function extractThinkingHistoryEntry(part: unknown): ThinkingHistoryEntry | undefined {
+	if (!part || typeof part !== "object" || part instanceof vscode.LanguageModelToolCallPart) {
+		return undefined;
+	}
+	const record = part as { value?: unknown; metadata?: unknown };
+	const metadata =
+		record.metadata && typeof record.metadata === "object"
+			? (record.metadata as { type?: unknown; signature?: unknown; data?: unknown })
+			: undefined;
+	const text = typeof record.value === "string" ? record.value : "";
+	if (metadata?.type === "redacted_thinking" && typeof metadata.data === "string") {
+		return { text, redactedData: metadata.data };
+	}
+	if (typeof metadata?.signature === "string") {
+		return { text, signature: metadata.signature };
+	}
+	if (thinkingPartClass && part instanceof thinkingPartClass) {
+		return { text };
+	}
+	return undefined;
+}
+
+/**
+ * Fold the thinking parts of one assistant message back into Anthropic replay
+ * blocks. Signatures may stream in a separate, empty-text part after the text
+ * they sign, so unsigned text accumulates until a signature closes the block.
+ * Trailing unsigned text has no replay value and is dropped, as is plain
+ * thinking on providers that never sign.
+ */
+function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThinkingBlock[] {
+	const blocks: OpenAIThinkingBlock[] = [];
+	let pendingText = "";
+	for (const entry of entries) {
+		if (entry.redactedData !== undefined) {
+			blocks.push({ type: "redacted_thinking", data: entry.redactedData });
+			pendingText = "";
+		} else if (entry.signature !== undefined) {
+			blocks.push({ type: "thinking", thinking: pendingText + entry.text, signature: entry.signature });
+			pendingText = "";
+		} else {
+			pendingText += entry.text;
+		}
+	}
+	return blocks;
+}
+
 /**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
  */
@@ -131,6 +201,7 @@ export function convertMessages(
 		const toolCalls: OpenAIToolCall[] = [];
 		const toolResults: { callId: string; content: string }[] = [];
 		const contentBlocks: OpenAIChatContentBlock[] = [];
+		const thinkingEntries: ThinkingHistoryEntry[] = [];
 		let hasNonTextBlocks = false;
 
 		for (const part of m.content ?? []) {
@@ -171,13 +242,27 @@ export function convertMessages(
 				if (extracted) {
 					textParts.push(extracted);
 				}
+			} else {
+				const thinkingEntry = role === "assistant" ? extractThinkingHistoryEntry(part) : undefined;
+				if (thinkingEntry) {
+					thinkingEntries.push(thinkingEntry);
+				}
 			}
 		}
 
+		const thinkingBlocks = foldThinkingBlocks(thinkingEntries);
+		let emittedForMessage = false;
+
 		let emittedAssistantToolCall = false;
 		if (toolCalls.length > 0) {
-			out.push({ role: "assistant", content: textParts.join("") || undefined, tool_calls: toolCalls });
+			out.push({
+				role: "assistant",
+				content: textParts.join("") || undefined,
+				tool_calls: toolCalls,
+				...(thinkingBlocks.length > 0 ? { thinking_blocks: thinkingBlocks } : {}),
+			});
 			emittedAssistantToolCall = true;
+			emittedForMessage = true;
 		}
 
 		for (const tr of toolResults) {
@@ -203,10 +288,19 @@ export function convertMessages(
 						},
 					];
 					out.push({ role, content });
+				} else if (role === "assistant" && thinkingBlocks.length > 0) {
+					out.push({ role, content: text, thinking_blocks: thinkingBlocks });
 				} else {
 					out.push({ role, content: text });
 				}
+				emittedForMessage = true;
 			}
+		}
+
+		// A signed thinking block must replay even when its assistant turn
+		// carried no text or tool calls.
+		if (role === "assistant" && thinkingBlocks.length > 0 && !emittedForMessage) {
+			out.push({ role, content: "", thinking_blocks: thinkingBlocks });
 		}
 	}
 	return out;

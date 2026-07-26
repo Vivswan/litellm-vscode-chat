@@ -327,4 +327,144 @@ suite("shared/messages", () => {
 			assert.strictEqual(expectDefined(out[1]).content, "hello");
 		});
 	});
+
+	suite("thinking block replay", () => {
+		/** Shape of a host thinking part carried in assistant history. */
+		function thinkingPart(value: string, metadata: unknown): unknown {
+			return { value, id: "think_1", metadata };
+		}
+
+		/** The real proposed-API class, when this test host exposes it. */
+		function hostThinkingPartClass(): (new (text: string, id?: string, metadata?: unknown) => object) | undefined {
+			const ctor: unknown = Reflect.get(vscode, "LanguageModelThinkingPart");
+			return typeof ctor === "function"
+				? (ctor as new (
+						text: string,
+						id?: string,
+						metadata?: unknown
+					) => object)
+				: undefined;
+		}
+
+		function assistantMessage(parts: unknown[]): vscode.LanguageModelChatMessage {
+			return {
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: parts,
+				name: undefined,
+			} as vscode.LanguageModelChatMessage;
+		}
+
+		test("a signed thinking part replays as a thinking_blocks entry on the assistant text message", () => {
+			const out = convertMessages([
+				assistantMessage([
+					thinkingPart("consider the problem", { type: "thinking", signature: "sig-1" }),
+					new vscode.LanguageModelTextPart("Decided."),
+				]),
+			]) as Array<{ role: string; content?: unknown; thinking_blocks?: unknown }>;
+			assert.equal(out.length, 1);
+			const message = expectDefined(out[0]);
+			assert.strictEqual(message.content, "Decided.");
+			assert.deepStrictEqual(message.thinking_blocks, [
+				{ type: "thinking", thinking: "consider the problem", signature: "sig-1" },
+			]);
+		});
+
+		test("signed thinking replays alongside tool calls on the same assistant message", () => {
+			const out = convertMessages([
+				assistantMessage([
+					thinkingPart("weigh options", { type: "thinking", signature: "sig-2" }),
+					new vscode.LanguageModelToolCallPart("call_1", "get_weather", { location: "Paris" }),
+				]),
+			]) as Array<{ role: string; tool_calls?: unknown[]; thinking_blocks?: unknown[] }>;
+			assert.equal(out.length, 1);
+			const message = expectDefined(out[0]);
+			assert.equal(message.tool_calls?.length, 1);
+			assert.equal(message.thinking_blocks?.length, 1);
+		});
+
+		test("a redacted thinking part replays its opaque data without text", () => {
+			const out = convertMessages([
+				assistantMessage([
+					thinkingPart("", { type: "redacted_thinking", data: "opaque" }),
+					new vscode.LanguageModelTextPart("Answer."),
+				]),
+			]) as Array<{ thinking_blocks?: unknown }>;
+			assert.deepStrictEqual(expectDefined(out[0]).thinking_blocks, [{ type: "redacted_thinking", data: "opaque" }]);
+		});
+
+		test("thinking without a signature or redacted data does not replay", () => {
+			const out = convertMessages([
+				assistantMessage([
+					thinkingPart("plain reasoning text", undefined),
+					thinkingPart("metadata without replay value", { other: true }),
+					new vscode.LanguageModelTextPart("Answer."),
+				]),
+			]) as Array<{ content?: unknown; thinking_blocks?: unknown }>;
+			const message = expectDefined(out[0]);
+			assert.strictEqual(message.content, "Answer.");
+			assert.strictEqual(message.thinking_blocks, undefined);
+		});
+
+		test("thinking parts on user messages are ignored", () => {
+			const out = convertMessages([
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [thinkingPart("spoofed", { signature: "sig-x" }), new vscode.LanguageModelTextPart("hi")],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+			]) as Array<{ role: string; thinking_blocks?: unknown }>;
+			assert.strictEqual(expectDefined(out[0]).thinking_blocks, undefined);
+		});
+
+		test("a signature streamed in a separate empty part signs the accumulated text", function () {
+			const cls = hostThinkingPartClass();
+			if (!cls) {
+				this.skip();
+				return;
+			}
+			// Anthropic streams thinking text first and the signature at block
+			// end; the replay must reunite them into one signed block.
+			const out = convertMessages([
+				assistantMessage([
+					new cls("part one"),
+					new cls(" part two"),
+					new cls("", "think_1", { type: "thinking", signature: "sig-split" }),
+					new vscode.LanguageModelTextPart("Answer."),
+				]),
+			]) as Array<{ thinking_blocks?: unknown }>;
+			assert.deepStrictEqual(expectDefined(out[0]).thinking_blocks, [
+				{ type: "thinking", thinking: "part one part two", signature: "sig-split" },
+			]);
+		});
+
+		test("a thinking-only assistant turn still replays its signed block", () => {
+			const out = convertMessages([
+				assistantMessage([thinkingPart("silent deliberation", { type: "thinking", signature: "sig-only" })]),
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("go on")],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+			]) as Array<{ role: string; content?: unknown; thinking_blocks?: unknown }>;
+			assert.equal(out.length, 2);
+			const message = expectDefined(out[0]);
+			assert.strictEqual(message.role, "assistant");
+			assert.strictEqual(message.content, "");
+			assert.deepStrictEqual(message.thinking_blocks, [
+				{ type: "thinking", thinking: "silent deliberation", signature: "sig-only" },
+			]);
+		});
+
+		test("a malformed redacted block with a signature but no data replays as a signed thinking block", () => {
+			const out = convertMessages([
+				assistantMessage([
+					thinkingPart("text", { type: "redacted_thinking", signature: "sig-m" }),
+					new vscode.LanguageModelTextPart("Answer."),
+				]),
+			]) as Array<{ thinking_blocks?: unknown }>;
+			assert.deepStrictEqual(expectDefined(out[0]).thinking_blocks, [
+				{ type: "thinking", thinking: "text", signature: "sig-m" },
+			]);
+		});
+	});
 });
