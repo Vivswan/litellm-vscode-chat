@@ -185,7 +185,7 @@
 		"@types/node": "^25.9.1",
 		"@types/vscode": "^1.120.0",
 		"@vscode/test-cli": "^0.0.15",
-		"@vscode/test-electron": "^2.5.2",
+		"@vscode/test-electron": "^3.0.0",
 		"@vscode/vsce": "^3.9.2",
 		"actionlint": "^2.0.6",
 		"esbuild": "^0.28.1",
