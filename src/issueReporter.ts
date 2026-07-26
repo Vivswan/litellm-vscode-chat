@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { openUrl } from "./shared/openUrl";
 
 const GITHUB_REPO_URL = "https://github.com/Vivswan/litellm-vscode-chat";
 const MAX_LOG_ENTRIES = 50;
@@ -47,14 +48,14 @@ interface IssuePayload {
 
 export interface IssueReporterEnv {
 	writeClipboard(text: string): PromiseLike<void>;
-	openExternal(uri: vscode.Uri): PromiseLike<boolean>;
+	openExternal(url: string): PromiseLike<void>;
 	saveDiagnosticsFile?(contents: string): PromiseLike<vscode.Uri>;
 	showCompactedDiagnosticsMessage?(diagnosticsFile?: vscode.Uri): PromiseLike<void>;
 }
 
 const defaultIssueReporterEnv: IssueReporterEnv = {
 	writeClipboard: (text) => vscode.env.clipboard.writeText(text),
-	openExternal: (uri) => vscode.env.openExternal(uri),
+	openExternal: openUrl,
 	showCompactedDiagnosticsMessage: async () => {
 		await vscode.window.showInformationMessage(
 			"LiteLLM: Full diagnostics were too large to prefill in GitHub and were copied to your clipboard. Please paste them into the issue."
@@ -233,7 +234,7 @@ export class IssueReporter {
 			diagnosticsFile = await this.env.saveDiagnosticsFile?.(payload.fullBody);
 		}
 
-		await this.env.openExternal(vscode.Uri.parse(payload.url));
+		await this.env.openExternal(payload.url);
 
 		if (payload.compacted) {
 			void this.env.showCompactedDiagnosticsMessage?.(diagnosticsFile);

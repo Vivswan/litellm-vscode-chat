@@ -14,19 +14,29 @@ suite("extension/commands", () => {
 	function mockHelpFeedback(pickId: string | undefined, onOpen: (uri: string) => void): { restore: () => void } {
 		const origPick = vscode.window.showQuickPick;
 		const origOpen = vscode.env.openExternal;
+		const origExecute = vscode.commands.executeCommand;
 
 		(vscode.window as Record<string, unknown>).showQuickPick = async (items: QuickPickItem[]) => {
 			return pickId ? items.find((i) => i.id === pickId) : undefined;
 		};
 		(vscode.env as Record<string, unknown>).openExternal = async (uri: vscode.Uri) => {
-			onOpen(uri.toString());
+			// The browser href VS Code derives from a Uri handed to env.openExternal (openerService).
+			onOpen(encodeURI(uri.toString(true)));
 			return true;
+		};
+		(vscode.commands as Record<string, unknown>).executeCommand = async (command: string, ...args: unknown[]) => {
+			if (command === "vscode.open" && typeof args[0] === "string") {
+				onOpen(args[0]);
+				return;
+			}
+			return origExecute(command, ...args);
 		};
 
 		return {
 			restore() {
 				(vscode.window as Record<string, unknown>).showQuickPick = origPick;
 				(vscode.env as Record<string, unknown>).openExternal = origOpen;
+				(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
 			},
 		};
 	}
@@ -39,6 +49,7 @@ suite("extension/commands", () => {
 			const uri = expectDefined(openedUri, "Should open a URL via reportIssue");
 			assert.ok(uri.includes("issues/new"), "Should open new issue page");
 			assert.ok(uri.includes("bug"), "Should include bug label");
+			assert.ok(!uri.includes("%2523"), uri);
 		} finally {
 			mock.restore();
 		}
