@@ -85,7 +85,8 @@ suite("extension/serverManagement", () => {
 
 			assert.deepStrictEqual(run.executed, ["workbench.action.chat.manage"]);
 			assert.strictEqual(run.errorMessages.length, 1);
-			assert.ok(expectDefined(run.errorMessages[0]).includes("Manage Language Models"), run.errorMessages[0]);
+			const errorMessage = expectDefined(run.errorMessages[0]);
+			assert.ok(errorMessage.includes("Manage Language Models"), errorMessage);
 			assert.strictEqual(run.quickPickOpened, false, "the quick pick edits configuration nothing serves");
 			assert.strictEqual(run.inputBoxOpened, false, "the add-server flow edits configuration nothing serves");
 		});
