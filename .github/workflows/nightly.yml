@@ -12,10 +12,12 @@ on:
   schedule:
     - cron: '59 7 * * *'
 
-# Never run two nightly passes at once; a newer run supersedes an in-flight one.
+# Scheduled runs supersede an in-flight scheduled run, but every manual
+# dispatch gets its own group so several fuzz passes (each with its own
+# random seed) can run side by side.
 concurrency:
-  group: nightly-${{ github.ref }}
-  cancel-in-progress: true
+  group: nightly-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'scheduled' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
