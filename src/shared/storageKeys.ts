@@ -12,6 +12,46 @@ export const HAS_SHOWN_WELCOME_KEY = "litellm.hasShownWelcome";
 /** globalState: the last ConnectionStatus, restored into the status bar on activation. */
 export const LAST_CONNECTION_STATUS_KEY = "litellm.lastConnectionStatus";
 
+/** globalState: set once every registry server has been handed to VS Code as a provider group. */
+export const GROUP_MIGRATION_COMPLETE_KEY = "litellm.groupMigrationComplete";
+
+/**
+ * globalState: records of groups already seeded into VS Code ({ id, name,
+ * label, baseUrl, keyFingerprint }), persisted after each success so a retried
+ * migration never re-submits a group the host accepted. Cleared when the
+ * migration completes.
+ */
+export const SEEDED_PROVIDER_GROUPS_KEY = "litellm.seededProviderGroups";
+
+/**
+ * globalState: registry server IDs the migration must leave alone — their
+ * group's configuration could not be verified (a name collision or an edit
+ * that raced the seeding), so removing the entry could destroy the only
+ * correct copy. The user resolves them manually.
+ */
+export const SKIPPED_MIGRATION_SERVERS_KEY = "litellm.skippedMigrationServers";
+
+/**
+ * globalState: the group submission currently in flight ({ id, name, baseUrl,
+ * keyFingerprint }), written just before the host command and cleared after
+ * the progress write or a pre-accept failure. An "already exists" rejection
+ * counts as our own seeding only when this marker matches the server's
+ * current identity; without it the name collision belongs to someone else.
+ */
+export const PENDING_GROUP_SUBMISSION_KEY = "litellm.pendingGroupSubmission";
+
+/**
+ * globalState: server IDs whose migrated secret could not be deleted at
+ * finalization; retried on every activation until empty.
+ */
+export const PENDING_SECRET_DELETIONS_KEY = "litellm.pendingSecretDeletions";
+
+/**
+ * globalState: baseUrl -> labels for servers that were migrated to provider
+ * groups, so label-scoped modelParameters entries keep matching.
+ */
+export const MIGRATED_SERVER_LABELS_KEY = "litellm.migratedServerLabels";
+
 /** SecretStorage: API key for one registered server. */
 export function apiKeySecret(serverId: string): string {
 	return `litellm.apiKey.${serverId}`;

@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { Logger } from "../shared/logger";
 import { getMaskApiKeyInput, getModelParametersConfig } from "../shared/settings";
+import { isGroupMigrationRunning } from "./groupMigration";
 import {
 	dismissAction,
 	openChatAction,
@@ -9,6 +10,38 @@ import {
 	testConnectionAction,
 } from "./notifier";
 import type { ServerRegistry } from "./serverRegistry";
+
+/**
+ * Registry mutations racing the provider-group migration would be stranded or
+ * silently reverted by its cleanup, so the add/edit/remove flows refuse while
+ * a migration is seeding groups. Returns true when mutating is safe.
+ */
+export function ensureRegistryMutable(): boolean {
+	if (!isGroupMigrationRunning()) {
+		return true;
+	}
+	void vscode.window.showInformationMessage("Server migration is in progress, try again in a moment.");
+	return false;
+}
+
+/**
+ * Full mutation guard: the migration lock, plus a completion re-check that
+ * closes the window between a migration finishing and this command's UI-mode
+ * decision — a server added into an already-migrated registry would only be
+ * cleaned up as an orphan.
+ */
+export function canMutateRegistry(isMigrated: () => boolean): boolean {
+	if (!ensureRegistryMutable()) {
+		return false;
+	}
+	if (isMigrated()) {
+		void vscode.window.showInformationMessage(
+			'LiteLLM servers are now managed in VS Code\'s language models UI. Re-run "Manage LiteLLM Provider" to open it.'
+		);
+		return false;
+	}
+	return true;
+}
 
 async function promptForServerLabel(
 	registry: ServerRegistry,
@@ -92,7 +125,10 @@ export function warnAboutOrphanedModelParameters(
 	);
 }
 
-async function addServerFlow(registry: ServerRegistry, logger: Logger): Promise<boolean> {
+async function addServerFlow(registry: ServerRegistry, logger: Logger, isMigrated: () => boolean): Promise<boolean> {
+	if (!canMutateRegistry(isMigrated)) {
+		return false;
+	}
 	const label = await promptForServerLabel(registry);
 	if (label === undefined) {
 		return false;
@@ -108,6 +144,10 @@ async function addServerFlow(registry: ServerRegistry, logger: Logger): Promise<
 		return false;
 	}
 
+	// A migration may have started while the input boxes were open.
+	if (!canMutateRegistry(isMigrated)) {
+		return false;
+	}
 	await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim());
 	logger.log(`Added server "${label.trim()}" at ${baseUrl.trim()}`);
 
@@ -120,7 +160,12 @@ async function addServerFlow(registry: ServerRegistry, logger: Logger): Promise<
 	return true;
 }
 
-async function manageServerFlow(registry: ServerRegistry, serverId: string, logger: Logger): Promise<void> {
+async function manageServerFlow(
+	registry: ServerRegistry,
+	serverId: string,
+	logger: Logger,
+	isMigrated: () => boolean
+): Promise<void> {
 	const servers = registry.getServers();
 	const server = servers.find((s) => s.id === serverId);
 	if (!server) {
@@ -144,6 +189,9 @@ async function manageServerFlow(registry: ServerRegistry, serverId: string, logg
 	}
 
 	if (pick.action === "edit") {
+		if (!canMutateRegistry(isMigrated)) {
+			return;
+		}
 		const label = await promptForServerLabel(registry, server.label, serverId);
 		if (label === undefined) {
 			return;
@@ -161,6 +209,10 @@ async function manageServerFlow(registry: ServerRegistry, serverId: string, logg
 		}
 
 		const oldLabel = server.label;
+		// A migration may have started while the input boxes were open.
+		if (!canMutateRegistry(isMigrated)) {
+			return;
+		}
 		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim());
 		logger.log(`Updated server "${label.trim()}"`);
 
@@ -172,12 +224,19 @@ async function manageServerFlow(registry: ServerRegistry, serverId: string, logg
 	} else if (pick.action === "test") {
 		await vscode.commands.executeCommand("litellm.testConnection");
 	} else if (pick.action === "remove") {
+		if (!canMutateRegistry(isMigrated)) {
+			return;
+		}
 		const confirm = await vscode.window.showWarningMessage(
 			`Remove server "${server.label}" (${server.baseUrl})?`,
 			{ modal: true },
 			"Remove"
 		);
 		if (confirm === "Remove") {
+			// A migration may have started while the confirmation dialog was open.
+			if (!canMutateRegistry(isMigrated)) {
+				return;
+			}
 			await registry.removeServer(serverId);
 			logger.log(`Removed server "${server.label}"`);
 			void vscode.window.showInformationMessage(`Server "${server.label}" removed.`);
@@ -185,17 +244,50 @@ async function manageServerFlow(registry: ServerRegistry, serverId: string, logg
 	}
 }
 
+/** Opens the Models Management editor, where VS Code manages provider groups. */
+const NATIVE_MANAGE_MODELS_COMMAND = "workbench.action.chat.manage";
+
+/**
+ * Which UI litellm.manage opens. "legacy" is the quick-pick server flow.
+ * "nativePreferred" tries the native Manage Models UI and falls back to the
+ * quick pick (fresh installs: the registry is still live, so servers added
+ * there are served and migrated later). "nativeRequired" never falls back:
+ * after the migration the registry is no longer served, so the quick pick
+ * would edit dead configuration.
+ */
+export type ManagementUiMode = "legacy" | "nativePreferred" | "nativeRequired";
+
 export function registerManageCommand(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
-	logger: Logger
+	logger: Logger,
+	getUiMode: () => ManagementUiMode = () => "legacy",
+	isMigrated: () => boolean = () => false
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand("litellm.manage", async () => {
+			const mode = getUiMode();
+			if (mode !== "legacy") {
+				try {
+					await vscode.commands.executeCommand(NATIVE_MANAGE_MODELS_COMMAND);
+					return;
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					if (mode === "nativeRequired") {
+						logger.log(`Language-model management UI unavailable (${message})`);
+						void vscode.window.showErrorMessage(
+							"LiteLLM servers are managed in VS Code's Manage Language Models UI, which could not be opened. Update VS Code or check that GitHub Copilot Chat is enabled."
+						);
+						return;
+					}
+					logger.log(`Language-model management UI unavailable (${message}); using the server quick pick`);
+				}
+			}
+
 			const servers = registry.getServers();
 
 			if (servers.length === 0) {
-				await addServerFlow(registry, logger);
+				await addServerFlow(registry, logger, isMigrated);
 				return;
 			}
 
@@ -219,12 +311,12 @@ export function registerManageCommand(
 			}
 
 			if (pick.action === "add") {
-				await addServerFlow(registry, logger);
+				await addServerFlow(registry, logger, isMigrated);
 			} else if (pick.action === "test-all") {
 				await vscode.commands.executeCommand("litellm.testConnection");
 			} else if (pick.action.startsWith("edit:")) {
 				const serverId = pick.action.slice(5);
-				await manageServerFlow(registry, serverId, logger);
+				await manageServerFlow(registry, serverId, logger, isMigrated);
 			}
 		})
 	);

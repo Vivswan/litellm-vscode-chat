@@ -3,6 +3,7 @@ import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import { Logger } from "../shared/logger";
+import type { ServerStatus } from "../shared/servers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse } from "./mocks/handlers";
 
 /** Assert that an indexed read produced a value and return it narrowed. */
@@ -195,6 +196,19 @@ export async function captureRequestBody(
 	overrides: CaptureRequestOverrides = {}
 ): Promise<Record<string, unknown>> {
 	return (await captureRequest(provider, model, opts, overrides)).body;
+}
+
+/** A ServerStatus with sensible defaults for status-driven tests. */
+export function makeServerStatus(overrides: Partial<ServerStatus> = {}): ServerStatus {
+	return {
+		serverId: "srv1",
+		label: "Prod",
+		baseUrl: "http://prod.test",
+		state: "ok",
+		modelCount: 4,
+		lastChecked: "2026-07-26T00:00:00.000Z",
+		...overrides,
+	};
 }
 
 export interface FakeExtensionStorage {

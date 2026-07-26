@@ -45,7 +45,7 @@ suite("extension/diagnostics", () => {
 			assert.strictEqual(snapshot.platform, `${process.platform} ${process.arch}`);
 			assert.strictEqual(snapshot.connectionState, "connected");
 			assert.strictEqual(snapshot.modelCount, 7);
-			assert.strictEqual(snapshot.apiKeyConfigured, false);
+			assert.strictEqual(snapshot.apiKeyConfigured, "unknown", "unobserved native groups cannot be ruled out");
 			assert.strictEqual(snapshot.baseUrlConfigured, false);
 			assert.strictEqual(expectDefined(snapshot.latestError).source, "discovery");
 			assert.strictEqual(expectDefined(snapshot.latestError).message, "fetch exploded");
@@ -86,6 +86,78 @@ suite("extension/diagnostics", () => {
 			assert.strictEqual(snapshot.apiKeyConfigured, false);
 			assert.strictEqual(snapshot.connectionState, "error");
 			assert.strictEqual(snapshot.modelCount, undefined);
+		});
+
+		test("observed group statuses count as configuration even with the migration flag unset", async () => {
+			const snapshot = await buildDiagnosticsSnapshot(
+				createRegistry(),
+				{
+					state: "connected",
+					totalModels: 4,
+					serverStatuses: [makeServerStatus({ serverId: "group:abc:http://prod.test", hasApiKey: true })],
+				},
+				"1.2.3",
+				"9.9.9",
+				new IssueReporter()
+			);
+
+			assert.strictEqual(snapshot.baseUrlConfigured, true, "an observed group server counts as configured");
+			assert.strictEqual(snapshot.apiKeyConfigured, true, "a group that carries a key counts as key-configured");
+		});
+
+		test("keyless groups configure a base URL but no API key", async () => {
+			const snapshot = await buildDiagnosticsSnapshot(
+				createRegistry(),
+				{
+					state: "connected",
+					totalModels: 4,
+					serverStatuses: [makeServerStatus({ serverId: "group:abc:http://prod.test", hasApiKey: false })],
+				},
+				"1.2.3",
+				"9.9.9",
+				new IssueReporter()
+			);
+
+			assert.strictEqual(snapshot.baseUrlConfigured, true);
+			assert.strictEqual(snapshot.apiKeyConfigured, false, "keyless groups must not report a configured key");
+		});
+
+		test("junk elements in a persisted status do not crash the snapshot", async () => {
+			// The status loader deliberately tolerates arbitrary array elements
+			// from older extension versions.
+			const junkStatus = {
+				state: "connected",
+				totalModels: 1,
+				serverStatuses: [42, null, makeServerStatus({ serverId: "group:abc:http://prod.test", hasApiKey: true })],
+			} as unknown as ConnectionStatus;
+
+			const snapshot = await buildDiagnosticsSnapshot(
+				createRegistry(),
+				junkStatus,
+				"1.2.3",
+				"9.9.9",
+				new IssueReporter()
+			);
+
+			assert.strictEqual(snapshot.baseUrlConfigured, true, "the valid group entry must still be recognized");
+			assert.strictEqual(snapshot.apiKeyConfigured, true);
+		});
+
+		test("key presence is unknown until group statuses are observed", async () => {
+			const snapshot = await buildDiagnosticsSnapshot(
+				createRegistry(),
+				{ state: "not-configured" },
+				"1.2.3",
+				"9.9.9",
+				new IssueReporter()
+			);
+
+			assert.strictEqual(snapshot.baseUrlConfigured, false);
+			assert.strictEqual(
+				snapshot.apiKeyConfigured,
+				"unknown",
+				"a missing status window proves nothing about key presence"
+			);
 		});
 	});
 
@@ -261,6 +333,27 @@ suite("extension/diagnostics", () => {
 
 			assert.ok(run.message.includes("Servers Configured: 0"));
 			assert.ok(!run.message.includes("Server Details:"));
+		});
+
+		test("the server count includes observed group servers even with the flag unset", async () => {
+			const status: ConnectionStatus = {
+				state: "connected",
+				totalModels: 6,
+				serverStatuses: [
+					makeServerStatus({ serverId: "group:1:http://prod.test", label: "prod.test", modelCount: 4 }),
+					makeServerStatus({
+						serverId: "group:2:http://local.test",
+						label: "local.test",
+						baseUrl: "http://local.test",
+						modelCount: 2,
+					}),
+				],
+			};
+			const run = await runDiagnosticsCommand(createRegistry(), status);
+
+			assert.ok(run.message.includes("Servers Configured: 2"), run.message);
+			assert.ok(run.message.includes("  prod.test: OK (4 models)"), run.message);
+			assert.ok(run.message.includes("  local.test: OK (2 models)"), run.message);
 		});
 
 		test("View Output shows the output channel without running a command", async () => {
