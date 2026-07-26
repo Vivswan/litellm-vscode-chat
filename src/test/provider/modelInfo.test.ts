@@ -33,6 +33,11 @@ suite("provider/model info and fallback", () => {
 		assert.ok(modelInfoAttempted);
 		assert.ok(modelsAttempted);
 		assert.ok(infos.length > 0);
+		assert.strictEqual(
+			expectDefined(infos[0]).family,
+			"litellm",
+			"bare /v1/models entries carry no provider, so they keep the generic family"
+		);
 	});
 
 	test("sends configured custom headers during model discovery", async () => {
@@ -172,6 +177,93 @@ suite("provider/model info and fallback", () => {
 		assert.equal(modelEntry.capabilities.imageInput, true);
 	});
 
+	test("family follows litellm_provider from model/info and falls back to litellm without it", async () => {
+		mswServer.use(
+			...discoveryHandlers({
+				data: [
+					{
+						model_name: "claude-4-sonnet",
+						model_info: { id: "claude-4-sonnet", litellm_provider: "anthropic", supports_function_calling: true },
+					},
+					{
+						model_name: "unrouted-model",
+						model_info: { id: "unrouted-model", supports_function_calling: true },
+					},
+				],
+			})
+		);
+
+		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+			{ silent: true },
+			new vscode.CancellationTokenSource().token
+		);
+
+		assert.strictEqual(expectDefined(infos.find((i) => i.id === "claude-4-sonnet")).family, "anthropic");
+		assert.strictEqual(
+			expectDefined(infos.find((i) => i.id === "unrouted-model")).family,
+			"litellm",
+			"entries without a litellm_provider keep the generic family"
+		);
+	});
+
+	test("empty or non-string litellm_provider falls back to the litellm family", async () => {
+		mswServer.use(
+			...discoveryHandlers({
+				data: [
+					{
+						model_name: "blank-provider-model",
+						model_info: { id: "blank-provider-model", litellm_provider: "", supports_function_calling: true },
+					},
+					{
+						model_name: "array-provider-model",
+						model_info: { id: "array-provider-model", litellm_provider: ["openai"], supports_function_calling: true },
+					},
+				],
+			})
+		);
+
+		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+			{ silent: true },
+			new vscode.CancellationTokenSource().token
+		);
+
+		assert.strictEqual(
+			expectDefined(infos.find((i) => i.id === "blank-provider-model")).family,
+			"litellm",
+			"an empty provider name must not register as the family"
+		);
+		assert.strictEqual(
+			expectDefined(infos.find((i) => i.id === "array-provider-model")).family,
+			"litellm",
+			"a non-string litellm_provider must never reach the host as the family"
+		);
+	});
+
+	test("every registered model is a selectable BYOK entry without the legacy metadata bag", async () => {
+		mswServer.use(
+			...discoveryHandlers({
+				data: [
+					{
+						model_name: "gpt-4o",
+						model_info: { id: "gpt-4o", litellm_provider: "openai", supports_function_calling: true },
+					},
+				],
+			})
+		);
+
+		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+			{ silent: true },
+			new vscode.CancellationTokenSource().token
+		);
+
+		assert.ok(infos.length > 0);
+		for (const info of infos) {
+			assert.strictEqual(info.isBYOK, true, `${info.id} runs on the user's own credentials`);
+			assert.strictEqual(info.isUserSelectable, true, `${info.id} must be selectable in the model picker`);
+			assert.ok(!("metadata" in info), `${info.id} must not carry the retired metadata duplicate`);
+		}
+	});
+
 	test("blocked models are not registered", async () => {
 		mswServer.use(
 			...discoveryHandlers({
@@ -200,6 +292,7 @@ suite("provider/model info and fallback", () => {
 					{
 						model_name: "balanced-model",
 						model_info: {
+							litellm_provider: "azure",
 							supports_function_calling: true,
 							supports_vision: true,
 							max_input_tokens: 128000,
@@ -209,6 +302,7 @@ suite("provider/model info and fallback", () => {
 					{
 						model_name: "balanced-model",
 						model_info: {
+							litellm_provider: "openai",
 							supports_function_calling: false,
 							supports_vision: false,
 							max_input_tokens: 64000,
@@ -235,5 +329,6 @@ suite("provider/model info and fallback", () => {
 		assert.strictEqual(info.maxOutputTokens, 8000);
 		assert.strictEqual(info.capabilities.toolCalling, false, "tools only when every deployment supports them");
 		assert.strictEqual(info.capabilities.imageInput, false, "vision only when every deployment supports it");
+		assert.strictEqual(info.family, "azure", "the merged model's family follows the first deployment's provider");
 	});
 });

@@ -84,7 +84,10 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo |
 	}
 
 	const supportsTools = item.model_info?.supports_function_calling ?? item.model_info?.supports_tool_choice ?? true;
-	const providerName = item.model_info?.litellm_provider ?? "litellm";
+	// The lenient schema lets a non-string litellm_provider through; anything
+	// but a string must not reach the host as the model family.
+	const rawProvider = item.model_info?.litellm_provider;
+	const providerName = typeof rawProvider === "string" ? rawProvider : "litellm";
 	const maxInputTokens = normalizePositiveNumber(item.model_info?.max_input_tokens);
 	const maxOutputTokens =
 		normalizePositiveNumber(item.model_info?.max_output_tokens) ?? normalizePositiveNumber(item.model_info?.max_tokens);
@@ -161,8 +164,9 @@ function intersectSupportedParams(values: readonly (string[] | null | undefined)
  * raw limit fields each one set. Capability flags hold only when every
  * deployment advertises them, and input modalities and
  * supported_openai_params intersect. Non-constraint metadata (provider name,
- * status, parameter order) follows the first deployment; on the
- * sole-provider registration path none of it is user-visible.
+ * status, parameter order) follows the first deployment; registration
+ * surfaces the provider name as the model family, so a merged model's family
+ * is its first deployment's litellm_provider.
  */
 export function mergeModelDeployments(deployments: ModelDeployments, defaults: TokenDefaults): MappedModelInfo {
 	const [first, ...rest] = deployments;

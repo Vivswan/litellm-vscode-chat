@@ -54,7 +54,7 @@ suite("provider/request contract", () => {
 			assert.equal(providerEntry.maxInputTokens, 90000);
 		});
 
-		test("marks registered models as user-selectable for VS Code 1.120 picker compatibility", async () => {
+		test("registers models as selectable BYOK entries without the retired metadata bag", async () => {
 			const provider = makeProvider("http://litellm.test");
 			mswServer.use(...discoveryHandlers(singleProviderListing({})));
 
@@ -65,13 +65,13 @@ suite("provider/request contract", () => {
 			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
 			assert.ok(providerEntry);
 
-			// VS Code 1.120+ requires isUserSelectable at top level
-			const topLevel = providerEntry as unknown as { isUserSelectable?: boolean };
-			assert.equal(topLevel.isUserSelectable, true, "isUserSelectable should be at top level for VS Code 1.120+");
-
-			// Also keep it in metadata for backward compatibility
-			const metadata = (providerEntry as unknown as { metadata?: { isUserSelectable?: boolean } }).metadata;
-			assert.equal(metadata?.isUserSelectable, true, "isUserSelectable should also be in metadata");
+			assert.equal(
+				providerEntry.isUserSelectable,
+				true,
+				"absent fails the truthy checks in the host's MCP sampling picker and local chat sessions"
+			);
+			assert.equal(providerEntry.isBYOK, true, "models run against the user's own LiteLLM credentials");
+			assert.ok(!("metadata" in providerEntry), "the pre-1.120 metadata duplicate is retired");
 		});
 
 		test("uses workspace settings as fallback when provider fields absent", async () => {

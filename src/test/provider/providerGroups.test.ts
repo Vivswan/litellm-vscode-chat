@@ -46,6 +46,10 @@ suite("provider groups", () => {
 		assert.strictEqual(info.id, "test-model");
 		assert.strictEqual(info.name, "test-model");
 		assert.strictEqual(info.detail, undefined, "detail stays unset so the host fills in the group name");
+		assert.strictEqual(info.family, "litellm", "no litellm_provider in the payload, so the generic family");
+		assert.strictEqual(info.isBYOK, true, "group models run on the user's own credentials");
+		assert.strictEqual(info.isUserSelectable, true);
+		assert.ok(!("metadata" in info), "the retired metadata duplicate must not survive the group path");
 	});
 
 	test("group models carry the resolved server and chat requests reach it without the route map", async () => {
