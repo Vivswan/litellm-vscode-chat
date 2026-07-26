@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import {
 	registerHelpAndFeedbackCommand,
 	registerReportIssueCommand,
+	registerSyncModelsCommand,
 	registerTestCommands,
 	registerTestConnectionCommand,
 } from "./extension/commands";
@@ -121,6 +122,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	// Test connection command
 	registerTestConnectionCommand(context, provider, statusBar, outputChannel, logger);
+
+	// Sync Models Now command: skip the discovery cache and refetch every group
+	registerSyncModelsCommand(context, provider, statusBar, outputChannel, logger);
 
 	// Diagnostics command
 	registerDiagnosticsCommand(context, registry, () => statusBar.connectionStatus, outputChannel);

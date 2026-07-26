@@ -25,9 +25,16 @@ interface ModelInfoProvider {
 	): Promise<vscode.LanguageModelChatInformation[]>;
 }
 
-interface ConnectionTestableProvider extends ModelInfoProvider {
+/**
+ * The provider slice the explicit-refresh commands consume. refreshViaHost
+ * drops the provider's discovery cache before asking the host to re-resolve,
+ * so every group is fetched over the network.
+ */
+interface HostRefreshableProvider {
 	refreshViaHost(): Promise<void>;
 }
+
+interface ConnectionTestableProvider extends ModelInfoProvider, HostRefreshableProvider {}
 
 interface StatusBarLike {
 	readonly connectionStatus: ConnectionStatus;
@@ -37,6 +44,7 @@ interface StatusBarLike {
 // A second invocation while one test is mid-flight would capture "loading" as
 // the pre-test status and misreport; it is refused instead.
 let connectionTestRunning = false;
+let modelSyncRunning = false;
 
 /**
  * Trigger a non-silent refresh, ask the host to re-resolve every provider
@@ -134,6 +142,97 @@ export function registerTestConnectionCommand(
 	context.subscriptions.push(
 		vscode.commands.registerCommand("litellm.testConnection", () =>
 			runConnectionTest(provider, statusBar, outputChannel, logger)
+		)
+	);
+}
+
+/**
+ * Force-refresh every model list: discovery results are normally cached (see
+ * the discoveryCacheTtl setting), and this is the user's way to skip the
+ * cache after changing models on a LiteLLM server. The outcome is read from
+ * the connection status the refresh left behind, like the connection test.
+ */
+export async function runModelSync(
+	provider: HostRefreshableProvider,
+	statusBar: StatusBarLike,
+	outputChannel: vscode.OutputChannel,
+	logger: Logger
+): Promise<void> {
+	// A second invocation mid-run would clear the provider's discovery cache
+	// under the refresh already in flight and report a half-settled status; it
+	// is refused instead.
+	if (modelSyncRunning) {
+		logger.log("A model sync is already running");
+		return;
+	}
+	modelSyncRunning = true;
+	try {
+		logger.log("Syncing models: refreshing every provider group over the network");
+		try {
+			await provider.refreshViaHost();
+		} catch (error) {
+			// The failing refresh already reported an error status; the toast below reads it.
+			logger.error("Model sync failed", error);
+		}
+
+		const status = statusBar.connectionStatus;
+		switch (status.state) {
+			case "connected": {
+				const count = status.totalModels ?? 0;
+				logger.log(`Model sync finished: ${count} models available`);
+				void showActionableMessage("info", `LiteLLM: Models synced - found ${count} model${count === 1 ? "" : "s"}.`, [
+					viewOutputAction(outputChannel, "View Models"),
+					openChatAction(),
+				]);
+				break;
+			}
+			case "degraded": {
+				const failed = (status.serverStatuses ?? []).filter((s) => s.state === "error").length;
+				logger.log(`Model sync finished with issues: ${failed} server(s) unreachable`);
+				void showActionableMessage(
+					"warning",
+					`LiteLLM: Models synced with issues - ${status.totalModels ?? 0} model${status.totalModels === 1 ? "" : "s"} available, ${failed} server${failed === 1 ? "" : "s"} unreachable.`,
+					[viewOutputAction(outputChannel), reconfigureAction(), reportIssueAction()]
+				);
+				break;
+			}
+			case "error":
+				logger.log(`Model sync failed: ${status.error ?? "Unknown error"}`);
+				void showActionableMessage("error", `LiteLLM: Model sync failed - ${status.error ?? "Unknown error"}`, [
+					viewOutputAction(outputChannel),
+					reconfigureAction(),
+					reportIssueAction(),
+				]);
+				break;
+			case "not-configured":
+				logger.log("Model sync found no configured servers");
+				void showActionableMessage(
+					"error",
+					"LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.",
+					[reconfigureAction("Configure Now")]
+				);
+				break;
+			default:
+				logger.log("Model sync finished without a settled connection status");
+				void showActionableMessage("warning", "LiteLLM: Connection status is unavailable; try again in a moment.", [
+					viewOutputAction(outputChannel),
+				]);
+		}
+	} finally {
+		modelSyncRunning = false;
+	}
+}
+
+export function registerSyncModelsCommand(
+	context: vscode.ExtensionContext,
+	provider: HostRefreshableProvider,
+	statusBar: StatusBarLike,
+	outputChannel: vscode.OutputChannel,
+	logger: Logger
+): void {
+	context.subscriptions.push(
+		vscode.commands.registerCommand("litellm.syncModels", () =>
+			runModelSync(provider, statusBar, outputChannel, logger)
 		)
 	);
 }

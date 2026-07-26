@@ -12,6 +12,7 @@ import { CancellationError, EventEmitter } from "vscode";
 import { ChatClient } from "./provider/chatClient";
 import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
+import { DiscoveryCache } from "./provider/discoveryCache";
 import type { GroupServer, LiteLLMModelInfo } from "./provider/groupModels";
 import {
 	attachGroupServer,
@@ -24,7 +25,7 @@ import type { ModelRoute } from "./provider/modelCatalog";
 import { buildModelInfos } from "./provider/registration";
 import type { Logger } from "./shared/logger";
 import type { AggregatedStatus, ServerStatus, ServerWithKey } from "./shared/servers";
-import { getTokenDefaults } from "./shared/settings";
+import { getDiscoveryCacheTtl, getTokenDefaults } from "./shared/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "./shared/tokenEstimation";
 
 /** Rolling status entries and their cached clients are evicted when not refreshed within this window. */
@@ -36,6 +37,17 @@ function delay(ms: number): Promise<void> {
 
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteLLMModelInfo> {
 	private readonly _client: ChatClient;
+	// Pre-attach group discovery results, keyed by group client ID. The host
+	// re-resolves groups in bursts, so cached sweeps must not hit the network.
+	// Explicit refreshes reach it anyway: refreshViaHost clears the cache (and
+	// the epoch guard keeps in-flight loads from re-storing pre-clear data)
+	// before the host's re-resolution reads through and repopulates it, and
+	// testKnownGroupConnections invalidates each group it probes. The group
+	// server is attached to the stored infos on every read, never cached. The
+	// legacy registry sweep is deliberately uncached: it fetches all servers
+	// at once and aggregates errors, and it only serves pre-migration and
+	// non-production hosts.
+	private readonly _discoveryCache: DiscoveryCache<readonly LiteLLMModelInfo[]>;
 	private _statusCallback?: (status: AggregatedStatus) => void;
 	private _getServers?: () => Promise<ServerWithKey[]>;
 	private _configurationPrompt?: ConfigurationPrompt;
@@ -65,9 +77,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	constructor(
 		userAgent: string,
-		private readonly logger?: Logger
+		private readonly logger?: Logger,
+		discoveryCache?: DiscoveryCache<readonly LiteLLMModelInfo[]>
 	) {
 		this._client = new ChatClient({ userAgent, logger });
+		this._discoveryCache = discoveryCache ?? new DiscoveryCache();
 	}
 
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
@@ -123,6 +137,17 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		return [...this._serverStatuses.keys()].filter(isGroupClientId);
 	}
 
+	/**
+	 * Evict per-server state for servers no longer being served: SDK clients
+	 * and cached discovery results move in lockstep, because both embed the
+	 * server's credentials (a rotated key mints a new group client ID, so the
+	 * old ID drops out of `keep` once its status ages out).
+	 */
+	private pruneServerCaches(keep: readonly string[]): void {
+		this._client.pruneClients(keep);
+		this._discoveryCache.prune(keep);
+	}
+
 	/** Report the union of the latest registry and group statuses, so one group's fetch never masks the others. */
 	private reportMergedStatus(silent: boolean): void {
 		if (!this._statusCallback) {
@@ -147,7 +172,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 		if (this._grouplessRegistryEnabled && !this._grouplessRegistryEnabled()) {
 			this.log("Registry servers are migrated to provider groups; serving no models for the group-agnostic refresh");
-			this._client.pruneClients(this.groupClientIdsInStatuses());
+			this.pruneServerCaches(this.groupClientIdsInStatuses());
 			// The merged report keeps the status bar tracking group removals: once
 			// the last group ages out of the window, this reports empty.
 			this.reportMergedStatus(options.silent);
@@ -157,13 +182,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const servers = await ensureServers(options.silent, this._getServers, this._configurationPrompt);
 		if (!servers || servers.length === 0) {
 			this.log("No servers configured, returning empty array");
-			this._client.pruneClients(this.groupClientIdsInStatuses());
+			this.pruneServerCaches(this.groupClientIdsInStatuses());
 			this.reportMergedStatus(options.silent);
 			return [];
 		}
 
 		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
-		this._client.pruneClients([...servers.map((s) => s.id), ...this.groupClientIdsInStatuses()]);
+		this.pruneServerCaches([...servers.map((s) => s.id), ...this.groupClientIdsInStatuses()]);
 
 		// One defaults snapshot for the whole sweep: discovery's deployment
 		// merging and registration below must derive constraints from the same
@@ -271,30 +296,67 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const existing = this._serverStatuses.get(serverId);
 		if (existing && existing.cycle === this._statusCycle) {
 			this.beginStatusCycle();
-			this._client.pruneClients([...this._serverStatuses.keys(), serverId]);
+			this.pruneServerCaches([...this._serverStatuses.keys(), serverId]);
 		}
 
 		return this.fetchGroupModels(groupServer, silent);
 	}
 
-	private async fetchGroupModels(groupServer: GroupServer, silent: boolean): Promise<LiteLLMModelInfo[]> {
+	/**
+	 * Resolve one group's models, preferring the discovery cache: a fresh
+	 * cached result is served without a network call but still reports its
+	 * remembered outcome, so the merged status (and the cycle bookkeeping that
+	 * ages groups out) stays live across cached sweeps. Cache misses go through
+	 * the single-flight fetch, so a burst of host calls for one group costs one
+	 * request; every caller still reports status once, like it always did.
+	 * `bypassCache` (testKnownGroupConnections) drops the stored result first,
+	 * forcing the network, and the fresh result repopulates the cache.
+	 *
+	 * The cache holds pre-attach infos; the group server is attached on every
+	 * read, cached or fetched, so each sweep hands the host fresh objects and
+	 * nothing the host mutates in place (like the group-name detail) can be
+	 * pinned into later sweeps.
+	 */
+	private async fetchGroupModels(
+		groupServer: GroupServer,
+		silent: boolean,
+		bypassCache = false
+	): Promise<LiteLLMModelInfo[]> {
 		const server: ServerWithKey = {
 			id: groupClientId(groupServer),
 			label: groupServerLabel(groupServer.baseUrl),
 			baseUrl: groupServer.baseUrl,
 			apiKey: groupServer.apiKey,
 		};
-		this.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });
+		const attach = (infos: readonly LiteLLMModelInfo[]): LiteLLMModelInfo[] =>
+			infos.map((info) => attachGroupServer(info, groupServer));
 
+		if (bypassCache) {
+			this._discoveryCache.invalidate(server.id);
+		} else {
+			const ttl = getDiscoveryCacheTtl((msg, data) => this.log(msg, data));
+			const cached = this._discoveryCache.lookup(server.id, ttl);
+			if (cached !== undefined) {
+				this.log("Serving provider group models from the discovery cache", {
+					baseUrl: server.baseUrl,
+					count: cached.length,
+				});
+				this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: cached.length });
+				return attach(cached);
+			}
+		}
+
+		this.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });
 		try {
-			// One defaults snapshot for this group's refresh; see the sweep above.
-			const tokenDefaults = getTokenDefaults();
-			const { models } = await this._client.fetchModels(server, tokenDefaults);
-			const reg = buildModelInfos(models, server, 1, (msg) => this.log(msg), tokenDefaults);
-			const infos = reg.infos.map((info) => attachGroupServer(info, groupServer));
+			const infos = await this._discoveryCache.fetch(server.id, async () => {
+				// One defaults snapshot for this group's refresh; see the sweep above.
+				const tokenDefaults = getTokenDefaults();
+				const { models } = await this._client.fetchModels(server, tokenDefaults);
+				return buildModelInfos(models, server, 1, (msg) => this.log(msg), tokenDefaults).infos;
+			});
 			this.log(`Provider group at ${server.baseUrl} returned ${infos.length} models`);
 			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: infos.length });
-			return infos;
+			return attach(infos);
 		} catch (error) {
 			this.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
 			const message = error instanceof Error ? error.message : String(error);
@@ -317,6 +379,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * to probing the group servers already observed in the status window.
 	 */
 	async refreshViaHost(deadlineMs = 8000, quietMs = 500): Promise<void> {
+		// Every caller of this method wants a real round trip (Test Connection,
+		// Sync Models Now), so the discovery cache is dropped first; the epoch
+		// guard keeps in-flight loads from re-storing pre-drop data. The host's
+		// re-resolution then reads through the empty cache and repopulates it.
+		this._discoveryCache.clear();
 		const groupReportsBefore = this._groupStatusReportCount;
 		this._onDidChangeEmitter.fire();
 
@@ -349,7 +416,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			.filter((groupServer): groupServer is GroupServer => groupServer !== undefined);
 		for (const groupServer of groupServers) {
 			try {
-				await this.fetchGroupModels(groupServer, false);
+				await this.fetchGroupModels(groupServer, false, true);
 			} catch {
 				// The failure is already logged and recorded in the merged status;
 				// the remaining group servers still get probed.
