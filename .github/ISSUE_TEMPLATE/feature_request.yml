@@ -10,6 +10,13 @@ body:
     validations:
       required: true
   - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution (optional)
+      description: How you imagine it working, if you have something in mind.
+    validations:
+      required: false
+  - type: textarea
     id: alternatives
     attributes:
       label: Workarounds you've tried (optional)

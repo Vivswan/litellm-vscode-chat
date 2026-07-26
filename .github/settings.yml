@@ -25,6 +25,15 @@ labels:
   - name: dependencies
     color: "0366d6"
     description: Dependency updates
+  # Dependabot's default per-ecosystem labels: without a `labels:` override in
+  # dependabot.yml it applies these and recreates them if missing, so leaving
+  # them undeclared would make the settings sync delete/recreate them forever.
+  - name: github_actions
+    color: "000000"
+    description: Pull requests that update GitHub Actions code
+  - name: javascript
+    color: "168700"
+    description: Pull requests that update javascript code
   - name: bug
     color: "d73a4a"
     description: Something isn't working
@@ -34,6 +43,10 @@ labels:
   - name: fix-lint
     color: "fbca04"
     description: Lint / formatting fixes
+  # nightly.yml creates this label and queries it to dedupe the fuzz issue.
+  - name: nightly-fuzz
+    color: "B60205"
+    description: Automated nightly fuzz failure
   # release-please manages these two; listing them here keeps the settings
   # sync from deleting them (it removes any label not declared in this file).
   - name: "autorelease: pending"
@@ -98,3 +111,18 @@ rulesets:
       - actor_id: 5
         actor_type: RepositoryRole
         bypass_mode: always
+
+  # vX.Y.Z release tags are immutable: repo-platform's push sync pins
+  # against them and release artifacts reference them.
+  - name: release-tags
+    target: tag
+    enforcement: active
+    conditions:
+      ref_name:
+        include:
+          - v*
+        exclude: []
+    rules:
+      - type: deletion
+      - type: non_fast_forward
+      - type: update

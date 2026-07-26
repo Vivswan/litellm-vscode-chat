@@ -2,14 +2,11 @@
 
 ## Supported versions
 
-Only the latest `main` branch and the latest VS Code Marketplace release are
-supported. This extension is pre-1.0, so security fixes land on `main` and go
-out through the normal release flow.
+Only the latest release is supported.
 
 ## Reporting a vulnerability
 
-**Do not open public issues, pull requests, or discussions for security
-reports.**
+**Do not open a public issue for security problems.**
 
 Report vulnerabilities privately via
 [GitHub Security Advisories](https://github.com/vivswan/litellm-vscode-chat/security/advisories/new)
@@ -29,6 +26,12 @@ a key.
 <!-- Repository-specific security documentation (scope, threat model, review
      expectations for security-relevant changes) goes below this line. It
      survives template updates via three-way merge. -->
+
+For this extension, the latest release means the latest VS Code Marketplace
+release; the tip of `main` is supported too. The project is pre-1.0, so
+security fixes land on `main` and go out through the normal release flow.
+Keep security reports out of public pull requests and discussions as well as
+issues.
 
 As a small, volunteer-maintained project we cannot commit to a fixed response
 or remediation timeline; acknowledgement and fixes are best-effort.
