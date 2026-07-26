@@ -1,29 +1,14 @@
 {
 	"name": "litellm-vscode-chat",
+	"displayName": "LiteLLM Provider for GitHub Copilot Chat",
+	"description": "An extension that integrates LiteLLM into GitHub Copilot Chat",
 	"version": "0.3.1",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/Vivswan/litellm-vscode-chat"
-	},
-	"main": "./dist/extension.js",
-	"devDependencies": {
-		"@biomejs/biome": "^2.5.4",
-		"@types/mocha": "^10.0.10",
-		"@types/node": "^25.9.1",
-		"@types/vscode": "^1.120.0",
-		"@vscode/test-cli": "^0.0.15",
-		"@vscode/test-electron": "^2.5.2",
-		"@vscode/vsce": "^3.9.2",
-		"actionlint": "^2.0.6",
-		"esbuild": "^0.28.1",
-		"eslint": "^10.7.0",
-		"fast-check": "^4.9.0",
-		"husky": "^9.1.7",
-		"jiti": "^2.7.0",
-		"knip": "^6.27.0",
-		"lint-staged": "^17.0.8",
-		"typescript": "^6.0.3",
-		"typescript-eslint": "8.64.1-alpha.9"
+	"publisher": "vivswan",
+	"license": "MIT",
+	"icon": "assets/logo.png",
+	"galleryBanner": {
+		"color": "#100f11",
+		"theme": "dark"
 	},
 	"badges": [
 		{
@@ -32,13 +17,22 @@
 			"href": "https://github.com/Vivswan/litellm-vscode-chat"
 		}
 	],
+	"homepage": "https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Vivswan/litellm-vscode-chat"
+	},
 	"bugs": {
 		"url": "https://github.com/Vivswan/litellm-vscode-chat/issues"
+	},
+	"engines": {
+		"vscode": "^1.120.0"
 	},
 	"categories": [
 		"AI",
 		"Chat"
 	],
+	"main": "./dist/extension.js",
 	"contributes": {
 		"languageModelChatProviders": [
 			{
@@ -138,23 +132,6 @@
 			}
 		}
 	},
-	"description": "An extension that integrates LiteLLM into GitHub Copilot Chat",
-	"displayName": "LiteLLM Provider for GitHub Copilot Chat",
-	"engines": {
-		"vscode": "^1.120.0"
-	},
-	"galleryBanner": {
-		"color": "#100f11",
-		"theme": "dark"
-	},
-	"homepage": "https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat",
-	"icon": "assets/logo.png",
-	"license": "MIT",
-	"lint-staged": {
-		"*.{js,mjs,cjs,ts,jsx,tsx}": "biome format --write --no-errors-on-unmatched"
-	},
-	"packageManager": "bun@1.3.9",
-	"publisher": "vivswan",
 	"scripts": {
 		"prepare": "husky",
 		"vscode:prepublish": "tsc -p tsconfig.prod.json && bun run bundle",
@@ -183,5 +160,29 @@
 	"dependencies": {
 		"openai": "^6.48.0",
 		"zod": "^4.4.3"
-	}
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.4",
+		"@types/mocha": "^10.0.10",
+		"@types/node": "^25.9.1",
+		"@types/vscode": "^1.120.0",
+		"@vscode/test-cli": "^0.0.15",
+		"@vscode/test-electron": "^2.5.2",
+		"@vscode/vsce": "^3.9.2",
+		"actionlint": "^2.0.6",
+		"esbuild": "^0.28.1",
+		"eslint": "^10.7.0",
+		"fast-check": "^4.9.0",
+		"husky": "^9.1.7",
+		"jiti": "^2.7.0",
+		"knip": "^6.27.0",
+		"lint-staged": "^17.0.8",
+		"msw": "^2.15.0",
+		"typescript": "^6.0.3",
+		"typescript-eslint": "8.64.1-alpha.9"
+	},
+	"lint-staged": {
+		"*.{js,mjs,cjs,ts,jsx,tsx}": "biome format --write --no-errors-on-unmatched"
+	},
+	"packageManager": "bun@1.3.9"
 }

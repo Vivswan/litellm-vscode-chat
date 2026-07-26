@@ -23,12 +23,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const vscodeVersion = vscode.version;
 	const ua = `litellm-vscode-chat/${extVersion} VSCode/${vscodeVersion}`;
 
-	const outputChannel = vscode.window.createOutputChannel("LiteLLM");
+	const outputChannel = vscode.window.createOutputChannel("LiteLLM", { log: true });
 	context.subscriptions.push(outputChannel);
-	outputChannel.appendLine(`LiteLLM Extension activated (v${extVersion})`);
 
 	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri));
 	const logger = new Logger(outputChannel, issueReporter);
+	logger.log(`LiteLLM Extension activated (v${extVersion})`);
 	const registry = new ServerRegistry(context.globalState, context.secrets);
 	const provider = new LiteLLMChatModelProvider(ua, logger);
 

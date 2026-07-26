@@ -1,7 +1,9 @@
 import * as assert from "node:assert";
+import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import { Logger } from "../shared/logger";
+import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse } from "./mocks/handlers";
 
 /** Assert that an indexed read produced a value and return it narrowed. */
 export function expectDefined<T>(value: T | undefined, message = "expected value to be defined"): T {
@@ -25,6 +27,12 @@ export type FetchMock = (url: string | URL | Request, init?: RequestInit) => Pro
 /**
  * Run `fn` with `global.fetch` replaced by `mock`, restoring the original
  * fetch even when the body throws so one failing test cannot cascade.
+ *
+ * Most suites mock the network through msw (see mocks/handlers.ts); this
+ * remains the escape hatch for what msw cannot express: observing the
+ * AbortSignal wired into fetch, erroring a body stream on abort, and
+ * fabricating specific error cause chains (ECONNREFUSED, TLS failures,
+ * TimeoutError DOMExceptions).
  */
 export async function withFetch<T>(mock: FetchMock, fn: () => Promise<T>): Promise<T> {
 	const originalFetch = global.fetch;
@@ -71,7 +79,7 @@ export async function withConfig<T>(
 export function makeProvider(
 	baseUrl?: string,
 	apiKey = "test-key",
-	outputChannel?: vscode.OutputChannel
+	outputChannel?: vscode.LogOutputChannel
 ): LiteLLMChatModelProvider {
 	const logger = outputChannel ? new Logger(outputChannel) : undefined;
 	const provider = new LiteLLMChatModelProvider("GitHubCopilotChat/test VSCode/test", logger);
@@ -81,14 +89,7 @@ export function makeProvider(
 }
 
 export function createConfiguredProvider(): LiteLLMChatModelProvider {
-	return makeProvider("http://test");
-}
-
-export function jsonResponse(payload: unknown, status = 200): Response {
-	return new Response(JSON.stringify(payload), {
-		status,
-		headers: { "Content-Type": "application/json" },
-	});
+	return makeProvider("http://litellm.test");
 }
 
 export function makeModelInfo(
@@ -123,16 +124,6 @@ export function systemMessage(text: string): vscode.LanguageModelChatRequestMess
 	};
 }
 
-export function sseStream(text: string): ReadableStream<Uint8Array> {
-	const chunk = `data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
-	return new ReadableStream({
-		start(controller) {
-			controller.enqueue(new TextEncoder().encode(chunk));
-			controller.close();
-		},
-	});
-}
-
 /**
  * A /v1/model/info discovery payload registering "test-model" with the same
  * token limits as `makeModelInfo()`. Prompt caching is not advertised.
@@ -158,14 +149,15 @@ export interface CapturedRequest {
 
 export interface CaptureRequestOverrides {
 	messages?: vscode.LanguageModelChatRequestMessage[];
-	discoveryPayload?: unknown;
+	discoveryPayload?: JsonBodyType;
 }
 
 /**
- * Run model discovery followed by a chat request against a fetch mock that
- * dispatches on URL: discovery endpoints return `discoveryPayload` (default:
- * a valid "test-model" listing), and POST /v1/chat/completions captures the
- * request body and headers before answering with a minimal SSE stream.
+ * Run model discovery followed by a chat request against msw handlers:
+ * discovery endpoints return `discoveryPayload` (default: a valid
+ * "test-model" listing), and POST /v1/chat/completions captures the request
+ * body and headers before answering with a minimal SSE stream. The calling
+ * suite must have installed the msw lifecycle via useMsw().
  */
 export async function captureRequest(
 	provider: LiteLLMChatModelProvider,
@@ -173,34 +165,27 @@ export async function captureRequest(
 	opts: unknown,
 	overrides: CaptureRequestOverrides = {}
 ): Promise<CapturedRequest> {
-	let capturedBody: Record<string, unknown> = {};
-	let capturedHeaders: Record<string, string> = {};
+	let captured: CapturedRequest | undefined;
 	const discoveryPayload = overrides.discoveryPayload ?? DEFAULT_DISCOVERY_PAYLOAD;
-	await withFetch(
-		async (url, init) => {
-			const urlStr = url.toString();
-			if ((init?.method ?? "GET") === "POST" && urlStr.includes("/v1/chat/completions")) {
-				capturedBody = JSON.parse(init?.body as string);
-				capturedHeaders = toHeaderMap(init?.headers);
-				return new Response(sseStream("ok"), { status: 200, headers: { "Content-Type": "text/event-stream" } });
-			}
-			if (urlStr.includes("/v1/model/info") || urlStr.includes("/v1/models")) {
-				return jsonResponse(discoveryPayload);
-			}
-			throw new Error(`Unexpected request in captureRequest: ${init?.method ?? "GET"} ${urlStr}`);
-		},
-		async () => {
-			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
-			await provider.provideLanguageModelChatResponse(
-				model,
-				overrides.messages ?? [userMessage("test")],
-				opts as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				new vscode.CancellationTokenSource().token
-			);
-		}
+	mswServer.use(
+		...discoveryHandlers(discoveryPayload),
+		http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
+			captured = {
+				body: (await request.json()) as Record<string, unknown>,
+				headers: toHeaderMap(request.headers),
+			};
+			return sseTextResponse("ok");
+		})
 	);
-	return { body: capturedBody, headers: capturedHeaders };
+	await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+	await provider.provideLanguageModelChatResponse(
+		model,
+		overrides.messages ?? [userMessage("test")],
+		opts as vscode.ProvideLanguageModelChatResponseOptions,
+		{ report: () => {} },
+		new vscode.CancellationTokenSource().token
+	);
+	return expectDefined(captured, "no chat request reached the mock server");
 }
 
 export async function captureRequestBody(

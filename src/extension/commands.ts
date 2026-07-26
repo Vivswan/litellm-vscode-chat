@@ -43,7 +43,6 @@ export function registerTestConnectionCommand(
 				return;
 			}
 
-			outputChannel.appendLine("");
 			logger.log("Testing connection to all servers...");
 			outputChannel.show(true);
 

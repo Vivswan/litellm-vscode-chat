@@ -1,12 +1,14 @@
 import * as assert from "node:assert";
+import { HttpResponse, http } from "msw";
 import type OpenAI from "openai";
 import { createServerClient, ServerClientCache, type ServerClientConfig } from "../../provider/clients";
-import { toHeaderMap, withFetch } from "../testUtils";
+import { MODELS_URL, mswServer, useMsw } from "../mocks/handlers";
+import { toHeaderMap } from "../testUtils";
 
 function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig {
 	return {
 		serverId: "srv1",
-		baseUrl: "http://test",
+		baseUrl: "http://litellm.test",
 		apiKey: "sk-k",
 		userAgent: "test-agent",
 		customHeaders: {},
@@ -15,30 +17,27 @@ function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig
 }
 
 /**
- * Issue a GET through the client against a mock fetch and capture the
- * outgoing request. The client reads globalThis.fetch per call, so the swap
- * works even for clients constructed before withFetch runs.
+ * Issue a GET through the client against an msw handler and capture the
+ * outgoing request. The client reads globalThis.fetch per call, so msw's
+ * interception applies even to clients constructed before the server started.
  */
 async function captureGet(client: OpenAI): Promise<{ url: string; headers: Record<string, string> }> {
 	let url = "";
 	let headers: Record<string, string> = {};
-	await withFetch(
-		async (input, init) => {
-			url = String(input);
-			headers = toHeaderMap(init?.headers);
-			return new Response(JSON.stringify({ data: [] }), {
-				status: 200,
-				headers: { "Content-Type": "application/json" },
-			});
-		},
-		async () => {
-			await client.get("/models", { timeout: 5000 });
-		}
+	mswServer.use(
+		http.get(MODELS_URL, ({ request }) => {
+			url = request.url;
+			headers = toHeaderMap(request.headers);
+			return HttpResponse.json({ data: [] });
+		})
 	);
+	await client.get("/models", { timeout: 5000 });
 	return { url, headers };
 }
 
 suite("provider/clients", () => {
+	useMsw();
+
 	suite("createServerClient", () => {
 		test("keyed client sends both auth headers, the User-Agent, and custom headers", async () => {
 			const client = createServerClient(config({ customHeaders: { "X-Custom": "custom-value" } }));
@@ -75,7 +74,7 @@ suite("provider/clients", () => {
 		test("requests go to the server's /v1 prefix", async () => {
 			const client = createServerClient(config());
 			const { url } = await captureGet(client);
-			assert.strictEqual(url, "http://test/v1/models");
+			assert.strictEqual(url, "http://litellm.test/v1/models");
 		});
 	});
 

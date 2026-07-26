@@ -8,8 +8,8 @@ import {
 } from "openai";
 import { type MapErrorContext, mapSdkError, RequestError, timeoutMessage } from "../../provider/errorMapping";
 
-const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://test", timeoutMs: 5000 };
-const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://test", timeoutMs: 5000 };
+const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
+const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 
 /**
  * Build the cause chain the SDK produces for transport failures: the SDK's
@@ -82,7 +82,7 @@ suite("provider/errorMapping", () => {
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "connection");
 			assert.strictEqual(
 				mapped.message,
-				"Connection Error: Unable to connect to http://test. Please check that the server is running and the URL is correct."
+				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct."
 			);
 			assert.strictEqual(mapped.cause, err);
 		});
@@ -92,7 +92,7 @@ suite("provider/errorMapping", () => {
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
 			assert.strictEqual(
 				mapped.message,
-				"SSL Certificate Error: The SSL certificate for http://test has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL."
+				"SSL Certificate Error: The SSL certificate for http://litellm.test has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL."
 			);
 		});
 
@@ -101,7 +101,7 @@ suite("provider/errorMapping", () => {
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
 			assert.strictEqual(
 				mapped.message,
-				"SSL Certificate Error: There is an issue with the SSL certificate for http://test. Error: self-signed certificate"
+				"SSL Certificate Error: There is an issue with the SSL certificate for http://litellm.test. Error: self-signed certificate"
 			);
 		});
 	});

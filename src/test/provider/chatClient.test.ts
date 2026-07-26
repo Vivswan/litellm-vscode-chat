@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { ChatClient } from "../../provider/chatClient";
+import { withFetch } from "../testUtils";
 
 function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: string): void; close(): void } {
 	let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -62,55 +63,55 @@ const options = {
 } as unknown as vscode.ProvideLanguageModelChatResponseOptions;
 
 suite("provider/chatClient", () => {
+	// These tests stay on withFetch: they observe interleaved stream delivery
+	// across concurrent requests, AbortSignal wiring, and injected transport
+	// errors, none of which msw handlers can express.
 	test("concurrent send() calls generate disjoint tool-call IDs", async () => {
-		const originalFetch = global.fetch;
 		const first = controllableStream();
 		const second = controllableStream();
 		const bodies = [first, second];
-		try {
-			global.fetch = (async () => {
+		await withFetch(
+			async () => {
 				const body = bodies.shift();
 				assert.ok(body, "Only two requests are expected");
 				return new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
-			}) as unknown as typeof fetch;
+			},
+			async () => {
+				const client = new ChatClient({ userAgent: "test-agent" });
+				client.setServerProvider(() =>
+					Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }])
+				);
 
-			const client = new ChatClient({ userAgent: "test-agent" });
-			client.setServerProvider(() =>
-				Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://test", apiKey: "k" }])
-			);
+				const a = collector();
+				const b = collector();
+				const token = new vscode.CancellationTokenSource().token;
+				const sendA = client.send({ model, messages, options, progress: a.progress, token });
+				const sendB = client.send({ model, messages, options, progress: b.progress, token });
 
-			const a = collector();
-			const b = collector();
-			const token = new vscode.CancellationTokenSource().token;
-			const sendA = client.send({ model, messages, options, progress: a.progress, token });
-			const sendB = client.send({ model, messages, options, progress: b.progress, token });
+				// Both requests are now in flight; complete their streams interleaved.
+				first.push(idlessToolCallChunk("tool_one"));
+				second.push(idlessToolCallChunk("tool_two"));
+				first.push("data: [DONE]\n\n");
+				second.push("data: [DONE]\n\n");
+				first.close();
+				second.close();
+				await Promise.all([sendA, sendB]);
 
-			// Both requests are now in flight; complete their streams interleaved.
-			first.push(idlessToolCallChunk("tool_one"));
-			second.push(idlessToolCallChunk("tool_two"));
-			first.push("data: [DONE]\n\n");
-			second.push("data: [DONE]\n\n");
-			first.close();
-			second.close();
-			await Promise.all([sendA, sendB]);
-
-			assert.equal(a.callIds.length, 1, "First request should emit one generated tool call");
-			assert.equal(b.callIds.length, 1, "Second request should emit one generated tool call");
-			const all = new Set([...a.callIds, ...b.callIds]);
-			assert.equal(all.size, 2, `Generated IDs must be disjoint across overlapping requests, got ${[...all]}`);
-			for (const id of all) {
-				assert.match(id, /^call_\d+$/);
+				assert.equal(a.callIds.length, 1, "First request should emit one generated tool call");
+				assert.equal(b.callIds.length, 1, "Second request should emit one generated tool call");
+				const all = new Set([...a.callIds, ...b.callIds]);
+				assert.equal(all.size, 2, `Generated IDs must be disjoint across overlapping requests, got ${[...all]}`);
+				for (const id of all) {
+					assert.match(id, /^call_\d+$/);
+				}
 			}
-		} finally {
-			global.fetch = originalFetch;
-		}
+		);
 	});
 
 	test("user cancellation aborts the in-flight fetch and throws CancellationError", async () => {
-		const originalFetch = global.fetch;
 		let observedSignal: AbortSignal | undefined;
-		try {
-			global.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+		await withFetch(
+			async (_url, init) => {
 				observedSignal = init?.signal ?? undefined;
 				const signal = init?.signal;
 				// Behave like a real fetch: the body stream errors when the request signal aborts.
@@ -120,53 +121,50 @@ suite("provider/chatClient", () => {
 					},
 				});
 				return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
-			}) as unknown as typeof fetch;
+			},
+			async () => {
+				const client = new ChatClient({ userAgent: "test-agent" });
+				client.setServerProvider(() =>
+					Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }])
+				);
 
-			const client = new ChatClient({ userAgent: "test-agent" });
-			client.setServerProvider(() =>
-				Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://test", apiKey: "k" }])
-			);
+				const cts = new vscode.CancellationTokenSource();
+				const sendPromise = client.send({
+					model,
+					messages,
+					options,
+					progress: collector().progress,
+					token: cts.token,
+				});
+				setTimeout(() => cts.cancel(), 20);
 
-			const cts = new vscode.CancellationTokenSource();
-			const sendPromise = client.send({
-				model,
-				messages,
-				options,
-				progress: collector().progress,
-				token: cts.token,
-			});
-			setTimeout(() => cts.cancel(), 20);
-
-			await assert.rejects(sendPromise, (err: unknown) => {
-				assert.ok(err instanceof vscode.CancellationError, `Expected CancellationError, got ${String(err)}`);
-				return true;
-			});
-			assert.ok(observedSignal, "fetch should receive an AbortSignal");
-			assert.strictEqual(observedSignal.aborted, true, "Cancellation must abort the fetch signal");
-		} finally {
-			global.fetch = originalFetch;
-		}
+				await assert.rejects(sendPromise, (err: unknown) => {
+					assert.ok(err instanceof vscode.CancellationError, `Expected CancellationError, got ${String(err)}`);
+					return true;
+				});
+				assert.ok(observedSignal, "fetch should receive an AbortSignal");
+				assert.strictEqual(observedSignal.aborted, true, "Cancellation must abort the fetch signal");
+			}
+		);
 	});
 
 	test("request timeout surfaces an actionable error naming the requestTimeout setting", async () => {
-		const originalFetch = global.fetch;
-		try {
-			global.fetch = (async () => {
+		await withFetch(
+			async () => {
 				throw new DOMException("The operation timed out.", "TimeoutError");
-			}) as unknown as typeof fetch;
+			},
+			async () => {
+				const client = new ChatClient({ userAgent: "test-agent" });
+				client.setServerProvider(() =>
+					Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }])
+				);
 
-			const client = new ChatClient({ userAgent: "test-agent" });
-			client.setServerProvider(() =>
-				Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://test", apiKey: "k" }])
-			);
-
-			const token = new vscode.CancellationTokenSource().token;
-			await assert.rejects(
-				client.send({ model, messages, options, progress: collector().progress, token }),
-				/requestTimeout/
-			);
-		} finally {
-			global.fetch = originalFetch;
-		}
+				const token = new vscode.CancellationTokenSource().token;
+				await assert.rejects(
+					client.send({ model, messages, options, progress: collector().progress, token }),
+					/requestTimeout/
+				);
+			}
+		);
 	});
 });
