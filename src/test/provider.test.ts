@@ -92,8 +92,11 @@ suite("provider", () => {
 
 	test("user cancellation rejects with CancellationError and is not logged as an error", async () => {
 		const lines: string[] = [];
-		const channel = { appendLine: (line: string) => lines.push(line) } as unknown as vscode.OutputChannel;
-		const provider = makeProvider("http://test", "test-key", channel);
+		const channel = {
+			info: (line: string) => lines.push(line),
+			error: (line: string) => lines.push(`ERROR: ${line}`),
+		} as unknown as vscode.LogOutputChannel;
+		const provider = makeProvider("http://litellm.test", "test-key", channel);
 
 		const cts = new vscode.CancellationTokenSource();
 		await withFetch(

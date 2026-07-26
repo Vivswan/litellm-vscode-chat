@@ -35,7 +35,7 @@ suite("extension/notifier", () => {
 		return {
 			serverId: "srv1",
 			label: "Default",
-			baseUrl: "http://test",
+			baseUrl: "http://litellm.test",
 			state,
 			modelCount,
 			error,

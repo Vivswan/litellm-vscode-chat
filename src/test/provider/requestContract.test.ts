@@ -1,50 +1,51 @@
 import * as assert from "node:assert";
+import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { findLongestPrefixMatch, getModelParameters } from "../../provider/request";
+import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseResponse, useMsw } from "../mocks/handlers";
 import {
 	captureRequest,
 	captureRequestBody,
 	createConfiguredProvider,
-	jsonResponse,
 	makeModelInfo,
 	makeProvider,
 	systemMessage,
 	userMessage,
 	withConfig,
-	withFetch,
 } from "../testUtils";
 
 const modelInfo = makeModelInfo();
 
+function singleProviderListing(provider: Record<string, string | number | boolean | null>) {
+	return {
+		object: "list",
+		data: [
+			{
+				id: "test-model",
+				object: "model",
+				created: 0,
+				owned_by: "test",
+				providers: [{ provider: "test-provider", status: "active", supports_tools: true, ...provider }],
+			},
+		],
+	};
+}
+
 suite("provider/request contract", () => {
+	useMsw();
+
 	suite("token constraints", () => {
 		test("uses token constraints from provider info when available", async () => {
-			const provider = makeProvider("http://test");
+			const provider = makeProvider("http://litellm.test");
+			mswServer.use(
+				...discoveryHandlers(
+					singleProviderListing({ context_length: 100000, max_output_tokens: 8000, max_input_tokens: 90000 })
+				)
+			);
 
-			const infos = await withFetch(
-				async () =>
-					jsonResponse({
-						object: "list",
-						data: [
-							{
-								id: "test-model",
-								object: "model",
-								created: 0,
-								owned_by: "test",
-								providers: [
-									{
-										provider: "test-provider",
-										status: "active",
-										supports_tools: true,
-										context_length: 100000,
-										max_output_tokens: 8000,
-										max_input_tokens: 90000,
-									},
-								],
-							},
-						],
-					}),
-				() => provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token)
+			const infos = await provider.provideLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
 			);
 
 			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
@@ -54,23 +55,12 @@ suite("provider/request contract", () => {
 		});
 
 		test("marks registered models as user-selectable for VS Code 1.120 picker compatibility", async () => {
-			const provider = makeProvider("http://test");
+			const provider = makeProvider("http://litellm.test");
+			mswServer.use(...discoveryHandlers(singleProviderListing({})));
 
-			const infos = await withFetch(
-				async () =>
-					jsonResponse({
-						object: "list",
-						data: [
-							{
-								id: "test-model",
-								object: "model",
-								created: 0,
-								owned_by: "test",
-								providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
-							},
-						],
-					}),
-				() => provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token)
+			const infos = await provider.provideLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
 			);
 			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
 			assert.ok(providerEntry);
@@ -85,28 +75,13 @@ suite("provider/request contract", () => {
 		});
 
 		test("uses workspace settings as fallback when provider fields absent", async () => {
+			mswServer.use(...discoveryHandlers(singleProviderListing({})));
 			const infos = await withConfig(
 				{ defaultMaxOutputTokens: 20000, defaultContextLength: 200000, defaultMaxInputTokens: null },
 				() =>
-					withFetch(
-						async () =>
-							jsonResponse({
-								object: "list",
-								data: [
-									{
-										id: "test-model",
-										object: "model",
-										created: 0,
-										owned_by: "test",
-										providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
-									},
-								],
-							}),
-						() =>
-							makeProvider("http://test").provideLanguageModelChatInformation(
-								{ silent: true },
-								new vscode.CancellationTokenSource().token
-							)
+					makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+						{ silent: true },
+						new vscode.CancellationTokenSource().token
 					)
 			);
 			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
@@ -116,35 +91,15 @@ suite("provider/request contract", () => {
 		});
 
 		test("uses configured defaultMaxInputTokens as an explicit override", async () => {
+			mswServer.use(
+				...discoveryHandlers(
+					singleProviderListing({ context_length: 100000, max_output_tokens: 8000, max_input_tokens: 90000 })
+				)
+			);
 			const infos = await withConfig({ defaultMaxInputTokens: 50000 }, () =>
-				withFetch(
-					async () =>
-						jsonResponse({
-							object: "list",
-							data: [
-								{
-									id: "test-model",
-									object: "model",
-									created: 0,
-									owned_by: "test",
-									providers: [
-										{
-											provider: "test-provider",
-											status: "active",
-											supports_tools: true,
-											context_length: 100000,
-											max_output_tokens: 8000,
-											max_input_tokens: 90000,
-										},
-									],
-								},
-							],
-						}),
-					() =>
-						makeProvider("http://test").provideLanguageModelChatInformation(
-							{ silent: true },
-							new vscode.CancellationTokenSource().token
-						)
+				makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
 				)
 			);
 			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
@@ -153,35 +108,15 @@ suite("provider/request contract", () => {
 		});
 
 		test("treats null provider max_input_tokens as missing and falls back to workspace setting", async () => {
+			mswServer.use(
+				...discoveryHandlers(
+					singleProviderListing({ context_length: 100000, max_output_tokens: 8000, max_input_tokens: null })
+				)
+			);
 			const infos = await withConfig({ defaultMaxInputTokens: 48000 }, () =>
-				withFetch(
-					async () =>
-						jsonResponse({
-							object: "list",
-							data: [
-								{
-									id: "test-model",
-									object: "model",
-									created: 0,
-									owned_by: "test",
-									providers: [
-										{
-											provider: "test-provider",
-											status: "active",
-											supports_tools: true,
-											context_length: 100000,
-											max_output_tokens: 8000,
-											max_input_tokens: null,
-										},
-									],
-								},
-							],
-						}),
-					() =>
-						makeProvider("http://test").provideLanguageModelChatInformation(
-							{ silent: true },
-							new vscode.CancellationTokenSource().token
-						)
+				makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
 				)
 			);
 			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
@@ -190,26 +125,11 @@ suite("provider/request contract", () => {
 		});
 
 		test("uses hardcoded defaults when provider and settings absent", async () => {
+			mswServer.use(...discoveryHandlers(singleProviderListing({})));
 			const infos = await withConfig({}, () =>
-				withFetch(
-					async () =>
-						jsonResponse({
-							object: "list",
-							data: [
-								{
-									id: "test-model",
-									object: "model",
-									created: 0,
-									owned_by: "test",
-									providers: [{ provider: "test-provider", status: "active", supports_tools: true }],
-								},
-							],
-						}),
-					() =>
-						makeProvider("http://test").provideLanguageModelChatInformation(
-							{ silent: true },
-							new vscode.CancellationTokenSource().token
-						)
+				makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+					{ silent: true },
+					new vscode.CancellationTokenSource().token
 				)
 			);
 			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
@@ -219,38 +139,40 @@ suite("provider/request contract", () => {
 		});
 
 		test("aggregates minimum token constraints for cheapest/fastest entries", async () => {
-			const provider = makeProvider("http://test");
+			const provider = makeProvider("http://litellm.test");
+			mswServer.use(
+				...discoveryHandlers({
+					object: "list",
+					data: [
+						{
+							id: "test-model",
+							object: "model",
+							created: 0,
+							owned_by: "test",
+							providers: [
+								{
+									provider: "provider-a",
+									status: "active",
+									supports_tools: true,
+									context_length: 100000,
+									max_output_tokens: 8000,
+								},
+								{
+									provider: "provider-b",
+									status: "active",
+									supports_tools: true,
+									context_length: 50000,
+									max_output_tokens: 4000,
+								},
+							],
+						},
+					],
+				})
+			);
 
-			const infos = await withFetch(
-				async () =>
-					jsonResponse({
-						object: "list",
-						data: [
-							{
-								id: "test-model",
-								object: "model",
-								created: 0,
-								owned_by: "test",
-								providers: [
-									{
-										provider: "provider-a",
-										status: "active",
-										supports_tools: true,
-										context_length: 100000,
-										max_output_tokens: 8000,
-									},
-									{
-										provider: "provider-b",
-										status: "active",
-										supports_tools: true,
-										context_length: 50000,
-										max_output_tokens: 4000,
-									},
-								],
-							},
-						],
-					}),
-				() => provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token)
+			const infos = await provider.provideLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
 			);
 
 			const cheapestEntry = infos.find((i) => i.id === "test-model:cheapest");
@@ -263,32 +185,16 @@ suite("provider/request contract", () => {
 		});
 
 		test("provider max_output_tokens takes priority over max_tokens", async () => {
-			const provider = makeProvider("http://test");
+			const provider = makeProvider("http://litellm.test");
+			mswServer.use(
+				...discoveryHandlers(
+					singleProviderListing({ context_length: 100000, max_tokens: 10000, max_output_tokens: 8000 })
+				)
+			);
 
-			const infos = await withFetch(
-				async () =>
-					jsonResponse({
-						object: "list",
-						data: [
-							{
-								id: "test-model",
-								object: "model",
-								created: 0,
-								owned_by: "test",
-								providers: [
-									{
-										provider: "test-provider",
-										status: "active",
-										supports_tools: true,
-										context_length: 100000,
-										max_tokens: 10000,
-										max_output_tokens: 8000,
-									},
-								],
-							},
-						],
-					}),
-				() => provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token)
+			const infos = await provider.provideLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
 			);
 
 			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
@@ -481,40 +387,25 @@ suite("provider/request contract", () => {
 		test("sends the chat request to /v1/chat/completions on the configured server", async () => {
 			let chatUrl = "";
 			const provider = createConfiguredProvider();
-			await withFetch(
-				async (url, init) => {
-					const urlStr = url.toString();
-					if ((init?.method ?? "GET") === "POST") {
-						chatUrl = urlStr;
-						return new Response(
-							new ReadableStream({
-								start(controller) {
-									controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
-									controller.close();
-								},
-							}),
-							{ status: 200, headers: { "Content-Type": "text/event-stream" } }
-						);
-					}
-					return jsonResponse({
-						data: [{ model_name: "test-model", model_info: { id: "test-model", supports_function_calling: true } }],
-					});
-				},
-				async () => {
-					await provider.provideLanguageModelChatInformation(
-						{ silent: true },
-						new vscode.CancellationTokenSource().token
-					);
-					await provider.provideLanguageModelChatResponse(
-						modelInfo,
-						[userMessage("test")],
-						{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
-						{ report: () => {} },
-						new vscode.CancellationTokenSource().token
-					);
-				}
+			mswServer.use(
+				...discoveryHandlers({
+					data: [{ model_name: "test-model", model_info: { id: "test-model", supports_function_calling: true } }],
+				}),
+				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+					chatUrl = request.url;
+					return sseResponse("data: [DONE]\n\n");
+				})
 			);
-			assert.equal(chatUrl, "http://test/v1/chat/completions");
+
+			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+			await provider.provideLanguageModelChatResponse(
+				modelInfo,
+				[userMessage("test")],
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				new vscode.CancellationTokenSource().token
+			);
+			assert.equal(chatUrl, "http://litellm.test/v1/chat/completions");
 		});
 	});
 
@@ -634,60 +525,61 @@ suite("provider/request contract", () => {
 	});
 
 	suite("request limits", () => {
-		test("rejects when the estimated input exceeds the model token limit without sending a request", async () => {
-			const provider = makeProvider("http://test");
-			let fetchCalled = false;
-			await withFetch(
-				async () => {
-					fetchCalled = true;
-					throw new Error("fetch must not be called");
-				},
-				async () => {
-					await assert.rejects(
-						provider.provideLanguageModelChatResponse(
-							makeModelInfo({ maxInputTokens: 10 }),
-							[userMessage("x".repeat(4000))],
-							{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
-							{ report: () => {} },
-							new vscode.CancellationTokenSource().token
-						),
-						/exceeds token limit/
-					);
-				}
+		/**
+		 * Record any provider request that escapes to the network so tests can
+		 * assert none did. Scoped to the unit-test host: the extension host runs
+		 * with built-in extensions whose unrelated background HTTP must not
+		 * pollute the recording.
+		 */
+		function trackUnexpectedRequests(): string[] {
+			const urls: string[] = [];
+			mswServer.use(
+				http.all("http://litellm.test/*", ({ request }) => {
+					urls.push(request.url);
+					return HttpResponse.error();
+				})
 			);
-			assert.strictEqual(fetchCalled, false, "Over-limit requests must be rejected before any network call");
+			return urls;
+		}
+
+		test("rejects when the estimated input exceeds the model token limit without sending a request", async () => {
+			const provider = makeProvider("http://litellm.test");
+			const requests = trackUnexpectedRequests();
+			await assert.rejects(
+				provider.provideLanguageModelChatResponse(
+					makeModelInfo({ maxInputTokens: 10 }),
+					[userMessage("x".repeat(4000))],
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				),
+				/exceeds token limit/
+			);
+			assert.deepStrictEqual(requests, [], "Over-limit requests must be rejected before any network call");
 		});
 
 		test("rejects requests with more than 128 tools without sending a request", async () => {
-			const provider = makeProvider("http://test");
+			const provider = makeProvider("http://litellm.test");
 			const tools = Array.from({ length: 129 }, (_, i) => ({
 				name: `tool_${i}`,
 				description: "a tool",
 				inputSchema: { type: "object", properties: {} },
 			}));
-			let fetchCalled = false;
-			await withFetch(
-				async () => {
-					fetchCalled = true;
-					throw new Error("fetch must not be called");
-				},
-				async () => {
-					await assert.rejects(
-						provider.provideLanguageModelChatResponse(
-							modelInfo,
-							[userMessage("hi")],
-							{
-								toolMode: vscode.LanguageModelChatToolMode.Auto,
-								tools,
-							} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
-							{ report: () => {} },
-							new vscode.CancellationTokenSource().token
-						),
-						/more than 128 tools/
-					);
-				}
+			const requests = trackUnexpectedRequests();
+			await assert.rejects(
+				provider.provideLanguageModelChatResponse(
+					modelInfo,
+					[userMessage("hi")],
+					{
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						tools,
+					} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				),
+				/more than 128 tools/
 			);
-			assert.strictEqual(fetchCalled, false, "Requests over the tool limit must be rejected before any network call");
+			assert.deepStrictEqual(requests, [], "Requests over the tool limit must be rejected before any network call");
 		});
 	});
 });

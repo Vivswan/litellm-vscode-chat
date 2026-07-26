@@ -19,7 +19,7 @@ function createManager(persistedStatus: unknown): StatusBarManager {
 		subscriptions: [],
 		globalState,
 	} as unknown as vscode.ExtensionContext;
-	return new StatusBarManager(context, new Logger({ appendLine() {} }));
+	return new StatusBarManager(context, new Logger({ info() {}, error() {} }));
 }
 
 const CONNECTION_STATES: ReadonlyArray<ConnectionStatus["state"]> = [
