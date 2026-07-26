@@ -22,7 +22,7 @@ export interface ServerStatus {
 	modelCount: number;
 	error?: string | undefined;
 	lastChecked: string;
-	/** Whether the server's configuration carries an API key; the key itself never leaves its store. */
+	/** Whether the server's configuration carries credentials (a static API key or OAuth client credentials); the secrets themselves never leave their store. */
 	hasApiKey?: boolean | undefined;
 }
 

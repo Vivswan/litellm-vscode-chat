@@ -222,7 +222,7 @@ export interface FetchModelsResult {
 }
 
 export interface FetchModelsRequest {
-	/** Transport for this server, from clients.ts; auth and headers live there. */
+	/** Transport for this server, from clients.ts; static auth and headers live there. */
 	client: OpenAI;
 	baseUrl: string;
 	/** Pre-validated by settings.getDiscoveryTimeout(); used as-is. */
@@ -234,6 +234,8 @@ export interface FetchModelsRequest {
 	 * two stages cannot disagree when settings change mid-refresh.
 	 */
 	tokenDefaults: TokenDefaults;
+	/** Per-request headers resolved by the caller, e.g. a freshly exchanged OAuth bearer token. */
+	headers?: Record<string, string>;
 	log: (message: string, data?: unknown) => void;
 }
 
@@ -352,7 +354,7 @@ function narrowModelInfoData(
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, discoveryTimeout, tokenDefaults, log } = request;
+	const { client, baseUrl, discoveryTimeout, tokenDefaults, headers, log } = request;
 
 	log("Fetching from:", `${baseUrl}/v1/model/info`);
 
@@ -364,7 +366,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		const infoSignal = AbortSignal.timeout(discoveryTimeout);
 		const parsedInfo: unknown = coerceJsonPayload(
 			await boundedBySignal(
-				client.get("/model/info", { signal: infoSignal, timeout: discoveryTimeout, maxRetries: 2 }),
+				client.get("/model/info", { signal: infoSignal, timeout: discoveryTimeout, maxRetries: 2, headers }),
 				infoSignal
 			),
 			baseUrl
@@ -399,7 +401,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	try {
 		parsed = coerceJsonPayload(
 			await boundedBySignal(
-				client.get("/models", { signal: timeoutSignal, timeout: discoveryTimeout, maxRetries: 2 }),
+				client.get("/models", { signal: timeoutSignal, timeout: discoveryTimeout, maxRetries: 2, headers }),
 				timeoutSignal
 			),
 			baseUrl

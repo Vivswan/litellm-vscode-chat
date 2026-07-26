@@ -9,7 +9,7 @@ import type {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 import { CancellationError, EventEmitter } from "vscode";
-import { ChatClient } from "./provider/chatClient";
+import { ChatClient, type ServerConnection } from "./provider/chatClient";
 import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
 import { DiscoveryCache } from "./provider/discoveryCache";
@@ -284,7 +284,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * because the host namespaces group models itself.
 	 */
 	private async provideGroupModels(configuration: unknown, silent: boolean): Promise<LiteLLMModelInfo[]> {
-		const groupServer = parseGroupConfiguration(configuration);
+		const groupServer = parseGroupConfiguration(configuration, (message, data) => this.log(message, data));
 		if (!groupServer) {
 			this.log("Ignoring provider-group refresh with malformed configuration (baseUrl must be a string)");
 			return [];
@@ -315,18 +315,24 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * The cache holds pre-attach infos; the group server is attached on every
 	 * read, cached or fetched, so each sweep hands the host fresh objects and
 	 * nothing the host mutates in place (like the group-name detail) can be
-	 * pinned into later sweeps.
+	 * pinned into later sweeps. Attaching the full group server (OAuth and
+	 * virtual-key credentials included) also means cached sweeps route chat
+	 * requests with the current credentials; the cache key is the group client
+	 * ID, which fingerprints those credentials, so rotating any of them lands
+	 * on a fresh cache entry.
 	 */
 	private async fetchGroupModels(
 		groupServer: GroupServer,
 		silent: boolean,
 		bypassCache = false
 	): Promise<LiteLLMModelInfo[]> {
-		const server: ServerWithKey = {
+		const server: ServerConnection = {
 			id: groupClientId(groupServer),
 			label: groupServerLabel(groupServer.baseUrl),
 			baseUrl: groupServer.baseUrl,
 			apiKey: groupServer.apiKey,
+			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
+			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
 		};
 		const attach = (infos: readonly LiteLLMModelInfo[]): LiteLLMModelInfo[] =>
 			infos.map((info) => attachGroupServer(info, groupServer));
@@ -437,7 +443,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				label: server.label,
 				baseUrl: server.baseUrl,
 				lastChecked: new Date().toISOString(),
-				hasApiKey: groupServer.apiKey.length > 0,
+				// Diagnostics reads this as "authentication configured", so OAuth
+				// client credentials count the same as a static key.
+				hasApiKey: groupServer.apiKey.length > 0 || groupServer.oauth !== undefined,
 				...outcome,
 			},
 			groupServer

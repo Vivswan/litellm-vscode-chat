@@ -358,13 +358,20 @@ function shortenLine(text: string, maxLength: number): string {
 export function redactSecrets(text: string): string {
 	return (
 		text
-			// JSON-encoded auth headers: "Authorization": "Bearer xxx" or "X-API-Key": "xxx"
-			.replace(/("(?:Authorization|X-API-Key)":\s*")((?:Bearer\s+)?)[^"]*(")/gi, "$1$2[REDACTED]$3")
+			// JSON-encoded auth headers: "Authorization": "Bearer xxx" or "X-API-Key": "xxx".
+			// The value pattern consumes escaped sequences so an escaped quote
+			// inside the secret cannot end the match early and leak the suffix.
+			.replace(/("(?:Authorization|X-API-Key)":\s*")((?:Bearer\s+)?)(?:\\.|[^"\\])*(")/gi, "$1$2[REDACTED]$3")
+			// JSON-encoded OAuth material: "client_secret": "xxx" or "access_token": "xxx"
+			.replace(/("(?:client[_-]?secret|access[_-]?token)":\s*")(?:\\.|[^"\\])*(")/gi, "$1[REDACTED]$2")
 			// Bare auth header values
 			.replace(/(Bearer\s+)\S+/gi, "$1[REDACTED]")
 			.replace(/(X-API-Key:\s*)\S+/gi, "$1[REDACTED]")
 			.replace(/(Authorization:\s*)\S+/gi, "$1[REDACTED]")
 			.replace(/(api[_-]?key[=:\s]+)\S+/gi, "$1[REDACTED]")
+			// Bare OAuth material: client_secret=xxx, access_token: xxx
+			.replace(/(client[_-]?secret[=:\s]+)\S+/gi, "$1[REDACTED]")
+			.replace(/(access[_-]?token[=:\s]+)\S+/gi, "$1[REDACTED]")
 			// sk- prefixed API keys
 			.replace(/(sk-[a-zA-Z0-9]{4})[a-zA-Z0-9]+/g, "$1[REDACTED]")
 			// Credentials embedded in URLs

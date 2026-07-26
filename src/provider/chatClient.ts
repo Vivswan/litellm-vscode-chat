@@ -13,6 +13,7 @@ import {
 import { estimateMessagesTokens, estimateToolTokens } from "../shared/tokenEstimation";
 import { convertTools } from "../shared/tools";
 import { validateRequest } from "../shared/validation";
+import { type OAuthConfig, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { ServerClientCache } from "./clients";
 import { resolveServer } from "./config";
 import type { FetchModelsResult } from "./discovery";
@@ -33,6 +34,15 @@ export interface ChatRequestContext {
 	token: vscode.CancellationToken;
 }
 
+/**
+ * A server to talk to: the registry fields plus the OAuth and virtual-key
+ * credentials that only provider-group configurations can carry.
+ */
+export interface ServerConnection extends ServerWithKey {
+	oauth?: OAuthConfig;
+	virtualKey?: VirtualKeyConfig;
+}
+
 export interface ChatClientOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
@@ -49,6 +59,7 @@ export class ChatClient {
 	private getMigratedServerLabels?: () => Record<string, string[]>;
 	private readonly ambiguousLabelBaseUrls = new Set<string>();
 	private readonly clients = new ServerClientCache();
+	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly _modelRoutes = new Map<string, ModelRoute>();
 	private _toolCallIdCounter = 0;
 	// The single owner of tool-call ID generation. next() advances the counter
@@ -109,8 +120,8 @@ export class ChatClient {
 	}
 
 	/** `tokenDefaults` is the caller's per-refresh snapshot; see FetchModelsRequest. */
-	async fetchModels(server: ServerWithKey, tokenDefaults: TokenDefaults): Promise<FetchModelsResult> {
-		this.log("fetchModels called", { baseUrl: server.baseUrl, hasApiKey: !!server.apiKey });
+	async fetchModels(server: ServerConnection, tokenDefaults: TokenDefaults): Promise<FetchModelsResult> {
+		this.log("fetchModels called", { baseUrl: server.baseUrl, hasApiKey: !!server.apiKey, hasOAuth: !!server.oauth });
 		const customHeaders = getCustomHeaders(this.log);
 		const discoveryTimeout = getDiscoveryTimeout(this.log);
 		const client = this.clients.get({
@@ -120,19 +131,80 @@ export class ChatClient {
 			userAgent: this.userAgent,
 			customHeaders,
 		});
-		return fetchModels({ client, baseUrl: server.baseUrl, discoveryTimeout, tokenDefaults, log: this.log });
+		const headers = await this.resolveAuthHeaders(server, discoveryTimeout);
+		try {
+			return await fetchModels({
+				client,
+				baseUrl: server.baseUrl,
+				discoveryTimeout,
+				tokenDefaults,
+				log: this.log,
+				...(headers !== undefined ? { headers } : {}),
+			});
+		} catch (error) {
+			this.invalidateRejectedToken(server.oauth, error, headers);
+			throw error;
+		}
+	}
+
+	/**
+	 * Per-request credentials the cached SDK client cannot carry statically:
+	 * the OAuth bearer token (short-lived, refreshed through the token cache)
+	 * and the virtual-key header. The token exchange is bounded by the
+	 * discovery timeout on every surface (it is auth plumbing, not a chat
+	 * call) and additionally by `signal` when the triggering call carries one,
+	 * so user cancellation and the chat timeout interrupt it too.
+	 */
+	private async resolveAuthHeaders(
+		credentials: { oauth?: OAuthConfig | undefined; virtualKey?: VirtualKeyConfig | undefined },
+		discoveryTimeout: number,
+		signal?: AbortSignal
+	): Promise<Record<string, string> | undefined> {
+		const headers: Record<string, string> = {};
+		if (credentials.oauth) {
+			headers.Authorization = `Bearer ${await this.oauthTokens.getToken(credentials.oauth, discoveryTimeout, signal)}`;
+		}
+		if (credentials.virtualKey) {
+			headers[credentials.virtualKey.header] = credentials.virtualKey.value;
+		}
+		return Object.keys(headers).length > 0 ? headers : undefined;
+	}
+
+	/**
+	 * A 401 from the server means it no longer accepts the bearer token the
+	 * call sent, so the next request must perform a fresh exchange. The
+	 * rejected call itself is never retried (chat completions never retry).
+	 * The sent token is passed along so a straggling 401 cannot discard a
+	 * token that already replaced the rejected one.
+	 */
+	private invalidateRejectedToken(
+		oauth: OAuthConfig | undefined,
+		error: unknown,
+		sentHeaders: Record<string, string> | undefined
+	): void {
+		if (!oauth || !(error instanceof RequestError) || error.kind !== "auth") {
+			return;
+		}
+		const sentAuthorization = sentHeaders?.Authorization;
+		const bearerPrefix = "Bearer ";
+		const rejectedToken = sentAuthorization?.startsWith(bearerPrefix)
+			? sentAuthorization.slice(bearerPrefix.length)
+			: undefined;
+		this.oauthTokens.invalidate(oauth, rejectedToken);
 	}
 
 	async send(ctx: ChatRequestContext): Promise<void> {
 		const { model, messages, options, progress, token } = ctx;
 
-		const groupServer = getGroupServer(model);
+		const groupServer = getGroupServer(model, this.log);
 		const route = groupServer ? undefined : this._modelRoutes.get(model.id);
 		let serverId: string;
 		let baseUrl: string;
 		let apiKey: string;
 		let rawModelId: string;
 		let serverScopes: readonly string[] = [];
+		let oauth: OAuthConfig | undefined;
+		let virtualKey: VirtualKeyConfig | undefined;
 
 		if (groupServer) {
 			serverId = groupClientId(groupServer);
@@ -140,6 +212,8 @@ export class ChatClient {
 			apiKey = groupServer.apiKey;
 			rawModelId = model.id;
 			serverScopes = [baseUrl, ...this.migratedLabelsFor(baseUrl)];
+			oauth = groupServer.oauth;
+			virtualKey = groupServer.virtualKey;
 		} else if (route) {
 			const server = await resolveServer(route.serverId, this.getServers);
 			if (server) {
@@ -230,14 +304,18 @@ export class ChatClient {
 		const cancelController = new AbortController();
 		const cancelListener = token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(requestTimeout);
+		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
 		const errorContext = { surface: "chat" as const, baseUrl, timeoutMs: requestTimeout };
+		let authHeaders: Record<string, string> | undefined;
 
 		try {
+			authHeaders = await this.resolveAuthHeaders({ oauth, virtualKey }, getDiscoveryTimeout(this.log), requestSignal);
 			const response = await client
 				.post("/chat/completions", {
 					body: requestBody,
-					signal: AbortSignal.any([cancelController.signal, timeoutSignal]),
+					signal: requestSignal,
 					timeout: requestTimeout,
+					...(authHeaders !== undefined ? { headers: authHeaders } : {}),
 				})
 				.asResponse();
 
@@ -254,7 +332,9 @@ export class ChatClient {
 			if (timeoutSignal.aborted) {
 				throw new RequestError(timeoutMessage(errorContext), "timeout", { cause: err });
 			}
-			throw mapSdkError(err, errorContext);
+			const mapped = mapSdkError(err, errorContext);
+			this.invalidateRejectedToken(oauth, mapped, authHeaders);
+			throw mapped;
 		} finally {
 			cancelListener.dispose();
 		}
