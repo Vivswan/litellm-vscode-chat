@@ -239,6 +239,71 @@ suite("provider/discovery", () => {
 			}
 		});
 
+		test("transient 5xx discovery failures are retried and then succeed", async function () {
+			this.timeout(15000);
+			const originalFetch = global.fetch;
+			const attempts = { info: 0, models: 0 };
+			try {
+				global.fetch = (async (url: string | URL | Request) => {
+					if (url.toString().includes("/v1/model/info")) {
+						attempts.info += 1;
+						if (attempts.info < 3) {
+							return new Response('{"error":{"message":"transient"}}', {
+								status: 500,
+								headers: { "Content-Type": "application/json" },
+							});
+						}
+						return new Response(
+							JSON.stringify({
+								data: [{ model_name: "retried-model", model_info: { supports_function_calling: true } }],
+							}),
+							{ status: 200, headers: { "Content-Type": "application/json" } }
+						);
+					}
+					attempts.models += 1;
+					return new Response(JSON.stringify({ object: "list", data: [] }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					});
+				}) as unknown as typeof fetch;
+
+				const { models } = await fetchModels(request());
+				assert.deepStrictEqual(
+					models.map((m) => m.id),
+					["retried-model"],
+					"The third attempt succeeds without falling back"
+				);
+				assert.strictEqual(attempts.info, 3, "Two retries after the initial attempt");
+				assert.strictEqual(attempts.models, 0, "No fallback once a retry succeeds");
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
+		test("a large Retry-After cannot stall discovery past the timeout", async function () {
+			this.timeout(15000);
+			const originalFetch = global.fetch;
+			try {
+				global.fetch = (async (url: string | URL | Request) => {
+					if (url.toString().includes("/v1/model/info")) {
+						// 404 is not retryable, so discovery falls straight through to /v1/models.
+						return new Response("not found", { status: 404, headers: { "Content-Type": "text/plain" } });
+					}
+					return new Response('{"error":{"message":"backoff"}}', {
+						status: 500,
+						headers: { "Content-Type": "application/json", "Retry-After": "60" },
+					});
+				}) as unknown as typeof fetch;
+
+				const started = Date.now();
+				await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 1000 }), /discoveryTimeout/);
+				const elapsed = Date.now() - started;
+				assert.ok(elapsed < 6000, `Timeout must bound the whole call including backoff sleeps, took ${elapsed}ms`);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
 		test("JSON served without a JSON content type is still parsed", async () => {
 			const originalFetch = global.fetch;
 			try {
