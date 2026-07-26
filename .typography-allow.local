@@ -1,0 +1,6 @@
+# Repository-specific path prefixes exempt from the check-typography action,
+# one per line, relative to the repository root. Read alongside the managed
+# .typography-allow; this file is repo-owned and survives template sync.
+# The stream fuzzer feeds deliberately non-ASCII inputs (CJK, RTL, emoji)
+# through the SSE parser; those strings are test data, not typography.
+src/test/docker-fuzz.test.ts
