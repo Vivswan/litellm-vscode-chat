@@ -7,7 +7,7 @@ import {
 	LEGACY_BASE_URL_SECRET,
 	SERVER_REGISTRY_KEY,
 } from "../../shared/storageKeys";
-import { expectDefined } from "../testUtils";
+import { expectDefined, makeExtensionStorage } from "../testUtils";
 
 interface Fakes {
 	registry: ServerRegistry;
@@ -16,30 +16,14 @@ interface Fakes {
 }
 
 function createRegistry(initialRegistryValue?: unknown): Fakes {
-	const mementoStore = new Map<string, unknown>();
-	if (initialRegistryValue !== undefined) {
-		mementoStore.set(SERVER_REGISTRY_KEY, initialRegistryValue);
-	}
-	const memento = {
-		get: (key: string, defaultValue?: unknown) => (mementoStore.has(key) ? mementoStore.get(key) : defaultValue),
-		update: async (key: string, value: unknown) => {
-			mementoStore.set(key, value);
-		},
-	} as unknown as vscode.Memento;
-
-	const secretStore = new Map<string, string>();
-	const secrets = {
-		get: async (key: string) => secretStore.get(key),
-		store: async (key: string, value: string) => {
-			secretStore.set(key, value);
-		},
-		delete: async (key: string) => {
-			secretStore.delete(key);
-		},
-		onDidChange: (_listener: unknown) => ({ dispose() {} }),
-	} as unknown as vscode.SecretStorage;
-
-	return { registry: new ServerRegistry(memento, secrets), mementoStore, secretStore };
+	const storage = makeExtensionStorage(
+		initialRegistryValue === undefined ? undefined : { [SERVER_REGISTRY_KEY]: initialRegistryValue }
+	);
+	return {
+		registry: new ServerRegistry(storage.memento, storage.secrets),
+		mementoStore: storage.mementoStore,
+		secretStore: storage.secretStore,
+	};
 }
 
 suite("extension/serverRegistry", () => {
