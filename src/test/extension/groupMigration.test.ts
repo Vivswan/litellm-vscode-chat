@@ -230,7 +230,8 @@ suite("extension/groupMigration", () => {
 		assert.strictEqual(registry.getServers().length, 1, "the mismatched entry must not be removed");
 		assert.deepStrictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), [server.id]);
 		assert.strictEqual(warnings.length, 1, "the skip must be announced exactly once across runs");
-		assert.ok(expectMessage(warnings[0]).includes("changed after it was migrated"), warnings[0]);
+		const skipWarning = expectMessage(warnings[0]);
+		assert.ok(skipWarning.includes("changed after it was migrated"), skipWarning);
 	});
 
 	test("crash before the flag: finalization is state-derived on the next activation", async () => {
@@ -608,7 +609,8 @@ suite("extension/groupMigration", () => {
 			"a skipped server must not be re-submitted on later runs"
 		);
 		assert.strictEqual(warnings.length, 1, "the collision must be announced exactly once across runs");
-		assert.ok(expectMessage(warnings[0]).includes("already exists"), warnings[0]);
+		const collisionWarning = expectMessage(warnings[0]);
+		assert.ok(collisionWarning.includes("already exists"), collisionWarning);
 	});
 
 	test("a cross-window edit during the seed command keeps the edited entry and marks it skipped", async () => {
@@ -640,7 +642,8 @@ suite("extension/groupMigration", () => {
 			"the seeded group is recorded even though the entry stays"
 		);
 		assert.strictEqual(warnings.length, 1);
-		assert.ok(expectMessage(warnings[0]).includes("changed while it was being migrated"), warnings[0]);
+		const editWarning = expectMessage(warnings[0]);
+		assert.ok(editWarning.includes("changed while it was being migrated"), editWarning);
 	});
 
 	test("a server added during seeding stays in the registry and defers completion", async () => {
