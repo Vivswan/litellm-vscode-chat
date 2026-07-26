@@ -1,28 +1,27 @@
-import type { LanguageModelChatInformation } from "vscode";
 import type { ServerWithKey } from "../shared/servers";
+import type { LiteLLMModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildExposedModelId, getTokenConstraints } from "./modelCatalog";
 import type { LiteLLMModelItem } from "./schemas";
 
 export interface RegistrationResult {
-	infos: LanguageModelChatInformation[];
+	infos: LiteLLMModelInfo[];
 	routes: Map<string, ModelRoute>;
-	promptCaching: Map<string, boolean>;
 }
 
 /**
- * LanguageModelChatInformation extended with the user-selectable flag in both
- * places VS Code has looked for it across chatProvider API proposal versions.
+ * LiteLLMModelInfo extended with the user-selectable flag in both places VS
+ * Code has looked for it across chatProvider API proposal versions.
  */
-interface UserSelectableModelInfo extends LanguageModelChatInformation {
+interface UserSelectableModelInfo extends LiteLLMModelInfo {
 	/** Read at the top level by VS Code 1.120+ (current chatProvider proposal); required for the chat model picker. */
 	readonly isUserSelectable: boolean;
 	/** Read from metadata by older VS Code builds (pre-1.120 chatProvider proposal); kept for backward compatibility. */
 	readonly metadata: Record<string, unknown>;
 }
 
-function withUserSelectableMetadata(info: LanguageModelChatInformation): UserSelectableModelInfo {
-	const existingMetadata = (info as LanguageModelChatInformation & { metadata?: Record<string, unknown> }).metadata;
+function withUserSelectableMetadata(info: LiteLLMModelInfo): UserSelectableModelInfo {
+	const existingMetadata = (info as LiteLLMModelInfo & { metadata?: Record<string, unknown> }).metadata;
 
 	return {
 		...info,
@@ -41,7 +40,6 @@ export function buildModelInfos(
 	log: (message: string) => void
 ): RegistrationResult {
 	const routes = new Map<string, ModelRoute>();
-	const promptCaching = new Map<string, boolean>();
 
 	const registerRoute = (exposedId: string, rawId: string) => {
 		routes.set(exposedId, {
@@ -51,7 +49,7 @@ export function buildModelInfos(
 		});
 	};
 
-	const infos: LanguageModelChatInformation[] = models.flatMap((m) => {
+	const infos: LiteLLMModelInfo[] = models.flatMap((m) => {
 		log(`Processing model: ${m.id} from server "${server.label}"`);
 		const providers = m.providers;
 		const modalities = m.architecture?.input_modalities ?? [];
@@ -63,7 +61,6 @@ export function buildModelInfos(
 		if (soleProvider !== undefined && soleProvider.source === "model_info") {
 			const constraints = getTokenConstraints(soleProvider);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-			promptCaching.set(exposedId, soleProvider.supports_prompt_caching === true);
 			registerRoute(exposedId, m.id);
 			return [
 				{
@@ -79,14 +76,14 @@ export function buildModelInfos(
 						toolCalling: soleProvider.supports_tools !== false,
 						imageInput: vision,
 					},
-				} satisfies LanguageModelChatInformation,
+					litellm: { supportsPromptCaching: soleProvider.supports_prompt_caching === true },
+				} satisfies LiteLLMModelInfo,
 			];
 		}
 
 		if (providers.length === 0) {
 			const constraints = getTokenConstraints(undefined);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-			promptCaching.set(exposedId, false);
 			registerRoute(exposedId, m.id);
 			return [
 				{
@@ -102,12 +99,13 @@ export function buildModelInfos(
 						toolCalling: true,
 						imageInput: vision,
 					},
-				} satisfies LanguageModelChatInformation,
+					litellm: { supportsPromptCaching: false },
+				} satisfies LiteLLMModelInfo,
 			];
 		}
 
 		const toolProviders = providers.filter((p) => p.supports_tools !== false);
-		const entries: LanguageModelChatInformation[] = [];
+		const entries: LiteLLMModelInfo[] = [];
 
 		if (toolProviders.length > 0) {
 			const providerConstraints = toolProviders.map((p) => getTokenConstraints(p));
@@ -135,8 +133,8 @@ export function buildModelInfos(
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
-			} satisfies LanguageModelChatInformation);
-			promptCaching.set(cheapestId, aggregatePromptCaching);
+				litellm: { supportsPromptCaching: aggregatePromptCaching },
+			} satisfies LiteLLMModelInfo);
 			registerRoute(cheapestId, cheapestRaw);
 
 			entries.push({
@@ -149,8 +147,8 @@ export function buildModelInfos(
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
-			} satisfies LanguageModelChatInformation);
-			promptCaching.set(fastestId, aggregatePromptCaching);
+				litellm: { supportsPromptCaching: aggregatePromptCaching },
+			} satisfies LiteLLMModelInfo);
 			registerRoute(fastestId, fastestRaw);
 		}
 
@@ -171,8 +169,8 @@ export function buildModelInfos(
 					toolCalling: true,
 					imageInput: vision,
 				},
-			} satisfies LanguageModelChatInformation);
-			promptCaching.set(exposedId, p.supports_prompt_caching === true);
+				litellm: { supportsPromptCaching: p.supports_prompt_caching === true },
+			} satisfies LiteLLMModelInfo);
 			registerRoute(exposedId, rawId);
 		}
 
@@ -193,13 +191,13 @@ export function buildModelInfos(
 					toolCalling: false,
 					imageInput: vision,
 				},
-			} satisfies LanguageModelChatInformation);
-			promptCaching.set(exposedId, base.supports_prompt_caching === true);
+				litellm: { supportsPromptCaching: base.supports_prompt_caching === true },
+			} satisfies LiteLLMModelInfo);
 			registerRoute(exposedId, m.id);
 		}
 
 		return entries;
 	});
 
-	return { infos: infos.map(withUserSelectableMetadata), routes, promptCaching };
+	return { infos: infos.map(withUserSelectableMetadata), routes };
 }

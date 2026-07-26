@@ -14,6 +14,7 @@ suite("shared/tools", () => {
 				},
 			],
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
+			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 
 		assert.ok(out);
@@ -27,6 +28,7 @@ suite("shared/tools", () => {
 	test("convertTools respects ToolMode.Required for single tool", () => {
 		const out = convertTools({
 			toolMode: vscode.LanguageModelChatToolMode.Required,
+			requestInitiator: "test",
 			tools: [{ name: "only_tool", description: "Only tool", inputSchema: {} }],
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.deepEqual(out.tool_choice, { type: "function", function: { name: "only_tool" } });
@@ -35,6 +37,7 @@ suite("shared/tools", () => {
 	test("convertTools uses 'required' for ToolMode.Required with multiple tools", () => {
 		const out = convertTools({
 			toolMode: vscode.LanguageModelChatToolMode.Required,
+			requestInitiator: "test",
 			tools: [
 				{ name: "tool_a", description: "A", inputSchema: {} },
 				{ name: "tool_b", description: "B", inputSchema: {} },
@@ -54,6 +57,7 @@ suite("shared/tools", () => {
 				},
 			],
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
+			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
@@ -73,6 +77,7 @@ suite("shared/tools", () => {
 				},
 			],
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
+			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
@@ -90,6 +95,7 @@ suite("shared/tools", () => {
 				},
 			],
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
+			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
@@ -114,6 +120,7 @@ suite("shared/tools", () => {
 				},
 			],
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
+			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
@@ -139,6 +146,7 @@ suite("shared/tools", () => {
 				},
 			],
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
+			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
 		assert.ok(out.tools);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;

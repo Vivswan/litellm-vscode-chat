@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { StreamProcessor, type ThinkingPartCtor } from "../../provider/streaming";
+import { StreamProcessor } from "../../provider/streaming";
+import type { ThinkingPartCtor } from "../../shared/thinkingPart";
 import { expectDefined } from "../testUtils";
 
 /** A standalone tool-call ID source with an observable count, mirroring the ChatClient's. */

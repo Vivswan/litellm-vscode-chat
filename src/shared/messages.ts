@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { isImageMimeType, isTextMimeType } from "./mime";
+import { thinkingPartCtor } from "./thinkingPart";
 import type {
 	OpenAIChatContentBlock,
 	OpenAIChatFileContentBlock,
@@ -34,23 +35,13 @@ function decodeDataPartText(part: vscode.LanguageModelDataPart): string | null {
 	return null;
 }
 
-function isPromptTsxPart(value: unknown): boolean {
-	if (!value || typeof value !== "object") {
-		return false;
+function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string | null {
+	if (typeof part.value === "string") {
+		return part.value;
 	}
-	const ctorName = (Object.getPrototypeOf(value as object) as { constructor?: { name?: string } } | undefined)
-		?.constructor?.name;
-	return ctorName === "LanguageModelPromptTsxPart";
-}
-
-function extractPromptTsxText(part: unknown): string | null {
-	const obj = part as Record<string, unknown>;
-	if (typeof obj.value === "string") {
-		return obj.value;
-	}
-	if (obj.value !== undefined && obj.value !== null) {
+	if (part.value !== undefined && part.value !== null) {
 		try {
-			return JSON.stringify(obj.value);
+			return JSON.stringify(part.value);
 		} catch {
 			return null;
 		}
@@ -58,19 +49,8 @@ function extractPromptTsxText(part: unknown): string | null {
 	return null;
 }
 
-export function isToolResultPart(value: unknown): value is { callId: string; content?: ReadonlyArray<unknown> } {
-	if (!value || typeof value !== "object") {
-		return false;
-	}
-	// Tool-call parts must never be treated as tool results, regardless of
-	// which order callers check part types in.
-	if (value instanceof vscode.LanguageModelToolCallPart) {
-		return false;
-	}
-	const obj = value as Record<string, unknown>;
-	const hasCallId = typeof obj.callId === "string";
-	const hasContent = "content" in obj;
-	return hasCallId && hasContent;
+export function isToolResultPart(value: unknown): value is vscode.LanguageModelToolResultPart {
+	return value instanceof vscode.LanguageModelToolResultPart;
 }
 
 function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): Exclude<OpenAIChatRole, "tool"> {
@@ -87,7 +67,7 @@ function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): 
 	return "system";
 }
 
-function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }, log?: LogFn): string {
+function collectToolResultText(pr: vscode.LanguageModelToolResultPart, log?: LogFn): string {
 	let text = "";
 	for (const c of pr.content ?? []) {
 		if (c instanceof vscode.LanguageModelTextPart) {
@@ -99,7 +79,7 @@ function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }, log?: L
 			} else if (isImageMimeType(c.mimeType)) {
 				log?.("Tool returned image data which cannot be forwarded as tool result text");
 			}
-		} else if (isPromptTsxPart(c)) {
+		} else if (c instanceof vscode.LanguageModelPromptTsxPart) {
 			const extracted = extractPromptTsxText(c);
 			if (extracted) {
 				text += extracted;
@@ -116,17 +96,6 @@ function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }, log?: L
 	}
 	return text;
 }
-
-// LanguageModelThinkingPart is a proposed API that hosts may expose behind
-// throwing getters, so the single property read is probed once at module load.
-const thinkingPartClass: (new (...args: never[]) => object) | undefined = (() => {
-	try {
-		const ctor: unknown = Reflect.get(vscode, "LanguageModelThinkingPart");
-		return typeof ctor === "function" ? (ctor as new (...args: never[]) => object) : undefined;
-	} catch {
-		return undefined;
-	}
-})();
 
 interface ThinkingHistoryEntry {
 	text: string;
@@ -156,7 +125,7 @@ function extractThinkingHistoryEntry(part: unknown): ThinkingHistoryEntry | unde
 	if (typeof metadata?.signature === "string") {
 		return { text, signature: metadata.signature };
 	}
-	if (thinkingPartClass && part instanceof thinkingPartClass) {
+	if (thinkingPartCtor && part instanceof thinkingPartCtor) {
 		return { text };
 	}
 	return undefined;
@@ -217,9 +186,7 @@ export function convertMessages(
 				}
 				toolCalls.push({ id, type: "function", function: { name: part.name, arguments: args } });
 			} else if (isToolResultPart(part)) {
-				const callId = (part as { callId?: string }).callId ?? "";
-				const content = collectToolResultText(part as { content?: ReadonlyArray<unknown> }, log);
-				toolResults.push({ callId, content });
+				toolResults.push({ callId: part.callId, content: collectToolResultText(part, log) });
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				const block = convertDataPartToContentBlock(part);
 				if (block) {
@@ -237,7 +204,7 @@ export function convertMessages(
 						log?.(`Skipping unsupported LanguageModelDataPart with MIME type: ${part.mimeType}`);
 					}
 				}
-			} else if (isPromptTsxPart(part)) {
+			} else if (part instanceof vscode.LanguageModelPromptTsxPart) {
 				const extracted = extractPromptTsxText(part);
 				if (extracted) {
 					textParts.push(extracted);

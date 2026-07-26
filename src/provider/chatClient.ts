@@ -1,8 +1,4 @@
-import type {
-	LanguageModelChatInformation,
-	LanguageModelChatRequestMessage,
-	ProvideLanguageModelChatResponseOptions,
-} from "vscode";
+import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
 import type { Logger } from "../shared/logger";
 import { convertMessages } from "../shared/messages";
@@ -16,14 +12,15 @@ import { resolveServer } from "./config";
 import type { FetchModelsResult } from "./discovery";
 import { fetchModels } from "./discovery";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
-import { getGroupServer, groupClientId, groupModelSupportsPromptCaching } from "./groupModels";
+import type { LiteLLMModelInfo } from "./groupModels";
+import { getGroupServer, groupClientId, modelSupportsPromptCaching } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildRequestBody, DEFAULT_MAX_TOKENS_CAP, getModelParameters, MAX_TOOLS_PER_REQUEST } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
 
 export interface ChatRequestContext {
-	model: LanguageModelChatInformation;
+	model: LiteLLMModelInfo;
 	messages: readonly LanguageModelChatRequestMessage[];
 	options: ProvideLanguageModelChatResponseOptions;
 	progress: vscode.Progress<vscode.LanguageModelResponsePart>;
@@ -47,7 +44,6 @@ export class ChatClient {
 	private readonly ambiguousLabelBaseUrls = new Set<string>();
 	private readonly clients = new ServerClientCache();
 	private readonly _modelRoutes = new Map<string, ModelRoute>();
-	private readonly _promptCachingSupport = new Map<string, boolean>();
 	private _toolCallIdCounter = 0;
 	// The single owner of tool-call ID generation. next() advances the counter
 	// synchronously at the moment an ID is handed out, so overlapping requests
@@ -92,16 +88,12 @@ export class ChatClient {
 		return [...labels];
 	}
 
-	applyRegistration(routes: Map<string, ModelRoute>, promptCaching: Map<string, boolean>, clearFirst: boolean): void {
+	applyRegistration(routes: Map<string, ModelRoute>, clearFirst: boolean): void {
 		if (clearFirst) {
 			this._modelRoutes.clear();
-			this._promptCachingSupport.clear();
 		}
 		for (const [k, v] of routes) {
 			this._modelRoutes.set(k, v);
-		}
-		for (const [k, v] of promptCaching) {
-			this._promptCachingSupport.set(k, v);
 		}
 	}
 
@@ -169,9 +161,7 @@ export class ChatClient {
 		const promptCachingEnabled = isPromptCachingEnabled();
 		const customHeaders = getCustomHeaders(this.log);
 		const requestTimeout = getRequestTimeout(this.log);
-		const supportsPromptCaching = groupServer
-			? groupModelSupportsPromptCaching(model)
-			: this._promptCachingSupport.get(model.id) === true;
+		const supportsPromptCaching = modelSupportsPromptCaching(model);
 		const openaiMessages = convertMessages(messages, {
 			cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
 			log: this.log,

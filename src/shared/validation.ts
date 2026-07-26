@@ -38,8 +38,7 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 								?.name ?? typeof part;
 						throw new Error(`${errMsg} Got ${ctorName} instead.`);
 					}
-					const callId = (part as { callId: string }).callId;
-					toolCallIds.delete(callId);
+					toolCallIds.delete(part.callId);
 				});
 			}
 		}

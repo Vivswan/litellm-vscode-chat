@@ -1,10 +1,10 @@
 import type {
 	CancellationToken,
 	Event,
-	LanguageModelChatInformation,
 	LanguageModelChatProvider,
 	LanguageModelChatRequestMessage,
 	LanguageModelResponsePart,
+	PrepareLanguageModelChatModelOptions,
 	Progress,
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
@@ -12,7 +12,7 @@ import { CancellationError, EventEmitter } from "vscode";
 import { ChatClient } from "./provider/chatClient";
 import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
-import type { GroupServer } from "./provider/groupModels";
+import type { GroupServer, LiteLLMModelInfo } from "./provider/groupModels";
 import {
 	attachGroupServer,
 	groupClientId,
@@ -33,7 +33,7 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
+export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteLLMModelInfo> {
 	private readonly _client: ChatClient;
 	private _statusCallback?: (status: AggregatedStatus) => void;
 	private _getServers?: () => Promise<ServerWithKey[]>;
@@ -133,14 +133,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	async provideLanguageModelChatInformation(
-		options: { silent: boolean },
+		options: PrepareLanguageModelChatModelOptions,
 		_token: CancellationToken
-	): Promise<LanguageModelChatInformation[]> {
-		// The host passes the group's configuration for per-group refreshes; the
-		// stable typings do not declare the field yet, so it is read structurally.
-		const { configuration } = options as { readonly configuration?: unknown };
-		if (configuration !== undefined) {
-			return this.provideGroupModels(configuration, options.silent);
+	): Promise<LiteLLMModelInfo[]> {
+		// The host passes the group's configuration for per-group refreshes.
+		if (options.configuration !== undefined) {
+			return this.provideGroupModels(options.configuration, options.silent);
 		}
 
 		this.log("provideLanguageModelChatInformation called", { silent: options.silent });
@@ -174,9 +172,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		);
 
 		const serverStatuses: ServerStatus[] = [];
-		const allInfos: LanguageModelChatInformation[] = [];
+		const allInfos: LiteLLMModelInfo[] = [];
 		const allRoutes = new Map<string, ModelRoute>();
-		const allPromptCaching = new Map<string, boolean>();
 
 		const successfulCount = results.filter((r) => r.status === "fulfilled").length;
 		const serverCount = servers.length;
@@ -213,9 +210,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 			for (const [k, v] of reg.routes) {
 				allRoutes.set(k, v);
 			}
-			for (const [k, v] of reg.promptCaching) {
-				allPromptCaching.set(k, v);
-			}
 
 			serverStatuses.push({
 				serverId: server.id,
@@ -231,7 +225,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		// Registrations are only replaced after at least one server answered, so
 		// existing routes survive a total outage.
 		if (successfulCount > 0) {
-			this._client.applyRegistration(allRoutes, allPromptCaching, true);
+			this._client.applyRegistration(allRoutes, true);
 		}
 
 		this.log("Final model count:", allInfos.length);
@@ -258,7 +252,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	 * every entry. Model IDs are returned raw and display names unprefixed
 	 * because the host namespaces group models itself.
 	 */
-	private async provideGroupModels(configuration: unknown, silent: boolean): Promise<LanguageModelChatInformation[]> {
+	private async provideGroupModels(configuration: unknown, silent: boolean): Promise<LiteLLMModelInfo[]> {
 		const groupServer = parseGroupConfiguration(configuration);
 		if (!groupServer) {
 			this.log("Ignoring provider-group refresh with malformed configuration (baseUrl must be a string)");
@@ -277,7 +271,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		return this.fetchGroupModels(groupServer, silent);
 	}
 
-	private async fetchGroupModels(groupServer: GroupServer, silent: boolean): Promise<LanguageModelChatInformation[]> {
+	private async fetchGroupModels(groupServer: GroupServer, silent: boolean): Promise<LiteLLMModelInfo[]> {
 		const server: ServerWithKey = {
 			id: groupClientId(groupServer),
 			label: groupServerLabel(groupServer.baseUrl),
@@ -289,9 +283,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		try {
 			const { models } = await this._client.fetchModels(server);
 			const reg = buildModelInfos(models, server, 1, (msg) => this.log(msg));
-			const infos = reg.infos.map((info) =>
-				attachGroupServer(info, groupServer, reg.promptCaching.get(info.id) === true)
-			);
+			const infos = reg.infos.map((info) => attachGroupServer(info, groupServer));
 			this.log(`Provider group at ${server.baseUrl} returned ${infos.length} models`);
 			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: infos.length });
 			return infos;
@@ -379,7 +371,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	async provideLanguageModelChatResponse(
-		model: LanguageModelChatInformation,
+		model: LiteLLMModelInfo,
 		messages: readonly LanguageModelChatRequestMessage[],
 		options: ProvideLanguageModelChatResponseOptions,
 		progress: Progress<LanguageModelResponsePart>,
@@ -407,7 +399,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	async provideTokenCount(
-		_model: LanguageModelChatInformation,
+		_model: LiteLLMModelInfo,
 		text: string | LanguageModelChatRequestMessage,
 		_token: CancellationToken
 	): Promise<number> {

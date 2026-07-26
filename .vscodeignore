@@ -19,6 +19,9 @@ node_modules/**
 .devcontainer/**
 .github/**
 .husky/**
+.claude/**
+.codex/**
+.worktrees/**
 biome.json
 bun.lock
 .editorconfig
