@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import { tryParseJSONObject } from "../shared/json";
-import type { ChatCompletionChunk, ChunkChoice, ChunkDelta, ToolCallBuffer } from "../types";
-import { parseChunk } from "../types";
 import type { TextParseResult, TextToolCall } from "./textToolCallParser";
 import { TextToolCallParser } from "./textToolCallParser";
+import type { ChatCompletionChunk, ChunkChoice, ChunkDelta, ToolCallBuffer } from "./wire";
+import { parseChunk } from "./wire";
 
 export type ThinkingPartCtor = new (text: string, id?: string, metadata?: unknown) => vscode.LanguageModelResponsePart;
 

@@ -1,5 +1,5 @@
 import { getModelParametersConfig } from "../shared/settings";
-import type { OpenAIChatMessage, OpenAIFunctionToolDef } from "../types";
+import type { OpenAIChatMessage, OpenAIFunctionToolDef } from "../shared/wire";
 import type { ModelRoute } from "./modelCatalog";
 
 /** Fallback max_tokens when neither runtime options nor configured model parameters set one. */

@@ -1,4 +1,5 @@
 import type * as vscode from "vscode";
+import { z } from "zod";
 import type { ServerConfig, ServerWithKey } from "../shared/servers";
 import {
 	apiKeySecret,
@@ -7,14 +8,26 @@ import {
 	SERVER_REGISTRY_KEY,
 } from "../shared/storageKeys";
 
-function isServerConfig(value: unknown): value is ServerConfig {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-	const candidate = value as Partial<ServerConfig>;
-	return (
-		typeof candidate.id === "string" && typeof candidate.label === "string" && typeof candidate.baseUrl === "string"
-	);
+const serverConfigSchema = z.looseObject({
+	id: z.string(),
+	label: z.string(),
+	baseUrl: z.string(),
+});
+
+// Accepts any number, including NaN and Infinity, which z.number() rejects.
+const versionSchema = z.custom<number>((value) => typeof value === "number");
+
+const bareArrayRegistrySchema = z.array(z.unknown());
+
+const versionedRegistrySchema = z.looseObject({
+	version: versionSchema,
+	servers: z.array(z.unknown()),
+});
+
+// Malformed entries are dropped one by one; valid entries are kept as the
+// original objects so keys beyond id/label/baseUrl survive round-tripping.
+function filterServerConfigs(entries: unknown[]): ServerConfig[] {
+	return entries.filter((entry): entry is ServerConfig => serverConfigSchema.safeParse(entry).success);
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -28,14 +41,13 @@ interface PersistedRegistry {
 
 function parsePersistedRegistry(raw: unknown): PersistedRegistry {
 	// Registries written before versioning were a bare array.
-	if (Array.isArray(raw)) {
-		return { version: 0, servers: raw.filter(isServerConfig) };
+	const bare = bareArrayRegistrySchema.safeParse(raw);
+	if (bare.success) {
+		return { version: 0, servers: filterServerConfigs(bare.data) };
 	}
-	if (typeof raw === "object" && raw !== null) {
-		const candidate = raw as Partial<PersistedRegistry>;
-		if (typeof candidate.version === "number" && Array.isArray(candidate.servers)) {
-			return { version: candidate.version, servers: candidate.servers.filter(isServerConfig) };
-		}
+	const versioned = versionedRegistrySchema.safeParse(raw);
+	if (versioned.success) {
+		return { version: versioned.data.version, servers: filterServerConfigs(versioned.data.servers) };
 	}
 	return { version: 0, servers: [] };
 }

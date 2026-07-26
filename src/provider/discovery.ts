@@ -1,41 +1,22 @@
 import type OpenAI from "openai";
+import { isRecord } from "../shared/json";
 import { normalizePositiveNumber } from "../shared/numbers";
-import type { LiteLLMArchitecture, LiteLLMModelInfoItem, LiteLLMModelItem, LiteLLMProvider } from "../types";
-import { isRecord } from "../types";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
-
-/** Wire-shape entry accepted from either discovery endpoint; /v1/models entries carry no providers. */
-interface RawModelItem {
-	id: string;
-	providers?: unknown[];
-	architecture?: LiteLLMArchitecture;
-}
+import type {
+	LiteLLMArchitecture,
+	LiteLLMModelInfoItem,
+	LiteLLMModelItem,
+	LiteLLMProvider,
+	RawModelItem,
+} from "./schemas";
+import { modelInfoId, providerEntrySchema, rawModelInfoItemSchema, rawModelItemSchema } from "./schemas";
 
 /**
  * Accept an entry shaped like a models-listing item: `id` must be a string
  * and `providers`, when present, must be an array (/v1/models items omit it).
  */
 export function isLiteLLMModelItem(value: unknown): value is RawModelItem {
-	if (!isRecord(value) || typeof value.id !== "string") {
-		return false;
-	}
-	return value.providers === undefined || Array.isArray(value.providers);
-}
-
-function firstNonEmptyString(...candidates: unknown[]): string | undefined {
-	for (const candidate of candidates) {
-		if (typeof candidate === "string" && candidate.length > 0) {
-			return candidate;
-		}
-	}
-	return undefined;
-}
-
-/** The model identifier of a /v1/model/info entry, in documented priority order. */
-function modelInfoId(value: Record<string, unknown>): string | undefined {
-	const litellmParams = isRecord(value.litellm_params) ? value.litellm_params : undefined;
-	const modelInfo = isRecord(value.model_info) ? value.model_info : undefined;
-	return firstNonEmptyString(value.model_name, litellmParams?.model, modelInfo?.key, modelInfo?.id);
+	return rawModelItemSchema.safeParse(value).success;
 }
 
 /**
@@ -44,11 +25,11 @@ function modelInfoId(value: Record<string, unknown>): string | undefined {
  * and model_info.id.
  */
 export function isLiteLLMModelInfoItem(value: unknown): value is LiteLLMModelInfoItem {
-	return isRecord(value) && modelInfoId(value) !== undefined;
+	return rawModelInfoItemSchema.safeParse(value).success;
 }
 
 function isProviderEntry(value: unknown): value is LiteLLMProvider {
-	return isRecord(value) && typeof value.provider === "string";
+	return providerEntrySchema.safeParse(value).success;
 }
 
 function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["log"]): LiteLLMModelItem {
@@ -60,7 +41,9 @@ function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["log"]): 
 			log("Skipping malformed provider entry", { modelId: raw.id, entry: truncateForLog(entry) });
 		}
 	}
-	return { id: raw.id, providers, architecture: raw.architecture };
+	// The architecture field is read on the same trust basis as the rest of the
+	// entry: shape-checked only where registration actually consumes it.
+	return { id: raw.id, providers, architecture: raw.architecture as LiteLLMArchitecture | undefined };
 }
 
 function truncateForLog(value: unknown): string {

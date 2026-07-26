@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isImageMimeType, isTextMimeType } from "./mime";
 import type {
 	OpenAIChatContentBlock,
 	OpenAIChatFileContentBlock,
@@ -6,8 +7,7 @@ import type {
 	OpenAIChatMessage,
 	OpenAIChatRole,
 	OpenAIToolCall,
-} from "../types";
-import { isImageMimeType, isTextMimeType } from "./mime";
+} from "./wire";
 
 type LogFn = (message: string, data?: unknown) => void;
 

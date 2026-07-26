@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { z } from "zod";
 import { normalizePositiveNumber } from "./numbers";
 
 type LogFn = (message: string, data?: unknown) => void;
@@ -43,30 +44,39 @@ export function isPromptCachingEnabled(): boolean {
 	return getConfig().get<boolean>("promptCaching.enabled", true);
 }
 
-const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+/** Top-level shape shared by the `headers` and `modelParameters` settings: a plain object, keyed by string. */
+const settingsRecordSchema = z.record(z.string(), z.unknown());
+
+const headerNameSchema = z
+	.string()
+	.trim()
+	.regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/);
+
+const headerValueSchema = z.union([z.string(), z.number(), z.boolean()]).transform((value) => String(value));
 
 function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, string> {
-	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+	const parsed = settingsRecordSchema.safeParse(raw);
+	if (!parsed.success) {
 		return {};
 	}
 
 	const headers: Record<string, string> = {};
-	for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
-		const trimmedName = name.trim();
-		if (!trimmedName || !HEADER_NAME_PATTERN.test(trimmedName)) {
+	for (const [name, value] of Object.entries(parsed.data)) {
+		const parsedName = headerNameSchema.safeParse(name);
+		if (!parsedName.success) {
 			log?.("Ignoring invalid custom header name", { name });
 			continue;
 		}
-		if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
-			log?.("Ignoring custom header with non-primitive value", { name: trimmedName });
+		const parsedValue = headerValueSchema.safeParse(value);
+		if (!parsedValue.success) {
+			log?.("Ignoring custom header with non-primitive value", { name: parsedName.data });
 			continue;
 		}
-		const rendered = String(value);
-		if (rendered.includes("\r") || rendered.includes("\n")) {
-			log?.("Ignoring custom header with unsafe newline characters", { name: trimmedName });
+		if (parsedValue.data.includes("\r") || parsedValue.data.includes("\n")) {
+			log?.("Ignoring custom header with unsafe newline characters", { name: parsedName.data });
 			continue;
 		}
-		headers[trimmedName] = rendered;
+		headers[parsedName.data] = parsedValue.data;
 	}
 
 	return headers;
@@ -97,8 +107,23 @@ export function getTokenDefaults(): TokenDefaults {
 	};
 }
 
+const modelParametersEntrySchema = z.record(z.string(), z.unknown());
+
 export function getModelParametersConfig(): Record<string, Record<string, unknown>> {
-	return getConfig().get<Record<string, Record<string, unknown>>>("modelParameters", {});
+	const parsed = settingsRecordSchema.safeParse(getConfig().get<Record<string, unknown>>("modelParameters", {}));
+	if (!parsed.success) {
+		return {};
+	}
+
+	// Validate entry-by-entry so one malformed entry drops only itself, not the whole map.
+	const modelParameters: Record<string, Record<string, unknown>> = {};
+	for (const [modelId, value] of Object.entries(parsed.data)) {
+		const entry = modelParametersEntrySchema.safeParse(value);
+		if (entry.success) {
+			modelParameters[modelId] = entry.data;
+		}
+	}
+	return modelParameters;
 }
 
 export function getMaskApiKeyInput(): boolean {
