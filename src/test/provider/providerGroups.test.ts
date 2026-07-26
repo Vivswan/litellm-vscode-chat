@@ -190,6 +190,140 @@ suite("provider groups", () => {
 		]);
 	});
 
+	test("a group model's server-declared output limit is sent uncapped", async () => {
+		const provider = makeProvider();
+		let body: Record<string, unknown> | undefined;
+		mswServer.use(
+			...discoveryHandlers({
+				data: [
+					{
+						model_name: "test-model",
+						model_info: {
+							id: "test-model",
+							supports_function_calling: true,
+							max_input_tokens: 100000,
+							max_output_tokens: 32000,
+						},
+					},
+				],
+			}),
+			http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
+				body = (await request.json()) as Record<string, unknown>;
+				return sseTextResponse("ok");
+			})
+		);
+
+		const infos = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: "http://litellm.test" }),
+			cancellation()
+		);
+		await withConfig({ modelParameters: {} }, () =>
+			provider.provideLanguageModelChatResponse(
+				expectDefined(infos[0]),
+				[userMessage("hi")],
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				cancellation()
+			)
+		);
+
+		assert.strictEqual(
+			expectDefined(body).max_tokens,
+			32000,
+			"the declared limit must survive attachGroupServer's metadata rebuild"
+		);
+	});
+
+	test("a declared output limit survives a discovery-cache hit", async () => {
+		const provider = makeProvider();
+		let discoveryHits = 0;
+		let body: Record<string, unknown> | undefined;
+		const declaredPayload = {
+			data: [
+				{
+					model_name: "test-model",
+					model_info: {
+						id: "test-model",
+						supports_function_calling: true,
+						max_input_tokens: 100000,
+						max_output_tokens: 32000,
+					},
+				},
+			],
+		};
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => {
+				discoveryHits += 1;
+				return HttpResponse.json(declaredPayload);
+			}),
+			http.get(MODELS_URL, () => HttpResponse.json(declaredPayload)),
+			http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
+				body = (await request.json()) as Record<string, unknown>;
+				return sseTextResponse("ok");
+			})
+		);
+
+		await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: "http://litellm.test" }),
+			cancellation()
+		);
+		const secondSweep = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: "http://litellm.test" }),
+			cancellation()
+		);
+		assert.strictEqual(discoveryHits, 1, "the second sweep must be served from the discovery cache");
+
+		await withConfig({ modelParameters: {} }, () =>
+			provider.provideLanguageModelChatResponse(
+				expectDefined(secondSweep[0]),
+				[userMessage("hi")],
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				cancellation()
+			)
+		);
+
+		assert.strictEqual(
+			expectDefined(body).max_tokens,
+			32000,
+			"the cache's attach-at-read rebuild must preserve outputLimitSource"
+		);
+	});
+
+	test("a group model's defaults-derived output limit stays capped at 4096", async () => {
+		const provider = makeProvider();
+		let body: Record<string, unknown> | undefined;
+		mswServer.use(
+			...discoveryHandlers({
+				data: [
+					{
+						model_name: "test-model",
+						model_info: { id: "test-model", supports_function_calling: true, max_input_tokens: 100000 },
+					},
+				],
+			}),
+			http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
+				body = (await request.json()) as Record<string, unknown>;
+				return sseTextResponse("ok");
+			})
+		);
+
+		const infos = await withConfig({ defaultMaxOutputTokens: 16000 }, () =>
+			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: "http://litellm.test" }), cancellation())
+		);
+		await withConfig({ modelParameters: {} }, () =>
+			provider.provideLanguageModelChatResponse(
+				expectDefined(infos[0]),
+				[userMessage("hi")],
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				cancellation()
+			)
+		);
+
+		assert.strictEqual(expectDefined(body).max_tokens, 4096);
+	});
+
 	test("modelParameters scoped to the group's base URL apply to group models", async () => {
 		const provider = makeProvider();
 		let body: Record<string, unknown> | undefined;

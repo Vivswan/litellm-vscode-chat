@@ -3,7 +3,7 @@ import { isRecord } from "../shared/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../shared/numbers";
 import type { TokenDefaults } from "../shared/settings";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
-import { deriveTokenConstraints } from "./modelCatalog";
+import { combinedOutputLimitSource, deriveTokenConstraints } from "./modelCatalog";
 import type {
 	LiteLLMArchitecture,
 	LiteLLMModelInfoItem,
@@ -171,8 +171,12 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
  * registration, so the reproduction cannot drift when settings change
  * mid-refresh. This guarantees the merged advertisement never exceeds what
  * any deployment would have advertised on its own, whichever combination of
- * raw limit fields each one set. Capability flags hold only when every
- * deployment advertises them, and input modalities and
+ * raw limit fields each one set. Because a defaults-filled deployment can
+ * contribute the minimum, the merged provider also records whether the
+ * stored output limit counts as server-declared (see combinedOutputLimitSource);
+ * without the marker, storing effective values back into provider fields
+ * would launder the defaults guess into a declared limit. Capability flags
+ * hold only when every deployment advertises them, and input modalities and
  * supported_openai_params intersect. Pricing carries over only when every
  * deployment advertises the identical per-field cost: with differing prices
  * the proxy's routing decides which deployment (and cost) actually serves a
@@ -200,6 +204,7 @@ export function mergeModelDeployments(deployments: ModelDeployments, defaults: T
 		max_tokens: maxOutputTokens,
 		max_input_tokens: maxInputTokens,
 		max_output_tokens: maxOutputTokens,
+		output_limit_source: combinedOutputLimitSource(standalone),
 		source: "model_info",
 		supports_prompt_caching: everyDeploymentSupports(providers.map((p) => p.supports_prompt_caching)),
 		supports_response_schema: everyDeploymentSupports(providers.map((p) => p.supports_response_schema)),

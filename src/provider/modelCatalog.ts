@@ -1,6 +1,6 @@
 import { normalizePositiveNumber } from "../shared/numbers";
 import type { TokenDefaults } from "../shared/settings";
-import type { LiteLLMProvider } from "./schemas";
+import type { LiteLLMProvider, OutputLimitSource } from "./schemas";
 
 export interface ModelRoute {
 	serverId: string;
@@ -17,8 +17,23 @@ export function buildExposedModelId(rawModelId: string, serverId: string, server
 
 export interface TokenConstraints {
 	maxOutputTokens: number;
+	/** Provenance of maxOutputTokens; only "provider" values may be sent to the server uncapped. */
+	outputLimitSource: OutputLimitSource;
 	contextLength: number;
 	maxInputTokens: number;
+}
+
+/**
+ * A minimum taken over several constraints is server-declared only when
+ * every contributing limit was: one defaults-filled contributor can supply
+ * the minimum itself, and its true limit is unknown either way. No
+ * contributors at all also means defaults, so the helper can never fail
+ * open on vacuous input.
+ */
+export function combinedOutputLimitSource(constraints: readonly TokenConstraints[]): OutputLimitSource {
+	return constraints.length > 0 && constraints.every((c) => c.outputLimitSource === "provider")
+		? "provider"
+		: "defaults";
 }
 
 /**
@@ -32,10 +47,13 @@ export function deriveTokenConstraints(
 	provider: LiteLLMProvider | undefined,
 	defaults: TokenDefaults
 ): TokenConstraints {
-	const maxOutputTokens =
-		normalizePositiveNumber(provider?.max_output_tokens) ??
-		normalizePositiveNumber(provider?.max_tokens) ??
-		defaults.maxOutputTokens;
+	const declaredOutputTokens =
+		normalizePositiveNumber(provider?.max_output_tokens) ?? normalizePositiveNumber(provider?.max_tokens);
+	const maxOutputTokens = declaredOutputTokens ?? defaults.maxOutputTokens;
+	// Only an exact "defaults" marker demotes, so a passed-through wire field
+	// can never promote a defaults-derived limit to server-declared.
+	const outputLimitSource: OutputLimitSource =
+		declaredOutputTokens !== undefined && provider?.output_limit_source !== "defaults" ? "provider" : "defaults";
 
 	const contextLength = normalizePositiveNumber(provider?.context_length) ?? defaults.contextLength;
 
@@ -44,5 +62,5 @@ export function deriveTokenConstraints(
 		normalizePositiveNumber(provider?.max_input_tokens) ??
 		Math.max(1, contextLength - maxOutputTokens);
 
-	return { maxOutputTokens, contextLength, maxInputTokens };
+	return { maxOutputTokens, outputLimitSource, contextLength, maxInputTokens };
 }

@@ -153,6 +153,16 @@ suite("Docker LiteLLM stack", () => {
 				`expected an upstream deployment model, got "${body.model}"`
 			);
 		});
+
+		test("the merged declared output limit reaches the backend uncapped", async () => {
+			await send("load-balanced");
+			const body = await lastForwardedRequest();
+			assert.strictEqual(
+				body.max_tokens,
+				8000,
+				"both deployments declare limits, so the merged minimum must pass through, not the 4096 cap"
+			);
+		});
 	});
 
 	// ── Text and stream-shape scenarios ────────────────────────────────────────
@@ -160,6 +170,16 @@ suite("Docker LiteLLM stack", () => {
 	suite("text scenarios through the proxy", () => {
 		test("text-only", async () => {
 			assert.strictEqual(extractText(await send("text-only")), "Hello from capture server");
+		});
+
+		test("the declared max_output_tokens reaches the backend uncapped through a real proxy", async () => {
+			await send("text-only");
+			const body = await lastForwardedRequest();
+			assert.strictEqual(
+				body.max_tokens,
+				16000,
+				"the generated model_info declares 16000; the 4096 cap must not apply"
+			);
 		});
 
 		// LiteLLM v1.93 rejects array content deltas outright with a 500; only

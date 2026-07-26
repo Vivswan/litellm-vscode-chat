@@ -222,6 +222,7 @@ suite("provider/groupModels", () => {
 			const model = makeModelInfo({
 				litellm: {
 					supportsPromptCaching: false,
+					outputLimitSource: "defaults",
 					server: {
 						baseUrl: "http://litellm.test",
 						apiKey: "k",

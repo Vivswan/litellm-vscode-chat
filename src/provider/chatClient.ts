@@ -20,7 +20,7 @@ import type { FetchModelsResult } from "./discovery";
 import { fetchModels } from "./discovery";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
 import type { LiteLLMModelInfo } from "./groupModels";
-import { getGroupServer, groupClientId, modelSupportsPromptCaching } from "./groupModels";
+import { getGroupServer, groupClientId, modelOutputLimitSource, modelSupportsPromptCaching } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildRequestBody, DEFAULT_MAX_TOKENS_CAP, getModelParameters, MAX_TOOLS_PER_REQUEST } from "./request";
 import type { ToolCallIdSource } from "./streaming";
@@ -270,6 +270,10 @@ export class ChatClient {
 			maxTokens = options.modelOptions.max_tokens;
 		} else if (typeof modelParams.max_tokens === "number") {
 			maxTokens = modelParams.max_tokens;
+		} else if (modelOutputLimitSource(model) === "provider") {
+			// The server declared this limit, so it is honored as-is; the cap
+			// below only guards the defaults-derived guess.
+			maxTokens = model.maxOutputTokens;
 		} else {
 			maxTokens = Math.min(DEFAULT_MAX_TOKENS_CAP, model.maxOutputTokens);
 		}

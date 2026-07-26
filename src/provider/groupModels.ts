@@ -2,6 +2,7 @@ import type { LanguageModelChatInformation } from "vscode";
 import { fingerprint } from "../shared/fingerprint";
 import { isRecord } from "../shared/json";
 import { isValidHeaderValue, type OAuthConfig, type VirtualKeyConfig } from "./auth";
+import type { OutputLimitSource } from "./schemas";
 
 /**
  * Support for VS Code-managed provider groups. The host stores one
@@ -27,6 +28,8 @@ interface LiteLLMModelMetadata {
 	/** Resolved connection for provider-group models; registry models resolve through the route map instead. */
 	readonly server?: GroupServer;
 	readonly supportsPromptCaching: boolean;
+	/** Where maxOutputTokens came from; only "provider" values escape the request-side cap. */
+	readonly outputLimitSource: OutputLimitSource;
 }
 
 /** The model information this provider returns to the host. */
@@ -176,7 +179,14 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
  */
 export function attachGroupServer(info: LiteLLMModelInfo, server: GroupServer): LiteLLMModelInfo {
 	const { detail: _detail, ...rest } = info;
-	return { ...rest, litellm: { supportsPromptCaching: info.litellm?.supportsPromptCaching === true, server } };
+	return {
+		...rest,
+		litellm: {
+			supportsPromptCaching: modelSupportsPromptCaching(info),
+			outputLimitSource: modelOutputLimitSource(info),
+			server,
+		},
+	};
 }
 
 /**
@@ -208,6 +218,15 @@ export function getGroupServer(model: LiteLLMModelInfo, log?: NarrowLog): GroupS
 
 export function modelSupportsPromptCaching(model: LiteLLMModelInfo): boolean {
 	return model.litellm?.supportsPromptCaching === true;
+}
+
+/**
+ * The provenance of model.maxOutputTokens, re-validated because model objects
+ * come back across the host boundary: anything but an exact "provider" (a
+ * missing field, an older extension's metadata) keeps the conservative cap.
+ */
+export function modelOutputLimitSource(model: LiteLLMModelInfo): OutputLimitSource {
+	return model.litellm?.outputLimitSource === "provider" ? "provider" : "defaults";
 }
 
 /** Display label for a group server; there is no group name on the extension side, so the URL host stands in. */

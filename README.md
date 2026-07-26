@@ -136,7 +136,7 @@ All non-reserved `modelParameters` keys are passed through to LiteLLM: the exten
 }
 ```
 
-**Parameter precedence**: Runtime options > User config. Any parameter left unset by both falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one, capped at 4096 when nothing sets it).
+**Parameter precedence**: Runtime options > User config. Any parameter left unset by both falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one - the output limit your server declares in model info, or at most 4096 when the server declares none).
 
 ### Prompt Caching (Anthropic Claude)
 
