@@ -71,7 +71,7 @@ suite("provider/chatClient", () => {
 			global.fetch = (async () => {
 				const body = bodies.shift();
 				assert.ok(body, "Only two requests are expected");
-				return { ok: true, body: body.stream } as unknown as Response;
+				return new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 			}) as unknown as typeof fetch;
 
 			const client = new ChatClient({ userAgent: "test-agent" });
@@ -119,7 +119,7 @@ suite("provider/chatClient", () => {
 						signal?.addEventListener("abort", () => controller.error(signal.reason ?? new Error("aborted")));
 					},
 				});
-				return { ok: true, body: stream } as unknown as Response;
+				return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 			}) as unknown as typeof fetch;
 
 			const client = new ChatClient({ userAgent: "test-agent" });

@@ -6,7 +6,6 @@ dist/**
 **/*.ts
 **/*.map
 **/tsconfig*.json
-esbuild.mjs
 
 # Tooling and development environment
 scripts/**

@@ -14,6 +14,20 @@ suite("provider", () => {
 		assert.deepStrictEqual(infos, []);
 	});
 
+	test("a zero-server refresh prunes every cached server client", async () => {
+		const provider = makeProvider();
+		const internals = provider as unknown as { _client: { pruneClients(ids: Iterable<string>): void } };
+		const pruneCalls: string[][] = [];
+		const originalPrune = internals._client.pruneClients.bind(internals._client);
+		internals._client.pruneClients = (ids) => {
+			pruneCalls.push([...ids]);
+			originalPrune(ids);
+		};
+
+		await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+		assert.deepStrictEqual(pruneCalls, [[]], "The no-servers path must prune the client cache to empty");
+	});
+
 	test("provideTokenCount counts simple string", async () => {
 		const provider = makeProvider();
 

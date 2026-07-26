@@ -11,9 +11,11 @@ import { getCustomHeaders, getDiscoveryTimeout, getRequestTimeout, isPromptCachi
 import { estimateMessagesTokens, estimateToolTokens } from "../shared/tokenEstimation";
 import { convertTools } from "../shared/tools";
 import { validateRequest } from "../shared/validation";
+import { ServerClientCache } from "./clients";
 import { resolveServer } from "./config";
 import type { FetchModelsResult } from "./discovery";
 import { fetchModels } from "./discovery";
+import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
 import type { ModelRoute } from "./modelCatalog";
 import { buildRequestBody, DEFAULT_MAX_TOKENS_CAP, getModelParameters, MAX_TOOLS_PER_REQUEST } from "./request";
 import type { ToolCallIdSource } from "./streaming";
@@ -40,6 +42,7 @@ export class ChatClient {
 	private readonly userAgent: string;
 	private readonly logger?: Logger;
 	private getServers?: () => Promise<ServerWithKey[]>;
+	private readonly clients = new ServerClientCache();
 	private readonly _modelRoutes = new Map<string, ModelRoute>();
 	private readonly _promptCachingSupport = new Map<string, boolean>();
 	private _toolCallIdCounter = 0;
@@ -74,22 +77,30 @@ export class ChatClient {
 		}
 	}
 
+	/** Drop cached SDK clients for servers that no longer exist. */
+	pruneClients(serverIds: Iterable<string>): void {
+		this.clients.prune(serverIds);
+	}
+
 	async fetchModels(server: ServerWithKey): Promise<FetchModelsResult> {
+		this.log("fetchModels called", { baseUrl: server.baseUrl, hasApiKey: !!server.apiKey });
 		const customHeaders = getCustomHeaders(this.log);
 		const discoveryTimeout = getDiscoveryTimeout(this.log);
-		return fetchModels({
-			server,
+		const client = this.clients.get({
+			serverId: server.id,
+			baseUrl: server.baseUrl,
+			apiKey: server.apiKey,
 			userAgent: this.userAgent,
 			customHeaders,
-			discoveryTimeout,
-			log: this.log,
 		});
+		return fetchModels({ client, baseUrl: server.baseUrl, discoveryTimeout, log: this.log });
 	}
 
 	async send(ctx: ChatRequestContext): Promise<void> {
 		const { model, messages, options, progress, token } = ctx;
 
 		const route = this._modelRoutes.get(model.id);
+		let serverId: string;
 		let baseUrl: string;
 		let apiKey: string;
 		let rawModelId: string;
@@ -97,6 +108,7 @@ export class ChatClient {
 		if (route) {
 			const server = await resolveServer(route.serverId, this.getServers);
 			if (server) {
+				serverId = server.id;
 				baseUrl = server.baseUrl;
 				apiKey = server.apiKey;
 			} else {
@@ -106,6 +118,7 @@ export class ChatClient {
 		} else {
 			const servers = this.getServers ? await this.getServers() : [];
 			if (servers.length === 1) {
+				serverId = servers[0].id;
 				baseUrl = servers[0].baseUrl;
 				apiKey = servers[0].apiKey;
 				rawModelId = model.id;
@@ -160,15 +173,13 @@ export class ChatClient {
 			modelOptions: options.modelOptions as Record<string, unknown> | undefined,
 		});
 
-		const headers: Record<string, string> = {
-			...customHeaders,
-			"Content-Type": "application/json",
-			"User-Agent": this.userAgent,
-		};
-		if (apiKey) {
-			headers.Authorization = `Bearer ${apiKey}`;
-			headers["X-API-Key"] = apiKey;
-		}
+		const client = this.clients.get({
+			serverId,
+			baseUrl,
+			apiKey,
+			userAgent: this.userAgent,
+			customHeaders,
+		});
 
 		this.log("Sending chat request", {
 			url: `${baseUrl}/v1/chat/completions`,
@@ -176,33 +187,23 @@ export class ChatClient {
 			messageCount: messages.length,
 		});
 
-		// User cancellation must abort the in-flight fetch, not just stop the
+		// User cancellation must abort the in-flight request, not just stop the
 		// read loop, so the token is bridged onto an AbortController combined
-		// with the request timeout.
+		// with the request timeout. The per-request timeout keeps the SDK's own
+		// 600 s time-to-headers default from cutting in before ours.
 		const cancelController = new AbortController();
 		const cancelListener = token.onCancellationRequested(() => cancelController.abort());
+		const timeoutSignal = AbortSignal.timeout(requestTimeout);
+		const errorContext = { surface: "chat" as const, baseUrl, timeoutMs: requestTimeout };
 
 		try {
-			const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-				method: "POST",
-				headers,
-				body: JSON.stringify(requestBody),
-				signal: AbortSignal.any([cancelController.signal, AbortSignal.timeout(requestTimeout)]),
-			});
-
-			if (!response.ok) {
-				const errorText = await response.text();
-
-				if (response.status === 401) {
-					throw new Error(
-						`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
-					);
-				}
-
-				throw new Error(
-					`LiteLLM API error: ${response.status} ${response.statusText}${errorText ? `\n${errorText}` : ""}`
-				);
-			}
+			const response = await client
+				.post("/chat/completions", {
+					body: requestBody,
+					signal: AbortSignal.any([cancelController.signal, timeoutSignal]),
+					timeout: requestTimeout,
+				})
+				.asResponse();
 
 			if (!response.body) {
 				throw new Error("No response body from LiteLLM API");
@@ -214,12 +215,10 @@ export class ChatClient {
 			if (token.isCancellationRequested) {
 				throw new vscode.CancellationError();
 			}
-			if (err instanceof DOMException && err.name === "TimeoutError") {
-				throw new Error(
-					`LiteLLM request timed out after ${requestTimeout}ms. Increase the "litellm-vscode-chat.requestTimeout" setting if your model needs more time.`
-				);
+			if (timeoutSignal.aborted) {
+				throw new RequestError(timeoutMessage(errorContext), "timeout", { cause: err });
 			}
-			throw err;
+			throw mapSdkError(err, errorContext);
 		} finally {
 			cancelListener.dispose();
 		}

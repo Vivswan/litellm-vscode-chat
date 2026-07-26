@@ -1,11 +1,12 @@
 import fs from "node:fs/promises";
+import type { BuildOptions, Plugin } from "esbuild";
 import esbuild from "esbuild";
 
 const watch = process.argv.includes("--watch");
 const production = process.argv.includes("--production");
 
 /** Prints the begin/end markers the inline problem matcher in .vscode/tasks.json watches for. */
-const watchProblemMatcherPlugin = {
+const watchProblemMatcherPlugin: Plugin = {
 	name: "watch-problem-matcher",
 	setup(build) {
 		build.onStart(() => {
@@ -24,7 +25,7 @@ const watchProblemMatcherPlugin = {
 	},
 };
 
-const options = {
+const options: BuildOptions = {
 	entryPoints: ["src/extension.ts"],
 	bundle: true,
 	outfile: "dist/extension.js",
@@ -44,7 +45,7 @@ if (watch) {
 	await ctx.watch();
 } else {
 	const result = await esbuild.build(options);
-	if (production) {
+	if (production && result.metafile) {
 		await fs.mkdir("out", { recursive: true });
 		await fs.writeFile("out/esbuild-meta.json", JSON.stringify(result.metafile));
 	}

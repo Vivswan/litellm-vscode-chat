@@ -5,6 +5,7 @@
 		"lib": ["ES2024"],
 		"strict": true,
 		"noEmit": true,
+		"allowImportingTsExtensions": true,
 		"skipLibCheck": true,
 		"types": ["node"]
 	},

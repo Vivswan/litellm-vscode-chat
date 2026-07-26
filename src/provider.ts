@@ -60,6 +60,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		const servers = await ensureServers(options.silent, this._getServers, this._configurationPrompt);
 		if (!servers || servers.length === 0) {
 			this.log("No servers configured, returning empty array");
+			this._client.pruneClients([]);
 
 			if (this._statusCallback) {
 				this._statusCallback({ serverStatuses: [], totalModels: 0, silent: options.silent });
@@ -68,6 +69,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
+		this._client.pruneClients(servers.map((s) => s.id));
 
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
