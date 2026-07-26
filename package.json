@@ -154,9 +154,9 @@
 		"prepare": "husky",
 		"vscode:prepublish": "tsc -p tsconfig.prod.json && bun run bundle",
 		"compile": "tsc -p ./",
-		"bundle": "node esbuild.mjs --production && bun scripts/generate-third-party-notices.ts",
-		"bundle:dev": "node esbuild.mjs",
-		"bundle:watch": "node esbuild.mjs --watch",
+		"bundle": "bun scripts/esbuild.mts --production && bun scripts/generate-third-party-notices.ts",
+		"bundle:dev": "bun scripts/esbuild.mts",
+		"bundle:watch": "bun scripts/esbuild.mts --watch",
 		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p tsconfig.scripts.json",
 		"setup-env": "bash scripts/setup-env.sh",
 		"setup-env:verify": "bash scripts/setup-env.sh --verify",
@@ -171,5 +171,8 @@
 		"mock-server": "bun scripts/mock-litellm-server.ts",
 		"test": "bun run compile && bun run bundle:dev && vscode-test --label unit",
 		"host-fidelity-test": "bun scripts/host-fidelity-test.ts"
+	},
+	"dependencies": {
+		"openai": "^6.48.0"
 	}
 }

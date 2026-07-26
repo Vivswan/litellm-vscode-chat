@@ -1,27 +1,28 @@
 import * as assert from "node:assert";
+import { createServerClient } from "../../provider/clients";
 import { fetchModels, isLiteLLMModelInfoItem, isLiteLLMModelItem } from "../../provider/discovery";
-import type { ServerWithKey } from "../../shared/servers";
-
-const server: ServerWithKey = { id: "srv1", label: "Default", baseUrl: "http://test", apiKey: "test-key" };
 
 function request(log: (message: string, data?: unknown) => void = () => {}) {
-	return {
-		server,
+	const client = createServerClient({
+		serverId: "srv1",
+		baseUrl: "http://test",
+		apiKey: "test-key",
 		userAgent: "test-agent",
 		customHeaders: {},
+	});
+	return {
+		client,
+		baseUrl: "http://test",
 		discoveryTimeout: 5000,
 		log,
 	};
 }
 
 function jsonResponse(payload: unknown, status = 200): Response {
-	return {
-		ok: status >= 200 && status < 300,
+	return new Response(JSON.stringify(payload), {
 		status,
-		statusText: status === 200 ? "OK" : "Error",
-		json: async () => payload,
-		text: async () => JSON.stringify(payload),
-	} as unknown as Response;
+		headers: { "Content-Type": "application/json" },
+	});
 }
 
 suite("provider/discovery", () => {
@@ -232,7 +233,28 @@ suite("provider/discovery", () => {
 					});
 				}) as unknown as typeof fetch;
 
-				await assert.rejects(fetchModels(request()), /^Error: Connection Error: Unable to connect to http:\/\/test/);
+				await assert.rejects(fetchModels(request()), /Connection Error: Unable to connect to http:\/\/test/);
+			} finally {
+				global.fetch = originalFetch;
+			}
+		});
+
+		test("JSON served without a JSON content type is still parsed", async () => {
+			const originalFetch = global.fetch;
+			try {
+				global.fetch = (async (url: string | URL | Request) => {
+					const payload = url.toString().includes("/v1/model/info")
+						? { data: [{ model_name: "plain-model", model_info: { supports_function_calling: true } }] }
+						: { object: "list", data: [] };
+					return new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "text/plain" } });
+				}) as unknown as typeof fetch;
+
+				const { models } = await fetchModels(request());
+				assert.deepStrictEqual(
+					models.map((m) => m.id),
+					["plain-model"],
+					"A JSON body with a non-JSON content type must not silently fall back"
+				);
 			} finally {
 				global.fetch = originalFetch;
 			}

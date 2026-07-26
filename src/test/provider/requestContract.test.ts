@@ -402,6 +402,16 @@ suite("provider/request contract", () => {
 			assert.equal(body.top_k, 50);
 		});
 
+		test("forwards unknown exotic keys through the transport untouched", async () => {
+			const exotic = { nested: [1, "two", { three: null }], π: 0.1234567890123 };
+			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelOptions: { "weird-key.π": exotic, guided_json: { type: "object" } },
+			});
+			assert.deepStrictEqual(body["weird-key.π"], exotic);
+			assert.deepStrictEqual(body.guided_json, { type: "object" });
+		});
+
 		test("does not overwrite provider-owned fields from modelOptions", async () => {
 			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
 				toolMode: vscode.LanguageModelChatToolMode.Auto,
@@ -476,15 +486,15 @@ suite("provider/request contract", () => {
 					const urlStr = url.toString();
 					if ((init?.method ?? "GET") === "POST") {
 						chatUrl = urlStr;
-						return {
-							ok: true,
-							body: new ReadableStream({
+						return new Response(
+							new ReadableStream({
 								start(controller) {
 									controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
 									controller.close();
 								},
 							}),
-						} as unknown as Response;
+							{ status: 200, headers: { "Content-Type": "text/event-stream" } }
+						);
 					}
 					return jsonResponse({
 						data: [{ model_name: "test-model", model_info: { id: "test-model", supports_function_calling: true } }],

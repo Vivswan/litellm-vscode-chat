@@ -78,13 +78,10 @@ export function createConfiguredProvider(): LiteLLMChatModelProvider {
 }
 
 export function jsonResponse(payload: unknown, status = 200): Response {
-	return {
-		ok: status >= 200 && status < 300,
+	return new Response(JSON.stringify(payload), {
 		status,
-		statusText: status === 200 ? "OK" : "Error",
-		json: async () => payload,
-		text: async () => JSON.stringify(payload),
-	} as unknown as Response;
+		headers: { "Content-Type": "application/json" },
+	});
 }
 
 export function makeModelInfo(
@@ -178,7 +175,7 @@ export async function captureRequest(
 			if ((init?.method ?? "GET") === "POST" && urlStr.includes("/v1/chat/completions")) {
 				capturedBody = JSON.parse(init?.body as string);
 				capturedHeaders = toHeaderMap(init?.headers);
-				return { ok: true, body: sseStream("ok") } as unknown as Response;
+				return new Response(sseStream("ok"), { status: 200, headers: { "Content-Type": "text/event-stream" } });
 			}
 			if (urlStr.includes("/v1/model/info") || urlStr.includes("/v1/models")) {
 				return jsonResponse(discoveryPayload);

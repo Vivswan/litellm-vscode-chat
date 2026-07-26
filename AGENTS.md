@@ -135,7 +135,9 @@ Commands contributed in `package.json`: `litellm.manage`, `litellm.testConnectio
 
 The modules under `src/provider/`:
 
-- `chatClient.ts` (`ChatClient`) owns the `/v1/chat/completions` call (message conversion, validation, token-limit rejection, headers, timeout, streaming) plus the model routes, the prompt-caching map, and the tool-call ID counter that stream processors mint IDs from.
+- `chatClient.ts` (`ChatClient`) owns the `/v1/chat/completions` call (message conversion, validation, token-limit rejection, timeout, streaming) plus the model routes, the prompt-caching map, and the tool-call ID counter that stream processors mint IDs from. The HTTP transport is the official `openai` SDK: requests go through `client.post(...).asResponse()` so the SDK handles auth, URLs, and HTTP-error typing while the response body still streams through our own `StreamProcessor` (the SDK's stream parser is not used — it aborts on malformed SSE lines and swallows mid-stream aborts, both against our contracts).
+- `clients.ts` (`createServerClient`, `ServerClientCache`) builds one OpenAI client per server: `Authorization: Bearer` from the SDK plus `X-API-Key` and custom headers via `defaultHeaders`, keyless servers send no auth header at all, and a late-binding fetch wrapper reads `globalThis.fetch` per call so test-time fetch replacement works. Chat requests use `maxRetries: 0`; every call passes the configured timeout as the per-request SDK `timeout` so the SDK's own 600 s default never cuts in.
+- `errorMapping.ts` (`mapSdkError`, `RequestError`) maps typed SDK errors onto the provider's user-facing strings, walking the full cause chain for certificate/ENOTFOUND/ECONNREFUSED/timeout classification; `RequestError.kind` lets callers branch without matching message text.
 - `config.ts` resolves which servers to use (`ensureServers`, `resolveServer`); the interactive configure-then-continue prompt is injected from the extension layer as a `ConfigurationPrompt`.
 - `discovery.ts` (`fetchModels`) calls `/v1/model/info` and falls back to `/v1/models` on any error, normalizing both into `LiteLLMModelItem`s.
 - `registration.ts` (`buildModelInfos`) turns fetched models into chat-model entries, registers routes, and records per-model prompt-caching support.
@@ -227,7 +229,7 @@ Tool call handling is in `src/provider/streaming.ts` (`StreamProcessor`): `proce
 ### Error handling strategy
 
 - Model fetch: any `/v1/model/info` error falls back to `/v1/models`. Payload entries are narrowed element-wise with type guards; a malformed entry is skipped with a log line rather than aborting registration, and a nonempty payload with zero usable entries triggers the same fallback.
-- Network and certificate errors produce specific, actionable messages. HTTP-status errors (like 401) are classified separately from network failures and are never re-wrapped as network errors.
+- Network and certificate errors produce specific, actionable messages via `errorMapping.ts`, which classifies the typed `openai` SDK errors and walks their cause chains. HTTP-status errors (like 401) are classified separately from network failures and are never re-wrapped as network errors.
 - Authentication failures (401) prompt the user to run "Manage LiteLLM Provider".
 - In silent mode the provider returns an empty model list instead of throwing, so the UI keeps working.
 - Errors are logged once, at the provider boundary (`src/provider.ts`); `discovery.ts` and `chatClient.ts` construct specific errors and throw without logging, so the issue-report buffer is not double-filled. User cancellation aborts the in-flight fetch and surfaces as `vscode.CancellationError`, which is not logged.

@@ -1,7 +1,8 @@
+import type OpenAI from "openai";
 import { normalizePositiveNumber } from "../shared/numbers";
-import type { ServerWithKey } from "../shared/servers";
 import type { LiteLLMArchitecture, LiteLLMModelInfoItem, LiteLLMModelItem, LiteLLMProvider } from "../types";
 import { isRecord } from "../types";
+import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
 
 /** Wire-shape entry accepted from either discovery endpoint; /v1/models entries carry no providers. */
 interface RawModelItem {
@@ -122,56 +123,34 @@ export interface FetchModelsResult {
 }
 
 export interface FetchModelsRequest {
-	server: ServerWithKey;
-	userAgent: string;
-	customHeaders: Record<string, string>;
+	/** Transport for this server, from clients.ts; auth and headers live there. */
+	client: OpenAI;
+	baseUrl: string;
 	/** Pre-validated by settings.getDiscoveryTimeout(); used as-is. */
 	discoveryTimeout: number;
 	log: (message: string, data?: unknown) => void;
 }
 
-function classifyNetworkError(fetchError: unknown, baseUrl: string): Error {
-	const errMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
-	const cause = (fetchError as Error & { cause?: unknown })?.cause;
-	const causeMsg = cause === undefined ? "" : cause instanceof Error ? cause.message : String(cause);
-
-	if (causeMsg.includes("certificate has expired") || causeMsg.includes("CERT_HAS_EXPIRED")) {
-		return new Error(
-			`SSL Certificate Error: The SSL certificate for ${baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`
-		);
-	}
-	if (causeMsg.includes("certificate") || errMsg.includes("certificate")) {
-		return new Error(
-			`SSL Certificate Error: There is an issue with the SSL certificate for ${baseUrl}. Error: ${causeMsg || errMsg}`
-		);
-	}
-	if (causeMsg.includes("ENOTFOUND") || causeMsg.includes("ECONNREFUSED")) {
-		return new Error(
-			`Connection Error: Unable to connect to ${baseUrl}. Please check that the server is running and the URL is correct.`
-		);
-	}
-	return new Error(
-		`Network Error: Failed to fetch models from ${baseUrl}. ${errMsg}${causeMsg && causeMsg !== errMsg ? `. Cause: ${causeMsg}` : ""}`
-	);
-}
-
-async function raiseHttpError(resp: Response): Promise<never> {
-	let text = "";
-	try {
-		text = await resp.text();
-	} catch {
-		// Best effort; the status line alone is still actionable.
-	}
-	if (resp.status === 401) {
-		throw new Error(
-			`Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`
-		);
-	}
-	throw new Error(`Failed to fetch LiteLLM models: ${resp.status} ${resp.statusText}${text ? `\n${text}` : ""}`);
-}
-
 function extractDataArray(parsed: unknown): unknown[] {
 	return isRecord(parsed) && Array.isArray(parsed.data) ? parsed.data : [];
+}
+
+/**
+ * The SDK only parses JSON when the response advertises a JSON content type;
+ * anything else arrives as a string. Servers that return JSON with a missing
+ * or wrong content-type header worked with the old response.json() transport,
+ * so a string payload gets one JSON.parse attempt here.
+ */
+function coerceJsonPayload(value: unknown, baseUrl: string): unknown {
+	if (typeof value !== "string") {
+		return value;
+	}
+	try {
+		return JSON.parse(value);
+	} catch (error) {
+		const msg = error instanceof Error ? error.message : String(error);
+		throw new Error(`Failed to parse LiteLLM models response from ${baseUrl}: ${msg}`);
+	}
 }
 
 /**
@@ -200,43 +179,36 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): L
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { userAgent, customHeaders, discoveryTimeout, log } = request;
-	const { apiKey, baseUrl } = request.server;
-	log("fetchModels called", { baseUrl, hasApiKey: !!apiKey });
-	const headers: Record<string, string> = { ...customHeaders, "User-Agent": userAgent };
-	if (apiKey) {
-		headers.Authorization = `Bearer ${apiKey}`;
-		headers["X-API-Key"] = apiKey;
-	}
+	const { client, baseUrl, discoveryTimeout, log } = request;
 
 	log("Fetching from:", `${baseUrl}/v1/model/info`);
 
 	try {
-		const infoResp = await fetch(`${baseUrl}/v1/model/info`, {
-			method: "GET",
-			headers,
-			signal: AbortSignal.timeout(discoveryTimeout),
-		});
-		log("Response status:", `${infoResp.status} ${infoResp.statusText}`);
-		if (infoResp.ok) {
-			const parsedInfo: unknown = await infoResp.json();
-			if (isRecord(parsedInfo) && Array.isArray(parsedInfo.data)) {
-				const data: unknown[] = parsedInfo.data;
-				log("Parsed model/info response:", { modelCount: data.length });
+		// The signal bounds the whole call including any retries; the per-request
+		// timeout keeps the SDK's own 600 s default from overriding ours.
+		const parsedInfo: unknown = coerceJsonPayload(
+			await client.get("/model/info", {
+				signal: AbortSignal.timeout(discoveryTimeout),
+				timeout: discoveryTimeout,
+			}),
+			baseUrl
+		);
+		if (isRecord(parsedInfo) && Array.isArray(parsedInfo.data)) {
+			const data: unknown[] = parsedInfo.data;
+			log("Parsed model/info response:", { modelCount: data.length });
 
-				const models = narrowModelInfoData(data, log);
-				if (data.length > 0 && models.length === 0) {
-					log("model/info returned data but no usable models; falling back", {
-						dataLength: data.length,
-						firstEntry: truncateForLog(data[0]),
-					});
-				} else {
-					log("Successfully fetched models:", models.length);
-					return { models };
-				}
+			const models = narrowModelInfoData(data, log);
+			if (data.length > 0 && models.length === 0) {
+				log("model/info returned data but no usable models; falling back", {
+					dataLength: data.length,
+					firstEntry: truncateForLog(data[0]),
+				});
 			} else {
-				log("model/info response has no data array; falling back", { payload: truncateForLog(parsedInfo) });
+				log("Successfully fetched models:", models.length);
+				return { models };
 			}
+		} else {
+			log("model/info response has no data array; falling back", { payload: truncateForLog(parsedInfo) });
 		}
 	} catch (error) {
 		log("model/info failed, falling back to /v1/models", {
@@ -245,29 +217,25 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	}
 
 	log("Fetching from:", `${baseUrl}/v1/models`);
-	let resp: Response;
-	try {
-		resp = await fetch(`${baseUrl}/v1/models`, {
-			method: "GET",
-			headers,
-			signal: AbortSignal.timeout(discoveryTimeout),
-		});
-	} catch (fetchError) {
-		throw classifyNetworkError(fetchError, baseUrl);
-	}
-	log("Response status:", `${resp.status} ${resp.statusText}`);
-	// HTTP-status errors are classified here, outside the network-error path,
-	// so a 401 is never re-wrapped as a generic network failure.
-	if (!resp.ok) {
-		await raiseHttpError(resp);
-	}
-
+	const timeoutSignal = AbortSignal.timeout(discoveryTimeout);
+	const errorContext = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };
 	let parsed: unknown;
 	try {
-		parsed = await resp.json();
-	} catch (parseError) {
-		const msg = parseError instanceof Error ? parseError.message : String(parseError);
-		throw new Error(`Failed to parse LiteLLM models response from ${baseUrl}: ${msg}`);
+		parsed = coerceJsonPayload(
+			await client.get("/models", { signal: timeoutSignal, timeout: discoveryTimeout }),
+			baseUrl
+		);
+	} catch (error) {
+		if (timeoutSignal.aborted) {
+			throw new RequestError(timeoutMessage(errorContext), "timeout", { cause: error });
+		}
+		if (error instanceof Error && error.message.startsWith("Failed to parse LiteLLM models response")) {
+			throw error;
+		}
+		if (error instanceof SyntaxError) {
+			throw new Error(`Failed to parse LiteLLM models response from ${baseUrl}: ${error.message}`);
+		}
+		throw mapSdkError(error, errorContext);
 	}
 	const data = extractDataArray(parsed);
 	log("Parsed response:", { modelCount: data.length });
