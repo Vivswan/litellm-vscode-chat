@@ -12,12 +12,18 @@ async function main(): Promise<void> {
 
 	const findings: LintResult[] = [];
 
+	// The npm actionlint wasm build lags the upstream binary; drop findings it
+	// raises only because its permission-scope list is stale (CI runs the
+	// current binary via raven-actions/actionlint, which knows these scopes).
+	const staleScopes = /unknown permission scope "attestations"/;
+
 	for (const file of files) {
 		const input = await fs.readFile(file, "utf8");
 		// A fresh linter per file: reusing one instance grows the WASM memory
 		// across calls until the actionlint wrapper crashes out of bounds.
 		const lint = await createLinter();
-		findings.push(...lint(input, path.relative(process.cwd(), file)));
+		const results = lint(input, path.relative(process.cwd(), file));
+		findings.push(...results.filter((result) => !staleScopes.test(result.message)));
 	}
 
 	if (findings.length === 0) {
