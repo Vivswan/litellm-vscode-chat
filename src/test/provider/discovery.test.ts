@@ -531,6 +531,42 @@ suite("provider/discovery", () => {
 			);
 		});
 
+		test("the merged output limit counts as server-declared only when every deployment declared one", () => {
+			const allDeclared = mergeModelDeployments(
+				[deployment({ max_output_tokens: 16000 }), deployment({ max_tokens: 8000 })],
+				DEFAULTS
+			);
+			assert.strictEqual(deriveTokenConstraints(allDeclared.provider, DEFAULTS).outputLimitSource, "provider");
+
+			const oneUndeclared = mergeModelDeployments(
+				[deployment({ max_output_tokens: 16000 }), deployment({ max_input_tokens: 128000 })],
+				DEFAULTS
+			);
+			assert.strictEqual(
+				deriveTokenConstraints(oneUndeclared.provider, DEFAULTS).outputLimitSource,
+				"defaults",
+				"a defaults-filled deployment must demote the merged limit, even though the merge stores it in provider fields"
+			);
+		});
+
+		test("a passed-through output_limit_source can demote but never promote", () => {
+			// providerEntrySchema is loose, so a wire payload could carry the
+			// merge's internal marker; claiming "provider" without declared limit
+			// fields must not lift the cap.
+			const spoofed = deriveTokenConstraints(
+				{ provider: "wire", status: "ok", output_limit_source: "provider" },
+				DEFAULTS
+			);
+			assert.strictEqual(spoofed.outputLimitSource, "defaults");
+
+			const demoted = deriveTokenConstraints(
+				{ provider: "wire", status: "ok", max_output_tokens: 8000, output_limit_source: "defaults" },
+				DEFAULTS
+			);
+			assert.strictEqual(demoted.outputLimitSource, "defaults");
+			assert.strictEqual(demoted.maxOutputTokens, 8000, "the demoted value still bounds the advertisement");
+		});
+
 		test("tool support holds only when every deployment supports it", () => {
 			const both = mergeModelDeployments(
 				[deployment({ supports_function_calling: true }), deployment({ supports_tool_choice: true })],

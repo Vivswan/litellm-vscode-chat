@@ -456,6 +456,34 @@ suite("provider/request contract", () => {
 	});
 
 	suite("max_tokens precedence", () => {
+		/** A /v1/model/info listing for one "test-model" entry with the given model_info fields. */
+		const infoListing = (...modelInfos: Record<string, unknown>[]) => ({
+			data: modelInfos.map((modelInfo) => ({
+				model_name: "test-model",
+				model_info: { supports_function_calling: true, max_input_tokens: 100000, ...modelInfo },
+			})),
+		});
+
+		/** A /v1/models listing for one "test-model" with several tool-capable providers. */
+		const providersListing = (...providers: Record<string, unknown>[]) => ({
+			object: "list",
+			data: [
+				{
+					id: "test-model",
+					object: "model",
+					created: 0,
+					owned_by: "test",
+					providers: providers.map((provider, i) => ({
+						provider: `provider-${i}`,
+						status: "active",
+						supports_tools: true,
+						context_length: 100000,
+						...provider,
+					})),
+				},
+			],
+		});
+
 		test("runtime modelOptions.max_tokens wins over configured modelParameters", async () => {
 			const body = await withConfig({ modelParameters: { "test-model": { max_tokens: 2222 } } }, () =>
 				captureRequestBody(createConfiguredProvider(), modelInfo, {
@@ -499,6 +527,123 @@ suite("provider/request contract", () => {
 				})
 			);
 			assert.strictEqual(bodySmallModel.max_tokens, 2000, "Model max wins when below the cap");
+		});
+
+		test("a server-declared output limit is sent uncapped", async () => {
+			const body = await withConfig({ modelParameters: {} }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ discoveryPayload: infoListing({ max_output_tokens: 32000 }), useDiscoveredModel: true }
+				)
+			);
+			assert.strictEqual(body.max_tokens, 32000, "an admin's declared limit must not be clamped to 4096");
+		});
+
+		test("a defaults-derived output limit stays capped at 4096", async () => {
+			const body = await withConfig({ modelParameters: {}, defaultMaxOutputTokens: 16000 }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ discoveryPayload: infoListing({}), useDiscoveredModel: true }
+				)
+			);
+			assert.strictEqual(body.max_tokens, 4096, "the defaultMaxOutputTokens guess must not escape the cap");
+		});
+
+		test("runtime and configured max_tokens still outrank a server-declared limit", async () => {
+			const declared = { discoveryPayload: infoListing({ max_output_tokens: 32000 }), useDiscoveredModel: true };
+			const runtime = await withConfig({ modelParameters: { "test-model": { max_tokens: 2222 } } }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto, modelOptions: { max_tokens: 1234 } },
+					declared
+				)
+			);
+			assert.strictEqual(runtime.max_tokens, 1234);
+
+			const configured = await withConfig({ modelParameters: { "test-model": { max_tokens: 2222 } } }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					declared
+				)
+			);
+			assert.strictEqual(configured.max_tokens, 2222);
+		});
+
+		test("a merged load-balanced model keeps its declared minimum uncapped", async () => {
+			const body = await withConfig({ modelParameters: {} }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{
+						discoveryPayload: infoListing({ max_output_tokens: 32000 }, { max_output_tokens: 24000 }),
+						useDiscoveredModel: true,
+					}
+				)
+			);
+			assert.strictEqual(body.max_tokens, 24000, "every deployment declared a limit, so the merged minimum is honored");
+		});
+
+		test("a merged model with an undeclared deployment falls back to the cap", async () => {
+			const body = await withConfig({ modelParameters: {}, defaultMaxOutputTokens: 16000 }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ discoveryPayload: infoListing({ max_output_tokens: 32000 }, {}), useDiscoveredModel: true }
+				)
+			);
+			assert.strictEqual(body.max_tokens, 4096, "one defaults-filled deployment demotes the merged limit to a guess");
+		});
+
+		test("an aggregate entry keeps a fully declared minimum uncapped", async () => {
+			const body = await withConfig({ modelParameters: {} }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					makeModelInfo({ id: "test-model:cheapest" }),
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{
+						discoveryPayload: providersListing({ max_output_tokens: 32000 }, { max_output_tokens: 24000 }),
+						useDiscoveredModel: true,
+					}
+				)
+			);
+			assert.strictEqual(body.max_tokens, 24000);
+		});
+
+		test("an aggregate entry falls back to the cap when any provider left its limit to defaults", async () => {
+			const body = await withConfig({ modelParameters: {}, defaultMaxOutputTokens: 16000 }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					makeModelInfo({ id: "test-model:fastest" }),
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ discoveryPayload: providersListing({ max_output_tokens: 32000 }, {}), useDiscoveredModel: true }
+				)
+			);
+			assert.strictEqual(body.max_tokens, 4096);
+		});
+
+		test("a wire payload claiming provider provenance without a declared limit stays capped end-to-end", async () => {
+			// The provider schema is a loose pass-through, so a server payload can
+			// carry the merge's internal output_limit_source marker. Discovery,
+			// registration, and the chat request together must treat the claim as
+			// noise: with no declared limit, the request stays under the cap.
+			const body = await withConfig({ modelParameters: {}, defaultMaxOutputTokens: 16000 }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					makeModelInfo({ id: "test-model:provider-0" }),
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+					{ discoveryPayload: providersListing({ output_limit_source: "provider" }), useDiscoveredModel: true }
+				)
+			);
+			assert.strictEqual(body.max_tokens, 4096, "a spoofed provenance claim must not lift the cap");
 		});
 	});
 

@@ -9,6 +9,13 @@ import { isRecord } from "../shared/json";
  */
 
 /**
+ * Where a model's effective max output tokens came from: declared by the
+ * server (safe to send as-is) or filled in by the configured defaults (a
+ * guess, so requests stay under the conservative cap).
+ */
+export type OutputLimitSource = "provider" | "defaults";
+
+/**
  * A single underlying provider (e.g., together, groq) for a model.
  * Capability metadata read from the LiteLLM API: what the model CAN do, not
  * what we ask it to do (request parameters come from the modelParameters
@@ -24,6 +31,14 @@ export interface LiteLLMProvider {
 	max_input_tokens?: number | null | undefined;
 	max_output_tokens?: number | null | undefined;
 	source?: "model_info" | undefined;
+	/**
+	 * Set by deployment merging, which stores effective (possibly
+	 * defaults-derived) limits back into max_tokens/max_output_tokens: those
+	 * stored values keep the merged advertisement honest but only count as
+	 * server-declared when every merged deployment declared its own limit.
+	 * Absent on unmerged providers, whose limit fields are the server's.
+	 */
+	output_limit_source?: OutputLimitSource | undefined;
 	/** True if the upstream model advertises prompt caching support. */
 	supports_prompt_caching?: boolean | null | undefined;
 	/** True if the upstream model supports structured output / response_format schema. */

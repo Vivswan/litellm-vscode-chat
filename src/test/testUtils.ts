@@ -103,7 +103,7 @@ export function makeModelInfo(overrides: Partial<LiteLLMModelInfo> = {}): LiteLL
 		maxInputTokens: 100000,
 		maxOutputTokens: 8000,
 		capabilities: {},
-		litellm: { supportsPromptCaching: false },
+		litellm: { supportsPromptCaching: false, outputLimitSource: "defaults" },
 		...overrides,
 	};
 }

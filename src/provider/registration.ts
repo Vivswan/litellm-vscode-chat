@@ -4,7 +4,7 @@ import type { ServerWithKey } from "../shared/servers";
 import type { TokenDefaults } from "../shared/settings";
 import type { LiteLLMModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
-import { buildExposedModelId, deriveTokenConstraints } from "./modelCatalog";
+import { buildExposedModelId, combinedOutputLimitSource, deriveTokenConstraints } from "./modelCatalog";
 import type { LiteLLMModelItem, LiteLLMProvider } from "./schemas";
 
 export interface RegistrationResult {
@@ -129,7 +129,10 @@ export function buildModelInfos(
 						imageInput: vision,
 					},
 					...pricingFromProvider(soleProvider),
-					litellm: { supportsPromptCaching: soleProvider.supports_prompt_caching === true },
+					litellm: {
+						supportsPromptCaching: soleProvider.supports_prompt_caching === true,
+						outputLimitSource: constraints.outputLimitSource,
+					},
 				} satisfies LiteLLMModelInfo,
 			];
 		}
@@ -151,7 +154,7 @@ export function buildModelInfos(
 						toolCalling: true,
 						imageInput: vision,
 					},
-					litellm: { supportsPromptCaching: false },
+					litellm: { supportsPromptCaching: false, outputLimitSource: constraints.outputLimitSource },
 				} satisfies LiteLLMModelInfo,
 			];
 		}
@@ -163,8 +166,10 @@ export function buildModelInfos(
 			const providerConstraints = toolProviders.map((p) => deriveTokenConstraints(p, tokenDefaults));
 			const aggregateContextLen = Math.min(...providerConstraints.map((c) => c.contextLength));
 			const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
+			const outputLimitSource = combinedOutputLimitSource(providerConstraints);
 			const maxInput = Math.max(1, aggregateContextLen - maxOutput);
 			const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
+			const aggregateMetadata = { supportsPromptCaching: aggregatePromptCaching, outputLimitSource };
 			const aggregateCapabilities = {
 				toolCalling: true,
 				imageInput: vision,
@@ -184,7 +189,7 @@ export function buildModelInfos(
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
-				litellm: { supportsPromptCaching: aggregatePromptCaching },
+				litellm: aggregateMetadata,
 			} satisfies LiteLLMModelInfo);
 			registerRoute(cheapestId, cheapestRaw);
 
@@ -197,7 +202,7 @@ export function buildModelInfos(
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
-				litellm: { supportsPromptCaching: aggregatePromptCaching },
+				litellm: aggregateMetadata,
 			} satisfies LiteLLMModelInfo);
 			registerRoute(fastestId, fastestRaw);
 		}
@@ -219,7 +224,10 @@ export function buildModelInfos(
 					imageInput: vision,
 				},
 				...pricingFromProvider(p),
-				litellm: { supportsPromptCaching: p.supports_prompt_caching === true },
+				litellm: {
+					supportsPromptCaching: p.supports_prompt_caching === true,
+					outputLimitSource: constraints.outputLimitSource,
+				},
 			} satisfies LiteLLMModelInfo);
 			registerRoute(exposedId, rawId);
 		}
@@ -240,7 +248,10 @@ export function buildModelInfos(
 					toolCalling: false,
 					imageInput: vision,
 				},
-				litellm: { supportsPromptCaching: base.supports_prompt_caching === true },
+				litellm: {
+					supportsPromptCaching: base.supports_prompt_caching === true,
+					outputLimitSource: constraints.outputLimitSource,
+				},
 			} satisfies LiteLLMModelInfo);
 			registerRoute(exposedId, m.id);
 		}

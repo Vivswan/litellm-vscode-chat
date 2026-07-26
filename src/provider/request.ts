@@ -2,7 +2,11 @@ import { getModelParametersConfig } from "../shared/settings";
 import type { OpenAIChatMessage, OpenAIFunctionToolDef } from "../shared/wire";
 import type { ModelRoute } from "./modelCatalog";
 
-/** Fallback max_tokens when neither runtime options nor configured model parameters set one. */
+/**
+ * Cap on the fallback max_tokens when neither runtime options nor configured
+ * model parameters set one and the model's output limit is a defaults-derived
+ * guess rather than server-declared.
+ */
 export const DEFAULT_MAX_TOKENS_CAP = 4096;
 export const MAX_TOOLS_PER_REQUEST = 128;
 
