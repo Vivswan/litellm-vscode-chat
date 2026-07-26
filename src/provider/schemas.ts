@@ -34,6 +34,14 @@ export interface LiteLLMProvider {
 	supports_pdf_input?: boolean | null | undefined;
 	/** List of OpenAI-compatible parameters the model supports. */
 	supported_openai_params?: string[] | null | undefined;
+	/** Cost per input token as LiteLLM reports it; registration converts it to a per-million display cost. */
+	input_cost_per_token?: number | null | undefined;
+	/** Cost per output token. */
+	output_cost_per_token?: number | null | undefined;
+	/** Cost per cached-read input token. */
+	cache_read_input_token_cost?: number | null | undefined;
+	/** Cost per cache-write input token. */
+	cache_creation_input_token_cost?: number | null | undefined;
 }
 
 /** Architecture information for a model. */
@@ -78,6 +86,11 @@ export interface LiteLLMModelInfoItem {
 		supports_audio_input?: boolean | null;
 		supports_audio_output?: boolean | null;
 		supported_openai_params?: string[] | null | undefined;
+		/** Per-token costs; numbers only, and a malformed value degrades to absent at mapping. */
+		input_cost_per_token?: number | null | undefined;
+		output_cost_per_token?: number | null | undefined;
+		cache_read_input_token_cost?: number | null | undefined;
+		cache_creation_input_token_cost?: number | null | undefined;
 	};
 }
 

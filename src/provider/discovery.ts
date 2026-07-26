@@ -1,6 +1,6 @@
 import type OpenAI from "openai";
 import { isRecord } from "../shared/json";
-import { normalizePositiveNumber } from "../shared/numbers";
+import { normalizeCostPerToken, normalizePositiveNumber } from "../shared/numbers";
 import type { TokenDefaults } from "../shared/settings";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
 import { deriveTokenConstraints } from "./modelCatalog";
@@ -108,6 +108,10 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo |
 		supports_reasoning: item.model_info?.supports_reasoning ?? null,
 		supports_pdf_input: item.model_info?.supports_pdf_input ?? null,
 		supported_openai_params: item.model_info?.supported_openai_params ?? null,
+		input_cost_per_token: normalizeCostPerToken(item.model_info?.input_cost_per_token),
+		output_cost_per_token: normalizeCostPerToken(item.model_info?.output_cost_per_token),
+		cache_read_input_token_cost: normalizeCostPerToken(item.model_info?.cache_read_input_token_cost),
+		cache_creation_input_token_cost: normalizeCostPerToken(item.model_info?.cache_creation_input_token_cost),
 	};
 
 	const inputModalities: string[] = [];
@@ -146,6 +150,12 @@ function intersectSupportedParams(values: readonly (string[] | null | undefined)
 	return first.filter((param) => rest.every((list) => Array.isArray(list) && list.includes(param)));
 }
 
+/** The cost every deployment advertises identically; unknown (null) as soon as one differs or omits it. */
+function agreedCost(values: readonly (number | null | undefined)[]): number | null {
+	const [first, ...rest] = values;
+	return typeof first === "number" && rest.every((value) => value === first) ? first : null;
+}
+
 /**
  * Collapse the deployments of one load-balanced model_name into a single
  * entry advertising the conservative intersection of their capabilities.
@@ -163,7 +173,11 @@ function intersectSupportedParams(values: readonly (string[] | null | undefined)
  * any deployment would have advertised on its own, whichever combination of
  * raw limit fields each one set. Capability flags hold only when every
  * deployment advertises them, and input modalities and
- * supported_openai_params intersect. Non-constraint metadata (provider name,
+ * supported_openai_params intersect. Pricing carries over only when every
+ * deployment advertises the identical per-field cost: with differing prices
+ * the proxy's routing decides which deployment (and cost) actually serves a
+ * request, so advertising either number would lie, and the merged entry
+ * drops that field instead. Non-constraint metadata (provider name,
  * status, parameter order) follows the first deployment; registration
  * surfaces the provider name as the model family, so a merged model's family
  * is its first deployment's litellm_provider.
@@ -192,6 +206,10 @@ export function mergeModelDeployments(deployments: ModelDeployments, defaults: T
 		supports_reasoning: everyDeploymentSupports(providers.map((p) => p.supports_reasoning)),
 		supports_pdf_input: everyDeploymentSupports(providers.map((p) => p.supports_pdf_input)),
 		supported_openai_params: intersectSupportedParams(providers.map((p) => p.supported_openai_params)),
+		input_cost_per_token: agreedCost(providers.map((p) => p.input_cost_per_token)),
+		output_cost_per_token: agreedCost(providers.map((p) => p.output_cost_per_token)),
+		cache_read_input_token_cost: agreedCost(providers.map((p) => p.cache_read_input_token_cost)),
+		cache_creation_input_token_cost: agreedCost(providers.map((p) => p.cache_creation_input_token_cost)),
 	};
 	const inputModalities = first.inputModalities.filter((modality) =>
 		rest.every((deployment) => deployment.inputModalities.includes(modality))

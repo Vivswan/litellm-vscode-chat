@@ -52,6 +52,36 @@ suite("provider groups", () => {
 		assert.ok(!("metadata" in info), "the retired metadata duplicate must not survive the group path");
 	});
 
+	test("group models carry pricing metadata through to the host", async () => {
+		const provider = makeProvider();
+		mswServer.use(
+			...discoveryHandlers({
+				data: [
+					{
+						model_name: "test-model",
+						model_info: {
+							id: "test-model",
+							supports_function_calling: true,
+							input_cost_per_token: 0.000003,
+							output_cost_per_token: 0.000015,
+						},
+					},
+				],
+			})
+		);
+
+		const infos = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: "http://litellm.test", apiKey: "group-key" }),
+			cancellation()
+		);
+
+		const info = expectDefined(infos[0]);
+		assert.strictEqual(info.inputCost, 3, "attachGroupServer must not drop the pricing fields");
+		assert.strictEqual(info.outputCost, 15);
+		assert.ok(!("cacheCost" in info), "costs the server never reported stay absent");
+		assert.ok(!("cacheWriteCost" in info), "costs the server never reported stay absent");
+	});
+
 	test("group models carry the resolved server and chat requests reach it without the route map", async () => {
 		const provider = makeProvider();
 		let captured: { url: string; body: Record<string, unknown>; headers: Record<string, string> } | undefined;

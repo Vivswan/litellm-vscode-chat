@@ -276,5 +276,104 @@ suite("provider", () => {
 				assert.deepStrictEqual(Object.keys(info).sort(), expectedKeys, `unexpected field set on ${info.id}`);
 			}
 		});
+
+		test("pricing converts per-token costs to per-million and appears only where the route pins the cost", () => {
+			const { infos } = buildModelInfos(
+				[
+					{
+						id: "sole",
+						providers: [
+							{
+								provider: "openai",
+								status: "ok",
+								source: "model_info",
+								input_cost_per_token: 0.000003,
+								output_cost_per_token: 0.000015,
+								cache_read_input_token_cost: 0.0000003,
+								cache_creation_input_token_cost: 0.00000375,
+							},
+						],
+					},
+					{ id: "bare", providers: [] },
+					{
+						id: "free",
+						providers: [
+							{
+								provider: "openai",
+								status: "ok",
+								source: "model_info",
+								input_cost_per_token: 0,
+								output_cost_per_token: 1e308,
+							},
+						],
+					},
+					{
+						id: "multi",
+						providers: [
+							{
+								provider: "groq",
+								status: "active",
+								supports_tools: true,
+								input_cost_per_token: 0.000001,
+								output_cost_per_token: "0.000002" as unknown as number,
+							},
+							{ provider: "together", status: "active", supports_tools: true, input_cost_per_token: 0.000002 },
+						],
+					},
+				],
+				{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
+				1,
+				() => {},
+				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+			);
+			const byId = new Map(infos.map((i) => [i.id, i]));
+
+			const sole = expectDefined(byId.get("sole"));
+			assert.strictEqual(sole.inputCost, 3, "0.000003 per token must convert to exactly 3 per million, not 2.999...");
+			assert.strictEqual(sole.outputCost, 15);
+			assert.strictEqual(sole.cacheCost, 0.3);
+			assert.strictEqual(sole.cacheWriteCost, 3.75);
+			assert.strictEqual(sole.pricing, undefined, "the display label stays unset; the numeric fields already render");
+			assert.deepStrictEqual(
+				Object.keys(sole).sort(),
+				[
+					"cacheCost",
+					"cacheWriteCost",
+					"capabilities",
+					"detail",
+					"family",
+					"id",
+					"inputCost",
+					"isBYOK",
+					"isUserSelectable",
+					"litellm",
+					"maxInputTokens",
+					"maxOutputTokens",
+					"name",
+					"outputCost",
+					"tooltip",
+					"version",
+				],
+				"a priced sole entry adds exactly the cost keys to the registered field set"
+			);
+
+			const free = expectDefined(byId.get("free"));
+			assert.strictEqual(free.inputCost, 0, "a zero cost registers as 0, not as absence");
+			assert.ok(!("outputCost" in free), "a cost that overflows the per-million conversion is omitted, not Infinity");
+
+			assert.strictEqual(expectDefined(byId.get("multi:groq")).inputCost, 1, "per-provider entries use their own cost");
+			assert.strictEqual(expectDefined(byId.get("multi:together")).inputCost, 2);
+			assert.ok(
+				!("outputCost" in expectDefined(byId.get("multi:groq"))),
+				"a malformed string cost on a providers-array entry degrades to absent"
+			);
+
+			for (const id of ["bare", "multi:cheapest", "multi:fastest"]) {
+				const info = expectDefined(byId.get(id), `missing entry ${id}`);
+				for (const key of ["inputCost", "outputCost", "cacheCost", "cacheWriteCost"] as const) {
+					assert.ok(!(key in info), `${id} must not advertise a ${key} its routing does not pin`);
+				}
+			}
+		});
 	});
 });

@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { normalizePositiveNumber } from "../../shared/numbers";
+import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/numbers";
 
 suite("shared/numbers", () => {
 	test("normalizePositiveNumber accepts positive numbers and numeric strings", () => {
@@ -16,5 +16,23 @@ suite("shared/numbers", () => {
 		assert.equal(normalizePositiveNumber(0), undefined);
 		assert.equal(normalizePositiveNumber(-1), undefined);
 		assert.equal(normalizePositiveNumber("NaN"), undefined);
+	});
+
+	test("normalizeCostPerToken accepts non-negative finite numbers, including fractions and zero", () => {
+		assert.equal(normalizeCostPerToken(0.000003), 0.000003);
+		assert.equal(normalizeCostPerToken(0), 0, "zero is a real cost: a free model");
+		assert.equal(normalizeCostPerToken(15), 15);
+		const negativeZero = normalizeCostPerToken(-0);
+		assert.strictEqual(negativeZero, 0);
+		assert.ok(!Object.is(negativeZero, -0), "-0 canonicalizes to 0 so no negative-signed cost leaks");
+	});
+
+	test("normalizeCostPerToken rejects strings, negatives, and non-finite values", () => {
+		assert.equal(normalizeCostPerToken("0.000003"), undefined, "costs are numbers only, never string-coerced");
+		assert.equal(normalizeCostPerToken(-0.000003), undefined);
+		assert.equal(normalizeCostPerToken(Number.NaN), undefined);
+		assert.equal(normalizeCostPerToken(Number.POSITIVE_INFINITY), undefined);
+		assert.equal(normalizeCostPerToken(null), undefined);
+		assert.equal(normalizeCostPerToken(undefined), undefined);
 	});
 });

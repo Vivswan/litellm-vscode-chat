@@ -7,14 +7,18 @@
  * (src/vs/workbench/api/common/extHostLanguageModels.ts; a reference checkout
  * lives at .worktrees/vscode).
  *
- * Declarations mirror vscode.proposed.chatProvider.d.ts character for
- * character so a future @types/vscode release merges as identical
- * declarations instead of silently diverging under skipLibCheck. Delete each
- * declaration (and this file, eventually) once a published @types/vscode
- * declares it.
+ * Declarations mirror their vscode.proposed.*.d.ts sources (chatProvider,
+ * languageModelPricing) character for character so a future @types/vscode
+ * release merges as identical declarations instead of silently diverging
+ * under skipLibCheck. Delete each declaration (and this file, eventually)
+ * once a published @types/vscode declares it.
  *
  * Do not add `capabilities.editTools` here: the host throws for extensions
- * that set it without the chatProvider proposal enabled.
+ * that set it without the chatProvider proposal enabled. Do not add
+ * languageModelPricing's `priceCategory`/`category` either: how the host
+ * renders them for third-party vendors is unverified. Its longContext*
+ * pricing fields are deliberately deferred: LiteLLM's tiered above-Nk-token
+ * prices map onto them, but base-tier rendering stays correct without them.
  */
 declare module "vscode" {
 	/**
@@ -43,6 +47,36 @@ declare module "vscode" {
 		readonly isUserSelectable?: boolean;
 		/** Per-model settings surfaced in the model picker; see LanguageModelConfigurationSchema. */
 		readonly configurationSchema?: LanguageModelConfigurationSchema;
+
+		/**
+		 * Optional pricing label for this model, such as "Free", "$0.01/request", etc.
+		 * This value is meant for display purposes and will be shown in the model management UI.
+		 */
+		readonly pricing?: string;
+
+		/**
+		 * Optional input cost in AI credits for this model.
+		 * Displayed in the model management UI as the cost per million input tokens.
+		 */
+		readonly inputCost?: number;
+
+		/**
+		 * Optional output cost in AI credits for this model.
+		 * Displayed in the model management UI as the cost per million output tokens.
+		 */
+		readonly outputCost?: number;
+
+		/**
+		 * Optional cache cost in AI credits for this model.
+		 * Displayed in the model management UI as the cost per million cached tokens.
+		 */
+		readonly cacheCost?: number;
+
+		/**
+		 * Optional cache write cost in AI credits for this model.
+		 * Displayed in the model management UI as the cost per million cache-write tokens.
+		 */
+		readonly cacheWriteCost?: number;
 	}
 
 	export interface PrepareLanguageModelChatModelOptions {

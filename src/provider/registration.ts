@@ -1,3 +1,5 @@
+import type { LanguageModelChatInformation } from "vscode";
+import { normalizeCostPerToken } from "../shared/numbers";
 import type { ServerWithKey } from "../shared/servers";
 import type { TokenDefaults } from "../shared/settings";
 import type { LiteLLMModelInfo } from "./groupModels";
@@ -18,6 +20,53 @@ export interface RegistrationResult {
  */
 function familyFromProvider(provider: LiteLLMProvider): string {
 	return provider.provider.length > 0 ? provider.provider : "litellm";
+}
+
+/** VS Code's pricing unit is cost per million tokens; LiteLLM reports cost per token. */
+const TOKENS_PER_MILLION = 1_000_000;
+/**
+ * Rounding precision for the per-million conversion. Per-token costs are tiny
+ * binary fractions, so the bare multiplication yields noise like
+ * 2.9999999999999996 for a 0.000003 per-token cost; six decimal places keep
+ * every realistic price exact while flattening it.
+ */
+const COST_DECIMALS = 1_000_000;
+
+/** The numeric pricing fields of the host's model metadata. */
+type ModelPricing = Pick<LanguageModelChatInformation, "inputCost" | "outputCost" | "cacheCost" | "cacheWriteCost">;
+
+/**
+ * Pricing metadata for the model picker, converted to VS Code's
+ * per-million-token unit. Only entries whose route pins the serving
+ * deployment's cost carry pricing: sole model_info entries (deployment
+ * merging already required exact per-field agreement) and per-provider
+ * entries. The cheapest/fastest aggregates and the untooled base entry stay
+ * without it because there the proxy's routing decides what a request
+ * actually costs. Providers-array entries are lenient pass-throughs, so every
+ * value is re-narrowed, and a field without a usable number is omitted
+ * outright rather than set to undefined. The `pricing` display-label string
+ * stays unset everywhere: the host surfaces that render the numeric fields
+ * treat the label as a fallback or show it in addition, so setting both would
+ * duplicate the same information.
+ */
+function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
+	const fields: { -readonly [K in keyof ModelPricing]?: ModelPricing[K] } = {};
+	const set = (key: keyof ModelPricing, perToken: unknown) => {
+		const cost = normalizeCostPerToken(perToken);
+		if (cost === undefined) {
+			return;
+		}
+		const perMillion = Math.round(cost * TOKENS_PER_MILLION * COST_DECIMALS) / COST_DECIMALS;
+		// The multiply can overflow a finite-but-absurd declared cost to Infinity.
+		if (Number.isFinite(perMillion)) {
+			fields[key] = perMillion;
+		}
+	};
+	set("inputCost", provider.input_cost_per_token);
+	set("outputCost", provider.output_cost_per_token);
+	set("cacheCost", provider.cache_read_input_token_cost);
+	set("cacheWriteCost", provider.cache_creation_input_token_cost);
+	return fields;
 }
 
 export function buildModelInfos(
@@ -79,6 +128,7 @@ export function buildModelInfos(
 						toolCalling: soleProvider.supports_tools !== false,
 						imageInput: vision,
 					},
+					...pricingFromProvider(soleProvider),
 					litellm: { supportsPromptCaching: soleProvider.supports_prompt_caching === true },
 				} satisfies LiteLLMModelInfo,
 			];
@@ -168,6 +218,7 @@ export function buildModelInfos(
 					toolCalling: true,
 					imageInput: vision,
 				},
+				...pricingFromProvider(p),
 				litellm: { supportsPromptCaching: p.supports_prompt_caching === true },
 			} satisfies LiteLLMModelInfo);
 			registerRoute(exposedId, rawId);
