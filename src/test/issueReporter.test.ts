@@ -212,9 +212,8 @@ suite("IssueReporter", () => {
 				savedText = text;
 				return diagnosticsFile;
 			},
-			openExternal: async (uri) => {
-				openedUri = uri.toString(true);
-				return true;
+			openExternal: async (url) => {
+				openedUri = url;
 			},
 			showCompactedDiagnosticsMessage: async (file) => {
 				notifiedFile = file;
@@ -236,11 +235,70 @@ suite("IssueReporter", () => {
 
 		assert.ok(openedUri);
 		assert.ok(openedUri.length <= MAX_SAFE_URL_LENGTH);
+		assert.ok(openedUri.includes("%23"), openedUri);
+		assert.ok(!openedUri.includes("%2523"), openedUri);
 		assert.ok(clipboardText?.includes(expectDefined(logs[0])));
 		assert.ok(clipboardText?.includes(expectDefined(logs[49])));
 		assert.equal(savedText, clipboardText);
 		assert.equal(notifiedFile?.toString(), diagnosticsFile.toString());
 		assert.ok(getIssueBody(openedUri).includes("saved to a diagnostics file"));
+	});
+
+	test("openIssue hands the opener the exact URL string it built", async () => {
+		let openedUrl: string | undefined;
+		const reporter = new IssueReporter({
+			writeClipboard: async () => {},
+			openExternal: async (url) => {
+				openedUrl = url;
+			},
+		});
+		const snapshot = makeSnapshot({
+			latestError: {
+				source: "chat",
+				message: "50% of #anchors dropped: café 中文",
+				timestamp: "2026-01-01T00:00:00.000Z",
+			},
+		});
+
+		await reporter.openIssue(snapshot);
+
+		assert.equal(openedUrl, reporter.buildIssueUrl(snapshot));
+	});
+
+	test("issue URLs decode exactly once back to the original title and body", () => {
+		const reporter = new IssueReporter();
+		const snapshot = makeSnapshot({
+			latestError: {
+				source: "chat",
+				message: "50% of #anchors dropped: café 中文",
+				timestamp: "2026-01-01T00:00:00.000Z",
+			},
+			recentLogs: ["first line\nsecond line"],
+		});
+		const url = reporter.buildIssueUrl(snapshot);
+		const params = new URL(url).searchParams;
+
+		assert.ok(url.includes("%23"), url);
+		assert.ok(!url.includes("%2523"), url);
+		assert.equal(params.get("title"), reporter.buildTitle(snapshot));
+		assert.equal(params.get("body"), reporter.buildBody(snapshot));
+	});
+
+	test("vscode.Uri cannot carry the URL: parse/toString round-trips corrupt the encoded query", () => {
+		const url = new IssueReporter().buildIssueUrl(makeSnapshot());
+		assert.ok(url.includes("%23"), url);
+
+		const uri = vscode.Uri.parse(url);
+		assert.notEqual(
+			uri.toString(),
+			url,
+			"VS Code's Uri now round-trips the URL losslessly; re-evaluate whether the vscode.open string form is still needed"
+		);
+		// encodeURI(uri.toString(true)) is the browser href VS Code derives from a Uri passed to env.openExternal.
+		assert.ok(
+			encodeURI(uri.toString(true)).includes("%2523"),
+			"VS Code's Uri no longer corrupts encoded queries; re-evaluate whether the vscode.open string form is still needed"
+		);
 	});
 
 	test("buildIssueUrl final fallback stays short for huge messages", () => {

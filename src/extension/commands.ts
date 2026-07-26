@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { IssueReporter } from "../issueReporter";
 import type { Logger } from "../shared/logger";
+import { openUrl } from "../shared/openUrl";
 import type { ServerConfig } from "../shared/servers";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import {
@@ -188,7 +189,7 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 				void vscode.window.showErrorMessage(`LiteLLM: no destination configured for "${choice.id}"`);
 				return;
 			}
-			void vscode.env.openExternal(vscode.Uri.parse(url));
+			void openUrl(url);
 		})
 	);
 }
