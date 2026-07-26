@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import type { OpenAIFunctionToolDef } from "../types";
 import { isImageMimeType, isTextMimeType } from "./mime";
+import type { OpenAIFunctionToolDef } from "./wire";
 
 export const CHARS_PER_TOKEN = 4;
 export const IMAGE_TOKEN_ESTIMATE = 765;

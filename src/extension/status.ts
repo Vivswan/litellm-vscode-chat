@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { z } from "zod";
 import type { Logger } from "../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../shared/servers";
 import { LAST_CONNECTION_STATUS_KEY } from "../shared/storageKeys";
@@ -11,23 +12,16 @@ export interface ConnectionStatus {
 	lastChecked?: string;
 }
 
-const CONNECTION_STATES: ReadonlyArray<ConnectionStatus["state"]> = [
-	"not-configured",
-	"loading",
-	"connected",
-	"degraded",
-	"error",
-];
+// Persisted statuses may come from other extension versions, so only the fields
+// the status bar dispatches on are validated: unknown keys pass through and
+// serverStatuses elements stay unchecked.
+const connectionStatusSchema = z.looseObject({
+	state: z.enum(["not-configured", "loading", "connected", "degraded", "error"]),
+	serverStatuses: z.array(z.unknown()).optional(),
+});
 
 function isConnectionStatus(value: unknown): value is ConnectionStatus {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-	const candidate = value as Partial<ConnectionStatus>;
-	if (typeof candidate.state !== "string" || !(CONNECTION_STATES as readonly string[]).includes(candidate.state)) {
-		return false;
-	}
-	return candidate.serverStatuses === undefined || Array.isArray(candidate.serverStatuses);
+	return connectionStatusSchema.safeParse(value).success;
 }
 
 export class StatusBarManager {

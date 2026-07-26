@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { OpenAIFunctionToolDef } from "../types";
+import type { OpenAIFunctionToolDef } from "./wire";
 
 function isIntegerLikePropertyName(propertyName: string | undefined): boolean {
 	if (!propertyName) {

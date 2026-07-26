@@ -1,6 +1,6 @@
 import { normalizePositiveNumber } from "../shared/numbers";
 import { getTokenDefaults } from "../shared/settings";
-import type { LiteLLMProvider } from "../types";
+import type { LiteLLMProvider } from "./schemas";
 
 export interface ModelRoute {
 	serverId: string;
