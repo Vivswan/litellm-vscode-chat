@@ -1,6 +1,9 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { expectDefined } from "../testUtils";
+import { runConnectionTest } from "../../extension/commands";
+import type { ConnectionStatus } from "../../extension/status";
+import { Logger } from "../../shared/logger";
+import { expectDefined, makeServerStatus } from "../testUtils";
 
 suite("extension/commands", () => {
 	interface QuickPickItem {
@@ -75,6 +78,167 @@ suite("extension/commands", () => {
 		} finally {
 			mock.restore();
 		}
+	});
+
+	suite("runConnectionTest", () => {
+		interface Toast {
+			kind: "info" | "warning" | "error";
+			message: string;
+		}
+
+		function makeStatusBar(initial: ConnectionStatus) {
+			let current = initial;
+			return {
+				get connectionStatus() {
+					return current;
+				},
+				updateStatusBar: async (status?: ConnectionStatus) => {
+					if (status) {
+						current = status;
+					}
+				},
+			};
+		}
+
+		const outputChannel = { show: () => {} } as unknown as vscode.OutputChannel;
+		const logger = new Logger({ info: () => {}, error: () => {} });
+
+		async function withToasts(fn: () => Promise<void>): Promise<Toast[]> {
+			const toasts: Toast[] = [];
+			const origInfo = vscode.window.showInformationMessage;
+			const origWarn = vscode.window.showWarningMessage;
+			const origError = vscode.window.showErrorMessage;
+			const record = (kind: Toast["kind"]) => async (message: string) => {
+				toasts.push({ kind, message });
+				return undefined;
+			};
+			(vscode.window as Record<string, unknown>).showInformationMessage = record("info");
+			(vscode.window as Record<string, unknown>).showWarningMessage = record("warning");
+			(vscode.window as Record<string, unknown>).showErrorMessage = record("error");
+			try {
+				await fn();
+			} finally {
+				(vscode.window as Record<string, unknown>).showInformationMessage = origInfo;
+				(vscode.window as Record<string, unknown>).showWarningMessage = origWarn;
+				(vscode.window as Record<string, unknown>).showErrorMessage = origError;
+			}
+			return toasts;
+		}
+
+		test("reports the last known group statuses when the refresh cannot fetch them itself", async () => {
+			// After the migration the host owns group fetches: the triggered
+			// refresh returns nothing and reports nothing.
+			const statusBar = makeStatusBar({
+				state: "connected",
+				totalModels: 3,
+				serverStatuses: [makeServerStatus({ modelCount: 3 })],
+			});
+			const provider = {
+				provideLanguageModelChatInformation: async () => [],
+				refreshViaHost: async () => {},
+			};
+
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "info");
+			assert.ok(toast.message.includes("Found 3 models"), toast.message);
+			assert.strictEqual(statusBar.connectionStatus.state, "connected", "the pre-test status must be restored");
+		});
+
+		test("asks the host to re-resolve provider groups for a real round trip", async () => {
+			const statusBar = makeStatusBar({ state: "connected", totalModels: 1 });
+			let refreshed = 0;
+			const provider = {
+				provideLanguageModelChatInformation: async () => [],
+				refreshViaHost: async () => {
+					refreshed += 1;
+				},
+			};
+
+			await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+
+			assert.strictEqual(refreshed, 1, "the connection test must trigger the host-driven group refresh");
+		});
+
+		test("a second invocation while one is running is refused instead of misreporting", async () => {
+			const statusBar = makeStatusBar({ state: "connected", totalModels: 2 });
+			let release: (() => void) | undefined;
+			const blocked = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const provider = {
+				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+					await blocked;
+					return [];
+				},
+				refreshViaHost: async () => {},
+			};
+
+			const toasts = await withToasts(async () => {
+				const first = runConnectionTest(provider, statusBar, outputChannel, logger);
+				const second = runConnectionTest(provider, statusBar, outputChannel, logger);
+				expectDefined(release)();
+				await Promise.all([first, second]);
+			});
+
+			assert.strictEqual(toasts.length, 1, "the reentrant invocation must not produce a second toast");
+			const toast = expectDefined(toasts[0]);
+			assert.ok(toast.message.includes("Found 2 models"), toast.message);
+		});
+
+		test("reports a degraded outcome with the failing server count", async () => {
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				provideLanguageModelChatInformation: async () => {
+					await statusBar.updateStatusBar({
+						state: "degraded",
+						totalModels: 2,
+						serverStatuses: [makeServerStatus({ modelCount: 2 }), makeServerStatus({ state: "error", error: "down" })],
+					});
+					return [];
+				},
+				refreshViaHost: async () => {},
+			};
+
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "warning");
+			assert.ok(toast.message.includes("2 models available"), toast.message);
+			assert.ok(toast.message.includes("1 server unreachable"), toast.message);
+		});
+
+		test("a throwing refresh reports the error status it left behind", async () => {
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+					await statusBar.updateStatusBar({ state: "error", error: "ECONNREFUSED" });
+					throw new Error("ECONNREFUSED");
+				},
+				refreshViaHost: async () => {},
+			};
+
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "error");
+			assert.ok(toast.message.includes("ECONNREFUSED"), toast.message);
+		});
+
+		test("reports not configured when nothing was ever configured", async () => {
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				provideLanguageModelChatInformation: async () => [],
+				refreshViaHost: async () => {},
+			};
+
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "error");
+			assert.ok(toast.message.includes("No servers configured"), toast.message);
+		});
 	});
 
 	suite("test-only mutation commands", () => {

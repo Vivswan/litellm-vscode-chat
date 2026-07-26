@@ -16,6 +16,7 @@ import { resolveServer } from "./config";
 import type { FetchModelsResult } from "./discovery";
 import { fetchModels } from "./discovery";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
+import { getGroupServer, groupClientId, groupModelSupportsPromptCaching } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildRequestBody, DEFAULT_MAX_TOKENS_CAP, getModelParameters, MAX_TOOLS_PER_REQUEST } from "./request";
 import type { ToolCallIdSource } from "./streaming";
@@ -42,6 +43,8 @@ export class ChatClient {
 	private readonly userAgent: string;
 	private readonly logger?: Logger | undefined;
 	private getServers?: () => Promise<ServerWithKey[]>;
+	private getMigratedServerLabels?: () => Record<string, string[]>;
+	private readonly ambiguousLabelBaseUrls = new Set<string>();
 	private readonly clients = new ServerClientCache();
 	private readonly _modelRoutes = new Map<string, ModelRoute>();
 	private readonly _promptCachingSupport = new Map<string, boolean>();
@@ -64,6 +67,31 @@ export class ChatClient {
 		this.getServers = getServers;
 	}
 
+	setMigratedServerLabelsProvider(getLabels: () => Record<string, string[]>): void {
+		this.getMigratedServerLabels = getLabels;
+	}
+
+	/**
+	 * The pre-migration label that pointed at this base URL, so label-scoped
+	 * modelParameters keep matching. Only an unambiguous mapping applies: when
+	 * several labels shared one base URL, their scoped entries would all hit
+	 * every group at that URL, so label scoping is skipped (logged once per URL).
+	 */
+	private migratedLabelsFor(baseUrl: string): string[] {
+		const map = this.getMigratedServerLabels?.() ?? {};
+		const labels = Object.entries(map).find(([url]) => url.replace(/\/+$/, "") === baseUrl)?.[1] ?? [];
+		if (labels.length > 1) {
+			if (!this.ambiguousLabelBaseUrls.has(baseUrl)) {
+				this.ambiguousLabelBaseUrls.add(baseUrl);
+				this.log(
+					`Skipping label-scoped modelParameters for ${baseUrl}: multiple pre-migration labels (${labels.join(", ")}) pointed at it; scope by base URL instead`
+				);
+			}
+			return [];
+		}
+		return [...labels];
+	}
+
 	applyRegistration(routes: Map<string, ModelRoute>, promptCaching: Map<string, boolean>, clearFirst: boolean): void {
 		if (clearFirst) {
 			this._modelRoutes.clear();
@@ -77,7 +105,7 @@ export class ChatClient {
 		}
 	}
 
-	/** Drop cached SDK clients for servers that no longer exist. */
+	/** Drop cached SDK clients for any server ID not in `keep`; the provider includes live group-client IDs. */
 	pruneClients(serverIds: Iterable<string>): void {
 		this.clients.prune(serverIds);
 	}
@@ -99,13 +127,21 @@ export class ChatClient {
 	async send(ctx: ChatRequestContext): Promise<void> {
 		const { model, messages, options, progress, token } = ctx;
 
-		const route = this._modelRoutes.get(model.id);
+		const groupServer = getGroupServer(model);
+		const route = groupServer ? undefined : this._modelRoutes.get(model.id);
 		let serverId: string;
 		let baseUrl: string;
 		let apiKey: string;
 		let rawModelId: string;
+		let serverScopes: readonly string[] = [];
 
-		if (route) {
+		if (groupServer) {
+			serverId = groupClientId(groupServer);
+			baseUrl = groupServer.baseUrl;
+			apiKey = groupServer.apiKey;
+			rawModelId = model.id;
+			serverScopes = [baseUrl, ...this.migratedLabelsFor(baseUrl)];
+		} else if (route) {
 			const server = await resolveServer(route.serverId, this.getServers);
 			if (server) {
 				serverId = server.id;
@@ -133,7 +169,9 @@ export class ChatClient {
 		const promptCachingEnabled = isPromptCachingEnabled();
 		const customHeaders = getCustomHeaders(this.log);
 		const requestTimeout = getRequestTimeout(this.log);
-		const supportsPromptCaching = this._promptCachingSupport.get(model.id) === true;
+		const supportsPromptCaching = groupServer
+			? groupModelSupportsPromptCaching(model)
+			: this._promptCachingSupport.get(model.id) === true;
 		const openaiMessages = convertMessages(messages, {
 			cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
 			log: this.log,
@@ -154,7 +192,7 @@ export class ChatClient {
 			);
 		}
 
-		const modelParams = getModelParameters(model.id, this._modelRoutes);
+		const modelParams = getModelParameters(model.id, this._modelRoutes, serverScopes);
 
 		let maxTokens: number;
 		if (typeof options.modelOptions?.max_tokens === "number") {

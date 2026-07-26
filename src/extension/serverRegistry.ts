@@ -6,6 +6,7 @@ import {
 	LEGACY_API_KEY_SECRET,
 	LEGACY_BASE_URL_SECRET,
 	SERVER_REGISTRY_KEY,
+	SKIPPED_MIGRATION_SERVERS_KEY,
 } from "../shared/storageKeys";
 
 const serverConfigSchema = z.looseObject({
@@ -152,12 +153,28 @@ export class ServerRegistry {
 			// noUncheckedIndexedAccess.
 			return;
 		}
-		this.servers[idx] = { id, label, baseUrl: normalizeBaseUrl(baseUrl) };
+		const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+		this.servers[idx] = { id, label, baseUrl: normalizedBaseUrl };
 		try {
 			await this.persist();
 		} catch (error) {
 			this.servers[idx] = previous;
 			throw error;
+		}
+		// A server the group migration skipped (a name collision, or an edit
+		// that raced the seeding) is naturally resolved by renaming or
+		// repointing it, so the skip marker lifts as soon as the entry mutation
+		// persists — independent of the secret operations below, which may fail
+		// transiently and must not leave the server permanently skipped.
+		// This read-filter-write can race a marker another window adds in the
+		// same instant; that self-heals by re-skipping (one extra notice), so
+		// no merge protocol is warranted for a removal.
+		if (previous.label !== label || previous.baseUrl !== normalizedBaseUrl) {
+			const skipped = this.globalState.get<unknown>(SKIPPED_MIGRATION_SERVERS_KEY);
+			if (Array.isArray(skipped) && skipped.includes(id)) {
+				const remaining = skipped.filter((skippedId) => skippedId !== id);
+				await this.globalState.update(SKIPPED_MIGRATION_SERVERS_KEY, remaining.length > 0 ? remaining : undefined);
+			}
 		}
 		if (apiKey !== undefined) {
 			if (apiKey) {

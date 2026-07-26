@@ -18,10 +18,18 @@ export interface DiagnosticsSnapshot {
 	platform: string;
 	connectionState: string;
 	modelCount?: number | undefined;
-	apiKeyConfigured: boolean;
+	/** "unknown" when the configurations are VS Code-managed and none were observed yet. */
+	apiKeyConfigured: boolean | "unknown";
 	baseUrlConfigured: boolean;
 	latestError?: ErrorContext | undefined;
 	recentLogs: string[];
+}
+
+function apiKeyConfiguredText(snapshot: DiagnosticsSnapshot): string {
+	if (snapshot.apiKeyConfigured === "unknown") {
+		return "Unknown (managed by VS Code)";
+	}
+	return snapshot.apiKeyConfigured ? "yes" : "no";
 }
 
 interface BodyOptions {
@@ -153,7 +161,7 @@ export class IssueReporter {
 			"",
 			`- Connection state: ${snapshot.connectionState}`,
 			snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
-			`- API key configured: ${snapshot.apiKeyConfigured ? "yes" : "no"}`,
+			`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
 			`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
 		].filter((l): l is string => l !== null);
 
@@ -305,7 +313,7 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, compactedDiag
 		"",
 		`- Connection state: ${snapshot.connectionState}`,
 		snapshot.modelCount !== undefined ? `- Model count: ${snapshot.modelCount}` : null,
-		`- API key configured: ${snapshot.apiKeyConfigured ? "yes" : "no"}`,
+		`- API key configured: ${apiKeyConfiguredText(snapshot)}`,
 		`- Base URL configured: ${snapshot.baseUrlConfigured ? "yes" : "no"}`,
 	];
 

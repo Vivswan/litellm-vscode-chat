@@ -24,61 +24,116 @@ interface ModelInfoProvider {
 	): Promise<vscode.LanguageModelChatInformation[]>;
 }
 
-export function registerTestConnectionCommand(
-	context: vscode.ExtensionContext,
-	registry: ServerRegistry,
-	provider: ModelInfoProvider,
-	statusBar: { updateStatusBar(status: ConnectionStatus): Promise<void> },
+interface ConnectionTestableProvider extends ModelInfoProvider {
+	refreshViaHost(): Promise<void>;
+}
+
+interface StatusBarLike {
+	readonly connectionStatus: ConnectionStatus;
+	updateStatusBar(status?: ConnectionStatus): Promise<void>;
+}
+
+// A second invocation while one test is mid-flight would capture "loading" as
+// the pre-test status and misreport; it is refused instead.
+let connectionTestRunning = false;
+
+/**
+ * Trigger a non-silent refresh, ask the host to re-resolve every provider
+ * group, and report from the connection status all of that left behind. The
+ * status, not any returned model list, is the source of truth: the direct
+ * refresh covers the registry era, the host round trip covers groups.
+ */
+export async function runConnectionTest(
+	provider: ConnectionTestableProvider,
+	statusBar: StatusBarLike,
 	outputChannel: vscode.OutputChannel,
 	logger: Logger
-): void {
-	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.testConnection", async () => {
-			if (registry.getServers().length === 0) {
+): Promise<void> {
+	if (connectionTestRunning) {
+		logger.log("A connection test is already running");
+		return;
+	}
+	connectionTestRunning = true;
+	try {
+		logger.log("Testing connection to all servers...");
+		outputChannel.show(true);
+
+		const previous = statusBar.connectionStatus;
+		try {
+			await statusBar.updateStatusBar({ state: "loading" });
+			await provider.provideLanguageModelChatInformation({ silent: false }, new vscode.CancellationTokenSource().token);
+		} catch (error) {
+			// The failing refresh already reported an error status; the toast below reads it.
+			logger.error("Connection test failed", error);
+		}
+		try {
+			await provider.refreshViaHost();
+		} catch (error) {
+			logger.error("Provider-group connection test failed", error);
+		}
+
+		let status = statusBar.connectionStatus;
+		if (status.state === "loading") {
+			await statusBar.updateStatusBar(previous);
+			status = previous;
+		}
+
+		switch (status.state) {
+			case "connected": {
+				const count = status.totalModels ?? 0;
+				logger.log(`SUCCESS: ${count} models available`);
 				void showActionableMessage(
-					"error",
-					"LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.",
-					[]
+					"info",
+					`LiteLLM: Connection successful! Found ${count} model${count === 1 ? "" : "s"}.`,
+					[viewOutputAction(outputChannel, "View Models"), openChatAction()]
 				);
-				return;
+				break;
 			}
-
-			logger.log("Testing connection to all servers...");
-			outputChannel.show(true);
-
-			try {
-				await statusBar.updateStatusBar({ state: "loading" });
-
-				const models = await provider.provideLanguageModelChatInformation(
-					{ silent: false },
-					new vscode.CancellationTokenSource().token
+			case "degraded": {
+				const failed = (status.serverStatuses ?? []).filter((s) => s.state === "error").length;
+				logger.log(`WARNING: ${failed} server(s) unreachable`);
+				void showActionableMessage(
+					"warning",
+					`LiteLLM: Connected with issues - ${status.totalModels ?? 0} model${status.totalModels === 1 ? "" : "s"} available, ${failed} server${failed === 1 ? "" : "s"} unreachable.`,
+					[viewOutputAction(outputChannel), reconfigureAction(), reportIssueAction()]
 				);
-
-				if (models.length === 0) {
-					logger.log("WARNING: No models returned");
-					void showActionableMessage(
-						"warning",
-						"LiteLLM: Connected but no models returned. Check your LiteLLM proxy configuration.",
-						[viewOutputAction(outputChannel), reconfigureAction(), reportIssueAction()]
-					);
-				} else {
-					logger.log(`SUCCESS: Found ${models.length} models`);
-					void showActionableMessage(
-						"info",
-						`LiteLLM: Connection successful! Found ${models.length} model${models.length === 1 ? "" : "s"}.`,
-						[viewOutputAction(outputChannel, "View Models"), openChatAction()]
-					);
-				}
-			} catch (error) {
-				const errorMsg = error instanceof Error ? error.message : String(error);
-				logger.error("Connection test failed", error);
-				void showActionableMessage("error", `LiteLLM: Connection failed - ${errorMsg}`, [
+				break;
+			}
+			case "error":
+				void showActionableMessage("error", `LiteLLM: Connection failed - ${status.error ?? "Unknown error"}`, [
 					viewOutputAction(outputChannel),
 					reconfigureAction(),
 					reportIssueAction(),
 				]);
-			}
-		})
+				break;
+			case "not-configured":
+				void showActionableMessage(
+					"error",
+					"LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.",
+					[reconfigureAction("Configure Now")]
+				);
+				break;
+			default:
+				void showActionableMessage("warning", "LiteLLM: Connection status is unavailable; try again in a moment.", [
+					viewOutputAction(outputChannel),
+				]);
+		}
+	} finally {
+		connectionTestRunning = false;
+	}
+}
+
+export function registerTestConnectionCommand(
+	context: vscode.ExtensionContext,
+	provider: ConnectionTestableProvider,
+	statusBar: StatusBarLike,
+	outputChannel: vscode.OutputChannel,
+	logger: Logger
+): void {
+	context.subscriptions.push(
+		vscode.commands.registerCommand("litellm.testConnection", () =>
+			runConnectionTest(provider, statusBar, outputChannel, logger)
+		)
 	);
 }
 

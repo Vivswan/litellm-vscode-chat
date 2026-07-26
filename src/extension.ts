@@ -6,6 +6,11 @@ import {
 	registerTestConnectionCommand,
 } from "./extension/commands";
 import { registerDiagnosticsCommand } from "./extension/diagnostics";
+import {
+	getMigratedServerLabels,
+	isGroupMigrationComplete,
+	migrateServersToProviderGroups,
+} from "./extension/groupMigration";
 import { createConfigurationPrompt, Notifier, reconfigureAction, showActionableMessage } from "./extension/notifier";
 import { registerManageCommand } from "./extension/serverManagement";
 import { ServerRegistry } from "./extension/serverRegistry";
@@ -31,9 +36,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	logger.log(`LiteLLM Extension activated (v${extVersion})`);
 	const registry = new ServerRegistry(context.globalState, context.secrets);
 	const provider = new LiteLLMChatModelProvider(ua, logger);
+	// Test mode keeps the registry live for the group-agnostic refresh even
+	// after migration: there is no programmatic way to remove provider groups,
+	// so the host-fidelity suite drives models through the registry.
+	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
 
 	provider.setServerProvider(() => registry.getServersWithKeys());
 	provider.setConfigurationPrompt(createConfigurationPrompt());
+	const isMigrated = () => isGroupMigrationComplete(context.globalState);
+	provider.setGrouplessRegistryEnabled(() => testMode || !isMigrated());
+	provider.setMigratedServerLabels(() => getMigratedServerLabels(context.globalState));
 
 	// The provider must not see a half-migrated registry, so migration completes before registration.
 	try {
@@ -67,6 +79,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}
 	});
 
+	// Hands registry servers to VS Code as provider groups. The host validates
+	// each group by calling the registered provider, so this runs after
+	// registration, and off the activation path because it hits the network.
+	void migrateServersToProviderGroups(registry, context.globalState, context.secrets, logger).catch((error) => {
+		logger.error("Provider-group migration failed", error);
+	});
+
 	// Welcome message
 	const hasShownWelcome = context.globalState.get<boolean>(HAS_SHOWN_WELCOME_KEY, false);
 	if (!hasShownWelcome && registry.getServers().length === 0) {
@@ -81,11 +100,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		await context.globalState.update(HAS_SHOWN_WELCOME_KEY, true);
 	}
 
-	// Server management command
-	registerManageCommand(context, registry, logger);
+	// Server management command: the native provider-group UI once the registry
+	// is migrated (no fallback: the quick pick would edit configuration nothing
+	// serves anymore) or was never populated (with the quick pick as fallback).
+	registerManageCommand(
+		context,
+		registry,
+		logger,
+		() => {
+			if (testMode) {
+				return "legacy";
+			}
+			if (isMigrated()) {
+				return "nativeRequired";
+			}
+			return registry.getServers().length === 0 ? "nativePreferred" : "legacy";
+		},
+		() => !testMode && isMigrated()
+	);
 
 	// Test connection command
-	registerTestConnectionCommand(context, registry, provider, statusBar, outputChannel, logger);
+	registerTestConnectionCommand(context, provider, statusBar, outputChannel, logger);
 
 	// Diagnostics command
 	registerDiagnosticsCommand(context, registry, () => statusBar.connectionStatus, outputChannel);

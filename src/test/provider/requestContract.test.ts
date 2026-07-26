@@ -279,6 +279,52 @@ suite("provider/request contract", () => {
 				stop: ["END", "STOP"],
 			});
 		});
+
+		test("a baseUrl server scope matches and wins over an unscoped entry", async () => {
+			const params = await withConfig(
+				{
+					modelParameters: {
+						"http://litellm.test/gpt-4": { temperature: 0.2 },
+						"gpt-4": { temperature: 0.8 },
+					},
+				},
+				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"])
+			);
+			assert.deepEqual(params, { temperature: 0.2 });
+		});
+
+		test("legacy label scopes match alongside the baseUrl scope", async () => {
+			const params = await withConfig({ modelParameters: { "Production/gpt-4": { temperature: 0.4 } } }, () =>
+				getModelParameters("gpt-4", new Map(), ["http://litellm.test", "Production"])
+			);
+			assert.deepEqual(params, { temperature: 0.4 });
+		});
+
+		test("the most specific model prefix wins across scopes", async () => {
+			const params = await withConfig(
+				{
+					modelParameters: {
+						"Production/gpt-4": { temperature: 0.4 },
+						"http://litellm.test/gpt-4-turbo": { temperature: 0.6 },
+					},
+				},
+				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test", "Production"])
+			);
+			assert.deepEqual(params, { temperature: 0.6 });
+		});
+
+		test("a long scope with a vague model prefix never outranks a precise short-scoped key", async () => {
+			const params = await withConfig(
+				{
+					modelParameters: {
+						"http://very-long-server-url.example.com:4000/g": { temperature: 0.1 },
+						"Prod/gpt-4-turbo": { temperature: 0.9 },
+					},
+				},
+				() => getModelParameters("gpt-4-turbo", new Map(), ["http://very-long-server-url.example.com:4000", "Prod"])
+			);
+			assert.deepEqual(params, { temperature: 0.9 });
+		});
 	});
 
 	suite("request body construction", () => {
