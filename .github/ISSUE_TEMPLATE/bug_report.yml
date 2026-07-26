@@ -7,20 +7,34 @@ body:
     attributes:
       label: What happened?
       description: What did you do, what did you expect, and what happened instead?
+      placeholder: Expected ..., got ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
       placeholder: |
         1. ...
-        2. Expected ..., got ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: Shown next to the extension name in the Extensions view.
     validations:
       required: true
   - type: textarea
     id: environment
     attributes:
       label: Environment
-      description: OS, VS Code version, extension version, and LiteLLM server/proxy version.
+      description: OS, VS Code version, and LiteLLM server/proxy version.
       placeholder: |
         - OS:
         - VS Code version:
-        - extension version:
         - LiteLLM server/proxy version:
     validations:
       required: false

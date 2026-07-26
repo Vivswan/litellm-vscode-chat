@@ -1,1 +1,7 @@
+# Repo-owned: the issue-templates module generates a starter for this path
+# once, and _skip_if_exists keeps this tailored version on every sync.
 blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/vivswan/litellm-vscode-chat/security/advisories/new
+    about: Please report vulnerabilities privately via a GitHub security advisory, not a public issue.
