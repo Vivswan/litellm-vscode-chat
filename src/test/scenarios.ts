@@ -50,6 +50,14 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		chunks: [makeChunk({ role: "assistant", content: "Hello from capture server" }), makeChunk({}, "stop")],
 	},
 
+	// Served by two proxy deployments with differing token limits (see the
+	// deployments list in SCENARIO_CAPABILITIES); /v1/model/info reports the
+	// model once per deployment and discovery must merge them into one model.
+	"load-balanced": {
+		type: "sse",
+		chunks: [makeChunk({ role: "assistant", content: "Balanced across deployments" }), makeChunk({}, "stop")],
+	},
+
 	// Multi-sentence reply for suites that assert substantial output length
 	"long-text": {
 		type: "sse",
@@ -607,6 +615,19 @@ export function collapseChunks(chunks: unknown[]): Record<string, unknown> {
 	};
 }
 
+/** Token limits one proxy deployment of a scenario model advertises. */
+export interface ScenarioDeployment {
+	maxInputTokens: number;
+	maxOutputTokens: number;
+	/**
+	 * Upstream model name this deployment routes to on the fake backend;
+	 * defaults to the scenario name. Distinct names mirror the real #183 shape
+	 * of one model_name backed by different upstream providers, and land in
+	 * SCENARIO_UPSTREAM_ALIASES so the backend answers them.
+	 */
+	upstreamModel?: string;
+}
+
 /** Capability flags a scenario's generated model_info entry advertises. */
 export interface ScenarioCapabilities {
 	tools?: boolean;
@@ -614,6 +635,13 @@ export interface ScenarioCapabilities {
 	pdfInput?: boolean;
 	reasoning?: boolean;
 	promptCaching?: boolean;
+	/**
+	 * Proxy deployments backing this model_name. Omitted means one deployment
+	 * with the standard limits; listing more than one turns the model into a
+	 * LiteLLM load-balancing group, which /v1/model/info reports once per
+	 * deployment.
+	 */
+	deployments?: readonly ScenarioDeployment[];
 }
 
 const TEXT_MODEL: ScenarioCapabilities = { tools: true, vision: true, pdfInput: true };
@@ -621,9 +649,18 @@ const TOOL_MODEL: ScenarioCapabilities = { tools: true };
 const REASONING_MODEL: ScenarioCapabilities = { reasoning: true };
 const CACHING_MODEL: ScenarioCapabilities = { tools: true, promptCaching: true };
 const MINIMAL_MODEL: ScenarioCapabilities = {};
+/** Two deployments on different upstream models with differing limits; discovery must merge them to the smaller bounds. */
+const LOAD_BALANCED_MODEL: ScenarioCapabilities = {
+	tools: true,
+	deployments: [
+		{ maxInputTokens: 128000, maxOutputTokens: 16000 },
+		{ maxInputTokens: 64000, maxOutputTokens: 8000, upstreamModel: "load-balanced-b" },
+	],
+};
 
 export const SCENARIO_CAPABILITIES: Record<string, ScenarioCapabilities> = {
 	"text-only": TEXT_MODEL,
+	"load-balanced": LOAD_BALANCED_MODEL,
 	"long-text": TEXT_MODEL,
 	"structured-content": TEXT_MODEL,
 	"structured-content-mixed": TEXT_MODEL,
@@ -653,3 +690,18 @@ export const SCENARIO_CAPABILITIES: Record<string, ScenarioCapabilities> = {
 	"error-401": MINIMAL_MODEL,
 	"error-429": MINIMAL_MODEL,
 };
+
+/**
+ * Upstream model names that deployments route to beyond their scenario name,
+ * mapped to the scenario they play. The fake backends register these as extra
+ * model IDs answering with the target scenario's response.
+ */
+export const SCENARIO_UPSTREAM_ALIASES: Readonly<Record<string, string>> = Object.fromEntries(
+	Object.entries(SCENARIO_CAPABILITIES).flatMap(([name, capabilities]) =>
+		(capabilities.deployments ?? []).flatMap((deployment) =>
+			deployment.upstreamModel !== undefined && deployment.upstreamModel !== name
+				? [[deployment.upstreamModel, name] as const]
+				: []
+		)
+	)
+);

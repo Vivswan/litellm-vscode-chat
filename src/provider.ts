@@ -24,6 +24,7 @@ import type { ModelRoute } from "./provider/modelCatalog";
 import { buildModelInfos } from "./provider/registration";
 import type { Logger } from "./shared/logger";
 import type { AggregatedStatus, ServerStatus, ServerWithKey } from "./shared/servers";
+import { getTokenDefaults } from "./shared/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "./shared/tokenEstimation";
 
 /** Rolling status entries and their cached clients are evicted when not refreshed within this window. */
@@ -164,9 +165,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
 		this._client.pruneClients([...servers.map((s) => s.id), ...this.groupClientIdsInStatuses()]);
 
+		// One defaults snapshot for the whole sweep: discovery's deployment
+		// merging and registration below must derive constraints from the same
+		// values even if the settings change while servers are being fetched.
+		const tokenDefaults = getTokenDefaults();
+
 		const results = await Promise.allSettled(
 			servers.map(async (server) => {
-				const result = await this._client.fetchModels(server);
+				const result = await this._client.fetchModels(server, tokenDefaults);
 				return { server, models: result.models };
 			})
 		);
@@ -205,7 +211,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			const { models } = result.value;
 			this.log(`Server "${server.label}" returned ${models.length} models`);
 
-			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg));
+			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg), tokenDefaults);
 			allInfos.push(...reg.infos);
 			for (const [k, v] of reg.routes) {
 				allRoutes.set(k, v);
@@ -281,8 +287,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });
 
 		try {
-			const { models } = await this._client.fetchModels(server);
-			const reg = buildModelInfos(models, server, 1, (msg) => this.log(msg));
+			// One defaults snapshot for this group's refresh; see the sweep above.
+			const tokenDefaults = getTokenDefaults();
+			const { models } = await this._client.fetchModels(server, tokenDefaults);
+			const reg = buildModelInfos(models, server, 1, (msg) => this.log(msg), tokenDefaults);
 			const infos = reg.infos.map((info) => attachGroupServer(info, groupServer));
 			this.log(`Provider group at ${server.baseUrl} returned ${infos.length} models`);
 			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: infos.length });

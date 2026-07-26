@@ -1,7 +1,9 @@
 import type OpenAI from "openai";
 import { isRecord } from "../shared/json";
 import { normalizePositiveNumber } from "../shared/numbers";
+import type { TokenDefaults } from "../shared/settings";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
+import { deriveTokenConstraints } from "./modelCatalog";
 import type {
 	LiteLLMArchitecture,
 	LiteLLMModelInfoItem,
@@ -54,7 +56,27 @@ function truncateForLog(value: unknown): string {
 	}
 }
 
-function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
+/**
+ * One /v1/model/info entry after mapping: the resolved model id, the single
+ * model_info-sourced provider built from its capability fields, and the input
+ * modalities it advertises. A dedicated shape (rather than LiteLLMModelItem)
+ * so deployment merging can rely on exactly one provider per entry at the
+ * type level.
+ */
+export interface MappedModelInfo {
+	id: string;
+	provider: LiteLLMProvider;
+	inputModalities: readonly string[];
+}
+
+/** A non-empty group of mapped entries sharing one model id. */
+export type ModelDeployments = readonly [MappedModelInfo, ...MappedModelInfo[]];
+
+/**
+ * Map one /v1/model/info entry to its MappedModelInfo. Exported so tests can
+ * build deployment entries through the same mapping the production path uses.
+ */
+export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo | undefined {
 	const modelId = modelInfoId(item);
 
 	if (!modelId) {
@@ -92,13 +114,85 @@ function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelIte
 	if (item.model_info?.supports_pdf_input) {
 		inputModalities.push("pdf");
 	}
-	const architecture = inputModalities.length > 0 ? { input_modalities: inputModalities } : undefined;
 
+	return { id: modelId, provider, inputModalities };
+}
+
+function toModelItem(mapped: MappedModelInfo): LiteLLMModelItem {
 	return {
-		id: modelId,
-		providers: [provider],
-		architecture,
+		id: mapped.id,
+		providers: [mapped.provider],
+		architecture: mapped.inputModalities.length > 0 ? { input_modalities: [...mapped.inputModalities] } : undefined,
 	};
+}
+
+/** Three-valued AND: false if any deployment says no, true only if all say yes, unknown otherwise. */
+function everyDeploymentSupports(values: readonly (boolean | null | undefined)[]): boolean | null {
+	if (values.some((value) => value === false)) {
+		return false;
+	}
+	return values.every((value) => value === true) ? true : null;
+}
+
+/** The params every deployment lists; unknown (null) as soon as one deployment does not list them. */
+function intersectSupportedParams(values: readonly (string[] | null | undefined)[]): string[] | null {
+	const [first, ...rest] = values;
+	if (!Array.isArray(first) || rest.some((list) => !Array.isArray(list))) {
+		return null;
+	}
+	return first.filter((param) => rest.every((list) => Array.isArray(list) && list.includes(param)));
+}
+
+/**
+ * Collapse the deployments of one load-balanced model_name into a single
+ * entry advertising the conservative intersection of their capabilities.
+ * LiteLLM reports one /v1/model/info entry per deployment, so without this a
+ * load-balanced model would register duplicate ids and overwrite its own
+ * routes.
+ *
+ * Token limits: each deployment's standalone constraints are derived through
+ * deriveTokenConstraints (the same rules registration applies), the per-field
+ * minimum is taken, and those effective values are stored on the merged
+ * provider, which deriveTokenConstraints reproduces verbatim: `defaults` is
+ * the refresh pass's one snapshot, threaded to both this merge and
+ * registration, so the reproduction cannot drift when settings change
+ * mid-refresh. This guarantees the merged advertisement never exceeds what
+ * any deployment would have advertised on its own, whichever combination of
+ * raw limit fields each one set. Capability flags hold only when every
+ * deployment advertises them, and input modalities and
+ * supported_openai_params intersect. Non-constraint metadata (provider name,
+ * status, parameter order) follows the first deployment; on the
+ * sole-provider registration path none of it is user-visible.
+ */
+export function mergeModelDeployments(deployments: ModelDeployments, defaults: TokenDefaults): MappedModelInfo {
+	const [first, ...rest] = deployments;
+	if (rest.length === 0) {
+		return first;
+	}
+	const providers = deployments.map((deployment) => deployment.provider);
+	const standalone = providers.map((p) => deriveTokenConstraints(p, defaults));
+	const maxOutputTokens = Math.min(...standalone.map((c) => c.maxOutputTokens));
+	const contextLength = Math.min(...standalone.map((c) => c.contextLength));
+	const maxInputTokens = Math.min(...standalone.map((c) => c.maxInputTokens));
+	const provider: LiteLLMProvider = {
+		provider: first.provider.provider,
+		status: first.provider.status,
+		supports_tools: providers.every((p) => p.supports_tools !== false),
+		context_length: contextLength,
+		max_tokens: maxOutputTokens,
+		max_input_tokens: maxInputTokens,
+		max_output_tokens: maxOutputTokens,
+		source: "model_info",
+		supports_prompt_caching: everyDeploymentSupports(providers.map((p) => p.supports_prompt_caching)),
+		supports_response_schema: everyDeploymentSupports(providers.map((p) => p.supports_response_schema)),
+		supports_reasoning: everyDeploymentSupports(providers.map((p) => p.supports_reasoning)),
+		supports_pdf_input: everyDeploymentSupports(providers.map((p) => p.supports_pdf_input)),
+		supported_openai_params: intersectSupportedParams(providers.map((p) => p.supported_openai_params)),
+	};
+	const inputModalities = first.inputModalities.filter((modality) =>
+		rest.every((deployment) => deployment.inputModalities.includes(modality))
+	);
+	return { id: first.id, provider, inputModalities };
 }
 
 export interface FetchModelsResult {
@@ -111,6 +205,13 @@ export interface FetchModelsRequest {
 	baseUrl: string;
 	/** Pre-validated by settings.getDiscoveryTimeout(); used as-is. */
 	discoveryTimeout: number;
+	/**
+	 * The refresh pass's one defaults snapshot, read at the top of the
+	 * provider's refresh. Deployment merging bakes effective constraints with
+	 * it, and registration derives constraints from the same snapshot, so the
+	 * two stages cannot disagree when settings change mid-refresh.
+	 */
+	tokenDefaults: TokenDefaults;
 	log: (message: string, data?: unknown) => void;
 }
 
@@ -165,33 +266,71 @@ function boundedBySignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
 	});
 }
 
+interface NarrowedModelInfoData {
+	models: LiteLLMModelItem[];
+	/**
+	 * Entries recognized as either payload shape, counted before the blocked
+	 * filter. The /v1/models fallback keys on this instead of `models.length`:
+	 * a payload whose recognized entries were all blocked must yield an empty
+	 * list, not a fallback that re-lists the blocked models.
+	 */
+	usableEntryCount: number;
+}
+
 /**
  * Narrow a /v1/model/info payload element-wise. Entries with a model-info
  * identifier take the documented mapping (model_name first); entries shaped
  * like models-listing items pass through; anything else is skipped with a
- * log line instead of aborting the whole registration.
+ * log line instead of aborting the whole registration. Blocked (paused)
+ * deployments are dropped, and deployments sharing one model id merge into a
+ * single model in first-seen order.
  */
-function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): LiteLLMModelItem[] {
-	const models: LiteLLMModelItem[] = [];
+function narrowModelInfoData(
+	data: unknown[],
+	tokenDefaults: TokenDefaults,
+	log: FetchModelsRequest["log"]
+): NarrowedModelInfoData {
+	let usableEntryCount = 0;
+	type Slot =
+		| { kind: "deployments"; group: [MappedModelInfo, ...MappedModelInfo[]] }
+		| { kind: "model"; model: LiteLLMModelItem };
+	const slots: Slot[] = [];
+	const deploymentsById = new Map<string, [MappedModelInfo, ...MappedModelInfo[]]>();
 	for (const entry of data) {
 		if (isLiteLLMModelInfoItem(entry)) {
-			const mapped = mapModelInfoToLiteLLMModel(entry);
+			const mapped = mapModelInfoEntry(entry);
 			if (mapped) {
-				models.push(mapped);
+				usableEntryCount += 1;
+				if (entry.model_info?.blocked === true) {
+					log("Skipping blocked model/info entry", { modelId: mapped.id });
+					continue;
+				}
+				const group = deploymentsById.get(mapped.id);
+				if (group) {
+					group.push(mapped);
+				} else {
+					const newGroup: [MappedModelInfo, ...MappedModelInfo[]] = [mapped];
+					deploymentsById.set(mapped.id, newGroup);
+					slots.push({ kind: "deployments", group: newGroup });
+				}
 				continue;
 			}
 		}
 		if (isLiteLLMModelItem(entry)) {
-			models.push(normalizeModelItem(entry, log));
+			usableEntryCount += 1;
+			slots.push({ kind: "model", model: normalizeModelItem(entry, log) });
 			continue;
 		}
 		log("Skipping malformed model/info entry", { entry: truncateForLog(entry) });
 	}
-	return models;
+	const models = slots.map((slot) =>
+		slot.kind === "deployments" ? toModelItem(mergeModelDeployments(slot.group, tokenDefaults)) : slot.model
+	);
+	return { models, usableEntryCount };
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, discoveryTimeout, log } = request;
+	const { client, baseUrl, discoveryTimeout, tokenDefaults, log } = request;
 
 	log("Fetching from:", `${baseUrl}/v1/model/info`);
 
@@ -212,8 +351,8 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			const data: unknown[] = parsedInfo.data;
 			log("Parsed model/info response:", { modelCount: data.length });
 
-			const models = narrowModelInfoData(data, log);
-			if (data.length > 0 && models.length === 0) {
+			const { models, usableEntryCount } = narrowModelInfoData(data, tokenDefaults, log);
+			if (data.length > 0 && usableEntryCount === 0) {
 				log("model/info returned data but no usable models; falling back", {
 					dataLength: data.length,
 					firstEntry: truncateForLog(data[0]),

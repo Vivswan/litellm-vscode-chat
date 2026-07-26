@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, useMsw } from "../mocks/handlers";
-import { makeProvider, toHeaderMap, withConfig } from "../testUtils";
+import { expectDefined, makeProvider, toHeaderMap, withConfig } from "../testUtils";
 
 suite("provider/model info and fallback", () => {
 	useMsw();
@@ -170,5 +170,70 @@ suite("provider/model info and fallback", () => {
 		const modelEntry = infos.find((i) => i.id === "gpt-4o");
 		assert.ok(modelEntry);
 		assert.equal(modelEntry.capabilities.imageInput, true);
+	});
+
+	test("blocked models are not registered", async () => {
+		mswServer.use(
+			...discoveryHandlers({
+				data: [
+					{ model_name: "paused-model", model_info: { blocked: true, supports_function_calling: true } },
+					{ model_name: "active-model", model_info: { supports_function_calling: true } },
+				],
+			})
+		);
+
+		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+			{ silent: true },
+			new vscode.CancellationTokenSource().token
+		);
+
+		assert.deepStrictEqual(
+			infos.map((i) => i.id),
+			["active-model"]
+		);
+	});
+
+	test("load-balanced deployments register as one model with the conservative intersection", async () => {
+		mswServer.use(
+			...discoveryHandlers({
+				data: [
+					{
+						model_name: "balanced-model",
+						model_info: {
+							supports_function_calling: true,
+							supports_vision: true,
+							max_input_tokens: 128000,
+							max_output_tokens: 16000,
+						},
+					},
+					{
+						model_name: "balanced-model",
+						model_info: {
+							supports_function_calling: false,
+							supports_vision: false,
+							max_input_tokens: 64000,
+							max_output_tokens: 8000,
+						},
+					},
+				],
+			})
+		);
+
+		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+			{ silent: true },
+			new vscode.CancellationTokenSource().token
+		);
+
+		const matching = infos.filter((i) => i.id === "balanced-model");
+		assert.strictEqual(matching.length, 1, "one LanguageModelChatInformation per load-balanced model_name");
+		assert.ok(
+			infos.every((i) => !i.id.startsWith("balanced-model:")),
+			"deployment merging must never take the :cheapest/:fastest aggregate path; a proxy 404s on those ids"
+		);
+		const info = expectDefined(matching[0]);
+		assert.strictEqual(info.maxInputTokens, 64000);
+		assert.strictEqual(info.maxOutputTokens, 8000);
+		assert.strictEqual(info.capabilities.toolCalling, false, "tools only when every deployment supports them");
+		assert.strictEqual(info.capabilities.imageInput, false, "vision only when every deployment supports it");
 	});
 });

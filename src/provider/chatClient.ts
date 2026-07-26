@@ -3,7 +3,13 @@ import * as vscode from "vscode";
 import type { Logger } from "../shared/logger";
 import { convertMessages } from "../shared/messages";
 import type { ServerWithKey } from "../shared/servers";
-import { getCustomHeaders, getDiscoveryTimeout, getRequestTimeout, isPromptCachingEnabled } from "../shared/settings";
+import {
+	getCustomHeaders,
+	getDiscoveryTimeout,
+	getRequestTimeout,
+	isPromptCachingEnabled,
+	type TokenDefaults,
+} from "../shared/settings";
 import { estimateMessagesTokens, estimateToolTokens } from "../shared/tokenEstimation";
 import { convertTools } from "../shared/tools";
 import { validateRequest } from "../shared/validation";
@@ -102,7 +108,8 @@ export class ChatClient {
 		this.clients.prune(serverIds);
 	}
 
-	async fetchModels(server: ServerWithKey): Promise<FetchModelsResult> {
+	/** `tokenDefaults` is the caller's per-refresh snapshot; see FetchModelsRequest. */
+	async fetchModels(server: ServerWithKey, tokenDefaults: TokenDefaults): Promise<FetchModelsResult> {
 		this.log("fetchModels called", { baseUrl: server.baseUrl, hasApiKey: !!server.apiKey });
 		const customHeaders = getCustomHeaders(this.log);
 		const discoveryTimeout = getDiscoveryTimeout(this.log);
@@ -113,7 +120,7 @@ export class ChatClient {
 			userAgent: this.userAgent,
 			customHeaders,
 		});
-		return fetchModels({ client, baseUrl: server.baseUrl, discoveryTimeout, log: this.log });
+		return fetchModels({ client, baseUrl: server.baseUrl, discoveryTimeout, tokenDefaults, log: this.log });
 	}
 
 	async send(ctx: ChatRequestContext): Promise<void> {

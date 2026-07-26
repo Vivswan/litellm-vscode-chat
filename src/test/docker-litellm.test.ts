@@ -54,6 +54,7 @@ suite("Docker LiteLLM stack", () => {
 	}
 
 	const modelsByName = new Map<string, vscode.LanguageModelChat>();
+	let registeredModelIds: string[] = [];
 
 	function fakeModel(name: string): vscode.LanguageModelChat {
 		return expectDefined(modelsByName.get(name), `model fake/${name} not registered with the host`);
@@ -90,6 +91,7 @@ suite("Docker LiteLLM stack", () => {
 		await ensureActivated();
 		await clearServers();
 		const { modelIds } = await addServer("Docker", BASE_URL, API_KEY);
+		registeredModelIds = modelIds;
 		const expectedFakeIds = SCENARIO_NAMES.map((name) => `fake/${name}`);
 		for (const id of expectedFakeIds) {
 			assert.ok(modelIds.includes(id), `LiteLLM did not register ${id}; is docker/litellm-config.yaml stale?`);
@@ -121,6 +123,35 @@ suite("Docker LiteLLM stack", () => {
 
 		test("fake models carry the generated token limits", () => {
 			assert.strictEqual(fakeModel("text-only").maxInputTokens, 128000);
+		});
+	});
+
+	// -- Load-balanced model group (two deployments, one model_name) ------------
+
+	suite("load-balanced model group", () => {
+		test("the two deployments register as a single model", () => {
+			const occurrences = registeredModelIds.filter((id) => id === "fake/load-balanced");
+			assert.strictEqual(occurrences.length, 1, "one registration per model_name, not one per deployment");
+			assert.ok(
+				registeredModelIds.every((id) => !id.startsWith("fake/load-balanced:")),
+				"no :cheapest/:fastest/:provider ids; the proxy 404s on those"
+			);
+		});
+
+		test("the merged model advertises the smaller deployment's limits", () => {
+			assert.strictEqual(fakeModel("load-balanced").maxInputTokens, 64000);
+		});
+
+		test("chatting with the merged model routes the raw model_name through the proxy", async () => {
+			assert.strictEqual(extractText(await send("load-balanced")), "Balanced across deployments");
+			const body = await lastForwardedRequest();
+			// LiteLLM strips the openai/ prefix and forwards whichever deployment
+			// the group picked; seeing one of the two upstream names proves the
+			// raw model_name routed through the load-balancing group.
+			assert.ok(
+				body.model === "load-balanced" || body.model === "load-balanced-b",
+				`expected an upstream deployment model, got "${body.model}"`
+			);
 		});
 	});
 

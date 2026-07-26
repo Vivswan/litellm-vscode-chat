@@ -23,6 +23,36 @@ model_list:
       supports_vision: true
       supports_pdf_input: true
 
+  - model_name: fake/load-balanced
+    litellm_params:
+      model: openai/load-balanced
+      api_base: http://fake-openai:8080/v1
+      api_key: fake-key
+      # Forward params LiteLLM would otherwise reject for plain openai
+      # models; the extension's pass-through contract is under test.
+      allowed_openai_params: ["reasoning_effort", "verbosity"]
+    model_info:
+      max_input_tokens: 128000
+      max_output_tokens: 16000
+      max_tokens: 16000
+      supports_function_calling: true
+      supports_tool_choice: true
+
+  - model_name: fake/load-balanced
+    litellm_params:
+      model: openai/load-balanced-b
+      api_base: http://fake-openai:8080/v1
+      api_key: fake-key
+      # Forward params LiteLLM would otherwise reject for plain openai
+      # models; the extension's pass-through contract is under test.
+      allowed_openai_params: ["reasoning_effort", "verbosity"]
+    model_info:
+      max_input_tokens: 64000
+      max_output_tokens: 8000
+      max_tokens: 8000
+      supports_function_calling: true
+      supports_tool_choice: true
+
   - model_name: fake/long-text
     litellm_params:
       model: openai/long-text
