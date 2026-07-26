@@ -80,6 +80,7 @@ export default defineConfig({
 				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
 				FUZZ_SEED: process.env.FUZZ_SEED || "",
 				FUZZ_ITERATIONS: process.env.FUZZ_ITERATIONS || "",
+				FUZZ_SHARD: process.env.FUZZ_SHARD || "",
 			},
 			launchArgs,
 		},
