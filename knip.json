@@ -1,0 +1,23 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"entry": [
+		"src/extension.ts",
+		"src/test/**/*.test.ts",
+		"src/test/testUtils.ts",
+		"src/test/capture-server.ts",
+		"scripts/*.ts",
+		"scripts/*.mts",
+		".vscode-test.mjs"
+	],
+	"project": [
+		"src/**/*.ts",
+		"scripts/**/*.{ts,mts}"
+	],
+	"ignoreExportsUsedInFile": false,
+	"ignoreDependencies": [
+		"@vscode/test-electron"
+	],
+	"ignoreBinaries": [
+		"pwsh"
+	]
+}

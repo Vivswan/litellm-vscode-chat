@@ -7,6 +7,7 @@ import {
 	LEGACY_BASE_URL_SECRET,
 	SERVER_REGISTRY_KEY,
 } from "../../shared/storageKeys";
+import { expectDefined } from "../testUtils";
 
 interface Fakes {
 	registry: ServerRegistry;
@@ -53,9 +54,10 @@ suite("extension/serverRegistry", () => {
 			assert.strictEqual(migrated, true);
 			const servers = registry.getServers();
 			assert.strictEqual(servers.length, 1);
-			assert.strictEqual(servers[0].label, "Default");
-			assert.strictEqual(servers[0].baseUrl, "http://legacy:4000");
-			assert.strictEqual(secretStore.get(apiKeySecret(servers[0].id)), "legacy-key");
+			const server = expectDefined(servers[0]);
+			assert.strictEqual(server.label, "Default");
+			assert.strictEqual(server.baseUrl, "http://legacy:4000");
+			assert.strictEqual(secretStore.get(apiKeySecret(server.id)), "legacy-key");
 			assert.strictEqual(secretStore.has(LEGACY_BASE_URL_SECRET), false);
 			assert.strictEqual(secretStore.has(LEGACY_API_KEY_SECRET), false);
 		});
@@ -70,7 +72,7 @@ suite("extension/serverRegistry", () => {
 
 			assert.strictEqual(migrated, false);
 			assert.strictEqual(registry.getServers().length, 1);
-			assert.strictEqual(registry.getServers()[0].label, "Existing");
+			assert.strictEqual(expectDefined(registry.getServers()[0]).label, "Existing");
 			assert.strictEqual(secretStore.get(LEGACY_BASE_URL_SECRET), "http://legacy:4000");
 			assert.strictEqual(secretStore.get(LEGACY_API_KEY_SECRET), "legacy-key");
 		});

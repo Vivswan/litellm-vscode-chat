@@ -5,6 +5,7 @@ import {
 	DEFAULT_REQUEST_TIMEOUT_MS,
 	MIN_TIMEOUT_MS,
 } from "../../shared/settings";
+import { expectDefined } from "../testUtils";
 
 suite("shared/settings clampTimeout", () => {
 	test("passes valid timeouts through without logging", () => {
@@ -23,8 +24,9 @@ suite("shared/settings clampTimeout", () => {
 		);
 		assert.strictEqual(result, MIN_TIMEOUT_MS);
 		assert.strictEqual(logged.length, 1);
-		assert.ok(logged[0].msg.includes("requestTimeout"));
-		assert.deepStrictEqual(logged[0].data, { configured: 500, clamped: MIN_TIMEOUT_MS });
+		const entry = expectDefined(logged[0]);
+		assert.ok(entry.msg.includes("requestTimeout"));
+		assert.deepStrictEqual(entry.data, { configured: 500, clamped: MIN_TIMEOUT_MS });
 	});
 
 	test("falls back to the default for NaN", () => {

@@ -9,8 +9,8 @@ const CONFIG_SECTION = "litellm-vscode-chat";
 export const MIN_TIMEOUT_MS = 1000;
 export const DEFAULT_DISCOVERY_TIMEOUT_MS = 30000;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 300000;
-export const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
-export const DEFAULT_CONTEXT_LENGTH = 128000;
+const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
+const DEFAULT_CONTEXT_LENGTH = 128000;
 
 function getConfig(): vscode.WorkspaceConfiguration {
 	return vscode.workspace.getConfiguration(CONFIG_SECTION);

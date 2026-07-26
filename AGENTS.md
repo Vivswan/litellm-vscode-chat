@@ -82,7 +82,8 @@ Tests use the `@vscode/test-electron` framework, configured in `.vscode-test.mjs
 ### Automated agent validation
 
 - Run `bun run compile` after TypeScript changes. It only covers `src/`; after changing `scripts/*.ts`, also run `bun run typecheck`, which checks both.
-- Run `bun run lint` after source or test changes.
+- Run `bun run lint` (Biome), `bun run lint:types` (type-aware promise rules via eslint), and `bun run lint:knip` (dead files/exports/dependencies) after source or test changes; `bun run lint:actions` after workflow changes.
+- `bun run test:coverage` runs the unit suite with a line-coverage floor enforced by `scripts/check-coverage.ts`; CI enforces it on Linux.
 - Run the relevant tests for the affected behavior; use `bun run test` for the unit suite.
 - Do not launch GUI applications as part of automated validation.
 

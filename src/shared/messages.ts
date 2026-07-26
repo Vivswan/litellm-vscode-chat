@@ -86,7 +86,7 @@ function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): 
 	return "system";
 }
 
-export function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }, log?: LogFn): string {
+function collectToolResultText(pr: { content?: ReadonlyArray<unknown> }, log?: LogFn): string {
 	let text = "";
 	for (const c of pr.content ?? []) {
 		if (c instanceof vscode.LanguageModelTextPart) {

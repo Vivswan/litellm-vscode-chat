@@ -1,6 +1,13 @@
+import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import { Logger } from "../shared/logger";
+
+/** Assert that an indexed read produced a value and return it narrowed. */
+export function expectDefined<T>(value: T | undefined, message = "expected value to be defined"): T {
+	assert.ok(value !== undefined, message);
+	return value;
+}
 
 export function toHeaderMap(headersInit: RequestInit["headers"] | undefined): Record<string, string> {
 	if (!headersInit) {

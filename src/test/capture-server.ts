@@ -375,7 +375,7 @@ export function createCaptureServer(): CaptureServer {
 	let activeScenario = "text-only";
 	const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 
-	const server = http.createServer(async (req, res) => {
+	const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
 		const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
 		// ── Test introspection endpoints ──
@@ -433,6 +433,13 @@ export function createCaptureServer(): CaptureServer {
 		}
 
 		sendJson(res, 404, { error: { message: "Not found" } });
+	};
+
+	const server = http.createServer((req, res) => {
+		handleRequest(req, res).catch(() => {
+			// A failed handler must not hang the connection open.
+			res.destroy();
+		});
 	});
 
 	let resolvedPort = 0;

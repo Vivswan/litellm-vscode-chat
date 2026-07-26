@@ -96,13 +96,13 @@ export function registerDiagnosticsCommand(
 			if (choice === "View Output") {
 				outputChannel.show();
 			} else if (choice === "Test Connection") {
-				vscode.commands.executeCommand("litellm.testConnection");
+				void vscode.commands.executeCommand("litellm.testConnection");
 			} else if (choice === "Manage Servers") {
-				vscode.commands.executeCommand("litellm.manage");
+				void vscode.commands.executeCommand("litellm.manage");
 			} else if (choice === "Report Issue") {
-				vscode.commands.executeCommand("litellm.reportIssue");
+				void vscode.commands.executeCommand("litellm.reportIssue");
 			} else if (choice === "Help & Feedback") {
-				vscode.commands.executeCommand("litellm.helpAndFeedback");
+				void vscode.commands.executeCommand("litellm.helpAndFeedback");
 			}
 		})
 	);

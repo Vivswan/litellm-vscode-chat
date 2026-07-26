@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { tryParseJSONObject } from "../shared/json";
 import type { TextParseResult, TextToolCall } from "./textToolCallParser";
-import { TextToolCallParser } from "./textToolCallParser";
+import { isTruncatedToolCallText, TextToolCallParser } from "./textToolCallParser";
 import type { ChatCompletionChunk, ChunkChoice, ChunkDelta, ToolCallBuffer } from "./wire";
 import { parseChunk } from "./wire";
 
@@ -21,16 +21,16 @@ export interface ToolCallIdSource {
 // probed once at module load. A probe failure is kept for the processor to log.
 const defaultThinkingProbe: { ctor: ThinkingPartCtor | undefined; error?: string } = (() => {
 	try {
-		const ctor = (vscode as unknown as Record<string, unknown>).LanguageModelThinkingPart;
-		return { ctor: typeof ctor === "function" ? (ctor as unknown as ThinkingPartCtor) : undefined };
+		const ctor: unknown = Reflect.get(vscode, "LanguageModelThinkingPart");
+		return { ctor: typeof ctor === "function" ? (ctor as ThinkingPartCtor) : undefined };
 	} catch (e) {
 		return { ctor: undefined, error: String(e) };
 	}
 })();
 
-export interface ThinkingContent {
+interface ThinkingContent {
 	text: string;
-	id?: string;
+	id?: string | undefined;
 	metadata?: unknown;
 }
 
@@ -39,7 +39,7 @@ export interface ThinkingContent {
  * provider formats: a structured thinking object (choice- or delta-level),
  * a reasoning_content string, and a reasoning string.
  */
-export function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefined): ThinkingContent | undefined {
+function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefined): ThinkingContent | undefined {
 	const raw = choice.thinking ?? delta?.thinking ?? delta?.reasoning_content ?? delta?.reasoning;
 	if (raw === undefined) {
 		return undefined;
@@ -89,7 +89,7 @@ interface RequestState {
 	inlineEmittedCounts: Map<string, number>;
 }
 
-export function freshRequestState(): RequestState {
+function freshRequestState(): RequestState {
 	return {
 		toolCallBuffers: new Map(),
 		completedToolCallIndices: new Set(),
@@ -344,7 +344,7 @@ export class StreamProcessor {
 
 	private emitToolCall(
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
-		call: { id?: string; name: string; parsedArgs: Record<string, unknown> },
+		call: { id?: string | undefined; name: string; parsedArgs: Record<string, unknown> },
 		bufferIndex?: number
 	): boolean {
 		const source = bufferIndex === undefined ? "inline" : "delta";
@@ -434,9 +434,16 @@ export class StreamProcessor {
 			.map((e) => e.text)
 			.join("");
 		if (trailingText) {
-			this._log("Dropping trailing partial control token text at end of stream", {
-				text: trailingText.slice(0, 200),
-			});
+			// Held-back text that turned out to be a truncated tool-call token is
+			// dropped as before; anything else is legitimate output the hold-back
+			// delayed (a one-shot parse of the full text would have emitted it).
+			if (isTruncatedToolCallText(trailingText)) {
+				this._log("Dropping trailing partial control token text at end of stream", {
+					text: trailingText.slice(0, 200),
+				});
+			} else {
+				progress.report(new vscode.LanguageModelTextPart(trailingText));
+			}
 		}
 
 		if (invalidCount > 0 && throwOnInvalid) {

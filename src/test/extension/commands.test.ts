@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { expectDefined } from "../testUtils";
 
 suite("extension/commands", () => {
 	interface QuickPickItem {
@@ -32,9 +33,9 @@ suite("extension/commands", () => {
 		const mock = mockHelpFeedback("bug", (uri) => (openedUri = uri));
 		try {
 			await vscode.commands.executeCommand("litellm.helpAndFeedback");
-			assert.ok(openedUri, "Should open a URL via reportIssue");
-			assert.ok(openedUri!.includes("issues/new"), "Should open new issue page");
-			assert.ok(openedUri!.includes("bug"), "Should include bug label");
+			const uri = expectDefined(openedUri, "Should open a URL via reportIssue");
+			assert.ok(uri.includes("issues/new"), "Should open new issue page");
+			assert.ok(uri.includes("bug"), "Should include bug label");
 		} finally {
 			mock.restore();
 		}
@@ -45,9 +46,9 @@ suite("extension/commands", () => {
 		const mock = mockHelpFeedback("feature", (uri) => (openedUri = uri));
 		try {
 			await vscode.commands.executeCommand("litellm.helpAndFeedback");
-			assert.ok(openedUri, "Should open a URL");
-			assert.ok(openedUri!.includes("issues/new"), "Should open new issue page");
-			assert.ok(openedUri!.includes("enhancement"), "Should include enhancement label");
+			const uri = expectDefined(openedUri, "Should open a URL");
+			assert.ok(uri.includes("issues/new"), "Should open new issue page");
+			assert.ok(uri.includes("enhancement"), "Should include enhancement label");
 		} finally {
 			mock.restore();
 		}
@@ -59,7 +60,7 @@ suite("extension/commands", () => {
 		try {
 			await vscode.commands.executeCommand("litellm.helpAndFeedback");
 			assert.ok(openedUri, "Should open a URL");
-			assert.ok(openedUri!.includes("quick-start"), "Should open docs URL");
+			assert.ok(expectDefined(openedUri).includes("quick-start"), "Should open docs URL");
 		} finally {
 			mock.restore();
 		}

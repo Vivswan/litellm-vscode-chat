@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { Notifier } from "../../extension/notifier";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
+import { expectDefined } from "../testUtils";
 
 suite("extension/notifier", () => {
 	let toasts: { kind: "info" | "warning" | "error"; message: string; buttons: string[] }[];
@@ -64,8 +65,9 @@ suite("extension/notifier", () => {
 		notifier.handleAggregatedStatus(noServers());
 		notifier.handleAggregatedStatus(noServers());
 		assert.strictEqual(toasts.length, 1);
-		assert.strictEqual(toasts[0].kind, "warning");
-		assert.ok(toasts[0].message.includes("No servers configured"));
+		const toast = expectDefined(toasts[0]);
+		assert.strictEqual(toast.kind, "warning");
+		assert.ok(toast.message.includes("No servers configured"));
 	});
 
 	test("condition change produces a new toast", () => {
@@ -73,8 +75,9 @@ suite("extension/notifier", () => {
 		notifier.handleAggregatedStatus(noServers());
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));
 		assert.strictEqual(toasts.length, 2);
-		assert.strictEqual(toasts[1].kind, "error");
-		assert.ok(toasts[1].message.includes("ECONNREFUSED"));
+		const toast = expectDefined(toasts[1]);
+		assert.strictEqual(toast.kind, "error");
+		assert.ok(toast.message.includes("ECONNREFUSED"));
 	});
 
 	test("different failure message counts as a new condition", () => {
@@ -106,15 +109,16 @@ suite("extension/notifier", () => {
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED", false));
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED", true));
 		assert.strictEqual(toasts.length, 1, "The non-silent pass must not consume the dedup signature");
-		assert.strictEqual(toasts[0].kind, "error");
+		assert.strictEqual(expectDefined(toasts[0]).kind, "error");
 	});
 
 	test("zero models with reachable servers warns with recovery actions", () => {
 		const notifier = new Notifier();
 		notifier.handleAggregatedStatus(noModels());
 		assert.strictEqual(toasts.length, 1);
-		assert.strictEqual(toasts[0].kind, "warning");
-		assert.ok(toasts[0].message.includes("no models"));
-		assert.deepStrictEqual(toasts[0].buttons, ["Check Server", "Reconfigure", "Report Issue"]);
+		const toast = expectDefined(toasts[0]);
+		assert.strictEqual(toast.kind, "warning");
+		assert.ok(toast.message.includes("no models"));
+		assert.deepStrictEqual(toast.buttons, ["Check Server", "Reconfigure", "Report Issue"]);
 	});
 });

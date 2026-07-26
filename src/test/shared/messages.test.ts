@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { convertMessages, isToolResultPart } from "../../shared/messages";
+import { expectDefined } from "../testUtils";
 
 interface OpenAIToolCall {
 	id: string;
@@ -26,7 +27,7 @@ suite("shared/messages", () => {
 			},
 		];
 		const out = convertMessages(messages, { log: (m) => logged.push(m) }) as unknown as { role: string }[];
-		assert.equal(out[0].role, "system");
+		assert.equal(expectDefined(out[0]).role, "system");
 		assert.deepEqual(logged, []);
 	});
 
@@ -42,10 +43,11 @@ suite("shared/messages", () => {
 		const out = convertMessages(messages, { log: (message, data) => logged.push({ message, data }) }) as unknown as {
 			role: string;
 		}[];
-		assert.equal(out[0].role, "system");
+		assert.equal(expectDefined(out[0]).role, "system");
 		assert.equal(logged.length, 1);
-		assert.ok(logged[0].message.includes("Unknown message role"));
-		assert.deepEqual(logged[0].data, { role: 99 });
+		const entry = expectDefined(logged[0]);
+		assert.ok(entry.message.includes("Unknown message role"));
+		assert.deepEqual(entry.data, { role: 99 });
 	});
 
 	test("isToolResultPart rejects tool-call parts regardless of caller branch order", () => {
@@ -85,14 +87,15 @@ suite("shared/messages", () => {
 		const out = convertMessages(messages) as ConvertedMessage[];
 		assert.equal(out.length, 2);
 
-		const assistantMsg = out[0];
+		const assistantMsg = expectDefined(out[0]);
 		assert.equal(assistantMsg.role, "assistant");
 		assert.ok(Array.isArray(assistantMsg.tool_calls) && assistantMsg.tool_calls.length === 1);
-		assert.equal(assistantMsg.tool_calls[0].id, "abc");
-		assert.equal(assistantMsg.tool_calls[0].function.name, "toolA");
-		assert.deepEqual(JSON.parse(assistantMsg.tool_calls[0].function.arguments), { foo: 1 });
+		const call = expectDefined(assistantMsg.tool_calls[0]);
+		assert.equal(call.id, "abc");
+		assert.equal(call.function.name, "toolA");
+		assert.deepEqual(JSON.parse(call.function.arguments), { foo: 1 });
 
-		const toolMsg = out[1];
+		const toolMsg = expectDefined(out[1]);
 		assert.equal(toolMsg.role, "tool", "Tool results must ride in a tool-role message");
 		assert.equal(toolMsg.tool_call_id, "abc", "The result must be paired to the originating call ID");
 		assert.equal(toolMsg.content, "result");
@@ -107,11 +110,12 @@ suite("shared/messages", () => {
 		};
 		const out = convertMessages([msg]) as ConvertedMessage[];
 		assert.equal(out.length, 1);
-		assert.equal(out[0].role, "assistant");
-		assert.ok(out[0].content?.includes("before"));
-		assert.ok(out[0].content?.includes("after"));
-		assert.ok(Array.isArray(out[0].tool_calls) && out[0].tool_calls.length === 1);
-		assert.equal(out[0].tool_calls?.[0].function.name, "search");
+		const first = expectDefined(out[0]);
+		assert.equal(first.role, "assistant");
+		assert.ok(first.content?.includes("before"));
+		assert.ok(first.content?.includes("after"));
+		assert.ok(Array.isArray(first.tool_calls) && first.tool_calls.length === 1);
+		assert.equal(expectDefined(first.tool_calls[0]).function.name, "search");
 	});
 
 	test("converts user message with image to array content", () => {
@@ -126,13 +130,14 @@ suite("shared/messages", () => {
 		];
 		const out = convertMessages(messages);
 		assert.equal(out.length, 1);
-		assert.equal(out[0].role, "user");
-		assert.ok(Array.isArray(out[0].content), "content should be an array when images present");
-		const content = out[0].content as Array<{ type: string }>;
+		const first = expectDefined(out[0]);
+		assert.equal(first.role, "user");
+		assert.ok(Array.isArray(first.content), "content should be an array when images present");
+		const content = first.content as Array<{ type: string }>;
 		assert.equal(content.length, 2);
-		assert.equal(content[0].type, "text");
-		assert.equal(content[1].type, "image_url");
-		const imageBlock = content[1] as { type: string; image_url: { url: string } };
+		assert.equal(expectDefined(content[0]).type, "text");
+		assert.equal(expectDefined(content[1]).type, "image_url");
+		const imageBlock = expectDefined(content[1]) as { type: string; image_url: { url: string } };
 		assert.ok(imageBlock.image_url.url.startsWith("data:image/png;base64,"));
 	});
 
@@ -145,8 +150,9 @@ suite("shared/messages", () => {
 			},
 		];
 		const out = convertMessages(messages);
-		assert.equal(out[0].content, "hello");
-		assert.equal(typeof out[0].content, "string");
+		const first = expectDefined(out[0]);
+		assert.equal(first.content, "hello");
+		assert.equal(typeof first.content, "string");
 	});
 
 	test("image-only user message produces array content", () => {
@@ -161,10 +167,10 @@ suite("shared/messages", () => {
 		];
 		const out = convertMessages(messages);
 		assert.equal(out.length, 1);
-		const content = out[0].content as Array<{ type: string }>;
+		const content = expectDefined(out[0]).content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 1);
-		assert.equal(content[0].type, "image_url");
+		assert.equal(expectDefined(content[0]).type, "image_url");
 	});
 
 	test("accepts sticker-style image mime aliases", () => {
@@ -178,11 +184,11 @@ suite("shared/messages", () => {
 			},
 		];
 		const out = convertMessages(messages);
-		const content = out[0].content as Array<{ type: string }>;
+		const content = expectDefined(out[0]).content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 1);
-		assert.equal(content[0].type, "image_url");
-		const imageBlock = content[0] as { type: string; image_url: { url: string } };
+		assert.equal(expectDefined(content[0]).type, "image_url");
+		const imageBlock = expectDefined(content[0]) as { type: string; image_url: { url: string } };
 		assert.ok(imageBlock.image_url.url.startsWith("data:image/jpg;base64,"));
 	});
 
@@ -197,12 +203,12 @@ suite("shared/messages", () => {
 			},
 		];
 		const out = convertMessages(messages);
-		const content = out[0].content as Array<{ type: string }>;
+		const content = expectDefined(out[0]).content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 3);
-		assert.equal(content[0].type, "text");
-		assert.equal(content[1].type, "image_url");
-		assert.equal(content[2].type, "image_url");
+		assert.equal(expectDefined(content[0]).type, "text");
+		assert.equal(expectDefined(content[1]).type, "image_url");
+		assert.equal(expectDefined(content[2]).type, "image_url");
 	});
 
 	test("preserves ordering of text and image parts", () => {
@@ -215,14 +221,14 @@ suite("shared/messages", () => {
 			},
 		];
 		const out = convertMessages(messages);
-		const content = out[0].content as Array<{ type: string }>;
+		const content = expectDefined(out[0]).content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 3);
-		assert.equal(content[0].type, "text");
-		assert.equal((content[0] as unknown as { text: string }).text, "before");
-		assert.equal(content[1].type, "image_url");
-		assert.equal(content[2].type, "text");
-		assert.equal((content[2] as unknown as { text: string }).text, "after");
+		assert.equal(expectDefined(content[0]).type, "text");
+		assert.equal((expectDefined(content[0]) as unknown as { text: string }).text, "before");
+		assert.equal(expectDefined(content[1]).type, "image_url");
+		assert.equal(expectDefined(content[2]).type, "text");
+		assert.equal((expectDefined(content[2]) as unknown as { text: string }).text, "after");
 	});
 
 	test("decodes text/json LanguageModelDataPart as text", () => {
@@ -236,8 +242,9 @@ suite("shared/messages", () => {
 			},
 		];
 		const out = convertMessages(messages);
-		assert.equal(typeof out[0].content, "string");
-		assert.ok((out[0].content as string).includes('{"key":"value"}'));
+		const first = expectDefined(out[0]);
+		assert.equal(typeof first.content, "string");
+		assert.ok((first.content as string).includes('{"key":"value"}'));
 	});
 
 	test("converts PDF LanguageModelDataPart to file content block", () => {
@@ -251,12 +258,12 @@ suite("shared/messages", () => {
 			},
 		];
 		const out = convertMessages(messages);
-		const content = out[0].content as Array<{ type: string }>;
+		const content = expectDefined(out[0]).content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 2);
-		assert.equal(content[0].type, "text");
-		assert.equal(content[1].type, "file");
-		const fileBlock = content[1] as { type: string; file: { file_data: string } };
+		assert.equal(expectDefined(content[0]).type, "text");
+		assert.equal(expectDefined(content[1]).type, "file");
+		const fileBlock = expectDefined(content[1]) as { type: string; file: { file_data: string } };
 		assert.ok(fileBlock.file.file_data.startsWith("data:application/pdf;base64,"));
 	});
 
@@ -270,8 +277,9 @@ suite("shared/messages", () => {
 			},
 		];
 		const out = convertMessages(messages);
-		assert.equal(typeof out[0].content, "string");
-		assert.equal(out[0].content, "test");
+		const first = expectDefined(out[0]);
+		assert.equal(typeof first.content, "string");
+		assert.equal(first.content, "test");
 	});
 
 	suite("cacheSystemPrompt", () => {
@@ -284,8 +292,9 @@ suite("shared/messages", () => {
 		test("on: system content becomes an array whose block carries an ephemeral cache_control", () => {
 			const out = convertMessages([systemMsg], { cacheSystemPrompt: true });
 			assert.equal(out.length, 1);
-			assert.equal(out[0].role, "system");
-			assert.deepStrictEqual(out[0].content, [
+			const first = expectDefined(out[0]);
+			assert.equal(first.role, "system");
+			assert.deepStrictEqual(first.content, [
 				{ type: "text", text: "you are helpful", cache_control: { type: "ephemeral" } },
 			]);
 		});
@@ -294,8 +303,9 @@ suite("shared/messages", () => {
 			for (const options of [undefined, { cacheSystemPrompt: false }]) {
 				const out = convertMessages([systemMsg], options);
 				assert.equal(out.length, 1);
-				assert.equal(out[0].role, "system");
-				assert.strictEqual(out[0].content, "you are helpful");
+				const first = expectDefined(out[0]);
+				assert.equal(first.role, "system");
+				assert.strictEqual(first.content, "you are helpful");
 			}
 		});
 
@@ -313,8 +323,8 @@ suite("shared/messages", () => {
 				},
 			];
 			const out = convertMessages(messages, { cacheSystemPrompt: true });
-			assert.strictEqual(out[0].content, "hi");
-			assert.strictEqual(out[1].content, "hello");
+			assert.strictEqual(expectDefined(out[0]).content, "hi");
+			assert.strictEqual(expectDefined(out[1]).content, "hello");
 		});
 	});
 });

@@ -9,7 +9,7 @@ export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | 
  */
 export class RequestError extends Error {
 	readonly kind: RequestErrorKind;
-	readonly status?: number;
+	readonly status?: number | undefined;
 
 	constructor(message: string, kind: RequestErrorKind, options?: { status?: number; cause?: unknown }) {
 		super(message, { cause: options?.cause });
@@ -36,7 +36,7 @@ export function timeoutMessage(ctx: MapErrorContext): string {
 interface ChainLink {
 	name: string;
 	message: string;
-	code?: string;
+	code?: string | undefined;
 }
 
 function causeChain(err: unknown): ChainLink[] {

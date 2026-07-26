@@ -68,7 +68,7 @@ export function createConfigurationPrompt(): ConfigurationPrompt {
 				return true;
 			}
 			if (choice === "Learn More") {
-				vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS));
+				void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS));
 			}
 			return false;
 		},

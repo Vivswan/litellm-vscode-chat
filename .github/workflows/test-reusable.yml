@@ -71,9 +71,11 @@ jobs:
       - name: Compile
         run: bun run compile
 
+      # Linux also collects coverage and enforces the line-coverage floor;
+      # one coverage-enforcing OS keeps CI time in check.
       - name: Run tests (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a bun run ${{ inputs.suite == 'host-fidelity' && 'host-fidelity-test' || 'test' }}
+        run: xvfb-run -a bun run ${{ inputs.suite == 'host-fidelity' && 'host-fidelity-test' || 'test:coverage' }}
 
       - name: Run tests (Windows/macOS)
         if: runner.os != 'Linux'

@@ -8,7 +8,7 @@ const COMPACT_STACK_LINES = 8;
 export interface ErrorContext {
 	source: string;
 	message: string;
-	stack?: string;
+	stack?: string | undefined;
 	timestamp: string;
 }
 
@@ -17,10 +17,10 @@ export interface DiagnosticsSnapshot {
 	vscodeVersion: string;
 	platform: string;
 	connectionState: string;
-	modelCount?: number;
+	modelCount?: number | undefined;
 	apiKeyConfigured: boolean;
 	baseUrlConfigured: boolean;
-	latestError?: ErrorContext;
+	latestError?: ErrorContext | undefined;
 	recentLogs: string[];
 }
 
@@ -121,7 +121,7 @@ export class IssueReporter {
 
 	buildTitle(snapshot: DiagnosticsSnapshot): string {
 		if (snapshot.latestError) {
-			const firstLine = redactSecrets(snapshot.latestError.message.split("\n")[0]).slice(0, 80);
+			const firstLine = redactSecrets(snapshot.latestError.message.split("\n")[0] ?? "").slice(0, 80);
 			return `[Bug] ${snapshot.latestError.source}: ${firstLine}`;
 		}
 		return "[Bug] Issue report from diagnostics";
@@ -313,7 +313,7 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, compactedDiag
 		lines.push("", "### Latest error", "");
 		lines.push(`- Source: ${snapshot.latestError.source}`);
 		lines.push(`- Time: ${snapshot.latestError.timestamp}`);
-		lines.push(`- Message: ${shortenLine(redactSecrets(snapshot.latestError.message.split(/\r?\n/)[0]), 500)}`);
+		lines.push(`- Message: ${shortenLine(redactSecrets(snapshot.latestError.message.split(/\r?\n/)[0] ?? ""), 500)}`);
 	}
 
 	lines.push(
@@ -325,7 +325,7 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, compactedDiag
 }
 
 function capitalizeFirst(text: string): string {
-	return text.length === 0 ? text : `${text[0].toUpperCase()}${text.slice(1)}`;
+	return text.length === 0 ? text : `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 }
 
 function getCompactedDiagnosticsAction(compactedDiagnosticsHint: string): string {

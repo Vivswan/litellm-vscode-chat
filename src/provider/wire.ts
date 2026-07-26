@@ -10,13 +10,13 @@ import { isRecord } from "../shared/json";
 
 /** Buffer used to accumulate streamed tool call parts until arguments are valid JSON. */
 export interface ToolCallBuffer {
-	id?: string;
-	name?: string;
+	id?: string | undefined;
+	name?: string | undefined;
 	args: string;
 }
 
 /** Finish reason on a streaming choice. Providers may send values beyond the OpenAI set. */
-export type FinishReason =
+type FinishReason =
 	| "stop"
 	| "length"
 	| "tool_calls"
@@ -26,45 +26,45 @@ export type FinishReason =
 
 /** Structured thinking payload used by Anthropic-style providers. */
 export interface ThinkingBlock {
-	text?: string;
-	id?: string;
+	text?: string | undefined;
+	id?: string | undefined;
 	metadata?: unknown;
 }
 
 /** Content block inside a structured streaming delta; only text blocks are rendered. */
-export interface ChunkContentBlock {
-	type?: string;
-	text?: string;
+interface ChunkContentBlock {
+	type?: string | undefined;
+	text?: string | undefined;
 }
 
 /** Fragment of a streamed tool call. OpenAI-compatible proxies may send the index as a numeric string. */
 export interface StreamedToolCall {
-	index?: number | string;
-	id?: string;
-	type?: string;
-	function?: { name?: string; arguments?: string };
+	index?: number | string | undefined;
+	id?: string | undefined;
+	type?: string | undefined;
+	function?: { name?: string | undefined; arguments?: string | undefined } | undefined;
 }
 
 /** Streaming message delta. Providers surface reasoning under several different keys. */
 export interface ChunkDelta {
-	role?: string;
-	content?: string | ChunkContentBlock[] | null;
-	tool_calls?: StreamedToolCall[];
-	thinking?: string | ThinkingBlock;
-	reasoning_content?: string;
-	reasoning?: string;
+	role?: string | undefined;
+	content?: string | ChunkContentBlock[] | null | undefined;
+	tool_calls?: StreamedToolCall[] | undefined;
+	thinking?: string | ThinkingBlock | undefined;
+	reasoning_content?: string | undefined;
+	reasoning?: string | undefined;
 }
 
 /** A single choice in a streaming chunk. Some providers put thinking on the choice instead of the delta. */
 export interface ChunkChoice {
-	index?: number;
-	delta?: ChunkDelta;
-	thinking?: string | ThinkingBlock;
-	finish_reason?: FinishReason | null;
+	index?: number | undefined;
+	delta?: ChunkDelta | undefined;
+	thinking?: string | ThinkingBlock | undefined;
+	finish_reason?: FinishReason | null | undefined;
 }
 
 /** Token usage trailer, including provider cache accounting fields. Logged wholesale, so extras pass through. */
-export interface ChunkUsage {
+interface ChunkUsage {
 	prompt_tokens?: number;
 	completion_tokens?: number;
 	total_tokens?: number;
@@ -77,12 +77,12 @@ export interface ChunkUsage {
 
 /** One SSE chunk of a streaming chat completion. */
 export interface ChatCompletionChunk {
-	id?: string;
-	object?: string;
-	created?: number;
-	model?: string;
-	choices?: ChunkChoice[];
-	usage?: ChunkUsage | null;
+	id?: string | undefined;
+	object?: string | undefined;
+	created?: number | undefined;
+	model?: string | undefined;
+	choices?: ChunkChoice[] | undefined;
+	usage?: ChunkUsage | null | undefined;
 }
 
 function narrowThinking(raw: unknown): string | ThinkingBlock | undefined {

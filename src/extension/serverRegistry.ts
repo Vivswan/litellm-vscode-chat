@@ -147,6 +147,11 @@ export class ServerRegistry {
 			return;
 		}
 		const previous = this.servers[idx];
+		if (previous === undefined) {
+			// Unreachable: idx comes from findIndex above; the guard exists for
+			// noUncheckedIndexedAccess.
+			return;
+		}
 		this.servers[idx] = { id, label, baseUrl: normalizeBaseUrl(baseUrl) };
 		try {
 			await this.persist();

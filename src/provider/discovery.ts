@@ -54,8 +54,8 @@ function truncateForLog(value: unknown): string {
 	}
 }
 
-export function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
-	const modelId = modelInfoId(item as unknown as Record<string, unknown>);
+function mapModelInfoToLiteLLMModel(item: LiteLLMModelInfoItem): LiteLLMModelItem | undefined {
+	const modelId = modelInfoId(item);
 
 	if (!modelId) {
 		return undefined;

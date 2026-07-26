@@ -23,14 +23,14 @@ export type OpenAIChatRole = "system" | "user" | "assistant" | "tool";
 /** OpenAI-style chat message used for router requests. */
 export interface OpenAIChatMessage {
 	role: OpenAIChatRole;
-	content?: string | OpenAIChatContentBlock[];
+	content?: string | OpenAIChatContentBlock[] | undefined;
 	name?: string;
 	tool_calls?: OpenAIToolCall[];
 	tool_call_id?: string;
 }
 
 /** Text content block for chat messages. */
-export interface OpenAIChatTextContentBlock {
+interface OpenAIChatTextContentBlock {
 	type: "text";
 	text: string;
 	cache_control?: {

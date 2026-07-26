@@ -59,10 +59,11 @@ export function buildModelInfos(
 		const detail = serverCount > 1 ? server.label : "LiteLLM";
 		const namePrefix = serverCount > 1 ? `[${server.label}] ` : "";
 
-		if (providers.length === 1 && providers[0].source === "model_info") {
-			const constraints = getTokenConstraints(providers[0]);
+		const soleProvider = providers.length === 1 ? providers[0] : undefined;
+		if (soleProvider !== undefined && soleProvider.source === "model_info") {
+			const constraints = getTokenConstraints(soleProvider);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-			promptCaching.set(exposedId, providers[0].supports_prompt_caching === true);
+			promptCaching.set(exposedId, soleProvider.supports_prompt_caching === true);
 			registerRoute(exposedId, m.id);
 			return [
 				{
@@ -75,7 +76,7 @@ export function buildModelInfos(
 					maxInputTokens: constraints.maxInputTokens,
 					maxOutputTokens: constraints.maxOutputTokens,
 					capabilities: {
-						toolCalling: providers[0].supports_tools !== false,
+						toolCalling: soleProvider.supports_tools !== false,
 						imageInput: vision,
 					},
 				} satisfies LanguageModelChatInformation,
@@ -175,8 +176,8 @@ export function buildModelInfos(
 			registerRoute(exposedId, rawId);
 		}
 
-		if (toolProviders.length === 0 && providers.length > 0) {
-			const base = providers[0];
+		const base = providers[0];
+		if (toolProviders.length === 0 && base !== undefined) {
 			const constraints = getTokenConstraints(base);
 			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 			entries.push({
