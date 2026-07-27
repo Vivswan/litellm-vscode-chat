@@ -94,6 +94,7 @@ if (!rootIsThisRepo) {
 	process.exit(1);
 }
 const markerFile = join(profileDir, "seed-fingerprint");
+// codeql[js/insufficient-password-hash] -- not password storage: a change-detection fingerprint of the dev seed (a well-known local test key)
 const seedFingerprint = createHash("sha256").update(JSON.stringify(seed)).digest("hex");
 const previousFingerprint = existsSync(markerFile) ? readFileSync(markerFile, "utf8").trim() : undefined;
 if (previousFingerprint !== seedFingerprint) {
