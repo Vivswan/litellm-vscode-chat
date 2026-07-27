@@ -1029,16 +1029,16 @@ suite("Docker LiteLLM stack", () => {
 			this.timeout(60000);
 			const models = await waitForHostModels(
 				60000,
-				(candidates) => candidates.some((m) => m.id === "fake/text-only"),
-				"the provider group to expose fake/text-only"
+				(candidates) => candidates.some((m) => m.id === "gpt-5.2-mini"),
+				"the provider group to expose gpt-5.2-mini"
 			);
-			const model = expectDefined(models.find((m) => m.id === "fake/text-only"));
+			const model = expectDefined(models.find((m) => m.id === "gpt-5.2-mini"));
 			const response = await model.sendRequest(
 				[vscode.LanguageModelChatMessage.User("hi")],
 				{},
 				new vscode.CancellationTokenSource().token
 			);
-			assert.strictEqual(extractText(await collectStream(response)), "Hello from capture server");
+			assert.strictEqual(extractText(await collectStream(response)), FALLBACK_TEXT);
 		});
 	});
 });
