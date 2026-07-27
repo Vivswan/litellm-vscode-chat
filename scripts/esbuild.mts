@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import type { BuildOptions, Plugin } from "esbuild";
+import type { BuildOptions, Metafile, Plugin } from "esbuild";
 import esbuild from "esbuild";
 
 const watch = process.argv.includes("--watch");
@@ -25,14 +25,8 @@ const watchProblemMatcherPlugin: Plugin = {
 	},
 };
 
-const options: BuildOptions = {
-	entryPoints: ["src/extension.ts"],
+const shared: BuildOptions = {
 	bundle: true,
-	outfile: "dist/extension.js",
-	external: ["vscode"],
-	platform: "node",
-	target: "node20",
-	format: "cjs",
 	minify: production,
 	sourcemap: production ? "external" : "linked",
 	metafile: production,
@@ -40,13 +34,47 @@ const options: BuildOptions = {
 	plugins: watch ? [watchProblemMatcherPlugin] : [],
 };
 
+/** The extension host bundle. */
+const extensionOptions: BuildOptions = {
+	...shared,
+	entryPoints: ["src/extension.ts"],
+	outfile: "dist/extension.js",
+	external: ["vscode"],
+	platform: "node",
+	target: "node20",
+	format: "cjs",
+};
+
+/** The dashboard webview bundle: browser code, Preact via the automatic JSX runtime, everything inlined. */
+const webviewOptions: BuildOptions = {
+	...shared,
+	entryPoints: ["src/webview/dashboard/index.tsx"],
+	outfile: "dist/webview/dashboard.js",
+	platform: "browser",
+	target: "es2022",
+	format: "iife",
+	jsx: "automatic",
+	jsxImportSource: "preact",
+};
+
+const builds = [extensionOptions, webviewOptions];
+
 if (watch) {
-	const ctx = await esbuild.context(options);
-	await ctx.watch();
+	const contexts = await Promise.all(builds.map((options) => esbuild.context(options)));
+	await Promise.all(contexts.map((ctx) => ctx.watch()));
 } else {
-	const result = await esbuild.build(options);
-	if (production && result.metafile) {
+	const results = await Promise.all(builds.map((options) => esbuild.build(options)));
+	if (production) {
+		// One merged metafile: the third-party notices generator reads every
+		// package bundled into anything the extension ships, webview included.
+		const merged: Metafile = { inputs: {}, outputs: {} };
+		for (const result of results) {
+			if (result.metafile) {
+				Object.assign(merged.inputs, result.metafile.inputs);
+				Object.assign(merged.outputs, result.metafile.outputs);
+			}
+		}
 		await fs.mkdir("out", { recursive: true });
-		await fs.writeFile("out/esbuild-meta.json", JSON.stringify(result.metafile));
+		await fs.writeFile("out/esbuild-meta.json", JSON.stringify(merged));
 	}
 }

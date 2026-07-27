@@ -88,6 +88,37 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": [
+				"src/webview/**"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"vscode": "Webview code runs in the browser; talk to the extension through the dashboard protocol instead."
+								},
+								"patterns": [
+									{
+										"group": [
+											"**/provider/**",
+											"**/shared/**",
+											"**/extension/**",
+											"!**/extension/dashboard/protocol",
+											"!**/extension/dashboard/recordDraft"
+										],
+										"message": "Webview code may import only the dashboard protocol and recordDraft modules; extension-side state stays behind the message protocol."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
 		}
 	]
 }

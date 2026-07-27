@@ -2,6 +2,7 @@
 	"$schema": "https://unpkg.com/knip@6/schema.json",
 	"entry": [
 		"src/extension.ts",
+		"src/webview/dashboard/index.tsx",
 		"src/test/**/*.test.ts",
 		"src/test/testUtils.ts",
 		"src/test/capture-server.ts",
@@ -10,7 +11,7 @@
 		".vscode-test.mjs"
 	],
 	"project": [
-		"src/**/*.ts",
+		"src/**/*.{ts,tsx}",
 		"scripts/**/*.{ts,mts}"
 	],
 	"ignoreExportsUsedInFile": false,

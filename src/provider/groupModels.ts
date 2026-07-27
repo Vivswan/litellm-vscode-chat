@@ -1,7 +1,8 @@
 import type { LanguageModelChatInformation } from "vscode";
 import { fingerprint } from "../shared/fingerprint";
+import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../shared/headers";
 import { isRecord } from "../shared/json";
-import { isValidHeaderValue, type OAuthConfig, type VirtualKeyConfig } from "./auth";
+import type { OAuthConfig, VirtualKeyConfig } from "./auth";
 import type { OutputLimitSource } from "./schemas";
 
 /**
@@ -76,9 +77,6 @@ function usableString(value: unknown): string | undefined {
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : undefined;
 }
-
-/** RFC 9110 header-name token; anything else would make the transport throw at request time. */
-const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 /**
  * OAuth is present as one typed unit or not at all: a usable token URL and

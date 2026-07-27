@@ -1,4 +1,5 @@
 import { fingerprint } from "../shared/fingerprint";
+import { isValidHeaderValue } from "../shared/headers";
 import { isRecord } from "../shared/json";
 import { RequestError } from "./errorMapping";
 
@@ -27,16 +28,6 @@ export interface OAuthConfig {
 export interface VirtualKeyConfig {
 	header: string;
 	value: string;
-}
-
-/**
- * Whether a string can travel as an HTTP header value: tab, visible ASCII,
- * and RFC 9110 obs-text; no CR/LF/NUL or other control octets. Values that
- * fail this must never reach the platform's Headers, whose TypeError embeds
- * the full plaintext value.
- */
-export function isValidHeaderValue(value: string): boolean {
-	return value.length > 0 && /^[\t\x20-\x7e\x80-\xff]+$/.test(value);
 }
 
 /**

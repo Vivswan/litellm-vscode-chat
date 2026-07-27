@@ -98,6 +98,10 @@
 				"title": "Manage LiteLLM Provider"
 			},
 			{
+				"command": "litellm.openDashboard",
+				"title": "LiteLLM: Open Dashboard"
+			},
+			{
 				"command": "litellm.testConnection",
 				"title": "LiteLLM: Test Connection"
 			},
@@ -264,7 +268,7 @@
 		"bundle": "bun scripts/esbuild.mts --production && bun scripts/generate-third-party-notices.ts",
 		"bundle:dev": "bun scripts/esbuild.mts",
 		"bundle:watch": "bun scripts/esbuild.mts --watch",
-		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p tsconfig.scripts.json",
+		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p src/webview && tsc --noEmit -p tsconfig.scripts.json",
 		"setup-env": "bash scripts/setup-env.sh",
 		"setup-env:verify": "bash scripts/setup-env.sh --verify",
 		"setup-env:full": "bash scripts/setup-env.sh --full",
@@ -288,6 +292,7 @@
 	},
 	"dependencies": {
 		"openai": "^6.48.0",
+		"preact": "^10.29.7",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {

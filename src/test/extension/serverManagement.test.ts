@@ -74,6 +74,7 @@ suite("extension/serverManagement", () => {
 			const labels = run.itemLabels.map((label) => label.replace(/^\$\([^)]+\) /, ""));
 			assert.deepStrictEqual(labels, [
 				"Manage Language Models",
+				"Open Dashboard",
 				"Sync Models Now",
 				"Test Connection",
 				"Show Diagnostics",
@@ -101,6 +102,7 @@ suite("extension/serverManagement", () => {
 		});
 
 		for (const [entry, command] of [
+			["Open Dashboard", "litellm.openDashboard"],
 			["Sync Models Now", "litellm.syncModels"],
 			["Test Connection", "litellm.testConnection"],
 			["Show Diagnostics", "litellm.showDiagnostics"],

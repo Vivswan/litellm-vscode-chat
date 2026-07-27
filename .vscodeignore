@@ -1,8 +1,10 @@
-# Sources, tests, and build inputs — the package ships the bundled dist/extension.js only
+# Sources, tests, and build inputs — the package ships the bundled dist/extension.js
+# and the dashboard webview bundle only
 src/**
 out/**
 dist/**
 !dist/extension.js
+!dist/webview/dashboard.js
 **/*.ts
 **/*.map
 **/tsconfig*.json

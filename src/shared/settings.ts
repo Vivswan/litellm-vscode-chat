@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { z } from "zod";
+import { HEADER_NAME_PATTERN } from "./headers";
+import { isUnsafeRecordKey } from "./json";
 import { normalizePositiveNumber } from "./numbers";
 
 type LogFn = (message: string, data?: unknown) => void;
@@ -63,10 +65,7 @@ export function isPromptCachingEnabled(): boolean {
 /** Top-level shape shared by the `headers` and `modelParameters` settings: a plain object, keyed by string. */
 const settingsRecordSchema = z.record(z.string(), z.unknown());
 
-const headerNameSchema = z
-	.string()
-	.trim()
-	.regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/);
+const headerNameSchema = z.string().trim().regex(HEADER_NAME_PATTERN);
 
 const headerValueSchema = z.union([z.string(), z.number(), z.boolean()]).transform((value) => String(value));
 
@@ -79,7 +78,7 @@ function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, strin
 	const headers: Record<string, string> = {};
 	for (const [name, value] of Object.entries(parsed.data)) {
 		const parsedName = headerNameSchema.safeParse(name);
-		if (!parsedName.success) {
+		if (!parsedName.success || isUnsafeRecordKey(parsedName.data)) {
 			log?.("Ignoring invalid custom header name", { name });
 			continue;
 		}
@@ -125,21 +124,33 @@ export function getTokenDefaults(): TokenDefaults {
 
 const modelParametersEntrySchema = z.record(z.string(), z.unknown());
 
-export function getModelParametersConfig(): Record<string, Record<string, unknown>> {
-	const parsed = settingsRecordSchema.safeParse(getConfig().get<Record<string, unknown>>("modelParameters", {}));
+/**
+ * Narrow a raw modelParameters value to the record-of-records shape.
+ * Validated entry-by-entry so one malformed entry drops only itself, not the
+ * whole map; prototype-polluting keys are dropped outright. Shared by the
+ * request path and the dashboard's settings view.
+ */
+export function normalizeModelParameters(raw: unknown): Record<string, Record<string, unknown>> {
+	const parsed = settingsRecordSchema.safeParse(raw);
 	if (!parsed.success) {
 		return {};
 	}
 
-	// Validate entry-by-entry so one malformed entry drops only itself, not the whole map.
 	const modelParameters: Record<string, Record<string, unknown>> = {};
 	for (const [modelId, value] of Object.entries(parsed.data)) {
+		if (isUnsafeRecordKey(modelId)) {
+			continue;
+		}
 		const entry = modelParametersEntrySchema.safeParse(value);
 		if (entry.success) {
 			modelParameters[modelId] = entry.data;
 		}
 	}
 	return modelParameters;
+}
+
+export function getModelParametersConfig(): Record<string, Record<string, unknown>> {
+	return normalizeModelParameters(getConfig().get<Record<string, unknown>>("modelParameters", {}));
 }
 
 export function getMaskApiKeyInput(): boolean {

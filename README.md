@@ -38,6 +38,15 @@ The extension also ships a walkthrough covering these steps: run "Welcome: Open 
 | Per-model options (thinking effort) | Copilot Chat model picker | Select a LiteLLM model, then click the effort label next to the model name in the chat input |
 | Global knobs (timeouts, caching, headers, `modelParameters`) | VS Code settings | Settings → search "litellm-vscode-chat" |
 | Actions (test connection, sync models, diagnostics, report issue) | Commands | Command Palette → type "LiteLLM", or the "Manage LiteLLM Provider" menu |
+| Everything in one pane (servers, models, settings) | Dashboard | Command Palette → "LiteLLM: Open Dashboard" |
+
+### Dashboard
+
+"LiteLLM: Open Dashboard" opens one panel with everything on it: the servers the extension has seen (status, model count, last check), every discovered model with its token limits, pricing, and capability badges, and the extension's settings as editable form controls.
+
+The dashboard is a view over the same stores the rest of the extension uses. Settings edits write to your VS Code settings (to the scope where the value is already set, otherwise to user settings), and the buttons run the same commands the Command Palette offers. The server list is read only because server configurations live in VS Code's own language model editor; the Manage Servers button takes you there. API keys and OAuth secrets live in VS Code's secret storage and never appear on the dashboard. Header values are settings, not secrets: they show up exactly as they do in the Settings editor, so keep secret headers in User scope rather than workspace scope.
+
+Two settings are easier to edit here than in the Settings UI: `modelParameters` and `headers` are objects the native settings GUI cannot edit, so the dashboard gives them row editors. Model parameter values are JSON (`0.2`, `true`, `"text"`, `["stop"]`); invalid input is flagged and Apply stays disabled until every row parses. Because VS Code merges object settings across scopes, each editor works on one scope at a time (the one your edits write to) and lists entries from other scopes read only, so applying a change never copies user-scope values into workspace files.
 
 ### Server Management
 
