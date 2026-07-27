@@ -122,6 +122,40 @@ suite("provider/discovery", () => {
 			);
 		});
 
+		test("a failing model/info response never leaks its body into the fallback log", async () => {
+			const echoedSecret = "sk-super-secret-key-echoed-by-gateway";
+			// 401 and 400 both echo the body immediately; 5xx would be retried by
+			// the SDK until the discovery timeout wins, which tests a different path.
+			for (const status of [401, 400]) {
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () =>
+						HttpResponse.json({ error: `invalid bearer token ${echoedSecret}` }, { status })
+					),
+					http.get(MODELS_URL, () => HttpResponse.json({ object: "list", data: [{ id: "fallback-model" }] }))
+				);
+
+				const logged: { message: string; data?: unknown }[] = [];
+				const { models } = await fetchModels(request((message, data) => logged.push({ message, data })));
+
+				assert.deepStrictEqual(
+					models.map((m) => m.id),
+					["fallback-model"],
+					`status ${status}`
+				);
+				const fallbackLog = logged.find((l) => l.message.includes("falling back to /v1/models"));
+				assert.ok(fallbackLog, `Expected the classified fallback log line for status ${status}`);
+				assert.strictEqual(
+					(fallbackLog.data as { status?: number }).status,
+					status,
+					`The classification keeps the status for diagnosis; got ${JSON.stringify(fallbackLog.data)}`
+				);
+				for (const entry of logged) {
+					const line = `${entry.message} ${JSON.stringify(entry.data) ?? ""}`;
+					assert.ok(!line.includes(echoedSecret), `Log line leaked the ${status} response body: ${line}`);
+				}
+			}
+		});
+
 		test("model/info payload without a data array falls back to /v1/models", async () => {
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => HttpResponse.json({ data: { not: "an array" } })),

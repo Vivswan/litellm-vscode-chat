@@ -394,8 +394,15 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			log("model/info response has no data array; falling back", { payload: truncateForLog(parsedInfo) });
 		}
 	} catch (error) {
+		// Response-derived text can echo credentials into the issue-report
+		// buffer (the raw SDK message and even mapped messages for non-401 API
+		// errors embed the body), so the log carries only the classification.
+		const mapped = mapSdkError(error, { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout });
 		log("model/info failed, falling back to /v1/models", {
-			message: error instanceof Error ? error.message : String(error),
+			error: mapped.name,
+			...(mapped instanceof RequestError
+				? { kind: mapped.kind, ...(mapped.status !== undefined ? { status: mapped.status } : {}) }
+				: {}),
 		});
 	}
 
