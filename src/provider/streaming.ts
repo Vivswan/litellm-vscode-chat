@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
+import type { DataPartCtor } from "../shared/dataPart";
+import { dataPartCtor, logDataPartProbeErrorOnce, logMissingDataPartSupportOnce } from "../shared/dataPart";
 import { tryParseJSONObject } from "../shared/json";
+import { isImageMimeType, isSafeMimeType } from "../shared/mime";
 import type { ThinkingPartCtor } from "../shared/thinkingPart";
 import {
 	logMissingThinkingPartSupportOnce,
@@ -10,6 +13,7 @@ import type { TextParseResult, TextToolCall } from "./textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "./textToolCallParser";
 import type {
 	ChatCompletionChunk,
+	ChunkAudio,
 	ChunkChoice,
 	ChunkDelta,
 	ThinkingBlock,
@@ -97,6 +101,78 @@ function normalizeToolCallIndex(index: number | string | undefined): number {
 	return 0;
 }
 
+/**
+ * Canonical base64 to bytes. ASCII whitespace is stripped first (MIME-style
+ * wrapped base64 is the one legitimate variation); after that the payload
+ * must be full 4-character groups over the standard alphabet with padding
+ * only as a correct-length suffix, and re-encoding must reproduce it byte for
+ * byte - Buffer.from(_, "base64") silently truncates short groups and zeroes
+ * noncanonical pad bits ("AB=="), and corrupt media must surface as a logged
+ * skip, never as garbage bytes.
+ */
+function decodeBase64Strict(data: string): Uint8Array | undefined {
+	const compact = data.replace(/[ \t\r\n]/g, "");
+	if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(compact)) {
+		return undefined;
+	}
+	const bytes = Buffer.from(compact, "base64");
+	if (bytes.toString("base64") !== compact) {
+		return undefined;
+	}
+	return new Uint8Array(bytes);
+}
+
+interface DecodedDataUrl {
+	mime: string;
+	bytes: Uint8Array;
+}
+
+/**
+ * Decode a base64 data URL (the shape image-generating models emit); anything
+ * else is undefined, for log-and-skip. The mime is model-controlled and later
+ * reaches the host, so it is validated here at the source: type/subtype over
+ * a conservative character set, with a length cap.
+ */
+function decodeBase64DataUrl(url: string): DecodedDataUrl | undefined {
+	const match = /^data:([^;,]+);base64,(.*)$/s.exec(url);
+	if (!match) {
+		return undefined;
+	}
+	const mime = match[1] as string;
+	if (!isSafeMimeType(mime)) {
+		return undefined;
+	}
+	const bytes = decodeBase64Strict(match[2] as string);
+	return bytes === undefined ? undefined : { mime, bytes };
+}
+
+/** Base64 fragments of the in-flight generated audio output; see the accumulation comment on processAudioDelta. */
+interface AudioBuffer {
+	id: string | undefined;
+	base64: string;
+}
+
+/**
+ * The request's audio.format values mapped to the mime stamped on the emitted
+ * DataPart. The wire delta carries no format field, so the request parameter
+ * is the only place the encoding is stated. pcm16 is raw samples without a
+ * container; audio/pcm is the conventional type.
+ */
+const AUDIO_FORMAT_MIMES: Readonly<Record<string, string>> = {
+	wav: "audio/wav",
+	mp3: "audio/mpeg",
+	flac: "audio/flac",
+	opus: "audio/opus",
+	aac: "audio/aac",
+	pcm16: "audio/pcm",
+};
+
+/** audio/wav is the fallback for an absent or unknown format; every mapped value must still pass the safe-mime gate. */
+function audioMimeForFormat(format: string | undefined): string {
+	const mime = format === undefined ? undefined : AUDIO_FORMAT_MIMES[format.toLowerCase()];
+	return mime !== undefined && isSafeMimeType(mime) ? mime : "audio/wav";
+}
+
 interface RequestState {
 	toolCallBuffers: Map<number, ToolCallBuffer>;
 	completedToolCallIndices: Set<number>;
@@ -122,10 +198,14 @@ interface RequestState {
 	inlineEmittedCounts: Map<string, number>;
 	/** Whether a refusal delta was already logged for this request. */
 	loggedRefusal: boolean;
+	/** Whether an undecodable generated-image entry was already logged for this request (no per-entry flood). */
+	loggedImageSkip: boolean;
 	/** Citation URL to title, collected from annotation deltas and emitted once at end of stream. */
 	citations: Map<string, string>;
 	/** Set once the citations trailer has been emitted; finishStream runs more than once per stream. */
 	emittedCitations: boolean;
+	/** The generated audio being accumulated, or undefined when none is in flight (also after each flush). */
+	audioBuffer: AudioBuffer | undefined;
 }
 
 function freshRequestState(): RequestState {
@@ -141,8 +221,10 @@ function freshRequestState(): RequestState {
 		deltaEmittedCounts: new Map(),
 		inlineEmittedCounts: new Map(),
 		loggedRefusal: false,
+		loggedImageSkip: false,
 		citations: new Map(),
 		emittedCitations: false,
+		audioBuffer: undefined,
 	};
 }
 
@@ -151,11 +233,15 @@ export class StreamProcessor {
 	private _toolCallIds: ToolCallIdSource;
 	private _log: (message: string, data?: unknown) => void;
 	private _thinkingPartCtor: ThinkingPartCtor | undefined;
+	private _dataPartCtor: DataPartCtor | undefined;
+	private _audioMime: string;
 
 	constructor(
 		toolCallIds: ToolCallIdSource,
 		log: (message: string, data?: unknown) => void,
-		partCtor: ThinkingPartCtor | null | undefined = thinkingPartCtor
+		partCtor: ThinkingPartCtor | null | undefined = thinkingPartCtor,
+		dataCtor: DataPartCtor | null | undefined = dataPartCtor,
+		requestAudioFormat: string | undefined = undefined
 	) {
 		this._req = freshRequestState();
 		this._toolCallIds = toolCallIds;
@@ -164,6 +250,11 @@ export class StreamProcessor {
 		if (partCtor === thinkingPartCtor) {
 			logThinkingPartProbeErrorOnce(this._log);
 		}
+		this._dataPartCtor = dataCtor ?? undefined;
+		if (dataCtor === dataPartCtor) {
+			logDataPartProbeErrorOnce(this._log);
+		}
+		this._audioMime = audioMimeForFormat(requestAudioFormat);
 	}
 
 	resetState(): void {
@@ -204,11 +295,16 @@ export class StreamProcessor {
 					try {
 						chunk = parseChunk(JSON.parse(data));
 					} catch (e) {
-						this._log("Skipping malformed SSE line", { error: String(e), data: data.slice(0, 200) });
+						// Classifications only: neither the raw line nor the JSON error
+						// message (V8 embeds an input excerpt) may reach the logs.
+						this._log("Skipping malformed SSE line", {
+							length: data.length,
+							errorClass: e instanceof Error ? e.name : typeof e,
+						});
 						continue;
 					}
 					if (!chunk) {
-						this._log("Skipping malformed SSE line", { data: data.slice(0, 200) });
+						this._log("Skipping malformed SSE line", { length: data.length });
 						continue;
 					}
 					this.processDelta(chunk, progress, token);
@@ -303,6 +399,31 @@ export class StreamProcessor {
 			}
 		}
 
+		if (delta?.images && delta.images.length > 0) {
+			if (this.processImagesDelta(delta.images, progress)) {
+				emitted = true;
+			}
+		}
+
+		if (delta?.audio) {
+			// The transcript is the model's textual output (a gpt-4o-audio turn
+			// has no delta.content), so it streams as ordinary text - fragment by
+			// fragment, like the data field, and independently of DataPart
+			// support, which only gates the binary clip.
+			if (delta.audio.transcript) {
+				const res = this.processTextContent(delta.audio.transcript, progress);
+				if (res.emittedText) {
+					this._req.hasEmittedAssistantText = true;
+				}
+				if (res.emittedAny) {
+					emitted = true;
+				}
+			}
+			if (this.processAudioDelta(delta.audio, progress)) {
+				emitted = true;
+			}
+		}
+
 		if (delta?.tool_calls) {
 			if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && delta.tool_calls.length > 0) {
 				progress.report(new vscode.LanguageModelTextPart(" "));
@@ -337,6 +458,108 @@ export class StreamProcessor {
 		return emitted;
 	}
 
+	/**
+	 * Emit one DataPart per decodable entry of a delta.images list, in stream
+	 * order relative to the surrounding text. A malformed entry (no data URL,
+	 * an unsafe or non-image mime, undecodable base64, or an empty payload) is
+	 * skipped and logged as a classification - once per request, so a burst of
+	 * bad entries cannot flood the issue-report buffer; the stream continues
+	 * either way.
+	 */
+	private processImagesDelta(
+		images: NonNullable<ChunkDelta["images"]>,
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>
+	): boolean {
+		if (!this._dataPartCtor) {
+			logMissingDataPartSupportOnce(this._log);
+			return false;
+		}
+		let emitted = false;
+		for (const image of images) {
+			const url = image.image_url?.url;
+			const decoded = url === undefined ? undefined : decodeBase64DataUrl(url);
+			// The image/* gate kills both a mislabeled DataPart and the
+			// second-order round-trip where a text-mime part's bytes would
+			// re-enter assistant text on the next turn. image/svg+xml passes
+			// the gate; whether to render it is the host's concern.
+			if (!decoded || decoded.bytes.length === 0 || !isImageMimeType(decoded.mime)) {
+				if (!this._req.loggedImageSkip) {
+					this._req.loggedImageSkip = true;
+					// Classification only: the raw field can carry response-derived text.
+					this._log("Skipping generated image without a decodable image data URL");
+				}
+				continue;
+			}
+			const part = this.constructDataPart(decoded.bytes, decoded.mime);
+			if (part) {
+				progress.report(part);
+				emitted = true;
+			}
+		}
+		return emitted;
+	}
+
+	/**
+	 * Generated audio accumulates instead of streaming out per delta: real
+	 * deployments fragment delta.audio.data into base64 pieces sharing an id,
+	 * and the pieces need not align to 4-character base64 groups, so only the
+	 * concatenation is decodable. One DataPart is emitted per audio id - when
+	 * a delta carrying a different id starts, or at end of stream. The mime
+	 * derives from the request's audio.format (the wire delta carries no
+	 * format field), falling back to audio/wav; see audioMimeForFormat.
+	 */
+	private processAudioDelta(audio: ChunkAudio, progress: vscode.Progress<vscode.LanguageModelResponsePart>): boolean {
+		if (!this._dataPartCtor) {
+			logMissingDataPartSupportOnce(this._log);
+			return false;
+		}
+		let emitted = false;
+		const previous = this._req.audioBuffer;
+		if (previous !== undefined && previous.id !== undefined && audio.id !== undefined && audio.id !== previous.id) {
+			emitted = this.flushAudioBuffer(progress);
+		}
+		const buffer = this._req.audioBuffer ?? { id: undefined, base64: "" };
+		// Real deployments send the id on the first fragment only, so the first observed id sticks.
+		buffer.id = buffer.id ?? audio.id;
+		buffer.base64 += audio.data ?? "";
+		this._req.audioBuffer = buffer;
+		return emitted;
+	}
+
+	/** Emit the accumulated audio as one DataPart; an undecodable or empty payload is logged as a classification and dropped. */
+	private flushAudioBuffer(progress: vscode.Progress<vscode.LanguageModelResponsePart>): boolean {
+		const buffer = this._req.audioBuffer;
+		this._req.audioBuffer = undefined;
+		if (buffer === undefined || buffer.base64 === "") {
+			// No data ever arrived (e.g. transcript-only deltas): nothing to report.
+			return false;
+		}
+		const bytes = decodeBase64Strict(buffer.base64);
+		if (bytes === undefined || bytes.length === 0) {
+			this._log("Skipping generated audio without a decodable payload");
+			return false;
+		}
+		const part = this.constructDataPart(bytes, this._audioMime);
+		if (!part) {
+			return false;
+		}
+		progress.report(part);
+		return true;
+	}
+
+	/** Guarded construction, mirroring the thinking-part path: a throwing host class is logged, never propagated. */
+	private constructDataPart(bytes: Uint8Array, mime: string): vscode.LanguageModelResponsePart | undefined {
+		if (!this._dataPartCtor) {
+			return undefined;
+		}
+		try {
+			return new this._dataPartCtor(bytes, mime);
+		} catch (e) {
+			this._log("Failed to construct data part", { error: String(e) });
+			return undefined;
+		}
+	}
+
 	processTextContent(
 		input: string,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>
@@ -364,10 +587,8 @@ export class StreamProcessor {
 			}
 			const parsed = tryParseJSONObject(call.args);
 			if (!parsed.ok) {
-				this._log("Dropping inline tool call with invalid JSON arguments", {
-					name: call.name,
-					snippet: call.args.slice(0, 200),
-				});
+				// Classification only: the name and arguments are response text.
+				this._log("Dropping inline tool call with invalid JSON arguments", { argsLength: call.args.length });
 				continue;
 			}
 			if (this.emitInlineToolCall(call, parsed.value, progress)) {
@@ -438,7 +659,8 @@ export class StreamProcessor {
 				otherCounts.set(key, pending - 1);
 			}
 			retireBuffer();
-			this._log("Suppressing tool call already emitted via the other channel", { name: call.name, source });
+			// Classification only: the tool name can be response text on the inline channel.
+			this._log("Suppressing tool call already emitted via the other channel", { source });
 			return false;
 		}
 
@@ -467,7 +689,8 @@ export class StreamProcessor {
 		for (const [index, buf] of Array.from(this._req.toolCallBuffers.entries())) {
 			const parsed = tryParseJSONObject(buf.args);
 			if (!parsed.ok) {
-				this._log("Invalid JSON for tool call", { index, snippet: (buf.args || "").slice(0, 200) });
+				// Classification only: buffered arguments are response text.
+				this._log("Invalid JSON for tool call", { index, argsLength: (buf.args || "").length });
 				invalidCount++;
 				this._req.toolCallBuffers.delete(index);
 				continue;
@@ -479,10 +702,11 @@ export class StreamProcessor {
 
 	/**
 	 * Single end-of-stream path shared by finish_reason, [DONE], and EOF.
-	 * Every dropped buffer is logged first; unparseable leftovers then throw
-	 * when throwOnInvalid is set (i.e. unless the request was cancelled).
+	 * finishedNormally is false only when the request was cancelled; a
+	 * cancelled stream downgrades unparseable leftovers to logged drops and
+	 * discards accumulated media instead of emitting it.
 	 */
-	private finishStream(progress: vscode.Progress<vscode.LanguageModelResponsePart>, throwOnInvalid: boolean): void {
+	private finishStream(progress: vscode.Progress<vscode.LanguageModelResponsePart>, finishedNormally: boolean): void {
 		let invalidCount = this.flushToolCallBuffers(progress);
 
 		const rest = this._req.textParser.flush();
@@ -493,9 +717,9 @@ export class StreamProcessor {
 				this._req.handledTextCallSeqs.add(call.seq);
 				this.emitInlineToolCall(call, parsed.value, progress);
 			} else {
+				// Classification only: the name and arguments are response text.
 				this._log("Dropping unterminated inline tool call with invalid JSON arguments", {
-					name: call.name,
-					snippet: call.args.slice(0, 200),
+					argsLength: call.args.length,
 				});
 				invalidCount++;
 			}
@@ -509,12 +733,23 @@ export class StreamProcessor {
 			// dropped as before; anything else is legitimate output the hold-back
 			// delayed (a one-shot parse of the full text would have emitted it).
 			if (isTruncatedToolCallText(trailingText)) {
+				// Classification only: the held-back text is response content.
 				this._log("Dropping trailing partial control token text at end of stream", {
-					text: trailingText.slice(0, 200),
+					length: trailingText.length,
 				});
 			} else {
 				progress.report(new vscode.LanguageModelTextPart(trailingText));
 			}
+		}
+
+		// Audio flushes only from a normally-finished stream: a cancelled
+		// request drops its partial accumulation rather than emit a truncated
+		// clip. Flushing clears the buffer, so the repeated finishStream runs
+		// (finish_reason, then [DONE], then EOF) cannot emit the audio twice.
+		if (finishedNormally) {
+			this.flushAudioBuffer(progress);
+		} else {
+			this._req.audioBuffer = undefined;
 		}
 
 		if (this._req.citations.size > 0 && !this._req.emittedCitations) {
@@ -530,7 +765,7 @@ export class StreamProcessor {
 			progress.report(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
 		}
 
-		if (invalidCount > 0 && throwOnInvalid) {
+		if (invalidCount > 0 && finishedNormally) {
 			throw new Error("Invalid JSON for tool call");
 		}
 	}

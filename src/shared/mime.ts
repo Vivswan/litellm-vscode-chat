@@ -7,3 +7,13 @@ export function isTextMimeType(mime: string): boolean {
 export function isImageMimeType(mime: string): boolean {
 	return mime.toLowerCase().startsWith("image/");
 }
+
+/**
+ * True when a MIME string is shaped like type/subtype over a conservative
+ * character set, with a sane length cap. Model-supplied MIME values must pass
+ * this before they are logged or attached to a host part: logs feed the
+ * issue-report buffer, and an arbitrary string here is response-derived text.
+ */
+export function isSafeMimeType(mime: string): boolean {
+	return mime.length <= 100 && /^[\w.+-]+\/[\w.+-]+$/.test(mime);
+}

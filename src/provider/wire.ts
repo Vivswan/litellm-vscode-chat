@@ -56,6 +56,19 @@ interface ChunkContentBlock {
 	text?: string | undefined;
 }
 
+/** One generated image in a delta.images list; image-generating chat models carry a base64 data URL here. */
+export interface ChunkImage {
+	type?: string | undefined;
+	image_url?: { url?: string | undefined } | undefined;
+}
+
+/** Generated audio output in the gpt-4o shape; data fragments across deltas share the id. */
+export interface ChunkAudio {
+	id?: string | undefined;
+	data?: string | undefined;
+	transcript?: string | undefined;
+}
+
 /** Fragment of a streamed tool call. OpenAI-compatible proxies may send the index as a numeric string. */
 export interface StreamedToolCall {
 	index?: number | string | undefined;
@@ -75,6 +88,8 @@ export interface ChunkDelta {
 	reasoning?: string | undefined;
 	refusal?: string | undefined;
 	annotations?: ChunkAnnotation[] | undefined;
+	images?: ChunkImage[] | undefined;
+	audio?: ChunkAudio | undefined;
 }
 
 /** A single choice in a streaming chunk. Some providers put thinking on the choice instead of the delta. */
@@ -151,6 +166,30 @@ function narrowAnnotations(raw: unknown): ChunkAnnotation[] | undefined {
 	});
 }
 
+function narrowImages(raw: unknown): ChunkImage[] | undefined {
+	if (!Array.isArray(raw)) {
+		return undefined;
+	}
+	return raw.filter(isRecord).map((image) => {
+		const imageUrl = isRecord(image.image_url) ? image.image_url : undefined;
+		return {
+			type: typeof image.type === "string" ? image.type : undefined,
+			image_url: imageUrl ? { url: typeof imageUrl.url === "string" ? imageUrl.url : undefined } : undefined,
+		};
+	});
+}
+
+function narrowAudio(raw: unknown): ChunkAudio | undefined {
+	if (!isRecord(raw)) {
+		return undefined;
+	}
+	return {
+		id: typeof raw.id === "string" ? raw.id : undefined,
+		data: typeof raw.data === "string" ? raw.data : undefined,
+		transcript: typeof raw.transcript === "string" ? raw.transcript : undefined,
+	};
+}
+
 function narrowContent(raw: unknown): string | ChunkContentBlock[] | null | undefined {
 	if (raw === undefined) {
 		return undefined;
@@ -196,6 +235,8 @@ function narrowDelta(raw: unknown): ChunkDelta | undefined {
 		reasoning: typeof raw.reasoning === "string" ? raw.reasoning : undefined,
 		refusal: typeof raw.refusal === "string" ? raw.refusal : undefined,
 		annotations: narrowAnnotations(raw.annotations),
+		images: narrowImages(raw.images),
+		audio: narrowAudio(raw.audio),
 	};
 }
 

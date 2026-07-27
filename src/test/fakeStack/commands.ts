@@ -480,9 +480,9 @@ function cacheMarkerLines(context: CommandContext): string[] {
 // Observed against the live stack (LiteLLM v1.93): both media delta shapes
 // below - the delta.images list with a data URL, and the gpt-4o-style
 // delta.audio object - transit the proxy VERBATIM, full base64 payload
-// intact. The extension's LM API surface still ignores them (the wire parser
-// discards unknown media fields), so LM-level tests assert graceful
-// degradation while raw SSE observation can assert byte integrity.
+// intact. The extension surfaces both as vscode.LanguageModelDataPart, so
+// LM-level tests assert DataPart byte fidelity against the pinned hashes
+// while raw SSE observation keeps pinning proxy transit itself.
 
 /** 1x1 red PNG, byte-stable. */
 const PNG_BYTES = Buffer.from(
@@ -492,6 +492,12 @@ const PNG_BYTES = Buffer.from(
 
 /** Minimal 8-bit mono WAV (44-byte header + 8 samples of silence), byte-stable. */
 const WAV_BYTES = Buffer.from("UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAACAgICAgICAgA==", "base64");
+
+/** Pinned sha256 of PNG_BYTES; suites import this instead of re-deriving it. */
+export const PNG_SHA256 = "57c5b0ba802ba3aa9c4ebd11a8ef32d173abc6dd5b3deabb7cd540b66e14edc5";
+
+/** Pinned sha256 of WAV_BYTES; suites import this instead of re-deriving it. */
+export const WAV_SHA256 = "08662970568d4e2cf49988067bee006f7e8ded8c4cd93f4aa6ef4211b891d8af";
 
 // ── Tool-call flow (/tool) ───────────────────────────────────────────────────
 

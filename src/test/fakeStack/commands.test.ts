@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import type { Scenario } from "../scenarios";
 import { BUILTIN_SCENARIOS, collapseChunks } from "../scenarios";
 import type { CommandContext } from "./commands";
-import { COMMANDS, dispatchCommand, FALLBACK_TEXT, fallbackReply } from "./commands";
+import { COMMANDS, dispatchCommand, FALLBACK_TEXT, fallbackReply, PNG_SHA256, WAV_SHA256 } from "./commands";
 
 /**
  * Pins the fake backend's command grammar: slash-mandatory recognition on
@@ -265,9 +265,11 @@ suite("fakeStack commands: behavior", () => {
 		assert.ok(trailer.usage.completion_tokens_details, "completion_tokens_details present");
 	});
 
-	test("/image and /audio emit byte-stable payloads, pinned by hash", () => {
-		assert.ok(runText("/image")?.includes("sha256=57c5b0ba802ba3aa9c4ebd11a8ef32d173abc6dd5b3deabb7cd540b66e14edc5"));
-		assert.ok(runText("/audio")?.includes("sha256=08662970568d4e2cf49988067bee006f7e8ded8c4cd93f4aa6ef4211b891d8af"));
+	test("/image and /audio emit byte-stable payloads matching the exported pinned hashes", () => {
+		// The reply text derives its sha256 from the actual bytes, so this
+		// keeps the exported literals honest against the byte constants.
+		assert.ok(runText("/image")?.includes(`sha256=${PNG_SHA256}`));
+		assert.ok(runText("/audio")?.includes(`sha256=${WAV_SHA256}`));
 	});
 
 	test("different conversations draw different default /text seeds", () => {

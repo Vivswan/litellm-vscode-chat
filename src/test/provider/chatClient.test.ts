@@ -110,6 +110,43 @@ suite("provider/chatClient", () => {
 		);
 	});
 
+	test("the request's audio.format reaches the emitted audio DataPart as its mime", async () => {
+		const body = controllableStream();
+		await withFetch(
+			async () => new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+			async () => {
+				const client = new ChatClient({ userAgent: "test-agent" });
+				client.setServerProvider(() =>
+					Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }])
+				);
+
+				const parts: vscode.LanguageModelResponsePart[] = [];
+				const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
+				const audioOptions = {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+					modelOptions: { audio: { voice: "alloy", format: "mp3" } },
+				} as unknown as vscode.ProvideLanguageModelChatResponseOptions;
+				const send = client.send({
+					model,
+					messages,
+					options: audioOptions,
+					progress,
+					token: new vscode.CancellationTokenSource().token,
+				});
+
+				body.push(`data: ${JSON.stringify({ choices: [{ delta: { audio: { id: "a1", data: "AQID" } } }] })}\n\n`);
+				body.push("data: [DONE]\n\n");
+				body.close();
+				await send;
+
+				const dataParts = parts.filter((p) => p instanceof vscode.LanguageModelDataPart);
+				assert.equal(dataParts.length, 1, "the audio clip must surface as one DataPart");
+				const part = dataParts[0] as vscode.LanguageModelDataPart;
+				assert.equal(part.mimeType, "audio/mpeg", "the pass-through audio.format parameter names the encoding");
+			}
+		);
+	});
+
 	test("user cancellation aborts the in-flight fetch and throws CancellationError", async () => {
 		let observedSignal: AbortSignal | undefined;
 		await withFetch(

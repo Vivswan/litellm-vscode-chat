@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { createHash } from "node:crypto";
 import * as vscode from "vscode";
 import { REASONING_EFFORT_SCHEMA } from "../provider/modelConfiguration";
-import { COMMANDS, FALLBACK_TEXT } from "./fakeStack/commands";
+import { COMMANDS, FALLBACK_TEXT, PNG_SHA256, WAV_SHA256 } from "./fakeStack/commands";
 import {
 	addServer,
 	clearServers,
@@ -276,8 +276,11 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(extractText(await play("finish-content-filter")), "Partial answer");
 		});
 
-		test("audio-output is skipped without dropping surrounding text", async () => {
-			assert.strictEqual(extractText(await play("audio-output")), "Text alongside audio.");
+		test("audio-output surfaces a DataPart and streams its transcript as text", async () => {
+			const parts = await play("audio-output");
+			assert.strictEqual(extractText(parts), "Spoken wordsText alongside audio.");
+			const dataParts = parts.filter((p) => p instanceof vscode.LanguageModelDataPart);
+			assert.strictEqual(dataParts.length, 1, "the audio delta now surfaces as one DataPart");
 		});
 
 		test("usage trailers do not disturb the text", async () => {
@@ -784,21 +787,34 @@ suite("Docker LiteLLM stack", () => {
 	});
 
 	suite("generated media", () => {
-		const PNG_SHA256 = "57c5b0ba802ba3aa9c4ebd11a8ef32d173abc6dd5b3deabb7cd540b66e14edc5";
-		const WAV_SHA256 = "08662970568d4e2cf49988067bee006f7e8ded8c4cd93f4aa6ef4211b891d8af";
+		/** DataParts from collected stream parts; media surfaces through the host as LanguageModelDataPart. */
+		function extractDataParts(parts: unknown[]): vscode.LanguageModelDataPart[] {
+			return parts.filter((p) => p instanceof vscode.LanguageModelDataPart) as vscode.LanguageModelDataPart[];
+		}
 
-		test("/image and /audio degrade gracefully at the LM API level", async () => {
-			// The extension's wire parser discards media fields it does not map;
-			// the pinned contract is the chat completing with the hash line
-			// verbatim and nothing thrown.
-			assert.strictEqual(
-				extractText(await say("gpt-5.2-mini", "/image")),
-				`Generated a PNG image, 69 bytes, sha256=${PNG_SHA256}.`
-			);
-			assert.strictEqual(
-				extractText(await say("gpt-5.2-mini", "/audio")),
-				`Generated a WAV clip, 52 bytes, sha256=${WAV_SHA256}.`
-			);
+		test("/image surfaces one DataPart with lossless bytes and keeps the hash line verbatim", async () => {
+			// The hashes are the pinned literals next to the byte constants in
+			// fakeStack/commands.ts; matching them here proves the payload
+			// survived backend -> proxy -> extension -> host round-trip intact.
+			const parts = await say("gpt-5.2-mini", "/image");
+			assert.strictEqual(extractText(parts), `Generated a PNG image, 69 bytes, sha256=${PNG_SHA256}.`);
+			const dataParts = extractDataParts(parts);
+			assert.strictEqual(dataParts.length, 1, "exactly one image DataPart");
+			const image = expectDefined(dataParts[0]);
+			assert.strictEqual(image.mimeType, "image/png", "mime comes from the data URL header");
+			assert.strictEqual(sha256Hex(image.data), PNG_SHA256, "DataPart bytes are lossless");
+		});
+
+		test("/audio surfaces one DataPart with lossless bytes; transcript then hash line stream as text", async () => {
+			const parts = await say("gpt-5.2-mini", "/audio");
+			// The transcript streams as ordinary text ahead of the reply text,
+			// and the hash line itself stays byte-verbatim.
+			assert.strictEqual(extractText(parts), `fake audio clipGenerated a WAV clip, 52 bytes, sha256=${WAV_SHA256}.`);
+			const dataParts = extractDataParts(parts);
+			assert.strictEqual(dataParts.length, 1, "exactly one audio DataPart");
+			const audio = expectDefined(dataParts[0]);
+			assert.strictEqual(audio.mimeType, "audio/wav");
+			assert.strictEqual(sha256Hex(audio.data), WAV_SHA256, "DataPart bytes are lossless");
 		});
 
 		/** Raw SSE through the LiteLLM proxy; media byte integrity is only observable beneath the LM API. */

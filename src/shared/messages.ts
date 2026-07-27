@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { isImageMimeType, isTextMimeType } from "./mime";
+import { isImageMimeType, isSafeMimeType, isTextMimeType } from "./mime";
 import { thinkingPartCtor } from "./thinkingPart";
 import type {
 	OpenAIChatContentBlock,
@@ -166,6 +166,9 @@ export function convertMessages(
 ): OpenAIChatMessage[] {
 	const log = options?.log;
 	const out: OpenAIChatMessage[] = [];
+	// One dropped-DataPart log per conversion: a media-heavy history would
+	// otherwise evict the whole issue-report buffer on every turn.
+	let loggedDroppedDataPart = false;
 	for (const m of messages) {
 		const role = mapRole(m, log);
 		const textParts: string[] = [];
@@ -190,7 +193,13 @@ export function convertMessages(
 			} else if (isToolResultPart(part)) {
 				toolResults.push({ callId: part.callId, content: collectToolResultText(part, log) });
 			} else if (part instanceof vscode.LanguageModelDataPart) {
-				const block = convertDataPartToContentBlock(part);
+				// Only user messages carry binary content blocks on the wire.
+				// Assistant history may hold model-generated media (surfaced as
+				// DataParts while streaming); there is no assistant-side wire
+				// shape for it, so the part is dropped while the turn's TEXT is
+				// always kept - moving text into contentBlocks here would hand
+				// it to a branch that only user messages ever drain.
+				const block = role === "user" ? convertDataPartToContentBlock(part) : null;
 				if (block) {
 					if (textParts.length > 0) {
 						contentBlocks.push({ type: "text", text: textParts.join("") });
@@ -203,7 +212,15 @@ export function convertMessages(
 					if (decoded !== null) {
 						textParts.push(decoded);
 					} else {
-						log?.(`Skipping unsupported LanguageModelDataPart with MIME type: ${part.mimeType}`);
+						// The mime is model-controlled on assistant turns and this log
+						// feeds the issue-report buffer, so it is allowlisted by shape.
+						if (!loggedDroppedDataPart) {
+							loggedDroppedDataPart = true;
+							log?.("Skipping LanguageModelDataPart with no wire mapping", {
+								role,
+								mimeType: isSafeMimeType(part.mimeType) ? part.mimeType : "unparseable",
+							});
+						}
 					}
 				}
 			} else if (part instanceof vscode.LanguageModelPromptTsxPart) {
