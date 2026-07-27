@@ -34,6 +34,7 @@ bun.lock
 # Repository docs and release automation (not needed at runtime)
 AGENTS.md
 CLAUDE.md
+ACKNOWLEDGMENTS.md
 CONTRIBUTING.md
 SECURITY.md
 release-please-config.json
