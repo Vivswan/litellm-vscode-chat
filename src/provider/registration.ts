@@ -33,8 +33,14 @@ const TOKENS_PER_MILLION = 1_000_000;
  */
 const COST_DECIMALS = 1_000_000;
 
-/** The numeric pricing fields of the host's model metadata. */
-type ModelPricing = Pick<LanguageModelChatInformation, "inputCost" | "outputCost" | "cacheCost" | "cacheWriteCost">;
+/** The numeric pricing fields of the host's model metadata, base tier and long-context tier. */
+type BasePricingKey = "inputCost" | "outputCost" | "cacheCost" | "cacheWriteCost";
+type LongContextPricingKey =
+	| "longContextInputCost"
+	| "longContextOutputCost"
+	| "longContextCacheCost"
+	| "longContextCacheWriteCost";
+type ModelPricing = Pick<LanguageModelChatInformation, BasePricingKey | LongContextPricingKey>;
 
 /**
  * The Reasoning Effort picker control for an entry backed by the given
@@ -62,28 +68,60 @@ function configurationSchemaFor(
  * without it because there the proxy's routing decides what a request
  * actually costs. Providers-array entries are lenient pass-throughs, so every
  * value is re-narrowed, and a field without a usable number is omitted
- * outright rather than set to undefined. The `pricing` display-label string
+ * outright rather than set to undefined. Long-context tier costs (LiteLLM's
+ * above-N-tokens keys, resolved to one tier at discovery) become the host's
+ * longContext* fields under two extra rules. They ride only next to their
+ * base field: the picker's cost table renders the long-context value beside
+ * the default one, so a tier price without a base price would sit next to an
+ * empty Default cell claiming the model has no standard cost. And they are
+ * omitted when they equal the converted base cost: the host declares the
+ * longContext* fields as present only when long-context pricing differs from
+ * default pricing. The `pricing` display-label string
  * stays unset everywhere: the host surfaces that render the numeric fields
  * treat the label as a fallback or show it in addition, so setting both would
  * duplicate the same information.
  */
 function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
 	const fields: { -readonly [K in keyof ModelPricing]?: ModelPricing[K] } = {};
-	const set = (key: keyof ModelPricing, perToken: unknown) => {
+	const toPerMillion = (perToken: unknown): number | undefined => {
 		const cost = normalizeCostPerToken(perToken);
 		if (cost === undefined) {
-			return;
+			return undefined;
 		}
 		const perMillion = Math.round(cost * TOKENS_PER_MILLION * COST_DECIMALS) / COST_DECIMALS;
 		// The multiply can overflow a finite-but-absurd declared cost to Infinity.
-		if (Number.isFinite(perMillion)) {
-			fields[key] = perMillion;
+		return Number.isFinite(perMillion) ? perMillion : undefined;
+	};
+	const set = (baseKey: BasePricingKey, longKey: LongContextPricingKey, perToken: unknown, longPerToken: unknown) => {
+		const base = toPerMillion(perToken);
+		if (base === undefined) {
+			return;
+		}
+		fields[baseKey] = base;
+		const long = toPerMillion(longPerToken);
+		if (long !== undefined && long !== base) {
+			fields[longKey] = long;
 		}
 	};
-	set("inputCost", provider.input_cost_per_token);
-	set("outputCost", provider.output_cost_per_token);
-	set("cacheCost", provider.cache_read_input_token_cost);
-	set("cacheWriteCost", provider.cache_creation_input_token_cost);
+	set("inputCost", "longContextInputCost", provider.input_cost_per_token, provider.long_context_input_cost_per_token);
+	set(
+		"outputCost",
+		"longContextOutputCost",
+		provider.output_cost_per_token,
+		provider.long_context_output_cost_per_token
+	);
+	set(
+		"cacheCost",
+		"longContextCacheCost",
+		provider.cache_read_input_token_cost,
+		provider.long_context_cache_read_input_token_cost
+	);
+	set(
+		"cacheWriteCost",
+		"longContextCacheWriteCost",
+		provider.cache_creation_input_token_cost,
+		provider.long_context_cache_creation_input_token_cost
+	);
 	return fields;
 }
 

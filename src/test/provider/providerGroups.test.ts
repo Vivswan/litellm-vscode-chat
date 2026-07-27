@@ -65,6 +65,7 @@ suite("provider groups", () => {
 							supports_function_calling: true,
 							input_cost_per_token: 0.000003,
 							output_cost_per_token: 0.000015,
+							input_cost_per_token_above_200k_tokens: 0.000006,
 						},
 					},
 				],
@@ -79,6 +80,8 @@ suite("provider groups", () => {
 		const info = expectDefined(infos[0]);
 		assert.strictEqual(info.inputCost, 3, "attachGroupServer must not drop the pricing fields");
 		assert.strictEqual(info.outputCost, 15);
+		assert.strictEqual(info.longContextInputCost, 6, "the tiered cost survives the group path end to end");
+		assert.ok(!("longContextOutputCost" in info), "tier costs the server never reported stay absent");
 		assert.ok(!("cacheCost" in info), "costs the server never reported stay absent");
 		assert.ok(!("cacheWriteCost" in info), "costs the server never reported stay absent");
 	});

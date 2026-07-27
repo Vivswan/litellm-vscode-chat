@@ -375,5 +375,126 @@ suite("provider", () => {
 				}
 			}
 		});
+
+		test("long-context pricing converts per-million, needs its base field, and drops when identical to it", () => {
+			const { infos } = buildModelInfos(
+				[
+					{
+						id: "tiered",
+						providers: [
+							{
+								provider: "anthropic",
+								status: "ok",
+								source: "model_info",
+								input_cost_per_token: 0.000003,
+								output_cost_per_token: 0.000015,
+								cache_read_input_token_cost: 0.0000003,
+								long_context_input_cost_per_token: 0.000006,
+								long_context_output_cost_per_token: 0.0000225,
+								long_context_cache_read_input_token_cost: 0.0000003,
+								long_context_cache_creation_input_token_cost: 0.00000375,
+							},
+						],
+					},
+					{
+						id: "overflow",
+						providers: [
+							{
+								provider: "openai",
+								status: "ok",
+								source: "model_info",
+								input_cost_per_token: 0.000003,
+								long_context_input_cost_per_token: 1e308,
+							},
+						],
+					},
+					{
+						id: "multi",
+						providers: [
+							{
+								provider: "groq",
+								status: "active",
+								supports_tools: true,
+								input_cost_per_token: 0.000001,
+								long_context_input_cost_per_token: 0.000002,
+							},
+							{
+								provider: "together",
+								status: "active",
+								supports_tools: true,
+								input_cost_per_token: 0.000001,
+								long_context_input_cost_per_token: 0.000002,
+							},
+						],
+					},
+				],
+				{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
+				1,
+				() => {},
+				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+			);
+			const byId = new Map(infos.map((i) => [i.id, i]));
+
+			const tiered = expectDefined(byId.get("tiered"));
+			assert.strictEqual(tiered.longContextInputCost, 6, "0.000006 per token must convert to exactly 6 per million");
+			assert.strictEqual(tiered.longContextOutputCost, 22.5);
+			assert.ok(
+				!("longContextCacheCost" in tiered),
+				"a tier cost identical to its base cost is omitted: the host declares longContext* as present only when it differs"
+			);
+			assert.ok(
+				!("longContextCacheWriteCost" in tiered),
+				"a tier cost without its base cost is omitted: the picker would render it beside an empty Default cell"
+			);
+			assert.deepStrictEqual(
+				Object.keys(tiered).sort(),
+				[
+					"cacheCost",
+					"capabilities",
+					"detail",
+					"family",
+					"id",
+					"inputCost",
+					"isBYOK",
+					"isUserSelectable",
+					"litellm",
+					"longContextInputCost",
+					"longContextOutputCost",
+					"maxInputTokens",
+					"maxOutputTokens",
+					"name",
+					"outputCost",
+					"tooltip",
+					"version",
+				],
+				"a tier-priced sole entry adds exactly the differing, base-backed longContext keys"
+			);
+
+			const overflow = expectDefined(byId.get("overflow"));
+			assert.strictEqual(overflow.inputCost, 3);
+			assert.ok(
+				!("longContextInputCost" in overflow),
+				"a tier cost that overflows the per-million conversion is omitted, not Infinity"
+			);
+
+			assert.strictEqual(
+				expectDefined(byId.get("multi:groq")).longContextInputCost,
+				2,
+				"per-provider entries carry their own tier cost"
+			);
+			assert.strictEqual(expectDefined(byId.get("multi:together")).longContextInputCost, 2);
+
+			for (const id of ["multi:cheapest", "multi:fastest"]) {
+				const info = expectDefined(byId.get(id), `missing entry ${id}`);
+				for (const key of [
+					"longContextInputCost",
+					"longContextOutputCost",
+					"longContextCacheCost",
+					"longContextCacheWriteCost",
+				] as const) {
+					assert.ok(!(key in info), `${id} must not advertise a ${key} its routing does not pin`);
+				}
+			}
+		});
 	});
 });

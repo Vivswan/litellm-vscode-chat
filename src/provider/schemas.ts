@@ -57,6 +57,17 @@ export interface LiteLLMProvider {
 	cache_read_input_token_cost?: number | null | undefined;
 	/** Cost per cache-write input token. */
 	cache_creation_input_token_cost?: number | null | undefined;
+	/**
+	 * Long-context tier costs, synthesized by discovery from LiteLLM's
+	 * threshold-suffixed cost keys (input_cost_per_token_above_200k_tokens and
+	 * friends); longContextCosts in discovery.ts holds the selection rule.
+	 * Unlike the base costs above these never pass through raw: discovery
+	 * authors them on every provider it normalizes.
+	 */
+	long_context_input_cost_per_token?: number | null | undefined;
+	long_context_output_cost_per_token?: number | null | undefined;
+	long_context_cache_read_input_token_cost?: number | null | undefined;
+	long_context_cache_creation_input_token_cost?: number | null | undefined;
 }
 
 /** Architecture information for a model. */
@@ -101,7 +112,12 @@ export interface LiteLLMModelInfoItem {
 		supports_audio_input?: boolean | null;
 		supports_audio_output?: boolean | null;
 		supported_openai_params?: string[] | null | undefined;
-		/** Per-token costs; numbers only, and a malformed value degrades to absent at mapping. */
+		/**
+		 * Per-token costs; numbers only, and a malformed value degrades to absent
+		 * at mapping. Long-context tiers arrive as threshold-suffixed variants of
+		 * these keys (e.g. input_cost_per_token_above_200k_tokens) and are read
+		 * dynamically by the mapping step, so they carry no declarations here.
+		 */
 		input_cost_per_token?: number | null | undefined;
 		output_cost_per_token?: number | null | undefined;
 		cache_read_input_token_cost?: number | null | undefined;

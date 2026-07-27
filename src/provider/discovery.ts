@@ -34,11 +34,73 @@ function isProviderEntry(value: unknown): value is LiteLLMProvider {
 	return providerEntrySchema.safeParse(value).success;
 }
 
+/** The four long-context cost fields discovery synthesizes onto a provider. */
+type LongContextCosts = Pick<
+	LiteLLMProvider,
+	| "long_context_input_cost_per_token"
+	| "long_context_output_cost_per_token"
+	| "long_context_cache_read_input_token_cost"
+	| "long_context_cache_creation_input_token_cost"
+>;
+
+/** The LiteLLM base cost key behind each synthesized field; tiered wire keys suffix these with _above_<N>k_tokens. */
+const LONG_CONTEXT_FIELDS = {
+	long_context_input_cost_per_token: "input_cost_per_token",
+	long_context_output_cost_per_token: "output_cost_per_token",
+	long_context_cache_read_input_token_cost: "cache_read_input_token_cost",
+	long_context_cache_creation_input_token_cost: "cache_creation_input_token_cost",
+} as const satisfies Record<keyof LongContextCosts, string>;
+
+const TIERED_COST_KEY = new RegExp(`^(${Object.values(LONG_CONTEXT_FIELDS).join("|")})_above_(\\d+)k_tokens$`);
+
+/**
+ * Read a model's long-context tier costs from LiteLLM's threshold-suffixed
+ * keys, e.g. input_cost_per_token_above_200k_tokens (the price map currently
+ * carries above_128k/200k/256k/272k/512k variants). VS Code's pricing
+ * metadata has exactly one long-context tier, so when a model declares more
+ * than one threshold the lowest wins, and only fields declared at that
+ * threshold are reported, so the four values always describe one boundary:
+ * it is the first one a growing prompt crosses, so its prices are the ones a
+ * user starts paying beyond the default tier. Only keys holding a usable
+ * cost participate in that
+ * selection, so a tier declared entirely in malformed values cannot mask a
+ * well-formed higher one, and LiteLLM's non-tier variants (_priority keys,
+ * above_1hr cache windows, per-character/image/audio/video costs) never
+ * match the key pattern. All four fields come back explicitly (undefined
+ * when absent) so spreading the result always overrides look-alike keys on
+ * lenient pass-through entries.
+ */
+function longContextCosts(entry: unknown): LongContextCosts {
+	const tiered: { threshold: number; baseKey: string; cost: number }[] = [];
+	if (isRecord(entry)) {
+		for (const [key, value] of Object.entries(entry)) {
+			const match = TIERED_COST_KEY.exec(key);
+			const cost = match ? normalizeCostPerToken(value) : undefined;
+			if (match?.[1] !== undefined && match[2] !== undefined && cost !== undefined) {
+				tiered.push({ threshold: Number(match[2]), baseKey: match[1], cost });
+			}
+		}
+	}
+	const lowest = tiered.reduce((min, t) => Math.min(min, t.threshold), Number.POSITIVE_INFINITY);
+	const costAt = (baseKey: string) => tiered.find((t) => t.threshold === lowest && t.baseKey === baseKey)?.cost;
+	return {
+		long_context_input_cost_per_token: costAt(LONG_CONTEXT_FIELDS.long_context_input_cost_per_token),
+		long_context_output_cost_per_token: costAt(LONG_CONTEXT_FIELDS.long_context_output_cost_per_token),
+		long_context_cache_read_input_token_cost: costAt(LONG_CONTEXT_FIELDS.long_context_cache_read_input_token_cost),
+		long_context_cache_creation_input_token_cost: costAt(
+			LONG_CONTEXT_FIELDS.long_context_cache_creation_input_token_cost
+		),
+	};
+}
+
 function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["log"]): LiteLLMModelItem {
 	const providers: LiteLLMProvider[] = [];
 	for (const entry of raw.providers ?? []) {
 		if (isProviderEntry(entry)) {
-			providers.push(entry);
+			// Pass-through entries keep their raw keys; the synthesized
+			// long-context tier costs (same selection rule as model_info
+			// entries) are the one addition.
+			providers.push({ ...entry, ...longContextCosts(entry) });
 		} else {
 			log("Skipping malformed provider entry", { modelId: raw.id, entry: truncateForLog(entry) });
 		}
@@ -112,6 +174,7 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo |
 		output_cost_per_token: normalizeCostPerToken(item.model_info?.output_cost_per_token),
 		cache_read_input_token_cost: normalizeCostPerToken(item.model_info?.cache_read_input_token_cost),
 		cache_creation_input_token_cost: normalizeCostPerToken(item.model_info?.cache_creation_input_token_cost),
+		...longContextCosts(item.model_info),
 	};
 
 	const inputModalities: string[] = [];
@@ -181,10 +244,13 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
  * deployment advertises the identical per-field cost: with differing prices
  * the proxy's routing decides which deployment (and cost) actually serves a
  * request, so advertising either number would lie, and the merged entry
- * drops that field instead. Non-constraint metadata (provider name,
- * status, parameter order) follows the first deployment; registration
- * surfaces the provider name as the model family, so a merged model's family
- * is its first deployment's litellm_provider.
+ * drops that field instead. Long-context tier costs follow the same
+ * per-field rule on their already threshold-resolved values: the host never
+ * displays the boundary, so numerically identical tier prices merge honestly
+ * even when the deployments' thresholds differ. Non-constraint metadata
+ * (provider name, status, parameter order) follows the first deployment;
+ * registration surfaces the provider name as the model family, so a merged
+ * model's family is its first deployment's litellm_provider.
  */
 export function mergeModelDeployments(deployments: ModelDeployments, defaults: TokenDefaults): MappedModelInfo {
 	const [first, ...rest] = deployments;
@@ -215,6 +281,14 @@ export function mergeModelDeployments(deployments: ModelDeployments, defaults: T
 		output_cost_per_token: agreedCost(providers.map((p) => p.output_cost_per_token)),
 		cache_read_input_token_cost: agreedCost(providers.map((p) => p.cache_read_input_token_cost)),
 		cache_creation_input_token_cost: agreedCost(providers.map((p) => p.cache_creation_input_token_cost)),
+		long_context_input_cost_per_token: agreedCost(providers.map((p) => p.long_context_input_cost_per_token)),
+		long_context_output_cost_per_token: agreedCost(providers.map((p) => p.long_context_output_cost_per_token)),
+		long_context_cache_read_input_token_cost: agreedCost(
+			providers.map((p) => p.long_context_cache_read_input_token_cost)
+		),
+		long_context_cache_creation_input_token_cost: agreedCost(
+			providers.map((p) => p.long_context_cache_creation_input_token_cost)
+		),
 	};
 	const inputModalities = first.inputModalities.filter((modality) =>
 		rest.every((deployment) => deployment.inputModalities.includes(modality))
