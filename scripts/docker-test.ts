@@ -13,35 +13,17 @@
 //   KEEP_DOCKER_STACK=1 bun run test:docker leave the stack running afterward
 
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { resolveComposeCommand } from "./composeCommand";
+import { composeSetting, ensureGeneratedConfig, readEnvFile } from "./litellmConfig";
 
 const args = process.argv.slice(2);
 const runFuzz = !args.includes("--skip-fuzz");
 const runHostFidelity = !args.includes("--skip-host-fidelity");
 
-/**
- * .env values used by docker-compose; the suite must agree on ports and key.
- * Minimal dotenv semantics: KEY=VALUE lines, surrounding quotes stripped.
- */
-function dotenvValues(): Record<string, string> {
-	const envPath = path.join(process.cwd(), ".env");
-	if (!existsSync(envPath)) {
-		return {};
-	}
-	const values: Record<string, string> = {};
-	for (const line of readFileSync(envPath, "utf8").split("\n")) {
-		const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-		if (match?.[1] && match[2] !== undefined) {
-			values[match[1]] = match[2].replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
-		}
-	}
-	return values;
-}
-
-const dotenv = dotenvValues();
-const setting = (key: string, fallback: string): string => process.env[key] || dotenv[key] || fallback;
+// The suite must agree with docker-compose on ports and key, so it resolves
+// them with the same ${VAR:-fallback} semantics compose uses.
+const envFile = readEnvFile();
+const setting = (key: string, fallback: string): string => composeSetting(key, fallback, envFile);
 
 const litellmPort = setting("LITELLM_PORT", "4000");
 const fakePort = setting("FAKE_OPENAI_PORT", "8090");
@@ -56,9 +38,13 @@ const run = (command: string, env: Record<string, string> = {}): void => {
 
 let failed = false;
 try {
-	run("bun scripts/generate-litellm-config.ts --check");
+	// Test config is always generated without real-provider wildcards, so a
+	// developer's keys in .env cannot change the model list under test, and
+	// --force-recreate makes a stack already running with a different config
+	// pick this one up instead of poisoning the run.
+	ensureGeneratedConfig({ realProviders: false });
 	console.log(`\nStarting the LiteLLM stack via "${compose}"...`);
-	run(`${compose} up -d --wait --wait-timeout 120`);
+	run(`${compose} up -d --wait --wait-timeout 120 --force-recreate`);
 
 	const suiteEnv = {
 		LITELLM_DOCKER_BASE_URL: baseUrl,

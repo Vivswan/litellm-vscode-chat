@@ -36,6 +36,10 @@ package-lock.json
 # scripts/dev-fake.ts wipes it whenever the seed configuration changes
 .dev-profile/
 
+# Runtime-generated LiteLLM proxy config (scripts/litellmConfig.ts); every
+# stack startup path regenerates it
+docker/.generated/
+
 # END REPOSITORY LOCAL
 
 # BEGIN REPO-PLATFORM MANAGED

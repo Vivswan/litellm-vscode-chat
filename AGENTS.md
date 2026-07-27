@@ -72,7 +72,7 @@ bun run lint               # Biome (lint:types, lint:knip, lint:actions for the 
 bun run test               # unit suite in the extension host (test:coverage adds the floor)
 bun run test:docker        # docker suites + stream fuzzer against a real LiteLLM proxy
 bun run docker:up          # local LiteLLM proxy + fake OpenAI backend (docker:down, docker:logs)
-bun run generate-config    # regenerate docker/litellm-config.yaml from src/test/scenarios.ts
+bun run generate-config    # print the generated LiteLLM proxy config to stdout (stack startup writes the real file)
 bun run dev:fake           # Extension Development Host preconfigured against the fake stack
 bun run host-fidelity-test # end-to-end against a capture or live server (LITELLM_REAL_*)
 ```
@@ -80,7 +80,7 @@ bun run host-fidelity-test # end-to-end against a capture or live server (LITELL
 ### Validation expectations for agents
 
 - After TypeScript changes: `bun run compile`; when scripts/ changed, `bun run typecheck`.
-- After source or test changes: `bun run lint`, `bun run lint:types`, `bun run lint:knip`, and the relevant tests. After workflow changes: `bun run lint:actions`. After editing scenarios: `bun run generate-config`.
+- After source or test changes: `bun run lint`, `bun run lint:types`, `bun run lint:knip`, and the relevant tests. After workflow changes: `bun run lint:actions`.
 - Never launch VS Code or any GUI for verification; humans test interactively (`F5` or `bun run dev:fake`).
 
 ### Architecture
@@ -111,7 +111,7 @@ Prioritize correctness, security, regressions, missing tests, and violations of 
 
 ### Testing
 
-Tests mirror the source layout under `src/test/` and run in the extension host (`@vscode/test-electron`, Mocha tdd; entry points build the bundle first). Network mocking uses msw (`src/test/mocks/handlers.ts` documents its quirks), with `withFetch` for what msw cannot express. Property suites (fast-check) are seed-pinned and scale with `FUZZ_RUNS`. Docker suites share scenario definitions in `src/test/scenarios.ts`, from which `docker/litellm-config.yaml` is generated (stale config fails the orchestrator). Pin any fuzz-found failure in `src/test/fuzzCorpus.ts`. `COMPOSE_CMD` overrides docker/podman detection.
+Tests mirror the source layout under `src/test/` and run in the extension host (`@vscode/test-electron`, Mocha tdd; entry points build the bundle first). Network mocking uses msw (`src/test/mocks/handlers.ts` documents its quirks), with `withFetch` for what msw cannot express. Property suites (fast-check) are seed-pinned and scale with `FUZZ_RUNS`. Docker suites share scenario definitions in `src/test/scenarios.ts`, from which the proxy config is generated at stack startup (`docker/.generated/litellm-config.yaml`, gitignored; the test orchestrator always generates it without real-provider wildcard routes). Pin any fuzz-found failure in `src/test/fuzzCorpus.ts`. `COMPOSE_CMD` overrides docker/podman detection.
 
 ### CI
 

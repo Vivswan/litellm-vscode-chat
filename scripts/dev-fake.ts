@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { composeSetting, readEnvFile } from "./litellmConfig";
 
 /** Whether a directory entry exists at all, symlink targets notwithstanding (existsSync follows symlinks). */
 function pathEntryExists(path: string): boolean {
@@ -21,27 +22,12 @@ function pathEntryExists(path: string): boolean {
 
 const root = process.cwd();
 
-// Compose reads .env with ${VAR:-default} semantics, so the seed must agree:
-// process.env wins, then .env, then the compose defaults; empty means unset.
-function composeVar(name: string, fallback: string): string {
-	const fromProcess = process.env[name];
-	if (fromProcess !== undefined && fromProcess !== "") {
-		return fromProcess;
-	}
-	const envFile = join(root, ".env");
-	if (existsSync(envFile)) {
-		for (const line of readFileSync(envFile, "utf8").split("\n")) {
-			const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
-			if (match && match[1] === name && match[2] !== undefined && match[2] !== "") {
-				return match[2].replace(/^["']|["']$/g, "");
-			}
-		}
-	}
-	return fallback;
-}
-
-const port = composeVar("LITELLM_PORT", "4000");
-const apiKey = composeVar("LITELLM_MASTER_KEY", "sk-test-1234");
+// The seed must agree with what docker-compose resolves, so it uses the same
+// ${VAR:-fallback} semantics: shell env wins even when empty, .env fills in
+// only unset variables, and an empty result takes the compose default.
+const envFile = readEnvFile();
+const port = composeSetting("LITELLM_PORT", "4000", envFile);
+const apiKey = composeSetting("LITELLM_MASTER_KEY", "sk-test-1234", envFile);
 
 function run(label: string, cmd: string[]): void {
 	console.log(`[dev:fake] ${label}`);

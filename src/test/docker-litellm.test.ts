@@ -95,7 +95,7 @@ suite("Docker LiteLLM stack", () => {
 		registeredModelIds = modelIds;
 		const expectedFakeIds = SCENARIO_NAMES.map((name) => `fake/${name}`);
 		for (const id of expectedFakeIds) {
-			assert.ok(modelIds.includes(id), `LiteLLM did not register ${id}; is docker/litellm-config.yaml stale?`);
+			assert.ok(modelIds.includes(id), `LiteLLM did not register ${id}; check the generated proxy config`);
 		}
 
 		const models = await waitForHostModels(
