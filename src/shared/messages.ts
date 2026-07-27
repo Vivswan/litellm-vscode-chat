@@ -157,10 +157,12 @@ function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThi
 
 /**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
+ * Prompt-cache markers are not placed here; shared/promptCache.ts owns them
+ * as a pass over the converted request.
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
-	options?: { cacheSystemPrompt?: boolean; log?: LogFn }
+	options?: { log?: LogFn }
 ): OpenAIChatMessage[] {
 	const log = options?.log;
 	const out: OpenAIChatMessage[] = [];
@@ -246,16 +248,7 @@ export function convertMessages(
 		} else {
 			const text = textParts.join("");
 			if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
-				if (role === "system" && options?.cacheSystemPrompt) {
-					const content: OpenAIChatContentBlock[] = [
-						{
-							type: "text",
-							text,
-							cache_control: { type: "ephemeral" },
-						},
-					];
-					out.push({ role, content });
-				} else if (role === "assistant" && thinkingBlocks.length > 0) {
+				if (role === "assistant" && thinkingBlocks.length > 0) {
 					out.push({ role, content: text, thinking_blocks: thinkingBlocks });
 				} else {
 					out.push({ role, content: text });

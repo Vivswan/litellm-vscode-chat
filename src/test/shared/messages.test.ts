@@ -282,50 +282,17 @@ suite("shared/messages", () => {
 		assert.equal(first.content, "test");
 	});
 
-	suite("cacheSystemPrompt", () => {
+	test("system content stays a plain string; cache markers belong to the prompt-cache pass", () => {
 		const systemMsg: vscode.LanguageModelChatRequestMessage = {
 			role: 3 as vscode.LanguageModelChatMessageRole,
 			content: [new vscode.LanguageModelTextPart("you are helpful")],
 			name: undefined,
 		};
-
-		test("on: system content becomes an array whose block carries an ephemeral cache_control", () => {
-			const out = convertMessages([systemMsg], { cacheSystemPrompt: true });
-			assert.equal(out.length, 1);
-			const first = expectDefined(out[0]);
-			assert.equal(first.role, "system");
-			assert.deepStrictEqual(first.content, [
-				{ type: "text", text: "you are helpful", cache_control: { type: "ephemeral" } },
-			]);
-		});
-
-		test("off: system content stays a plain string", () => {
-			for (const options of [undefined, { cacheSystemPrompt: false }]) {
-				const out = convertMessages([systemMsg], options);
-				assert.equal(out.length, 1);
-				const first = expectDefined(out[0]);
-				assert.equal(first.role, "system");
-				assert.strictEqual(first.content, "you are helpful");
-			}
-		});
-
-		test("on: user and assistant content is not wrapped in cache_control blocks", () => {
-			const messages: vscode.LanguageModelChatMessage[] = [
-				{
-					role: vscode.LanguageModelChatMessageRole.User,
-					content: [new vscode.LanguageModelTextPart("hi")],
-					name: undefined,
-				},
-				{
-					role: vscode.LanguageModelChatMessageRole.Assistant,
-					content: [new vscode.LanguageModelTextPart("hello")],
-					name: undefined,
-				},
-			];
-			const out = convertMessages(messages, { cacheSystemPrompt: true });
-			assert.strictEqual(expectDefined(out[0]).content, "hi");
-			assert.strictEqual(expectDefined(out[1]).content, "hello");
-		});
+		const out = convertMessages([systemMsg]);
+		assert.equal(out.length, 1);
+		const first = expectDefined(out[0]);
+		assert.equal(first.role, "system");
+		assert.strictEqual(first.content, "you are helpful");
 	});
 
 	suite("thinking block replay", () => {

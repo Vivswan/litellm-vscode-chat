@@ -2,6 +2,7 @@ import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseO
 import * as vscode from "vscode";
 import type { Logger } from "../shared/logger";
 import { convertMessages } from "../shared/messages";
+import { applyPromptCacheBreakpoints } from "../shared/promptCache";
 import type { ServerWithKey } from "../shared/servers";
 import {
 	getCustomHeaders,
@@ -244,16 +245,18 @@ export class ChatClient {
 		const customHeaders = getCustomHeaders(this.log);
 		const requestTimeout = getRequestTimeout(this.log);
 		const supportsPromptCaching = modelSupportsPromptCaching(model);
-		const openaiMessages = convertMessages(messages, {
-			cacheSystemPrompt: promptCachingEnabled && supportsPromptCaching,
-			log: this.log,
-		});
+		const converted = convertMessages(messages, { log: this.log });
 		validateRequest(messages);
 		const toolConfig = convertTools(options);
 
 		if (options.tools && options.tools.length > MAX_TOOLS_PER_REQUEST) {
 			throw new Error(`Cannot have more than ${MAX_TOOLS_PER_REQUEST} tools per request.`);
 		}
+
+		const { messages: openaiMessages, tools } =
+			promptCachingEnabled && supportsPromptCaching
+				? applyPromptCacheBreakpoints({ messages: converted, tools: toolConfig.tools })
+				: { messages: converted, tools: toolConfig.tools };
 
 		const inputTokenCount = estimateMessagesTokens(messages, { includeMultimodal: false });
 		const toolTokenCount = estimateToolTokens(toolConfig.tools);
@@ -284,7 +287,7 @@ export class ChatClient {
 			openaiMessages,
 			maxTokens,
 			modelParams,
-			toolConfig,
+			toolConfig: { tools, tool_choice: toolConfig.tool_choice },
 			modelConfiguration: requestParamsFromModelConfiguration(options.modelConfiguration),
 			modelOptions: options.modelOptions as Record<string, unknown> | undefined,
 		});

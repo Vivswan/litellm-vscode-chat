@@ -189,6 +189,12 @@ suite("provider groups", () => {
 		assert.deepStrictEqual(system.content, [
 			{ type: "text", text: "You are helpful.", cache_control: { type: "ephemeral" } },
 		]);
+		const user = expectDefined(messages.find((m) => m.role === "user"));
+		assert.deepStrictEqual(
+			user.content,
+			[{ type: "text", text: "hi", cache_control: { type: "ephemeral" } }],
+			"the breakpoint pass runs on the group path too: the sole user turn is both anchors, marked once"
+		);
 	});
 
 	test("a group model's server-declared output limit is sent uncapped", async () => {

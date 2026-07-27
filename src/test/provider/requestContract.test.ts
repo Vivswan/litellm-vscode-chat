@@ -736,11 +736,40 @@ suite("provider/request contract", () => {
 
 		const chatMessages = [systemMessage("You are helpful."), userMessage("hi")];
 
+		function assistantMessage(text: string): vscode.LanguageModelChatRequestMessage {
+			return {
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart(text)],
+				name: undefined,
+			};
+		}
+
+		const agentMessages = [
+			systemMessage("You are helpful."),
+			userMessage("Review the repository."),
+			assistantMessage("Starting with the README."),
+			userMessage("Now check the tests."),
+		];
+
+		const agentTools = [
+			{ name: "read_file", description: "Read a file", inputSchema: { type: "object", properties: {} } },
+			{ name: "list_dir", description: "List a directory", inputSchema: { type: "object", properties: {} } },
+		];
+
 		function systemEntry(body: Record<string, unknown>): unknown {
 			const messages = body.messages as Array<{ role: string; content: unknown }>;
 			const system = messages.find((m) => m.role === "system");
 			assert.ok(system, "Request must contain a system message");
 			return system.content;
+		}
+
+		/** Every cache_control occurrence in the serialized request body. */
+		function countMarkers(body: Record<string, unknown>): number {
+			return JSON.stringify(body).split('"cache_control"').length - 1;
+		}
+
+		function cachedBlock(text: string) {
+			return [{ type: "text", text, cache_control: { type: "ephemeral" } }];
 		}
 
 		test("system message carries cache_control when the model supports caching and the setting is on", async () => {
@@ -754,26 +783,33 @@ suite("provider/request contract", () => {
 			);
 			const content = systemEntry(body);
 			assert.ok(Array.isArray(content), "Cached system content must use the array form");
-			assert.deepStrictEqual(content, [
-				{ type: "text", text: "You are helpful.", cache_control: { type: "ephemeral" } },
-			]);
+			assert.deepStrictEqual(content, cachedBlock("You are helpful."));
 		});
 
-		test("no cache_control when the model does not advertise prompt caching support", async () => {
+		test("a tools + multi-turn request spends the full four-breakpoint budget", async () => {
 			const body = await withConfig({ "promptCaching.enabled": true }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
-					{ toolMode: vscode.LanguageModelChatToolMode.Auto },
-					{ messages: chatMessages, discoveryPayload: cachingDiscoveryPayload(false), useDiscoveredModel: true }
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto, tools: agentTools },
+					{ messages: agentMessages, discoveryPayload: cachingDiscoveryPayload(true), useDiscoveredModel: true }
 				)
 			);
-			const content = systemEntry(body);
-			assert.strictEqual(content, "You are helpful.", "Unsupported models keep plain string system content");
+
+			const tools = body.tools as Array<{ function: { name: string }; cache_control?: unknown }>;
+			assert.strictEqual(tools[0]?.cache_control, undefined, "only the last tool is marked");
+			assert.deepStrictEqual(tools[1]?.cache_control, { type: "ephemeral" }, "the last tool caches the tools block");
+
+			const messages = body.messages as Array<{ role: string; content: unknown }>;
+			assert.deepStrictEqual(messages[0]?.content, cachedBlock("You are helpful."), "system anchor");
+			assert.deepStrictEqual(messages[1]?.content, cachedBlock("Review the repository."), "first-user anchor");
+			assert.strictEqual(messages[2]?.content, "Starting with the README.", "mid-conversation stays a string");
+			assert.deepStrictEqual(messages[3]?.content, cachedBlock("Now check the tests."), "rolling anchor");
+			assert.strictEqual(countMarkers(body), 4, "exactly the four-breakpoint budget");
 		});
 
-		test("no cache_control when promptCaching.enabled is off, even for supporting models", async () => {
-			const body = await withConfig({ "promptCaching.enabled": false }, () =>
+		test("colliding anchors keep the request within budget", async () => {
+			const body = await withConfig({ "promptCaching.enabled": true }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -781,8 +817,36 @@ suite("provider/request contract", () => {
 					{ messages: chatMessages, discoveryPayload: cachingDiscoveryPayload(true), useDiscoveredModel: true }
 				)
 			);
-			const content = systemEntry(body);
-			assert.strictEqual(content, "You are helpful.", "Disabled setting keeps plain string system content");
+			// "hi" is both the first user message and the last message; one marker.
+			const messages = body.messages as Array<{ role: string; content: unknown }>;
+			assert.deepStrictEqual(messages[1]?.content, cachedBlock("hi"));
+			assert.strictEqual(countMarkers(body), 2, "system plus the deduplicated user anchor");
+		});
+
+		test("no cache_control when the model does not advertise prompt caching support", async () => {
+			const body = await withConfig({ "promptCaching.enabled": true }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto, tools: agentTools },
+					{ messages: agentMessages, discoveryPayload: cachingDiscoveryPayload(false), useDiscoveredModel: true }
+				)
+			);
+			assert.strictEqual(systemEntry(body), "You are helpful.", "Unsupported models keep plain string content");
+			assert.strictEqual(countMarkers(body), 0, "no marker anywhere in the request");
+		});
+
+		test("no cache_control when promptCaching.enabled is off, even for supporting models", async () => {
+			const body = await withConfig({ "promptCaching.enabled": false }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					modelInfo,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto, tools: agentTools },
+					{ messages: agentMessages, discoveryPayload: cachingDiscoveryPayload(true), useDiscoveredModel: true }
+				)
+			);
+			assert.strictEqual(systemEntry(body), "You are helpful.", "Disabled setting keeps plain string content");
+			assert.strictEqual(countMarkers(body), 0, "no marker anywhere in the request");
 		});
 	});
 

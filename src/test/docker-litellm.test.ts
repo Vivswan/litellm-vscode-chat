@@ -483,6 +483,61 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(tools.length, 1);
 			assert.strictEqual(expectDefined(tools[0]).function.name, "get_weather");
 		});
+
+		test("prompt-cache breakpoints on tools and messages survive the proxy", async () => {
+			// fake/usage-with-cache-tokens is generated with
+			// supports_prompt_caching: true, so the extension places its cache
+			// breakpoints. LiteLLM must accept the request and forward the markers:
+			// last tool, first user message, and rolling last message (no system
+			// message reaches the provider from a plain sendRequest). This
+			// validates marker survival on the OpenAI path only; the proxy's
+			// Anthropic translation never runs against the fake backend.
+			const messages = [
+				vscode.LanguageModelChatMessage.User("Task: audit the repository."),
+				vscode.LanguageModelChatMessage.Assistant("Starting with the README."),
+				vscode.LanguageModelChatMessage.User("Now check the tests."),
+			];
+			const tools = [
+				{ name: "read_file", description: "Read a file", inputSchema: { type: "object", properties: {} } },
+				{ name: "list_dir", description: "List a directory", inputSchema: { type: "object", properties: {} } },
+			];
+			assert.strictEqual(extractText(await send("usage-with-cache-tokens", messages, { tools })), "Cached response");
+
+			const body = await lastForwardedRequest();
+			const markerCount = JSON.stringify(body).split('"cache_control"').length - 1;
+			assert.strictEqual(markerCount, 3, "tools + first user + rolling anchors, nothing else");
+
+			const forwardedTools = expectDefined(body.tools, "tools survived the proxy") as Array<{
+				function: { name: string };
+				cache_control?: unknown;
+			}>;
+			assert.strictEqual(forwardedTools[0]?.cache_control, undefined, "only the last tool is marked");
+			assert.deepStrictEqual(forwardedTools[1]?.cache_control, { type: "ephemeral" });
+
+			const userMessages = (body.messages ?? []).filter((m) => m.role === "user");
+			assert.deepStrictEqual(userMessages[0]?.content, [
+				{ type: "text", text: "Task: audit the repository.", cache_control: { type: "ephemeral" } },
+			]);
+			assert.deepStrictEqual(userMessages[1]?.content, [
+				{ type: "text", text: "Now check the tests.", cache_control: { type: "ephemeral" } },
+			]);
+			const assistant = expectDefined((body.messages ?? []).find((m) => m.role === "assistant"));
+			assert.strictEqual(assistant.content, "Starting with the README.", "non-anchor turns keep string content");
+		});
+
+		test("no cache markers reach the backend for a model without caching support", async () => {
+			await send("tool-call-single", [vscode.LanguageModelChatMessage.User("weather?")], {
+				tools: [
+					{
+						name: "get_weather",
+						description: "Get the weather",
+						inputSchema: { type: "object", properties: { location: { type: "string" } } },
+					},
+				],
+			});
+			const body = await lastForwardedRequest();
+			assert.ok(!JSON.stringify(body).includes("cache_control"), "fake/tool-call-single advertises no caching");
+		});
 	});
 
 	// ── Dynamic scenario selection ─────────────────────────────────────────────

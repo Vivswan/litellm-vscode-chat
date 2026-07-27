@@ -86,7 +86,7 @@ export interface RequestBodyParams {
 	openaiMessages: OpenAIChatMessage[];
 	maxTokens: number;
 	modelParams: Record<string, unknown>;
-	toolConfig: { tools?: OpenAIFunctionToolDef[]; tool_choice?: unknown };
+	toolConfig: { tools?: OpenAIFunctionToolDef[] | undefined; tool_choice?: unknown };
 	/** Wire params resolved from the host's modelConfiguration, i.e. the user's model-picker choices. */
 	modelConfiguration?: ModelConfigurationRequestParams | undefined;
 	modelOptions?: Record<string, unknown> | undefined;
