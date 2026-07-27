@@ -10,6 +10,7 @@ import {
 	SERVER_FORM_FIELD_ORDER,
 	saveFailureDisposition,
 	sectionFailureText,
+	validateAdoptLabel,
 	validateServerForm,
 } from "../../extension/dashboard/serverForm";
 import type { FailuresByIntent, IntentAck } from "./app";
@@ -330,6 +331,12 @@ function ServerForm({
 					stays until removed in the native editor.
 				</p>
 			) : null}
+			{target.original !== undefined && !renaming ? (
+				<p class="hint">
+					Connection changes (URL, credentials) cannot reach the existing VS Code group: VS Code has no group-update
+					API. After saving, remove the old group in the native editor and run Sync Models Now.
+				</p>
+			) : null}
 			{collides ? <p class="hint">An entry with this label already exists; saving replaces it.</p> : null}
 			<TextField field="baseUrl" placeholder="e.g. http://localhost:4000" props={props} />
 			<SecretField field="apiKey" props={props} />
@@ -356,6 +363,193 @@ function ServerForm({
 				{firstBlocking !== undefined ? (
 					<span class="error" role="alert">
 						Cannot save: fix {SERVER_FORM_FIELD_LABELS[firstBlocking]}
+					</span>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
+const ADOPT_SECRET_LABELS: Record<SecretFieldId, string> = {
+	apiKey: SERVER_FORM_FIELD_LABELS.apiKey,
+	oauthClientSecret: SERVER_FORM_FIELD_LABELS.oauthClientSecret,
+	virtualKeyValue: SERVER_FORM_FIELD_LABELS.virtualKeyValue,
+};
+
+/**
+ * The adopt form: turns an external provider group into a declared servers
+ * entry. Credentials exist extension-side only, so instead of secret inputs
+ * the form offers one storage choice per secret field; the posted intent
+ * carries the label, the source row's identity, and those choices - never a
+ * credential value. Ack and failure handling mirror ServerForm: the intent's
+ * own requestId closes the form, a validation failure returns it to editing.
+ */
+function AdoptForm({
+	server,
+	ack,
+	failures,
+	declaredLabels,
+	onAdopted,
+	onClose,
+	onCancel,
+}: {
+	server: DashboardServer;
+	ack: IntentAck | undefined;
+	failures: FailuresByIntent;
+	declaredLabels: readonly string[];
+	/** Called once with the extension's optional caveat when the adoption lands; the parent shows the follow-up notice. */
+	onAdopted: (message: string | undefined) => void;
+	onClose: () => void;
+	onCancel: () => void;
+}) {
+	const [label, setLabel] = useState(server.label);
+	const [touched, setTouched] = useState(false);
+	const [locations, setLocations] = useState<Record<SecretFieldId, "settings" | "secure">>({
+		apiKey: "secure",
+		oauthClientSecret: "secure",
+		virtualKeyValue: "secure",
+	});
+	const [pending, setPending] = useState<string | undefined>(undefined);
+	const saving = pending !== undefined;
+	const failure = failures.adoptServer;
+	const failureSeq = failure?.seq;
+	const failureRequestId = failure?.requestId;
+	const failureKind = failure?.kind;
+
+	useEffect(() => {
+		if (pending !== undefined && ack?.requestId === pending) {
+			onAdopted(ack.message);
+			onClose();
+		}
+	}, [ack, pending, onAdopted, onClose]);
+
+	useEffect(() => {
+		if (pending === undefined || failureSeq === undefined || failureRequestId !== pending) {
+			return;
+		}
+		if (saveFailureDisposition(failureKind ?? "validation") === "close") {
+			onClose();
+			return;
+		}
+		setPending(undefined);
+	}, [failureSeq, failureRequestId, failureKind, pending, onClose]);
+
+	const problem = validateAdoptLabel(label, declaredLabels);
+	const showProblem = problem !== undefined && (touched || label.trim() !== server.label);
+	// External rows always carry the handle; a missing one means a stale
+	// capture the extension could not resolve anyway, so adopting is refused
+	// client-side rather than posting an intent that cannot be validated.
+	const sourceHandle = server.adoptHandle;
+
+	const adopt = () => {
+		if (problem !== undefined || sourceHandle === undefined) {
+			setTouched(true);
+			return;
+		}
+		const requestId = newRequestId();
+		postMessage({
+			type: "adoptServer",
+			label: label.trim(),
+			baseUrl: server.baseUrl,
+			sourceHandle,
+			secrets: locations,
+			requestId,
+		});
+		setPending(requestId);
+	};
+
+	// Which secret rows to offer: hasApiKey is coarse (the provider reports it
+	// for OAuth-only groups too, as "authentication configured"), so the key
+	// row drops out only when the group demonstrably holds no credentials at
+	// all, and every row states its own condition instead of promising a copy
+	// that may not exist.
+	const secretRows: readonly { field: SecretFieldId; hint: string }[] = [
+		...(server.hasApiKey ? [{ field: "apiKey" as const, hint: "Copied only if the group has an API key." }] : []),
+		{ field: "oauthClientSecret" as const, hint: "Copied only if the group is configured for OAuth." },
+		{ field: "virtualKeyValue" as const, hint: "Copied only if the group sends a virtual key header." },
+	];
+
+	return (
+		<div class="form-card">
+			<h3>Adopt {server.label}</h3>
+			<p class="hint">
+				Adopting writes this VS Code-managed group into the litellm-vscode-chat.servers setting, so it becomes editable
+				here. Its credentials are copied inside the extension and never pass through this page.
+			</p>
+			<div class="field">
+				<label for="adopt-label">Label</label>
+				<input
+					id="adopt-label"
+					type="text"
+					class={showProblem ? "invalid" : ""}
+					value={label}
+					disabled={saving}
+					aria-invalid={showProblem}
+					aria-describedby={showProblem ? "adopt-label-error" : undefined}
+					onInput={(event) => setLabel(event.currentTarget.value)}
+					onBlur={() => setTouched(true)}
+				/>
+				<span class="hint">
+					Names the new entry and its provider group; usually worth renaming, since a name an existing VS Code group
+					already uses cannot be synced.
+				</span>
+				{showProblem ? (
+					<span id="adopt-label-error" class="error">
+						{problem}
+					</span>
+				) : null}
+			</div>
+			<div class="field">
+				<span class="field-label">Base URL</span>
+				<span class="readonly-value">{server.baseUrl}</span>
+				<span class="hint">Fixed to the group being adopted; edit the server afterwards to change it.</span>
+			</div>
+			{secretRows.map(({ field, hint }) => (
+				<div class="field" key={field}>
+					<span>{ADOPT_SECRET_LABELS[field]}</span>
+					<span class="hint">{hint}</span>
+					<span class="secret-where" role="radiogroup" aria-label={`Where to store the ${ADOPT_SECRET_LABELS[field]}`}>
+						<span class="where-label">Store in:</span>
+						<label>
+							<input
+								type="radio"
+								name={`adopt-${field}-where`}
+								checked={locations[field] === "secure"}
+								disabled={saving}
+								onChange={() => setLocations((current) => ({ ...current, [field]: "secure" }))}
+							/>
+							secret storage
+						</label>
+						<label>
+							<input
+								type="radio"
+								name={`adopt-${field}-where`}
+								checked={locations[field] === "settings"}
+								disabled={saving}
+								onChange={() => setLocations((current) => ({ ...current, [field]: "settings" }))}
+							/>
+							settings (visible)
+						</label>
+					</span>
+				</div>
+			))}
+			<p class="hint">
+				The original group is not removed (VS Code offers no way to); its models appear twice until you delete it in the
+				native editor.
+			</p>
+			<div class="toolbar">
+				<button type="button" disabled={saving} onClick={adopt}>
+					{saving ? "Adopting..." : "Adopt"}
+				</button>
+				{/* Disabled while the intent is in flight: cancelling would unmount
+				    this form before the ack and lose the post-adoption notice (the
+				    duplicate-group reminder and any missing-credentials caveat). */}
+				<button type="button" class="secondary" disabled={saving} onClick={onCancel}>
+					Cancel
+				</button>
+				{showProblem ? (
+					<span class="error" role="alert">
+						Cannot adopt: fix Label
 					</span>
 				) : null}
 			</div>
@@ -436,10 +630,10 @@ function ServerRow({
 					<button
 						type="button"
 						class="quiet"
-						title="Managed outside settings; opens the native Manage Language Models editor"
-						onClick={() => postMessage({ type: "executeCommand", command: "manageServers" })}
+						title="Managed outside settings; Edit opens the form to adopt it into the servers setting"
+						onClick={onEdit}
 					>
-						Manage
+						Edit
 					</button>
 				)}
 			</td>
@@ -463,13 +657,20 @@ export function ServersSection({
 	// background refresh); a fresh key forces a clean draft per open.
 	const [form, setForm] = useState<{ target: FormTarget; key: number } | undefined>(undefined);
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
+	// The one-time post-adoption notice: the old host-owned group survives (no
+	// removal API), so the user is told plainly why models now appear twice.
+	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
 	const saveFailure = failures.saveServerSetting;
 	const removeFailure = failures.removeServerSetting;
+	const adoptFailure = failures.adoptServer;
 	const noServers = servers.length === 0;
 
 	const openForm = (target: FormTarget) => {
 		setForm((current) => ({ target, key: (current?.key ?? 0) + 1 }));
 	};
+
+	const declaredLabels = servers.filter((server) => server.origin === "declared").map((server) => server.label);
+	const adopting = form?.target.original?.origin === "external" ? form.target.original : undefined;
 
 	return (
 		<section>
@@ -505,19 +706,64 @@ export function ServersSection({
 					Open native editor
 				</button>
 			</div>
-			{form !== undefined ? (
+			{form !== undefined && adopting !== undefined ? (
+				<AdoptForm
+					key={form.key}
+					server={adopting}
+					ack={ack}
+					failures={failures}
+					declaredLabels={declaredLabels}
+					onAdopted={(message) => {
+						setAdoptNotice(
+							`Adopted into the servers setting. The original VS Code-managed group still exists, so its models appear twice until you remove that group in the native editor.${message !== undefined ? ` ${message}` : ""}`
+						);
+					}}
+					onClose={() => setForm(undefined)}
+					onCancel={() => {
+						onDismissFailure("adoptServer");
+						setForm(undefined);
+					}}
+				/>
+			) : form !== undefined ? (
 				<ServerForm
 					key={form.key}
 					target={form.target}
 					ack={ack}
 					failures={failures}
-					declaredLabels={servers.filter((server) => server.origin === "declared").map((server) => server.label)}
+					declaredLabels={declaredLabels}
 					onClose={() => setForm(undefined)}
 					onCancel={() => {
 						onDismissFailure("saveServerSetting");
 						setForm(undefined);
 					}}
 				/>
+			) : null}
+			{adoptNotice !== undefined ? (
+				<div class="notice" role="status">
+					<p>{adoptNotice}</p>
+					<div class="toolbar">
+						<button
+							type="button"
+							class="secondary"
+							onClick={() => postMessage({ type: "executeCommand", command: "manageServers" })}
+						>
+							Open native editor
+						</button>
+						<button type="button" class="quiet" onClick={() => setAdoptNotice(undefined)}>
+							Dismiss
+						</button>
+					</div>
+				</div>
+			) : null}
+			{adoptFailure !== undefined ? (
+				<p class="error">
+					{adoptFailure.kind === "operation"
+						? adoptFailure.message
+						: sectionFailureText("Adopting the server failed:", adoptFailure.message)}{" "}
+					<button type="button" class="quiet" onClick={() => onDismissFailure("adoptServer")}>
+						Dismiss
+					</button>
+				</p>
 			) : null}
 			{saveFailure !== undefined ? (
 				<p class="error">

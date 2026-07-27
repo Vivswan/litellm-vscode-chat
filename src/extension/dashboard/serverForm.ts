@@ -184,6 +184,25 @@ export function hasServerFormProblems(problems: ServerFormProblems): boolean {
 }
 
 /**
+ * The adopt form's label rule: the same constraints the full form applies,
+ * plus a hard collision refusal (adoption always creates a new entry, never
+ * replaces one). The extension re-checks the same rules on the intent.
+ */
+export function validateAdoptLabel(label: string, takenLabels: readonly string[]): string | undefined {
+	const trimmed = label.trim();
+	if (trimmed.length === 0) {
+		return "Enter a label";
+	}
+	if (isUnsafeRecordKey(trimmed)) {
+		return "This label is a reserved name and cannot be used";
+	}
+	if (takenLabels.includes(trimmed)) {
+		return "An entry with this label already exists";
+	}
+	return undefined;
+}
+
+/**
  * What the form does with its own save failure. A validation-kind failure
  * left the setting untouched: the draft is still the truth, so the form
  * returns to editing for a retry. An operation-kind failure means the save

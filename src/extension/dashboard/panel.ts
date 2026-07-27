@@ -30,6 +30,7 @@ import {
 	DashboardOperationError,
 	DashboardValidationError,
 	executeDashboardIntent,
+	resolveAdoptableCredentials,
 	resolveUpdateScope,
 	webviewMessageSchema,
 } from "./state";
@@ -148,9 +149,14 @@ export class DashboardController implements vscode.Disposable {
 		const intent = parsed.data;
 		const requestId = "requestId" in intent ? intent.requestId : undefined;
 		try {
-			await executeDashboardIntent(intent, this.env);
+			const notice = await executeDashboardIntent(intent, this.env);
 			if (requestId !== undefined) {
-				this.postToPanel({ type: "intentSucceeded", intentType: intent.type, requestId });
+				this.postToPanel({
+					type: "intentSucceeded",
+					intentType: intent.type,
+					requestId,
+					...(notice !== undefined ? { message: notice } : {}),
+				});
 			}
 			// The push doubles as the editors' success signal: some applied
 			// intents (a secure-only secret change, a no-op settings write) fire
@@ -263,6 +269,18 @@ export function registerDashboardCommand(
 		copyServerSecrets: (fromLabel, toLabel) => copyServerSecrets(context.secrets, fromLabel, toLabel),
 		deleteServerSecrets: (label) => deleteServerSecrets(context.secrets, label),
 		requestServerSync: () => syncEngine.requestSync(),
+		// The adopt intent's credential source: the provider's in-memory group
+		// lookup, resolved at intent time (against what is external at intent
+		// time) so the values never sit in dashboard state. They flow from here
+		// into the setting or SecretStorage only.
+		resolveAdoptionCredentials: (baseUrl, sourceHandle) =>
+			resolveAdoptableCredentials(
+				provider.getServerSnapshots(),
+				syncEngine.getDeclared(),
+				baseUrl,
+				sourceHandle,
+				(serverId) => provider.getGroupServer(serverId)
+			),
 		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
 		log: (message, data) => logger.log(message, data),
 		logError: (message, error) => logger.error(message, error),

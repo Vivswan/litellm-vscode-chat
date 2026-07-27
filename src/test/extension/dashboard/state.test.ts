@@ -8,6 +8,7 @@ import {
 	parseJsonValue,
 } from "../../../extension/dashboard/protocol";
 import type {
+	AdoptableGroupCredentials,
 	DashboardIntent,
 	IntentEnvironment,
 	SettingsInspection,
@@ -18,6 +19,7 @@ import {
 	DashboardOperationError,
 	executeDashboardIntent,
 	readDashboardSettings,
+	resolveAdoptableCredentials,
 	resolveUpdateScope,
 	validateHeadersRecord,
 	validateModelParametersRecord,
@@ -91,8 +93,13 @@ interface RecordedEnv {
 	failUnstoreTimes?: number;
 	/** When set, storeServerSecret rejects when storing a value for this field. */
 	failStoreField?: string;
+	/** When set, readServerSecrets rejects once this many reads have succeeded. */
+	failSecretReadsAfter?: number;
 	/** When set, deleteServerSecrets rejects with this error. */
 	failBlobDeletes?: Error;
+	/** What resolveAdoptionCredentials returns; every call is recorded in adoptionLookups. */
+	adoptionCredentials?: AdoptableGroupCredentials;
+	adoptionLookups: [string, string][];
 	env: IntentEnvironment;
 }
 
@@ -108,6 +115,7 @@ function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		storedSecrets: new Map(),
 		logs: [],
 		syncRequests: 0,
+		adoptionLookups: [],
 		env: {
 			updateSetting: async (key, value) => {
 				recorded.updates.push([key, value]);
@@ -144,7 +152,15 @@ function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				}
 				recorded.storedSecrets.set(label, blob);
 			},
-			readServerSecrets: async (label) => ({ ...recorded.storedSecrets.get(label) }),
+			readServerSecrets: async (label) => {
+				if (recorded.failSecretReadsAfter !== undefined) {
+					if (recorded.failSecretReadsAfter <= 0) {
+						throw new Error("keychain locked");
+					}
+					recorded.failSecretReadsAfter -= 1;
+				}
+				return { ...recorded.storedSecrets.get(label) };
+			},
 			copyServerSecrets: async (fromLabel, toLabel) => {
 				recorded.secretCopies.push([fromLabel, toLabel]);
 				recorded.ops.push(`copy:${fromLabel}->${toLabel}`);
@@ -163,6 +179,10 @@ function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			},
 			requestServerSync: () => {
 				recorded.syncRequests += 1;
+			},
+			resolveAdoptionCredentials: (baseUrl, sourceHandle) => {
+				recorded.adoptionLookups.push([baseUrl, sourceHandle]);
+				return recorded.adoptionCredentials;
 			},
 			log: (message, data) => {
 				recorded.logs.push([message, data]);
@@ -364,6 +384,64 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(byLabel.get("New")?.lastChecked, undefined);
 			assert.strictEqual(byLabel.get("Broken")?.state, "error");
 			assert.strictEqual(byLabel.get("Broken")?.error, "upsert refused");
+		});
+
+		test("a sync error rides a reachable row without erasing the live facts", () => {
+			// The host cannot update a group, so the reachable "ok" group is the
+			// entry's OLD configuration. The sync error must not be hidden (the
+			// error field carries it, outranking any live error text), while the
+			// live state and counts keep rendering - diagnostics prints them
+			// side by side ("OK (N models) - <sync error>").
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 4 }),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[makeDeclared({ label: "Prod", baseUrl: "http://prod.test", syncError: "group update unavailable" })]
+			);
+
+			assert.strictEqual(state.servers.length, 1);
+			assert.strictEqual(state.servers[0]?.state, "ok", "the live group is genuinely serving");
+			assert.strictEqual(state.servers[0]?.error, "group update unavailable");
+			assert.strictEqual(state.servers[0]?.modelCount, 4);
+		});
+
+		test("external rows carry an opaque, push-stable adopt handle; declared rows do not", () => {
+			const snapshots = [
+				{
+					status: makeServerStatus({
+						serverId: "group:fp-a:http://ext.test",
+						label: "ext.test",
+						baseUrl: "http://ext.test",
+					}),
+					models: [],
+				},
+				{
+					status: makeServerStatus({
+						serverId: "group:fp-b:http://prod.test",
+						label: "Prod",
+						baseUrl: "http://prod.test",
+					}),
+					models: [],
+				},
+			];
+			const declared = [makeDeclared({ label: "Prod", baseUrl: "http://prod.test" })];
+			const state = buildDashboardState(snapshots, makeReader({}), declared);
+
+			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
+			const external = byLabel.get("ext.test");
+			assert.strictEqual(external?.origin, "external");
+			assert.ok(typeof external?.adoptHandle === "string" && external.adoptHandle.length > 0);
+			assert.strictEqual(byLabel.get("Prod")?.adoptHandle, undefined, "declared rows are not adoptable");
+			// The webview holds a handle across background refreshes, so a rebuild
+			// must mint the same one; and the handle must not leak what it derives
+			// from (the serverId embeds the group's credential fingerprint).
+			const rebuilt = buildDashboardState(snapshots, makeReader({}), declared);
+			assert.strictEqual(rebuilt.servers.find((s) => s.label === "ext.test")?.adoptHandle, external.adoptHandle);
+			assert.ok(!JSON.stringify(state).includes("fp-a"), "the handle never exposes the serverId it derives from");
 		});
 
 		test("no secret value ever reaches the state, only locations", () => {
@@ -676,6 +754,14 @@ suite("extension/dashboard/state", () => {
 					requestId: "req-2",
 				},
 				{ type: "removeServerSetting", label: "Prod", requestId: "req-3" },
+				{
+					type: "adoptServer",
+					label: "Adopted",
+					baseUrl: "http://ext.test",
+					sourceHandle: "handle-ext",
+					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "settings" },
+					requestId: "req-4",
+				},
 				{ type: "executeCommand", command: "syncModels" },
 			];
 			for (const intent of intents) {
@@ -728,6 +814,58 @@ suite("extension/dashboard/state", () => {
 				{ type: "removeServerSetting", requestId: "r" },
 				{ type: "removeServerSetting", label: 4, requestId: "r" },
 				{ type: "removeServerSetting", label: "P" },
+				// adoptServer: never a credential value, only storage locations.
+				{
+					type: "adoptServer",
+					label: "A",
+					baseUrl: "http://x",
+					sourceHandle: "x",
+					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+				},
+				{
+					type: "adoptServer",
+					label: "A",
+					baseUrl: "http://x",
+					sourceHandle: "x",
+					secrets: { apiKey: "keychain", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+					requestId: "r",
+				},
+				{
+					type: "adoptServer",
+					label: "A",
+					baseUrl: "http://x",
+					sourceHandle: "x",
+					secrets: { apiKey: "secure", oauthClientSecret: "secure" },
+					requestId: "r",
+				},
+				{
+					type: "adoptServer",
+					label: "A",
+					baseUrl: "http://x",
+					sourceHandle: "x",
+					secrets: {
+						apiKey: "secure",
+						oauthClientSecret: "secure",
+						virtualKeyValue: "secure",
+						apiKeyValue: "sk-smuggled",
+					},
+					requestId: "r",
+				},
+				{
+					type: "adoptServer",
+					label: "A",
+					baseUrl: "http://x",
+					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+					requestId: "r",
+				},
+				{
+					type: "adoptServer",
+					label: "A",
+					baseUrl: "http://x",
+					sourceHandle: "",
+					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+					requestId: "r",
+				},
 			];
 			for (const message of rejected) {
 				assert.strictEqual(
@@ -916,7 +1054,7 @@ suite("extension/dashboard/state", () => {
 		const save = (
 			recorded: RecordedEnv,
 			partial: Partial<Extract<DashboardIntent, { type: "saveServerSetting" }>>
-		): Promise<void> =>
+		): Promise<string | undefined> =>
 			executeDashboardIntent(
 				{
 					type: "saveServerSetting",
@@ -1380,6 +1518,367 @@ suite("extension/dashboard/state", () => {
 			);
 
 			assert.deepStrictEqual(recorded.serverWrites, []);
+		});
+	});
+
+	suite("executeDashboardIntent: adoptServer", () => {
+		const FULL_CREDENTIALS: AdoptableGroupCredentials = {
+			apiKey: "sk-live",
+			oauthTokenUrl: "https://idp.test/token",
+			oauthClientId: "client-1",
+			oauthClientSecret: "oauth-secret",
+			oauthScopes: "read write",
+			virtualKeyHeader: "x-litellm-api-key",
+			virtualKeyValue: "vk-live",
+		};
+
+		const adopt = (
+			recorded: RecordedEnv,
+			partial: Partial<Extract<DashboardIntent, { type: "adoptServer" }>> = {}
+		): Promise<string | undefined> =>
+			executeDashboardIntent(
+				{
+					type: "adoptServer",
+					label: "Adopted",
+					baseUrl: "http://ext.test",
+					sourceHandle: "handle-ext",
+					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+					requestId: "req-a",
+					...partial,
+				},
+				recorded.env
+			);
+
+		test("writes the entry with non-secret fields and stores secure-side secrets, never logging a value", async () => {
+			const recorded = makeEnv([{ label: "Existing", baseUrl: "http://other.test" }]);
+			recorded.adoptionCredentials = FULL_CREDENTIALS;
+
+			const notice = await adopt(recorded);
+
+			assert.strictEqual(notice, undefined, "a full adoption carries no caveat");
+			assert.deepStrictEqual(recorded.adoptionLookups, [["http://ext.test", "handle-ext"]]);
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[
+					{ label: "Existing", baseUrl: "http://other.test" },
+					{
+						label: "Adopted",
+						baseUrl: "http://ext.test",
+						oauthTokenUrl: "https://idp.test/token",
+						oauthClientId: "client-1",
+						oauthScopes: "read write",
+						virtualKeyHeader: "x-litellm-api-key",
+					},
+				],
+			]);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Adopted"), {
+				apiKey: "sk-live",
+				oauthClientSecret: "oauth-secret",
+				virtualKeyValue: "vk-live",
+			});
+			assert.strictEqual(recorded.syncRequests, 1);
+			const everything = JSON.stringify(recorded.logs);
+			for (const secret of ["sk-live", "oauth-secret", "vk-live"]) {
+				assert.ok(!everything.includes(secret), `logs must never carry ${secret}`);
+			}
+		});
+
+		test("a settings-side storage choice inlines the value into the entry instead", async () => {
+			const recorded = makeEnv([]);
+			recorded.adoptionCredentials = { apiKey: "sk-live" };
+
+			await adopt(recorded, {
+				secrets: { apiKey: "settings", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+			});
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[{ label: "Adopted", baseUrl: "http://ext.test", apiKey: "sk-live" }],
+			]);
+			assert.deepStrictEqual(recorded.secretOps, [], "nothing goes secure-side when settings was chosen");
+		});
+
+		test("refuses a label collision with an existing declared entry", async () => {
+			const recorded = makeEnv([{ label: "Adopted", baseUrl: "http://other.test" }]);
+			recorded.adoptionCredentials = FULL_CREDENTIALS;
+
+			await assert.rejects(
+				() => adopt(recorded),
+				(error: unknown) =>
+					error instanceof Error && error.name === "DashboardValidationError" && /already exists/.test(error.message)
+			);
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.secretOps, []);
+		});
+
+		test("refuses label and URL rule violations", async () => {
+			const recorded = makeEnv([]);
+			recorded.adoptionCredentials = FULL_CREDENTIALS;
+			for (const partial of [
+				{ label: "  " },
+				{ label: "__proto__" },
+				{ baseUrl: "not a url" },
+				{ baseUrl: "ftp://x.test" },
+			]) {
+				await assert.rejects(
+					() => adopt(recorded, partial),
+					(error: unknown) => error instanceof Error && error.name === "DashboardValidationError",
+					JSON.stringify(partial)
+				);
+			}
+			assert.deepStrictEqual(recorded.serverWrites, []);
+		});
+
+		test("a missing credential lookup still adopts the plain entry and reports the caveat", async () => {
+			const recorded = makeEnv([]);
+			// adoptionCredentials stays unset: the group refreshed away.
+
+			const notice = await adopt(recorded);
+
+			assert.ok(notice !== undefined && /could not be read/.test(notice), notice ?? "expected a caveat notice");
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Adopted", baseUrl: "http://ext.test" }]]);
+			assert.deepStrictEqual(recorded.secretOps, [], "no secrets to copy");
+			assert.strictEqual(recorded.syncRequests, 1);
+		});
+
+		test("a failed settings write rolls the copied secure secrets back", async () => {
+			const recorded = makeEnv([]);
+			recorded.adoptionCredentials = FULL_CREDENTIALS;
+			recorded.failWrites = new Error("settings store unavailable");
+
+			await assert.rejects(() => adopt(recorded));
+
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("Adopted"),
+				{},
+				"the copied secrets are removed again when the entry never landed"
+			);
+		});
+
+		test("a stale secure blob under the new label is cleared, never inherited", async () => {
+			// serverSync keeps a removed entry's blob on purpose (re-adding the
+			// label picks it up), but an adoption under that label asked for the
+			// GROUP's secrets, so leftovers from neither the group nor the user
+			// must not resolve for the new entry.
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Adopted", { apiKey: "sk-stale", virtualKeyValue: "vk-stale" });
+			recorded.adoptionCredentials = { apiKey: "sk-live" };
+
+			await adopt(recorded);
+
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("Adopted"),
+				{ apiKey: "sk-live" },
+				"copied fields land; stale fields are removed"
+			);
+		});
+
+		test("a stale blob field behind a settings-side copy is cleared too, like the save path's dormant copies", async () => {
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Adopted", { apiKey: "sk-stale" });
+			recorded.adoptionCredentials = { apiKey: "sk-live" };
+
+			await adopt(recorded, {
+				secrets: { apiKey: "settings", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+			});
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[{ label: "Adopted", baseUrl: "http://ext.test", apiKey: "sk-live" }],
+			]);
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("Adopted"),
+				{},
+				"the stale secure copy behind the inline value is removed"
+			);
+		});
+
+		test("a stale blob that survives cleanup surfaces in the success caveat, never silently", async () => {
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Adopted", { virtualKeyValue: "vk-stale" });
+			recorded.adoptionCredentials = { apiKey: "sk-live" };
+			recorded.failUnstore = new Error("keychain locked");
+
+			const notice = await adopt(recorded);
+
+			assert.ok(notice !== undefined, "expected a caveat");
+			assert.ok(/could not be cleared/.test(notice), notice);
+			assert.ok(notice.includes("Virtual key value"), "the caveat uses the display name");
+			assert.ok(!notice.includes("vk-stale"), "the caveat names the field, never the value");
+			assert.strictEqual(recorded.serverWrites.length, 1, "the entry write stands; only the caveat warns");
+			assert.deepStrictEqual(recorded.storedSecrets.get("Adopted"), {
+				apiKey: "sk-live",
+				virtualKeyValue: "vk-stale",
+			});
+		});
+
+		test("missing credentials and a failed stale-blob cleanup combine into one caveat", async () => {
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Adopted", { apiKey: "sk-stale" });
+			recorded.failUnstore = new Error("keychain locked");
+			// adoptionCredentials stays unset: nothing to copy.
+
+			const notice = await adopt(recorded);
+
+			assert.ok(notice !== undefined, "expected a caveat");
+			assert.ok(/could not be read/.test(notice) && /could not be cleared/.test(notice), notice);
+		});
+
+		test("an unverifiable cleanup counts as failed: adoption completes with the caveat", async () => {
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Adopted", { apiKey: "sk-stale" });
+			recorded.adoptionCredentials = { virtualKeyHeader: "x-litellm-api-key", virtualKeyValue: "vk-live" };
+			// The initial blob read succeeds; the post-cleanup verification read
+			// throws, so the cleanup outcome is unknowable and must warn.
+			recorded.failSecretReadsAfter = 1;
+
+			const notice = await adopt(recorded);
+
+			assert.ok(notice !== undefined, "expected a caveat");
+			assert.ok(/could not be cleared/.test(notice), notice);
+			assert.ok(notice.includes("API key"), notice);
+			assert.strictEqual(recorded.serverWrites.length, 1, "the adoption still completes");
+		});
+
+		test("a failed write whose rollback also fails reports the reachable recovery path", async () => {
+			const recorded = makeEnv([]);
+			recorded.adoptionCredentials = { apiKey: "sk-live" };
+			recorded.failWrites = new Error("settings store unavailable");
+			// The rollback deletes the copied secret (a store of undefined),
+			// which this knob rejects.
+			recorded.failUnstore = new Error("keychain locked");
+
+			await assert.rejects(
+				() => adopt(recorded),
+				(error: unknown) =>
+					error instanceof Error &&
+					error.name === "DashboardOperationError" &&
+					/Re-add a server under this label/.test(error.message)
+			);
+			assert.strictEqual(recorded.syncRequests, 1, "the unrestored secret must still reach the sync engine");
+		});
+	});
+
+	suite("resolveAdoptableCredentials", () => {
+		const groupServers = new Map([
+			[
+				"group:aaa:http://ext.test",
+				{
+					baseUrl: "http://ext.test",
+					apiKey: "sk-one",
+				},
+			],
+			[
+				"group:bbb:http://ext.test",
+				{
+					baseUrl: "http://ext.test",
+					apiKey: "",
+					oauth: {
+						tokenUrl: "https://idp.test/token",
+						clientId: "client-1",
+						clientSecret: "oauth-secret",
+						scopes: "read",
+					},
+					virtualKey: { header: "x-litellm-api-key", value: "vk-1" },
+				},
+			],
+		]);
+		const lookup = (serverId: string) => groupServers.get(serverId);
+		const snapshotFor = (serverId: string) => ({
+			status: makeServerStatus({ serverId, label: "ext.test", baseUrl: "http://ext.test" }),
+			models: [],
+		});
+		const OAUTH_CREDENTIALS = {
+			oauthTokenUrl: "https://idp.test/token",
+			oauthClientId: "client-1",
+			oauthClientSecret: "oauth-secret",
+			oauthScopes: "read",
+			virtualKeyHeader: "x-litellm-api-key",
+			virtualKeyValue: "vk-1",
+		};
+		/** The handle a row carries, obtained the way the webview obtains it: from the built state. */
+		const handleOf = (
+			snapshots: Parameters<typeof buildDashboardState>[0],
+			declared: DeclaredServerView[],
+			label: string
+		): string => {
+			const server = buildDashboardState(snapshots, makeReader({}), declared).servers.find((s) => s.label === label);
+			assert.ok(server?.adoptHandle !== undefined, `no adopt handle on row ${label}`);
+			return server.adoptHandle;
+		};
+
+		test("resolves by the row handle, immune to snapshot order churn on a shared base URL", () => {
+			// Two groups on one host: the status window's Map re-inserts entries
+			// on refresh, so the same rows arrive in either order. The handle
+			// rides the serverId, so both orders resolve identically where the
+			// old rendered-ordinal match could hand back the OTHER group's key.
+			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
+			const first = handleOf(snapshots, [], "ext.test (1)");
+			const second = handleOf(snapshots, [], "ext.test (2)");
+			for (const ordering of [snapshots, [...snapshots].reverse()]) {
+				assert.deepStrictEqual(resolveAdoptableCredentials(ordering, [], "http://ext.test", first, lookup), {
+					apiKey: "sk-one",
+				});
+				assert.deepStrictEqual(
+					resolveAdoptableCredentials(ordering, [], "http://ext.test/", second, lookup),
+					OAUTH_CREDENTIALS
+				);
+			}
+		});
+
+		test("refuses a source that is declared at intent time (a forged intent cannot clone a declared group's secret)", () => {
+			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
+			// The handles as pushed while both rows were external; the first
+			// group's entry is then declared (adopted or hand-written) before the
+			// intent lands.
+			const first = handleOf(snapshots, [], "ext.test (1)");
+			const second = handleOf(snapshots, [], "ext.test (2)");
+			const declared = [
+				makeDeclared({
+					label: "Prod",
+					baseUrl: "http://ext.test",
+					expectedClientId: "group:aaa:http://ext.test",
+				}),
+			];
+			assert.strictEqual(
+				resolveAdoptableCredentials(snapshots, declared, "http://ext.test", first, lookup),
+				undefined,
+				"the declared group's credentials must not resolve for an adopt intent"
+			);
+			assert.deepStrictEqual(
+				resolveAdoptableCredentials(snapshots, declared, "http://ext.test", second, lookup),
+				OAUTH_CREDENTIALS,
+				"the still-external sibling stays adoptable"
+			);
+		});
+
+		test("binds the handle to the intent's base URL, so copied credentials cannot be re-pointed at another host", () => {
+			const snapshots = [snapshotFor("group:aaa:http://ext.test")];
+			const handle = handleOf(snapshots, [], "ext.test");
+			assert.strictEqual(resolveAdoptableCredentials(snapshots, [], "http://attacker.test", handle, lookup), undefined);
+		});
+
+		test("returns undefined for an unknown handle or a snapshot without group credentials", () => {
+			const snapshots = [snapshotFor("group:aaa:http://ext.test")];
+			assert.strictEqual(
+				resolveAdoptableCredentials(snapshots, [], "http://ext.test", "not-a-minted-handle", lookup),
+				undefined,
+				"a handle the extension never minted resolves nothing"
+			);
+			const registryOnly = [
+				{
+					status: makeServerStatus({ serverId: "registry-1", label: "ext.test", baseUrl: "http://ext.test" }),
+					models: [],
+				},
+			];
+			assert.strictEqual(
+				resolveAdoptableCredentials(
+					registryOnly,
+					[],
+					"http://ext.test",
+					handleOf(registryOnly, [], "ext.test"),
+					lookup
+				),
+				undefined,
+				"a registry snapshot has no group credentials to adopt"
+			);
 		});
 	});
 

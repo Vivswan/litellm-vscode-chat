@@ -27,6 +27,33 @@ export interface MapErrorContext {
 
 const AUTH_MESSAGE = `Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.`;
 
+const UPSTREAM_AUTH_MESSAGE =
+	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.";
+
+/**
+ * Whether a 401 body reports the proxy's own upstream call failing to
+ * authenticate rather than this client's key being rejected. LiteLLM wraps
+ * upstream failures in its exception names ("litellm.AuthenticationError:
+ * AnthropicException - ...", sometimes module-qualified); its own gate
+ * answers with an auth_error envelope ("Authentication Error, No api key
+ * passed in."). The envelope type outranks the message text: an exception
+ * name quoted inside an auth_error body is still the proxy rejecting this
+ * client's key. Telling them apart matters: the proxy message tells the user
+ * to fix the extension's key, which for an upstream failure is the wrong
+ * credential entirely. Classification only; the body text itself is never
+ * echoed anywhere.
+ */
+function isUpstreamAuthFailure(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) {
+		return false;
+	}
+	const { message, type } = error as { message?: unknown; type?: unknown };
+	if (type === "auth_error") {
+		return false;
+	}
+	return typeof message === "string" && /litellm\.[\w.]*AuthenticationError/i.test(message);
+}
+
 export function timeoutMessage(ctx: MapErrorContext): string {
 	return ctx.surface === "chat"
 		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "litellm-vscode-chat.requestTimeout" setting if your model needs more time.`
@@ -76,7 +103,8 @@ function errorBodyText(err: APIError): string {
 export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof APIError && typeof err.status === "number") {
 		if (err.status === 401) {
-			return new RequestError(AUTH_MESSAGE, "auth", { status: 401, cause: err });
+			const message = isUpstreamAuthFailure(err.error) ? UPSTREAM_AUTH_MESSAGE : AUTH_MESSAGE;
+			return new RequestError(message, "auth", { status: 401, cause: err });
 		}
 		const text = errorBodyText(err);
 		const message =

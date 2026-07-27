@@ -120,6 +120,7 @@ function makeHarness(): Harness {
 		copyServerSecrets: async () => {},
 		deleteServerSecrets: async () => {},
 		requestServerSync: () => {},
+		resolveAdoptionCredentials: () => undefined,
 		executeCommand: async (command, ...args) => {
 			commands.push([command, ...args]);
 		},
@@ -367,6 +368,33 @@ suite("extension/dashboard/panel", () => {
 		assert.ok(
 			messages.slice(ackIndex + 1).some((m) => m.type === "state"),
 			"a state push follows the ack"
+		);
+	});
+
+	test("an adoption without resolvable credentials acks success with the caveat message", async () => {
+		const harness = makeHarness();
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		fake.receiveMessage({
+			type: "adoptServer",
+			label: "Adopted",
+			baseUrl: "http://ext.test",
+			sourceHandle: "handle-ext",
+			secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+			requestId: "req-adopt",
+		});
+		await settle();
+		await settle();
+
+		assert.deepStrictEqual(harness.serverWrites, [[{ label: "Adopted", baseUrl: "http://ext.test" }]]);
+		const messages = fake.posted as ExtensionToWebviewMessage[];
+		const ack = messages.find((m) => m.type === "intentSucceeded");
+		assert.ok(ack !== undefined && ack.type === "intentSucceeded" && ack.requestId === "req-adopt");
+		assert.ok(
+			typeof ack.message === "string" && /could not be read/.test(ack.message),
+			"the caveat travels on the ack"
 		);
 	});
 

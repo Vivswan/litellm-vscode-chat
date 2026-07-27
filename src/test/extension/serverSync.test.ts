@@ -4,9 +4,11 @@ import {
 	buildGroupArgs,
 	copyServerSecrets,
 	deleteServerSecrets,
+	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
 	GROUP_UPSERT_FAILED_MESSAGE,
 	parseServersSetting,
 	readServerSecrets,
+	SECRETS_READ_FAILED_MESSAGE,
 	ServerSyncEngine,
 	updateServerSecret,
 } from "../../extension/serverSync";
@@ -38,6 +40,8 @@ interface Recorded {
 	secrets: Record<string, StoredServerSecrets>;
 	/** When set, addProviderGroup rejects for these labels. */
 	failLabels: Set<string>;
+	/** When set, addProviderGroup rejects these labels the way an add-only host refuses an existing name. */
+	duplicateLabels: Set<string>;
 }
 
 function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServerSecrets> = {}): Recorded {
@@ -50,12 +54,16 @@ function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServer
 		setting,
 		secrets,
 		failLabels: new Set(),
+		duplicateLabels: new Set(),
 		env: {
 			readServersSetting: () => recorded.setting,
 			readSecrets: async (label) => recorded.secrets[label] ?? {},
 			addProviderGroup: async (args) => {
 				if (recorded.failLabels.has(args.name ?? "")) {
 					throw new Error("host refused the group");
+				}
+				if (recorded.duplicateLabels.has(args.name ?? "")) {
+					throw new Error(`Language model group with name ${args.name} already exists for vendor litellm`);
 				}
 				recorded.upserts.push({ ...args });
 			},
@@ -234,6 +242,273 @@ suite("extension/serverSync", () => {
 
 			assert.strictEqual(recorded.upserts.length, 2, "force ignores the matching fingerprint");
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
+		});
+
+		test("a duplicate rejection for an unchanged entry counts as in-sync (the add-only host's steady state)", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			// The group now exists host-side, so the forced activation re-add is
+			// refused as a duplicate; that must not surface as an error.
+			recorded.duplicateLabels.add("A");
+			await engine.syncNow(true);
+
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "an existing unchanged group is in sync");
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the fingerprint survives the forced pass");
+			assert.ok(
+				!JSON.stringify(recorded.logged).includes("already exists"),
+				"the steady-state duplicate is not logged"
+			);
+		});
+
+		test("a duplicate rejection for a changed entry surfaces the actionable error and does not hammer", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1);
+
+			// The entry changes, but the host cannot update the existing group.
+			recorded.secrets = { A: { apiKey: "sk-2" } };
+			recorded.duplicateLabels.add("A");
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.ok(
+				!JSON.stringify(recorded.logged).includes("sk-2"),
+				"the classification log never carries secret material"
+			);
+
+			// Further unforced passes keep the error without re-calling the host.
+			await engine.syncNow();
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1, "no add attempts while blocked");
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+
+			// After the user removes the stale group natively, a forced pass
+			// (Sync Models Now, next activation) recreates it and clears the error.
+			recorded.duplicateLabels.clear();
+			await engine.syncNow(true);
+			assert.strictEqual(recorded.upserts.length, 2, "the forced retry lands");
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
+		});
+
+		test("reverting a refused change lands back in sync silently instead of wedging", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1);
+
+			// The change is refused: the host cannot update the existing group.
+			recorded.secrets = { A: { apiKey: "sk-2" } };
+			recorded.duplicateLabels.add("A");
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.deepStrictEqual(
+				Object.keys(recorded.fingerprints),
+				["A"],
+				"the last-known-good fingerprint is carried, not dropped"
+			);
+
+			// The user reverts the entry instead of removing the group natively:
+			// the live group already holds this content, so the error clears
+			// without a host call.
+			recorded.secrets = { A: { apiKey: "sk-1" } };
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the revert unwedges the entry");
+			assert.strictEqual(recorded.upserts.length, 1, "the revert is a silent no-op, not a retry");
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
+
+			// A genuine change afterwards still surfaces the error.
+			recorded.secrets = { A: { apiKey: "sk-3" } };
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+		});
+
+		test("a transient failure on a synced entry keeps last-known-good, so the retry's duplicate reads as in-sync", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
+
+			// A forced pass (activation) re-adds the healthy entry and the host
+			// fails transiently. The fingerprint record must survive: it is the
+			// only thing that lets the next duplicate response read as in-sync.
+			recorded.failLabels.add("A");
+			await engine.syncNow(true);
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPSERT_FAILED_MESSAGE);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "last-known-good survives the failure");
+
+			// The next unforced pass retries and gets the healthy group's normal
+			// duplicate rejection; misreading it as changed/name-taken would
+			// block the entry forever.
+			recorded.failLabels.delete("A");
+			recorded.duplicateLabels.add("A");
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the duplicate is the synced steady state");
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
+		});
+
+		test("a transient failure on a changed entry does not wedge the later revert", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1);
+
+			// The entry changes and the add for the NEW configuration fails
+			// transiently (not as a duplicate).
+			recorded.secrets = { A: { apiKey: "sk-2" } };
+			recorded.failLabels.add("A");
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPSERT_FAILED_MESSAGE);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "last-known-good survives the failure");
+
+			// The user reverts instead: the entry matches the live group again,
+			// and the pending retry concerned a configuration that no longer
+			// exists, so this is in sync without a host call.
+			recorded.failLabels.delete("A");
+			recorded.secrets = { A: { apiKey: "sk-1" } };
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the revert lands in sync");
+			assert.strictEqual(recorded.upserts.length, 1, "no host call for the revert");
+		});
+
+		test("a generic failure clears stale duplicate knowledge, so the retry is not suppressed", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1);
+
+			// The entry changes and the host refuses the duplicate: blocked.
+			recorded.secrets = { A: { apiKey: "sk-2" } };
+			recorded.duplicateLabels.add("A");
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+
+			// The user removes the group natively and forces a sync, but the
+			// re-add fails transiently. The stale duplicate knowledge must clear
+			// with it, or the blocked shortcut would suppress every retry below.
+			recorded.duplicateLabels.delete("A");
+			recorded.failLabels.add("A");
+			await engine.syncNow(true);
+			assert.strictEqual(
+				engine.getDeclared()[0]?.syncError,
+				GROUP_UPSERT_FAILED_MESSAGE,
+				"the classification follows the latest outcome"
+			);
+
+			// The next UNFORCED pass reaches the host and lands.
+			recorded.failLabels.delete("A");
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 2, "the unforced retry reaches the host");
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined);
+		});
+
+		test("one entry's secret-read failure neither aborts the pass nor loses another entry's fresh fingerprint", async () => {
+			const recorded = makeSyncEnv([
+				{ label: "A", baseUrl: "http://a.test" },
+				{ label: "B", baseUrl: "http://b.test" },
+			]);
+			const readSecrets = recorded.env.readSecrets;
+			recorded.env.readSecrets = async (label) => {
+				if (label === "B") {
+					throw new Error("keychain locked");
+				}
+				return readSecrets(label);
+			};
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			// A landed and is recorded; B is skipped with the classified error.
+			assert.deepStrictEqual(
+				recorded.upserts.map((upsert) => upsert.name),
+				["A"]
+			);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "A's add survives B's failure");
+			const byLabel = new Map(engine.getDeclared().map((view) => [view.label, view]));
+			assert.strictEqual(byLabel.get("A")?.syncError, undefined);
+			assert.strictEqual(byLabel.get("B")?.syncError, SECRETS_READ_FAILED_MESSAGE);
+
+			// The store recovers and a forced pass (Sync Models Now) re-adds
+			// both: A's duplicate response reads as the steady state - only
+			// possible because its fingerprint survived B's failure - and B's
+			// first add lands.
+			recorded.env.readSecrets = readSecrets;
+			recorded.duplicateLabels.add("A");
+			await engine.syncNow(true);
+			const after = new Map(engine.getDeclared().map((view) => [view.label, view]));
+			assert.strictEqual(after.get("A")?.syncError, undefined);
+			assert.strictEqual(after.get("B")?.syncError, undefined);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints).sort(), ["A", "B"]);
+		});
+
+		test("a completed add survives a failing end-of-pass fingerprint write (write-through)", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			const setFingerprints = recorded.env.setFingerprints;
+			let calls = 0;
+			recorded.env.setFingerprints = async (map) => {
+				calls += 1;
+				// Call 1 is the write-through after A's add; call 2 is the
+				// end-of-pass wholesale write.
+				if (calls === 2) {
+					throw new Error("memento write failed");
+				}
+				await setFingerprints(map);
+			};
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the write-through record survives");
+
+			// A forced pass re-adds the group and gets the duplicate response;
+			// only the write-through record makes it read as the steady state
+			// instead of a name conflict.
+			recorded.env.setFingerprints = setFingerprints;
+			recorded.duplicateLabels.add("A");
+			await engine.syncNow(true);
+			assert.strictEqual(
+				engine.getDeclared()[0]?.syncError,
+				undefined,
+				"the group's duplicate response reads as in-sync, not a name conflict"
+			);
+		});
+
+		test("the blocked shortcut re-asserts its classification after an unrelated failure pass", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			// The change is refused as a duplicate: blocked, actionable text.
+			recorded.secrets = { A: { apiKey: "sk-2" } };
+			recorded.duplicateLabels.add("A");
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+
+			// One pass cannot read the stored secrets; its classification takes
+			// over for that pass.
+			const readSecrets = recorded.env.readSecrets;
+			recorded.env.readSecrets = async () => {
+				throw new Error("keychain locked");
+			};
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, SECRETS_READ_FAILED_MESSAGE);
+
+			// The store recovers and the entry still holds the refused
+			// configuration: the shortcut must show the name-conflict text
+			// again, not the stale secrets text.
+			recorded.env.readSecrets = readSecrets;
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(recorded.upserts.length, 1, "the shortcut still avoids hammering the host");
+		});
+
+		test("a new entry under a name the host already uses gets the actionable error immediately", async () => {
+			const recorded = makeSyncEnv([{ label: "Taken", baseUrl: "http://a.test" }]);
+			recorded.duplicateLabels.add("Taken");
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.deepStrictEqual(recorded.fingerprints, {}, "no fingerprint for an entry that never landed");
 		});
 
 		test("syncNow during an in-flight pass resolves after the pass that includes the request", async () => {

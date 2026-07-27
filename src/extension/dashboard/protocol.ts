@@ -50,6 +50,15 @@ export interface DashboardServer {
 	readonly origin: "declared" | "external";
 	/** Present on declared servers: the edit form's prefill. */
 	readonly config?: DashboardServerConfig | undefined;
+	/**
+	 * Present on external rows: the opaque token the adopt intent names its
+	 * source group by. A salted one-way hash of the extension-side server ID,
+	 * stable across state pushes for the session (rendered labels and row
+	 * order are not); it carries no credential material, cannot be reproduced
+	 * outside the extension host, and resolves back to a group only while
+	 * that group is still external.
+	 */
+	readonly adoptHandle?: string | undefined;
 }
 
 /**
@@ -236,7 +245,17 @@ export interface DashboardState {
  */
 export type ExtensionToWebviewMessage =
 	| { readonly type: "state"; readonly state: DashboardState }
-	| { readonly type: "intentSucceeded"; readonly intentType: DashboardIntentType; readonly requestId: string }
+	| {
+			readonly type: "intentSucceeded";
+			readonly intentType: DashboardIntentType;
+			readonly requestId: string;
+			/**
+			 * An optional caveat about a successful intent (e.g. an adoption that
+			 * found no credentials to copy). Informational text only, never a
+			 * value from the payload.
+			 */
+			readonly message?: string | undefined;
+	  }
 	| {
 			readonly type: "intentFailed";
 			readonly intentType: DashboardIntentType;
@@ -270,6 +289,7 @@ type AckedIntentType = Extract<WebviewToExtensionMessage, { requestId: string }>
 const ACKED_INTENT_TYPES: Readonly<Record<AckedIntentType, true>> = {
 	saveServerSetting: true,
 	removeServerSetting: true,
+	adoptServer: true,
 };
 
 const ACKED_INTENT_TYPE_SET: ReadonlySet<string> = new Set(Object.keys(ACKED_INTENT_TYPES));
@@ -336,6 +356,23 @@ export type WebviewToExtensionMessage =
 			readonly requestId: string;
 	  }
 	| { readonly type: "removeServerSetting"; readonly label: string; readonly requestId: string }
+	| {
+			/**
+			 * Adopt an external provider group into the servers setting: the entry
+			 * is written under `label`, and the group's credentials (which exist
+			 * extension-side only; the webview never sees them) are resolved by
+			 * the extension and stored where `secrets` directs per field. The
+			 * source group is named by `sourceHandle`, the opaque token its row
+			 * carried (DashboardServer.adoptHandle); the extension resolves it
+			 * only against groups that are still external and still at `baseUrl`.
+			 */
+			readonly type: "adoptServer";
+			readonly label: string;
+			readonly baseUrl: string;
+			readonly sourceHandle: string;
+			readonly secrets: Readonly<Record<SecretFieldId, Exclude<SecretLocation, "none">>>;
+			readonly requestId: string;
+	  }
 	| { readonly type: "executeCommand"; readonly command: DashboardCommandId };
 
 /** The intents that can fail and be reported back; the ready handshake has no failure mode. */

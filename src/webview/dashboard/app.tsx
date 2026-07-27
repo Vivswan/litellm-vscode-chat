@@ -28,6 +28,8 @@ export type FailuresByIntent = Readonly<Record<string, IntentFailure>>;
 export interface IntentAck {
 	readonly seq: number;
 	readonly requestId: string;
+	/** The extension's optional caveat about the success (see intentSucceeded). */
+	readonly message?: string | undefined;
 }
 
 type Overall = { tone: "ok" | "error" | "warn" | "muted"; word: string };
@@ -138,7 +140,7 @@ export function App() {
 			}
 			seq += 1;
 			if (message.type === "intentSucceeded") {
-				setAck({ seq, requestId: message.requestId });
+				setAck({ seq, requestId: message.requestId, message: message.message });
 				setFailures((current) => {
 					if (current[message.intentType] === undefined) {
 						return current;
