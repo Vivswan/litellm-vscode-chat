@@ -6,6 +6,7 @@
       "name": "litellm-vscode-chat",
       "dependencies": {
         "openai": "^6.48.0",
+        "preact": "^10.29.7",
         "zod": "^4.4.3",
       },
       "devDependencies": {
@@ -902,6 +903,8 @@
     "picomatch": ["picomatch@4.0.4", "", {}, "sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A=="],
 
     "pluralize": ["pluralize@8.0.0", "https://ms-feed-12.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/pluralize/-/pluralize-8.0.0.tgz", {}, "sha1-Gm+hajjRKhkB4DIPoBcFHFOc47E="],
+
+    "preact": ["preact@10.29.7", "", { "peerDependencies": { "preact-render-to-string": ">=5" }, "optionalPeers": ["preact-render-to-string"] }, "sha512-DCHYrK/B10yUD3ZjLfhZ3WIE/9Vf9VFUODcRE2dRomTYDpJk6z6L9wecSfhfE6M9ZTHUdyQkoC46arIDhEV84Q=="],
 
     "prebuild-install": ["prebuild-install@7.1.3", "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/prebuild-install/-/prebuild-install-7.1.3.tgz", { "dependencies": { "detect-libc": "^2.0.0", "expand-template": "^2.0.3", "github-from-package": "0.0.0", "minimist": "^1.2.3", "mkdirp-classic": "^0.5.3", "napi-build-utils": "^2.0.0", "node-abi": "^3.3.0", "pump": "^3.0.0", "rc": "^1.2.7", "simple-get": "^4.0.0", "tar-fs": "^2.0.0", "tunnel-agent": "^0.6.0" }, "bin": { "prebuild-install": "./bin.js" } }, "sha1-1jCrrSsUdEPyCiEpF76uaLgJLuw="],
 

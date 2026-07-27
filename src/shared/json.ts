@@ -4,6 +4,16 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Keys that must never be copied into a plain object as data: bracket
+ * assignment under them mutates or shadows the prototype instead of storing
+ * a value. Record-shaped settings drop such keys when normalized, and the
+ * dashboard's editors reject them with a visible error.
+ */
+export function isUnsafeRecordKey(key: string): boolean {
+	return key === "__proto__" || key === "constructor" || key === "prototype";
+}
+
+/**
  * Try to parse a JSON object from a string.
  * @param text The input string.
  * @returns Parsed object or ok:false.

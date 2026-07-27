@@ -4,5 +4,5 @@
 		"types": ["node"],
 		"noEmit": true
 	},
-	"exclude": ["src/test"]
+	"exclude": ["src/test", "src/webview"]
 }

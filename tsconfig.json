@@ -14,5 +14,6 @@
 		"skipLibCheck": true /* Skip type checking of declaration files */,
 		"types": ["node", "mocha"]
 	},
-	"include": ["src"]
+	"include": ["src"],
+	"exclude": ["src/webview"]
 }

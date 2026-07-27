@@ -13,7 +13,7 @@ const promiseRules = {
 
 export default tseslint.config(
 	{
-		files: ["src/**/*.ts"],
+		files: ["src/**/*.ts", "src/**/*.tsx"],
 		languageOptions: {
 			parser: tseslint.parser,
 			parserOptions: {

@@ -275,6 +275,11 @@ const HUB_ITEMS: readonly HubItem[] = [
 		action: "servers",
 	},
 	{
+		label: "$(dashboard) Open Dashboard",
+		description: "Servers, models, and settings in one view",
+		action: "litellm.openDashboard",
+	},
+	{
 		label: "$(sync) Sync Models Now",
 		description: "Refetch the model list from every server",
 		action: "litellm.syncModels",

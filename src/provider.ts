@@ -31,6 +31,16 @@ import { CHARS_PER_TOKEN, estimateMessagesTokens } from "./shared/tokenEstimatio
 /** Rolling status entries and their cached clients are evicted when not refreshed within this window. */
 const STATUS_TTL_MS = 10 * 60 * 1000;
 
+/**
+ * One server's slice of the status window, for read-only consumers (the
+ * dashboard). `models` are the infos as built by registration, before any
+ * group server is attached, so a snapshot never carries credentials.
+ */
+export interface ServerModelsSnapshot {
+	readonly status: ServerStatus;
+	readonly models: readonly LiteLLMModelInfo[];
+}
+
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -65,7 +75,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private _statusCycle = 0;
 	private readonly _serverStatuses = new Map<
 		string,
-		{ cycle: number; at: number; status: ServerStatus; groupServer?: GroupServer }
+		{
+			cycle: number;
+			at: number;
+			status: ServerStatus;
+			models: readonly LiteLLMModelInfo[];
+			groupServer?: GroupServer;
+		}
 	>();
 	// Counts per-group status reports only: the groupless report says nothing
 	// about whether the host is re-resolving groups, so refreshViaHost's
@@ -128,9 +144,29 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		}
 	}
 
-	private recordServerStatus(status: ServerStatus, groupServer?: GroupServer): void {
-		const entry = { cycle: this._statusCycle, at: Date.now(), status, ...(groupServer ? { groupServer } : {}) };
+	/**
+	 * `models` must be the pre-attach infos (registration output), never the
+	 * group-attached copies: getServerSnapshots hands them to the dashboard,
+	 * and attached copies embed the server's credentials.
+	 */
+	private recordServerStatus(
+		status: ServerStatus,
+		models: readonly LiteLLMModelInfo[],
+		groupServer?: GroupServer
+	): void {
+		const entry = {
+			cycle: this._statusCycle,
+			at: Date.now(),
+			status,
+			models,
+			...(groupServer ? { groupServer } : {}),
+		};
 		this._serverStatuses.set(status.serverId, entry);
+	}
+
+	/** The status window's current view for read-only consumers; see ServerModelsSnapshot. */
+	getServerSnapshots(): ServerModelsSnapshot[] {
+		return [...this._serverStatuses.values()].map((entry) => ({ status: entry.status, models: entry.models }));
 	}
 
 	private groupClientIdsInStatuses(): string[] {
@@ -205,6 +241,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const serverStatuses: ServerStatus[] = [];
 		const allInfos: LiteLLMModelInfo[] = [];
 		const allRoutes = new Map<string, ModelRoute>();
+		const modelsByServer = new Map<string, readonly LiteLLMModelInfo[]>();
 
 		const successfulCount = results.filter((r) => r.status === "fulfilled").length;
 		const serverCount = servers.length;
@@ -238,6 +275,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg), tokenDefaults);
 			allInfos.push(...reg.infos);
+			modelsByServer.set(server.id, reg.infos);
 			for (const [k, v] of reg.routes) {
 				allRoutes.set(k, v);
 			}
@@ -262,7 +300,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.log("Final model count:", allInfos.length);
 
 		for (const status of serverStatuses) {
-			this.recordServerStatus(status);
+			this.recordServerStatus(status, modelsByServer.get(status.serverId) ?? []);
 		}
 		this.reportMergedStatus(options.silent);
 
@@ -347,7 +385,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 					baseUrl: server.baseUrl,
 					count: cached.length,
 				});
-				this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: cached.length });
+				this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: cached.length }, cached);
 				return attach(cached);
 			}
 		}
@@ -361,12 +399,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				return buildModelInfos(models, server, 1, (msg) => this.log(msg), tokenDefaults).infos;
 			});
 			this.log(`Provider group at ${server.baseUrl} returned ${infos.length} models`);
-			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: infos.length });
+			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: infos.length }, infos);
 			return attach(infos);
 		} catch (error) {
 			this.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
 			const message = error instanceof Error ? error.message : String(error);
-			this.reportGroupStatus(server, groupServer, silent, { state: "error", modelCount: 0, error: message });
+			this.reportGroupStatus(server, groupServer, silent, { state: "error", modelCount: 0, error: message }, []);
 			if (silent) {
 				return [];
 			}
@@ -434,7 +472,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		server: ServerWithKey,
 		groupServer: GroupServer,
 		silent: boolean,
-		outcome: Pick<ServerStatus, "state" | "modelCount" | "error">
+		outcome: Pick<ServerStatus, "state" | "modelCount" | "error">,
+		/** Pre-attach infos only; see recordServerStatus. */
+		models: readonly LiteLLMModelInfo[]
 	): void {
 		this._groupStatusReportCount += 1;
 		this.recordServerStatus(
@@ -448,6 +488,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				hasApiKey: groupServer.apiKey.length > 0 || groupServer.oauth !== undefined,
 				...outcome,
 			},
+			models,
 			groupServer
 		);
 		this.reportMergedStatus(silent);

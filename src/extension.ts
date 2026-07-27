@@ -6,6 +6,7 @@ import {
 	registerTestCommands,
 	registerTestConnectionCommand,
 } from "./extension/commands";
+import { registerDashboardCommand } from "./extension/dashboard/panel";
 import { registerDiagnosticsCommand } from "./extension/diagnostics";
 import {
 	getMigratedServerLabels,
@@ -63,10 +64,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Test-only commands
 	registerTestCommands(context, registry, provider);
 
-	// Status bar and refresh notifications share the same status callback,
-	// isolated so one consumer's failure cannot starve the other.
+	// Status bar, refresh notifications, and the dashboard share the same
+	// status callback, isolated so one consumer's failure cannot starve the
+	// others.
 	const statusBar = new StatusBarManager(context, logger);
 	const notifier = new Notifier();
+	const dashboard = registerDashboardCommand(context, provider, logger);
 	provider.setStatusCallback((aggStatus: AggregatedStatus) => {
 		try {
 			statusBar.handleAggregatedStatus(aggStatus);
@@ -77,6 +80,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			notifier.handleAggregatedStatus(aggStatus);
 		} catch (error) {
 			logger.error("Notifier update failed", error);
+		}
+		try {
+			dashboard.refresh();
+		} catch (error) {
+			logger.error("Dashboard refresh failed", error);
 		}
 	});
 
