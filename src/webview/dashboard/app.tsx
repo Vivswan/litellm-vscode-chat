@@ -174,13 +174,14 @@ export function App() {
 		});
 	};
 
-	const scalarFailure = failures.setNumberSetting ?? failures.setBooleanSetting ?? failures.executeCommand;
+	const scalarFailure =
+		failures.setNumberSetting ?? failures.setBooleanSetting ?? failures.resetSetting ?? failures.executeCommand;
 	return (
 		<main>
 			<h1>LiteLLM Dashboard</h1>
 			<p class="hint">Servers, models, and settings in one place; edits land in your VS Code settings.</p>
 			<StatusHero state={state} />
-			{scalarFailure !== undefined ? <p class="error">The last change was not saved: {scalarFailure.message}</p> : null}
+			{scalarFailure !== undefined ? <p class="error">The last change did not apply: {scalarFailure.message}</p> : null}
 			<ServersSection servers={state.servers} ack={ack} failures={failures} onDismissFailure={dismissFailure} />
 			<ModelsSection models={state.models} serverCount={state.servers.length} />
 			<SettingsSection settings={state.settings} failures={failures} />

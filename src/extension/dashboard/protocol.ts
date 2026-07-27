@@ -112,19 +112,24 @@ export interface DashboardModel {
 	readonly reasoning: boolean;
 }
 
-interface NumberSettingSpec {
+export interface NumberSettingSpec {
 	readonly label: string;
 	readonly description: string;
 	readonly minimum: number;
 	/** Whether null (meaning "unset, derive it") is a legal value. */
 	readonly nullable: boolean;
+	/** What the number counts; the form renders it as the input's suffix and humanizes durations from it. */
+	readonly unit: "ms" | "tokens";
+	/** What a configured 0 means, when 0 is legal and has a special reading (the cache TTL). */
+	readonly zeroMeaning?: string;
 }
 
 /**
  * The number-valued litellm-vscode-chat.* settings the dashboard edits.
  * Labels and constraints live here so the webview form and the extension-side
  * validation read the same table; defaults stay in package.json only (the
- * state builder reads them through configuration inspection).
+ * state builder reads them through configuration inspection when an
+ * unusable configured value needs a display fallback).
  */
 export const NUMBER_SETTINGS = {
 	defaultMaxOutputTokens: {
@@ -132,36 +137,43 @@ export const NUMBER_SETTINGS = {
 		description: "Used when the server does not report a limit.",
 		minimum: 1,
 		nullable: false,
+		unit: "tokens",
 	},
 	defaultContextLength: {
 		label: "Default context length",
 		description: "Used when the server does not report a context window.",
 		minimum: 1,
 		nullable: false,
+		unit: "tokens",
 	},
 	defaultMaxInputTokens: {
 		label: "Default max input tokens",
 		description: "Leave empty to derive it as context length minus output tokens.",
 		minimum: 1,
 		nullable: true,
+		unit: "tokens",
 	},
 	requestTimeout: {
-		label: "Request timeout (ms)",
+		label: "Request timeout",
 		description: "Hard bound for one chat completion call.",
 		minimum: 1000,
 		nullable: false,
+		unit: "ms",
 	},
 	discoveryTimeout: {
-		label: "Discovery timeout (ms)",
+		label: "Discovery timeout",
 		description: "Hard bound for one model discovery call.",
 		minimum: 1000,
 		nullable: false,
+		unit: "ms",
 	},
 	discoveryCacheTtl: {
-		label: "Discovery cache TTL (ms)",
+		label: "Discovery cache TTL",
 		description: "How long discovered model lists are reused; 0 asks the server on every refresh.",
 		minimum: 0,
 		nullable: false,
+		unit: "ms",
+		zeroMeaning: "every refresh",
 	},
 } as const satisfies Record<string, NumberSettingSpec>;
 
@@ -189,6 +201,69 @@ export const BOOLEAN_SETTINGS = {
 export type BooleanSettingId = keyof typeof BOOLEAN_SETTINGS;
 
 export const BOOLEAN_SETTING_IDS = Object.keys(BOOLEAN_SETTINGS) as readonly BooleanSettingId[];
+
+const DURATION_UNITS: readonly (readonly [number, string])[] = [
+	[3600000, "h"],
+	[60000, "min"],
+	[1000, "s"],
+];
+
+/**
+ * A millisecond count as humans read clocks: "5 min", "1 h 30 min". At most
+ * two units; a truncated remainder gets a "~" instead of false precision.
+ * Sub-second values return undefined (they already read as milliseconds).
+ */
+function formatDuration(ms: number): string | undefined {
+	if (!Number.isInteger(ms) || ms < 1000) {
+		return undefined;
+	}
+	const parts: string[] = [];
+	let rest = ms;
+	for (const [size, name] of DURATION_UNITS) {
+		const count = Math.floor(rest / size);
+		if (count > 0 && parts.length < 2) {
+			parts.push(`${count} ${name}`);
+			rest -= count * size;
+		}
+	}
+	return `${rest > 0 ? "~" : ""}${parts.join(" ")}`;
+}
+
+/**
+ * The muted equivalence rendered next to a number input, recomputed from the
+ * draft as the user types: millisecond durations in clock units, and the
+ * TTL's special zero reading ("= every refresh"). Token counts get no
+ * equivalence (a digit-grouped echo of the same number says nothing); their
+ * unit suffix on the input carries the meaning.
+ */
+export function equivalence(id: NumberSettingId, draft: string): string | undefined {
+	const trimmed = draft.trim();
+	if (trimmed.length === 0) {
+		return undefined;
+	}
+	const value = Number(trimmed);
+	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
+	if (!Number.isFinite(value) || value < spec.minimum || spec.unit !== "ms") {
+		return undefined;
+	}
+	if (value === 0) {
+		return spec.zeroMeaning === undefined ? undefined : `= ${spec.zeroMeaning}`;
+	}
+	const duration = formatDuration(value);
+	return duration === undefined ? undefined : `= ${duration}`;
+}
+
+/**
+ * The identity of a scalar setting's external state, which the settings
+ * form's draft-resync effect keys on. Both halves are load-bearing: a
+ * successful reset can change the configured scope while leaving the
+ * effective value untouched (removing a value pinned to exactly its default),
+ * and the field's draft - possibly a rejected one, error and all - must
+ * resync to the store on that push too, not only when the value itself moves.
+ */
+export function draftSyncKey(value: number | null, configuredScope: SettingScope | null): string {
+	return `${value === null ? "" : String(value)}@${configuredScope ?? "default"}`;
+}
 
 /** A value legal in the headers setting: HTTP header values are scalars. */
 export type HeaderScalar = string | number | boolean;
@@ -224,6 +299,19 @@ export interface ScopedRecordSetting<V> {
 export interface DashboardSettings {
 	readonly numbers: Readonly<Record<NumberSettingId, number | null>>;
 	readonly booleans: Readonly<Record<BooleanSettingId, boolean>>;
+	/**
+	 * Where each scalar setting is explicitly configured, if anywhere: the
+	 * highest-precedence scope inspection reports a value in (workspaceFolder
+	 * over workspace over global), or null when only the default applies.
+	 * Drives the form's modified indicator and the per-scope Reset naming.
+	 * "Modified" means the key is set somewhere, matching the native Settings
+	 * editor - a value pinned to exactly its default still shows the bar and
+	 * can be reset - and the named scope is the one a reset removes first.
+	 */
+	readonly configuredScopes: {
+		readonly numbers: Readonly<Record<NumberSettingId, SettingScope | null>>;
+		readonly booleans: Readonly<Record<BooleanSettingId, SettingScope | null>>;
+	};
 	readonly modelParameters: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
 	readonly headers: ScopedRecordSetting<HeaderScalar>;
 }
@@ -344,6 +432,8 @@ export type WebviewToExtensionMessage =
 	| { readonly type: "ready" }
 	| { readonly type: "setNumberSetting"; readonly setting: NumberSettingId; readonly value: number | null }
 	| { readonly type: "setBooleanSetting"; readonly setting: BooleanSettingId; readonly value: boolean }
+	/** Remove the setting from the highest-precedence scope that sets it; the next scope's value or the default shows through. */
+	| { readonly type: "resetSetting"; readonly setting: NumberSettingId | BooleanSettingId }
 	| { readonly type: "setModelParameters"; readonly value: Record<string, Record<string, unknown>> }
 	| { readonly type: "setHeaders"; readonly value: Record<string, HeaderScalar> }
 	| {

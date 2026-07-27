@@ -31,6 +31,7 @@ import {
 	DashboardValidationError,
 	executeDashboardIntent,
 	resolveAdoptableCredentials,
+	resolveConfiguredScope,
 	resolveUpdateScope,
 	webviewMessageSchema,
 } from "./state";
@@ -200,12 +201,21 @@ export class DashboardController implements vscode.Disposable {
 
 const CONFIG_SECTION = "litellm-vscode-chat";
 
-// resolveUpdateScope never yields workspaceFolder: a WorkspaceFolder update
-// through resource-less configuration access would throw in multi-root
-// workspaces, so folder-scope values stay read-only in the dashboard.
+// Scalar writes never land in the folder scope (resolveUpdateScope): the
+// dashboard's configuration access is resource-less, and a WorkspaceFolder
+// update without a resource throws in multi-root workspaces. Resets differ:
+// they must remove the highest-precedence configured value, folder scope
+// included, or a reset would delete a hidden lower-scope value while the
+// displayed one survives - so the reset map carries all three targets and a
+// failing folder-scope removal surfaces as the intent's failure notice.
 const TARGET_BY_SCOPE = {
 	global: vscode.ConfigurationTarget.Global,
 	workspace: vscode.ConfigurationTarget.Workspace,
+} as const;
+
+const RESET_TARGET_BY_SCOPE = {
+	...TARGET_BY_SCOPE,
+	workspaceFolder: vscode.ConfigurationTarget.WorkspaceFolder,
 } as const;
 
 function createNonce(): string {
@@ -253,6 +263,11 @@ export function registerDashboardCommand(
 			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 			const scope = resolveUpdateScope(config.inspect(key));
 			await config.update(key, value, TARGET_BY_SCOPE[scope]);
+		},
+		removeSetting: async (key) => {
+			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+			const scope = resolveConfiguredScope(config.inspect(key)) ?? "global";
+			await config.update(key, undefined, RESET_TARGET_BY_SCOPE[scope]);
 		},
 		// The servers setting is machine-scoped: workspaces cannot re-point a
 		// label at another host to harvest its stored secrets, and reads and
