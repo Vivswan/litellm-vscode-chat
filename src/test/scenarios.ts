@@ -444,7 +444,7 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		],
 	},
 
-	// Audio output delta (gpt-4o-audio shape); the extension must skip it without crashing
+	// Audio output delta (gpt-4o-audio shape); the transcript streams as text, the clip as one DataPart at end of stream
 	"audio-output": {
 		type: "sse",
 		chunks: [

@@ -3,8 +3,10 @@ import * as fc from "fast-check";
 import {
 	type ChatCompletionChunk,
 	type ChunkAnnotation,
+	type ChunkAudio,
 	type ChunkChoice,
 	type ChunkDelta,
+	type ChunkImage,
 	parseChunk,
 	type StreamedToolCall,
 	type ThinkingBlock,
@@ -65,6 +67,22 @@ function assertAnnotation(annotation: ChunkAnnotation, label: string): void {
 	}
 }
 
+function assertImage(image: ChunkImage, label: string): void {
+	assert.ok(isPlainRecord(image), `${label} must be a record`);
+	assertOptionalString(image.type, `${label}.type`);
+	if (image.image_url !== undefined) {
+		assert.ok(isPlainRecord(image.image_url), `${label}.image_url must be a record or undefined`);
+		assertOptionalString(image.image_url.url, `${label}.image_url.url`);
+	}
+}
+
+function assertAudio(audio: ChunkAudio, label: string): void {
+	assert.ok(isPlainRecord(audio), `${label} must be a record`);
+	assertOptionalString(audio.id, `${label}.id`);
+	assertOptionalString(audio.data, `${label}.data`);
+	assertOptionalString(audio.transcript, `${label}.transcript`);
+}
+
 function assertDelta(delta: ChunkDelta, label: string): void {
 	assert.ok(isPlainRecord(delta), `${label} must be a record`);
 	assertOptionalString(delta.role, `${label}.role`);
@@ -97,6 +115,15 @@ function assertDelta(delta: ChunkDelta, label: string): void {
 		for (const [i, annotation] of delta.annotations.entries()) {
 			assertAnnotation(annotation, `${label}.annotations[${i}]`);
 		}
+	}
+	if (delta.images !== undefined) {
+		assert.ok(Array.isArray(delta.images), `${label}.images must be an array or undefined`);
+		for (const [i, image] of delta.images.entries()) {
+			assertImage(image, `${label}.images[${i}]`);
+		}
+	}
+	if (delta.audio !== undefined) {
+		assertAudio(delta.audio, `${label}.audio`);
 	}
 }
 
@@ -187,6 +214,23 @@ const deltaShaped = fc.record(
 				),
 				{ maxLength: 3 }
 			)
+		),
+		images: fc.oneof(
+			fuzzValue,
+			fc.array(
+				fc.oneof(
+					fuzzValue,
+					fc.record(
+						{ type: fuzzValue, image_url: fc.oneof(fuzzValue, fc.record({ url: fuzzValue }, { requiredKeys: [] })) },
+						{ requiredKeys: [] }
+					)
+				),
+				{ maxLength: 3 }
+			)
+		),
+		audio: fc.oneof(
+			fuzzValue,
+			fc.record({ id: fuzzValue, data: fuzzValue, transcript: fuzzValue }, { requiredKeys: [] })
 		),
 	},
 	{ requiredKeys: [] }

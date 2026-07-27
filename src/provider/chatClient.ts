@@ -1,5 +1,6 @@
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
+import { isRecord } from "../shared/json";
 import type { Logger } from "../shared/logger";
 import { convertMessages } from "../shared/messages";
 import { applyPromptCacheBreakpoints } from "../shared/promptCache";
@@ -332,7 +333,12 @@ export class ChatClient {
 				throw new Error("No response body from LiteLLM API");
 			}
 
-			const streamProcessor = new StreamProcessor(this.toolCallIds, this.log);
+			// The user-set audio.format parameter (when a modality-audio request
+			// declares one) is the only statement of the clip encoding; the
+			// stream processor stamps the matching mime on emitted audio parts.
+			const audio = requestBody.audio;
+			const requestAudioFormat = isRecord(audio) && typeof audio.format === "string" ? audio.format : undefined;
+			const streamProcessor = new StreamProcessor(this.toolCallIds, this.log, undefined, undefined, requestAudioFormat);
 			await streamProcessor.processStreamingResponse(response.body, progress, token);
 		} catch (err) {
 			if (token.isCancellationRequested) {

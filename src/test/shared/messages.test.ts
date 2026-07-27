@@ -282,6 +282,107 @@ suite("shared/messages", () => {
 		assert.equal(first.content, "test");
 	});
 
+	test("an assistant turn of text then generated image keeps its text; the image is log-skipped", () => {
+		const logged: { message: string; data?: unknown }[] = [];
+		const img = new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("Here is your image."), img],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { log: (message, data) => logged.push({ message, data }) });
+		assert.equal(out.length, 1, "the assistant turn must not vanish from history");
+		const first = expectDefined(out[0]);
+		assert.equal(first.role, "assistant");
+		assert.equal(first.content, "Here is your image.");
+		assert.equal(logged.length, 1);
+		assert.deepEqual(expectDefined(logged[0]).data, { role: "assistant", mimeType: "image/png" });
+	});
+
+	test("an assistant turn of generated image then text keeps its text in either order", () => {
+		const img = new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [img, new vscode.LanguageModelTextPart("Here is your image.")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages);
+		assert.equal(out.length, 1);
+		assert.equal(expectDefined(out[0]).content, "Here is your image.");
+	});
+
+	test("an assistant turn with a generated audio clip keeps its text by design, not by accident", () => {
+		const logged: { message: string; data?: unknown }[] = [];
+		const clip = new vscode.LanguageModelDataPart(new Uint8Array([0x52, 0x49]), "audio/wav");
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [clip, new vscode.LanguageModelTextPart("Transcribed words.")],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { log: (message, data) => logged.push({ message, data }) });
+		assert.equal(out.length, 1);
+		assert.equal(expectDefined(out[0]).content, "Transcribed words.");
+		assert.deepEqual(expectDefined(logged[0]).data, { role: "assistant", mimeType: "audio/wav" });
+	});
+
+	test("a PDF on an assistant turn is dropped like any other non-text block, keeping the text", () => {
+		// PDFs convert to content blocks only for user messages; the assistant
+		// wire shape has none, so the same keep-the-text rule applies.
+		const pdf = new vscode.LanguageModelDataPart(new Uint8Array([0x25, 0x50]), "application/pdf");
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("See the report."), pdf],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages);
+		assert.equal(out.length, 1);
+		assert.equal(expectDefined(out[0]).content, "See the report.");
+	});
+
+	test("dropped DataParts log once per conversion, however media-heavy the history", () => {
+		const logged: { message: string; data?: unknown }[] = [];
+		const img = () => new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
+		const turn = (text: string) => ({
+			role: vscode.LanguageModelChatMessageRole.Assistant,
+			content: [new vscode.LanguageModelTextPart(text), img(), img()],
+			name: undefined,
+		});
+		const out = convertMessages([turn("one"), turn("two"), turn("three")], {
+			log: (message, data) => logged.push({ message, data }),
+		});
+		assert.equal(out.length, 3, "every turn keeps its text");
+		assert.equal(
+			logged.filter((l) => l.message.includes("Skipping LanguageModelDataPart")).length,
+			1,
+			"six dropped parts must produce one log, not evict the issue buffer"
+		);
+	});
+
+	test("a model-controlled mime never reaches the skip log unless it is a safe type/subtype", () => {
+		const logged: { message: string; data?: unknown }[] = [];
+		const evilMime = "text injection\nwith newlines and no slash";
+		const part = new vscode.LanguageModelDataPart(new Uint8Array([1]), evilMime);
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("kept"), part],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(messages, { log: (message, data) => logged.push({ message, data }) });
+		assert.equal(expectDefined(out[0]).content, "kept");
+		assert.deepEqual(expectDefined(logged[0]).data, { role: "assistant", mimeType: "unparseable" });
+		assert.ok(!JSON.stringify(logged).includes("injection"), "the raw mime must not appear anywhere in the log");
+	});
+
 	test("system content stays a plain string; cache markers belong to the prompt-cache pass", () => {
 		const systemMsg: vscode.LanguageModelChatRequestMessage = {
 			role: 3 as vscode.LanguageModelChatMessageRole,
