@@ -82,6 +82,19 @@ function configurationSchemaFor(
  * duplicate the same information.
  */
 function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
+	// LiteLLM (observed on v1.93) stamps input/output_cost_per_token: 0 onto
+	// /model/info entries that declare no pricing at all, so a zero pair is
+	// "undeclared", not "free": rendering $0 would mislead the picker and any
+	// cost-based choice. Models genuinely priced 0/0 (LiteLLM's price map does
+	// this for local and self-hosted families like ollama/*) lose their $0
+	// display under this rule; behind LiteLLM that shape is indistinguishable
+	// from the stamp, and unknown-as-free is the worse failure.
+	if (
+		normalizeCostPerToken(provider.input_cost_per_token) === 0 &&
+		normalizeCostPerToken(provider.output_cost_per_token) === 0
+	) {
+		return {};
+	}
 	const fields: { -readonly [K in keyof ModelPricing]?: ModelPricing[K] } = {};
 	const toPerMillion = (perToken: unknown): number | undefined => {
 		const cost = normalizeCostPerToken(perToken);

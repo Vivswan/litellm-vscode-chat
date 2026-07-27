@@ -308,6 +308,20 @@ suite("provider", () => {
 						],
 					},
 					{
+						id: "stamped",
+						providers: [
+							{
+								provider: "openai",
+								status: "ok",
+								source: "model_info",
+								input_cost_per_token: 0,
+								output_cost_per_token: 0,
+								cache_read_input_token_cost: 0.0000003,
+								long_context_input_cost_per_token: 0.00001,
+							},
+						],
+					},
+					{
 						id: "multi",
 						providers: [
 							{
@@ -358,8 +372,25 @@ suite("provider", () => {
 			);
 
 			const free = expectDefined(byId.get("free"));
-			assert.strictEqual(free.inputCost, 0, "a zero cost registers as 0, not as absence");
+			assert.strictEqual(free.inputCost, 0, "a zero cost NOT paired with a zero output registers as 0");
 			assert.ok(!("outputCost" in free), "a cost that overflows the per-million conversion is omitted, not Infinity");
+
+			// LiteLLM stamps 0/0 onto undeclared pricing (observed on v1.93), so
+			// the zero PAIR reads as undeclared and drops the whole block - even
+			// stray cache or long-context costs riding beside the stamp.
+			const stamped = expectDefined(byId.get("stamped"));
+			for (const key of [
+				"inputCost",
+				"outputCost",
+				"cacheCost",
+				"cacheWriteCost",
+				"longContextInputCost",
+				"longContextOutputCost",
+				"longContextCacheCost",
+				"longContextCacheWriteCost",
+			] as const) {
+				assert.ok(!(key in stamped), `a zero input/output pair must register with no ${key}`);
+			}
 
 			assert.strictEqual(expectDefined(byId.get("multi:groq")).inputCost, 1, "per-provider entries use their own cost");
 			assert.strictEqual(expectDefined(byId.get("multi:together")).inputCost, 2);
