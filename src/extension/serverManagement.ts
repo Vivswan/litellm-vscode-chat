@@ -247,16 +247,137 @@ async function manageServerFlow(
 /** Opens the Models Management editor, where VS Code manages provider groups. */
 const NATIVE_MANAGE_MODELS_COMMAND = "workbench.action.chat.manage";
 
+/** Settings-view filter that narrows to this extension's settings. */
+export const EXTENSION_SETTINGS_FILTER = "@ext:vivswan.litellm-vscode-chat";
+
 /**
- * Which UI litellm.manage opens. "legacy" is the quick-pick server flow.
- * "nativePreferred" tries the native Manage Models UI and falls back to the
- * quick pick (fresh installs: the registry is still live, so servers added
- * there are served and migrated later). "nativeRequired" never falls back:
- * after the migration the registry is no longer served, so the quick pick
- * would edit dead configuration.
+ * Which UI the hub's server entry opens. "legacy" is the quick-pick server
+ * flow. "nativePreferred" tries the native Manage Models UI and falls back to
+ * the quick pick (fresh installs: the registry is still live, so servers
+ * added there are served and migrated later). "nativeRequired" never falls
+ * back: after the migration the registry is no longer served, so the quick
+ * pick would edit dead configuration.
  */
 export type ManagementUiMode = "legacy" | "nativePreferred" | "nativeRequired";
 
+/**
+ * A hub entry either routes in-module ("servers" and "settings" carry
+ * arguments or mode logic) or names the extension command it executes as-is.
+ */
+interface HubItem extends vscode.QuickPickItem {
+	action: "servers" | "settings" | `litellm.${string}`;
+}
+
+const HUB_ITEMS: readonly HubItem[] = [
+	{
+		label: "$(server) Manage Language Models",
+		description: "Servers, API keys, and which models are enabled",
+		action: "servers",
+	},
+	{
+		label: "$(sync) Sync Models Now",
+		description: "Refetch the model list from every server",
+		action: "litellm.syncModels",
+	},
+	{
+		label: "$(testing-run-icon) Test Connection",
+		description: "Check every server and report the result",
+		action: "litellm.testConnection",
+	},
+	{
+		label: "$(pulse) Show Diagnostics",
+		description: "Connection state and per-server details",
+		action: "litellm.showDiagnostics",
+	},
+	{
+		label: "$(settings-gear) Open Settings",
+		description: "Timeouts, caching, headers, model parameters",
+		action: "settings",
+	},
+	{
+		label: "$(question) Help & Feedback",
+		description: "Documentation, feature requests, bug reports",
+		action: "litellm.helpAndFeedback",
+	},
+	{
+		label: "$(report) Report Issue",
+		description: "Open a prefilled GitHub issue",
+		action: "litellm.reportIssue",
+	},
+];
+
+/**
+ * The hub's server entry: the native provider-group editor where the mode
+ * allows it, otherwise the legacy quick-pick flows over the registry (see
+ * ManagementUiMode). Test Connection and Sync Models are not repeated in the
+ * legacy list; the hub the user just came from carries both.
+ */
+async function openServerManagement(
+	registry: ServerRegistry,
+	logger: Logger,
+	mode: ManagementUiMode,
+	isMigrated: () => boolean
+): Promise<void> {
+	if (mode !== "legacy") {
+		try {
+			await vscode.commands.executeCommand(NATIVE_MANAGE_MODELS_COMMAND);
+			return;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (mode === "nativeRequired") {
+				logger.log(`Language-model management UI unavailable (${message})`);
+				void vscode.window.showErrorMessage(
+					"LiteLLM servers are managed in VS Code's Manage Language Models UI, which could not be opened. Update VS Code or check that GitHub Copilot Chat is enabled."
+				);
+				return;
+			}
+			logger.log(`Language-model management UI unavailable (${message}); using the server quick pick`);
+		}
+	}
+
+	const servers = registry.getServers();
+
+	if (servers.length === 0) {
+		await addServerFlow(registry, logger, isMigrated);
+		return;
+	}
+
+	const items: (vscode.QuickPickItem & { action: string })[] = [
+		{ label: "$(add) Add Server", action: "add" },
+		...servers.map((s) => ({
+			label: `$(server) ${s.label}`,
+			description: s.baseUrl,
+			action: `edit:${s.id}`,
+		})),
+	];
+
+	const pick = await vscode.window.showQuickPick(items, {
+		title: "LiteLLM: Manage Servers",
+		placeHolder: "Select an action or server to manage",
+	});
+
+	if (!pick) {
+		return;
+	}
+
+	if (pick.action === "add") {
+		await addServerFlow(registry, logger, isMigrated);
+	} else if (pick.action.startsWith("edit:")) {
+		const serverId = pick.action.slice(5);
+		await manageServerFlow(registry, serverId, logger, isMigrated);
+	}
+}
+
+/**
+ * litellm.manage is the extension's front door: a hub quick pick that routes
+ * to the native server editor and the individually registered commands. It
+ * holds no logic of its own beyond the server entry's UI-mode handling.
+ *
+ * litellm.manageServers is the direct route to the server editor for buttons
+ * that promise configuration ("Configure Now", "Manage Servers"): those must
+ * not land a user on the hub menu. It stays out of package.json's
+ * contributes.commands, so the palette shows only the hub.
+ */
 export function registerManageCommand(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
@@ -266,61 +387,23 @@ export function registerManageCommand(
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand("litellm.manage", async () => {
-			const mode = getUiMode();
-			if (mode !== "legacy") {
-				try {
-					await vscode.commands.executeCommand(NATIVE_MANAGE_MODELS_COMMAND);
-					return;
-				} catch (error) {
-					const message = error instanceof Error ? error.message : String(error);
-					if (mode === "nativeRequired") {
-						logger.log(`Language-model management UI unavailable (${message})`);
-						void vscode.window.showErrorMessage(
-							"LiteLLM servers are managed in VS Code's Manage Language Models UI, which could not be opened. Update VS Code or check that GitHub Copilot Chat is enabled."
-						);
-						return;
-					}
-					logger.log(`Language-model management UI unavailable (${message}); using the server quick pick`);
-				}
-			}
-
-			const servers = registry.getServers();
-
-			if (servers.length === 0) {
-				await addServerFlow(registry, logger, isMigrated);
-				return;
-			}
-
-			const items: (vscode.QuickPickItem & { action: string })[] = [
-				{ label: "$(add) Add Server", action: "add" },
-				...servers.map((s) => ({
-					label: `$(server) ${s.label}`,
-					description: s.baseUrl,
-					action: `edit:${s.id}`,
-				})),
-				{ label: "$(testing-run-icon) Test All Servers", action: "test-all" },
-				{ label: "$(sync) Sync Models Now", action: "sync-models" },
-			];
-
-			const pick = await vscode.window.showQuickPick(items, {
-				title: "LiteLLM: Manage Servers",
-				placeHolder: "Select an action or server to manage",
+			const pick = await vscode.window.showQuickPick([...HUB_ITEMS], {
+				title: "LiteLLM",
+				placeHolder: "Select an action",
 			});
-
 			if (!pick) {
 				return;
 			}
-
-			if (pick.action === "add") {
-				await addServerFlow(registry, logger, isMigrated);
-			} else if (pick.action === "test-all") {
-				await vscode.commands.executeCommand("litellm.testConnection");
-			} else if (pick.action === "sync-models") {
-				await vscode.commands.executeCommand("litellm.syncModels");
-			} else if (pick.action.startsWith("edit:")) {
-				const serverId = pick.action.slice(5);
-				await manageServerFlow(registry, serverId, logger, isMigrated);
+			if (pick.action === "servers") {
+				await openServerManagement(registry, logger, getUiMode(), isMigrated);
+			} else if (pick.action === "settings") {
+				await vscode.commands.executeCommand("workbench.action.openSettings", EXTENSION_SETTINGS_FILTER);
+			} else {
+				await vscode.commands.executeCommand(pick.action);
 			}
-		})
+		}),
+		vscode.commands.registerCommand("litellm.manageServers", () =>
+			openServerManagement(registry, logger, getUiMode(), isMigrated)
+		)
 	);
 }

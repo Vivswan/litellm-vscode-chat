@@ -141,7 +141,7 @@ export function registerDiagnosticsCommand(
 			} else if (choice === "Test Connection") {
 				void vscode.commands.executeCommand("litellm.testConnection");
 			} else if (choice === "Manage Servers") {
-				void vscode.commands.executeCommand("litellm.manage");
+				void vscode.commands.executeCommand("litellm.manageServers");
 			} else if (choice === "Report Issue") {
 				void vscode.commands.executeCommand("litellm.reportIssue");
 			} else if (choice === "Help & Feedback") {

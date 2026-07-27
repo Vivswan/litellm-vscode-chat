@@ -118,6 +118,70 @@
 				"title": "LiteLLM: Report Issue"
 			}
 		],
+		"walkthroughs": [
+			{
+				"id": "litellm.gettingStarted",
+				"title": "Get started with LiteLLM for Copilot Chat",
+				"description": "Connect a LiteLLM server and use its models in GitHub Copilot Chat.",
+				"steps": [
+					{
+						"id": "litellm.walkthrough.connectServer",
+						"title": "Connect your LiteLLM server",
+						"description": "Add your server in VS Code's Manage Language Models editor: pick LiteLLM as the provider, then enter the base URL and, if your server needs one, an API key.\n[Open Manage Language Models](command:workbench.action.chat.manage)",
+						"media": {
+							"markdown": "assets/walkthrough/connect-server.md"
+						},
+						"completionEvents": [
+							"onCommand:workbench.action.chat.manage"
+						]
+					},
+					{
+						"id": "litellm.walkthrough.pickModel",
+						"title": "Pick a LiteLLM model in chat",
+						"description": "Open Copilot Chat and click the model picker at the bottom of the chat input. Models from your LiteLLM server are listed under the name you gave it.\n[Open Copilot Chat](command:workbench.action.chat.open)",
+						"media": {
+							"markdown": "assets/walkthrough/pick-model.md"
+						},
+						"completionEvents": [
+							"onCommand:workbench.action.chat.open"
+						]
+					},
+					{
+						"id": "litellm.walkthrough.configureModel",
+						"title": "Configure per-model options",
+						"description": "Select a LiteLLM model that supports reasoning, then click the \"Thinking Effort\" label next to the model name in the chat input. \"Provider default\" sends nothing and leaves the choice to your provider.",
+						"media": {
+							"markdown": "assets/walkthrough/configure-model.md"
+						},
+						"completionEvents": [
+							"onStepSelected"
+						]
+					},
+					{
+						"id": "litellm.walkthrough.verifyConnection",
+						"title": "Verify the connection",
+						"description": "Run a connection test to check every configured server and count the models it serves.\n[Test Connection](command:litellm.testConnection)",
+						"media": {
+							"markdown": "assets/walkthrough/verify-connection.md"
+						},
+						"completionEvents": [
+							"onCommand:litellm.testConnection"
+						]
+					},
+					{
+						"id": "litellm.walkthrough.fineTune",
+						"title": "Fine-tune the extension",
+						"description": "Timeouts, model list caching, prompt caching, custom headers, and per-model request parameters live in the extension settings.\n[Open Settings](command:workbench.action.openSettings?%5B%22@ext:vivswan.litellm-vscode-chat%22%5D)",
+						"media": {
+							"markdown": "assets/walkthrough/fine-tune.md"
+						},
+						"completionEvents": [
+							"onCommand:workbench.action.openSettings"
+						]
+					}
+				]
+			}
+		],
 		"configuration": {
 			"title": "LiteLLM VS Code Chat",
 			"properties": {

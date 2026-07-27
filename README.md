@@ -26,23 +26,33 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 4. Add a server: enter a label, base URL (e.g., `http://localhost:4000`), and API key
 5. Select models to add
 
+The extension also ships a walkthrough covering these steps: run "Welcome: Open Walkthrough..." from the Command Palette and pick "Get started with LiteLLM for Copilot Chat".
+
 ## Configuration
+
+### Where to configure things
+
+| What | Where | How to open |
+|------|-------|-------------|
+| Servers: base URL, API key, OAuth | Manage Language Models editor | Command Palette → "Manage LiteLLM Provider" → Manage Language Models |
+| Per-model options (thinking effort) | Copilot Chat model picker | Select a LiteLLM model, then click the effort label next to the model name in the chat input |
+| Global knobs (timeouts, caching, headers, `modelParameters`) | VS Code settings | Settings → search "litellm-vscode-chat" |
+| Actions (test connection, sync models, diagnostics, report issue) | Commands | Command Palette → type "LiteLLM", or the "Manage LiteLLM Provider" menu |
 
 ### Server Management
 
 The extension supports connecting to multiple LiteLLM servers at once. Models from all reachable servers are aggregated into one list.
 
 To manage servers:
-- **Command Palette**: `Ctrl+Shift+P` / `Cmd+Shift+P` → "Manage LiteLLM Provider"
+- **Command Palette**: `Ctrl+Shift+P` / `Cmd+Shift+P` → "Manage LiteLLM Provider" → "Manage Language Models"
 - **Model Picker**: Chat interface → Model picker → "Manage Models..." → "LiteLLM"
+
+"Manage LiteLLM Provider" opens a menu with every extension surface in one place: server management, Sync Models Now, Test Connection, diagnostics, the extension's settings, help, and issue reporting.
 
 From the server manager you can:
 - **Add Server**: provide a unique label, base URL, and optional API key
 - **Edit Server**: update label, URL, or API key
 - **Remove Server**: delete a server and its stored credentials
-- **Test All Servers**: verify connectivity to every configured server
-
-If no servers are configured, the "Manage" command jumps straight to the add flow.
 
 Credentials are stored securely in VS Code's secret storage. Server metadata (label, URL) is stored in global state.
 
@@ -114,7 +124,7 @@ Override default request parameters for specific models using the `modelParamete
 - `seed` - Deterministic output
 - And any other parameter supported by your LiteLLM and model provider backend
 
-All non-reserved `modelParameters` keys are passed through to LiteLLM: the extension does not restrict which parameters you can set, and it never injects parameters you did not set. When you configure nothing, your model provider's own defaults apply. Keys starting with `_` are reserved for extension metadata and are never forwarded.
+All non-reserved `modelParameters` keys are passed through to LiteLLM: the extension does not restrict which parameters you can set, and it never injects parameters you did not set. When you configure nothing, your model provider's own defaults apply. Keys starting with `_` are reserved for extension metadata and are never forwarded. Temperature stays free-form here on purpose: the model picker's Configure Model menu can only render fixed choices, so the extension does not add temperature presets there.
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
@@ -140,7 +150,7 @@ All non-reserved `modelParameters` keys are passed through to LiteLLM: the exten
 
 ### Reasoning Effort (Model Picker)
 
-Models that advertise reasoning support (`supports_reasoning`, or `reasoning_effort` among their supported params) get a "Reasoning Effort" control in Copilot's model picker, under the model's Configure Model menu. Pick Low, Medium, or High and VS Code remembers the choice for that model; every request then carries `reasoning_effort` accordingly. Pick "Provider default" (the initial state) to send nothing and let your provider decide. A `reasoning_effort` in `modelOptions` at request time still wins over the picker.
+Models that advertise reasoning support (`supports_reasoning`, or `reasoning_effort` among their supported params) get an effort control in Copilot's model picker: select the model, then click the "Thinking Effort" label next to the model name in the chat input. (The Manage Language Models editor shows the same control as "Reasoning Effort".) Pick Low, Medium, or High and VS Code remembers the choice for that model; every request then carries `reasoning_effort` accordingly. Pick "Provider default" (the initial state) to send nothing and let your provider decide. A `reasoning_effort` in `modelOptions` at request time still wins over the picker.
 
 ### Prompt Caching (Anthropic Claude)
 
