@@ -365,7 +365,7 @@ suite("extension/diagnostics", () => {
 
 		const delegatingActions: ReadonlyArray<[string, string]> = [
 			["Test Connection", "litellm.testConnection"],
-			["Manage Servers", "litellm.manage"],
+			["Manage Servers", "litellm.manageServers"],
 			["Report Issue", "litellm.reportIssue"],
 			["Help & Feedback", "litellm.helpAndFeedback"],
 		];

@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { Notifier } from "../../extension/notifier";
+import { Notifier, reconfigureAction } from "../../extension/notifier";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
 import { expectDefined } from "../testUtils";
 
@@ -120,5 +120,19 @@ suite("extension/notifier", () => {
 		assert.strictEqual(toast.kind, "warning");
 		assert.ok(toast.message.includes("no models"));
 		assert.deepStrictEqual(toast.buttons, ["Check Server", "Reconfigure", "Report Issue"]);
+	});
+
+	test("Configure Now routes to the server editor, not the hub menu", async () => {
+		const executed: string[] = [];
+		const origExecute = vscode.commands.executeCommand;
+		(vscode.commands as Record<string, unknown>).executeCommand = async (command: string) => {
+			executed.push(command);
+		};
+		try {
+			await reconfigureAction("Configure Now").run();
+		} finally {
+			(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
+		}
+		assert.deepStrictEqual(executed, ["litellm.manageServers"]);
 	});
 });

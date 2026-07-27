@@ -28,7 +28,7 @@ export async function showActionableMessage(
 }
 
 export function reconfigureAction(label = "Reconfigure"): MessageAction {
-	return { label, run: () => void vscode.commands.executeCommand("litellm.manage") };
+	return { label, run: () => void vscode.commands.executeCommand("litellm.manageServers") };
 }
 
 export function reportIssueAction(label = "Report Issue"): MessageAction {
@@ -64,7 +64,7 @@ export function createConfigurationPrompt(): ConfigurationPrompt {
 				"Learn More"
 			);
 			if (choice === "Configure Now") {
-				await vscode.commands.executeCommand("litellm.manage");
+				await vscode.commands.executeCommand("litellm.manageServers");
 				return true;
 			}
 			if (choice === "Learn More") {
