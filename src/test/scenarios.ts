@@ -2,9 +2,9 @@
  * Shared streaming scenario definitions for the fake LiteLLM backends: the
  * in-process capture server (host-fidelity tests) and the containerized
  * fake OpenAI server behind the docker LiteLLM proxy. Each scenario is a
- * canned /v1/chat/completions response; SCENARIO_CAPABILITIES drives the
- * model_info entries in the runtime-generated LiteLLM proxy config
- * (docker/.generated/litellm-config.yaml, via scripts/litellmConfig.ts).
+ * canned /v1/chat/completions response, addressed per request with the
+ * /play:<name> command (src/test/fakeStack/commands.ts). The model catalog
+ * lives separately in src/test/fakeStack/models.ts.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -51,9 +51,9 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		chunks: [makeChunk({ role: "assistant", content: "Hello from capture server" }), makeChunk({}, "stop")],
 	},
 
-	// Served by two proxy deployments with differing token limits (see the
-	// deployments list in SCENARIO_CAPABILITIES); /v1/model/info reports the
-	// model once per deployment and discovery must merge them into one model.
+	// A playback shape from the era when this scenario had its own two-
+	// deployment proxy model; the load-balanced group is now gpt-5.2 in
+	// src/test/fakeStack/models.ts, and this stays as a /play target.
 	"load-balanced": {
 		type: "sse",
 		chunks: [makeChunk({ role: "assistant", content: "Balanced across deployments" }), makeChunk({}, "stop")],
@@ -476,8 +476,6 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 	},
 };
 
-export const SCENARIO_NAMES: readonly string[] = Object.keys(BUILTIN_SCENARIOS);
-
 // ── Playback helpers ─────────────────────────────────────────────────────────
 // Shared by the capture server and the containerized fake OpenAI server.
 
@@ -616,94 +614,3 @@ export function collapseChunks(chunks: unknown[]): Record<string, unknown> {
 		...(usage !== undefined ? { usage } : {}),
 	};
 }
-
-/** Token limits one proxy deployment of a scenario model advertises. */
-export interface ScenarioDeployment {
-	maxInputTokens: number;
-	maxOutputTokens: number;
-	/**
-	 * Upstream model name this deployment routes to on the fake backend;
-	 * defaults to the scenario name. Distinct names mirror the real #183 shape
-	 * of one model_name backed by different upstream providers, and land in
-	 * SCENARIO_UPSTREAM_ALIASES so the backend answers them.
-	 */
-	upstreamModel?: string;
-}
-
-/** Capability flags a scenario's generated model_info entry advertises. */
-export interface ScenarioCapabilities {
-	tools?: boolean;
-	vision?: boolean;
-	pdfInput?: boolean;
-	reasoning?: boolean;
-	promptCaching?: boolean;
-	/**
-	 * Proxy deployments backing this model_name. Omitted means one deployment
-	 * with the standard limits; listing more than one turns the model into a
-	 * LiteLLM load-balancing group, which /v1/model/info reports once per
-	 * deployment.
-	 */
-	deployments?: readonly ScenarioDeployment[];
-}
-
-const TEXT_MODEL: ScenarioCapabilities = { tools: true, vision: true, pdfInput: true };
-const TOOL_MODEL: ScenarioCapabilities = { tools: true };
-const REASONING_MODEL: ScenarioCapabilities = { reasoning: true };
-const CACHING_MODEL: ScenarioCapabilities = { tools: true, promptCaching: true };
-const MINIMAL_MODEL: ScenarioCapabilities = {};
-/** Two deployments on different upstream models with differing limits; discovery must merge them to the smaller bounds. */
-const LOAD_BALANCED_MODEL: ScenarioCapabilities = {
-	tools: true,
-	deployments: [
-		{ maxInputTokens: 128000, maxOutputTokens: 16000 },
-		{ maxInputTokens: 64000, maxOutputTokens: 8000, upstreamModel: "load-balanced-b" },
-	],
-};
-
-export const SCENARIO_CAPABILITIES: Record<string, ScenarioCapabilities> = {
-	"text-only": TEXT_MODEL,
-	"load-balanced": LOAD_BALANCED_MODEL,
-	"long-text": TEXT_MODEL,
-	"structured-content": TEXT_MODEL,
-	"structured-content-mixed": TEXT_MODEL,
-	"slow-stream": TEXT_MODEL,
-	"usage-only-final": TEXT_MODEL,
-	refusal: TEXT_MODEL,
-	annotations: TEXT_MODEL,
-	"audio-output": TEXT_MODEL,
-	"finish-length": TEXT_MODEL,
-	"finish-content-filter": TEXT_MODEL,
-	"tool-call-single": TOOL_MODEL,
-	"tool-call-chunked": TOOL_MODEL,
-	"text-then-tool": TOOL_MODEL,
-	"parallel-tool-calls": TOOL_MODEL,
-	"inline-tool-call-tokens": TOOL_MODEL,
-	"control-token-sections": TOOL_MODEL,
-	"tool-call-invalid-json": TOOL_MODEL,
-	"duplicate-tool-calls": TOOL_MODEL,
-	reasoning: REASONING_MODEL,
-	"reasoning-field": REASONING_MODEL,
-	"thinking-structured": REASONING_MODEL,
-	"thinking-blocks": REASONING_MODEL,
-	"redacted-thinking": REASONING_MODEL,
-	"usage-with-cache-tokens": CACHING_MODEL,
-	"usage-token-details": CACHING_MODEL,
-	"error-400": MINIMAL_MODEL,
-	"error-401": MINIMAL_MODEL,
-	"error-429": MINIMAL_MODEL,
-};
-
-/**
- * Upstream model names that deployments route to beyond their scenario name,
- * mapped to the scenario they play. The fake backends register these as extra
- * model IDs answering with the target scenario's response.
- */
-export const SCENARIO_UPSTREAM_ALIASES: Readonly<Record<string, string>> = Object.fromEntries(
-	Object.entries(SCENARIO_CAPABILITIES).flatMap(([name, capabilities]) =>
-		(capabilities.deployments ?? []).flatMap((deployment) =>
-			deployment.upstreamModel !== undefined && deployment.upstreamModel !== name
-				? [[deployment.upstreamModel, name] as const]
-				: []
-		)
-	)
-);
