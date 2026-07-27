@@ -21,6 +21,7 @@ node_modules/**
 .devcontainer/**
 .github/**
 .husky/**
+.dev-fake-seed.json
 .claude/**
 .codex/**
 .worktrees/**

@@ -29,6 +29,9 @@ package-lock.json
 
 .husky/_/
 
+# One-shot seed dropped by `bun run dev:fake`, consumed on activation
+.dev-fake-seed.json
+
 # END REPOSITORY LOCAL
 
 # BEGIN REPO-PLATFORM MANAGED

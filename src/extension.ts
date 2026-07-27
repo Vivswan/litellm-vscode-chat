@@ -7,6 +7,8 @@ import {
 	registerTestConnectionCommand,
 } from "./extension/commands";
 import { registerDashboardCommand } from "./extension/dashboard/panel";
+import type { DevSeed } from "./extension/devSeed";
+import { addProviderGroupViaHost, consumeDevSeed } from "./extension/devSeed";
 import { registerDiagnosticsCommand } from "./extension/diagnostics";
 import {
 	getMigratedServerLabels,
@@ -61,6 +63,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
 
+	// One-shot seed dropped by `bun run dev:fake`; development-mode only. It
+	// creates the provider group through the host command, which validates
+	// against the provider registered above.
+	let devSeed: DevSeed | undefined;
+	if (testMode) {
+		try {
+			devSeed = await consumeDevSeed(context.extensionUri, addProviderGroupViaHost, logger);
+		} catch (error) {
+			logger.error("Dev seed failed", error);
+		}
+	}
+
 	// Test-only commands
 	registerTestCommands(context, registry, provider);
 
@@ -94,6 +108,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	void migrateServersToProviderGroups(registry, context.globalState, context.secrets, logger).catch((error) => {
 		logger.error("Provider-group migration failed", error);
 	});
+
+	if (devSeed?.openDashboard) {
+		void vscode.commands.executeCommand("litellm.openDashboard").then(undefined, (error: unknown) => {
+			logger.error("Dev seed dashboard open failed", error);
+		});
+	}
 
 	// Welcome message
 	const hasShownWelcome = context.globalState.get<boolean>(HAS_SHOWN_WELCOME_KEY, false);
