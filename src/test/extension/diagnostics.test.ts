@@ -2,10 +2,12 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { buildDiagnosticsSnapshot, registerDiagnosticsCommand } from "../../extension/diagnostics";
 import { ServerRegistry } from "../../extension/serverRegistry";
+import type { DeclaredServerView } from "../../extension/serverSync";
 import type { ConnectionStatus } from "../../extension/status";
 import { IssueReporter } from "../../issueReporter";
+import type { ServerModelsSnapshot } from "../../provider";
 import type { ServerStatus } from "../../shared/servers";
-import { expectDefined, makeExtensionStorage } from "../testUtils";
+import { expectDefined, makeExtensionStorage, makeModelInfo } from "../testUtils";
 
 function createRegistry(): ServerRegistry {
 	const storage = makeExtensionStorage();
@@ -20,6 +22,28 @@ function makeServerStatus(overrides: Partial<ServerStatus> = {}): ServerStatus {
 		state: "ok",
 		modelCount: 4,
 		lastChecked: "2026-07-26T00:00:00.000Z",
+		...overrides,
+	};
+}
+
+/** A live status-window snapshot whose model list agrees with its model count. */
+function makeSnapshot(overrides: Partial<ServerStatus> = {}): ServerModelsSnapshot {
+	const status = makeServerStatus(overrides);
+	const count = status.state === "ok" ? status.modelCount : 0;
+	return {
+		status,
+		models: Array.from({ length: count }, (_, index) =>
+			makeModelInfo({ id: `model-${index}`, name: `model-${index}` })
+		),
+	};
+}
+
+/** A declared-server view with every secret absent; overrides fill in the specifics. */
+function makeDeclared(overrides: Partial<DeclaredServerView> = {}): DeclaredServerView {
+	return {
+		label: "Prod",
+		baseUrl: "http://prod.test",
+		secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
 		...overrides,
 	};
 }
@@ -171,14 +195,22 @@ suite("extension/diagnostics", () => {
 			subscriptionCount: number;
 		}
 
+		interface RunOptions {
+			registry?: ServerRegistry;
+			snapshots?: readonly ServerModelsSnapshot[];
+			declared?: readonly DeclaredServerView[];
+			status?: ConnectionStatus;
+			/** The value the stubbed configuration returns for the servers setting. */
+			serversSetting?: unknown;
+			choice?: string;
+		}
+
 		// The activated extension already owns the litellm.showDiagnostics command
 		// ID, so the handler is captured through a stubbed registerCommand and
-		// invoked directly instead of going through executeCommand.
-		async function runDiagnosticsCommand(
-			registry: ServerRegistry,
-			status: ConnectionStatus,
-			choice?: string
-		): Promise<CommandRun> {
+		// invoked directly instead of going through executeCommand. Configuration
+		// reads are stubbed too, so the fallback-to-setting path is testable and
+		// the assertions never depend on the test host's real settings.
+		async function runDiagnosticsCommand(options: RunOptions = {}): Promise<CommandRun> {
 			let handler: (() => Promise<void>) | undefined;
 			const origRegister = vscode.commands.registerCommand;
 			(vscode.commands as Record<string, unknown>).registerCommand = (id: string, callback: () => Promise<void>) => {
@@ -195,48 +227,71 @@ suite("extension/diagnostics", () => {
 				},
 			} as unknown as vscode.OutputChannel;
 			try {
-				registerDiagnosticsCommand(context, registry, () => status, outputChannel);
+				registerDiagnosticsCommand(
+					context,
+					options.registry ?? createRegistry(),
+					() => options.snapshots ?? [],
+					() => options.declared ?? [],
+					() => options.status ?? { state: "not-configured" },
+					outputChannel
+				);
 			} finally {
 				(vscode.commands as Record<string, unknown>).registerCommand = origRegister;
 			}
 
 			let message = "";
-			let options: vscode.MessageOptions | undefined;
+			let dialogOptions: vscode.MessageOptions | undefined;
 			let actions: string[] = [];
 			const executed: string[] = [];
 			const origShowMessage = vscode.window.showInformationMessage;
 			const origExecute = vscode.commands.executeCommand;
+			const origGetConfiguration = vscode.workspace.getConfiguration;
 			(vscode.window as Record<string, unknown>).showInformationMessage = async (
 				shownMessage: string,
 				shownOptions: vscode.MessageOptions,
 				...items: string[]
 			) => {
 				message = shownMessage;
-				options = shownOptions;
+				dialogOptions = shownOptions;
 				actions = items;
-				return choice;
+				return options.choice;
 			};
 			(vscode.commands as Record<string, unknown>).executeCommand = async (commandId: string) => {
 				executed.push(commandId);
+			};
+			(vscode.workspace as Record<string, unknown>).getConfiguration = (section: string) => {
+				assert.strictEqual(section, "litellm-vscode-chat");
+				return {
+					get: (key: string) => (key === "servers" ? options.serversSetting : undefined),
+					inspect: () => undefined,
+				};
 			};
 			try {
 				await expectDefined(handler, "registerDiagnosticsCommand must register a handler")();
 			} finally {
 				(vscode.window as Record<string, unknown>).showInformationMessage = origShowMessage;
 				(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
+				(vscode.workspace as Record<string, unknown>).getConfiguration = origGetConfiguration;
 			}
 
-			return { message, options, actions, executed, outputShown, subscriptionCount: subscriptions.length };
+			return {
+				message,
+				options: dialogOptions,
+				actions,
+				executed,
+				outputShown,
+				subscriptionCount: subscriptions.length,
+			};
 		}
 
 		test("registers a disposable on the extension context", async () => {
-			const run = await runDiagnosticsCommand(createRegistry(), { state: "not-configured" });
+			const run = await runDiagnosticsCommand();
 
 			assert.strictEqual(run.subscriptionCount, 1);
 		});
 
 		test("shows a modal message with all five actions", async () => {
-			const run = await runDiagnosticsCommand(createRegistry(), { state: "not-configured" });
+			const run = await runDiagnosticsCommand();
 
 			assert.deepStrictEqual(run.options, { modal: true });
 			assert.deepStrictEqual(run.actions, [
@@ -248,116 +303,322 @@ suite("extension/diagnostics", () => {
 			]);
 		});
 
-		const statusTextCases: ReadonlyArray<[string, ConnectionStatus, string]> = [
-			["not-configured", { state: "not-configured" }, "Connection Status: Not configured"],
-			["loading", { state: "loading" }, "Connection Status: Loading..."],
-			["connected", { state: "connected", totalModels: 5 }, "Connection Status: Connected (5 models)"],
-			["connected without a count", { state: "connected" }, "Connection Status: Connected (0 models)"],
-			[
-				"degraded",
-				{ state: "degraded", totalModels: 3 },
-				"Connection Status: Degraded (3 models, some servers failed)",
-			],
-			["error", { state: "error", error: "boom" }, "Connection Status: Error: boom"],
-			["error without a message", { state: "error" }, "Connection Status: Error: Unknown error"],
-		];
-
-		for (const [label, status, expectedLine] of statusTextCases) {
-			test(`renders the ${label} state`, async () => {
-				const run = await runDiagnosticsCommand(createRegistry(), status);
-
-				assert.ok(run.message.includes(expectedLine), `expected "${expectedLine}" in message:\n${run.message}`);
-			});
-		}
-
-		test("renders the last-checked timestamp as a locale string", async () => {
+		test("a live group joined with its declared entry renders as one connected server", async () => {
 			const lastChecked = "2026-07-26T01:02:03.000Z";
-			const run = await runDiagnosticsCommand(createRegistry(), { state: "connected", lastChecked });
-
-			assert.ok(run.message.includes(`Last Checked: ${new Date(lastChecked).toLocaleString()}`));
-		});
-
-		test("renders Never when the status was never checked", async () => {
-			const run = await runDiagnosticsCommand(createRegistry(), { state: "not-configured" });
-
-			assert.ok(run.message.includes("Last Checked: Never"));
-		});
-
-		test("lists per-server results when server statuses exist", async () => {
-			const status: ConnectionStatus = {
-				state: "degraded",
-				totalModels: 4,
-				serverStatuses: [
-					makeServerStatus(),
-					makeServerStatus({
-						serverId: "srv2",
-						label: "Backup",
-						baseUrl: "http://backup.test",
-						state: "error",
-						modelCount: 0,
-						error: "connection refused",
+			const run = await runDiagnosticsCommand({
+				snapshots: [
+					makeSnapshot({
+						serverId: "group:fp:http://x.test",
+						label: "x.test",
+						baseUrl: "http://x.test",
+						modelCount: 3,
+						lastChecked,
 					}),
 				],
-			};
-			// A configured registry proves that statuses take precedence over the
-			// configured-server fallback listing.
+				declared: [
+					makeDeclared({ label: "Fake", baseUrl: "http://x.test", expectedClientId: "group:fp:http://x.test" }),
+				],
+			});
+
+			assert.ok(run.message.includes("Servers Configured: 1"), run.message);
+			assert.ok(run.message.includes("Connection Status: Connected (3 models)"), run.message);
+			assert.ok(run.message.includes(`Last Checked: ${new Date(lastChecked).toLocaleString()}`), run.message);
+			assert.ok(run.message.includes("  Fake: OK (3 models)"), "the declared label names the row");
+			assert.ok(run.message.includes("    URL: http://x.test"), run.message);
+			assert.ok(!run.message.includes("Legacy Registry"), "an empty registry earns no legacy line");
+		});
+
+		test("reports not configured when nothing is configured anywhere", async () => {
+			const run = await runDiagnosticsCommand();
+
+			assert.ok(run.message.includes("Servers Configured: 0"), run.message);
+			assert.ok(run.message.includes("Connection Status: Not configured"), run.message);
+			assert.ok(run.message.includes("Last Checked: Never"), run.message);
+			assert.ok(!run.message.includes("Server Details:"), run.message);
+			assert.ok(!run.message.includes("Legacy Registry"), run.message);
+		});
+
+		test("a declared entry no discovery pass has seen renders as waiting", async () => {
+			const run = await runDiagnosticsCommand({
+				declared: [makeDeclared({ label: "New", baseUrl: "http://new.test" })],
+			});
+
+			assert.ok(run.message.includes("Servers Configured: 1"), run.message);
+			assert.ok(run.message.includes("Connection Status: Waiting for first sync"), run.message);
+			assert.ok(run.message.includes("Last Checked: Never"), run.message);
+			assert.ok(run.message.includes("  New: Not checked yet"), run.message);
+		});
+
+		test("a declared entry whose group upsert failed renders its sync error", async () => {
+			const run = await runDiagnosticsCommand({
+				declared: [makeDeclared({ label: "Broken", baseUrl: "http://broken.test", syncError: "upsert refused" })],
+			});
+
+			assert.ok(run.message.includes("Connection Status: Error: upsert refused"), run.message);
+			assert.ok(run.message.includes("  Broken: Error: upsert refused"), run.message);
+		});
+
+		test("an unresolved declared entry still joins its live group by base URL", async () => {
+			const run = await runDiagnosticsCommand({
+				snapshots: [
+					makeSnapshot({
+						serverId: "group:fp:http://x.test",
+						label: "x.test",
+						baseUrl: "http://x.test/",
+						modelCount: 2,
+					}),
+				],
+				declared: [makeDeclared({ label: "Fake", baseUrl: "http://x.test" })],
+			});
+
+			assert.ok(run.message.includes("Servers Configured: 1"), "the joined pair must not double-count");
+			assert.ok(run.message.includes("  Fake: OK (2 models)"), run.message);
+		});
+
+		test("before the first sync pass, declared entries come straight from the setting", async () => {
+			const run = await runDiagnosticsCommand({
+				serversSetting: [{ label: "Declared", baseUrl: "http://d.test" }],
+			});
+
+			assert.ok(run.message.includes("Servers Configured: 1"), run.message);
+			assert.ok(run.message.includes("Connection Status: Waiting for first sync"), run.message);
+			assert.ok(run.message.includes("  Declared: Not checked yet"), run.message);
+		});
+
+		test("a reachable server whose upsert failed shows both the models and the sync error", async () => {
+			const run = await runDiagnosticsCommand({
+				snapshots: [
+					makeSnapshot({
+						serverId: "group:fp:http://x.test",
+						label: "x.test",
+						baseUrl: "http://x.test",
+						modelCount: 2,
+					}),
+				],
+				declared: [
+					makeDeclared({
+						label: "Fake",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp:http://x.test",
+						syncError: "upsert refused",
+					}),
+				],
+			});
+
+			assert.ok(run.message.includes("Connection Status: Connected (2 models)"), run.message);
+			assert.ok(run.message.includes("  Fake: OK (2 models) - upsert refused"), run.message);
+		});
+
+		test("the dialog never renders a transient loading verdict", async () => {
+			// The old status-bar-backed "Loading..." state was removed on purpose:
+			// invoked mid-first-refresh, the dialog now says what is actually known
+			// (declared entries waiting for their first sync) instead of a stale
+			// persisted loading claim.
+			const run = await runDiagnosticsCommand({
+				declared: [makeDeclared()],
+				status: { state: "loading" },
+			});
+
+			assert.ok(!run.message.includes("Loading"), run.message);
+			assert.ok(run.message.includes("Connection Status: Waiting for first sync"), run.message);
+		});
+
+		test("a legacy-only registry cold start renders the registry, not a not-configured claim", async () => {
 			const registry = createRegistry();
 			await registry.addServer("Prod", "http://prod.test", "");
-			const run = await runDiagnosticsCommand(registry, status);
+			const run = await runDiagnosticsCommand({ registry, status: { state: "loading" } });
 
-			assert.ok(run.message.includes("Server Details:"));
-			assert.ok(run.message.includes("  Prod: OK (4 models)"));
-			assert.ok(!run.message.includes("  Prod: http://prod.test"), "The fallback listing must not render");
-			assert.ok(run.message.includes("    URL: http://prod.test"));
-			assert.ok(run.message.includes("  Backup: Error: connection refused"));
-			assert.ok(run.message.includes("    URL: http://backup.test"));
+			assert.ok(run.message.includes("Servers Configured: 0"), run.message);
+			assert.ok(run.message.includes("Connection Status: Legacy registry only (1 server)"), run.message);
+			assert.ok(!run.message.includes("Not configured"), run.message);
+			assert.ok(run.message.includes("  Prod: http://prod.test"), "the configured list renders before any sweep");
 		});
 
-		test("a degraded status without a model count renders zero", async () => {
-			const run = await runDiagnosticsCommand(createRegistry(), { state: "degraded" });
-			assert.ok(run.message.includes("Degraded (0 models, some servers failed)"));
-		});
-
-		test("falls back to the configured server list when no statuses exist", async () => {
+		test("a legacy-only registry with sweep results renders their outcomes and timestamp", async () => {
 			const registry = createRegistry();
 			await registry.addServer("Prod", "http://prod.test", "");
-			const run = await runDiagnosticsCommand(registry, { state: "loading" });
+			await registry.addServer("Backup", "http://backup.test", "");
+			const lastChecked = "2026-07-26T01:02:03.000Z";
+			const run = await runDiagnosticsCommand({
+				registry,
+				status: {
+					state: "degraded",
+					totalModels: 4,
+					lastChecked,
+					serverStatuses: [
+						makeServerStatus(),
+						makeServerStatus({
+							serverId: "srv2",
+							label: "Backup",
+							baseUrl: "http://backup.test",
+							state: "error",
+							modelCount: 0,
+							error: "connection refused",
+						}),
+					],
+				},
+			});
 
-			assert.ok(run.message.includes("Servers Configured: 1"));
-			assert.ok(run.message.includes("Server Details:"));
-			assert.ok(run.message.includes("  Prod: http://prod.test"));
+			assert.ok(run.message.includes("Connection Status: Legacy registry only (2 servers)"), run.message);
+			assert.ok(run.message.includes(`Last Checked: ${new Date(lastChecked).toLocaleString()}`), run.message);
+			assert.ok(run.message.includes("  Prod: OK (4 models)"), run.message);
+			assert.ok(run.message.includes("  Backup: Error: connection refused"), run.message);
 		});
 
-		test("omits server details when nothing is configured", async () => {
-			const run = await runDiagnosticsCommand(createRegistry(), { state: "not-configured" });
+		test("the legacy path ignores a previous session's group statuses and falls back to the configured list", async () => {
+			const registry = createRegistry();
+			await registry.addServer("Prod", "http://prod.test", "");
+			const run = await runDiagnosticsCommand({
+				registry,
+				// A stale status for a server no longer in the registry (a prior
+				// session's provider group); it must not render as a legacy row.
+				status: {
+					state: "connected",
+					totalModels: 9,
+					serverStatuses: [
+						makeServerStatus({ serverId: "group:1:http://gone.test", label: "gone.test", baseUrl: "http://gone.test" }),
+					],
+				},
+			});
 
-			assert.ok(run.message.includes("Servers Configured: 0"));
-			assert.ok(!run.message.includes("Server Details:"));
+			assert.ok(!run.message.includes("gone.test"), "a status outside the current registry must not render");
+			assert.ok(run.message.includes("  Prod: http://prod.test"), "with no matching status it falls back to the list");
 		});
 
-		test("the server count includes observed group servers even with the flag unset", async () => {
-			const status: ConnectionStatus = {
+		test("the legacy path skips junk persisted status elements", async () => {
+			const registry = createRegistry();
+			await registry.addServer("Prod", "http://prod.test", "");
+			// Persisted statuses from older versions are deliberately unvalidated;
+			// a null element must not crash the command.
+			const status = {
 				state: "connected",
-				totalModels: 6,
-				serverStatuses: [
-					makeServerStatus({ serverId: "group:1:http://prod.test", label: "prod.test", modelCount: 4 }),
-					makeServerStatus({
+				totalModels: 4,
+				serverStatuses: [42, null, makeServerStatus()],
+			} as unknown as ConnectionStatus;
+			const run = await runDiagnosticsCommand({ registry, status });
+
+			assert.ok(run.message.includes("  Prod: OK (4 models)"), "the valid matching status still renders");
+			assert.ok(run.message.includes("Connection Status: Legacy registry only (1 server)"), run.message);
+		});
+
+		test("a partial sweep renders outcomes where known and listings for the rest", async () => {
+			const registry = createRegistry();
+			await registry.addServer("Prod", "http://prod.test", "");
+			await registry.addServer("Backup", "http://backup.test", "");
+			const run = await runDiagnosticsCommand({
+				registry,
+				// Only one of the two registry servers has a persisted outcome; the
+				// other must still get its configured listing instead of vanishing
+				// while the header counts it.
+				status: { state: "connected", totalModels: 4, serverStatuses: [makeServerStatus()] },
+			});
+
+			assert.ok(run.message.includes("Connection Status: Legacy registry only (2 servers)"), run.message);
+			assert.ok(run.message.includes("  Prod: OK (4 models)"), run.message);
+			assert.ok(run.message.includes("  Backup: http://backup.test"), "the unswept server still renders as a listing");
+		});
+
+		test("a status matching by URL but missing renderable fields falls back to the listing", async () => {
+			const registry = createRegistry();
+			await registry.addServer("Prod", "http://prod.test", "");
+			// label and baseUrl match, but the fields the renderer reads are junk:
+			// an "ok" without a model count must not render "OK (undefined models)".
+			const status = {
+				state: "connected",
+				serverStatuses: [{ label: "Prod", baseUrl: "http://prod.test", state: "ok" }],
+			} as unknown as ConnectionStatus;
+			const run = await runDiagnosticsCommand({ registry, status });
+
+			assert.ok(!run.message.includes("undefined"), run.message);
+			assert.ok(run.message.includes("  Prod: http://prod.test"), "the junk match falls back to the listing");
+		});
+
+		test("live groups without declared entries still count", async () => {
+			const run = await runDiagnosticsCommand({
+				snapshots: [
+					makeSnapshot({ serverId: "group:1:http://prod.test", label: "prod.test", modelCount: 4 }),
+					makeSnapshot({
 						serverId: "group:2:http://local.test",
 						label: "local.test",
 						baseUrl: "http://local.test",
 						modelCount: 2,
 					}),
 				],
-			};
-			const run = await runDiagnosticsCommand(createRegistry(), status);
+			});
 
 			assert.ok(run.message.includes("Servers Configured: 2"), run.message);
+			assert.ok(run.message.includes("Connection Status: Connected (6 models)"), run.message);
 			assert.ok(run.message.includes("  prod.test: OK (4 models)"), run.message);
 			assert.ok(run.message.includes("  local.test: OK (2 models)"), run.message);
 		});
 
+		test("one failing server among reachable ones renders degraded with the failure detail", async () => {
+			const run = await runDiagnosticsCommand({
+				snapshots: [
+					makeSnapshot({ serverId: "group:1:http://prod.test", label: "prod.test", modelCount: 4 }),
+					makeSnapshot({
+						serverId: "group:2:http://backup.test",
+						label: "backup.test",
+						baseUrl: "http://backup.test",
+						state: "error",
+						modelCount: 0,
+						error: "connection refused",
+					}),
+				],
+			});
+
+			assert.ok(run.message.includes("Connection Status: Degraded (4 models, some servers failed)"), run.message);
+			assert.ok(run.message.includes("  backup.test: Error: connection refused"), run.message);
+			assert.ok(run.message.includes("    URL: http://backup.test"), run.message);
+		});
+
+		test("every server failing renders the first error as the status", async () => {
+			const run = await runDiagnosticsCommand({
+				snapshots: [
+					makeSnapshot({
+						serverId: "group:1:http://prod.test",
+						state: "error",
+						modelCount: 0,
+						error: "connection refused",
+					}),
+				],
+			});
+
+			assert.ok(run.message.includes("Connection Status: Error: connection refused"), run.message);
+		});
+
+		test("the legacy registry gets its extra line only while it holds entries", async () => {
+			const registry = createRegistry();
+			await registry.addServer("Old", "http://old.test", "");
+			const run = await runDiagnosticsCommand({
+				registry,
+				snapshots: [makeSnapshot({ serverId: "group:1:http://prod.test", label: "prod.test", modelCount: 2 })],
+			});
+
+			assert.ok(run.message.includes("Legacy Registry Servers: 1"), run.message);
+			assert.ok(
+				run.message.includes("Servers Configured: 1"),
+				"legacy entries stay out of the count the dashboard shows"
+			);
+		});
+
+		test("a legacy server already shown as a snapshot row earns no duplicate legacy line", async () => {
+			const registry = createRegistry();
+			// Same base URL as the live snapshot below: after a sweep the registry
+			// server surfaces as an external row, so it must not also be counted on
+			// the Legacy Registry Servers line.
+			await registry.addServer("Prod", "http://prod.test", "");
+			const run = await runDiagnosticsCommand({
+				registry,
+				snapshots: [makeSnapshot({ serverId: "group:1:http://prod.test", label: "prod.test", modelCount: 3 })],
+			});
+
+			assert.ok(run.message.includes("Servers Configured: 1"), run.message);
+			assert.ok(!run.message.includes("Legacy Registry Servers"), "the overlapping server is stated once, not twice");
+		});
+
 		test("View Output shows the output channel without running a command", async () => {
-			const run = await runDiagnosticsCommand(createRegistry(), { state: "not-configured" }, "View Output");
+			const run = await runDiagnosticsCommand({ choice: "View Output" });
 
 			assert.strictEqual(run.outputShown, true);
 			assert.deepStrictEqual(run.executed, []);
@@ -372,7 +633,7 @@ suite("extension/diagnostics", () => {
 
 		for (const [action, commandId] of delegatingActions) {
 			test(`${action} delegates to ${commandId}`, async () => {
-				const run = await runDiagnosticsCommand(createRegistry(), { state: "not-configured" }, action);
+				const run = await runDiagnosticsCommand({ choice: action });
 
 				assert.deepStrictEqual(run.executed, [commandId]);
 				assert.strictEqual(run.outputShown, false);
@@ -380,7 +641,7 @@ suite("extension/diagnostics", () => {
 		}
 
 		test("dismissing the dialog does nothing", async () => {
-			const run = await runDiagnosticsCommand(createRegistry(), { state: "not-configured" }, undefined);
+			const run = await runDiagnosticsCommand();
 
 			assert.deepStrictEqual(run.executed, []);
 			assert.strictEqual(run.outputShown, false);

@@ -85,4 +85,45 @@ suite("provider server snapshots", () => {
 		const snapshot = expectDefined(provider.getServerSnapshots()[0]);
 		assert.strictEqual(snapshot.models.length, 1);
 	});
+
+	test("hasSeenGroupConfiguration latches when the host hands a group, before any snapshot exists", async () => {
+		const provider = makeProvider();
+		// A failing discovery, so the group produces no snapshot rows even though
+		// the host handed a group configuration: the latch must not depend on a
+		// successful fetch.
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+			http.get(MODELS_URL, () => emptyErrorResponse(404))
+		);
+
+		// Cold start: no group configuration seen, no snapshots.
+		assert.strictEqual(provider.hasSeenGroupConfiguration(), false);
+		assert.strictEqual(provider.getServerSnapshots().length, 0);
+
+		// The host performs the groupless refresh first; it reports an empty
+		// window and must not flip the latch.
+		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+		assert.strictEqual(
+			provider.hasSeenGroupConfiguration(),
+			false,
+			"the groupless refresh proves nothing about groups"
+		);
+
+		// Then a per-group refresh arrives: the latch flips the moment the host
+		// hands the configuration, independent of the fetch outcome.
+		await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: "http://litellm.test", apiKey: "k" }),
+			cancellation()
+		);
+		assert.strictEqual(provider.hasSeenGroupConfiguration(), true);
+	});
+
+	test("a malformed group configuration still latches: the host offered a group", async () => {
+		const provider = makeProvider();
+
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: 42 }), cancellation());
+
+		assert.strictEqual(provider.hasSeenGroupConfiguration(), true);
+		assert.strictEqual(provider.getServerSnapshots().length, 0, "a malformed group yields no snapshot");
+	});
 });

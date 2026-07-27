@@ -2,6 +2,9 @@
     "search.exclude": {
         "out": true
     },
+    "files.watcherExclude": {
+        "**/.dev-profile/**": true
+    },
     "git.branchProtection": [
         "main"
     ],

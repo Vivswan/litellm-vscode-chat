@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { DashboardServer, DashboardState, ExtensionToWebviewMessage } from "../../extension/dashboard/protocol";
-import { failuresAfterStatePush } from "../../extension/dashboard/protocol";
+import { classifyOverall, failuresAfterStatePush } from "../../extension/dashboard/protocol";
 import { ModelsSection } from "./models";
 import type { IntentFailure } from "./recordEditors";
 import { ServersSection } from "./servers";
@@ -33,25 +33,23 @@ export interface IntentAck {
 type Overall = { tone: "ok" | "error" | "warn" | "muted"; word: string };
 
 /**
- * The hero's overall verdict. Only real failures color it: entries the sync
- * has declared but discovery has not checked yet are neutral, so adding a
- * first server is not greeted with a warning.
+ * The hero's overall verdict. The classification is shared with the
+ * diagnostics dialog (classifyOverall in the protocol module); this only maps
+ * it to the hero's tone and word.
  */
 function overallState(servers: readonly DashboardServer[]): Overall {
-	if (servers.length === 0) {
-		return { tone: "muted", word: "Not configured" };
+	switch (classifyOverall(servers)) {
+		case "not-configured":
+			return { tone: "muted", word: "Not configured" };
+		case "error":
+			return { tone: "error", word: "Error" };
+		case "degraded":
+			return { tone: "warn", word: "Degraded" };
+		case "waiting":
+			return { tone: "muted", word: "Waiting for first sync" };
+		case "connected":
+			return { tone: "ok", word: "Connected" };
 	}
-	const errors = servers.filter((server) => server.state === "error").length;
-	if (errors === servers.length) {
-		return { tone: "error", word: "Error" };
-	}
-	if (errors > 0) {
-		return { tone: "warn", word: "Degraded" };
-	}
-	if (servers.every((server) => server.state === "unchecked")) {
-		return { tone: "muted", word: "Waiting for first sync" };
-	}
-	return { tone: "ok", word: "Connected" };
 }
 
 function lastSync(servers: readonly DashboardServer[]): string | undefined {

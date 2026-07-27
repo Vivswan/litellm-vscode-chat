@@ -77,7 +77,7 @@ jobs:
           bun run bundle
           listing="$(bunx vsce ls)"
           echo "$listing"
-          forbidden='^(out/|src/|node_modules/|scripts/|\.github/|\.husky/)|^(bun\.lock|biome\.json|AGENTS\.md|CLAUDE\.md|\.vscode-test\.mjs)$|\.ts$|\.map$'
+          forbidden='^(out/|src/|node_modules/|scripts/|\.github/|\.husky/|\.dev-profile/)|^(bun\.lock|biome\.json|AGENTS\.md|CLAUDE\.md|\.vscode-test\.mjs)$|\.ts$|\.map$'
           if echo "$listing" | grep -E "$forbidden"; then
             echo "::error::vsce would package files that must stay out of the VSIX (matches above)"
             exit 1

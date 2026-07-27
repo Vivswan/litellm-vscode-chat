@@ -1,10 +1,10 @@
 /**
  * The declarative server sync: litellm-vscode-chat.servers is the settings
  * side's source of truth for servers, and this module keeps VS Code's
- * provider groups in step with it. Each entry upserts through the host's
- * lm.addLanguageModelsProviderGroup command (the same call devSeed.ts makes),
- * with its secret fields resolved as inline-in-settings value first, then the
- * label's SecretStorage blob, then absent.
+ * provider groups in step with it. Each entry is registered through the
+ * host's add-only lm.addLanguageModelsProviderGroup command, with its secret
+ * fields resolved as inline-in-settings value first, then the label's
+ * SecretStorage blob, then absent.
  *
  * The engine takes its effects as an injected environment, so everything but
  * the last-mile vscode wiring (createServerSyncEnv, the palette command) is

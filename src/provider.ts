@@ -87,6 +87,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// about whether the host is re-resolving groups, so refreshViaHost's
 	// settle-wait must not be armed by it.
 	private _groupStatusReportCount = 0;
+	// Sticky evidence that the host has handed this session at least one provider
+	// group: the host passes each group's configuration at prepare time. Once
+	// seen it never resets, so the "not configured" surfaces stay silent for a
+	// group-configured user even between refresh cycles, when the live status
+	// window has aged its entries out. The groupless refresh runs before the
+	// per-group refreshes, so this is the honest "servers exist" signal that the
+	// live snapshot count cannot give at cold start.
+	private _hasSeenGroupConfiguration = false;
 	private readonly _onDidChangeEmitter = new EventEmitter<void>();
 	/** Fired to make the host re-resolve the group-agnostic call and every group through this provider. */
 	readonly onDidChangeLanguageModelChatInformation: Event<void> = this._onDidChangeEmitter.event;
@@ -169,6 +177,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		return [...this._serverStatuses.values()].map((entry) => ({ status: entry.status, models: entry.models }));
 	}
 
+	/**
+	 * Whether the host has handed this session any provider-group configuration.
+	 * Sticky: the "not configured" surfaces consult it so a group-configured user
+	 * is never told they have no servers at cold start, when the groupless
+	 * refresh reports an empty window before the per-group refreshes arrive.
+	 */
+	hasSeenGroupConfiguration(): boolean {
+		return this._hasSeenGroupConfiguration;
+	}
+
 	private groupClientIdsInStatuses(): string[] {
 		return [...this._serverStatuses.keys()].filter(isGroupClientId);
 	}
@@ -200,6 +218,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	): Promise<LiteLLMModelInfo[]> {
 		// The host passes the group's configuration for per-group refreshes.
 		if (options.configuration !== undefined) {
+			// The host only hands a group configuration for a group that exists, so
+			// this is proof the session has configured servers even before the
+			// group's own status report lands.
+			this._hasSeenGroupConfiguration = true;
 			return this.provideGroupModels(options.configuration, options.silent);
 		}
 
