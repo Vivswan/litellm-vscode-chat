@@ -191,6 +191,7 @@ The extension supports prompt caching for models that advertise this capability 
 - Automatically detects prompt caching support from LiteLLM's `/v1/model/info` endpoint
 - Only affects models that explicitly support prompt caching (primarily Claude models)
 - Adds `cache_control` breakpoints to the last tool definition, the system message, the first user message, and the last text-bearing message (a trailing tool-call-only or image-only message is skipped) - at most four per request, Anthropic's limit
+- Uses Anthropic's ephemeral cache markers with no explicit TTL, so the cache lifetime is the provider's default (currently about 5 minutes for Anthropic); the extension does not set or extend this duration
 - Disabled by default for models without support
 
 **Benefits:**
@@ -390,6 +391,15 @@ Press `F5` to launch the Extension Development Host.
 | `bun run lint` | Lint |
 | `bun run format` | Format |
 | `bun run test` | Run tests |
+
+## Acknowledgments
+
+This extension is better because people took the time to report what broke and
+build what was missing. Contributors are credited in
+[ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md); going forward, commits landing
+community code carry co-author trailers, and commits resolving community
+reports credit the reporter in the subject, which release-please carries
+into the [changelog](CHANGELOG.md).
 
 ## Resources
 

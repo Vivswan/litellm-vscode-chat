@@ -102,7 +102,8 @@ Two deliberate design contracts worth knowing before touching transport code: st
 
 - Biome formats and lints: tabs (width 2), semicolons, 120-char lines. Husky pre-commit runs format, lint, actionlint, scripts typecheck, and the unit suite; it runs `biome check --write` repo-wide and aborts the commit when that modifies anything, so re-stage and commit again.
 - release-please manages versioning and Marketplace publishing from Conventional Commit titles. Never bump `package.json` manually.
-- No "Co-Authored-By:", "Generated with", or similar attribution in commits or PRs.
+- A commit that resolves a community-reported issue or supersedes a community PR credits the author in its subject, e.g. `fix: normalize base URL slashes (#53, thanks @Pandaplanes)` - release-please copies the subject into the changelog, so the credit ships with the release. Commits that land or supersede community CODE also carry a human `Co-authored-by:` trailer and a row in `ACKNOWLEDGMENTS.md`.
+- No AI/tool attribution in commits or PRs: no "Generated with", no "Co-Authored-By: Claude/Copilot/Codex" or similar. `Co-authored-by:` trailers for human community contributors are the one sanctioned use.
 
 ### Code review guidance
 
