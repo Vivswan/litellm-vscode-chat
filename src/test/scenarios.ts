@@ -3,7 +3,8 @@
  * in-process capture server (host-fidelity tests) and the containerized
  * fake OpenAI server behind the docker LiteLLM proxy. Each scenario is a
  * canned /v1/chat/completions response; SCENARIO_CAPABILITIES drives the
- * generated model_info entries in docker/litellm-config.yaml.
+ * model_info entries in the runtime-generated LiteLLM proxy config
+ * (docker/.generated/litellm-config.yaml, via scripts/litellmConfig.ts).
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";

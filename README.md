@@ -273,7 +273,7 @@ Each canned response is its own model, so you pick the shape you want to test fr
 curl -X PUT localhost:8090/_test/scenario -d parallel-tool-calls
 ```
 
-The config also routes `openai/*`, `anthropic/*`, and `github/*` model names to the real providers when the matching key is set in `.env`, plus a bare `*` passthrough for anything else LiteLLM can infer. Note that these wildcard entries make LiteLLM list its whole known-model catalog, so expect a long model list in the picker.
+The proxy config is generated at stack startup (`docker/.generated/litellm-config.yaml`, gitignored) from `src/test/scenarios.ts`. With a real provider key set in `.env` or the environment, the generated config also routes `openai/*`, `anthropic/*`, or `github/*` model names through the proxy to that provider - the intended way to eyeball real-provider behavior through the same stack. Without a key the wildcard route is not emitted at all, so there are no phantom catalog models and no misleading 401s; note that an emitted wildcard makes LiteLLM list its whole known-model catalog, so expect a long model list in the picker. Set `LITELLM_WILDCARD_ALL=1` to add a bare `*` passthrough for anything else LiteLLM can infer. The docker test suite always generates without these routes, so local keys never change test results.
 
 Useful commands:
 
@@ -281,10 +281,10 @@ Useful commands:
 bun run test:docker    # run the docker test suites against the stack (starts and stops it)
 bun run docker:logs    # follow container logs
 bun run docker:down    # stop the stack and remove volumes
-bun run generate-config  # regenerate docker/litellm-config.yaml after editing scenarios
+bun run generate-config  # print the generated LiteLLM config to stdout (never writes; startup writes the real file)
 ```
 
-The stack also works with Podman: the scripts try `docker compose` first, then `podman compose`, and `COMPOSE_CMD` overrides the choice. The compose provider must support `up --wait`; Podman with the docker-compose provider does, while older `podman-compose` releases may not. On SELinux hosts, change the bind mounts in `docker-compose.yml` from `:ro` to `:ro,z`.
+The stack also works with Podman: the scripts try `docker compose` first, then `podman compose`, and `COMPOSE_CMD` overrides the choice. The compose provider must support `up --wait`; Podman with the docker-compose provider does, while older `podman-compose` releases may not. On SELinux hosts, change the bind mounts in `docker-compose.yml` from `:ro` to `:ro,z`. Always start the stack through `bun run docker:up` (or `dev:fake` / `test:docker`): those paths generate `docker/.generated/litellm-config.yaml` first. Invoking `docker compose up` directly is unsupported - without the generation step the read-only directory mount materializes empty and the litellm container exits on a missing config.
 
 The existing host-fidelity suite can target the stack too:
 
