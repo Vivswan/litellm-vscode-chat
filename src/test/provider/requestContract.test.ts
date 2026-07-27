@@ -455,6 +455,77 @@ suite("provider/request contract", () => {
 		});
 	});
 
+	suite("model picker configuration", () => {
+		test("the picker's reasoning effort choice lands as reasoning_effort", async () => {
+			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelConfiguration: { reasoningEffort: "high" },
+			});
+			assert.strictEqual(body.reasoning_effort, "high");
+		});
+
+		test("an unset picker sends no reasoning_effort key", async () => {
+			// Unset arrives as the resolved schema default ("default", the
+			// provider-default sentinel); a host without the schema sends no
+			// modelConfiguration at all. Neither may put anything on the wire.
+			const sentinel = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelConfiguration: { reasoningEffort: "default" },
+			});
+			assert.ok(!("reasoning_effort" in sentinel), "picking Provider default (or never picking) sends nothing");
+
+			const absent = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+			});
+			assert.ok(!("reasoning_effort" in absent));
+		});
+
+		test("runtime modelOptions.reasoning_effort outranks the picker choice", async () => {
+			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelOptions: { reasoning_effort: "low" },
+				modelConfiguration: { reasoningEffort: "high" },
+			});
+			assert.strictEqual(body.reasoning_effort, "low");
+		});
+
+		test("the picker choice outranks configured modelParameters", async () => {
+			const body = await withConfig({ modelParameters: { "test-model": { reasoning_effort: "low" } } }, () =>
+				captureRequestBody(createConfiguredProvider(), modelInfo, {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+					modelConfiguration: { reasoningEffort: "high" },
+				})
+			);
+			assert.strictEqual(body.reasoning_effort, "high");
+		});
+
+		test("a malformed picker value drops and leaves lower-precedence sources intact", async () => {
+			const configured = await withConfig({ modelParameters: { "test-model": { reasoning_effort: "medium" } } }, () =>
+				captureRequestBody(createConfiguredProvider(), modelInfo, {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+					modelConfiguration: { reasoningEffort: "extreme" },
+				})
+			);
+			assert.strictEqual(configured.reasoning_effort, "medium", "the invalid choice must not shadow the config");
+
+			const bare = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelConfiguration: { reasoningEffort: 42 },
+			});
+			assert.ok(!("reasoning_effort" in bare), "an invalid choice with no other source sends nothing");
+		});
+
+		test("modelConfiguration properties outside the declared schema never reach the body", async () => {
+			const body = await captureRequestBody(createConfiguredProvider(), modelInfo, {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelConfiguration: { reasoningEffort: "low", verbosity: "high", temperature: 0.9 },
+			});
+			assert.strictEqual(body.reasoning_effort, "low");
+			assert.ok(!("verbosity" in body), "only schema-declared properties are mapped, never a blind spread");
+			assert.ok(!("temperature" in body));
+		});
+	});
+
 	suite("max_tokens precedence", () => {
 		/** A /v1/model/info listing for one "test-model" entry with the given model_info fields. */
 		const infoListing = (...modelInfos: Record<string, unknown>[]) => ({

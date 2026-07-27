@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, useMsw } from "../mocks/handlers";
 import { expectDefined, makeProvider, toHeaderMap, withConfig } from "../testUtils";
 
@@ -330,5 +331,155 @@ suite("provider/model info and fallback", () => {
 		assert.strictEqual(info.capabilities.toolCalling, false, "tools only when every deployment supports them");
 		assert.strictEqual(info.capabilities.imageInput, false, "vision only when every deployment supports it");
 		assert.strictEqual(info.family, "azure", "the merged model's family follows the first deployment's provider");
+	});
+
+	suite("reasoning-effort configuration schema", () => {
+		const discover = async () =>
+			makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+
+		const findInfo = async (id: string) => expectDefined((await discover()).find((i) => i.id === id));
+
+		/** A /v1/model/info entry for one deployment of `name` with extra model_info fields. */
+		const infoEntry = (name: string, modelInfo: Record<string, unknown>) => ({
+			model_name: name,
+			model_info: { supports_function_calling: true, ...modelInfo },
+		});
+
+		/** A /v1/models providers-array listing for one model. */
+		const providersListing = (providers: Record<string, unknown>[]) => ({
+			object: "list",
+			data: [
+				{
+					id: "multi-model",
+					object: "model",
+					created: 0,
+					owned_by: "test",
+					providers: providers.map((provider, i) => ({ provider: `provider-${i}`, status: "active", ...provider })),
+				},
+			],
+		});
+
+		test("a model_info entry with supports_reasoning gets the picker schema", async () => {
+			mswServer.use(...discoveryHandlers({ data: [infoEntry("o3", { supports_reasoning: true })] }));
+			assert.deepStrictEqual((await findInfo("o3")).configurationSchema, REASONING_EFFORT_SCHEMA);
+		});
+
+		test("reasoning_effort among supported_openai_params also gets the schema", async () => {
+			mswServer.use(
+				...discoveryHandlers({
+					data: [infoEntry("gpt-5", { supported_openai_params: ["temperature", "reasoning_effort"] })],
+				})
+			);
+			assert.deepStrictEqual((await findInfo("gpt-5")).configurationSchema, REASONING_EFFORT_SCHEMA);
+		});
+
+		test("a model without reasoning support carries no schema", async () => {
+			mswServer.use(
+				...discoveryHandlers({
+					data: [infoEntry("gpt-4o", { supports_reasoning: false, supported_openai_params: ["temperature"] })],
+				})
+			);
+			assert.ok(!("configurationSchema" in (await findInfo("gpt-4o"))), "no picker control without capability data");
+		});
+
+		test("a bare /v1/models entry has no capability data, so no schema", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => HttpResponse.error()),
+				http.get(MODELS_URL, () =>
+					HttpResponse.json({ object: "list", data: [{ id: "opaque-model", object: "model" }] })
+				)
+			);
+			assert.ok(!("configurationSchema" in (await findInfo("opaque-model"))));
+		});
+
+		test("merged deployments advertise the schema only when every deployment supports reasoning", async () => {
+			mswServer.use(
+				...discoveryHandlers({
+					data: [
+						infoEntry("all-reasoning", { supports_reasoning: true }),
+						infoEntry("all-reasoning", { supports_reasoning: true }),
+						infoEntry("mixed", { supports_reasoning: true }),
+						infoEntry("mixed", {}),
+					],
+				})
+			);
+			assert.deepStrictEqual((await findInfo("all-reasoning")).configurationSchema, REASONING_EFFORT_SCHEMA);
+			assert.ok(
+				!("configurationSchema" in (await findInfo("mixed"))),
+				"one deployment without the flag demotes the merged capability"
+			);
+		});
+
+		test("an explicit supports_reasoning: false survives the merge even when the params intersect", async () => {
+			// The merge ANDs supports_reasoning to false but the intersected
+			// supported_openai_params still lists reasoning_effort; the veto must
+			// keep the disclaimed capability from being resurrected.
+			mswServer.use(
+				...discoveryHandlers({
+					data: [
+						infoEntry("veto", { supports_reasoning: true, supported_openai_params: ["reasoning_effort"] }),
+						infoEntry("veto", { supports_reasoning: false, supported_openai_params: ["reasoning_effort"] }),
+					],
+				})
+			);
+			assert.ok(!("configurationSchema" in (await findInfo("veto"))));
+		});
+
+		test("per-provider entries follow their own provider; aggregates need every provider", async () => {
+			mswServer.use(
+				...discoveryHandlers(
+					providersListing([
+						{ supports_tools: true, supports_reasoning: true },
+						{ supports_tools: true, supported_openai_params: ["temperature"] },
+					])
+				)
+			);
+			const infos = await discover();
+			const reasoningEntry = expectDefined(infos.find((i) => i.id === "multi-model:provider-0"));
+			const plainEntry = expectDefined(infos.find((i) => i.id === "multi-model:provider-1"));
+			const cheapest = expectDefined(infos.find((i) => i.id === "multi-model:cheapest"));
+			assert.deepStrictEqual(reasoningEntry.configurationSchema, REASONING_EFFORT_SCHEMA);
+			assert.ok(!("configurationSchema" in plainEntry));
+			assert.ok(
+				!("configurationSchema" in cheapest),
+				"the proxy may route an aggregate to the non-reasoning provider, so no schema"
+			);
+		});
+
+		test("aggregates get the schema when every tool-capable provider supports reasoning", async () => {
+			mswServer.use(
+				...discoveryHandlers(
+					providersListing([
+						{ supports_tools: true, supports_reasoning: true },
+						{ supports_tools: true, supported_openai_params: ["reasoning_effort"] },
+					])
+				)
+			);
+			const infos = await discover();
+			for (const id of ["multi-model:cheapest", "multi-model:fastest"]) {
+				assert.deepStrictEqual(
+					expectDefined(infos.find((i) => i.id === id)).configurationSchema,
+					REASONING_EFFORT_SCHEMA
+				);
+			}
+		});
+
+		test("an untooled base entry needs every backing provider to support reasoning", async () => {
+			mswServer.use(...discoveryHandlers(providersListing([{ supports_tools: false, supports_reasoning: true }])));
+			assert.deepStrictEqual((await findInfo("multi-model")).configurationSchema, REASONING_EFFORT_SCHEMA);
+
+			mswServer.use(
+				...discoveryHandlers(
+					providersListing([{ supports_tools: false, supports_reasoning: true }, { supports_tools: false }])
+				)
+			);
+			assert.ok(
+				!("configurationSchema" in (await findInfo("multi-model"))),
+				"the proxy may route the base id to the non-reasoning provider, so a mixed group gets no schema"
+			);
+		});
 	});
 });

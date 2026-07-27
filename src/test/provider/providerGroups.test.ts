@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
 import type { AggregatedStatus } from "../../shared/servers";
 import {
 	CHAT_COMPLETIONS_URL,
@@ -288,6 +289,66 @@ suite("provider groups", () => {
 			32000,
 			"the cache's attach-at-read rebuild must preserve outputLimitSource"
 		);
+	});
+
+	test("the reasoning-effort schema survives the group path, a cache hit, and the chat round trip", async () => {
+		const provider = makeProvider();
+		let discoveryHits = 0;
+		let body: Record<string, unknown> | undefined;
+		const reasoningPayload = {
+			data: [
+				{
+					model_name: "test-model",
+					model_info: {
+						id: "test-model",
+						supports_function_calling: true,
+						supports_reasoning: true,
+						max_input_tokens: 100000,
+						max_output_tokens: 8000,
+					},
+				},
+			],
+		};
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => {
+				discoveryHits += 1;
+				return HttpResponse.json(reasoningPayload);
+			}),
+			http.get(MODELS_URL, () => HttpResponse.json(reasoningPayload)),
+			http.post(CHAT_COMPLETIONS_URL, async ({ request }) => {
+				body = (await request.json()) as Record<string, unknown>;
+				return sseTextResponse("ok");
+			})
+		);
+
+		const first = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: "http://litellm.test" }),
+			cancellation()
+		);
+		assert.deepStrictEqual(expectDefined(first[0]).configurationSchema, REASONING_EFFORT_SCHEMA);
+
+		const second = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: "http://litellm.test" }),
+			cancellation()
+		);
+		assert.strictEqual(discoveryHits, 1, "the second sweep must be served from the discovery cache");
+		assert.deepStrictEqual(
+			expectDefined(second[0]).configurationSchema,
+			REASONING_EFFORT_SCHEMA,
+			"attachGroupServer's rebuild on a cached read must keep the schema"
+		);
+
+		await provider.provideLanguageModelChatResponse(
+			expectDefined(second[0]),
+			[userMessage("hi")],
+			{
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				modelConfiguration: { reasoningEffort: "high" },
+			} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+			{ report: () => {} },
+			cancellation()
+		);
+		assert.strictEqual(expectDefined(body).reasoning_effort, "high", "the picker choice must route with the group");
 	});
 
 	test("a group model's defaults-derived output limit stays capped at 4096", async () => {

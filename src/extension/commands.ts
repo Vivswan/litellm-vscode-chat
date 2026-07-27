@@ -303,11 +303,11 @@ export function registerTestCommands(
 	}
 
 	const refreshModelIds = async (): Promise<string[]> => {
-		const infos = await provider.provideLanguageModelChatInformation(
-			{ silent: true },
-			new vscode.CancellationTokenSource().token
-		);
-		return infos.map((info) => info.id);
+		return (await refreshModelInfos()).map((info) => info.id);
+	};
+
+	const refreshModelInfos = async (): Promise<vscode.LanguageModelChatInformation[]> => {
+		return provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 	};
 
 	// Mutations run serialized so a straggler's refresh can never overwrite the
@@ -336,6 +336,10 @@ export function registerTestCommands(
 			return (await refreshModelIds()).length;
 		}),
 		vscode.commands.registerCommand("litellm._test.refreshModelIds", refreshModelIds),
+		// The full prepared infos, for suites asserting registration metadata
+		// (e.g. configurationSchema) that vscode.lm.selectChatModels never
+		// exposes. In-process command dispatch returns the objects as-is.
+		vscode.commands.registerCommand("litellm._test.refreshModelInfos", refreshModelInfos),
 		vscode.commands.registerCommand(
 			"litellm._test.addServer",
 			async (label: string, baseUrl: string, apiKey: string) => {

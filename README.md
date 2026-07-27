@@ -136,7 +136,11 @@ All non-reserved `modelParameters` keys are passed through to LiteLLM: the exten
 }
 ```
 
-**Parameter precedence**: Runtime options > User config. Any parameter left unset by both falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one - the output limit your server declares in model info, or at most 4096 when the server declares none).
+**Parameter precedence**: Runtime options > model picker choices > user config. Any parameter left unset by all three falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one - the output limit your server declares in model info, or at most 4096 when the server declares none).
+
+### Reasoning Effort (Model Picker)
+
+Models that advertise reasoning support (`supports_reasoning`, or `reasoning_effort` among their supported params) get a "Reasoning Effort" control in Copilot's model picker, under the model's Configure Model menu. Pick Low, Medium, or High and VS Code remembers the choice for that model; every request then carries `reasoning_effort` accordingly. Pick "Provider default" (the initial state) to send nothing and let your provider decide. A `reasoning_effort` in `modelOptions` at request time still wins over the picker.
 
 ### Prompt Caching (Anthropic Claude)
 

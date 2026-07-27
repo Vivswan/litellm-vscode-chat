@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { REASONING_EFFORT_SCHEMA } from "../provider/modelConfiguration";
 import {
 	addServer,
 	clearServers,
@@ -123,6 +124,20 @@ suite("Docker LiteLLM stack", () => {
 
 		test("fake models carry the generated token limits", () => {
 			assert.strictEqual(fakeModel("text-only").maxInputTokens, 128000);
+		});
+
+		test("fake/reasoning advertises the reasoning-effort picker schema through real discovery", async () => {
+			const infos = (await vscode.commands.executeCommand(
+				"litellm._test.refreshModelInfos"
+			)) as vscode.LanguageModelChatInformation[];
+			const reasoning = expectDefined(infos.find((info) => info.id === "fake/reasoning"));
+			assert.deepStrictEqual(
+				reasoning.configurationSchema,
+				REASONING_EFFORT_SCHEMA,
+				"the generated supports_reasoning: true must surface the picker control"
+			);
+			const textOnly = expectDefined(infos.find((info) => info.id === "fake/text-only"));
+			assert.ok(!("configurationSchema" in textOnly), "non-reasoning fake models must not grow the control");
 		});
 	});
 
@@ -404,6 +419,17 @@ suite("Docker LiteLLM stack", () => {
 			await send("text-only");
 			const body = await lastForwardedRequest();
 			assert.deepStrictEqual(body.stream_options, { include_usage: true });
+		});
+
+		test("reasoning_effort reaches the backend through a reasoning-capable model", async () => {
+			// fake/reasoning is generated with supports_reasoning: true, the same
+			// capability data that puts the Reasoning Effort control in the model
+			// picker; a resolved picker choice travels as this exact wire key.
+			await send("reasoning", [vscode.LanguageModelChatMessage.User("hi")], {
+				modelOptions: { reasoning_effort: "high" },
+			});
+			const body = await lastForwardedRequest();
+			assert.strictEqual(body.reasoning_effort, "high", "the proxy must forward the effort level to the backend");
 		});
 
 		test("image parts arrive as image_url blocks", async () => {
