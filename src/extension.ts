@@ -8,7 +8,7 @@ import {
 } from "./extension/commands";
 import { registerDashboardCommand } from "./extension/dashboard/panel";
 import type { DevSeed } from "./extension/devSeed";
-import { addProviderGroupViaHost, consumeDevSeed } from "./extension/devSeed";
+import { consumeDevSeed, createDevSeedEnv } from "./extension/devSeed";
 import { registerDiagnosticsCommand } from "./extension/diagnostics";
 import {
 	getMigratedServerLabels,
@@ -20,6 +20,7 @@ import { registerManageCommand } from "./extension/serverManagement";
 import { ServerRegistry } from "./extension/serverRegistry";
 import {
 	createServerSyncEnv,
+	parseServersSetting,
 	registerSetServerSecretCommand,
 	SERVERS_SETTING_KEY,
 	ServerSyncEngine,
@@ -52,7 +53,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
 
 	provider.setServerProvider(() => registry.getServersWithKeys());
-	provider.setConfigurationPrompt(createConfigurationPrompt());
+	// The setting itself is the truth here, not the sync engine's view: the
+	// prompt and the welcome toast can run before the first sync pass finishes.
+	const hasDeclaredServers = () =>
+		parseServersSetting(vscode.workspace.getConfiguration("litellm-vscode-chat").get(SERVERS_SETTING_KEY)).entries
+			.length > 0;
+	// The shared not-configured gate: the registry-backed refresh path knows
+	// nothing about the newer stores, so declared servers-setting entries and
+	// live provider groups both mean "configured" before anything toasts.
+	// hasSeenGroupConfiguration is the cold-start-honest signal: the host's
+	// groupless refresh reports an empty window before it re-resolves each
+	// group, so the live snapshot count alone would wrongly read as empty.
+	const hasConfiguredServers = () =>
+		provider.getServerSnapshots().length > 0 || provider.hasSeenGroupConfiguration() || hasDeclaredServers();
+	provider.setConfigurationPrompt(createConfigurationPrompt(hasConfiguredServers));
 	const isMigrated = () => isGroupMigrationComplete(context.globalState);
 	provider.setGrouplessRegistryEnabled(() => testMode || !isMigrated());
 	provider.setMigratedServerLabels(() => getMigratedServerLabels(context.globalState));
@@ -70,12 +84,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
 
 	// One-shot seed dropped by `bun run dev:fake`; development-mode only. It
-	// creates the provider group through the host command, which validates
-	// against the provider registered above.
+	// writes the servers-setting entry and the label's stored API key; the
+	// forced server sync pass below turns the entry into the provider group.
 	let devSeed: DevSeed | undefined;
 	if (testMode) {
 		try {
-			devSeed = await consumeDevSeed(context.extensionUri, addProviderGroupViaHost, logger);
+			devSeed = await consumeDevSeed(context.extensionUri, createDevSeedEnv(context.secrets), logger);
 		} catch (error) {
 			logger.error("Dev seed failed", error);
 		}
@@ -87,13 +101,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Status bar, refresh notifications, and the dashboard share the same
 	// status callback, isolated so one consumer's failure cannot starve the
 	// others.
-	const statusBar = new StatusBarManager(context, logger);
-	const notifier = new Notifier();
+	const statusBar = new StatusBarManager(context, logger, hasConfiguredServers);
+	const notifier = new Notifier(hasConfiguredServers);
 	// The declarative server sync: litellm-vscode-chat.servers entries become
 	// provider groups. Created before the dashboard, which edits the setting
 	// and reads the engine's declared-server view.
 	const syncEngine = new ServerSyncEngine(createServerSyncEnv(context, logger));
 	context.subscriptions.push(
+		// Disposal withdraws an armed no-servers claim, so its deferred toast
+		// cannot fire from a deactivated extension.
+		notifier,
 		syncEngine,
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration(`litellm-vscode-chat.${SERVERS_SETTING_KEY}`)) {
@@ -139,9 +156,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		});
 	}
 
-	// Welcome message
+	// Welcome message. Gated on the legacy registry and the declared servers
+	// setting only: this runs during activation, before the host has handed
+	// over any provider group, so the group latch cannot contribute yet.
 	const hasShownWelcome = context.globalState.get<boolean>(HAS_SHOWN_WELCOME_KEY, false);
-	if (!hasShownWelcome && registry.getServers().length === 0) {
+	if (!hasShownWelcome && registry.getServers().length === 0 && !hasDeclaredServers()) {
 		showActionableMessage("info", "Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.", [
 			reconfigureAction("Configure Now"),
 			{ label: "Documentation", run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS)) },
@@ -179,8 +198,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// edited natively), then a discovery-cache-skipping refetch of every group.
 	registerSyncModelsCommand(context, provider, statusBar, outputChannel, logger, () => syncEngine.syncNow(true));
 
-	// Diagnostics command
-	registerDiagnosticsCommand(context, registry, () => statusBar.connectionStatus, outputChannel);
+	// Diagnostics command: reads the same stores the dashboard renders, with
+	// the status bar's connection status for the legacy-registry-only world.
+	registerDiagnosticsCommand(
+		context,
+		registry,
+		() => provider.getServerSnapshots(),
+		() => syncEngine.getDeclared(),
+		() => statusBar.connectionStatus,
+		outputChannel
+	);
 
 	// Help & Feedback command
 	registerHelpAndFeedbackCommand(context);

@@ -52,6 +52,33 @@ export interface DashboardServer {
 	readonly config?: DashboardServerConfig | undefined;
 }
 
+/**
+ * The overall configuration verdict, shared by the dashboard hero and the
+ * diagnostics dialog so their headline judgement cannot drift. Each surface
+ * renders it differently (the hero as a colored word, the dialog as a line
+ * with model counts and the first error), but the classification itself lives
+ * here once. Only real failures count as failures: declared entries a
+ * discovery pass has not reached yet stay neutral.
+ */
+export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected";
+
+export function classifyOverall(servers: readonly Pick<DashboardServer, "state">[]): OverallVerdict {
+	if (servers.length === 0) {
+		return "not-configured";
+	}
+	const errors = servers.filter((server) => server.state === "error").length;
+	if (errors === servers.length) {
+		return "error";
+	}
+	if (errors > 0) {
+		return "degraded";
+	}
+	if (servers.every((server) => server.state === "unchecked")) {
+		return "waiting";
+	}
+	return "connected";
+}
+
 /** One registered model, reduced to display facts. Costs are USD per million tokens, as registration converted them. */
 export interface DashboardModel {
 	readonly id: string;

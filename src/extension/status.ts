@@ -5,7 +5,7 @@ import type { AggregatedStatus, ServerStatus } from "../shared/servers";
 import { LAST_CONNECTION_STATUS_KEY } from "../shared/storageKeys";
 
 export interface ConnectionStatus {
-	state: "not-configured" | "loading" | "connected" | "degraded" | "error";
+	state: "not-configured" | "connecting" | "loading" | "connected" | "degraded" | "error";
 	totalModels?: number;
 	serverStatuses?: ServerStatus[];
 	error?: string;
@@ -16,7 +16,7 @@ export interface ConnectionStatus {
 // the status bar dispatches on are validated: unknown keys pass through and
 // serverStatuses elements stay unchecked.
 const connectionStatusSchema = z.looseObject({
-	state: z.enum(["not-configured", "loading", "connected", "degraded", "error"]),
+	state: z.enum(["not-configured", "connecting", "loading", "connected", "degraded", "error"]),
 	serverStatuses: z.array(z.unknown()).optional(),
 });
 
@@ -27,10 +27,28 @@ function isConnectionStatus(value: unknown): value is ConnectionStatus {
 export class StatusBarManager {
 	private _connectionStatus: ConnectionStatus = { state: "not-configured" };
 	private readonly _statusBarItem: vscode.StatusBarItem;
+	/**
+	 * Whether "connecting" has degraded to its needs-attention presentation.
+	 * A single empty window is normal cold-start ordering (the groupless
+	 * refresh reports before the per-group ones), but the state must not spin
+	 * neutrally forever: a second consecutive empty report is evidence of
+	 * persistence (a declared entry whose sync keeps failing, a native group
+	 * deleted after the latch flipped), so the presentation degrades to a
+	 * warning with an actionable tooltip. Any report with servers resets it.
+	 */
+	private _connectingAttention = false;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
-		private readonly logger: Logger
+		private readonly logger: Logger,
+		/**
+		 * The shared not-configured gate (declared servers, group evidence): an
+		 * empty status window on a configured install renders as "connecting",
+		 * never as "not configured" - the persisted state also feeds the
+		 * diagnostics snapshot that lands in public issue reports, so the claim
+		 * must be honest.
+		 */
+		private readonly hasConfiguredServers: () => boolean
 	) {
 		this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 		this._statusBarItem.command = "litellm.openDashboard";
@@ -39,6 +57,10 @@ export class StatusBarManager {
 		const lastStatus = context.globalState.get<unknown>(LAST_CONNECTION_STATUS_KEY);
 		if (isConnectionStatus(lastStatus)) {
 			this._connectionStatus = lastStatus;
+			// A restored "connecting" is stale by definition (it survived a whole
+			// session boundary without resolving), so it starts degraded instead
+			// of spinning neutrally on last session's unfinished state.
+			this._connectingAttention = lastStatus.state === "connecting";
 		}
 		// Rendering without an argument never persists, so nothing needs awaiting.
 		void this.updateStatusBar();
@@ -46,6 +68,11 @@ export class StatusBarManager {
 
 	get connectionStatus(): ConnectionStatus {
 		return this._connectionStatus;
+	}
+
+	/** Whether the connecting state renders as needs-attention; pinned by tests. */
+	get connectingAttention(): boolean {
+		return this._connectingAttention;
 	}
 
 	/** The command the status bar item runs on click; pinned by tests. */
@@ -64,6 +91,18 @@ export class StatusBarManager {
 				this._statusBarItem.text = "$(warning) LiteLLM";
 				this._statusBarItem.tooltip = "Not configured - click to set up";
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+				break;
+			case "connecting":
+				if (this._connectingAttention) {
+					this._statusBarItem.text = "$(warning) LiteLLM";
+					this._statusBarItem.tooltip =
+						"Configured servers have not reported any models\nClick to open the dashboard and check the configuration";
+					this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+				} else {
+					this._statusBarItem.text = "$(loading~spin) LiteLLM";
+					this._statusBarItem.tooltip = "Waiting for the configured servers to report...";
+					this._statusBarItem.backgroundColor = undefined;
+				}
 				break;
 			case "loading":
 				this._statusBarItem.text = "$(loading~spin) LiteLLM";
@@ -102,11 +141,24 @@ export class StatusBarManager {
 		const { serverStatuses, totalModels } = aggStatus;
 
 		if (serverStatuses.length === 0) {
-			this.logger.log("No servers configured");
-			void this.updateStatusBar({ state: "not-configured", lastChecked: now });
+			// The empty window is only a not-configured verdict when nothing else
+			// proves servers exist; at cold start the groupless refresh reports
+			// empty before the per-group refreshes arrive.
+			if (this.hasConfiguredServers()) {
+				// Already connecting = a second consecutive empty report; see
+				// _connectingAttention for why that degrades the presentation.
+				this._connectingAttention ||= this._connectionStatus.state === "connecting";
+				this.logger.log("No server statuses yet; configured servers have not reported");
+				void this.updateStatusBar({ state: "connecting", lastChecked: now });
+			} else {
+				this._connectingAttention = false;
+				this.logger.log("No servers configured");
+				void this.updateStatusBar({ state: "not-configured", lastChecked: now });
+			}
 			return;
 		}
 
+		this._connectingAttention = false;
 		const okCount = serverStatuses.filter((s) => s.state === "ok").length;
 		const errCount = serverStatuses.filter((s) => s.state === "error").length;
 

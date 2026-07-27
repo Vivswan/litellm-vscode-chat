@@ -55,9 +55,18 @@ export function dismissAction(): MessageAction {
 	return { label: "Dismiss", run: () => {} };
 }
 
-export function createConfigurationPrompt(): ConfigurationPrompt {
+/**
+ * The prompt behind the provider's "nothing to serve" path. The caller only
+ * checked the legacy registry, which stays empty on modern installs, so the
+ * not-configured toast fires only when `hasConfiguredServers` (declared
+ * servers-setting entries or live provider groups) also comes up empty.
+ */
+export function createConfigurationPrompt(hasConfiguredServers: () => boolean): ConfigurationPrompt {
 	return {
 		async promptToConfigure(): Promise<boolean> {
+			if (hasConfiguredServers()) {
+				return false;
+			}
 			const choice = await vscode.window.showErrorMessage(
 				"LiteLLM is not configured. Set up your connection to use this provider.",
 				"Configure Now",
@@ -82,35 +91,136 @@ interface NotifiableCondition {
 	actions: MessageAction[];
 }
 
+/** Timer effects, injectable so the grace deferral is testable without real time. */
+export interface NotifierTimer {
+	set(callback: () => void, ms: number): unknown;
+	clear(handle: unknown): void;
+}
+
+const REAL_TIMER: NotifierTimer = {
+	set: (callback, ms) => setTimeout(callback, ms),
+	clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+/**
+ * How long an empty status window may claim "no servers configured" before
+ * the claim is believed. At cold start the host runs the groupless refresh
+ * (which reports an empty window) before the per-group refreshes that prove
+ * groups exist, so the claim needs evidence of absence: the gate is checked
+ * again once the host has had time to hand over any groups it manages.
+ *
+ * The trade-off in this number: a genuinely-unconfigured user sees the setup
+ * toast this long after cold start (they still have the welcome toast and the
+ * model picker's configuration prompt in the meantime), while a host that is
+ * slow to re-resolve groups (loaded machine, remote window, many groups) gets
+ * this much room before the wrong toast could fire. If a host is slower
+ * still, the mistake self-heals: the first per-group report evaluates as
+ * recovered and clears the dedup signature.
+ */
+const NO_SERVERS_GRACE_MS = 15000;
+
 /**
  * Owns all toasts for provider refresh outcomes. Silent (background) refreshes
  * notify with once-per-condition dedup; non-silent refreshes never toast here
  * because the caller (test connection command or the model picker) surfaces
- * the outcome directly.
+ * the outcome directly. `hasConfiguredServers` is the same gate the
+ * configuration prompt uses: an empty status window on a configured install
+ * (fresh installs keep the registry-backed refresh path, which reports empty
+ * while provider groups serve fine) must not claim "no servers". Because the
+ * gate's group latch flips only when a per-group refresh arrives - after the
+ * groupless refresh already reported empty - the no-servers claim is never
+ * toasted immediately: it is deferred by NO_SERVERS_GRACE_MS and re-gated when
+ * the deferral expires, so group-configured users never see it at cold start
+ * while genuinely-unconfigured users still get it moments later.
  */
-export class Notifier {
+export class Notifier implements vscode.Disposable {
 	private _lastNotifiedSignature: string | undefined;
+	private _pendingClaim: unknown;
+
+	constructor(
+		private readonly hasConfiguredServers: () => boolean,
+		private readonly graceMs: number = NO_SERVERS_GRACE_MS,
+		private readonly timer: NotifierTimer = REAL_TIMER
+	) {}
+
+	/**
+	 * Withdraws an armed claim so it cannot fire after deactivation: a toast
+	 * from a deactivated extension would offer an action whose command
+	 * registration is already disposed.
+	 */
+	dispose(): void {
+		this.cancelPendingClaim();
+	}
 
 	handleAggregatedStatus(status: AggregatedStatus): void {
-		const condition = this.evaluate(status);
-		if (!condition) {
-			// A successful refresh resets dedup so a recovered-then-broken
-			// setup notifies again.
+		const outcome = this.evaluate(status);
+		if (outcome === "recovered") {
+			// A healthy refresh resets dedup so a recovered-then-broken setup
+			// notifies again; a pending no-servers claim is obviously stale.
+			this.cancelPendingClaim();
 			this._lastNotifiedSignature = undefined;
 			return;
 		}
+		if (outcome === "suppressed") {
+			// An empty status window on a configured install: the world is not
+			// fully known (the groupless refresh reports before the per-group
+			// refreshes), so no claim is made AND the dedup signature is left
+			// intact, or a prior error toast would read as recovered and re-fire on
+			// the next real failure. A pending claim armed before the gate flipped
+			// is withdrawn.
+			this.cancelPendingClaim();
+			return;
+		}
+		if (outcome.signature === "no-servers") {
+			// The claim needs evidence of absence, not absence of evidence; see
+			// the class comment. Non-silent refreshes do not arm it either: their
+			// caller surfaces the outcome directly, as with every other condition.
+			if (status.silent) {
+				this.armNoServersClaim(outcome);
+			}
+			return;
+		}
+		// A real condition over a non-empty window: servers exist, so any pending
+		// no-servers claim was a cold-start artifact.
+		this.cancelPendingClaim();
 		if (!status.silent) {
 			return;
 		}
-		if (condition.signature === this._lastNotifiedSignature) {
+		if (outcome.signature === this._lastNotifiedSignature) {
 			return;
 		}
-		this._lastNotifiedSignature = condition.signature;
-		void showActionableMessage(condition.kind, condition.message, condition.actions);
+		this._lastNotifiedSignature = outcome.signature;
+		void showActionableMessage(outcome.kind, outcome.message, outcome.actions);
 	}
 
-	private evaluate(status: AggregatedStatus): NotifiableCondition | undefined {
+	private armNoServersClaim(condition: NotifiableCondition): void {
+		if (this._pendingClaim !== undefined || condition.signature === this._lastNotifiedSignature) {
+			return;
+		}
+		this._pendingClaim = this.timer.set(() => {
+			this._pendingClaim = undefined;
+			// Re-gated at expiry: by now the host has handed over any groups it
+			// manages, so a still-false gate is evidence of absence.
+			if (this.hasConfiguredServers() || condition.signature === this._lastNotifiedSignature) {
+				return;
+			}
+			this._lastNotifiedSignature = condition.signature;
+			void showActionableMessage(condition.kind, condition.message, condition.actions);
+		}, this.graceMs);
+	}
+
+	private cancelPendingClaim(): void {
+		if (this._pendingClaim !== undefined) {
+			this.timer.clear(this._pendingClaim);
+			this._pendingClaim = undefined;
+		}
+	}
+
+	private evaluate(status: AggregatedStatus): NotifiableCondition | "recovered" | "suppressed" {
 		if (status.serverStatuses.length === 0) {
+			if (this.hasConfiguredServers()) {
+				return "suppressed";
+			}
 			return {
 				signature: "no-servers",
 				kind: "warning",
@@ -136,6 +246,6 @@ export class Notifier {
 				actions: [testConnectionAction("Check Server"), reconfigureAction(), reportIssueAction()],
 			};
 		}
-		return undefined;
+		return "recovered";
 	}
 }

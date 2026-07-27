@@ -32,6 +32,10 @@ package-lock.json
 # One-shot seed dropped by `bun run dev:fake`, consumed on activation
 .dev-fake-seed.json
 
+# Dedicated persistent profile for the dev:fake Extension Development Host;
+# scripts/dev-fake.ts wipes it whenever the seed configuration changes
+.dev-profile/
+
 # END REPOSITORY LOCAL
 
 # BEGIN REPO-PLATFORM MANAGED
