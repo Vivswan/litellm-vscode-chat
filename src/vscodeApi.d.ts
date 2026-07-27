@@ -16,9 +16,7 @@
  * Do not add `capabilities.editTools` here: the host throws for extensions
  * that set it without the chatProvider proposal enabled. Do not add
  * languageModelPricing's `priceCategory`/`category` either: how the host
- * renders them for third-party vendors is unverified. Its longContext*
- * pricing fields are deliberately deferred: LiteLLM's tiered above-Nk-token
- * prices map onto them, but base-tier rendering stays correct without them.
+ * renders them for third-party vendors is unverified.
  */
 declare module "vscode" {
 	/**
@@ -77,6 +75,32 @@ declare module "vscode" {
 		 * Displayed in the model management UI as the cost per million cache-write tokens.
 		 */
 		readonly cacheWriteCost?: number;
+
+		/**
+		 * Optional long-context input cost in AI credits for this model.
+		 * Present only when long-context pricing differs from default pricing.
+		 * Displayed in the model picker hover as the cost per million input tokens
+		 * when the prompt exceeds the default context window.
+		 */
+		readonly longContextInputCost?: number;
+
+		/**
+		 * Optional long-context output cost in AI credits for this model.
+		 * Present only when long-context pricing differs from default pricing.
+		 */
+		readonly longContextOutputCost?: number;
+
+		/**
+		 * Optional long-context cache cost in AI credits for this model.
+		 * Present only when long-context pricing differs from default pricing.
+		 */
+		readonly longContextCacheCost?: number;
+
+		/**
+		 * Optional long-context cache write cost in AI credits for this model.
+		 * Present only when long-context pricing differs from default pricing.
+		 */
+		readonly longContextCacheWriteCost?: number;
 	}
 
 	export interface PrepareLanguageModelChatModelOptions {

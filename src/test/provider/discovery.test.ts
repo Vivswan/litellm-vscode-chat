@@ -188,6 +188,40 @@ suite("provider/discovery", () => {
 			);
 		});
 
+		test("/v1/models provider entries get long-context tier costs synthesized from their raw keys", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => emptyErrorResponse(500)),
+				http.get(MODELS_URL, () =>
+					HttpResponse.json({
+						object: "list",
+						data: [
+							{
+								id: "tiered-model",
+								providers: [
+									{
+										provider: "openai",
+										input_cost_per_token: 0.000001,
+										input_cost_per_token_above_128k_tokens: 0.000002,
+										long_context_output_cost_per_token: 0.000005,
+									},
+								],
+							},
+						],
+					})
+				)
+			);
+
+			const { models } = await fetchModels(request());
+			const provider = expectDefined(expectDefined(models[0]).providers[0]);
+			assert.strictEqual(provider.long_context_input_cost_per_token, 0.000002);
+			assert.strictEqual(
+				provider.long_context_output_cost_per_token,
+				undefined,
+				"a raw look-alike of the synthesized key never smuggles a tier cost past selection"
+			);
+			assert.strictEqual(provider.input_cost_per_token, 0.000001, "base costs still pass through untouched");
+		});
+
 		test("malformed nested provider entries are dropped without crashing registration", async () => {
 			const payload = {
 				data: [
@@ -707,6 +741,104 @@ suite("provider/discovery", () => {
 				merged.provider.cache_read_input_token_cost,
 				null,
 				"a cost no deployment reports stays unknown"
+			);
+		});
+
+		test("long-context tier costs land on the mapped provider and non-tier key variants stay out", () => {
+			const tiered: Record<string, unknown> = {
+				input_cost_per_token_above_200k_tokens: 0.000006,
+				output_cost_per_token_above_200k_tokens: 0.0000225,
+				cache_read_input_token_cost_above_200k_tokens: "0.0000006",
+				cache_creation_input_token_cost_above_1hr: 0.000006,
+				cache_creation_input_token_cost_above_1hr_above_200k_tokens: 0.000006,
+				input_cost_per_token_above_200k_tokens_priority: 0.000012,
+				input_cost_per_character_above_128k_tokens: 0.000001,
+			};
+			const mapped = deployment({ input_cost_per_token: 0.000003, ...tiered });
+			assert.strictEqual(
+				mapped.provider.long_context_input_cost_per_token,
+				0.000006,
+				"the _priority and per-character variants must not have overridden the token tier"
+			);
+			assert.strictEqual(mapped.provider.long_context_output_cost_per_token, 0.0000225);
+			assert.strictEqual(
+				mapped.provider.long_context_cache_read_input_token_cost,
+				undefined,
+				"a malformed tier cost degrades to absent like a malformed base cost"
+			);
+			assert.strictEqual(
+				mapped.provider.long_context_cache_creation_input_token_cost,
+				undefined,
+				"time-window cache variants are not token tiers"
+			);
+			assert.strictEqual(mapped.provider.input_cost_per_token, 0.000003, "the base cost is untouched");
+		});
+
+		test("a raw long_context_* key in model_info never reaches the synthesized provider fields", () => {
+			const spoof: Record<string, unknown> = { long_context_input_cost_per_token: 0.000099 };
+			const mapped = deployment({ input_cost_per_token: 0.000003, ...spoof });
+			assert.strictEqual(
+				mapped.provider.long_context_input_cost_per_token,
+				undefined,
+				"the synthesized fields are discovery-authored; the wire cannot inject them"
+			);
+		});
+
+		test("the lowest declared threshold wins and an all-malformed tier cannot mask a higher one", () => {
+			const multiTier: Record<string, unknown> = {
+				input_cost_per_token_above_128k_tokens: 0.000004,
+				input_cost_per_token_above_200k_tokens: 0.000006,
+				output_cost_per_token_above_200k_tokens: 0.0000225,
+			};
+			const lowest = deployment({ ...multiTier });
+			assert.strictEqual(
+				lowest.provider.long_context_input_cost_per_token,
+				0.000004,
+				"128k is the first boundary a growing prompt crosses, so its price is the honest single value"
+			);
+			assert.strictEqual(
+				lowest.provider.long_context_output_cost_per_token,
+				undefined,
+				"a field not declared at the selected threshold stays absent instead of borrowing a higher tier's price"
+			);
+
+			const malformedLowTier: Record<string, unknown> = {
+				input_cost_per_token_above_128k_tokens: "not-a-number",
+				input_cost_per_token_above_200k_tokens: 0.000006,
+			};
+			const masked = deployment({ ...malformedLowTier });
+			assert.strictEqual(
+				masked.provider.long_context_input_cost_per_token,
+				0.000006,
+				"only tiers with a usable cost participate in threshold selection"
+			);
+		});
+
+		test("long-context costs merge only when every deployment agrees exactly per field", () => {
+			const tierA: Record<string, unknown> = {
+				input_cost_per_token_above_128k_tokens: 0.000006,
+				output_cost_per_token_above_128k_tokens: 0.0000225,
+			};
+			const tierB: Record<string, unknown> = {
+				input_cost_per_token_above_272k_tokens: 0.000006,
+				output_cost_per_token_above_272k_tokens: 0.00003,
+				cache_read_input_token_cost_above_272k_tokens: 0.0000006,
+			};
+			const merged = mergeModelDeployments([deployment({ ...tierA }), deployment({ ...tierB })], DEFAULTS);
+			assert.strictEqual(
+				merged.provider.long_context_input_cost_per_token,
+				0.000006,
+				"identical resolved tier prices merge even across different thresholds: the host displays no boundary"
+			);
+			assert.strictEqual(
+				merged.provider.long_context_output_cost_per_token,
+				null,
+				"disagreeing tier costs must not survive the merge"
+			);
+			assert.strictEqual(
+				merged.provider.long_context_cache_read_input_token_cost,
+				null,
+				"a tier cost only some deployments report must not survive the merge"
 			);
 		});
 	});
