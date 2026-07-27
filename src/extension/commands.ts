@@ -228,12 +228,15 @@ export function registerSyncModelsCommand(
 	provider: HostRefreshableProvider,
 	statusBar: StatusBarLike,
 	outputChannel: vscode.OutputChannel,
-	logger: Logger
+	logger: Logger,
+	/** Runs before the model refresh; the server sync engine reconciles provider groups here. */
+	beforeSync?: () => Promise<void>
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.syncModels", () =>
-			runModelSync(provider, statusBar, outputChannel, logger)
-		)
+		vscode.commands.registerCommand("litellm.syncModels", async () => {
+			await beforeSync?.();
+			return runModelSync(provider, statusBar, outputChannel, logger);
+		})
 	);
 }
 

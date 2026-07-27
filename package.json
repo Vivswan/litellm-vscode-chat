@@ -118,6 +118,10 @@
 				"title": "LiteLLM: Help & Feedback"
 			},
 			{
+				"command": "litellm.setServerSecret",
+				"title": "LiteLLM: Set Server Secret"
+			},
+			{
 				"command": "litellm.reportIssue",
 				"title": "LiteLLM: Report Issue"
 			}
@@ -189,6 +193,60 @@
 		"configuration": {
 			"title": "LiteLLM VS Code Chat",
 			"properties": {
+				"litellm-vscode-chat.servers": {
+					"type": "array",
+					"scope": "machine",
+					"default": [],
+					"markdownDescription": "LiteLLM servers, declared as settings. Machine-scoped: this lives in your user settings only (workspaces cannot override it, and Settings Sync does not carry it to other machines). Each entry syncs to a VS Code language-model provider group automatically, so servers can be managed here or in the LiteLLM dashboard without touching the native editor. The `label` is the entry's identity: renaming it creates a new provider group, and removing an entry cannot remove its group (VS Code offers no API for that; use the native Manage Language Models editor). Secret fields (`apiKey`, `oauthClientSecret`, `virtualKeyValue`) may be written inline here - visible in settings files - or omitted and stored in VS Code secret storage instead, via the dashboard or the 'LiteLLM: Set Server Secret' command. Inline values take precedence over stored ones.",
+					"items": {
+						"type": "object",
+						"required": [
+							"label",
+							"baseUrl"
+						],
+						"additionalProperties": false,
+						"properties": {
+							"label": {
+								"type": "string",
+								"description": "Display name and identity of the server; the provider group is named after it."
+							},
+							"baseUrl": {
+								"type": "string",
+								"format": "uri",
+								"description": "LiteLLM server URL, e.g. http://localhost:4000."
+							},
+							"apiKey": {
+								"type": "string",
+								"description": "LiteLLM API key, inline. Omit to keep it in secret storage instead, or for servers without authentication."
+							},
+							"oauthTokenUrl": {
+								"type": "string",
+								"format": "uri",
+								"description": "OAuth2 token endpoint for client-credentials authentication. Set together with the client ID."
+							},
+							"oauthClientId": {
+								"type": "string",
+								"description": "Client ID for the OAuth2 client-credentials grant. Required together with the token URL."
+							},
+							"oauthClientSecret": {
+								"type": "string",
+								"description": "OAuth client secret, inline. Omit to keep it in secret storage instead, or for public clients."
+							},
+							"oauthScopes": {
+								"type": "string",
+								"description": "Space-separated scopes to request with the token. Leave out to request none."
+							},
+							"virtualKeyHeader": {
+								"type": "string",
+								"description": "Name of a custom header carrying a LiteLLM virtual key, e.g. x-litellm-api-key."
+							},
+							"virtualKeyValue": {
+								"type": "string",
+								"description": "The virtual key sent in the header named above, inline. Omit to keep it in secret storage instead."
+							}
+						}
+					}
+				},
 				"litellm-vscode-chat.defaultMaxOutputTokens": {
 					"type": "number",
 					"default": 16000,

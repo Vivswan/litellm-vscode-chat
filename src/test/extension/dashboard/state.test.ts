@@ -1,24 +1,49 @@
 import * as assert from "node:assert";
 import {
 	BOOLEAN_SETTING_IDS,
+	failuresAfterStatePush,
 	formatHeaderValue,
 	NUMBER_SETTING_IDS,
 	parseHeaderValue,
 	parseJsonValue,
 } from "../../../extension/dashboard/protocol";
-import type { DashboardIntent, SettingsInspection, SettingsReader } from "../../../extension/dashboard/state";
+import type {
+	DashboardIntent,
+	IntentEnvironment,
+	SettingsInspection,
+	SettingsReader,
+} from "../../../extension/dashboard/state";
 import {
 	buildDashboardState,
+	DashboardOperationError,
 	executeDashboardIntent,
 	readDashboardSettings,
 	resolveUpdateScope,
 	validateHeadersRecord,
 	validateModelParametersRecord,
 	validateNumberSetting,
+	validateSaveServerSetting,
 	webviewMessageSchema,
 } from "../../../extension/dashboard/state";
+import type { DeclaredServerView } from "../../../extension/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/modelConfiguration";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
+
+/** A declared-server view with every secret absent; overrides fill in the specifics. */
+function makeDeclared(overrides: Partial<DeclaredServerView> = {}): DeclaredServerView {
+	return {
+		label: "Prod",
+		baseUrl: "http://prod.test",
+		secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+		...overrides,
+	};
+}
+
+const KEEP_ALL = {
+	apiKey: { action: "keep" },
+	oauthClientSecret: { action: "keep" },
+	virtualKeyValue: { action: "keep" },
+} as const;
 
 /**
  * A SettingsReader over fixture values: `values` back get() and double as the
@@ -43,27 +68,108 @@ function makeReader(
 interface RecordedEnv {
 	updates: [string, unknown][];
 	commands: [string, ...unknown[]][];
-	env: {
-		updateSetting(key: string, value: unknown): Promise<void>;
-		executeCommand(command: string, ...args: readonly unknown[]): Thenable<unknown>;
-	};
+	/** Every writeServersSetting call, whole arrays. */
+	serverWrites: unknown[][];
+	/** Every storeServerSecret call. */
+	secretOps: [string, string, string | undefined][];
+	/** Every copyServerSecrets call. */
+	secretCopies: [string, string][];
+	/** Every deleteServerSecrets call. */
+	secretDeletes: string[];
+	/** Every mutation in call order, for atomicity-ordering assertions. */
+	ops: string[];
+	/** The fake secure store's blobs by label; mutated by the secret operations like the real one. */
+	storedSecrets: Map<string, Record<string, string>>;
+	/** Every env.log call; classifications only. */
+	logs: [string, unknown][];
+	syncRequests: number;
+	/** When set, writeServersSetting rejects with this error. */
+	failWrites?: Error;
+	/** When set, storeServerSecret rejects with this error on deletes (value === undefined). */
+	failUnstore?: Error;
+	/** When set, this many delete-side storeServerSecret calls reject before recovering. */
+	failUnstoreTimes?: number;
+	/** When set, storeServerSecret rejects when storing a value for this field. */
+	failStoreField?: string;
+	/** When set, deleteServerSecrets rejects with this error. */
+	failBlobDeletes?: Error;
+	env: IntentEnvironment;
 }
 
-function makeEnv(): RecordedEnv {
-	const updates: [string, unknown][] = [];
-	const commands: [string, ...unknown[]][] = [];
-	return {
-		updates,
-		commands,
+function makeEnv(serversSetting: unknown = []): RecordedEnv {
+	const recorded: RecordedEnv = {
+		updates: [],
+		commands: [],
+		serverWrites: [],
+		secretOps: [],
+		secretCopies: [],
+		secretDeletes: [],
+		ops: [],
+		storedSecrets: new Map(),
+		logs: [],
+		syncRequests: 0,
 		env: {
 			updateSetting: async (key, value) => {
-				updates.push([key, value]);
+				recorded.updates.push([key, value]);
 			},
 			executeCommand: async (command, ...args) => {
-				commands.push([command, ...args]);
+				recorded.commands.push([command, ...args]);
+			},
+			readServersSetting: () => serversSetting,
+			writeServersSetting: async (value) => {
+				if (recorded.failWrites !== undefined) {
+					throw recorded.failWrites;
+				}
+				recorded.serverWrites.push([...value]);
+				recorded.ops.push("write");
+			},
+			storeServerSecret: async (label, field, value) => {
+				if (value === undefined && recorded.failUnstore !== undefined) {
+					throw recorded.failUnstore;
+				}
+				if (value === undefined && (recorded.failUnstoreTimes ?? 0) > 0) {
+					recorded.failUnstoreTimes = (recorded.failUnstoreTimes ?? 0) - 1;
+					throw new Error("keychain locked");
+				}
+				if (value !== undefined && recorded.failStoreField === field) {
+					throw new Error("keychain locked");
+				}
+				recorded.secretOps.push([label, field, value]);
+				recorded.ops.push(`${value === undefined ? "unstore" : "store"}:${label}.${field}`);
+				const blob = { ...recorded.storedSecrets.get(label) };
+				if (value === undefined) {
+					delete blob[field];
+				} else {
+					blob[field] = value;
+				}
+				recorded.storedSecrets.set(label, blob);
+			},
+			readServerSecrets: async (label) => ({ ...recorded.storedSecrets.get(label) }),
+			copyServerSecrets: async (fromLabel, toLabel) => {
+				recorded.secretCopies.push([fromLabel, toLabel]);
+				recorded.ops.push(`copy:${fromLabel}->${toLabel}`);
+				const source = recorded.storedSecrets.get(fromLabel);
+				if (source !== undefined && Object.keys(source).length > 0) {
+					recorded.storedSecrets.set(toLabel, { ...source });
+				}
+			},
+			deleteServerSecrets: async (label) => {
+				if (recorded.failBlobDeletes !== undefined) {
+					throw recorded.failBlobDeletes;
+				}
+				recorded.secretDeletes.push(label);
+				recorded.ops.push(`deleteBlob:${label}`);
+				recorded.storedSecrets.delete(label);
+			},
+			requestServerSync: () => {
+				recorded.syncRequests += 1;
+			},
+			log: (message, data) => {
+				recorded.logs.push([message, data]);
 			},
 		},
 	};
+	return recorded;
 }
 
 suite("extension/dashboard/state", () => {
@@ -93,9 +199,183 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[0]?.state, "error");
 			assert.strictEqual(state.servers[0]?.error, "boom");
 			assert.strictEqual(state.servers[0]?.hasApiKey, false, "absent hasApiKey narrows to false");
+			assert.strictEqual(state.servers[0]?.origin, "external", "live rows without a settings entry are external");
+			assert.strictEqual(state.servers[0]?.config, undefined);
 			assert.strictEqual(state.servers[1]?.hasApiKey, true);
 			assert.strictEqual(state.servers[1]?.baseUrl, "http://prod.test");
 			assert.strictEqual(state.servers[1]?.lastChecked, "2026-07-26T00:00:00.000Z");
+		});
+
+		test("declared entries merge with their live group by label and base URL", () => {
+			const state = buildDashboardState(
+				[{ status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", modelCount: 4 }), models: [] }],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://prod.test/",
+						oauthTokenUrl: "https://idp.test/token",
+						oauthClientId: "client",
+						secrets: { apiKey: "secure", oauthClientSecret: "settings", virtualKeyValue: "none" },
+					}),
+				]
+			);
+
+			assert.strictEqual(state.servers.length, 1, "the declared entry and the live row merge into one");
+			const server = state.servers[0];
+			assert.strictEqual(server?.origin, "declared");
+			assert.strictEqual(server?.state, "ok");
+			assert.strictEqual(server?.modelCount, 4);
+			assert.strictEqual(server?.hasApiKey, true, "a secure-side key counts");
+			assert.strictEqual(server?.hasOAuth, true);
+			assert.deepStrictEqual(server?.config?.secrets, {
+				apiKey: "secure",
+				oauthClientSecret: "settings",
+				virtualKeyValue: "none",
+			});
+		});
+
+		test("a declared entry joins its live group even when the snapshot label is the URL host", () => {
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "g1",
+							label: "x.example",
+							baseUrl: "https://x.example",
+							modelCount: 3,
+						}),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+				],
+				makeReader({}),
+				[makeDeclared({ label: "Production", baseUrl: "https://x.example/" })]
+			);
+
+			assert.strictEqual(state.servers.length, 1, "no duplicate external row");
+			const server = state.servers[0];
+			assert.strictEqual(server?.label, "Production");
+			assert.strictEqual(server?.origin, "declared");
+			assert.strictEqual(server?.state, "ok");
+			assert.strictEqual(server?.modelCount, 3);
+			assert.strictEqual(state.models[0]?.serverLabel, "Production", "models adopt the declared label");
+		});
+
+		test("entries sharing a base URL pair by label first, so matching labels stay correctly paired", () => {
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ serverId: "s1", label: "Staging", baseUrl: "http://x.test", modelCount: 1 }),
+						models: [],
+					},
+					{
+						status: makeServerStatus({ serverId: "s2", label: "Prod", baseUrl: "http://x.test", modelCount: 9 }),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({ label: "Prod", baseUrl: "http://x.test" }),
+					makeDeclared({ label: "Staging", baseUrl: "http://x.test" }),
+				]
+			);
+
+			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
+			assert.strictEqual(state.servers.length, 2);
+			assert.strictEqual(byLabel.get("Prod")?.modelCount, 9);
+			assert.strictEqual(byLabel.get("Staging")?.modelCount, 1);
+		});
+
+		test("entries sharing a base URL with different credentials join by group client ID, never swapped", () => {
+			// Both live snapshots are host-labeled identically, so no label pass
+			// can tell them apart and the URL fallback would pair them by
+			// position; the client ID the sync engine fingerprints is exact. The
+			// declared order is chosen so the positional fallback would swap them.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-staging:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 1,
+						}),
+						models: [],
+					},
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-prod:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 9,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({ label: "Prod", baseUrl: "http://x.test", expectedClientId: "group:fp-prod:http://x.test" }),
+					makeDeclared({
+						label: "Staging",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-staging:http://x.test",
+					}),
+				]
+			);
+
+			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
+			assert.strictEqual(state.servers.length, 2);
+			assert.strictEqual(byLabel.get("Prod")?.modelCount, 9);
+			assert.strictEqual(byLabel.get("Staging")?.modelCount, 1);
+			assert.ok(!JSON.stringify(state).includes("fp-prod"), "the join key never reaches the webview state");
+		});
+
+		test("an entry whose client ID matches no snapshot still joins by URL", () => {
+			// A stale fingerprint (a secret rotated but not yet re-synced) must
+			// degrade to the URL join, like an entry with no fingerprint at all.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-old:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 2,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[makeDeclared({ label: "Prod", baseUrl: "http://x.test/", expectedClientId: "group:fp-new:http://x.test" })]
+			);
+
+			assert.strictEqual(state.servers.length, 1, "no duplicate external row");
+			assert.strictEqual(state.servers[0]?.modelCount, 2);
+		});
+
+		test("a declared entry no discovery pass has seen renders unchecked; a sync failure renders as its error", () => {
+			const state = buildDashboardState([], makeReader({}), [
+				makeDeclared({ label: "New", baseUrl: "http://new.test" }),
+				makeDeclared({ label: "Broken", baseUrl: "http://broken.test", syncError: "upsert refused" }),
+			]);
+
+			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
+			assert.strictEqual(byLabel.get("New")?.state, "unchecked");
+			assert.strictEqual(byLabel.get("New")?.lastChecked, undefined);
+			assert.strictEqual(byLabel.get("Broken")?.state, "error");
+			assert.strictEqual(byLabel.get("Broken")?.error, "upsert refused");
+		});
+
+		test("no secret value ever reaches the state, only locations", () => {
+			const state = buildDashboardState(
+				[{ status: makeServerStatus({ hasApiKey: true }), models: [] }],
+				makeReader({}),
+				[makeDeclared({ secrets: { apiKey: "settings", oauthClientSecret: "secure", virtualKeyValue: "none" } })]
+			);
+
+			const serialized = JSON.stringify(state);
+			assert.ok(!serialized.includes("sk-"), serialized);
+			assert.ok(serialized.includes('"apiKey":"settings"'), "locations are reported");
 		});
 
 		test("colliding server labels get positional suffixes, on the servers and their models", () => {
@@ -142,6 +422,8 @@ suite("extension/dashboard/state", () => {
 				outputCost: 15,
 				cacheCost: 0.3,
 				cacheWriteCost: 3.75,
+				longContextInputCost: 6,
+				longContextOutputCost: 22.5,
 				capabilities: { toolCalling: true, imageInput: true },
 				configurationSchema: REASONING_EFFORT_SCHEMA,
 				litellm: { supportsPromptCaching: true, outputLimitSource: "provider" },
@@ -161,6 +443,10 @@ suite("extension/dashboard/state", () => {
 				outputCost: 15,
 				cacheReadCost: 0.3,
 				cacheWriteCost: 3.75,
+				longContextInputCost: 6,
+				longContextOutputCost: 22.5,
+				longContextCacheReadCost: undefined,
+				longContextCacheWriteCost: undefined,
 				toolCalling: true,
 				imageInput: true,
 				promptCaching: true,
@@ -365,6 +651,31 @@ suite("extension/dashboard/state", () => {
 				{ type: "setBooleanSetting", setting: "promptCaching.enabled", value: false },
 				{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, stop: ["\n"] } } },
 				{ type: "setHeaders", value: { "x-key": "v", "x-n": 2, "x-b": true } },
+				{
+					type: "saveServerSetting",
+					server: { label: "Prod", baseUrl: "http://prod.test" },
+					secrets: KEEP_ALL,
+					requestId: "req-1",
+				},
+				{
+					type: "saveServerSetting",
+					server: {
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						oauthTokenUrl: "https://idp.test/token",
+						oauthClientId: "client",
+						oauthScopes: "read",
+						virtualKeyHeader: "x-litellm-api-key",
+					},
+					secrets: {
+						apiKey: { action: "set", location: "secure", value: "sk-1" },
+						oauthClientSecret: { action: "clear" },
+						virtualKeyValue: { action: "set", location: "settings", value: "vk-1" },
+					},
+					replaceLabel: "Old Prod",
+					requestId: "req-2",
+				},
+				{ type: "removeServerSetting", label: "Prod", requestId: "req-3" },
 				{ type: "executeCommand", command: "syncModels" },
 			];
 			for (const intent of intents) {
@@ -384,6 +695,39 @@ suite("extension/dashboard/state", () => {
 				{ type: "setHeaders", value: { "x-bad": { nested: true } } },
 				{ type: "executeCommand", command: "workbench.action.terminal.sendSequence" },
 				{ type: "ready", extra: 1 },
+				// saveServerSetting: strict everywhere, so no field rides along into the setting.
+				{ type: "saveServerSetting", server: { label: "P", baseUrl: "http://x" }, requestId: "r" },
+				{ type: "saveServerSetting", server: { label: "P" }, secrets: KEEP_ALL, requestId: "r" },
+				{ type: "saveServerSetting", server: { baseUrl: "http://x" }, secrets: KEEP_ALL, requestId: "r" },
+				{ type: "saveServerSetting", server: { label: "P", baseUrl: "http://x" }, secrets: KEEP_ALL },
+				{ type: "saveServerSetting", server: { label: "P", baseUrl: "http://x" }, secrets: KEEP_ALL, requestId: "" },
+				{
+					type: "saveServerSetting",
+					server: { label: "P", baseUrl: "http://x", apiKey: "inline-not-allowed-here" },
+					secrets: KEEP_ALL,
+					requestId: "r",
+				},
+				{
+					type: "saveServerSetting",
+					server: { label: "P", baseUrl: "http://x" },
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", value: "missing-location" } },
+					requestId: "r",
+				},
+				{
+					type: "saveServerSetting",
+					server: { label: "P", baseUrl: "http://x" },
+					secrets: { ...KEEP_ALL, apiKey: { action: "keep", value: "extra" } },
+					requestId: "r",
+				},
+				{
+					type: "saveServerSetting",
+					server: { label: "P", baseUrl: "http://x" },
+					secrets: { apiKey: { action: "keep" } },
+					requestId: "r",
+				},
+				{ type: "removeServerSetting", requestId: "r" },
+				{ type: "removeServerSetting", label: 4, requestId: "r" },
+				{ type: "removeServerSetting", label: "P" },
 			];
 			for (const message of rejected) {
 				assert.strictEqual(
@@ -429,6 +773,59 @@ suite("extension/dashboard/state", () => {
 				),
 				undefined
 			);
+		});
+
+		test("validateSaveServerSetting: the acceptance matrix", () => {
+			const ok = (server: Parameters<typeof validateSaveServerSetting>[0]) =>
+				assert.strictEqual(validateSaveServerSetting(server, KEEP_ALL), undefined, JSON.stringify(server));
+			const bad = (server: Parameters<typeof validateSaveServerSetting>[0], why: string) =>
+				assert.notStrictEqual(validateSaveServerSetting(server, KEEP_ALL), undefined, why);
+
+			ok({ label: "Prod", baseUrl: "http://localhost:4000" });
+			ok({ label: "Prod", baseUrl: "https://litellm.example.com/" });
+			bad({ label: "", baseUrl: "http://x" }, "empty label");
+			bad({ label: "   ", baseUrl: "http://x" }, "whitespace label");
+			bad({ label: "__proto__", baseUrl: "http://x" }, "prototype-polluting label");
+			bad({ label: "constructor", baseUrl: "http://x" }, "prototype-polluting label");
+			bad({ label: "Prod", baseUrl: "" }, "missing baseUrl");
+			bad({ label: "Prod", baseUrl: "localhost:4000" }, "URL without a scheme");
+			bad({ label: "Prod", baseUrl: "ftp://host" }, "non-http scheme");
+			bad({ label: "Prod", baseUrl: "not a url" }, "junk baseUrl");
+			bad({ label: "Prod", baseUrl: "http://x", oauthTokenUrl: "idp.test/token" }, "bad OAuth URL");
+			bad({ label: "Prod", baseUrl: "http://x", virtualKeyHeader: "bad header" }, "header name with a space");
+		});
+
+		test("validateSaveServerSetting: secret directives must carry sendable values", () => {
+			const server = { label: "Prod", baseUrl: "http://x" };
+			assert.notStrictEqual(
+				validateSaveServerSetting(server, { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "" } }),
+				undefined,
+				"an empty set-value must be a clear, not a set"
+			);
+			assert.notStrictEqual(
+				validateSaveServerSetting(server, {
+					...KEEP_ALL,
+					virtualKeyValue: { action: "set", location: "secure", value: "a\nb" },
+				}),
+				undefined,
+				"a virtual key with line breaks can never travel as a header"
+			);
+			assert.strictEqual(
+				validateSaveServerSetting(server, {
+					...KEEP_ALL,
+					apiKey: { action: "set", location: "settings", value: "sk-1" },
+				}),
+				undefined
+			);
+		});
+
+		test("validateSaveServerSetting messages never repeat the entered values", () => {
+			const problem = validateSaveServerSetting(
+				{ label: "Prod", baseUrl: "http://x" },
+				{ ...KEEP_ALL, virtualKeyValue: { action: "set", location: "secure", value: "vk-secret\n" } }
+			);
+			assert.ok(problem !== undefined);
+			assert.ok(!problem.includes("vk-secret"), problem);
 		});
 	});
 
@@ -515,7 +912,500 @@ suite("extension/dashboard/state", () => {
 		});
 	});
 
+	suite("executeDashboardIntent: the servers setting", () => {
+		const save = (
+			recorded: RecordedEnv,
+			partial: Partial<Extract<DashboardIntent, { type: "saveServerSetting" }>>
+		): Promise<void> =>
+			executeDashboardIntent(
+				{
+					type: "saveServerSetting",
+					server: { label: "Prod", baseUrl: "http://prod.test" },
+					secrets: KEEP_ALL,
+					requestId: "req-1",
+					...partial,
+				},
+				recorded.env
+			);
+
+		test("a new entry appends to the array and requests a sync; empty optionals stay omitted", async () => {
+			const recorded = makeEnv([{ label: "Existing", baseUrl: "http://old.test" }]);
+			await save(recorded, {
+				server: { label: "Prod", baseUrl: " http://prod.test ", oauthTokenUrl: "", oauthScopes: "  " },
+			});
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[
+					{ label: "Existing", baseUrl: "http://old.test" },
+					{ label: "Prod", baseUrl: "http://prod.test" },
+				],
+			]);
+			assert.strictEqual(recorded.syncRequests, 1);
+			assert.deepStrictEqual(recorded.secretOps, []);
+		});
+
+		test("an edit replaces the entry in place and keep-directives carry its inline secrets over", async () => {
+			const recorded = makeEnv([
+				{ label: "A", baseUrl: "http://a.test" },
+				{ label: "Prod", baseUrl: "http://old.test", apiKey: "sk-inline", virtualKeyHeader: "x-old" },
+				{ label: "Z", baseUrl: "http://z.test" },
+			]);
+			await save(recorded, { server: { label: "Prod", baseUrl: "http://new.test" }, replaceLabel: "Prod" });
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[
+					{ label: "A", baseUrl: "http://a.test" },
+					{ label: "Prod", baseUrl: "http://new.test", apiKey: "sk-inline" },
+					{ label: "Z", baseUrl: "http://z.test" },
+				],
+			]);
+			assert.deepStrictEqual(recorded.secretCopies, [], "no rename, no copy");
+			assert.deepStrictEqual(recorded.secretDeletes, []);
+		});
+
+		test("junk sibling entries survive a save verbatim", async () => {
+			const junk = ["not an object", 42, { baseUrl: "http://no-label.test" }];
+			const recorded = makeEnv([junk[0], { label: "Prod", baseUrl: "http://old.test" }, junk[1], junk[2]]);
+			await save(recorded, { replaceLabel: "Prod" });
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[junk[0], { label: "Prod", baseUrl: "http://prod.test" }, junk[1], junk[2]],
+			]);
+		});
+
+		test("set-secure stores the value and keeps it out of the setting; set-settings inlines it and drops the secure copy after the write", async () => {
+			const recorded = makeEnv([]);
+			await save(recorded, {
+				server: { label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" },
+				secrets: {
+					apiKey: { action: "set", location: "secure", value: "sk-secret" },
+					oauthClientSecret: { action: "keep" },
+					virtualKeyValue: { action: "set", location: "settings", value: "vk-visible" },
+				},
+			});
+
+			assert.deepStrictEqual(recorded.secretOps, [
+				["Prod", "apiKey", "sk-secret"],
+				["Prod", "virtualKeyValue", undefined],
+			]);
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[{ label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-visible" }],
+			]);
+			const written = JSON.stringify(recorded.serverWrites);
+			assert.ok(!written.includes("sk-secret"), "secure values never land in the setting");
+			assert.deepStrictEqual(
+				recorded.ops,
+				["store:Prod.apiKey", "write", "unstore:Prod.virtualKeyValue"],
+				"additive ops precede the write; destructive cleanup follows it"
+			);
+		});
+
+		test("clear removes the secure copy only after the write lands", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-old" }]);
+			await save(recorded, {
+				secrets: { ...KEEP_ALL, apiKey: { action: "clear" } },
+				replaceLabel: "Prod",
+			});
+
+			assert.deepStrictEqual(recorded.secretOps, [["Prod", "apiKey", undefined]]);
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
+			assert.deepStrictEqual(recorded.ops, ["write", "unstore:Prod.apiKey"]);
+		});
+
+		test("overwriting a live secure value whose settings write then fails restores the old value", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-old" });
+			recorded.failWrites = new Error("disk full");
+			await assert.rejects(
+				save(recorded, {
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-new" } },
+					replaceLabel: "Prod",
+				}),
+				/disk full/
+			);
+
+			assert.strictEqual(
+				recorded.storedSecrets.get("Prod")?.apiKey,
+				"sk-old",
+				"the entry still in the setting must resolve its old secret"
+			);
+			assert.deepStrictEqual(recorded.ops, ["store:Prod.apiKey", "store:Prod.apiKey"], "overwrite, then restore");
+			assert.strictEqual(recorded.syncRequests, 0, "a clean rollback changes nothing durable, so no sync");
+		});
+
+		test("a failed settings write also removes a secure value that had no predecessor", async () => {
+			// The unchanged entry resolves the label's blob, so a freshly stored
+			// value must not survive the failed write as its new secret.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.failWrites = new Error("disk full");
+			await assert.rejects(
+				save(recorded, {
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-new" } },
+					replaceLabel: "Prod",
+				}),
+				/disk full/
+			);
+
+			assert.strictEqual(recorded.storedSecrets.get("Prod")?.apiKey, undefined);
+		});
+
+		test("a second secure write failing rolls back the first and never writes the setting", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-old" });
+			recorded.failStoreField = "oauthClientSecret";
+			await assert.rejects(
+				save(recorded, {
+					server: {
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						oauthTokenUrl: "https://idp.test/token",
+						oauthClientId: "client",
+					},
+					secrets: {
+						apiKey: { action: "set", location: "secure", value: "sk-new" },
+						oauthClientSecret: { action: "set", location: "secure", value: "cs-new" },
+						virtualKeyValue: { action: "keep" },
+					},
+					replaceLabel: "Prod",
+				})
+			);
+
+			assert.strictEqual(recorded.storedSecrets.get("Prod")?.apiKey, "sk-old", "the first write is rolled back");
+			assert.strictEqual(recorded.storedSecrets.get("Prod")?.oauthClientSecret, undefined);
+			assert.deepStrictEqual(recorded.serverWrites, [], "the settings write never runs");
+			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		test("a rename over an orphan blob whose settings write fails restores the orphan wholesale", async () => {
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { apiKey: "sk-old" });
+			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
+			recorded.failWrites = new Error("disk full");
+			await assert.rejects(
+				save(recorded, { server: { label: "New", baseUrl: "http://prod.test" }, replaceLabel: "Old" })
+			);
+
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("New"),
+				{ virtualKeyValue: "vk-orphan" },
+				"the pre-copy blob is restored wholesale, copied-over fields removed"
+			);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Old"), { apiKey: "sk-old" }, "the source blob is untouched");
+		});
+
+		test("a failed write whose rollback also fails reports an operation failure, not a clean validation one", async () => {
+			// The freshly stored secret survived the rollback and now resolves for
+			// the unchanged entry: durable state changed, so "nothing landed"
+			// (rethrowing the write error as validation-kind) would be a lie.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.failWrites = new Error("disk full");
+			recorded.failUnstore = new Error("keychain locked");
+			await assert.rejects(
+				save(recorded, {
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-new" } },
+					replaceLabel: "Prod",
+				}),
+				(error: unknown) =>
+					error instanceof DashboardOperationError &&
+					error.message.includes("restoring a stored secret") &&
+					error.message.includes("Set Server Secret")
+			);
+
+			assert.strictEqual(recorded.storedSecrets.get("Prod")?.apiKey, "sk-new", "the unrestored secret is live");
+			assert.strictEqual(recorded.syncRequests, 1, "the changed secure value must reach the provider group");
+			const logged = JSON.stringify(recorded.logs);
+			assert.ok(logged.includes("left a secure value unrestored"), "the conversion is logged as a classification");
+			assert.ok(!logged.includes("disk full") && !logged.includes("sk-new"), "names only, never messages or values");
+		});
+
+		test("a rename rollback that fails likewise fails the intent as an operation error", async () => {
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { apiKey: "sk-old" });
+			recorded.failWrites = new Error("disk full");
+			recorded.failUnstore = new Error("keychain locked");
+			await assert.rejects(
+				save(recorded, { server: { label: "New", baseUrl: "http://prod.test" }, replaceLabel: "Old" }),
+				(error: unknown) => error instanceof DashboardOperationError
+			);
+
+			assert.strictEqual(recorded.syncRequests, 1, "the unrestored blob must reach the provider group");
+		});
+
+		test("a clear whose deletion keeps failing fails the intent after the write landed, with an actionable message", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-old" });
+			recorded.failUnstore = new Error("keychain locked");
+			await assert.rejects(
+				save(recorded, { secrets: { ...KEEP_ALL, apiKey: { action: "clear" } }, replaceLabel: "Prod" }),
+				(error: unknown) =>
+					error instanceof DashboardOperationError &&
+					error.message.includes("Edit the server and retry") &&
+					error.message.includes("Set Server Secret")
+			);
+
+			assert.strictEqual(recorded.serverWrites.length, 1, "the settings write landed");
+			assert.strictEqual(recorded.syncRequests, 1, "the landed write still gets its sync");
+			const logged = JSON.stringify(recorded.logs);
+			assert.ok(logged.includes("still in effect"), "the failure is logged as a classification");
+			assert.ok(!logged.includes("sk-old"), "no value reaches the log");
+		});
+
+		test("a clear deletion that fails once succeeds on the retry", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-old" });
+			recorded.failUnstoreTimes = 1;
+			await save(recorded, { secrets: { ...KEEP_ALL, apiKey: { action: "clear" } }, replaceLabel: "Prod" });
+
+			assert.strictEqual(recorded.storedSecrets.get("Prod")?.apiKey, undefined, "the retry removed the secret");
+		});
+
+		test("dormant-leftover cleanup failures after the settings write landed do not fail the intent", async () => {
+			// The stale secure copy behind a fresh inline value is outranked and
+			// the old rename blob is orphaned, so both failures are log-only.
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { apiKey: "sk-old" });
+			recorded.failUnstore = new Error("keychain locked");
+			recorded.failBlobDeletes = new Error("keychain locked");
+			await save(recorded, {
+				server: { label: "New", baseUrl: "http://prod.test" },
+				secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "settings", value: "sk-inline" } },
+				replaceLabel: "Old",
+			});
+
+			assert.strictEqual(recorded.serverWrites.length, 1);
+			assert.strictEqual(recorded.syncRequests, 1);
+			const logged = JSON.stringify(recorded.logs);
+			assert.ok(logged.includes("dormant secure copy remains"), "the stale-copy failure is a classification");
+			assert.ok(logged.includes("old label's blob remains"), "the rename-blob failure is a classification");
+		});
+
+		test("edits and removals find hand-written entries whose labels carry whitespace", async () => {
+			const edited = makeEnv([{ label: " Prod ", baseUrl: "http://old.test" }]);
+			await save(edited, { replaceLabel: "Prod" });
+			assert.deepStrictEqual(edited.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
+
+			const removed = makeEnv([{ label: " Prod ", baseUrl: "http://old.test" }]);
+			await executeDashboardIntent({ type: "removeServerSetting", label: "Prod", requestId: "req-9" }, removed.env);
+			assert.deepStrictEqual(removed.serverWrites, [[]]);
+		});
+
+		test("a rename with keep directives resolves pairing against the old label's secure value", async () => {
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { virtualKeyValue: "vk-1" });
+			await save(recorded, {
+				server: { label: "New", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" },
+				replaceLabel: "Old",
+			});
+
+			assert.strictEqual(recorded.serverWrites.length, 1, "the old label's secure value satisfies the pair");
+			assert.deepStrictEqual(recorded.storedSecrets.get("New"), { virtualKeyValue: "vk-1" });
+		});
+
+		test("a rename with keep directives also resolves against an orphan blob under the new label", async () => {
+			// copyServerSecrets is a no-op on an empty source, so the orphan
+			// survives the save and the sync engine adopts it; the pairing check
+			// must agree instead of refusing a save the engine would satisfy.
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
+			await save(recorded, {
+				server: { label: "New", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" },
+				replaceLabel: "Old",
+			});
+
+			assert.strictEqual(recorded.serverWrites.length, 1);
+		});
+
+		test("a non-empty old blob replaces the orphan wholesale on rename, and pairing tracks that", async () => {
+			// The copy overwrites the whole new-label blob, so a field only the
+			// orphan held does not survive; the pairing check must refuse like the
+			// engine would degrade.
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { apiKey: "sk-1" });
+			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
+			await assert.rejects(
+				save(recorded, {
+					server: { label: "New", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" },
+					replaceLabel: "Old",
+				}),
+				/virtualKeyValue/
+			);
+		});
+
+		test("a rename copies the blob before the write and deletes the old one after it", async () => {
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			await save(recorded, { server: { label: "New", baseUrl: "http://prod.test" }, replaceLabel: "Old" });
+
+			assert.deepStrictEqual(recorded.secretCopies, [["Old", "New"]]);
+			assert.deepStrictEqual(recorded.secretDeletes, ["Old"]);
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "New", baseUrl: "http://prod.test" }]]);
+			assert.deepStrictEqual(recorded.ops, ["copy:Old->New", "write", "deleteBlob:Old"]);
+		});
+
+		test("a rename whose settings write rejects leaves the old label's secrets intact", async () => {
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.failWrites = new Error("disk full");
+			await assert.rejects(
+				save(recorded, { server: { label: "New", baseUrl: "http://prod.test" }, replaceLabel: "Old" }),
+				/disk full/
+			);
+
+			assert.deepStrictEqual(recorded.secretCopies, [["Old", "New"]], "the additive copy may have happened");
+			assert.deepStrictEqual(recorded.secretDeletes, [], "the old blob must survive the failed write");
+			assert.deepStrictEqual(recorded.secretOps, [], "no clears before or after a failed write");
+			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		test("renaming onto an existing sibling label is refused before any effect", async () => {
+			const recorded = makeEnv([
+				{ label: "A", baseUrl: "http://a.test" },
+				{ label: "B", baseUrl: "http://b.test" },
+			]);
+			await assert.rejects(
+				save(recorded, { server: { label: "B", baseUrl: "http://a.test" }, replaceLabel: "A" }),
+				/already exists/
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.secretCopies, []);
+			assert.deepStrictEqual(recorded.secretOps, []);
+		});
+
+		test("an edit whose entry vanished from the setting is refused instead of appending a duplicate", async () => {
+			const recorded = makeEnv([{ label: "Other", baseUrl: "http://other.test" }]);
+			await assert.rejects(save(recorded, { replaceLabel: "Gone" }), /no longer exists/);
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+		});
+
+		test("OAuth pairing is enforced at the boundary: a token URL without a client ID never saves", async () => {
+			const recorded = makeEnv([]);
+			await assert.rejects(
+				save(recorded, {
+					server: { label: "Prod", baseUrl: "http://prod.test", oauthTokenUrl: "https://idp.test/token" },
+				}),
+				/oauthClientId/
+			);
+			await assert.rejects(
+				save(recorded, { server: { label: "Prod", baseUrl: "http://prod.test", oauthClientId: "client" } }),
+				/oauthTokenUrl/
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+		});
+
+		test("OAuth semantics mirror the form: scopes or a resolving client secret require the full pair", async () => {
+			const scopesOnly = makeEnv([]);
+			await assert.rejects(
+				save(scopesOnly, { server: { label: "Prod", baseUrl: "http://prod.test", oauthScopes: "read" } }),
+				/oauthTokenUrl/
+			);
+			assert.deepStrictEqual(scopesOnly.serverWrites, []);
+
+			const storedSecretOnly = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			storedSecretOnly.storedSecrets.set("Prod", { oauthClientSecret: "cs-stored" });
+			await assert.rejects(save(storedSecretOnly, { replaceLabel: "Prod" }), /oauthTokenUrl/);
+
+			const cleared = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			cleared.storedSecrets.set("Prod", { oauthClientSecret: "cs-stored" });
+			await save(cleared, {
+				secrets: { ...KEEP_ALL, oauthClientSecret: { action: "clear" } },
+				replaceLabel: "Prod",
+			});
+			assert.strictEqual(cleared.serverWrites.length, 1, "clearing the dangling secret makes the entry savable");
+		});
+
+		test("a padded replaceLabel targets the trimmed label's secret blob, not a padded key", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-old" });
+			await save(recorded, { server: { label: "Renamed", baseUrl: "http://prod.test" }, replaceLabel: " Prod " });
+
+			assert.deepStrictEqual(recorded.secretCopies, [["Prod", "Renamed"]], "the copy reads the trimmed label");
+			assert.deepStrictEqual(recorded.secretDeletes, ["Prod"], "the cleanup deletes the trimmed label");
+			assert.deepStrictEqual(recorded.storedSecrets.get("Renamed"), { apiKey: "sk-old" });
+		});
+
+		test("virtual key pairing is enforced against the resolved secrets", async () => {
+			const noValue = makeEnv([]);
+			await assert.rejects(
+				save(noValue, { server: { label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" } }),
+				/virtualKeyValue/
+			);
+
+			const secureValue = makeEnv([]);
+			secureValue.storedSecrets.set("Prod", { virtualKeyValue: "vk-stored" });
+			await save(secureValue, {
+				server: { label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" },
+			});
+			assert.strictEqual(secureValue.serverWrites.length, 1, "a kept secure value satisfies the pair");
+
+			const valueWithoutHeader = makeEnv([]);
+			await assert.rejects(
+				save(valueWithoutHeader, {
+					secrets: { ...KEEP_ALL, virtualKeyValue: { action: "set", location: "secure", value: "vk-1" } },
+				}),
+				/virtualKeyHeader/
+			);
+			assert.deepStrictEqual(valueWithoutHeader.secretOps, [], "pairing is checked before any secret write");
+		});
+
+		test("an invalid save writes nothing anywhere", async () => {
+			const recorded = makeEnv([]);
+			await assert.rejects(save(recorded, { server: { label: "__proto__", baseUrl: "http://x" } }));
+			await assert.rejects(save(recorded, { server: { label: "P", baseUrl: "not-a-url" } }));
+			await assert.rejects(save(recorded, { server: { label: "P", baseUrl: "" } }));
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.secretOps, []);
+			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		test("removeServerSetting deletes the entry, keeps its secure-side secrets, and preserves junk siblings", async () => {
+			const recorded = makeEnv([
+				{ label: "A", baseUrl: "http://a.test" },
+				"junk",
+				{ label: "B", baseUrl: "http://b.test" },
+			]);
+			await executeDashboardIntent({ type: "removeServerSetting", label: "A", requestId: "req-2" }, recorded.env);
+
+			assert.deepStrictEqual(recorded.serverWrites, [["junk", { label: "B", baseUrl: "http://b.test" }]]);
+			assert.deepStrictEqual(recorded.secretOps, []);
+			assert.deepStrictEqual(recorded.secretDeletes, []);
+			assert.strictEqual(recorded.syncRequests, 1);
+		});
+
+		test("removing a label the setting does not hold refuses without writing", async () => {
+			const recorded = makeEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			await assert.rejects(
+				executeDashboardIntent({ type: "removeServerSetting", label: "External", requestId: "req-3" }, recorded.env)
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+		});
+	});
+
 	suite("protocol value helpers", () => {
+		test("failuresAfterStatePush: acked server-intent notices survive a push, push-signaled ones retire", () => {
+			// The operation-kind save failure is the load-bearing case: the save
+			// itself requests a sync whose push arrives moments later and must not
+			// erase the warning that the stored secret is still in effect.
+			const failures = {
+				saveServerSetting: { seq: 1, message: "the stored secret remains", kind: "operation" },
+				removeServerSetting: { seq: 2, message: "not applied", kind: "validation" },
+				setHeaders: { seq: 3, message: "not applied", kind: "validation" },
+				setNumberSetting: { seq: 4, message: "not applied", kind: "validation" },
+			};
+
+			const after = failuresAfterStatePush(failures);
+
+			assert.deepStrictEqual(Object.keys(after).sort(), ["removeServerSetting", "saveServerSetting"]);
+			assert.strictEqual(after.saveServerSetting, failures.saveServerSetting, "the surviving notice is unchanged");
+		});
+
+		test("failuresAfterStatePush returns the same object when nothing retires", () => {
+			const failures = { saveServerSetting: { seq: 1, message: "m", kind: "operation" } };
+			assert.strictEqual(failuresAfterStatePush(failures), failures);
+		});
+
 		test("parseJsonValue is strict JSON with an error for junk and empty input", () => {
 			assert.deepStrictEqual(parseJsonValue("0.2"), { ok: true, value: 0.2 });
 			assert.deepStrictEqual(parseJsonValue(' ["stop"] '), { ok: true, value: ["stop"] });
