@@ -31,6 +31,12 @@ const CONNECTION_STATES: ReadonlyArray<ConnectionStatus["state"]> = [
 ];
 
 suite("extension/status", () => {
+	test("clicking the status bar item opens the dashboard", () => {
+		const manager = createManager(undefined);
+
+		assert.strictEqual(manager.clickCommand, "litellm.openDashboard");
+	});
+
 	suite("persisted status restore", () => {
 		test("restores a status whose serverStatuses field is absent", () => {
 			const manager = createManager({ state: "connected" });

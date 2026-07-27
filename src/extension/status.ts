@@ -33,7 +33,7 @@ export class StatusBarManager {
 		private readonly logger: Logger
 	) {
 		this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-		this._statusBarItem.command = "litellm.showDiagnostics";
+		this._statusBarItem.command = "litellm.openDashboard";
 		context.subscriptions.push(this._statusBarItem);
 
 		const lastStatus = context.globalState.get<unknown>(LAST_CONNECTION_STATUS_KEY);
@@ -46,6 +46,11 @@ export class StatusBarManager {
 
 	get connectionStatus(): ConnectionStatus {
 		return this._connectionStatus;
+	}
+
+	/** The command the status bar item runs on click; pinned by tests. */
+	get clickCommand(): string | vscode.Command | undefined {
+		return this._statusBarItem.command;
 	}
 
 	async updateStatusBar(status?: ConnectionStatus): Promise<void> {
