@@ -60,6 +60,10 @@ jobs:
         env:
           FUZZ_RUNS: '1000'
           FUZZ_ITERATIONS: '500'
+          # Conversations are several proxy round trips each; a deliberately
+          # smaller budget than the stream fuzzer keeps the job inside its
+          # timeout.
+          CONVERSATION_ITERATIONS: '50'
           FUZZ_SHARD: ${{ matrix.shard }}
 
       - name: Upload logs
@@ -80,11 +84,13 @@ jobs:
             echo "Nightly fuzz run failed (shard ${{ matrix.shard }}): ${run_url}"
             echo
             if [ -n "$seed" ]; then
-              echo "The fuzz stage of this shard used seed ${seed}. If the failure is in the"
-              echo "seeded fuzzer (and not a later suite or teardown), reproduce locally with:"
+              echo "The last seeded stage of this shard logged seed ${seed}; the mode= token"
+              echo "on its [fuzz] log line says whether that was the stream fuzzer or the"
+              echo "multi-turn conversation suite. If the failure is in a seeded stage (and"
+              echo "not a later suite or teardown), reproduce locally with:"
               echo
               echo '```bash'
-              echo "FUZZ_SEED=${seed} FUZZ_RUNS=1000 FUZZ_ITERATIONS=500 bun run test:docker"
+              echo "FUZZ_SEED=${seed} FUZZ_RUNS=1000 FUZZ_ITERATIONS=500 CONVERSATION_ITERATIONS=50 bun run test:docker"
               echo '```'
               echo
               echo "The failure report includes a minimal failing event list; pin it in"

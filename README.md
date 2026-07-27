@@ -260,7 +260,7 @@ If a header value is secret (for example, API keys), set `litellm-vscode-chat.he
 
 ### Local LiteLLM stack (Docker or Podman)
 
-For local testing you can run a real LiteLLM proxy in Docker, backed by a fake OpenAI server that replies with canned responses of every shape the extension handles: plain text, tool calls (single, chunked, parallel, inline control tokens), reasoning and thinking variants, refusals, URL citations, usage trailers, and HTTP errors.
+For local testing you can run a real LiteLLM proxy in Docker, backed by a fake OpenAI server. The fake serves six realistic models and takes its instructions from the chat input itself: a slash command on the last line of your message picks the response shape, so one model can play every stream shape the extension handles.
 
 ```bash
 cp .env.example .env   # optional; only needed for real provider keys or port changes
@@ -269,13 +269,23 @@ bun run docker:up
 
 Then add a server in the extension with base URL `http://localhost:4000` and API key `sk-test-1234`.
 
-Each canned response is its own model, so you pick the shape you want to test from the Copilot model picker: `fake/text-only`, `fake/tool-call-chunked`, `fake/thinking-blocks`, `fake/error-429`, and so on. The full list lives in `src/test/scenarios.ts`. `fake/dynamic` plays whatever scenario you select at runtime:
+The model list is deliberately small and shaped like a real deployment (`src/test/fakeStack/models.ts`): `claude-opus-4-5` (everything on: reasoning, caching, tiered pricing, 1M context), `gpt-5.2` (a load-balanced pair), `gpt-5.2-mini` (the everyday target), `gpt-5.2-omni` (audio flags), `deepseek-r2` (reasoning without tools), and `llama-4-scout` (nothing declared). A seventh entry, `gpt-4-turbo`, is blocked in the config and must never appear in the picker - that absence is itself under test.
 
-```bash
-curl -X PUT localhost:8090/_test/scenario -d parallel-tool-calls
+Pick any of them in the Copilot model picker and type a command as your message. `/help` lists everything; the ones you will reach for first:
+
+```
+/help                     list all commands and playback scenarios
+/play:thinking-blocks     play a canned stream shape (the library lives in src/test/scenarios.ts)
+/echo:any text            reply with exactly that text
+/text:200                 a deterministic 200-word paragraph
+/tool:get_weather {}      call an offered tool, then summarize its result on the next turn
+/params, /messages, /attachments   inspect what actually reached the backend
+/error:429, /finish:length, /stream:50:100, /delay:2000   error, truncation, pacing shapes
 ```
 
-The proxy config is generated at stack startup (`docker/.generated/litellm-config.yaml`, gitignored) from `src/test/scenarios.ts`. With a real provider key set in `.env` or the environment, the generated config also routes `openai/*`, `anthropic/*`, or `github/*` model names through the proxy to that provider - the intended way to eyeball real-provider behavior through the same stack. Without a key the wildcard route is not emitted at all, so there are no phantom catalog models and no misleading 401s; note that an emitted wildcard makes LiteLLM list its whole known-model catalog, so expect a long model list in the picker. Set `LITELLM_WILDCARD_ALL=1` to add a bare `*` passthrough for anything else LiteLLM can infer. The docker test suite always generates without these routes, so local keys never change test results.
+A message without a command gets a fixed reply pointing at `/help`. Everything is deterministic: the same conversation produces the same bytes.
+
+The proxy config is generated at stack startup (`docker/.generated/litellm-config.yaml`, gitignored) from `src/test/fakeStack/models.ts`. With a real provider key set in `.env` or the environment, the generated config also routes `openai/*`, `anthropic/*`, or `github/*` model names through the proxy to that provider - the intended way to eyeball real-provider behavior through the same stack. Without a key the wildcard route is not emitted at all, so there are no phantom catalog models and no misleading 401s; note that an emitted wildcard makes LiteLLM list its whole known-model catalog, so expect a long model list in the picker. Set `LITELLM_WILDCARD_ALL=1` to add a bare `*` passthrough for anything else LiteLLM can infer. The docker test suite always generates without these routes, so local keys never change test results.
 
 Useful commands:
 
@@ -291,7 +301,7 @@ The stack also works with Podman: the scripts try `docker compose` first, then `
 The existing host-fidelity suite can target the stack too:
 
 ```bash
-bun run host-fidelity-test -- http://localhost:4000 sk-test-1234 fake/long-text
+bun run host-fidelity-test -- http://localhost:4000 sk-test-1234 gpt-5.2-mini
 ```
 
 ### Status Bar Indicator

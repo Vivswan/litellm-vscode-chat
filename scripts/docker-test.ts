@@ -6,9 +6,11 @@
 // stack, and tears everything down.
 //
 // Usage:
-//   bun run test:docker                     docker suite + fuzzer + host-fidelity live
+//   bun run test:docker                     docker suite + fuzzer + conversations + host-fidelity live
 //   bun run test:docker --skip-fuzz         skip the stream fuzzer
+//   bun run test:docker --skip-conversation skip the multi-turn conversation suite
 //   FUZZ_ITERATIONS=100 bun run test:docker larger fuzz budget (default 10)
+//   CONVERSATION_ITERATIONS=50 bun run test:docker larger conversation budget (default 10)
 //   bun run test:docker --skip-host-fidelity
 //   KEEP_DOCKER_STACK=1 bun run test:docker leave the stack running afterward
 
@@ -18,6 +20,7 @@ import { composeSetting, ensureGeneratedConfig, readEnvFile } from "./litellmCon
 
 const args = process.argv.slice(2);
 const runFuzz = !args.includes("--skip-fuzz");
+const runConversation = !args.includes("--skip-conversation");
 const runHostFidelity = !args.includes("--skip-host-fidelity");
 
 // The suite must agree with docker-compose on ports and key, so it resolves
@@ -61,12 +64,17 @@ try {
 		run("vscode-test --config .vscode-test.mjs --label docker-fuzz", suiteEnv);
 	}
 
+	if (runConversation) {
+		console.log("\nRunning the multi-turn conversation suite...");
+		run("vscode-test --config .vscode-test.mjs --label docker-conversation", suiteEnv);
+	}
+
 	if (runHostFidelity) {
 		console.log("\nRunning the host-fidelity live suite against the stack...");
 		run("vscode-test --config .vscode-test.mjs --label host-fidelity", {
 			LITELLM_REAL_BASE_URL: baseUrl,
 			LITELLM_REAL_API_KEY: masterKey,
-			LITELLM_REAL_MODEL: "fake/long-text",
+			LITELLM_REAL_MODEL: "gpt-5.2-mini",
 		});
 	}
 } catch (error) {

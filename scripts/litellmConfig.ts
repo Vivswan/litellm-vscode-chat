@@ -1,12 +1,14 @@
 // scripts/litellmConfig.ts
 //
-// Builds the runtime LiteLLM proxy config for the local docker stack. The
-// file lands in docker/.generated/ (gitignored); the committed source of
-// truth is src/test/scenarios.ts. Both stack-starting paths regenerate it
-// first - scripts/compose.ts on its `up` subcommand (docker:up, dev:fake)
-// and scripts/docker-test.ts (which resolves the compose command itself) -
-// so no start can see a stale or missing config. Other compose subcommands
-// (down, logs) do not regenerate.
+// IO wrapper for the runtime LiteLLM proxy config: the pure emission lives
+// in src/test/fakeStack/proxyConfig.ts (source of truth:
+// src/test/fakeStack/models.ts); this module adds
+// the .env-aware wildcard lookup and the atomic write to docker/.generated/
+// (gitignored). Both stack-starting paths regenerate the file first -
+// scripts/compose.ts on its `up` subcommand (docker:up, dev:fake) and
+// scripts/docker-test.ts (which resolves the compose command itself) - so no
+// start can see a stale or missing config. Other compose subcommands (down,
+// logs) do not regenerate.
 //
 // Wildcard routes to real providers are key-conditional: openai/*,
 // anthropic/*, or github/* is emitted only when the matching API key is
@@ -19,33 +21,11 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { composeSetting, parseEnvFile } from "../src/test/envFile";
-import type { ScenarioCapabilities, ScenarioDeployment } from "../src/test/scenarios";
-import { SCENARIO_CAPABILITIES, SCENARIO_NAMES } from "../src/test/scenarios";
+import type { GenerateOptions } from "../src/test/fakeStack/proxyConfig";
+import { generateConfig as emitConfig } from "../src/test/fakeStack/proxyConfig";
 
+export type { GenerateOptions };
 export { composeSetting };
-
-const FAKE_API_BASE = "http://fake-openai:8080/v1";
-
-/** The limits every single-deployment scenario model advertises. */
-const DEFAULT_DEPLOYMENT: ScenarioDeployment = { maxInputTokens: 128000, maxOutputTokens: 16000 };
-
-/** The fuzzer drives arbitrary shapes through fake/dynamic, so it advertises everything. */
-const DYNAMIC_CAPABILITIES: ScenarioCapabilities = { tools: true, vision: true, pdfInput: true, reasoning: true };
-
-const REAL_PROVIDERS: ReadonlyArray<{ prefix: string; envVar: string }> = [
-	{ prefix: "openai", envVar: "OPENAI_API_KEY" },
-	{ prefix: "anthropic", envVar: "ANTHROPIC_API_KEY" },
-	{ prefix: "github", envVar: "GITHUB_API_KEY" },
-];
-
-export interface GenerateOptions {
-	/**
-	 * Emit wildcard routes for real providers whose API key is set, plus the
-	 * opt-in bare "*" passthrough. The docker test orchestrator passes false
-	 * so test config is byte-identical with and without local keys.
-	 */
-	realProviders: boolean;
-}
 
 /**
  * Read and parse the stack's .env file with the compose-conformant grammar
@@ -61,115 +41,10 @@ export function readEnvFile(): Record<string, string> {
 	return parseEnvFile(readFileSync(envPath, "utf8"));
 }
 
-function modelInfoLines(capabilities: ScenarioCapabilities, deployment: ScenarioDeployment): string[] {
-	const lines = [
-		`      max_input_tokens: ${deployment.maxInputTokens}`,
-		`      max_output_tokens: ${deployment.maxOutputTokens}`,
-		`      max_tokens: ${deployment.maxOutputTokens}`,
-	];
-	if (capabilities.tools) {
-		lines.push("      supports_function_calling: true", "      supports_tool_choice: true");
-	}
-	if (capabilities.vision) {
-		lines.push("      supports_vision: true");
-	}
-	if (capabilities.pdfInput) {
-		lines.push("      supports_pdf_input: true");
-	}
-	if (capabilities.reasoning) {
-		lines.push("      supports_reasoning: true");
-	}
-	if (capabilities.promptCaching) {
-		lines.push("      supports_prompt_caching: true");
-	}
-	return lines;
-}
-
-function fakeDeploymentEntry(name: string, capabilities: ScenarioCapabilities, deployment: ScenarioDeployment): string {
-	return [
-		`  - model_name: fake/${name}`,
-		"    litellm_params:",
-		`      model: openai/${deployment.upstreamModel ?? name}`,
-		`      api_base: ${FAKE_API_BASE}`,
-		"      api_key: fake-key",
-		"      # Forward params LiteLLM would otherwise reject for plain openai",
-		"      # models; the extension's pass-through contract is under test.",
-		'      allowed_openai_params: ["reasoning_effort", "verbosity"]',
-		"    model_info:",
-		...modelInfoLines(capabilities, deployment),
-	].join("\n");
-}
-
-/** One entry per deployment; a multi-deployment scenario becomes a LiteLLM load-balancing group. */
-function fakeModelEntry(name: string, capabilities: ScenarioCapabilities): string {
-	const deployments = capabilities.deployments ?? [DEFAULT_DEPLOYMENT];
-	return deployments.map((deployment) => fakeDeploymentEntry(name, capabilities, deployment)).join("\n\n");
-}
-
-function realProviderEntry(prefix: string, envVar: string): string {
-	return [
-		`  - model_name: ${prefix}/*`,
-		"    litellm_params:",
-		`      model: ${prefix}/*`,
-		`      api_key: os.environ/${envVar}`,
-	].join("\n");
-}
-
-function realProviderSection(): string[] {
-	const envFile = readEnvFile();
-	const entries = REAL_PROVIDERS.filter(({ envVar }) => composeSetting(envVar, "", envFile) !== "").map(
-		({ prefix, envVar }) => realProviderEntry(prefix, envVar)
-	);
-	if (composeSetting("LITELLM_WILDCARD_ALL", "", envFile) === "1") {
-		entries.push(['  - model_name: "*"', "    litellm_params:", '      model: "*"'].join("\n"));
-	}
-	if (entries.length === 0) {
-		return [];
-	}
-	return [
-		"",
-		"  # Real providers whose API key was set at generation time; keys arrive",
-		"  # via .env through docker-compose.",
-		...entries,
-	];
-}
-
+/** The pure emission, bound to the real environment (process.env over .env, compose semantics). */
 export function generateConfig(options: GenerateOptions): string {
-	const fakeEntries = SCENARIO_NAMES.map((name) => {
-		// Names land in YAML unquoted and become URL path segments on the
-		// backend, so keep them to a safe alphabet.
-		if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
-			throw new Error(`Scenario name "${name}" must match [a-z0-9][a-z0-9-]*`);
-		}
-		const capabilities = SCENARIO_CAPABILITIES[name];
-		if (!capabilities) {
-			throw new Error(`Scenario "${name}" has no SCENARIO_CAPABILITIES entry`);
-		}
-		for (const deployment of capabilities.deployments ?? []) {
-			if (deployment.upstreamModel !== undefined && !/^[a-z0-9][a-z0-9-]*$/.test(deployment.upstreamModel)) {
-				throw new Error(`Upstream model "${deployment.upstreamModel}" must match [a-z0-9][a-z0-9-]*`);
-			}
-		}
-		return fakeModelEntry(name, capabilities);
-	});
-	fakeEntries.push(fakeModelEntry("dynamic", DYNAMIC_CAPABILITIES));
-
-	return [
-		"# Generated at stack startup by scripts/litellmConfig.ts; do not edit.",
-		"# The source of truth is src/test/scenarios.ts. Inspect the output with:",
-		"#   bun run generate-config",
-		"",
-		"model_list:",
-		"  # Fake scenario models served by the fake-openai container. LiteLLM",
-		"  # strips the openai/ prefix, so the backend receives the bare scenario",
-		"  # name as the model ID.",
-		fakeEntries.join("\n\n"),
-		...(options.realProviders ? realProviderSection() : []),
-		"",
-		"general_settings:",
-		"  master_key: os.environ/LITELLM_MASTER_KEY",
-		"",
-	].join("\n");
+	const envFile = readEnvFile();
+	return emitConfig(options, (name) => composeSetting(name, "", envFile));
 }
 
 export interface GeneratedConfig {

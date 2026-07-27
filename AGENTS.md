@@ -111,7 +111,7 @@ Prioritize correctness, security, regressions, missing tests, and violations of 
 
 ### Testing
 
-Tests mirror the source layout under `src/test/` and run in the extension host (`@vscode/test-electron`, Mocha tdd; entry points build the bundle first). Network mocking uses msw (`src/test/mocks/handlers.ts` documents its quirks), with `withFetch` for what msw cannot express. Property suites (fast-check) are seed-pinned and scale with `FUZZ_RUNS`. Docker suites share scenario definitions in `src/test/scenarios.ts`, from which the proxy config is generated at stack startup (`docker/.generated/litellm-config.yaml`, gitignored; the test orchestrator always generates it without real-provider wildcard routes). Pin any fuzz-found failure in `src/test/fuzzCorpus.ts`. `COMPOSE_CMD` overrides docker/podman detection.
+Tests mirror the source layout under `src/test/` and run in the extension host (`@vscode/test-electron`, Mocha tdd; entry points build the bundle first). Network mocking uses msw (`src/test/mocks/handlers.ts` documents its quirks), with `withFetch` for what msw cannot express. Property suites (fast-check) are seed-pinned and scale with `FUZZ_RUNS`. Docker suites drive the fake stack through its chat-input command grammar (`src/test/fakeStack/commands.ts`; `/play:<name>` selects a canned stream shape from `src/test/scenarios.ts`). The model catalog in `src/test/fakeStack/models.ts` is the source of truth for the proxy config, generated at stack startup (`docker/.generated/litellm-config.yaml`, gitignored; the test orchestrator always generates it without real-provider wildcard routes). Pin any fuzz-found failure in `src/test/fuzzCorpus.ts`. `COMPOSE_CMD` overrides docker/podman detection.
 
 ### CI
 

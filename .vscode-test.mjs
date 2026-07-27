@@ -18,6 +18,7 @@ export default defineConfig({
 			label: "unit",
 			files: [
 				"out/test/*.test.js",
+				"out/test/fakeStack/*.test.js",
 				"out/test/shared/*.test.js",
 				"out/test/provider/*.test.js",
 				"out/test/extension/*.test.js",
@@ -25,6 +26,7 @@ export default defineConfig({
 				"!out/test/host-fidelity.test.js",
 				"!out/test/docker-litellm.test.js",
 				"!out/test/docker-fuzz.test.js",
+				"!out/test/docker-conversation.test.js",
 			],
 			mocha: {
 				ui: "tdd",
@@ -82,6 +84,23 @@ export default defineConfig({
 				FUZZ_SEED: process.env.FUZZ_SEED || "",
 				FUZZ_ITERATIONS: process.env.FUZZ_ITERATIONS || "",
 				FUZZ_SHARD: process.env.FUZZ_SHARD || "",
+			},
+			launchArgs,
+		},
+		{
+			label: "docker-conversation",
+			files: "out/test/docker-conversation.test.js",
+			mocha: {
+				ui: "tdd",
+				timeout: 120000,
+				color: true,
+			},
+			env: {
+				LITELLM_DOCKER_BASE_URL: process.env.LITELLM_DOCKER_BASE_URL || "",
+				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
+				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
+				FUZZ_SEED: process.env.FUZZ_SEED || "",
+				CONVERSATION_ITERATIONS: process.env.CONVERSATION_ITERATIONS || "",
 			},
 			launchArgs,
 		},

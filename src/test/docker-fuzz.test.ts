@@ -18,10 +18,11 @@ import { expectDefined } from "./testUtils";
  *
  * Each iteration builds a random stream as a list of serializable events
  * (text, delta/inline/duplicated/interleaved tool calls, refusals, citations,
- * reasoning, junk), registers it on the fake backend, streams it through the
- * VS Code LM API, and asserts the exact expected outcome: text arrives
- * verbatim (including the space hint and citation trailer the extension
- * adds), tool calls reassemble exactly, and IDs stay unique.
+ * reasoning, junk), registers it on the fake backend, selects it by sending
+ * /play:<name> as the user message, streams it through the VS Code LM API,
+ * and asserts the exact expected outcome: text arrives verbatim (including
+ * the space hint and citation trailer the extension adds), tool calls
+ * reassemble exactly, and IDs stay unique.
  *
  * Two targets share the generator: through the LiteLLM proxy, and directly
  * against the fake backend. Direct mode additionally generates what the
@@ -542,22 +543,20 @@ function assemble(events: FuzzEvent[]): AssembledStream {
 
 // ── Suite plumbing ────────────────────────────────────────────────────────────
 
-async function registerAndSelect(name: string, chunks: unknown[]): Promise<void> {
+async function registerScenario(name: string, config: Record<string, unknown>): Promise<void> {
 	const registered = await fetch(`${FAKE_URL}/_test/custom-scenario`, {
 		method: "PUT",
-		body: JSON.stringify({ name, config: { type: "sse", chunks } }),
+		body: JSON.stringify({ name, config }),
 	});
 	assert.ok(registered.ok, `custom-scenario registration failed (${name}): ${registered.status}`);
-	const selected = await fetch(`${FAKE_URL}/_test/scenario`, { method: "PUT", body: name });
-	assert.ok(selected.ok, `scenario selection failed (${name}): ${selected.status}`);
 }
 
 /** Run one assembled stream and assert the exact expected outcome. */
 async function runStream(model: vscode.LanguageModelChat, name: string, events: FuzzEvent[]): Promise<void> {
 	const assembled = assemble(events);
-	await registerAndSelect(name, assembled.chunks);
+	await registerScenario(name, { type: "sse", chunks: assembled.chunks });
 	const response = await model.sendRequest(
-		[vscode.LanguageModelChatMessage.User("fuzz")],
+		[vscode.LanguageModelChatMessage.User(`/play:${name}`)],
 		{},
 		new vscode.CancellationTokenSource().token
 	);
@@ -643,20 +642,21 @@ async function fuzzIteration(
 
 function fuzzSuite(title: string, directMode: boolean, serverUrl: string, serverKey: string): void {
 	suite(title, () => {
-		let dynamicModel: vscode.LanguageModelChat;
+		let fuzzModel: vscode.LanguageModelChat;
 
 		suiteSetup(async function () {
 			this.timeout(90000);
 			await ensureActivated();
 			await clearServers();
 			await addServer(title, serverUrl, serverKey);
-			const wantedId = directMode ? "dynamic" : "fake/dynamic";
+			// Single-deployment on purpose: responses cannot vary by routing.
+			const wantedId = directMode ? "fake-mini" : "gpt-5.2-mini";
 			const models = await waitForHostModels(
 				60000,
 				(candidates) => candidates.some((m) => m.id === wantedId),
 				`host to expose ${wantedId}`
 			);
-			dynamicModel = expectDefined(models.find((m) => m.id === wantedId));
+			fuzzModel = expectDefined(models.find((m) => m.id === wantedId));
 		});
 
 		test("replays the regression corpus", async function () {
@@ -666,7 +666,7 @@ function fuzzSuite(title: string, directMode: boolean, serverUrl: string, server
 				if (entry.mode !== "both" && entry.mode !== mode) {
 					continue;
 				}
-				await fuzzIteration(dynamicModel, `corpus-${entry.name}`, entry.events, `corpus entry "${entry.name}"`, mode);
+				await fuzzIteration(fuzzModel, `corpus-${entry.name}`, entry.events, `corpus entry "${entry.name}"`, mode);
 			}
 		});
 
@@ -679,7 +679,7 @@ function fuzzSuite(title: string, directMode: boolean, serverUrl: string, server
 			for (let iteration = 0; iteration < ITERATIONS; iteration++) {
 				const events = generateEvents(random, directMode);
 				await fuzzIteration(
-					dynamicModel,
+					fuzzModel,
 					`fuzz-${SEED}-${iteration}`,
 					events,
 					`seed=${SEED} iteration=${iteration} mode=${mode}`,
@@ -693,28 +693,23 @@ function fuzzSuite(title: string, directMode: boolean, serverUrl: string, server
 			const random = mulberry32(SEED ^ 0x9e3779b9);
 			const texts = Array.from({ length: 30 }, (_, i) => `slow${i} `);
 			const name = `fuzz-cancel-${SEED}`;
-			const registered = await fetch(`${FAKE_URL}/_test/custom-scenario`, {
-				method: "PUT",
-				body: JSON.stringify({
-					name,
-					config: {
-						type: "sse-delayed",
-						delayMs: 40,
-						chunks: [
-							chunkOf({ role: "assistant" }),
-							...texts.map((text) => chunkOf({ content: text })),
-							chunkOf({}, "stop"),
-						],
-					},
-				}),
+			await registerScenario(name, {
+				type: "sse-delayed",
+				delayMs: 40,
+				chunks: [
+					chunkOf({ role: "assistant" }),
+					...texts.map((text) => chunkOf({ content: text })),
+					chunkOf({}, "stop"),
+				],
 			});
-			assert.ok(registered.ok, "delayed scenario registration failed");
-			const selected = await fetch(`${FAKE_URL}/_test/scenario`, { method: "PUT", body: name });
-			assert.ok(selected.ok, "delayed scenario selection failed");
 
 			const cancelAfter = 1 + Math.floor(random() * 5);
 			const source = new vscode.CancellationTokenSource();
-			const request = await dynamicModel.sendRequest([vscode.LanguageModelChatMessage.User("fuzz")], {}, source.token);
+			const request = await fuzzModel.sendRequest(
+				[vscode.LanguageModelChatMessage.User(`/play:${name}`)],
+				{},
+				source.token
+			);
 			const parts: unknown[] = [];
 			const startedWaiting = Date.now();
 			let partsWhenCancelled = 0;
