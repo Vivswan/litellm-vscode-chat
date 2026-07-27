@@ -1,23 +1,14 @@
-# Host-fidelity burn-in: drives the real chat API against the capture
-# server. Deliberately outside the all-green gate (a checks.yml job would
-# aggregate into it), so a red run never blocks merges. Promote it into
-# checks.yml after ~20 consecutive green runs on main.
+# Manual host-fidelity runs. The suite was promoted into checks.yml (inside
+# the all-green gate) after its burn-in streak on main; this workflow stays
+# for on-demand dispatch only, so pushes and PRs do not run it twice.
 
 name: Host Fidelity
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   host-fidelity:

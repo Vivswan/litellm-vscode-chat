@@ -18,13 +18,28 @@ on:
 
 jobs:
   # Unit suite on all three OSes; the Linux leg also enforces the
-  # source-line coverage floor. The host-fidelity suite is NOT here: it is
-  # still burning in and must not block merges, so it runs from its own
-  # non-required workflow (host-fidelity.yml) until promoted.
+  # source-line coverage floor.
   test:
     uses: ./.github/workflows/test-reusable.yml
     with:
       os: 'matrix'
+
+  # Promoted from its burn-in workflow after a long green streak on main:
+  # drives the real chat API against the capture server.
+  host-fidelity:
+    uses: ./.github/workflows/test-reusable.yml
+    with:
+      os: 'ubuntu-latest'
+      suite: 'host-fidelity'
+
+  # Promoted from its burn-in workflow after a long green streak on main:
+  # docker suite, stream fuzzer, and live host-fidelity against the
+  # dockerized LiteLLM proxy.
+  docker-stack:
+    uses: ./.github/workflows/test-reusable.yml
+    with:
+      os: 'ubuntu-latest'
+      suite: 'docker'
 
   # Biome ci, helper-script typecheck, knip, type-aware promise lint,
   # @types/vscode vs engines.vscode, and the packaged-file-list check.
