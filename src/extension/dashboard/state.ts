@@ -8,10 +8,12 @@
  * configuration store. panel.ts owns the vscode wiring.
  */
 
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { ServerModelsSnapshot } from "../../provider";
-import type { LiteLLMModelInfo } from "../../provider/groupModels";
+import type { GroupServer, LiteLLMModelInfo } from "../../provider/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/groupModels";
+import { fingerprint } from "../../shared/fingerprint";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
 import { isUnsafeRecordKey } from "../../shared/json";
 import { normalizeModelParameters } from "../../shared/settings";
@@ -41,7 +43,7 @@ import {
 	NUMBER_SETTINGS,
 	SECRET_FIELD_IDS,
 } from "./protocol";
-import { isUsableHttpUrl } from "./serverForm";
+import { isUsableHttpUrl, SERVER_FORM_FIELD_LABELS } from "./serverForm";
 
 /** The per-scope values configuration inspection reports; a seam over WorkspaceConfiguration.inspect. */
 export interface SettingsInspection {
@@ -69,8 +71,14 @@ export interface SettingsReader {
 function labeledSnapshots(
 	snapshots: readonly ServerModelsSnapshot[]
 ): { snapshot: ServerModelsSnapshot; label: string }[] {
+	// The serverId tiebreak keeps the sort total: the status window's Map
+	// re-inserts refreshed entries at the end, so without it two groups on one
+	// host would swap ordinals whenever their insertion order churned.
 	const sorted = [...snapshots].sort(
-		(a, b) => a.status.label.localeCompare(b.status.label) || a.status.baseUrl.localeCompare(b.status.baseUrl)
+		(a, b) =>
+			a.status.label.localeCompare(b.status.label) ||
+			a.status.baseUrl.localeCompare(b.status.baseUrl) ||
+			a.status.serverId.localeCompare(b.status.serverId)
 	);
 	const labelCounts = new Map<string, number>();
 	for (const { status } of sorted) {
@@ -88,6 +96,23 @@ function labeledSnapshots(
 	});
 }
 
+/**
+ * The opaque token an external row carries so the adopt intent can name its
+ * source group (DashboardServer.adoptHandle): a one-way hash of the server
+ * ID, salted with a per-session random value. The salt is load-bearing: the
+ * server ID embeds the group's unsalted credential fingerprint and the base
+ * URL already sits in the state, so an unsalted hash would let anything able
+ * to read webview state confirm guessed low-entropy keys offline by
+ * reproducing the handle. Salted, the handle is stable across state pushes
+ * within one session (an open adopt form survives background refreshes),
+ * which is all adoption needs; nothing depends on it across sessions.
+ */
+const ADOPT_HANDLE_SALT = randomBytes(16).toString("hex");
+
+function adoptSourceHandle(serverId: string): string {
+	return fingerprint(`adopt-source:${ADOPT_HANDLE_SALT}:${serverId}`);
+}
+
 function buildServer(snapshot: ServerModelsSnapshot, label: string): DashboardServer {
 	const { status } = snapshot;
 	return {
@@ -100,12 +125,58 @@ function buildServer(snapshot: ServerModelsSnapshot, label: string): DashboardSe
 		hasApiKey: status.hasApiKey === true,
 		hasOAuth: false,
 		origin: "external",
+		adoptHandle: adoptSourceHandle(status.serverId),
 	};
 }
 
 /** Trailing slashes are insignificant when matching a declared entry to a live group. */
 function normalizeBaseUrl(baseUrl: string): string {
 	return baseUrl.replace(/\/+$/, "");
+}
+
+/**
+ * Pair declared entries with live snapshots. Declared entries pair by the
+ * group client ID first (the sync engine computes the same
+ * credential-fingerprinted identity the provider stamps on its snapshots, so
+ * entries sharing a base URL with different credentials join exactly), then by
+ * label plus base URL, then by base URL alone for entries the engine has not
+ * resolved yet. Shared by the state builder and the adopt intent's source
+ * resolution, which must agree on which snapshots are external.
+ */
+function joinDeclared(
+	labeled: readonly { snapshot: ServerModelsSnapshot; label: string }[],
+	declared: readonly DeclaredServerView[]
+): {
+	/** Labeled-snapshot index by declared index, for entries a pass matched. */
+	matchedByDeclared: Map<number, number>;
+	/** Labeled-snapshot indices no declared entry claimed: the external rows. */
+	unmatched: Set<number>;
+} {
+	const unmatched = new Set<number>(labeled.map((_, index) => index));
+	const matchedByDeclared = new Map<number, number>();
+	const passes: readonly ((snapshot: ServerModelsSnapshot, view: DeclaredServerView) => boolean)[] = [
+		(snapshot, view) => view.expectedClientId !== undefined && snapshot.status.serverId === view.expectedClientId,
+		(snapshot, view) =>
+			snapshot.status.label === view.label &&
+			normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
+		(snapshot, view) => normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
+	];
+	for (const pass of passes) {
+		declared.forEach((view, declaredIndex) => {
+			if (matchedByDeclared.has(declaredIndex)) {
+				return;
+			}
+			const found = [...unmatched].find((index) => {
+				const entry = labeled[index];
+				return entry !== undefined && pass(entry.snapshot, view);
+			});
+			if (found !== undefined) {
+				matchedByDeclared.set(declaredIndex, found);
+				unmatched.delete(found);
+			}
+		});
+	}
+	return { matchedByDeclared, unmatched };
 }
 
 /**
@@ -117,52 +188,37 @@ function normalizeBaseUrl(baseUrl: string): string {
  * outside the setting.
  *
  * Provider-group snapshots are labeled by URL host (the host never hands the
- * group name to the extension), so the join cannot require a label match.
- * Declared entries pair by the group client ID first (the sync engine computes
- * the same credential-fingerprinted identity the provider stamps on its
- * snapshots, so entries sharing a base URL with different credentials join
- * exactly), then by label plus base URL, then by base URL alone for entries
- * the engine has not resolved yet. `snapshotLabels` maps each snapshot to the
- * label its models render under: the declared label when joined, so the models
- * table agrees with the server rows.
+ * group name to the extension), so the join cannot require a label match; see
+ * joinDeclared for the pairing passes. `snapshotLabels` maps each snapshot to
+ * the label its models render under: the declared label when joined, so the
+ * models table agrees with the server rows.
  */
 function buildServers(
 	labeled: readonly { snapshot: ServerModelsSnapshot; label: string }[],
 	declared: readonly DeclaredServerView[]
 ): { servers: DashboardServer[]; snapshotLabels: string[] } {
 	const snapshotLabels = labeled.map(({ label }) => label);
-	const unmatched = new Map<number, { snapshot: ServerModelsSnapshot; label: string }>(labeled.map((s, i) => [i, s]));
-	const matched = new Map<number, ServerModelsSnapshot>();
-	const passes: readonly ((snapshot: ServerModelsSnapshot, view: DeclaredServerView) => boolean)[] = [
-		(snapshot, view) => view.expectedClientId !== undefined && snapshot.status.serverId === view.expectedClientId,
-		(snapshot, view) =>
-			snapshot.status.label === view.label &&
-			normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
-		(snapshot, view) => normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
-	];
-	for (const pass of passes) {
-		declared.forEach((view, declaredIndex) => {
-			if (matched.has(declaredIndex)) {
-				return;
-			}
-			const found = [...unmatched.entries()].find(([, { snapshot }]) => pass(snapshot, view));
-			if (found !== undefined) {
-				matched.set(declaredIndex, found[1].snapshot);
-				snapshotLabels[found[0]] = view.label;
-				unmatched.delete(found[0]);
-			}
-		});
-	}
+	const { matchedByDeclared, unmatched } = joinDeclared(labeled, declared);
 	const servers: DashboardServer[] = [];
 	declared.forEach((view, declaredIndex) => {
-		const status = matched.get(declaredIndex)?.status;
+		const matchedIndex = matchedByDeclared.get(declaredIndex);
+		const status = matchedIndex !== undefined ? labeled[matchedIndex]?.snapshot.status : undefined;
+		if (matchedIndex !== undefined) {
+			snapshotLabels[matchedIndex] = view.label;
+		}
 		const syncError = view.syncError;
 		servers.push({
 			label: view.label,
 			baseUrl: view.baseUrl,
+			// The sync error always rides the row's error (a live status's own
+			// error cannot mask it): the group still serving is the entry's OLD
+			// configuration, and the remove-and-resync instruction must show.
+			// A reachable group keeps its live state, though - the surfaces
+			// render the error text alongside the live facts (diagnostics'
+			// serverOutcomeText, the dashboard's per-server error list).
 			state: status?.state ?? (syncError !== undefined ? "error" : "unchecked"),
 			modelCount: status?.modelCount ?? 0,
-			error: status?.error ?? syncError,
+			error: syncError ?? status?.error,
 			lastChecked: status?.lastChecked,
 			hasApiKey: status?.hasApiKey === true || view.secrets.apiKey !== "none",
 			hasOAuth: view.oauthTokenUrl !== undefined && view.oauthClientId !== undefined,
@@ -176,8 +232,11 @@ function buildServers(
 			},
 		});
 	});
-	for (const { snapshot, label } of unmatched.values()) {
-		servers.push(buildServer(snapshot, label));
+	for (const index of unmatched) {
+		const entry = labeled[index];
+		if (entry !== undefined) {
+			servers.push(buildServer(entry.snapshot, entry.label));
+		}
 	}
 	servers.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
 	return { servers, snapshotLabels };
@@ -337,6 +396,71 @@ export function resolveUpdateScope(
 
 const asEnum = <T extends string>(values: readonly T[]) => z.enum(values as [T, ...T[]]);
 
+/**
+ * A live group's connection material flattened to servers-setting field names,
+ * for the adopt action. Values exist extension-side only: this shape is never
+ * logged and never enters DashboardState.
+ */
+export interface AdoptableGroupCredentials {
+	readonly apiKey?: string | undefined;
+	readonly oauthTokenUrl?: string | undefined;
+	readonly oauthClientId?: string | undefined;
+	readonly oauthClientSecret?: string | undefined;
+	readonly oauthScopes?: string | undefined;
+	readonly virtualKeyHeader?: string | undefined;
+	readonly virtualKeyValue?: string | undefined;
+}
+
+/**
+ * Resolve the group an adopt intent names back to its credentials, by the
+ * opaque handle its external row carried. Resolution re-derives the external
+ * set at intent time and binds the handle to the intent's base URL, so a
+ * forged or stale intent cannot copy a DECLARED group's secure credential into
+ * a settings entry, and cannot re-point a copied credential at another host.
+ * Returns undefined when no still-external group at this URL matches or the
+ * matching snapshot carries no group connection (a registry server); the
+ * caller adopts the plain entry with a caveat in that case.
+ */
+export function resolveAdoptableCredentials(
+	snapshots: readonly ServerModelsSnapshot[],
+	declared: readonly DeclaredServerView[],
+	baseUrl: string,
+	sourceHandle: string,
+	getGroupServer: (serverId: string) => GroupServer | undefined
+): AdoptableGroupCredentials | undefined {
+	const labeled = labeledSnapshots(snapshots);
+	const { unmatched } = joinDeclared(labeled, declared);
+	const source = [...unmatched]
+		.map((index) => labeled[index]?.snapshot)
+		.find(
+			(snapshot) =>
+				snapshot !== undefined &&
+				adoptSourceHandle(snapshot.status.serverId) === sourceHandle &&
+				normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl)
+		);
+	if (source === undefined) {
+		return undefined;
+	}
+	const server = getGroupServer(source.status.serverId);
+	if (server === undefined) {
+		return undefined;
+	}
+	return {
+		...(server.apiKey.length > 0 ? { apiKey: server.apiKey } : {}),
+		...(server.oauth !== undefined
+			? {
+					oauthTokenUrl: server.oauth.tokenUrl,
+					oauthClientId: server.oauth.clientId,
+					...(server.oauth.clientSecret.length > 0 ? { oauthClientSecret: server.oauth.clientSecret } : {}),
+					...(server.oauth.scopes !== undefined ? { oauthScopes: server.oauth.scopes } : {}),
+				}
+			: {}),
+		...(server.virtualKey !== undefined
+			? { virtualKeyHeader: server.virtualKey.header, virtualKeyValue: server.virtualKey.value }
+			: {}),
+	};
+}
+
 const headerScalarSchema = z.union([z.string(), z.number(), z.boolean()]);
 
 const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminatedUnion("action", [
@@ -368,6 +492,15 @@ const secretDirectivesSchema = z.strictObject({
 	apiKey: secretDirectiveSchema,
 	oauthClientSecret: secretDirectiveSchema,
 	virtualKeyValue: secretDirectiveSchema,
+});
+
+const secretLocationChoiceSchema = z.union([z.literal("settings"), z.literal("secure")]);
+
+/** Where each of an adoption's copied secrets should land; never the values themselves. */
+const adoptSecretsSchema = z.strictObject({
+	apiKey: secretLocationChoiceSchema,
+	oauthClientSecret: secretLocationChoiceSchema,
+	virtualKeyValue: secretLocationChoiceSchema,
 });
 
 /**
@@ -403,6 +536,14 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 		requestId: z.string().min(1).max(128),
 	}),
 	z.strictObject({ type: z.literal("removeServerSetting"), label: z.string(), requestId: z.string().min(1).max(128) }),
+	z.strictObject({
+		type: z.literal("adoptServer"),
+		label: z.string(),
+		baseUrl: z.string(),
+		sourceHandle: z.string().min(1).max(128),
+		secrets: adoptSecretsSchema,
+		requestId: z.string().min(1).max(128),
+	}),
 	z.strictObject({ type: z.literal("executeCommand"), command: asEnum(DASHBOARD_COMMAND_IDS) }),
 ]);
 
@@ -456,6 +597,14 @@ export interface IntentEnvironment {
 	deleteServerSecrets(label: string): Promise<void>;
 	/** Ask the sync engine for a pass; secure-only changes fire no configuration event. */
 	requestServerSync(): void;
+	/**
+	 * The live credentials of the external group an adopt intent names by its
+	 * opaque row handle, from the provider's in-memory status window. Resolves
+	 * only groups that are still external and still at `baseUrl` (see
+	 * resolveAdoptableCredentials). The returned values go straight into the
+	 * setting or SecretStorage and are never logged.
+	 */
+	resolveAdoptionCredentials(baseUrl: string, sourceHandle: string): AdoptableGroupCredentials | undefined;
 	/** Classification-only logging (the buffer feeds public issue reports); never a payload value. */
 	log(message: string, data?: unknown): void;
 }
@@ -826,11 +975,149 @@ async function applySaveServerSetting(
 }
 
 /**
- * Execute one validated intent against the injected environment. Throws on
- * constraint violations without logging; the panel controller is the boundary
- * that logs and reports the failure back to the webview.
+ * Apply one adoptServer intent: write the external group's configuration as a
+ * new declared entry, with each resolved secret stored where the user chose.
+ * The webview only ever names the group (by the opaque handle its row carried)
+ * and the storage locations; the values come from the provider's in-memory
+ * lookup here, extension-side, and only for a group that is still external. A
+ * missing lookup (the group refreshed away, became declared, or the row was a
+ * registry server) still writes the plain entry and reports the caveat through
+ * the returned notice, because the user asked for the entry either way.
+ *
+ * Failure ordering mirrors applySaveServerSetting's guarded unit: additive
+ * secure writes first, then the settings write; if the write fails, secure
+ * values overwritten under this label are restored so the (absent) entry
+ * resolves nothing new.
  */
-export async function executeDashboardIntent(intent: DashboardIntent, env: IntentEnvironment): Promise<void> {
+async function applyAdoptServer(
+	intent: Extract<DashboardIntent, { type: "adoptServer" }>,
+	env: IntentEnvironment
+): Promise<string | undefined> {
+	const label = intent.label.trim();
+	if (label.length === 0) {
+		throw new DashboardValidationError("label: enter a label");
+	}
+	if (isUnsafeRecordKey(label)) {
+		throw new DashboardValidationError("label: reserved name");
+	}
+	const baseUrl = intent.baseUrl.trim();
+	if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
+		throw new DashboardValidationError("baseUrl: not a usable http(s) URL");
+	}
+	const entries = rawServerEntries(env.readServersSetting());
+	if (findEntryIndex(entries, label) >= 0) {
+		throw new DashboardValidationError("label: an entry with this label already exists");
+	}
+
+	const credentials = env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
+	const newEntry: Record<string, string> = { label, baseUrl };
+	const nonSecret = ["oauthTokenUrl", "oauthClientId", "oauthScopes", "virtualKeyHeader"] as const;
+	for (const field of nonSecret) {
+		const value = credentials?.[field];
+		if (value !== undefined) {
+			newEntry[field] = value;
+		}
+	}
+
+	const storedBefore = await env.readServerSecrets(label);
+	const overwritten = new Map<SecretFieldId, string | undefined>();
+	try {
+		for (const field of SECRET_FIELD_IDS) {
+			const value = credentials?.[field];
+			if (value === undefined) {
+				continue;
+			}
+			if (intent.secrets[field] === "secure") {
+				overwritten.set(field, storedBefore[field]);
+				await env.storeServerSecret(label, field, value);
+			} else {
+				newEntry[field] = value;
+			}
+		}
+		await env.writeServersSetting([...entries, newEntry]);
+	} catch (error) {
+		let restoreFailed = false;
+		for (const [field, previous] of overwritten) {
+			try {
+				await env.storeServerSecret(label, field, previous);
+			} catch {
+				restoreFailed = true;
+				env.log("Restoring a secure value after a failed adoption also failed", { field });
+			}
+		}
+		if (restoreFailed) {
+			// A copied secret survived the rollback under this label; see the
+			// save path's matching case for why this must not read as "nothing
+			// landed".
+			env.log("A failed adoption left a secure value unrestored", {
+				error: error instanceof Error ? error.name : typeof error,
+			});
+			env.requestServerSync();
+			throw new DashboardOperationError(
+				// Not "Set Server Secret": that command lists declared entries
+				// only, and this label's entry never landed. Re-adding the label
+				// makes the entry editable, and the edit form's remove checkbox
+				// is what clears the leftover blob field.
+				"The adoption failed, and removing a copied secret again also failed. Re-add a server under this label with the dashboard form, then edit the entry to remove the leftover secret."
+			);
+		}
+		throw error;
+	}
+	// The label is new to the setting, but a secure blob can survive under it
+	// (removals keep blobs so re-adding a label picks its secrets back up).
+	// For adoption that inheritance is wrong - the entry must resolve exactly
+	// what was copied from the group - so stale fields the adoption did not
+	// itself write secure-side are removed now that the write landed, and the
+	// removal is verified by re-reading: a stale secret that survives would
+	// silently take effect wherever the entry carries no inline copy, so a
+	// failure has to reach the user through the success notice, not just the
+	// log.
+	const staleFields = SECRET_FIELD_IDS.filter((field) => storedBefore[field] !== undefined && !overwritten.has(field));
+	let staleRemaining: SecretFieldId[] = [];
+	if (staleFields.length > 0) {
+		for (const field of staleFields) {
+			try {
+				await env.storeServerSecret(label, field, undefined);
+			} catch {
+				// Counted by the verification below.
+			}
+		}
+		try {
+			const after = await env.readServerSecrets(label);
+			staleRemaining = staleFields.filter((field) => after[field] !== undefined);
+		} catch {
+			// Unverifiable counts as failed: the caveat must err toward warning.
+			staleRemaining = staleFields;
+		}
+		if (staleRemaining.length > 0) {
+			env.log("Post-adoption cleanup of stale stored secrets failed", { fields: staleRemaining });
+		}
+	}
+	env.requestServerSync();
+	const caveats: string[] = [];
+	if (credentials === undefined) {
+		caveats.push("The live group's credentials could not be read, so none were copied; edit the server to set them.");
+	}
+	if (staleRemaining.length > 0) {
+		const names = staleRemaining.map((field) => SERVER_FORM_FIELD_LABELS[field]).join(", ");
+		caveats.push(
+			`A previously stored secret under this label (${names}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.`
+		);
+	}
+	return caveats.length > 0 ? caveats.join(" ") : undefined;
+}
+
+/**
+ * Execute one validated intent against the injected environment. Resolves to
+ * an optional user-facing caveat for the success notice (only adoptServer
+ * produces one today). Throws on constraint violations without logging; the
+ * panel controller is the boundary that logs and reports the failure back to
+ * the webview.
+ */
+export async function executeDashboardIntent(
+	intent: DashboardIntent,
+	env: IntentEnvironment
+): Promise<string | undefined> {
 	switch (intent.type) {
 		case "setNumberSetting": {
 			const problem = validateNumberSetting(intent.setting, intent.value);
@@ -838,18 +1125,18 @@ export async function executeDashboardIntent(intent: DashboardIntent, env: Inten
 				throw new DashboardValidationError(problem);
 			}
 			await env.updateSetting(intent.setting, intent.value);
-			return;
+			return undefined;
 		}
 		case "setBooleanSetting":
 			await env.updateSetting(intent.setting, intent.value);
-			return;
+			return undefined;
 		case "setModelParameters": {
 			const problem = validateModelParametersRecord(intent.value);
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
 			}
 			await env.updateSetting("modelParameters", intent.value);
-			return;
+			return undefined;
 		}
 		case "setHeaders": {
 			const problem = validateHeadersRecord(intent.value);
@@ -857,7 +1144,7 @@ export async function executeDashboardIntent(intent: DashboardIntent, env: Inten
 				throw new DashboardValidationError(problem);
 			}
 			await env.updateSetting("headers", intent.value);
-			return;
+			return undefined;
 		}
 		case "saveServerSetting": {
 			const problem = validateSaveServerSetting(intent.server, intent.secrets);
@@ -865,7 +1152,7 @@ export async function executeDashboardIntent(intent: DashboardIntent, env: Inten
 				throw new DashboardValidationError(problem);
 			}
 			await applySaveServerSetting(intent, env);
-			return;
+			return undefined;
 		}
 		case "removeServerSetting": {
 			const entries = rawServerEntries(env.readServersSetting());
@@ -880,12 +1167,14 @@ export async function executeDashboardIntent(intent: DashboardIntent, env: Inten
 			// anyway (VS Code offers no programmatic group removal).
 			await env.writeServersSetting(next);
 			env.requestServerSync();
-			return;
+			return undefined;
 		}
+		case "adoptServer":
+			return applyAdoptServer(intent, env);
 		case "executeCommand": {
 			const { command, args } = COMMANDS_BY_ID[intent.command];
 			await env.executeCommand(command, ...args);
-			return;
+			return undefined;
 		}
 	}
 }

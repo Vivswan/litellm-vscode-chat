@@ -79,7 +79,9 @@ Two asymmetries to know about:
 - The `label` is the entry's identity. The provider group is named after it, so renaming an entry creates a new group; the old one stays until you remove it.
 - Removing an entry stops the extension from managing that server, but VS Code offers no API to remove the group itself. The extension points you at the native Manage Language Models editor (Command Palette → "Manage LiteLLM Provider" → Manage Language Models), where group removal lives.
 
-Servers added directly in the native editor still work; the dashboard shows them marked "external" since they have no settings entry. Declared entries are re-asserted on activation and on Sync Models Now, so edits made to a declared group in the native editor are overwritten on the next sync; external groups are left alone.
+Servers added directly in the native editor still work; the dashboard shows them marked "external" since they have no settings entry. An external row's Edit action adopts the server: it copies the group's connection details into a new `litellm-vscode-chat.servers` entry, so the server becomes editable like any declared one. You pick the entry's label and where each secret is stored (secret storage or inline in settings); the credential values are copied inside the extension and never pass through the dashboard page. Adoption does not remove the original group - VS Code has no API for that - so its models appear twice until you delete the group in the native editor. The dashboard reminds you of this after adopting.
+
+One host limitation cuts across all of this: VS Code's provider-group command can create groups but not update or remove them. When a declared entry's connection changes (URL or credentials), the extension cannot push the change into the existing group; the server row shows an error telling you to remove the group in the native editor and run Sync Models Now, which recreates it from the entry. For the same reason, an edit made natively to a declared group stays in place until that group is removed and re-synced.
 
 ### OAuth Authentication (Optional)
 

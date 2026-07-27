@@ -43,6 +43,86 @@ suite("provider/errorMapping", () => {
 			}
 		});
 
+		test("401 wrapping an upstream provider failure blames the server's provider credentials, not the extension key", () => {
+			// The exact envelope a LiteLLM proxy returns when the caller's key was
+			// accepted but the proxy could not authenticate to the upstream
+			// provider (e.g. a catalog model whose provider key is unset).
+			const err = new AuthenticationError(
+				401,
+				{
+					message:
+						'litellm.AuthenticationError: AnthropicException - {"type":"error","error":{"type":"authentication_error","message":"x-api-key header is required"}}. Received Model Group=anthropic/claude-x\nAvailable Model Group Fallbacks=None',
+					type: null,
+					param: null,
+					code: "401",
+				},
+				undefined,
+				new Headers()
+			);
+			for (const ctx of [chatCtx, discoveryCtx]) {
+				const mapped = expectRequestError(mapSdkError(err, ctx), "auth");
+				assert.strictEqual(mapped.status, 401);
+				assert.ok(mapped.message.startsWith("Authentication failed upstream:"), mapped.message);
+				assert.ok(
+					!mapped.message.includes("Manage LiteLLM Provider"),
+					"must not send the user to reconfigure the extension key"
+				);
+				assert.ok(!mapped.message.includes("Anthropic"), "response-derived text must not be echoed");
+			}
+		});
+
+		test("a genuine proxy-auth 401 envelope keeps the extension-key message", () => {
+			const err = new AuthenticationError(
+				401,
+				{ message: "Authentication Error, No api key passed in.", type: "auth_error", param: "None", code: "401" },
+				undefined,
+				new Headers()
+			);
+			const mapped = expectRequestError(mapSdkError(err, chatCtx), "auth");
+			assert.ok(
+				mapped.message.startsWith("Authentication failed: Your LiteLLM server requires an API key."),
+				mapped.message
+			);
+		});
+
+		test("a litellm exception name quoted inside the proxy's auth_error envelope stays proxy-auth", () => {
+			// The envelope type is the proxy gate's own signature and outranks the
+			// message text; a body that merely mentions litellm.AuthenticationError
+			// is still the proxy rejecting this client's key.
+			const err = new AuthenticationError(
+				401,
+				{
+					message: "Authentication Error - key rejected before litellm.AuthenticationError could be raised upstream",
+					type: "auth_error",
+					param: "None",
+					code: "401",
+				},
+				undefined,
+				new Headers()
+			);
+			const mapped = expectRequestError(mapSdkError(err, chatCtx), "auth");
+			assert.ok(
+				mapped.message.startsWith("Authentication failed: Your LiteLLM server requires an API key."),
+				mapped.message
+			);
+		});
+
+		test("a module-qualified litellm exception name still classifies as an upstream failure", () => {
+			const err = new AuthenticationError(
+				401,
+				{
+					message: "litellm.exceptions.AuthenticationError: BedrockException - unable to authenticate to AWS",
+					type: null,
+					param: null,
+					code: "401",
+				},
+				undefined,
+				new Headers()
+			);
+			const mapped = expectRequestError(mapSdkError(err, chatCtx), "auth");
+			assert.ok(mapped.message.startsWith("Authentication failed upstream:"), mapped.message);
+		});
+
 		test("400 with a JSON error body re-serializes the LiteLLM error envelope per surface", () => {
 			const err = APIError.generate(
 				400,

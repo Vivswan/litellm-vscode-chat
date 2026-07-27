@@ -82,7 +82,10 @@ const STYLES = `
 	th { color: var(--vscode-descriptionForeground); font-weight: 600; white-space: nowrap; }
 	tbody tr:hover { background: var(--vscode-list-hoverBackground, transparent); }
 	td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-	td.actions { white-space: nowrap; text-align: right; }
+	/* Left-aligned so a lone action (an external row's Edit, the adoption
+	   entry point) sits where every row's Edit sits, and is the last thing a
+	   narrow viewport's horizontal scroll loses instead of the first. */
+	td.actions { white-space: nowrap; }
 
 	.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; align-items: center; }
 	button {
@@ -132,7 +135,10 @@ const STYLES = `
 	input.invalid { border-color: var(--vscode-inputValidation-errorBorder, #f00); }
 
 	.field { display: grid; grid-template-columns: 220px minmax(200px, 320px); gap: 4px 12px; align-items: center; margin: 8px 0; }
-	.field label { color: var(--vscode-foreground); }
+	.field label, .field .field-label { color: var(--vscode-foreground); }
+	/* A fixed, non-editable value (the adopt form's base URL): plain dimmed
+	   text, so it cannot be mistaken for an input that merely looks disabled. */
+	.field .readonly-value { color: var(--vscode-descriptionForeground); padding: 3px 0; overflow-wrap: anywhere; }
 	.field .hint, .field .error, .field .secret-where { grid-column: 2; margin: 0; font-size: 0.9em; }
 	/* Hints may run wider than the 320px control column so they wrap at the
 	   same measure as the storage-choice row above them, not visibly narrower. */
@@ -210,6 +216,19 @@ const STYLES = `
 		margin: 8px 0;
 	}
 	.empty-block p { margin: 8px 0; }
+	/* One-time informational callout (e.g. the post-adoption duplicate-group
+	   note): quiet card with an accent edge, no alarm colors. */
+	.notice {
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+		border-left: 3px solid var(--vscode-focusBorder, rgba(128, 128, 128, 0.6));
+		border-radius: 4px;
+		padding: 8px 16px;
+		margin: 8px 0;
+		max-width: 640px;
+		background: var(--vscode-editorWidget-background, transparent);
+	}
+	.notice p { margin: 4px 0; }
+	.notice .toolbar { margin: 8px 0 0; }
 	.skeleton { border-radius: 3px; background: var(--vscode-foreground); opacity: 0.12; }
 
 	@media (max-width: 500px) {

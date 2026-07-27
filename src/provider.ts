@@ -187,6 +187,18 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		return this._hasSeenGroupConfiguration;
 	}
 
+	/**
+	 * The resolved connection of a live provider group, looked up by the server
+	 * ID its status snapshot carries. This is the extension layer's one path to
+	 * a group's credentials (the dashboard's adopt action copies them into the
+	 * servers setting; the group keeps its own); the value is handed to the
+	 * caller only and must never be logged or pushed into webview state.
+	 * Registry servers and aged-out groups resolve to undefined.
+	 */
+	getGroupServer(serverId: string): GroupServer | undefined {
+		return this._serverStatuses.get(serverId)?.groupServer;
+	}
+
 	private groupClientIdsInStatuses(): string[] {
 		return [...this._serverStatuses.keys()].filter(isGroupClientId);
 	}
