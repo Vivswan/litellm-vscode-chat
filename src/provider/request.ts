@@ -1,6 +1,7 @@
 import { getModelParametersConfig } from "../shared/settings";
 import type { OpenAIChatMessage, OpenAIFunctionToolDef } from "../shared/wire";
 import type { ModelRoute } from "./modelCatalog";
+import type { ModelConfigurationRequestParams } from "./modelConfiguration";
 
 /**
  * Cap on the fallback max_tokens when neither runtime options nor configured
@@ -86,16 +87,19 @@ export interface RequestBodyParams {
 	maxTokens: number;
 	modelParams: Record<string, unknown>;
 	toolConfig: { tools?: OpenAIFunctionToolDef[]; tool_choice?: unknown };
+	/** Wire params resolved from the host's modelConfiguration, i.e. the user's model-picker choices. */
+	modelConfiguration?: ModelConfigurationRequestParams | undefined;
 	modelOptions?: Record<string, unknown> | undefined;
 }
 
 /**
  * Builds the request body as a pure pass-through: only parameters the user
- * set (via modelParameters config or runtime modelOptions) are forwarded,
- * never injected defaults, so the provider's own defaults apply.
+ * set are forwarded, never injected defaults, so the provider's own defaults
+ * apply. User-set sources apply in ascending precedence: modelParameters
+ * config, then the model-picker configuration, then runtime modelOptions.
  */
 export function buildRequestBody(params: RequestBodyParams): Record<string, unknown> {
-	const { rawModelId, openaiMessages, maxTokens, modelParams, toolConfig, modelOptions } = params;
+	const { rawModelId, openaiMessages, maxTokens, modelParams, toolConfig, modelConfiguration, modelOptions } = params;
 
 	const body: Record<string, unknown> = {
 		model: rawModelId,
@@ -120,6 +124,9 @@ export function buildRequestBody(params: RequestBodyParams): Record<string, unkn
 	};
 
 	passThrough(modelParams);
+	if (modelConfiguration) {
+		passThrough(modelConfiguration);
+	}
 	if (modelOptions) {
 		passThrough(modelOptions);
 	}

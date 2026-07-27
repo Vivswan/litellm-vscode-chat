@@ -6,6 +6,7 @@ import {
 	groupClientId,
 	parseGroupConfiguration,
 } from "../../provider/groupModels";
+import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
 import { fingerprint } from "../../shared/fingerprint";
 import { expectDefined, makeModelInfo } from "../testUtils";
 
@@ -216,6 +217,16 @@ suite("provider/groupModels", () => {
 			);
 			const model = attachGroupServer(makeModelInfo(), server);
 			assert.deepStrictEqual(getGroupServer(model), server);
+		});
+
+		test("attachGroupServer keeps the configuration schema on the model", () => {
+			const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
+			const model = attachGroupServer(makeModelInfo({ configurationSchema: REASONING_EFFORT_SCHEMA }), server);
+			assert.deepStrictEqual(
+				model.configurationSchema,
+				REASONING_EFFORT_SCHEMA,
+				"the metadata rebuild must not drop the picker schema"
+			);
 		});
 
 		test("a malformed oauth sub-object coming back across the host boundary degrades to absent", () => {

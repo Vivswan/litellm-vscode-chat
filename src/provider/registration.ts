@@ -5,6 +5,7 @@ import type { TokenDefaults } from "../shared/settings";
 import type { LiteLLMModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildExposedModelId, combinedOutputLimitSource, deriveTokenConstraints } from "./modelCatalog";
+import { REASONING_EFFORT_SCHEMA, supportsReasoningEffort } from "./modelConfiguration";
 import type { LiteLLMModelItem, LiteLLMProvider } from "./schemas";
 
 export interface RegistrationResult {
@@ -34,6 +35,23 @@ const COST_DECIMALS = 1_000_000;
 
 /** The numeric pricing fields of the host's model metadata. */
 type ModelPricing = Pick<LanguageModelChatInformation, "inputCost" | "outputCost" | "cacheCost" | "cacheWriteCost">;
+
+/**
+ * The Reasoning Effort picker control for an entry backed by the given
+ * provider data, or nothing. Capability data decides whether the control
+ * exists (the chosen value is a parameter and travels the request path):
+ * entries whose every backing provider advertises reasoning support get the
+ * schema, so an aggregate over mixed providers stays without it, as does a
+ * merged deployment group whose intersection already demoted the flag. Bare
+ * /v1/models entries have no provider data and never advertise the control.
+ */
+function configurationSchemaFor(
+	providers: readonly LiteLLMProvider[]
+): Pick<LanguageModelChatInformation, "configurationSchema"> {
+	return providers.length > 0 && providers.every(supportsReasoningEffort)
+		? { configurationSchema: REASONING_EFFORT_SCHEMA }
+		: {};
+}
 
 /**
  * Pricing metadata for the model picker, converted to VS Code's
@@ -129,6 +147,7 @@ export function buildModelInfos(
 						imageInput: vision,
 					},
 					...pricingFromProvider(soleProvider),
+					...configurationSchemaFor([soleProvider]),
 					litellm: {
 						supportsPromptCaching: soleProvider.supports_prompt_caching === true,
 						outputLimitSource: constraints.outputLimitSource,
@@ -170,6 +189,7 @@ export function buildModelInfos(
 			const maxInput = Math.max(1, aggregateContextLen - maxOutput);
 			const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
 			const aggregateMetadata = { supportsPromptCaching: aggregatePromptCaching, outputLimitSource };
+			const aggregateConfigurationSchema = configurationSchemaFor(toolProviders);
 			const aggregateCapabilities = {
 				toolCalling: true,
 				imageInput: vision,
@@ -189,6 +209,7 @@ export function buildModelInfos(
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
+				...aggregateConfigurationSchema,
 				litellm: aggregateMetadata,
 			} satisfies LiteLLMModelInfo);
 			registerRoute(cheapestId, cheapestRaw);
@@ -202,6 +223,7 @@ export function buildModelInfos(
 				maxInputTokens: maxInput,
 				maxOutputTokens: maxOutput,
 				capabilities: aggregateCapabilities,
+				...aggregateConfigurationSchema,
 				litellm: aggregateMetadata,
 			} satisfies LiteLLMModelInfo);
 			registerRoute(fastestId, fastestRaw);
@@ -224,6 +246,7 @@ export function buildModelInfos(
 					imageInput: vision,
 				},
 				...pricingFromProvider(p),
+				...configurationSchemaFor([p]),
 				litellm: {
 					supportsPromptCaching: p.supports_prompt_caching === true,
 					outputLimitSource: constraints.outputLimitSource,
@@ -248,6 +271,10 @@ export function buildModelInfos(
 					toolCalling: false,
 					imageInput: vision,
 				},
+				// The untooled base entry stands for the whole provider group (the
+				// proxy routes it to any of them), so like the aggregates it needs
+				// every backing provider to support reasoning, not just the first.
+				...configurationSchemaFor(providers),
 				litellm: {
 					supportsPromptCaching: base.supports_prompt_caching === true,
 					outputLimitSource: constraints.outputLimitSource,

@@ -22,6 +22,7 @@ import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
 import type { LiteLLMModelInfo } from "./groupModels";
 import { getGroupServer, groupClientId, modelOutputLimitSource, modelSupportsPromptCaching } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
+import { requestParamsFromModelConfiguration } from "./modelConfiguration";
 import { buildRequestBody, DEFAULT_MAX_TOKENS_CAP, getModelParameters, MAX_TOOLS_PER_REQUEST } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
@@ -284,6 +285,7 @@ export class ChatClient {
 			maxTokens,
 			modelParams,
 			toolConfig,
+			modelConfiguration: requestParamsFromModelConfiguration(options.modelConfiguration),
 			modelOptions: options.modelOptions as Record<string, unknown> | undefined,
 		});
 
