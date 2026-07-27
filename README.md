@@ -154,7 +154,7 @@ Models that advertise reasoning support (`supports_reasoning`, or `reasoning_eff
 
 ### Prompt Caching (Anthropic Claude)
 
-The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). Prompt caching reduces costs and improves response times by caching the system prompt across requests.
+The extension supports prompt caching for models that advertise this capability (currently Anthropic Claude models). It spends Anthropic's four cache breakpoints per request on the parts that stay identical across the turns of an agent session: the tool definitions, the system prompt, the first user message, and the last text-bearing message. Each turn then reuses the prefix the previous turn cached instead of re-paying full input price for the tools and the whole conversation history.
 
 **To configure**: Add to your `settings.json`:
 
@@ -167,11 +167,11 @@ The extension supports prompt caching for models that advertise this capability 
 **How it works:**
 - Automatically detects prompt caching support from LiteLLM's `/v1/model/info` endpoint
 - Only affects models that explicitly support prompt caching (primarily Claude models)
-- Adds `cache_control` blocks to system messages when enabled
+- Adds `cache_control` breakpoints to the last tool definition, the system message, the first user message, and the last text-bearing message (a trailing tool-call-only or image-only message is skipped) - at most four per request, Anthropic's limit
 - Disabled by default for models without support
 
 **Benefits:**
-- Reduced API costs (cached tokens are cheaper)
+- Reduced API costs (cached tokens are cheaper), most visibly in agent mode where tools and history dominate the request
 - Faster response times (cached content doesn't need reprocessing)
 - Transparent to the user (works automatically when supported)
 

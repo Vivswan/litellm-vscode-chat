@@ -11,10 +11,24 @@ export interface OpenAIToolCall {
 	function: { name: string; arguments: string };
 }
 
-/** OpenAI function tool definition used to advertise tools. */
+/**
+ * Anthropic prompt-cache marker. LiteLLM forwards it from OpenAI-shaped
+ * requests to Anthropic-family backends; placement is owned by
+ * shared/promptCache.ts.
+ */
+export interface EphemeralCacheControl {
+	readonly type: "ephemeral";
+}
+
+/**
+ * OpenAI function tool definition used to advertise tools. LiteLLM reads a
+ * tool-level `cache_control` for both its Anthropic and Bedrock adapters
+ * (caching the whole tools block up to the marked tool).
+ */
 export interface OpenAIFunctionToolDef {
 	type: "function";
 	function: { name: string; description?: string; parameters?: object };
+	cache_control?: EphemeralCacheControl;
 }
 
 /** OpenAI-style chat roles. */
@@ -38,15 +52,19 @@ export interface OpenAIChatMessage {
 	tool_calls?: OpenAIToolCall[];
 	tool_call_id?: string;
 	thinking_blocks?: OpenAIThinkingBlock[];
+	/**
+	 * Message-level prompt-cache marker, used only on tool-role messages:
+	 * LiteLLM's Anthropic adapter copies it onto the top-level tool_result
+	 * block, the only cacheable position there (see shared/promptCache.ts).
+	 */
+	cache_control?: EphemeralCacheControl;
 }
 
 /** Text content block for chat messages. */
 interface OpenAIChatTextContentBlock {
 	type: "text";
 	text: string;
-	cache_control?: {
-		type: "ephemeral";
-	};
+	cache_control?: EphemeralCacheControl;
 }
 
 /** Image URL content block for vision input. */
