@@ -11,20 +11,45 @@
  * from workspace configuration; nothing here is persisted anywhere.
  */
 
-export { isValidHeaderName } from "../../shared/headers";
+export { isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
 export { isUnsafeRecordKey } from "../../shared/json";
+export type { SecretFieldId, SecretLocation } from "../../shared/serverSecrets";
+export { SECRET_FIELD_IDS } from "../../shared/serverSecrets";
 
-/** One server as the status window saw it last; mirrors shared/servers ServerStatus minus internal IDs. */
+import type { SecretFieldId, SecretLocation } from "../../shared/serverSecrets";
+
+/** The non-secret configuration of a declared server, for the edit form's prefill. */
+interface DashboardServerConfig {
+	readonly oauthTokenUrl?: string | undefined;
+	readonly oauthClientId?: string | undefined;
+	readonly oauthScopes?: string | undefined;
+	readonly virtualKeyHeader?: string | undefined;
+	/** Where each secret currently lives; the values themselves never reach the webview. */
+	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
+}
+
+/**
+ * One server row: a declared entry from the litellm-vscode-chat.servers
+ * setting, a live provider group the status window saw, or both merged
+ * (joined by label and base URL). Secrets never reach the webview; only
+ * their locations do.
+ */
 export interface DashboardServer {
 	readonly label: string;
 	readonly baseUrl: string;
-	readonly state: "ok" | "error";
+	/** "unchecked": declared in settings but not yet seen by a discovery pass. */
+	readonly state: "ok" | "error" | "unchecked";
 	readonly modelCount: number;
 	readonly error?: string | undefined;
-	/** ISO timestamp of the last discovery attempt. */
-	readonly lastChecked: string;
-	/** Whether the server's configuration carries credentials; the secrets themselves never reach the webview. */
+	/** ISO timestamp of the last discovery attempt; absent while unchecked. */
+	readonly lastChecked?: string | undefined;
+	/** Whether the server has credentials configured anywhere; never the credentials themselves. */
 	readonly hasApiKey: boolean;
+	readonly hasOAuth: boolean;
+	/** "declared": in the servers setting (editable here). "external": a provider group managed outside it. */
+	readonly origin: "declared" | "external";
+	/** Present on declared servers: the edit form's prefill. */
+	readonly config?: DashboardServerConfig | undefined;
 }
 
 /** One registered model, reduced to display facts. Costs are USD per million tokens, as registration converted them. */
@@ -39,6 +64,11 @@ export interface DashboardModel {
 	readonly outputCost?: number | undefined;
 	readonly cacheReadCost?: number | undefined;
 	readonly cacheWriteCost?: number | undefined;
+	/** Long-context tier costs; present only when the tier differs from the base price. */
+	readonly longContextInputCost?: number | undefined;
+	readonly longContextOutputCost?: number | undefined;
+	readonly longContextCacheReadCost?: number | undefined;
+	readonly longContextCacheWriteCost?: number | undefined;
 	readonly toolCalling: boolean;
 	readonly imageInput: boolean;
 	readonly promptCaching: boolean;
@@ -170,13 +200,58 @@ export interface DashboardState {
 
 /**
  * Extension-to-webview messages: full state pushes (the webview never holds
- * partial truth) and intent-failure notices. A failed intent produces no
- * configuration change and therefore no state push, so the failure message is
- * the only way the webview learns the write did not land.
+ * partial truth), plus per-intent outcome notices. Server intents carry a
+ * webview-generated requestId, echoed back in intentSucceeded/intentFailed so
+ * an editor waits on its own save rather than on the next unrelated push. A
+ * validation-kind failure produces no configuration change and therefore no
+ * state push; an operation-kind failure committed its write, so a push
+ * follows and must not be read as the intent succeeding.
  */
 export type ExtensionToWebviewMessage =
 	| { readonly type: "state"; readonly state: DashboardState }
-	| { readonly type: "intentFailed"; readonly intentType: DashboardIntentType; readonly message: string };
+	| { readonly type: "intentSucceeded"; readonly intentType: DashboardIntentType; readonly requestId: string }
+	| {
+			readonly type: "intentFailed";
+			readonly intentType: DashboardIntentType;
+			readonly message: string;
+			/**
+			 * What the failure left behind. "validation": nothing landed (the
+			 * intent was refused or its write failed), so the editor's draft is
+			 * still the truth and returns to editing for a retry. "operation": the
+			 * durable write committed but a follow-up effect failed, so drafts
+			 * over the pre-save state are stale and the message carries the
+			 * recovery path.
+			 */
+			readonly kind: "validation" | "operation";
+			readonly requestId?: string | undefined;
+	  };
+
+/** The intent types that carry a correlation requestId, derived from the message union itself. */
+type AckedIntentType = Extract<WebviewToExtensionMessage, { requestId: string }>["type"];
+
+/**
+ * The intents whose outcome arrives as its own correlated notice
+ * (intentSucceeded or intentFailed echoing the intent's requestId). Their
+ * failure notices survive state pushes: a push is not their success signal,
+ * and a partially applied save requests a sync whose push would otherwise
+ * erase the very warning the save raised. Every other intent's success signal
+ * is the state push that follows its landed write, so a push retires those
+ * notices (and nothing else would). A Record over the derived union: an
+ * intent that gains a requestId without being registered here stops compiling
+ * instead of silently regressing to notice erasure.
+ */
+const ACKED_INTENT_TYPES: Readonly<Record<AckedIntentType, true>> = {
+	saveServerSetting: true,
+	removeServerSetting: true,
+};
+
+const ACKED_INTENT_TYPE_SET: ReadonlySet<string> = new Set(Object.keys(ACKED_INTENT_TYPES));
+
+/** The failure notices a state push leaves standing; see ACKED_INTENT_TYPES. */
+export function failuresAfterStatePush<T>(failures: Readonly<Record<string, T>>): Readonly<Record<string, T>> {
+	const kept = Object.entries(failures).filter(([intentType]) => ACKED_INTENT_TYPE_SET.has(intentType));
+	return kept.length === Object.keys(failures).length ? failures : Object.fromEntries(kept);
+}
 
 /** Actions the webview can trigger; the extension maps each ID to the command it already registers. */
 export const DASHBOARD_COMMAND_IDS = [
@@ -189,6 +264,34 @@ export const DASHBOARD_COMMAND_IDS = [
 
 export type DashboardCommandId = (typeof DASHBOARD_COMMAND_IDS)[number];
 
+/**
+ * What to do with one secret field when saving a server entry. "keep" leaves
+ * the field wherever it is (inline in the setting or in secret storage);
+ * "clear" removes it from both; "set" replaces it in the chosen location and
+ * removes it from the other. Values flow webview -> extension -> setting or
+ * SecretStorage only: they are never logged and never echoed back into
+ * DashboardState.
+ */
+export type SecretDirective =
+	| { readonly action: "keep" }
+	| { readonly action: "clear" }
+	| { readonly action: "set"; readonly location: "settings" | "secure"; readonly value: string };
+
+/**
+ * The non-secret half of a litellm-vscode-chat.servers entry as the dashboard
+ * form submits it. The label is the entry's identity: the sync engine names
+ * the VS Code provider group after it, so renaming creates a new group (the
+ * old one stays until removed in the native editor).
+ */
+export interface SaveServerPayload {
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly oauthTokenUrl?: string | undefined;
+	readonly oauthClientId?: string | undefined;
+	readonly oauthScopes?: string | undefined;
+	readonly virtualKeyHeader?: string | undefined;
+}
+
 /** Webview-to-extension intents. The extension re-validates every one: the webview is a trust boundary. */
 export type WebviewToExtensionMessage =
 	| { readonly type: "ready" }
@@ -196,6 +299,16 @@ export type WebviewToExtensionMessage =
 	| { readonly type: "setBooleanSetting"; readonly setting: BooleanSettingId; readonly value: boolean }
 	| { readonly type: "setModelParameters"; readonly value: Record<string, Record<string, unknown>> }
 	| { readonly type: "setHeaders"; readonly value: Record<string, HeaderScalar> }
+	| {
+			readonly type: "saveServerSetting";
+			readonly server: SaveServerPayload;
+			readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
+			/** When editing: the label of the entry to replace (differs from server.label on rename). */
+			readonly replaceLabel?: string | undefined;
+			/** Webview-generated correlation ID, echoed in the outcome notice. */
+			readonly requestId: string;
+	  }
+	| { readonly type: "removeServerSetting"; readonly label: string; readonly requestId: string }
 	| { readonly type: "executeCommand"; readonly command: DashboardCommandId };
 
 /** The intents that can fail and be reported back; the ready handshake has no failure mode. */

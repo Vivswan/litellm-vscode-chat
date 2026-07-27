@@ -32,19 +32,20 @@ The extension also ships a walkthrough covering these steps: run "Welcome: Open 
 
 ### Where to configure things
 
+Configuration lives in two interchangeable places: the dashboard (a GUI over all of it) and plain VS Code settings. Per-model options and one-off actions have their own surfaces, listed below.
+
 | What | Where | How to open |
 |------|-------|-------------|
-| Servers: base URL, API key, OAuth | Manage Language Models editor | Command Palette → "Manage LiteLLM Provider" → Manage Language Models |
+| Servers: label, base URL, API key, OAuth | Dashboard, or the `litellm-vscode-chat.servers` setting | Command Palette → "LiteLLM: Open Dashboard", or Settings → search "litellm-vscode-chat" |
 | Per-model options (thinking effort) | Copilot Chat model picker | Select a LiteLLM model, then click the effort label next to the model name in the chat input |
-| Global knobs (timeouts, caching, headers, `modelParameters`) | VS Code settings | Settings → search "litellm-vscode-chat" |
+| Global knobs (timeouts, caching, headers, `modelParameters`) | Dashboard or VS Code settings | Same as above |
 | Actions (test connection, sync models, diagnostics, report issue) | Commands | Command Palette → type "LiteLLM", or the "Manage LiteLLM Provider" menu |
-| Everything in one pane (servers, models, settings) | Dashboard | Command Palette → "LiteLLM: Open Dashboard" |
 
 ### Dashboard
 
-"LiteLLM: Open Dashboard" opens one panel with everything on it: the servers the extension has seen (status, model count, last check), every discovered model with its token limits, pricing, and capability badges, and the extension's settings as editable form controls.
+"LiteLLM: Open Dashboard" opens one panel with everything on it: a status strip (overall connection state, server and model counts, last sync), the server list with an inline add/edit form, every discovered model with a filter box, token limits, pricing, and capability badges, and the extension's settings as editable form controls.
 
-The dashboard is a view over the same stores the rest of the extension uses. Settings edits write to your VS Code settings (to the scope where the value is already set, otherwise to user settings), and the buttons run the same commands the Command Palette offers. The server list is read only because server configurations live in VS Code's own language model editor; the Manage Servers button takes you there. API keys and OAuth secrets live in VS Code's secret storage and never appear on the dashboard. Header values are settings, not secrets: they show up exactly as they do in the Settings editor, so keep secret headers in User scope rather than workspace scope.
+The dashboard is a view over the same stores the rest of the extension uses. Settings edits write to your VS Code settings (to the scope where the value is already set, otherwise to user settings), and the buttons run the same commands the Command Palette offers. Server edits write the `litellm-vscode-chat.servers` setting described below; for each secret field the form lets you choose between VS Code secret storage (the default) and an inline settings value. Secrets never render back into the dashboard - the form shows where a secret lives, not what it is. Header values are settings, not secrets: they show up exactly as they do in the Settings editor, so keep secret headers in User scope rather than workspace scope.
 
 Two settings are easier to edit here than in the Settings UI: `modelParameters` and `headers` are objects the native settings GUI cannot edit, so the dashboard gives them row editors. Model parameter values are JSON (`0.2`, `true`, `"text"`, `["stop"]`); invalid input is flagged and Apply stays disabled until every row parses. Because VS Code merges object settings across scopes, each editor works on one scope at a time (the one your edits write to) and lists entries from other scopes read only, so applying a change never copies user-scope values into workspace files.
 
@@ -52,33 +53,46 @@ Two settings are easier to edit here than in the Settings UI: `modelParameters` 
 
 The extension supports connecting to multiple LiteLLM servers at once. Models from all reachable servers are aggregated into one list.
 
-To manage servers:
-- **Command Palette**: `Ctrl+Shift+P` / `Cmd+Shift+P` → "Manage LiteLLM Provider" → "Manage Language Models"
-- **Model Picker**: Chat interface → Model picker → "Manage Models..." → "LiteLLM"
+Servers are declared in the `litellm-vscode-chat.servers` setting - an array of entries the extension syncs to VS Code provider groups automatically, on activation and whenever the setting changes. The setting is machine-scoped: it lives in your user settings only, a workspace cannot override it (so a cloned repository can never re-point your servers at another host), and Settings Sync does not carry it to other machines. The dashboard's add/edit form writes the same setting, so both paths stay in step:
 
-"Manage LiteLLM Provider" opens a menu with every extension surface in one place: server management, Sync Models Now, Test Connection, diagnostics, the extension's settings, help, and issue reporting.
+```jsonc
+// user settings.json
+"litellm-vscode-chat.servers": [
+	{
+		"label": "Production",
+		"baseUrl": "https://litellm.example.com",
+		"apiKey": "sk-..." // inline: visible in this file
+	},
+	{
+		"label": "Local",
+		"baseUrl": "http://localhost:4000"
+		// no apiKey here: either the server needs none, or the key lives in
+		// VS Code secret storage (dashboard form, or "LiteLLM: Set Server Secret")
+	}
+]
+```
 
-From the server manager you can:
-- **Add Server**: provide a unique label, base URL, and optional API key
-- **Edit Server**: update label, URL, or API key
-- **Remove Server**: delete a server and its stored credentials
+The secret fields (`apiKey`, `oauthClientSecret`, `virtualKeyValue`) are per-entry choices: write them inline when a plaintext value in your settings file is acceptable, or leave them out and store them in VS Code secret storage instead - through the dashboard form's "store securely" option or the "LiteLLM: Set Server Secret" command. An inline value takes precedence over a stored one.
 
-Credentials are stored securely in VS Code's secret storage. Server metadata (label, URL) is stored in global state.
+Two asymmetries to know about:
 
-**Upgrading from single-server**: Existing single-server configurations are automatically migrated into the server registry on first run.
+- The `label` is the entry's identity. The provider group is named after it, so renaming an entry creates a new group; the old one stays until you remove it.
+- Removing an entry stops the extension from managing that server, but VS Code offers no API to remove the group itself. The extension points you at the native Manage Language Models editor (Command Palette → "Manage LiteLLM Provider" → Manage Language Models), where group removal lives.
+
+Servers added directly in the native editor still work; the dashboard shows them marked "external" since they have no settings entry. Declared entries are re-asserted on activation and on Sync Models Now, so edits made to a declared group in the native editor are overwritten on the next sync; external groups are left alone.
 
 ### OAuth Authentication (Optional)
 
-Some LiteLLM gateways sit behind an identity provider and reject static API keys. For those, configure OAuth2 client-credentials authentication on the server: open the native "Manage Language Models" editor for the LiteLLM provider and fill in the optional fields alongside the base URL.
+Some LiteLLM gateways sit behind an identity provider and reject static API keys. For those, configure OAuth2 client-credentials authentication on the server entry: in the dashboard form the fields sit behind "OAuth and virtual key (optional)", and in the `litellm-vscode-chat.servers` setting they are per-entry keys. (For external servers managed in the native "Manage Language Models" editor, the same fields appear there.)
 
-| Field | Description |
-|-------|-------------|
-| OAuth Token URL | The identity provider's token endpoint, e.g. `https://idp.example.com/oauth2/token` |
-| OAuth Client ID | Client ID for the client-credentials grant |
-| OAuth Client Secret | Client secret; stored in VS Code's secret storage |
-| OAuth Scopes | Optional space-separated scopes to request with the token |
-| Virtual Key Header | Optional name of a custom header carrying a LiteLLM virtual key, e.g. `x-litellm-api-key` |
-| Virtual Key Value | The virtual key itself; stored in VS Code's secret storage |
+| Dashboard field | Setting key | Description |
+|-----------------|-------------|-------------|
+| OAuth token URL | `oauthTokenUrl` | The identity provider's token endpoint, e.g. `https://idp.example.com/oauth2/token` |
+| OAuth client ID | `oauthClientId` | Client ID for the client-credentials grant; required together with the token URL |
+| OAuth client secret | `oauthClientSecret` | Client secret; keep it in secret storage or write it inline |
+| OAuth scopes | `oauthScopes` | Optional space-separated scopes to request with the token |
+| Virtual key header | `virtualKeyHeader` | Optional name of a custom header carrying a LiteLLM virtual key, e.g. `x-litellm-api-key` |
+| Virtual key value | `virtualKeyValue` | The virtual key itself; keep it in secret storage or write it inline |
 
 When the token URL and client ID are both set, the extension exchanges the client credentials for a short-lived bearer token and sends it as the `Authorization` header on every request to that server, refreshing it shortly before it expires. A static API key configured on the same server keeps going out as the `X-API-Key` header alongside the bearer token, for gateways that check both. If the gateway additionally expects a virtual key, set both virtual key fields and the header is sent along with every request. The token exchange is bounded by the discovery timeout, and a rejected token is discarded so the next request fetches a fresh one.
 

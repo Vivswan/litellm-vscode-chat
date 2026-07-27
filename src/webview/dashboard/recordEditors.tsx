@@ -63,6 +63,10 @@ function useDraftRows<T>(
 export interface IntentFailure {
 	readonly seq: number;
 	readonly message: string;
+	/** Whether the intent's durable write committed before the failure; see the protocol's intentFailed notice. */
+	readonly kind: "validation" | "operation";
+	/** The failed intent's correlation ID, when the intent carried one. */
+	readonly requestId?: string | undefined;
 }
 
 function ScopeNote({ scoped }: { scoped: ScopedRecordSetting<unknown> }) {
@@ -105,7 +109,7 @@ export function ModelParametersEditor({
 
 	return (
 		<section>
-			<h2>Model parameters</h2>
+			<h3>Model parameters</h3>
 			<p class="hint">
 				Request parameters sent per model prefix (longest prefix wins). Values are JSON: 0.2, true, "text", ["stop"].
 			</p>
@@ -122,11 +126,7 @@ export function ModelParametersEditor({
 							value={group.prefix}
 							onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
 						/>
-						<button
-							type="button"
-							class="secondary"
-							onClick={() => draft.update(groups.filter((_, i) => i !== groupIndex))}
-						>
+						<button type="button" class="quiet" onClick={() => draft.update(groups.filter((_, i) => i !== groupIndex))}>
 							Remove prefix
 						</button>
 						{problems[groupIndex]?.prefix !== undefined ? (
@@ -164,7 +164,7 @@ export function ModelParametersEditor({
 								/>
 								<button
 									type="button"
-									class="secondary"
+									class="quiet"
 									onClick={() => patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })}
 								>
 									Remove
@@ -188,6 +188,7 @@ export function ModelParametersEditor({
 			<div class="toolbar">
 				<button
 					type="button"
+					class="secondary"
 					onClick={() => draft.update([...groups, { prefix: "", params: [{ key: "", valueText: "" }] }])}
 				>
 					Add model prefix
@@ -244,7 +245,7 @@ export function HeadersEditor({
 
 	return (
 		<section>
-			<h2>Custom headers</h2>
+			<h3>Custom headers</h3>
 			<p class="hint">Sent with every LiteLLM request. Prefer User settings for values that are secrets.</p>
 			<ScopeNote scoped={scoped} />
 			{rows.length === 0 ? <p class="empty">No custom headers configured in this scope.</p> : null}
@@ -265,7 +266,7 @@ export function HeadersEditor({
 							value={row.valueText}
 							onInput={(event) => patchRow(index, { valueText: event.currentTarget.value })}
 						/>
-						<button type="button" class="secondary" onClick={() => draft.update(rows.filter((_, i) => i !== index))}>
+						<button type="button" class="quiet" onClick={() => draft.update(rows.filter((_, i) => i !== index))}>
 							Remove
 						</button>
 						{problems[index] !== undefined ? <span class="error">{problems[index]}</span> : null}
@@ -274,7 +275,7 @@ export function HeadersEditor({
 			</div>
 			<FailureNote failure={failure} dirty={draft.dirty} />
 			<div class="toolbar">
-				<button type="button" onClick={() => draft.update([...rows, { name: "", valueText: "" }])}>
+				<button type="button" class="secondary" onClick={() => draft.update([...rows, { name: "", valueText: "" }])}>
 					Add header
 				</button>
 				<button type="button" disabled={!draft.dirty || invalid} onClick={apply}>

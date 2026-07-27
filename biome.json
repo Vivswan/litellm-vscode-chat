@@ -109,9 +109,10 @@
 											"**/shared/**",
 											"**/extension/**",
 											"!**/extension/dashboard/protocol",
-											"!**/extension/dashboard/recordDraft"
+											"!**/extension/dashboard/recordDraft",
+											"!**/extension/dashboard/serverForm"
 										],
-										"message": "Webview code may import only the dashboard protocol and recordDraft modules; extension-side state stays behind the message protocol."
+										"message": "Webview code may import only the dashboard protocol and its pure form/draft modules; extension-side state stays behind the message protocol."
 									}
 								]
 							}

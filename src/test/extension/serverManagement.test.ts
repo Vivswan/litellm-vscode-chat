@@ -78,6 +78,7 @@ suite("extension/serverManagement", () => {
 				"Sync Models Now",
 				"Test Connection",
 				"Show Diagnostics",
+				"Set Server Secret",
 				"Open Settings",
 				"Help & Feedback",
 				"Report Issue",
@@ -106,6 +107,7 @@ suite("extension/serverManagement", () => {
 			["Sync Models Now", "litellm.syncModels"],
 			["Test Connection", "litellm.testConnection"],
 			["Show Diagnostics", "litellm.showDiagnostics"],
+			["Set Server Secret", "litellm.setServerSecret"],
 			["Help & Feedback", "litellm.helpAndFeedback"],
 			["Report Issue", "litellm.reportIssue"],
 		] as const) {

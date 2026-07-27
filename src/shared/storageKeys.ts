@@ -58,6 +58,23 @@ export function apiKeySecret(serverId: string): string {
 }
 
 /**
+ * globalState: label -> non-secret fingerprint of the last provider-group
+ * configuration the server sync engine pushed to the host, so unchanged
+ * entries skip the upsert and removed entries are detectable.
+ */
+export const SERVER_SYNC_FINGERPRINTS_KEY = "litellm.serverSyncFingerprints";
+
+/**
+ * SecretStorage: the secure-side secrets of one litellm-vscode-chat.servers
+ * entry, keyed by its label: a JSON blob holding any of apiKey,
+ * oauthClientSecret, and virtualKeyValue the user chose not to keep inline
+ * in settings.
+ */
+export function serverSecretsKey(label: string): string {
+	return `litellm.serverSecrets.${label}`;
+}
+
+/**
  * SecretStorage: the pre-registry single-server configuration.
  * Read and deleted only by ServerRegistry.migrateLegacy().
  */

@@ -18,6 +18,12 @@ import {
 import { createConfigurationPrompt, Notifier, reconfigureAction, showActionableMessage } from "./extension/notifier";
 import { registerManageCommand } from "./extension/serverManagement";
 import { ServerRegistry } from "./extension/serverRegistry";
+import {
+	createServerSyncEnv,
+	registerSetServerSecretCommand,
+	SERVERS_SETTING_KEY,
+	ServerSyncEngine,
+} from "./extension/serverSync";
 import { StatusBarManager } from "./extension/status";
 import { createIssueReporterEnv, IssueReporter } from "./issueReporter";
 import { LiteLLMChatModelProvider } from "./provider";
@@ -83,7 +89,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// others.
 	const statusBar = new StatusBarManager(context, logger);
 	const notifier = new Notifier();
-	const dashboard = registerDashboardCommand(context, provider, logger);
+	// The declarative server sync: litellm-vscode-chat.servers entries become
+	// provider groups. Created before the dashboard, which edits the setting
+	// and reads the engine's declared-server view.
+	const syncEngine = new ServerSyncEngine(createServerSyncEnv(context, logger));
+	context.subscriptions.push(
+		syncEngine,
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration(`litellm-vscode-chat.${SERVERS_SETTING_KEY}`)) {
+				syncEngine.requestSync();
+			}
+		})
+	);
+	registerSetServerSecretCommand(context, syncEngine, logger);
+	const dashboard = registerDashboardCommand(context, provider, logger, syncEngine);
+	syncEngine.onDidSync = () => dashboard.refresh();
+	// The first pass runs off the activation path: it may hit the host command
+	// (which validates groups against the provider) and the network. Forced,
+	// so groups edited or deleted natively since the last session reconcile.
+	void syncEngine.syncNow(true);
 	provider.setStatusCallback((aggStatus: AggregatedStatus) => {
 		try {
 			statusBar.handleAggregatedStatus(aggStatus);
@@ -151,8 +175,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Test connection command
 	registerTestConnectionCommand(context, provider, statusBar, outputChannel, logger);
 
-	// Sync Models Now command: skip the discovery cache and refetch every group
-	registerSyncModelsCommand(context, provider, statusBar, outputChannel, logger);
+	// Sync Models Now command: a forced server sync first (reconciling groups
+	// edited natively), then a discovery-cache-skipping refetch of every group.
+	registerSyncModelsCommand(context, provider, statusBar, outputChannel, logger, () => syncEngine.syncNow(true));
 
 	// Diagnostics command
 	registerDiagnosticsCommand(context, registry, () => statusBar.connectionStatus, outputChannel);

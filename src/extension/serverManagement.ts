@@ -295,6 +295,11 @@ const HUB_ITEMS: readonly HubItem[] = [
 		action: "litellm.showDiagnostics",
 	},
 	{
+		label: "$(key) Set Server Secret",
+		description: "Store an API key or OAuth secret outside settings files",
+		action: "litellm.setServerSecret",
+	},
+	{
 		label: "$(settings-gear) Open Settings",
 		description: "Timeouts, caching, headers, model parameters",
 		action: "settings",
