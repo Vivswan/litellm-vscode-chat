@@ -280,11 +280,7 @@ function readNumberSetting(reader: SettingsReader, id: NumberSettingId): number 
 	if (typeof raw === "number" && Number.isFinite(raw)) {
 		return raw;
 	}
-	const fallback = reader.inspect(id)?.defaultValue;
-	if (typeof fallback === "number" && Number.isFinite(fallback)) {
-		return fallback;
-	}
-	return spec.nullable ? null : spec.minimum;
+	return readNumberDefault(reader, id);
 }
 
 function readBooleanSetting(reader: SettingsReader, id: BooleanSettingId): boolean {
@@ -292,8 +288,48 @@ function readBooleanSetting(reader: SettingsReader, id: BooleanSettingId): boole
 	if (typeof raw === "boolean") {
 		return raw;
 	}
+	return readBooleanDefault(reader, id);
+}
+
+/**
+ * The package.json default of a number setting, the display fallback when the
+ * configured value is unusable (readNumberSetting): the form still renders a
+ * real value. Falls back further to the spec's own floor when even the
+ * inspected default is unusable.
+ */
+function readNumberDefault(reader: SettingsReader, id: NumberSettingId): number | null {
+	const spec = NUMBER_SETTINGS[id];
+	const fallback = reader.inspect(id)?.defaultValue;
+	if (typeof fallback === "number" && Number.isFinite(fallback)) {
+		return fallback;
+	}
+	return spec.nullable ? null : spec.minimum;
+}
+
+function readBooleanDefault(reader: SettingsReader, id: BooleanSettingId): boolean {
 	const fallback = reader.inspect(id)?.defaultValue;
 	return typeof fallback === "boolean" ? fallback : false;
+}
+
+/**
+ * The highest-precedence scope that explicitly configures a key, or null when
+ * only the default applies. Precedence follows VS Code's own merge order
+ * (workspaceFolder over workspace over global). This is what "modified" means
+ * in the dashboard form, and the scope a reset removes first: repeated resets
+ * walk down the scopes until nothing is configured, like resetting the setting
+ * in each of the native Settings editor's scope tabs in turn.
+ */
+export function resolveConfiguredScope(inspection: SettingsInspection | undefined): SettingScope | null {
+	if (inspection?.workspaceFolderValue !== undefined) {
+		return "workspaceFolder";
+	}
+	if (inspection?.workspaceValue !== undefined) {
+		return "workspace";
+	}
+	if (inspection?.globalValue !== undefined) {
+		return "global";
+	}
+	return null;
 }
 
 /**
@@ -347,16 +383,21 @@ function buildScopedRecord<V>(
 
 export function readDashboardSettings(reader: SettingsReader): DashboardSettings {
 	const numbers = {} as Record<NumberSettingId, number | null>;
+	const numberScopes = {} as Record<NumberSettingId, SettingScope | null>;
 	for (const id of NUMBER_SETTING_IDS) {
 		numbers[id] = readNumberSetting(reader, id);
+		numberScopes[id] = resolveConfiguredScope(reader.inspect(id));
 	}
 	const booleans = {} as Record<BooleanSettingId, boolean>;
+	const booleanScopes = {} as Record<BooleanSettingId, SettingScope | null>;
 	for (const id of BOOLEAN_SETTING_IDS) {
 		booleans[id] = readBooleanSetting(reader, id);
+		booleanScopes[id] = resolveConfiguredScope(reader.inspect(id));
 	}
 	return {
 		numbers,
 		booleans,
+		configuredScopes: { numbers: numberScopes, booleans: booleanScopes },
 		modelParameters: buildScopedRecord(reader.inspect("modelParameters"), normalizeModelParameters),
 		headers: buildScopedRecord(reader.inspect("headers"), sanitizeHeaders),
 	};
@@ -521,6 +562,10 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 		value: z.boolean(),
 	}),
 	z.strictObject({
+		type: z.literal("resetSetting"),
+		setting: asEnum([...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS]),
+	}),
+	z.strictObject({
 		type: z.literal("setModelParameters"),
 		value: z.record(z.string(), z.record(z.string(), z.unknown())),
 	}),
@@ -583,6 +628,8 @@ export class DashboardOperationError extends Error {
 export interface IntentEnvironment {
 	/** Write one litellm-vscode-chat.* setting (the key is relative to the section). */
 	updateSetting(key: string, value: unknown): Promise<void>;
+	/** Remove one litellm-vscode-chat.* setting from the highest-precedence scope that sets it (resolveConfiguredScope). */
+	removeSetting(key: string): Promise<void>;
 	executeCommand(command: string, ...args: readonly unknown[]): Thenable<unknown>;
 	/** The servers array a write would replace (the user-scope value; the setting is machine-scoped). */
 	readServersSetting(): unknown;
@@ -1129,6 +1176,16 @@ export async function executeDashboardIntent(
 		}
 		case "setBooleanSetting":
 			await env.updateSetting(intent.setting, intent.value);
+			return undefined;
+		case "resetSetting":
+			// Removes the key from the highest-precedence scope that sets it
+			// (workspaceFolder > workspace > user), which is what the native
+			// Settings editor's reset does in that scope: the next scope's value
+			// or the default shows through, and repeated resets walk down the
+			// scopes. Deliberately not updateSetting's write-scope rule, which
+			// never targets the folder scope and would leave a folder value
+			// standing while removing a hidden lower-scope one.
+			await env.removeSetting(intent.setting);
 			return undefined;
 		case "setModelParameters": {
 			const problem = validateModelParametersRecord(intent.value);

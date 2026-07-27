@@ -145,6 +145,91 @@ const STYLES = `
 	.field .hint { width: max-content; max-width: 420px; }
 	.error { color: var(--vscode-errorForeground); }
 
+	/* A section heading with an action on its baseline: the rule moves to the
+	   wrapper so the button sits inside the underlined band instead of
+	   crowding (and clipping against) whatever follows the heading. */
+	.section-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		flex-wrap: wrap;
+		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		padding-bottom: 4px;
+		margin-bottom: 8px;
+	}
+	.section-head h2 { border-bottom: none; margin: 0; padding-bottom: 0; }
+
+	/* The settings form follows the native Settings editor's row anatomy:
+	   semibold title, muted description, control below. Titles, descriptions,
+	   controls, and group headings share the section's left edge with the h2
+	   and the record editors; the modified accent bar and the hover band hang
+	   into a small gutter left of that edge (the body's 24px padding absorbs
+	   the overhang), so marking a row never shifts its text. */
+	.settings-groups { max-width: 680px; }
+	.settings-group { margin: 16px 0 0; }
+	.settings-group-title {
+		font-size: 0.8em;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--vscode-descriptionForeground);
+		margin: 0 0 2px;
+	}
+	.setting-row {
+		position: relative;
+		margin-left: -10px;
+		padding: 6px 12px 8px 10px;
+		border-radius: 2px;
+	}
+	.setting-row:hover, .setting-row:focus-within { background: var(--vscode-list-hoverBackground, transparent); }
+	/* The bar is inset from the row's ends so two adjacent modified rows read
+	   as two indicators, not one continuous bar. */
+	.setting-row::before {
+		content: "";
+		position: absolute;
+		left: 0;
+		top: 8px;
+		bottom: 8px;
+		width: 2px;
+		border-radius: 1px;
+	}
+	.setting-row.modified::before {
+		background: var(--vscode-settings-modifiedItemIndicator, var(--vscode-focusBorder));
+	}
+	.setting-title { display: block; font-weight: 600; }
+	.setting-desc { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin: 2px 0 0; }
+	.setting-control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+	.setting-control input[type="number"] { width: 130px; appearance: textfield; }
+	/* Plain fields like the native Settings editor: no spin buttons popping in
+	   on hover/focus and compressing the value. */
+	.setting-control input[type="number"]::-webkit-outer-spin-button,
+	.setting-control input[type="number"]::-webkit-inner-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+	.setting-unit, .setting-equiv {
+		color: var(--vscode-descriptionForeground);
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+	.setting-control .error { margin: 0; font-size: 0.9em; }
+	.setting-check { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+	.setting-check input[type="checkbox"] {
+		flex: none;
+		margin: 1px 0 0;
+		accent-color: var(--vscode-button-background);
+		cursor: pointer;
+	}
+	.setting-check input[type="checkbox"]:focus { outline-offset: 1px; }
+	.setting-check .setting-desc { margin: 0; }
+	/* Reset appears only on configured rows, on hover or while the row holds
+	   focus; hidden via visibility (not display) so the control row's layout
+	   does not jump when it appears, and in DOM order after the input so Tab
+	   reaches it from the field it resets. */
+	.setting-row .reset { visibility: hidden; }
+	.setting-row:hover .reset, .setting-row:focus-within .reset { visibility: visible; }
+
 	.badge, .count {
 		display: inline-block;
 		padding: 0 6px;

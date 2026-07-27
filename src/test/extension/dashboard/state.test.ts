@@ -1,6 +1,8 @@
 import * as assert from "node:assert";
 import {
 	BOOLEAN_SETTING_IDS,
+	draftSyncKey,
+	equivalence,
 	failuresAfterStatePush,
 	formatHeaderValue,
 	NUMBER_SETTING_IDS,
@@ -20,6 +22,7 @@ import {
 	executeDashboardIntent,
 	readDashboardSettings,
 	resolveAdoptableCredentials,
+	resolveConfiguredScope,
 	resolveUpdateScope,
 	validateHeadersRecord,
 	validateModelParametersRecord,
@@ -69,6 +72,8 @@ function makeReader(
 
 interface RecordedEnv {
 	updates: [string, unknown][];
+	/** Every removeSetting call (the resetSetting intent's removals). */
+	removals: string[];
 	commands: [string, ...unknown[]][];
 	/** Every writeServersSetting call, whole arrays. */
 	serverWrites: unknown[][];
@@ -106,6 +111,7 @@ interface RecordedEnv {
 function makeEnv(serversSetting: unknown = []): RecordedEnv {
 	const recorded: RecordedEnv = {
 		updates: [],
+		removals: [],
 		commands: [],
 		serverWrites: [],
 		secretOps: [],
@@ -119,6 +125,9 @@ function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		env: {
 			updateSetting: async (key, value) => {
 				recorded.updates.push([key, value]);
+			},
+			removeSetting: async (key) => {
+				recorded.removals.push(key);
 			},
 			executeCommand: async (command, ...args) => {
 				recorded.commands.push([command, ...args]);
@@ -617,10 +626,39 @@ suite("extension/dashboard/state", () => {
 
 			for (const id of NUMBER_SETTING_IDS) {
 				assert.ok(id in settings.numbers, `missing number setting ${id}`);
+				assert.ok(id in settings.configuredScopes.numbers, `missing number scope ${id}`);
 			}
 			for (const id of BOOLEAN_SETTING_IDS) {
 				assert.ok(id in settings.booleans, `missing boolean setting ${id}`);
+				assert.ok(id in settings.configuredScopes.booleans, `missing boolean scope ${id}`);
 			}
+		});
+
+		test("configuredScopes carry the highest scope that sets the key, or null when only the default applies", () => {
+			const settings = readDashboardSettings(
+				makeReader(
+					{ requestTimeout: 60000, maskApiKeyInput: true },
+					{},
+					{
+						discoveryTimeout: { workspaceValue: 5000 },
+						discoveryCacheTtl: { globalValue: 1, workspaceValue: 2, workspaceFolderValue: 3 },
+					}
+				)
+			);
+
+			assert.strictEqual(settings.configuredScopes.numbers.requestTimeout, "global");
+			assert.strictEqual(settings.configuredScopes.numbers.discoveryTimeout, "workspace");
+			assert.strictEqual(settings.configuredScopes.numbers.discoveryCacheTtl, "workspaceFolder");
+			assert.strictEqual(settings.configuredScopes.numbers.defaultMaxOutputTokens, null);
+			assert.strictEqual(settings.configuredScopes.booleans.maskApiKeyInput, "global");
+			assert.strictEqual(settings.configuredScopes.booleans["promptCaching.enabled"], null);
+		});
+
+		test("a value pinned to exactly its default still counts as configured", () => {
+			const settings = readDashboardSettings(makeReader({ requestTimeout: 300000 }, { requestTimeout: 300000 }));
+
+			assert.strictEqual(settings.numbers.requestTimeout, 300000);
+			assert.strictEqual(settings.configuredScopes.numbers.requestTimeout, "global");
 		});
 
 		test("records come from the edit scope's own value, never the merged one", () => {
@@ -720,6 +758,23 @@ suite("extension/dashboard/state", () => {
 		});
 	});
 
+	suite("resolveConfiguredScope", () => {
+		test("the highest-precedence configured scope wins; unconfigured keys resolve to null", () => {
+			assert.strictEqual(
+				resolveConfiguredScope({ globalValue: 1, workspaceValue: 2, workspaceFolderValue: 3 }),
+				"workspaceFolder"
+			);
+			assert.strictEqual(resolveConfiguredScope({ globalValue: 1, workspaceValue: 2 }), "workspace");
+			assert.strictEqual(resolveConfiguredScope({ globalValue: 1 }), "global");
+			assert.strictEqual(resolveConfiguredScope({ defaultValue: 300000 }), null);
+			assert.strictEqual(resolveConfiguredScope(undefined), null);
+		});
+
+		test("a folder value alone is the reset target even though writes never land there", () => {
+			assert.strictEqual(resolveConfiguredScope({ workspaceFolderValue: 1 }), "workspaceFolder");
+		});
+	});
+
 	suite("webviewMessageSchema", () => {
 		test("accepts every intent shape", () => {
 			const intents: unknown[] = [
@@ -727,6 +782,8 @@ suite("extension/dashboard/state", () => {
 				{ type: "setNumberSetting", setting: "requestTimeout", value: 60000 },
 				{ type: "setNumberSetting", setting: "defaultMaxInputTokens", value: null },
 				{ type: "setBooleanSetting", setting: "promptCaching.enabled", value: false },
+				{ type: "resetSetting", setting: "requestTimeout" },
+				{ type: "resetSetting", setting: "maskApiKeyInput" },
 				{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, stop: ["\n"] } } },
 				{ type: "setHeaders", value: { "x-key": "v", "x-n": 2, "x-b": true } },
 				{
@@ -778,6 +835,8 @@ suite("extension/dashboard/state", () => {
 				{ type: "setNumberSetting", setting: "requestTimeout", value: "1000" },
 				{ type: "setNumberSetting", setting: "requestTimeout", value: Number.POSITIVE_INFINITY },
 				{ type: "setBooleanSetting", setting: "promptCaching.enabled", value: "true" },
+				{ type: "resetSetting", setting: "notASetting" },
+				{ type: "resetSetting", setting: "requestTimeout", value: 1 },
 				{ type: "setHeaders", value: { "x-bad": { nested: true } } },
 				{ type: "executeCommand", command: "workbench.action.terminal.sendSequence" },
 				{ type: "ready", extra: 1 },
@@ -996,6 +1055,16 @@ suite("extension/dashboard/state", () => {
 			);
 
 			assert.deepStrictEqual(recorded.updates, [["promptCaching.enabled", false]]);
+		});
+
+		test("resetSetting removes the key through removeSetting, never a value write", async () => {
+			const recorded = makeEnv();
+			await executeDashboardIntent({ type: "resetSetting", setting: "requestTimeout" }, recorded.env);
+			await executeDashboardIntent({ type: "resetSetting", setting: "maskApiKeyInput" }, recorded.env);
+
+			assert.deepStrictEqual(recorded.removals, ["requestTimeout", "maskApiKeyInput"]);
+			assert.deepStrictEqual(recorded.updates, []);
+			assert.deepStrictEqual(recorded.commands, []);
 		});
 
 		test("setModelParameters and setHeaders write the whole record", async () => {
@@ -1925,6 +1994,56 @@ suite("extension/dashboard/state", () => {
 			for (const value of values) {
 				assert.strictEqual(parseHeaderValue(formatHeaderValue(value)), value);
 			}
+		});
+
+		test("equivalence renders millisecond durations in clock units, pinned at the unit boundaries", () => {
+			const cases: [string, string | undefined][] = [
+				["59999", "= ~59 s"],
+				["60000", "= 1 min"],
+				["300000", "= 5 min"],
+				["3599999", "= ~59 min 59 s"],
+				["3600000", "= 1 h"],
+				["3661000", "= ~1 h 1 min"],
+			];
+			for (const [draft, expected] of cases) {
+				assert.strictEqual(equivalence("requestTimeout", draft), expected, `draft ${draft}`);
+			}
+		});
+
+		test("equivalence yields nothing for empty, unparsable, below-minimum, or sub-second drafts", () => {
+			assert.strictEqual(equivalence("requestTimeout", ""), undefined);
+			assert.strictEqual(equivalence("requestTimeout", "soon"), undefined);
+			assert.strictEqual(equivalence("requestTimeout", "999"), undefined, "below the 1000 minimum");
+			assert.strictEqual(equivalence("discoveryCacheTtl", "500"), undefined, "sub-second reads as milliseconds");
+		});
+
+		test("equivalence reads the TTL's zero through zeroMeaning, and only where 0 is legal", () => {
+			assert.strictEqual(equivalence("discoveryCacheTtl", "0"), "= every refresh");
+			assert.strictEqual(equivalence("requestTimeout", "0"), undefined);
+		});
+
+		test("equivalence says nothing about token counts; the unit suffix carries the meaning", () => {
+			assert.strictEqual(equivalence("defaultMaxOutputTokens", "128000"), undefined);
+			assert.strictEqual(equivalence("defaultContextLength", "1000000"), undefined);
+		});
+
+		test("draftSyncKey changes on a reset that only removes the configured scope, so a stale draft resyncs", () => {
+			// The sequence this pins: a setting explicitly set to exactly its
+			// default holds a rejected draft, the user clicks Reset, and the push
+			// that follows changes the configured scope but not the value. The
+			// field's draft-resync effect keys on draftSyncKey, so the key must
+			// change on that push (or the invalid draft and its error would
+			// survive the successful reset).
+			const beforeReset = draftSyncKey(300000, "workspace");
+			const afterReset = draftSyncKey(300000, null);
+			assert.notStrictEqual(afterReset, beforeReset);
+
+			// Stable across pushes that change nothing, so typing is never
+			// clobbered by an unrelated refresh; sensitive to value changes and
+			// to null values becoming numbers.
+			assert.strictEqual(draftSyncKey(300000, "workspace"), beforeReset);
+			assert.notStrictEqual(draftSyncKey(60000, "workspace"), beforeReset);
+			assert.notStrictEqual(draftSyncKey(null, null), draftSyncKey(300000, null));
 		});
 	});
 });

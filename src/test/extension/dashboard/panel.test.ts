@@ -58,6 +58,8 @@ interface Harness {
 	controller: DashboardController;
 	panels: FakePanel[];
 	updates: [string, unknown][];
+	/** Every removeSetting call (the resetSetting intent's removals). */
+	removals: string[];
 	commands: [string, ...unknown[]][];
 	serverWrites: unknown[][];
 	secretOps: [string, string, string | undefined][];
@@ -74,6 +76,7 @@ interface Harness {
 function makeHarness(): Harness {
 	const panels: FakePanel[] = [];
 	const updates: [string, unknown][] = [];
+	const removals: string[] = [];
 	const commands: [string, ...unknown[]][] = [];
 	const serverWrites: unknown[][] = [];
 	const secretOps: [string, string, string | undefined][] = [];
@@ -98,6 +101,12 @@ function makeHarness(): Harness {
 				throw harness.failUpdates;
 			}
 			updates.push([key, value]);
+		},
+		removeSetting: async (key) => {
+			if (harness.failUpdates !== undefined) {
+				throw harness.failUpdates;
+			}
+			removals.push(key);
 		},
 		readServersSetting: () => harness.serversSetting,
 		writeServersSetting: async (value) => {
@@ -135,6 +144,7 @@ function makeHarness(): Harness {
 		controller: new DashboardController(env),
 		panels,
 		updates,
+		removals,
 		commands,
 		serverWrites,
 		secretOps,
