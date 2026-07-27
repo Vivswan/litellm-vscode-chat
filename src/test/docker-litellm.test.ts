@@ -635,11 +635,12 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(pair.longContextCacheCost, undefined, "no long-context cache read tier");
 			assert.strictEqual(pair.longContextCacheWriteCost, undefined, "no long-context cache write tier");
 
-			// The spike's zero-stamp finding, pinned at host level: undeclared
-			// pricing arrives from v1.93 as zero costs, not absent ones.
+			// Undeclared pricing registers with NO pricing keys at host level -
+			// whether the proxy stamps zeros (v1.93's observed behavior, recorded
+			// in fakeStack/models.ts) or omits the fields outright.
 			const scout = expectDefined(byId.get("llama-4-scout"));
-			assert.strictEqual(scout.inputCost, 0);
-			assert.strictEqual(scout.outputCost, 0);
+			assert.strictEqual(scout.inputCost, undefined);
+			assert.strictEqual(scout.outputCost, undefined);
 		});
 	});
 
