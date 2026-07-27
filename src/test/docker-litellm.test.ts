@@ -348,6 +348,7 @@ suite("Docker LiteLLM stack", () => {
 		test("url citations surface as a sources trailer", async () => {
 			const text = extractText(await send("annotations"));
 			assert.ok(text.includes("The sky is blue."), "content text must survive");
+			// codeql[js/incomplete-url-substring-sanitization] -- asserts the citation URL surfaces in output text
 			assert.ok(text.includes("https://example.test/sky"), `citation URL must surface, got "${text}"`);
 		});
 	});

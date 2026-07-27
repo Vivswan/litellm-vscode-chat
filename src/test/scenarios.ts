@@ -526,6 +526,7 @@ export const sendSseDelayed = (res: ServerResponse, chunks: unknown[], delayMs: 
 		if (i < chunks.length) {
 			res.write(`data: ${JSON.stringify(chunks[i])}\n\n`);
 			i++;
+			// codeql[js/resource-exhaustion] -- fake-backend timer; delayMs comes from authored scenario definitions
 			setTimeout(next, delayMs);
 		} else {
 			res.write("data: [DONE]\n\n");
