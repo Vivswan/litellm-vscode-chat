@@ -13,17 +13,13 @@
 
 export { isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
 export { isUnsafeRecordKey } from "../../shared/json";
-export type { SecretFieldId, SecretLocation } from "../../shared/serverSecrets";
-export { SECRET_FIELD_IDS } from "../../shared/serverSecrets";
+export type { NonSecretOptionalFieldId, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
+export { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 
-import type { SecretFieldId, SecretLocation } from "../../shared/serverSecrets";
+import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 
 /** The non-secret configuration of a declared server, for the edit form's prefill. */
-interface DashboardServerConfig {
-	readonly oauthTokenUrl?: string | undefined;
-	readonly oauthClientId?: string | undefined;
-	readonly oauthScopes?: string | undefined;
-	readonly virtualKeyHeader?: string | undefined;
+interface DashboardServerConfig extends NonSecretOptionalFields {
 	/** Where each secret currently lives; the values themselves never reach the webview. */
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 }
@@ -438,13 +434,9 @@ export type SecretDirective =
  * the VS Code provider group after it, so renaming creates a new group (the
  * old one stays until removed in the native editor).
  */
-export interface SaveServerPayload {
+export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly label: string;
 	readonly baseUrl: string;
-	readonly oauthTokenUrl?: string | undefined;
-	readonly oauthClientId?: string | undefined;
-	readonly oauthScopes?: string | undefined;
-	readonly virtualKeyHeader?: string | undefined;
 }
 
 /** Webview-to-extension intents. The extension re-validates every one: the webview is a trust boundary. */

@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import type { DiagnosticsSnapshot, IssueReporter } from "../issueReporter";
 import type { ServerModelsSnapshot } from "../provider";
 import { isGroupClientId } from "../provider/groupModels";
+import type { SecretFieldId, SecretLocation } from "../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../shared/serverEntry";
 import type { ServerConfig, ServerStatus } from "../shared/servers";
 import type { DashboardServer } from "./dashboard/protocol";
 import { classifyOverall } from "./dashboard/protocol";
@@ -235,19 +237,13 @@ function buildLegacyDiagnosticsMessage(servers: readonly ServerConfig[], status:
  * may exist, but checking it is async and the dialog never shows locations).
  */
 function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
-	return parseServersSetting(raw).entries.map((entry) => ({
-		label: entry.label,
-		baseUrl: entry.baseUrl,
-		oauthTokenUrl: entry.oauthTokenUrl,
-		oauthClientId: entry.oauthClientId,
-		oauthScopes: entry.oauthScopes,
-		virtualKeyHeader: entry.virtualKeyHeader,
-		secrets: {
-			apiKey: entry.apiKey !== undefined ? "settings" : "none",
-			oauthClientSecret: entry.oauthClientSecret !== undefined ? "settings" : "none",
-			virtualKeyValue: entry.virtualKeyValue !== undefined ? "settings" : "none",
-		},
-	}));
+	return parseServersSetting(raw).entries.map((entry) => {
+		const secrets = {} as Record<SecretFieldId, SecretLocation>;
+		for (const field of SECRET_FIELD_IDS) {
+			secrets[field] = entry[field] !== undefined ? "settings" : "none";
+		}
+		return { label: entry.label, baseUrl: entry.baseUrl, ...pickNonSecretOptionalFields(entry), secrets };
+	});
 }
 
 export function registerDiagnosticsCommand(

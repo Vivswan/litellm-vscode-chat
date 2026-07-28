@@ -16,6 +16,8 @@ import { modelSupportsPromptCaching } from "../../provider/groupModels";
 import { fingerprint } from "../../shared/fingerprint";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
 import { isUnsafeRecordKey } from "../../shared/json";
+import type { OptionalEntryFields } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import { normalizeModelParameters } from "../../shared/settings";
 import { EXTENSION_SETTINGS_FILTER } from "../serverManagement";
 import type { DeclaredServerView } from "../serverSync";
@@ -40,6 +42,7 @@ import type {
 import {
 	BOOLEAN_SETTING_IDS,
 	DASHBOARD_COMMAND_IDS,
+	NON_SECRET_OPTIONAL_FIELD_IDS,
 	NUMBER_SETTING_IDS,
 	NUMBER_SETTINGS,
 	SECRET_FIELD_IDS,
@@ -225,10 +228,7 @@ function buildServers(
 			hasOAuth: view.oauthTokenUrl !== undefined && view.oauthClientId !== undefined,
 			origin: "declared",
 			config: {
-				oauthTokenUrl: view.oauthTokenUrl,
-				oauthClientId: view.oauthClientId,
-				oauthScopes: view.oauthScopes,
-				virtualKeyHeader: view.virtualKeyHeader,
+				...pickNonSecretOptionalFields(view),
 				secrets: view.secrets,
 			},
 		});
@@ -443,15 +443,7 @@ const asEnum = <T extends string>(values: readonly T[]) => z.enum(values as [T, 
  * for the adopt action. Values exist extension-side only: this shape is never
  * logged and never enters DashboardState.
  */
-export interface AdoptableGroupCredentials {
-	readonly apiKey?: string | undefined;
-	readonly oauthTokenUrl?: string | undefined;
-	readonly oauthClientId?: string | undefined;
-	readonly oauthClientSecret?: string | undefined;
-	readonly oauthScopes?: string | undefined;
-	readonly virtualKeyHeader?: string | undefined;
-	readonly virtualKeyValue?: string | undefined;
-}
+export type AdoptableGroupCredentials = OptionalEntryFields;
 
 /**
  * Resolve the group an adopt intent names back to its credentials, by the
@@ -515,6 +507,15 @@ const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminatedUnion("
 	}),
 ]);
 
+/** One schema per field id as a strict-object shape; the field lists come from the entry descriptor. */
+function fieldShape<K extends string, S extends z.ZodType>(fields: readonly K[], schema: S): Record<K, S> {
+	const shape = {} as Record<K, S>;
+	for (const field of fields) {
+		shape[field] = schema;
+	}
+	return shape;
+}
+
 /**
  * The saveServerSetting payload's shape. Strict, so unknown fields never ride
  * along into the setting; the value constraints (usable URLs, header charset,
@@ -524,26 +525,15 @@ const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminatedUnion("
 const saveServerSchema = z.strictObject({
 	label: z.string(),
 	baseUrl: z.string(),
-	oauthTokenUrl: z.string().optional(),
-	oauthClientId: z.string().optional(),
-	oauthScopes: z.string().optional(),
-	virtualKeyHeader: z.string().optional(),
+	...fieldShape(NON_SECRET_OPTIONAL_FIELD_IDS, z.string().optional()),
 });
 
-const secretDirectivesSchema = z.strictObject({
-	apiKey: secretDirectiveSchema,
-	oauthClientSecret: secretDirectiveSchema,
-	virtualKeyValue: secretDirectiveSchema,
-});
+const secretDirectivesSchema = z.strictObject(fieldShape(SECRET_FIELD_IDS, secretDirectiveSchema));
 
 const secretLocationChoiceSchema = z.union([z.literal("settings"), z.literal("secure")]);
 
 /** Where each of an adoption's copied secrets should land; never the values themselves. */
-const adoptSecretsSchema = z.strictObject({
-	apiKey: secretLocationChoiceSchema,
-	oauthClientSecret: secretLocationChoiceSchema,
-	virtualKeyValue: secretLocationChoiceSchema,
-});
+const adoptSecretsSchema = z.strictObject(fieldShape(SECRET_FIELD_IDS, secretLocationChoiceSchema));
 
 /**
  * The schema every message from the webview must pass before anything acts on
@@ -876,8 +866,7 @@ async function applySaveServerSetting(
 
 	// The final entry's non-secret fields, needed for the pairing checks below.
 	const newEntry: Record<string, string> = { label, baseUrl: intent.server.baseUrl.trim() };
-	const optional = ["oauthTokenUrl", "oauthClientId", "oauthScopes", "virtualKeyHeader"] as const;
-	for (const field of optional) {
+	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
 		const value = intent.server[field]?.trim();
 		if (value !== undefined && value.length > 0) {
 			newEntry[field] = value;
@@ -1090,8 +1079,7 @@ async function applyAdoptServer(
 
 	const credentials = env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
 	const newEntry: Record<string, string> = { label, baseUrl };
-	const nonSecret = ["oauthTokenUrl", "oauthClientId", "oauthScopes", "virtualKeyHeader"] as const;
-	for (const field of nonSecret) {
+	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
 		const value = credentials?.[field];
 		if (value !== undefined) {
 			newEntry[field] = value;

@@ -184,6 +184,42 @@ suite("extension/serverSync", () => {
 				virtualKeyValue: "vk-stored",
 			});
 		});
+
+		test("emits keys in the pinned order the persisted fingerprints hash", () => {
+			// The sync fingerprint is fingerprint(JSON.stringify(args)), so the
+			// args object's key insertion order is durable state: reordering it
+			// (including "tidying" secrets and non-secrets apart - they interleave)
+			// would invalidate every stored fingerprint and force a re-push of all
+			// groups. The expected list is spelled out on purpose; do not derive it
+			// from the descriptor this test exists to pin.
+			const args = buildGroupArgs(
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					apiKey: "sk-inline",
+					oauthTokenUrl: "https://idp.test/token",
+					oauthClientId: "client-1",
+					oauthClientSecret: "shh",
+					oauthScopes: "models.read",
+					virtualKeyHeader: "x-litellm-key",
+					virtualKeyValue: "vk-1",
+				},
+				{}
+			);
+
+			assert.deepStrictEqual(Object.keys(args), [
+				"name",
+				"vendor",
+				"baseUrl",
+				"apiKey",
+				"oauthTokenUrl",
+				"oauthClientId",
+				"oauthClientSecret",
+				"oauthScopes",
+				"virtualKeyHeader",
+				"virtualKeyValue",
+			]);
+		});
 	});
 
 	suite("ServerSyncEngine", () => {
