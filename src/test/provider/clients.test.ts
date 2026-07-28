@@ -2,13 +2,13 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import type OpenAI from "openai";
 import { createServerClient, ServerClientCache, type ServerClientConfig } from "../../provider/clients";
-import { MODELS_URL, mswServer, useMsw } from "../mocks/handlers";
+import { MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { toHeaderMap } from "../testUtils";
 
 function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig {
 	return {
 		serverId: "srv1",
-		baseUrl: "http://litellm.test",
+		baseUrl: TEST_BASE_URL,
 		apiKey: "sk-k",
 		userAgent: "test-agent",
 		customHeaders: {},
@@ -74,7 +74,7 @@ suite("provider/clients", () => {
 		test("requests go to the server's /v1 prefix", async () => {
 			const client = createServerClient(config());
 			const { url } = await captureGet(client);
-			assert.strictEqual(url, "http://litellm.test/v1/models");
+			assert.strictEqual(url, `${TEST_BASE_URL}/v1/models`);
 		});
 	});
 

@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import { buildModelInfos } from "../provider/registration";
-import { discoveryHandlers, mswServer, useMsw } from "./mocks/handlers";
+import { discoveryHandlers, mswServer, TEST_BASE_URL, useMsw } from "./mocks/handlers";
 import { expectDefined, makeModelInfo, makeProvider, userMessage, withFetch } from "./testUtils";
 
 suite("provider", () => {
@@ -98,7 +98,7 @@ suite("provider", () => {
 			info: (line: string) => lines.push(line),
 			error: (line: string) => lines.push(`ERROR: ${line}`),
 		} as unknown as vscode.LogOutputChannel;
-		const provider = makeProvider("http://litellm.test", "test-key", channel);
+		const provider = makeProvider(TEST_BASE_URL, "test-key", channel);
 
 		const cts = new vscode.CancellationTokenSource();
 		await withFetch(
@@ -181,7 +181,7 @@ suite("provider", () => {
 				})
 			);
 
-			const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+			const infos = await makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);
@@ -221,7 +221,7 @@ suite("provider", () => {
 				})
 			);
 
-			const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+			const infos = await makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);
@@ -247,7 +247,7 @@ suite("provider", () => {
 					},
 					{ id: "no-tools", providers: [{ provider: "perplexity", status: "active", supports_tools: false }] },
 				],
-				{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
 				() => {},
 				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
@@ -335,7 +335,7 @@ suite("provider", () => {
 						],
 					},
 				],
-				{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
 				() => {},
 				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
@@ -459,7 +459,7 @@ suite("provider", () => {
 						],
 					},
 				],
-				{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
 				() => {},
 				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }

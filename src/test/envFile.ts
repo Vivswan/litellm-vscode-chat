@@ -13,6 +13,20 @@
  */
 
 /**
+ * The docker stack's default connection settings, one per compose variable.
+ * docker-compose.yml restates each as a `${VAR:-default}` fallback (compose
+ * cannot import TypeScript), and .env.example and the README restate them as
+ * prose; src/test/stackDrift.test.ts pins all three mirrors. The scripts and
+ * docker suites take their fallbacks from here, so a rotated default changes
+ * every consumer at once.
+ */
+export const STACK_DEFAULTS = {
+	LITELLM_PORT: "4000",
+	FAKE_OPENAI_PORT: "8090",
+	LITELLM_MASTER_KEY: "sk-test-1234",
+} as const;
+
+/**
  * Parse .env file content into key/value pairs (pure; no filesystem).
  * Diverging from compose here would make config generation disagree with
  * what the containers receive.

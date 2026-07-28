@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import type { FuzzEvent } from "./fuzzCorpus";
 import { FUZZ_CORPUS } from "./fuzzCorpus";
@@ -41,7 +42,7 @@ import { expectDefined } from "./testUtils";
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
-const API_KEY = process.env.LITELLM_DOCKER_API_KEY || "sk-test-1234";
+const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 // Explicit seeds reproduce exactly, including 0; anything unset or invalid
 // draws a fresh seed, shard-salted so parallel CI shards diverge even when

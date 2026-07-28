@@ -12,7 +12,8 @@ import { URL } from "node:url";
 import type { Scenario } from "./scenarios";
 import { BUILTIN_SCENARIOS, readBody, sendJson, sendSse, sendSseDelayed } from "./scenarios";
 
-const MODEL_ID = "openai/gpt-5-mini-flex";
+/** The single model this fixture serves; host-fidelity.test.ts derives its scoped modelParameters keys from it. */
+export const MODEL_ID = "openai/gpt-5-mini-flex";
 
 const MODEL_INFO = {
 	data: [

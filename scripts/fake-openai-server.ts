@@ -23,10 +23,11 @@ import { URL } from "node:url";
 import type { CommandContext, CommandResult } from "../src/test/fakeStack/commands";
 import { dispatchCommand, dispatchLine, fallbackReply } from "../src/test/fakeStack/commands";
 import { FAKE_MODEL_UPSTREAM_IDS } from "../src/test/fakeStack/models";
+import { FAKE_BACKEND_PORT } from "../src/test/fakeStack/proxyConfig";
 import type { Scenario } from "../src/test/scenarios";
 import { BUILTIN_SCENARIOS, collapseChunks, readBody, sendJson, sendSse, sendSseDelayed } from "../src/test/scenarios";
 
-const PORT = Number(process.env.PORT || 8080);
+const PORT = Number(process.env.PORT || FAKE_BACKEND_PORT);
 const MAX_CUSTOM_SCENARIO_BYTES = 1024 * 1024;
 
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));

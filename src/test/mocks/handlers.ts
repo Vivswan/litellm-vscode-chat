@@ -2,7 +2,7 @@ import { HttpResponse, http, type JsonBodyType, type RequestHandler } from "msw"
 import { setupServer } from "msw/node";
 
 /** Base URL every unit-test server config points at. */
-const TEST_BASE_URL = "http://litellm.test";
+export const TEST_BASE_URL = "http://litellm.test";
 export const MODEL_INFO_URL = `${TEST_BASE_URL}/v1/model/info`;
 export const MODELS_URL = `${TEST_BASE_URL}/v1/models`;
 export const CHAT_COMPLETIONS_URL = `${TEST_BASE_URL}/v1/chat/completions`;

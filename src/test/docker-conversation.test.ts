@@ -1,6 +1,8 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
+import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import {
 	addServer,
@@ -33,7 +35,7 @@ import { expectDefined } from "./testUtils";
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
-const API_KEY = process.env.LITELLM_DOCKER_API_KEY || "sk-test-1234";
+const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
 // No shard salt on purpose: one seed means one conversation walk regardless
@@ -128,10 +130,10 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 		await addServer("Docker conversations", BASE_URL, API_KEY);
 		const models = await waitForHostModels(
 			60000,
-			(candidates) => candidates.some((m) => m.id === "gpt-5.2-mini"),
-			"host to expose gpt-5.2-mini"
+			(candidates) => candidates.some((m) => m.id === PLAYBACK_MODEL.alias),
+			`host to expose ${PLAYBACK_MODEL.alias}`
 		);
-		model = expectDefined(models.find((m) => m.id === "gpt-5.2-mini"));
+		model = expectDefined(models.find((m) => m.id === PLAYBACK_MODEL.alias));
 	});
 
 	async function sendTurns(

@@ -23,7 +23,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { composeSetting, readEnvFile } from "./litellmConfig";
+import { composeSetting, readEnvFile, STACK_DEFAULTS } from "./litellmConfig";
 
 /** Whether a directory entry exists at all, symlink targets notwithstanding (existsSync follows symlinks). */
 function pathEntryExists(path: string): boolean {
@@ -41,8 +41,8 @@ const root = process.cwd();
 // ${VAR:-fallback} semantics: shell env wins even when empty, .env fills in
 // only unset variables, and an empty result takes the compose default.
 const envFile = readEnvFile();
-const port = composeSetting("LITELLM_PORT", "4000", envFile);
-const apiKey = composeSetting("LITELLM_MASTER_KEY", "sk-test-1234", envFile);
+const port = composeSetting("LITELLM_PORT", STACK_DEFAULTS.LITELLM_PORT, envFile);
+const apiKey = composeSetting("LITELLM_MASTER_KEY", STACK_DEFAULTS.LITELLM_MASTER_KEY, envFile);
 
 function run(label: string, cmd: string[]): void {
 	console.log(`[dev:fake] ${label}`);

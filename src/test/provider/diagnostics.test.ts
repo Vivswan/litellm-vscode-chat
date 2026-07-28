@@ -2,14 +2,14 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import type { AggregatedStatus } from "../../shared/servers";
-import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, useMsw } from "../mocks/handlers";
+import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { expectDefined, makeProvider, withFetch } from "../testUtils";
 
 suite("provider/diagnostics", () => {
 	useMsw();
 
 	test("status callback reports successful fetch with model count", async () => {
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		let callbackStatus: AggregatedStatus | undefined;
 		provider.setStatusCallback((status: AggregatedStatus) => {
 			callbackStatus = status;
@@ -48,7 +48,7 @@ suite("provider/diagnostics", () => {
 	});
 
 	test("status callback reports error on fetch failure", async () => {
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		let callbackStatus: AggregatedStatus | undefined;
 		provider.setStatusCallback((status: AggregatedStatus) => {
 			callbackStatus = status;
@@ -66,7 +66,7 @@ suite("provider/diagnostics", () => {
 	});
 
 	test("status callback reports empty model list", async () => {
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		let callbackStatus: AggregatedStatus | undefined;
 		provider.setStatusCallback((status: AggregatedStatus) => {
 			callbackStatus = status;
@@ -115,7 +115,7 @@ suite("provider/diagnostics", () => {
 			error: (message: string) => errors.push(message),
 		} as unknown as vscode.LogOutputChannel;
 
-		const provider = makeProvider("http://litellm.test", "test-key", mockOutputChannel);
+		const provider = makeProvider(TEST_BASE_URL, "test-key", mockOutputChannel);
 		await withFetch(
 			async () => {
 				throw new Error("Test error");
