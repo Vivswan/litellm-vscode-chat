@@ -269,6 +269,8 @@ suite("fakeStack commands: numeric domains and diagnostics", () => {
 		[`${COMMAND_SIGIL}error:999`, "status outside the valid set"],
 		[`${COMMAND_SIGIL}echo:`, "empty echo argument"],
 		[`${COMMAND_SIGIL}echo`, "bare echo without a colon"],
+		[`${COMMAND_SIGIL}echon:`, "empty echon argument"],
+		[`${COMMAND_SIGIL}echon`, "bare echon without a colon"],
 		[`${COMMAND_SIGIL}tool`, "bare tool without a colon"],
 		[`${COMMAND_SIGIL}play`, "bare play without a colon"],
 		[`${COMMAND_SIGIL}stream:5:0`, "zero per-chunk delay"],
@@ -311,13 +313,92 @@ suite("fakeStack commands: numeric domains and diagnostics", () => {
 });
 
 suite("fakeStack commands: behavior", () => {
-	test("help lists every command usage and the play targets", () => {
+	test("help renders a bullet per command and a backticked play-target section", () => {
+		// The report shape is markdown on purpose: chat hosts render replies as
+		// markdown, where single newlines collapse - bullets keep the lines.
 		const text = runText(`${COMMAND_SIGIL}help`);
 		assert.ok(text);
+		assert.ok(text.startsWith("Commands:\n\n- "), "the Commands section opens the report and leads its bullet list");
 		for (const command of COMMANDS) {
-			assert.ok(text.includes(command.usage), `help must list ${command.usage}`);
+			assert.ok(
+				text.includes(`- \`${command.usage}\` - ${command.description}`),
+				`help must render a bullet for ${command.usage}`
+			);
 		}
-		assert.ok(text.includes("text-only"), "help lists play targets");
+		assert.ok(text.includes("\n\nPlay targets: "), "a blank line separates the play-target section");
+		assert.ok(text.includes("`text-only`"), "play targets are backticked scenario names");
+		// One hand-typed literal alongside the derived loop: the loop pins the
+		// bullet FORMAT from the table, so a description edit would slide
+		// through it - this line byte-anchors one full bullet on purpose.
+		assert.ok(
+			text.includes("- `%help` - list every command and the available %play scenarios"),
+			"the help entry's exact bullet bytes are pinned"
+		);
+	});
+
+	test("introspection reports bullet each fact with variable data in code spans", () => {
+		assert.strictEqual(runText(`${COMMAND_SIGIL}deployment`), "- deployment: `text-only`");
+		const command = `${COMMAND_SIGIL}messages`;
+		assert.strictEqual(runText(command), `- \`message[0] user: text(${command.length})\``);
+		assert.strictEqual(
+			runText(`${COMMAND_SIGIL}params`, { temperature: 0.4, seed: 11 }),
+			['- model: `"text-only"`', "- seed: `11`", "- stream: `true`", "- temperature: `0.4`"].join("\n")
+		);
+	});
+
+	test(`${COMMAND_SIGIL}cache bullets marker positions, then the total paragraph after a blank line`, () => {
+		// The total is a plain paragraph: a bullet there would make CommonMark
+		// read the marker list as loose and space every bullet apart.
+		const text = runText(`${COMMAND_SIGIL}cache`, {
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "hi", cache_control: { type: "ephemeral" } }] },
+				{ role: "user", content: `${COMMAND_SIGIL}cache` },
+			],
+		});
+		assert.strictEqual(text, "- `messages[0].content[0]: cache_control`\n\ntotal: 1");
+	});
+
+	test("report code spans neutralize content-derived markdown: emphasis, backticks, and newlines stay inert", () => {
+		// The injection guard: a tool description containing "*", "`", or a
+		// newline must not style the report, close its code span early, or
+		// break out of the bullet into real markdown structure. Backticks get
+		// a wider, space-padded span (CommonMark's escape), newlines collapse
+		// to spaces, and empty values render as the fixed (empty) token.
+		const tools = [
+			{ type: "function", function: { name: "starry", description: "*not italic* in the report" } },
+			{ type: "function", function: { name: "ticked", description: "has a `code span` inside" } },
+			{ type: "function", function: { name: "sneaky", description: "line one\n\n# injected heading" } },
+			{ type: "function", function: { name: "bare" } },
+			{ type: "function", function: { name: "", description: "nameless" } },
+		];
+		assert.strictEqual(
+			runText(`${COMMAND_SIGIL}tools`, { tools }),
+			[
+				"- `starry`: `*not italic* in the report`",
+				"- `ticked`: `` has a `code span` inside ``",
+				"- `sneaky`: `line one  # injected heading`",
+				"- `bare`: `(empty)`",
+				"- `(empty)`: `nameless`",
+			].join("\n")
+		);
+	});
+
+	test("the zero-case sentences are pinned single sentences, not bullets", () => {
+		// The empty-request shapes cannot dispatch through the chat input (the
+		// command line is itself a message with content), so these runs call
+		// the COMMANDS entries directly - the sentences are each command's
+		// defensive floor and would otherwise rot unpinned.
+		const runVerb = (verb: string, request: Record<string, unknown>): string | undefined => {
+			const command = COMMANDS.find((entry) => entry.verb === verb);
+			assert.ok(command, `${verb} is in the dispatch table`);
+			const result = command.run(undefined, { request, scenarios });
+			assert.strictEqual(result.scenario.type, "sse");
+			const collapsed = collapseChunks((result.scenario as { chunks: unknown[] }).chunks);
+			return (collapsed.choices as Array<{ message: { content: string } }>)[0]?.message.content;
+		};
+		assert.strictEqual(runVerb("messages", {}), "no messages received");
+		assert.strictEqual(runVerb("attachments", { messages: [{ role: "assistant" }] }), "no message parts received");
+		assert.strictEqual(runVerb("params", {}), "no generation parameters received");
 	});
 
 	test("the dispatch table holds exactly the specified verb set", () => {
@@ -330,6 +411,7 @@ suite("fakeStack commands: behavior", () => {
 			"delay",
 			"deployment",
 			"echo",
+			"echon",
 			"error",
 			"finish",
 			"help",
@@ -464,6 +546,22 @@ suite("fakeStack commands: behavior", () => {
 		assert.deepStrictEqual(contentDeltas, ["ab ", "cd"]);
 	});
 
+	test(`${COMMAND_SIGIL}echon decodes exactly two escapes into a multi-line reply; ${COMMAND_SIGIL}echo stays untouched`, () => {
+		// The single-line input grammar cannot carry a real newline, so %echon
+		// decodes "\n"; "\\" keeps a literal backslash-n expressible. %echo is
+		// the byte-exact oracle and must never gain this interpretation.
+		assert.strictEqual(runText(`${COMMAND_SIGIL}echon:a\\nb`), "a\nb", "backslash-n becomes a newline");
+		assert.strictEqual(runText(`${COMMAND_SIGIL}echon:a\\n\\nb`), "a\n\nb", "doubled escape yields a blank line");
+		assert.strictEqual(runText(`${COMMAND_SIGIL}echon:a\\\\nb`), "a\\nb", "escaped backslash keeps a literal \\n");
+		assert.strictEqual(runText(`${COMMAND_SIGIL}echon:trailing\\n`), "trailing\n", "a trailing escape decodes too");
+		assert.strictEqual(
+			runText(`${COMMAND_SIGIL}echon: kept  \\x bytes `),
+			" kept  \\x bytes ",
+			"escape-free input (unknown escapes included) passes through byte-exact"
+		);
+		assert.strictEqual(runText(`${COMMAND_SIGIL}echo:a\\nb`), "a\\nb", "%echo never decodes");
+	});
+
 	test(`a malformed percent-escape in a data URL never throws: ${COMMAND_SIGIL}attachments hashes the raw URL`, () => {
 		const context: CommandContext = {
 			request: {
@@ -486,7 +584,9 @@ suite("fakeStack commands: behavior", () => {
 			choices: Array<{ message: { content: string } }>;
 		};
 		const text = collapsed.choices[0]?.message.content ?? "";
-		assert.match(text, /part\[0\]: kind=image_url mime=- bytes=\d+ sha256=[0-9a-f]{64}/);
+		// Record bullets keep the record's bytes verbatim inside ONE code span,
+		// so the sha256 stays a bare hex token extractable by regex.
+		assert.match(text, /^- `message\[0\] user part\[0\]: kind=image_url mime=- bytes=\d+ sha256=[0-9a-f]{64}`$/m);
 	});
 
 	test("the fallback reply is fixed and comfortably over 50 characters", () => {

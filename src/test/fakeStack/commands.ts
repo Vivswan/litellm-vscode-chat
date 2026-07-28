@@ -36,6 +36,13 @@
  * LiteLLM v1.93: id, system_fingerprint, and service_tier transit VERBATIM
  * and only created is rewritten - assertions still belong on extracted
  * content, never raw bytes.
+ *
+ * Human-facing diagnostic reports (%help and the introspection verbs) are
+ * markdown: chat hosts render replies as markdown, where a single "\n" is a
+ * soft break and multi-line plain text collapses into one paragraph. See the
+ * "Markdown report formatting" section for the rules. Contract texts stay
+ * byte-exact and unformatted: %echo, %play, usage strings, FALLBACK_TEXT,
+ * the bad-arguments diagnostic, and the hash-bearing media sentences.
  */
 
 import { createHash } from "node:crypto";
@@ -274,6 +281,61 @@ function diagnostic(context: CommandContext, command: CommandInfo): CommandResul
 	);
 }
 
+// ── Markdown report formatting ───────────────────────────────────────────────
+//
+// Diagnostic reports emit one "- " bullet per fact and blank lines between
+// logical sections, with every VARIABLE value (tool names, mime types, roles,
+// JSON fragments) inside a backtick code span. The span is dual-purpose:
+// bullets survive markdown rendering, and content-derived text cannot style
+// the report (a tool description containing "*" or "_" stays literal).
+// Single-sentence replies ("no tools offered", the zero-marker sentence) stay
+// bare - one sentence renders fine and their bytes are pinned by the suites.
+
+/**
+ * A code span around one variable value. Newlines collapse to single spaces
+ * first: a code span cannot contain a line ending, so a value carrying
+ * "\n\n# heading" would otherwise break the bullet, leave the span
+ * unclosed, and inject real markdown structure. A value containing
+ * backticks gets a longer span fence padded with spaces - CommonMark's own
+ * escape for backticks inside code spans - so no value can close the span
+ * early. An empty value renders as the fixed `(empty)` token: a bare "``"
+ * is not a code span. Renderers strip one leading and one trailing space
+ * per span (that is what closes over the pad); purely cosmetic for values
+ * with edge spaces, and record lines never start with one.
+ */
+function code(value: string): string {
+	const flat = value.replace(/\r\n?|\n/g, " ");
+	if (flat === "") {
+		return "`(empty)`";
+	}
+	const runs = flat.match(/`+/g);
+	if (runs === null) {
+		return `\`${flat}\``;
+	}
+	const fence = "`".repeat(Math.max(...runs.map((run) => run.length)) + 1);
+	return `${fence} ${flat} ${fence}`;
+}
+
+/** One report bullet. */
+function bullet(fact: string): string {
+	return `- ${fact}`;
+}
+
+/**
+ * Structured record lines (part shapes, marker positions, hash lines) render
+ * as bullets holding ONE code span each: the record's bytes stay grep- and
+ * regex-extractable exactly as before (sha256 tokens stay bare hex), and no
+ * fragment of the record can style the report.
+ */
+function recordBullets(records: string[]): string[] {
+	return records.map((record) => bullet(code(record)));
+}
+
+/** Report sections joined by blank lines - the markdown paragraph/list boundary. */
+function sections(...blocks: string[][]): string {
+	return blocks.map((lines) => lines.join("\n")).join("\n\n");
+}
+
 // ── Argument parsing ─────────────────────────────────────────────────────────
 
 /** Counts are positive integers within their cap; anything else is undefined. */
@@ -294,6 +356,17 @@ function parseSeed(text: string): number | undefined {
 	}
 	const value = Number(trimmed);
 	return value <= MAX_SEED ? value : undefined;
+}
+
+/**
+ * The %echon escape decoder: exactly two escapes, "\n" to a newline and
+ * "\\" to a literal backslash, scanned left to right so "\\n" stays a
+ * literal backslash-n. Every other byte passes through untouched. %echo
+ * stays the byte-exact oracle; this verb exists precisely so that contract
+ * never gains interpretation.
+ */
+function decodeEchonEscapes(text: string): string {
+	return text.replace(/\\(n|\\)/g, (_, escaped: string) => (escaped === "n" ? "\n" : "\\"));
 }
 
 // ── Deterministic prose generation (%text) ───────────────────────────────────
@@ -450,7 +523,8 @@ function classifyPart(part: unknown): WirePart {
 	return { kind: "unknown", mime: "-", bytes: Buffer.from(canonicalJson(part), "utf8") };
 }
 
-function attachmentLines(context: CommandContext): string[] {
+/** One record line per wire part; empty when no message carries content. */
+function attachmentRecords(context: CommandContext): string[] {
 	const lines: string[] = [];
 	requestMessages(context).forEach((message, messageIndex) => {
 		const role = typeof message.role === "string" ? message.role : "unknown";
@@ -472,7 +546,7 @@ function attachmentLines(context: CommandContext): string[] {
 			describe(0, { kind: "unknown", mime: "-", bytes: Buffer.from(canonicalJson(message.content), "utf8") });
 		}
 	});
-	return lines.length > 0 ? lines : ["no message parts received"];
+	return lines;
 }
 
 function partShape(part: unknown): string {
@@ -488,7 +562,8 @@ function partShape(part: unknown): string {
 	return "unknown";
 }
 
-function cacheMarkerLines(context: CommandContext): string[] {
+/** One record line per cache_control marker position; empty when none arrived. */
+function cacheMarkerRecords(context: CommandContext): string[] {
 	const lines: string[] = [];
 	const tools = Array.isArray(context.request.tools) ? context.request.tools : [];
 	tools.forEach((tool, index) => {
@@ -512,10 +587,6 @@ function cacheMarkerLines(context: CommandContext): string[] {
 			});
 		}
 	});
-	if (lines.length === 0) {
-		return ["no cache_control markers received (none sent, or stripped by the proxy)"];
-	}
-	lines.push(`total: ${lines.length}`);
 	return lines;
 }
 
@@ -632,9 +703,9 @@ const COMMAND_TABLE: ReadonlyArray<{
 		usage: `${COMMAND_SIGIL}help`,
 		description: `list every command and the available ${COMMAND_SIGIL}play scenarios`,
 		run: bare((context) => {
-			const commandLines = COMMANDS.map((command) => `${command.usage} - ${command.description}`);
-			const playTargets = Array.from(context.scenarios.keys()).sort().join(", ");
-			return textResult(context, `Commands:\n${commandLines.join("\n")}\nPlay targets: ${playTargets}`);
+			const commandBullets = COMMANDS.map((command) => bullet(`${code(command.usage)} - ${command.description}`));
+			const playTargets = Array.from(context.scenarios.keys()).sort().map(code).join(", ");
+			return textResult(context, sections(["Commands:"], commandBullets, [`Play targets: ${playTargets}`]));
 		}),
 	},
 	{
@@ -665,7 +736,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 			];
 			const lines = allowlist
 				.filter((key) => context.request[key] !== undefined)
-				.map((key) => `${key}: ${JSON.stringify(context.request[key])}`);
+				.map((key) => bullet(`${key}: ${code(JSON.stringify(context.request[key]))}`));
 			return textResult(context, lines.length > 0 ? lines.join("\n") : "no generation parameters received");
 		}),
 	},
@@ -678,7 +749,10 @@ const COMMAND_TABLE: ReadonlyArray<{
 			if (offered.length === 0) {
 				return textResult(context, "no tools offered");
 			}
-			return textResult(context, offered.map((tool) => `${tool.name}: ${tool.description}`).join("\n"));
+			// Empty names and empty descriptions both take code()'s `(empty)`
+			// rendering - one rule, no special-cased bullet shapes.
+			const lines = offered.map((tool) => bullet(`${code(tool.name)}: ${code(tool.description)}`));
+			return textResult(context, lines.join("\n"));
 		}),
 	},
 	{
@@ -686,7 +760,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 		usage: `${COMMAND_SIGIL}messages`,
 		description: "per message: index, role, and content part shapes (never content)",
 		run: bare((context) => {
-			const lines = requestMessages(context).map((message, index) => {
+			const records = requestMessages(context).map((message, index) => {
 				const role = typeof message.role === "string" ? message.role : "unknown";
 				const shape =
 					typeof message.content === "string"
@@ -696,14 +770,23 @@ const COMMAND_TABLE: ReadonlyArray<{
 							: "empty";
 				return `message[${index}] ${role}: ${shape}`;
 			});
-			return textResult(context, lines.length > 0 ? lines.join("\n") : "no messages received");
+			return textResult(context, records.length > 0 ? recordBullets(records).join("\n") : "no messages received");
 		}),
 	},
 	{
 		verb: "cache",
 		usage: `${COMMAND_SIGIL}cache`,
 		description: "report cache_control marker positions and count",
-		run: bare((context) => textResult(context, cacheMarkerLines(context).join("\n"))),
+		run: bare((context) => {
+			const markers = cacheMarkerRecords(context);
+			if (markers.length === 0) {
+				return textResult(context, "no cache_control markers received (none sent, or stripped by the proxy)");
+			}
+			// The total is a closing PARAGRAPH, not a bullet: a bullet after the
+			// blank line would turn the whole marker list loose in CommonMark,
+			// spacing every bullet as its own paragraph.
+			return textResult(context, sections(recordBullets(markers), [`total: ${markers.length}`]));
+		}),
 	},
 	{
 		verb: "deployment",
@@ -712,7 +795,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 		run: bare((context) =>
 			textResult(
 				context,
-				`deployment: ${typeof context.request.model === "string" ? context.request.model : "unknown"}`
+				bullet(`deployment: ${code(typeof context.request.model === "string" ? context.request.model : "unknown")}`)
 			)
 		),
 	},
@@ -720,7 +803,10 @@ const COMMAND_TABLE: ReadonlyArray<{
 		verb: "attachments",
 		usage: `${COMMAND_SIGIL}attachments`,
 		description: "per WIRE part: kind, mime, byte length, sha256 of decoded payload (post-conversion, never content)",
-		run: bare((context) => textResult(context, attachmentLines(context).join("\n"))),
+		run: bare((context) => {
+			const records = attachmentRecords(context);
+			return textResult(context, records.length > 0 ? recordBullets(records).join("\n") : "no message parts received");
+		}),
 	},
 	{
 		verb: "image",
@@ -761,7 +847,10 @@ const COMMAND_TABLE: ReadonlyArray<{
 	{
 		verb: "tool",
 		usage: `${COMMAND_SIGIL}tool:<name> [json]`,
-		description: "call the offered tool <name> with the JSON args; with a tool result present, summarize it",
+		// Angle-bracket tokens in descriptions are backticked: a bare <name>
+		// renders unreliably across markdown renderers (HTML-allowing ones
+		// swallow it as a tag).
+		description: "call the offered tool `<name>` with the JSON args; with a tool result present, summarize it",
 		run: runTool,
 	},
 	{
@@ -869,12 +958,24 @@ const COMMAND_TABLE: ReadonlyArray<{
 	{
 		verb: "echo",
 		usage: `${COMMAND_SIGIL}echo:<text>`,
-		description: "reply with exactly <text> (case preserved, line-bounded)",
+		description: "reply with exactly `<text>` (case preserved, line-bounded)",
 		run(arg, context, command) {
 			if (arg === undefined || arg === "") {
 				return diagnostic(context, command);
 			}
 			return textResult(context, arg);
+		},
+	},
+	{
+		verb: "echon",
+		usage: `${COMMAND_SIGIL}echon:<text>`,
+		description:
+			"reply with `<text>` decoding `\\n` into newlines and `\\\\` into a backslash (multi-line replies from one line)",
+		run(arg, context, command) {
+			if (arg === undefined || arg === "") {
+				return diagnostic(context, command);
+			}
+			return textResult(context, decodeEchonEscapes(arg));
 		},
 	},
 	{

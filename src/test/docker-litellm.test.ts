@@ -195,7 +195,7 @@ suite("Docker LiteLLM stack", () => {
 			// The %deployment command reports the upstream id the group picked;
 			// the oracle is relational - either declared deployment is correct.
 			const text = extractText(await say("gpt-5.2", `${COMMAND_SIGIL}deployment`));
-			assert.match(text, /^deployment: fake-balanced-(a|b)$/);
+			assert.match(text, /^- deployment: `fake-balanced-(a|b)`$/);
 			const body = await lastForwardedRequest();
 			assert.ok(
 				body.model === "fake-balanced-a" || body.model === "fake-balanced-b",
@@ -205,7 +205,7 @@ suite("Docker LiteLLM stack", () => {
 			// lying reporter; what it guards is the command answering from a
 			// DIFFERENT routing attempt (e.g. a retry landing on the other
 			// deployment between the two reads).
-			assert.strictEqual(text, `deployment: ${body.model}`);
+			assert.strictEqual(text, `- deployment: \`${body.model}\``);
 		});
 
 		test("the merged declared output limit reaches the backend uncapped", async () => {
@@ -658,7 +658,7 @@ suite("Docker LiteLLM stack", () => {
 
 		test(`${COMMAND_SIGIL}tools lists offered tools with descriptions, and reports none honestly`, async () => {
 			const withTools = extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}tools`, { tools: [weatherTool] }));
-			assert.ok(withTools.includes("get_weather: Get the weather"), `got: ${withTools}`);
+			assert.ok(withTools.includes("- `get_weather`: `Get the weather`"), `got: ${withTools}`);
 			assert.strictEqual(extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}tools`)), "no tools offered");
 		});
 
@@ -670,8 +670,8 @@ suite("Docker LiteLLM stack", () => {
 					vscode.LanguageModelChatMessage.User(`${COMMAND_SIGIL}messages`),
 				])
 			);
-			assert.match(text, /message\[0\] user: text\(14\)/);
-			assert.match(text, /message\[1\] assistant: text\(9\)/);
+			assert.match(text, /^- `message\[0\] user: text\(14\)`$/m);
+			assert.match(text, /^- `message\[1\] assistant: text\(9\)`$/m);
 			assert.ok(!text.includes("first question"), "content never appears");
 		});
 
@@ -692,14 +692,17 @@ suite("Docker LiteLLM stack", () => {
 					{ tools: [weatherTool] }
 				)
 			);
-			assert.ok(text.includes("tools[0]: cache_control"), `the last (only) tool is marked; got: ${text}`);
-			assert.ok(text.includes("messages[0].content[0]: cache_control"), `first user anchor; got: ${text}`);
-			assert.ok(text.includes("messages[2].content[0]: cache_control"), `rolling last anchor; got: ${text}`);
-			assert.ok(text.includes("total: 3"), `tools + first user + rolling last, nothing else; got: ${text}`);
+			assert.ok(text.includes("- `tools[0]: cache_control`"), `the last (only) tool is marked; got: ${text}`);
+			assert.ok(text.includes("- `messages[0].content[0]: cache_control`"), `first user anchor; got: ${text}`);
+			assert.ok(text.includes("- `messages[2].content[0]: cache_control`"), `rolling last anchor; got: ${text}`);
+			assert.ok(text.includes("\n\ntotal: 3"), `tools + first user + rolling last, nothing else; got: ${text}`);
 		});
 
 		test(`${COMMAND_SIGIL}deployment on a single-deployment model names its only upstream`, async () => {
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}deployment`)), "deployment: fake-mini");
+			assert.strictEqual(
+				extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}deployment`)),
+				"- deployment: `fake-mini`"
+			);
 		});
 	});
 
@@ -928,9 +931,9 @@ suite("Docker LiteLLM stack", () => {
 		test(`${COMMAND_SIGIL}help lists every command and the play targets`, async () => {
 			const text = extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}help`));
 			for (const command of COMMANDS) {
-				assert.ok(text.includes(command.usage), `help must list ${command.usage}`);
+				assert.ok(text.includes(`- \`${command.usage}\``), `help must render a bullet for ${command.usage}`);
 			}
-			assert.ok(text.includes("Play targets:"), "help lists play targets");
+			assert.ok(text.includes("\n\nPlay targets:"), "help lists play targets in their own section");
 		});
 
 		test("only the last non-empty line dispatches: mid-message commands are ignored", async () => {
@@ -983,13 +986,20 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}EcHo:CaSe  Kept`)), "CaSe  Kept");
 		});
 
+		test(`${COMMAND_SIGIL}echon decodes backslash-n into a real newline through the proxy`, async () => {
+			assert.strictEqual(
+				extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}echon:line one\\nline two`)),
+				"line one\nline two"
+			);
+		});
+
 		test(`${COMMAND_SIGIL}params echoes runtime generation parameters`, async () => {
 			const text = extractText(
 				await say("gpt-5.2-mini", `${COMMAND_SIGIL}params`, { modelOptions: { temperature: 0.4, seed: 11 } })
 			);
-			assert.ok(text.includes("temperature: 0.4"), `got: ${text}`);
-			assert.ok(text.includes("seed: 11"), `got: ${text}`);
-			assert.ok(text.includes(`model: "fake-mini"`), "the routed upstream model appears");
+			assert.ok(text.includes("- temperature: `0.4`"), `got: ${text}`);
+			assert.ok(text.includes("- seed: `11`"), `got: ${text}`);
+			assert.ok(text.includes('- model: `"fake-mini"`'), "the routed upstream model appears");
 		});
 
 		test(`${COMMAND_SIGIL}play routes any model to a named scenario`, async () => {

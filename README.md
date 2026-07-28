@@ -279,6 +279,7 @@ Pick any of them in the Copilot model picker and type a command as your message.
 %help                     list all commands and playback scenarios
 %play:thinking-blocks     play a canned stream shape (the library lives in src/test/scenarios.ts)
 %echo:any text            reply with exactly that text
+%echon:one\ntwo           multi-line echo: \n decodes to a newline, \\ keeps a backslash
 %text:200                 a deterministic 200-word paragraph
 %think:5                  reasoning chunks, then a closing text
 %tool:get_weather {}      call an offered tool, then summarize its result on the next turn
