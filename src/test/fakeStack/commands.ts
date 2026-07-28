@@ -906,6 +906,19 @@ interface ParsedCommand {
 }
 
 /**
+ * The exact line recognition reads (last non-empty line of the last user
+ * message), exposed for the fake server's request log: a command that fails
+ * to dispatch is diagnosable from the log alone, because leading whitespace,
+ * host-appended context, and typos are all visible in that line.
+ * parseCommand consumes this, so log and dispatch cannot disagree.
+ */
+export function dispatchLine(context: CommandContext): string | undefined {
+	const messages = requestMessages(context);
+	const lastUser = messages[lastUserIndex(messages)];
+	return lastUser === undefined ? undefined : lastNonEmptyLine(messageText(lastUser));
+}
+
+/**
  * A command is recognized ONLY on the last non-empty line of the last user
  * message, with a mandatory leading "%". The verb (between the sigil and
  * the first colon, or end of line) matches case-insensitively and tolerates
@@ -918,13 +931,7 @@ interface ParsedCommand {
  * reach the model, so they must never dispatch here either.
  */
 function parseCommand(context: CommandContext): ParsedCommand | undefined {
-	const messages = requestMessages(context);
-	const userIndex = lastUserIndex(messages);
-	const lastUser = messages[userIndex];
-	if (userIndex === -1 || lastUser === undefined) {
-		return undefined;
-	}
-	const line = lastNonEmptyLine(messageText(lastUser));
+	const line = dispatchLine(context);
 	if (line === undefined || !line.startsWith(COMMAND_SIGIL)) {
 		return undefined;
 	}

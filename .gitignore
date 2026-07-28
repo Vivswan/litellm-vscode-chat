@@ -40,6 +40,9 @@ package-lock.json
 # stack startup path regenerates it
 docker/.generated/
 
+# Live log tees written by `bun run dev:fake` (litellm, fake-openai, extension)
+/logs/
+
 # END REPOSITORY LOCAL
 
 # BEGIN REPO-PLATFORM MANAGED
