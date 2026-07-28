@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
+import { logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import {
 	addServer,
 	clearServers,
@@ -35,11 +36,9 @@ const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || "sk-test-1234";
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
-const seedEnv = Number(process.env.FUZZ_SEED ?? "");
-const SEED =
-	process.env.FUZZ_SEED?.trim() && Number.isFinite(seedEnv)
-		? seedEnv >>> 0
-		: (((Date.now() >>> 4) ^ (process.pid << 8)) >>> 0) % 1000000;
+// No shard salt on purpose: one seed means one conversation walk regardless
+// of which CI shard replays it (see src/test/fuzzSeed.ts).
+const SEED = resolveDockerFuzzSeed(0);
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.CONVERSATION_ITERATIONS)) || 10);
 
 /** Deterministic PRNG (mulberry32), same family as the stream fuzzer. */
@@ -146,7 +145,7 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 	test(`runs ${ITERATIONS} generated conversations (seed ${SEED})`, async function () {
 		this.timeout(Math.max(120000, ITERATIONS * 20000));
 		// Nightly's failure handler greps this exact format for the repro command.
-		console.log(`[fuzz] seed=${SEED} iterations=${ITERATIONS} mode=conversation`);
+		logFuzzSeed(SEED, ITERATIONS, "conversation");
 		const random = mulberry32(SEED ^ 0x2545f491);
 
 		for (let iteration = 0; iteration < ITERATIONS; iteration++) {

@@ -1,4 +1,5 @@
 import type { ExpectedToolCall, FuzzEvent } from "./fuzzCorpus";
+import { fuzzSeedPrefix } from "./fuzzSeed";
 import { expectDefined } from "./testUtils";
 
 /**
@@ -15,7 +16,8 @@ import { expectDefined } from "./testUtils";
  * The seed for fast-check property suites: FUZZ_SEED when set (so the nightly
  * workflow can explore fresh inputs and its issue carries the exact repro),
  * otherwise a pinned default so PR and pre-commit runs stay deterministic.
- * Logged once per process; the nightly failure report greps this line.
+ * Logged once per process; the nightly failure report greps this line, whose
+ * format is owned by fuzzSeed.ts and pinned by fuzzSeed.test.ts.
  */
 let loggedSeed = false;
 export function resolveFuzzSeed(): number {
@@ -24,7 +26,7 @@ export function resolveFuzzSeed(): number {
 	const seed = raw !== "" && Number.isFinite(parsed) ? parsed >>> 0 : 20260726;
 	if (!loggedSeed) {
 		loggedSeed = true;
-		console.log(`[fuzz] seed=${seed}`);
+		console.log(fuzzSeedPrefix(seed));
 	}
 	return seed;
 }

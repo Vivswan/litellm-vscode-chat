@@ -1,0 +1,62 @@
+/**
+ * Shared fuzz-seed contract for every seeded suite.
+ *
+ * The log line matters as much as the seed: .github/workflows/nightly-fuzz.yml
+ * rebuilds the reproduction command in the filed nightly-fuzz issue from the
+ * LAST "[fuzz] seed=<n> ... mode=<m>" line in the docker log (grep -oE
+ * '\[fuzz\] seed=[0-9]+[^"]*', then seed=/mode= extraction). Two emitters
+ * exist, both built here: the docker suites log the full line via
+ * logFuzzSeed, and the unit property harness (fuzzStream.ts) logs the
+ * seed-only prefix via fuzzSeedPrefix into its own nightly-unit.log.
+ * fuzzSeed.test.ts pins both shapes against the workflow's exact patterns,
+ * so a rewording fails in CI instead of silently filing seedless issues.
+ */
+
+/** Every mode the docker suites emit; the workflow's mode regex only admits lowercase and hyphens. */
+export const FUZZ_MODES = ["proxy", "direct", "conversation"] as const;
+export type FuzzMode = (typeof FUZZ_MODES)[number];
+
+/**
+ * The fresh-draw formula, pure so a test can pin that the shard salt actually
+ * diverges the draw (the docker stream fuzzer salts, the conversation suite
+ * deliberately does not).
+ */
+export function freshFuzzSeed(shardSalt: number, nowMs: number, pid: number): number {
+	return (((nowMs >>> 4) ^ (pid << 8) ^ shardSalt) >>> 0) % 1000000;
+}
+
+/**
+ * Resolve a docker suite's seed. An explicit FUZZ_SEED reproduces exactly,
+ * including 0; anything unset or invalid draws a fresh seed (pid- and
+ * time-mixed). shardSalt folds FUZZ_SHARD into the fresh draw so parallel CI
+ * shards diverge even when they start in the same instant - the stream
+ * fuzzer wants that, the conversation suite passes 0 so one seed means one
+ * conversation walk regardless of shard. (fuzzStream.ts has its own
+ * resolver for the unit property suites: pinned default, no salt.)
+ */
+export function resolveDockerFuzzSeed(shardSalt: number): number {
+	const seedEnv = Number(process.env.FUZZ_SEED ?? "");
+	if (process.env.FUZZ_SEED?.trim() && Number.isFinite(seedEnv)) {
+		return seedEnv >>> 0;
+	}
+	return freshFuzzSeed(shardSalt, Date.now(), process.pid);
+}
+
+/** The shard salt the stream fuzzer mixes into fresh-seed draws. */
+export function fuzzShardSalt(): number {
+	return (Number(process.env.FUZZ_SHARD) || 0) * 7919;
+}
+
+/** The greppable core both emitters share. */
+export function fuzzSeedPrefix(seed: number): string {
+	return `[fuzz] seed=${seed}`;
+}
+
+/** The full line the docker suites emit. */
+export function fuzzSeedLine(seed: number, iterations: number, mode: FuzzMode): string {
+	return `${fuzzSeedPrefix(seed)} iterations=${iterations} mode=${mode}`;
+}
+
+export function logFuzzSeed(seed: number, iterations: number, mode: FuzzMode): void {
+	console.log(fuzzSeedLine(seed, iterations, mode));
+}

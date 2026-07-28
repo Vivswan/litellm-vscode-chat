@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import type { FuzzEvent } from "./fuzzCorpus";
 import { FUZZ_CORPUS } from "./fuzzCorpus";
+import { fuzzShardSalt, logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import { assemble, chunkOf, generateEvents, mulberry32 } from "./fuzzStream";
 import {
 	addServer,
@@ -43,14 +44,9 @@ const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || "sk-test-1234";
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 // Explicit seeds reproduce exactly, including 0; anything unset or invalid
-// draws a fresh seed (pid- and shard-mixed so parallel CI shards diverge even
-// when they start in the same instant).
-const seedEnv = Number(process.env.FUZZ_SEED ?? "");
-const shardSalt = (Number(process.env.FUZZ_SHARD) || 0) * 7919;
-const SEED =
-	process.env.FUZZ_SEED?.trim() && Number.isFinite(seedEnv)
-		? seedEnv >>> 0
-		: (((Date.now() >>> 4) ^ (process.pid << 8) ^ shardSalt) >>> 0) % 1000000;
+// draws a fresh seed, shard-salted so parallel CI shards diverge even when
+// they start in the same instant (see src/test/fuzzSeed.ts).
+const SEED = resolveDockerFuzzSeed(fuzzShardSalt());
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.FUZZ_ITERATIONS)) || 10);
 const MAX_SHRINK_RUNS = 32;
 
@@ -186,7 +182,7 @@ function fuzzSuite(title: string, directMode: boolean, serverUrl: string, server
 		test(`fuzzes ${ITERATIONS} generated streams (seed ${SEED})`, async function () {
 			this.timeout(Math.max(120000, ITERATIONS * 10000));
 			const mode = directMode ? "direct" : "proxy";
-			console.log(`[fuzz] seed=${SEED} iterations=${ITERATIONS} mode=${mode}`);
+			logFuzzSeed(SEED, ITERATIONS, mode);
 			const random = mulberry32(directMode ? SEED ^ 0x5f375a86 : SEED);
 
 			for (let iteration = 0; iteration < ITERATIONS; iteration++) {

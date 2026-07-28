@@ -112,7 +112,9 @@ jobs:
             # The docker orchestrator runs several suites in sequence; the seed
             # and mode come from the last "[fuzz] seed=... mode=..." line, so
             # the report names the suite that logged it rather than blaming the
-            # stream fuzzer for every failure.
+            # stream fuzzer for every failure. The line format is owned by
+            # src/test/fuzzSeed.ts (fuzzSeedLine), and fuzzSeed.test.ts pins it
+            # against these exact patterns.
             fuzzline="$(grep -oE '\[fuzz\] seed=[0-9]+[^"]*' nightly-docker.log | tail -1 || true)"
             seed="$(printf '%s' "$fuzzline" | grep -oE 'seed=[0-9]+' | grep -oE '[0-9]+' || true)"
             mode="$(printf '%s' "$fuzzline" | grep -oE 'mode=[a-z-]+' | cut -d= -f2 || true)"
