@@ -71,13 +71,18 @@ jobs:
 
       # The dev compile puts out/ on disk first, so this proves .vscodeignore
       # excludes it rather than passing because the files were never built.
+      # logs/ and coverage/ get seeded the same way: dev:fake and
+      # test:coverage write them locally but nothing in this job does, so
+      # without the seeding their exclusion would never actually be exercised.
       - name: Verify the packaged file list stays clean
         run: |
           bun run compile
           bun run bundle
+          mkdir -p logs coverage
+          touch logs/ci-proof.log coverage/ci-proof.json
           listing="$(bunx vsce ls)"
           echo "$listing"
-          forbidden='^(out/|src/|node_modules/|scripts/|\.github/|\.husky/|\.dev-profile/)|^(bun\.lock|biome\.json|AGENTS\.md|CLAUDE\.md|\.vscode-test\.mjs)$|\.ts$|\.map$'
+          forbidden='^(out/|src/|node_modules/|scripts/|logs/|coverage/|\.github/|\.husky/|\.dev-profile/)|^(bun\.lock|biome\.json|AGENTS\.md|CLAUDE\.md|\.vscode-test\.mjs)$|\.ts$|\.map$'
           if echo "$listing" | grep -E "$forbidden"; then
             echo "::error::vsce would package files that must stay out of the VSIX (matches above)"
             exit 1

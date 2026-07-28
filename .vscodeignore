@@ -23,6 +23,8 @@ node_modules/**
 .husky/**
 .dev-fake-seed.json
 .dev-profile/**
+logs/**
+coverage/**
 .claude/**
 .codex/**
 .worktrees/**
