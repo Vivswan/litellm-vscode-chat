@@ -19,6 +19,7 @@
 		"@vscode/test-electron"
 	],
 	"ignoreBinaries": [
-		"pwsh"
+		"pwsh",
+		"ps"
 	]
 }

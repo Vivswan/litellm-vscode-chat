@@ -15,6 +15,9 @@ services:
       # to FAKE_BACKEND_PORT in src/test/fakeStack/proxyConfig.ts (as must the
       # mapping and healthcheck below) - stackDrift.test.ts pins all three.
       PORT: "8080"
+      # dev:fake sets FAKE_VERBOSE=1 so the container log carries every chat
+      # request and response body; the test orchestrator leaves it off.
+      FAKE_VERBOSE: ${FAKE_VERBOSE:-}
     ports:
       # Loopback only: this port exposes unauthenticated test controls.
       - "127.0.0.1:${FAKE_OPENAI_PORT:-8090}:8080"
@@ -45,6 +48,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GITHUB_API_KEY: ${GITHUB_API_KEY:-}
+      # DEBUG mirrors litellm's own unset default (getenv fallback in
+      # litellm/_logging.py); an empty value would crash the proxy at boot
+      # (getattr(logging, "")). Set ERROR or INFO to quiet the proxy log.
+      LITELLM_LOG: ${LITELLM_LOG:-DEBUG}
     healthcheck:
       test:
         [

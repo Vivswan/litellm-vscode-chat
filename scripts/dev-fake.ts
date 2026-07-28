@@ -15,6 +15,7 @@ import {
 	openSync,
 	readdirSync,
 	readFileSync,
+	readlinkSync,
 	readSync,
 	rmSync,
 	statSync,
@@ -44,13 +45,17 @@ const envFile = readEnvFile();
 const port = composeSetting("LITELLM_PORT", STACK_DEFAULTS.LITELLM_PORT, envFile);
 const apiKey = composeSetting("LITELLM_MASTER_KEY", STACK_DEFAULTS.LITELLM_MASTER_KEY, envFile);
 
-function run(label: string, cmd: string[]): void {
+function run(label: string, cmd: string[], extraEnv?: Record<string, string>): void {
 	console.log(`[dev:fake] ${label}`);
-	const result = spawnSync(cmd[0] as string, cmd.slice(1), { stdio: "inherit", cwd: root });
+	const result = spawnSync(cmd[0] as string, cmd.slice(1), {
+		stdio: "inherit",
+		cwd: root,
+		env: extraEnv === undefined ? process.env : { ...process.env, ...extraEnv },
+	});
 	if (result.signal === "SIGINT" || result.signal === "SIGTERM") {
 		// The signal handler cannot dispatch while spawnSync blocks; honor the
 		// interrupt here so an already-started stack still comes down.
-		onSignal();
+		onSignal(result.signal);
 	}
 	if (result.error !== undefined) {
 		console.error(`[dev:fake] ${label} failed: could not run "${cmd[0]}" (${result.error.message})`);
@@ -95,21 +100,37 @@ function composeDownExitCode(): number {
 	return 0;
 }
 let shuttingDown = false;
+let firstSignalAt = 0;
 let shutdown = (): void => {
 	process.exit(composeDownExitCode());
 };
-function onSignal(): void {
+function onSignal(signal: NodeJS.Signals): void {
+	const now = Date.now();
 	if (shuttingDown) {
-		// A second Ctrl+C during teardown must not wedge the terminal.
-		process.exit(130);
+		// One terminal Ctrl+C arrives here TWICE: the process-group delivery
+		// plus the `bun run` wrapper forwarding the same signal. Only a
+		// deliberate later press may abort a hung teardown - without the
+		// window, the duplicate killed the teardown before it started.
+		if (now - firstSignalAt > 1000) {
+			console.error("[dev:fake] aborted during teardown; the stack may still be up - run: bun run docker:down");
+			process.exit(signal === "SIGTERM" ? 143 : 130);
+		}
+		return;
 	}
 	shuttingDown = true;
+	firstSignalAt = now;
 	shutdown();
 }
 process.on("SIGINT", onSignal);
 process.on("SIGTERM", onSignal);
 
-run("starting the fake LiteLLM stack", ["bun", "scripts/compose.ts", "up", "-d", "--wait"]);
+// Verbose by default in the dev stack (and only there): the fake backend
+// logs every chat request and response body into ./logs/fake-openai.log.
+// The proxy already logs at litellm's default DEBUG level; the compose
+// LITELLM_LOG knob quiets it if wanted. Explicit env wins.
+run("starting the fake LiteLLM stack", ["bun", "scripts/compose.ts", "up", "-d", "--wait"], {
+	FAKE_VERBOSE: process.env.FAKE_VERBOSE ?? "1",
+});
 run("building the dev bundle", ["bun", "run", "bundle:dev"]);
 
 const seed = {
@@ -183,8 +204,7 @@ writeFileSync(markerFile, `${seedFingerprint}\n`);
 // ── Live log follow ──────────────────────────────────────────────────────────
 // The terminal stays attached: both container logs and the extension's output
 // channel stream here, each teed into logs/ for later reading (truncated per
-// run). Ctrl+C tears the stack down; the dev window stays open, it just loses
-// its server.
+// run). Ctrl+C tears the stack down and closes the dev window.
 const logsDir = join(root, "logs");
 mkdirSync(logsDir, { recursive: true });
 const logSinks: WriteStream[] = [];
@@ -387,6 +407,42 @@ console.log("[dev:fake] window launched; the seed configures the server on activ
 
 const tailTimer = setInterval(tailExtensionLogsOnce, 1000);
 
+/**
+ * Close the Extension Development Host with the stack: Electron's
+ * SingletonLock in the dedicated profile is a symlink to "<hostname>-<pid>",
+ * and nothing but dev:fake (or the F5 launch sharing this profile) uses the
+ * profile, so that pid can only be the dev host. The command line is still
+ * verified to mention the profile dir before signalling, so a stale lock
+ * pointing at a recycled pid never kills an unrelated process.
+ */
+function closeDevHost(): void {
+	let target: string;
+	try {
+		target = readlinkSync(join(profileDir, "SingletonLock"));
+	} catch {
+		return;
+	}
+	const pid = Number(target.split("-").pop());
+	if (!Number.isInteger(pid) || pid <= 0) {
+		return;
+	}
+	const ps = spawnSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" });
+	// The flag must be a whole argv element: a substring check would also
+	// accept a sibling profile like "<profileDir>-other" on a recycled pid.
+	const flag = `--user-data-dir=${profileDir}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	if (ps.status !== 0 || !new RegExp(`(^|\\s)${flag}(\\s|$)`).test(ps.stdout.trimEnd())) {
+		return;
+	}
+	// Note: the singleton hosts every window on this profile, so an F5-launched
+	// dev host sharing it closes too - same trade the profile-wipe logic makes.
+	console.log("[dev:fake] closing the Extension Development Host");
+	try {
+		process.kill(pid, "SIGTERM");
+	} catch {
+		// Already gone between the check and the signal.
+	}
+}
+
 shutdown = (): void => {
 	void (async (): Promise<void> => {
 		clearInterval(tailTimer);
@@ -395,6 +451,7 @@ shutdown = (): void => {
 		tailExtensionLogsOnce();
 		forwardVscode.flush();
 		killLogChildren();
+		closeDevHost();
 		// The children's final data/close callbacks must drain BEFORE anything
 		// blocks the event loop or the sinks close; a hung child forfeits its
 		// tail after the timeout.
