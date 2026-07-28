@@ -971,6 +971,14 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(extractText(await say("gpt-5.2-mini", "!help")), FALLBACK_TEXT);
 		});
 
+		test("a chat host's request envelope still dispatches end to end", async () => {
+			// Copilot Chat wraps the typed text in <userRequest>...</userRequest>
+			// with the closing tag as the message's last line; the grammar treats
+			// bare closing-tag lines as transparent so interactive commands work.
+			const wrapped = `<userRequest>\n${COMMAND_SIGIL}echo:enveloped\n</userRequest>`;
+			assert.strictEqual(extractText(await say("gpt-5.2-mini", wrapped)), "enveloped");
+		});
+
 		test(`${COMMAND_SIGIL}echo preserves argument case and inner spacing through the proxy`, async () => {
 			assert.strictEqual(extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}EcHo:CaSe  Kept`)), "CaSe  Kept");
 		});

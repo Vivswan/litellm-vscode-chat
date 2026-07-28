@@ -2,7 +2,9 @@
  * Command dispatch for the fake OpenAI backend: the chat input is the
  * control surface. The last non-empty line of the last user message, when it
  * starts with "%" and names a known verb, selects the response; nothing
- * else in the message does. Everything here is deterministic - no clocks, no
+ * else in the message does. Bare closing-tag lines are transparent to that
+ * rule, because chat hosts wrap the typed request in an envelope (see
+ * ENVELOPE_CLOSER). Everything here is deterministic - no clocks, no
  * Math.random - so identical conversations produce identical bytes.
  *
  * Why "%": both obvious sigils are intercepted before the text can reach
@@ -129,19 +131,33 @@ function lastUserIndex(messages: WireMessage[]): number {
 }
 
 /**
- * The last non-empty line with ONLY its trailing \r stripped - never trimmed,
- * so a leading space disqualifies the line from being a command (the "%"
- * SIGIL must be the line's first byte) and %echo keeps trailing bytes. The
- * verb AFTER the sigil keeps its trailing tolerance only ("%help " and
- * "%stream :50" dispatch) - a space right after the sigil disqualifies,
- * because %-comment languages write "% word" at line start (see the header).
- * Whitespace-only lines count as empty.
+ * A chat host's envelope closer: a line that is EXACTLY an unindented closing
+ * tag. Copilot Chat rebuilds the typed request as
+ * "<userRequest>\n%help\n</userRequest>", so the message's last line is the
+ * closing tag and every interactively typed command would otherwise get the
+ * fallback. Such lines are transparent to recognition. An INDENTED closing
+ * tag (the usual shape inside pasted XML/HTML) is not transparent. The
+ * accepted residue: pasted markup whose ROOT closer ends the message exposes
+ * the line above it, which dispatches only if that line is itself an exact
+ * command.
+ */
+const ENVELOPE_CLOSER = /^<\/[A-Za-z][A-Za-z0-9._-]*>$/;
+
+/**
+ * The last non-empty, non-envelope-closer line with ONLY its trailing \r
+ * stripped - never trimmed, so a leading space disqualifies the line from
+ * being a command (the "%" SIGIL must be the line's first byte) and %echo
+ * keeps trailing bytes. The verb AFTER the sigil keeps its trailing
+ * tolerance only ("%help " and "%stream :50" dispatch) - a space right
+ * after the sigil disqualifies, because %-comment languages write "% word"
+ * at line start (see the header). Whitespace-only lines count as empty, and
+ * bare closing-tag lines are skipped (see ENVELOPE_CLOSER).
  */
 function lastNonEmptyLine(text: string): string | undefined {
 	const lines = text.split("\n");
 	for (let i = lines.length - 1; i >= 0; i--) {
 		const line = (lines[i] ?? "").replace(/\r$/, "");
-		if (line.trim() !== "") {
+		if (line.trim() !== "" && !ENVELOPE_CLOSER.test(line)) {
 			return line;
 		}
 	}
@@ -906,11 +922,11 @@ interface ParsedCommand {
 }
 
 /**
- * The exact line recognition reads (last non-empty line of the last user
- * message), exposed for the fake server's request log: a command that fails
- * to dispatch is diagnosable from the log alone, because leading whitespace,
- * host-appended context, and typos are all visible in that line.
- * parseCommand consumes this, so log and dispatch cannot disagree.
+ * The exact line recognition reads (last non-empty, non-envelope-closer line
+ * of the last user message), exposed for the fake server's request log: a
+ * command that fails to dispatch is diagnosable from the log alone, because
+ * leading whitespace, host-appended context, and typos are all visible in
+ * that line. parseCommand consumes this, so log and dispatch cannot disagree.
  */
 export function dispatchLine(context: CommandContext): string | undefined {
 	const messages = requestMessages(context);
@@ -920,7 +936,8 @@ export function dispatchLine(context: CommandContext): string | undefined {
 
 /**
  * A command is recognized ONLY on the last non-empty line of the last user
- * message, with a mandatory leading "%". The verb (between the sigil and
+ * message (bare closing-tag lines are transparent; see ENVELOPE_CLOSER),
+ * with a mandatory leading "%". The verb (between the sigil and
  * the first colon, or end of line) matches case-insensitively and tolerates
  * trailing whitespace ONLY - trimEnd, never trim, so "%help " and
  * "%stream :50" dispatch while "% help" is plain text (see the module

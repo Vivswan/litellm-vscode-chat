@@ -146,6 +146,49 @@ suite("fakeStack commands: recognition", () => {
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL}echo:first\nmore prose after it`)), undefined);
 	});
 
+	test("a chat host's request envelope is transparent: the closing tag does not eat the command", () => {
+		// The exact shape Copilot Chat sends (observed via /_test/last-request):
+		// context and reminder blocks, then the typed text inside <userRequest>.
+		const copilotShape = [
+			"<context>",
+			"The current date is 2026-07-28.",
+			"</context>",
+			"<reminderInstructions>",
+			"Prefer the replace_string_in_file tool.",
+			"</reminderInstructions>",
+			"<userRequest>",
+			`${COMMAND_SIGIL}echo:through-the-envelope`,
+			"</userRequest>",
+			"",
+		].join("\n");
+		assert.strictEqual(runText(copilotShape), "through-the-envelope");
+		// A run of trailing closers is skipped as a whole.
+		assert.strictEqual(runText(`${COMMAND_SIGIL}echo:nested\n</inner>\n</outer>`), "nested");
+	});
+
+	test("an INDENTED closing tag is not transparent: pasted markup stays plain text", () => {
+		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL}help\n  </userRequest>`)), undefined);
+	});
+
+	test("only EXACT bare closers are transparent: trailing space or a namespaced tag stays opaque", () => {
+		// The opacity boundary a future "be more lenient" refactor would erode:
+		// anything beyond a bare </name> line must keep blocking recognition.
+		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL}help\n</userRequest> `)), undefined);
+		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL}help\n</ns:tag>`)), undefined);
+	});
+
+	test("a message of only closing tags is plain text", () => {
+		assert.strictEqual(dispatchCommand(makeContext("</a>\n</b>")), undefined);
+	});
+
+	test("an inline single-line wrap is plain text: the line must start with the sigil", () => {
+		assert.strictEqual(dispatchCommand(makeContext(`<userRequest>${COMMAND_SIGIL}help</userRequest>`)), undefined);
+	});
+
+	test("pasted markup whose interior line is prose still falls back", () => {
+		assert.strictEqual(dispatchCommand(makeContext("some closing text\n</div>")), undefined);
+	});
+
 	test("multiple command-looking lines: the final one dispatches", () => {
 		assert.strictEqual(runText(`${COMMAND_SIGIL}echo:first\n${COMMAND_SIGIL}echo:second`), "second");
 	});
