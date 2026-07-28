@@ -1,52 +1,71 @@
 import * as assert from "node:assert";
 import {
-	clampTimeout,
 	DEFAULT_DISCOVERY_CACHE_TTL_MS,
 	DEFAULT_DISCOVERY_TIMEOUT_MS,
 	DEFAULT_REQUEST_TIMEOUT_MS,
 	getDiscoveryCacheTtl,
+	getDiscoveryTimeout,
+	getRequestTimeout,
 	MIN_TIMEOUT_MS,
 } from "../../shared/settings";
 import { expectDefined, withConfig } from "../testUtils";
 
-suite("shared/settings clampTimeout", () => {
-	test("passes valid timeouts through without logging", () => {
+suite("shared/settings timeout getters", () => {
+	test("pass valid timeouts through without logging", async () => {
 		const logged: unknown[] = [];
-		const result = clampTimeout(5000, DEFAULT_DISCOVERY_TIMEOUT_MS, "discoveryTimeout", (msg, data) =>
-			logged.push({ msg, data })
-		);
-		assert.strictEqual(result, 5000);
+		await withConfig({ discoveryTimeout: 5000 }, () => {
+			assert.strictEqual(
+				getDiscoveryTimeout(() => logged.push(true)),
+				5000
+			);
+		});
 		assert.strictEqual(logged.length, 0);
 	});
 
-	test("clamps sub-minimum values to the minimum and logs", () => {
+	test("use the default when nothing is configured", async () => {
+		await withConfig({}, () => {
+			assert.strictEqual(getDiscoveryTimeout(), DEFAULT_DISCOVERY_TIMEOUT_MS);
+			assert.strictEqual(getRequestTimeout(), DEFAULT_REQUEST_TIMEOUT_MS);
+		});
+	});
+
+	test("clamp sub-minimum values to the minimum and log", async () => {
 		const logged: { msg: string; data?: unknown }[] = [];
-		const result = clampTimeout(500, DEFAULT_REQUEST_TIMEOUT_MS, "requestTimeout", (msg, data) =>
-			logged.push({ msg, data })
-		);
-		assert.strictEqual(result, MIN_TIMEOUT_MS);
+		await withConfig({ requestTimeout: 500 }, () => {
+			assert.strictEqual(
+				getRequestTimeout((msg, data) => logged.push({ msg, data })),
+				MIN_TIMEOUT_MS
+			);
+		});
 		assert.strictEqual(logged.length, 1);
 		const entry = expectDefined(logged[0]);
 		assert.ok(entry.msg.includes("requestTimeout"));
 		assert.deepStrictEqual(entry.data, { configured: 500, clamped: MIN_TIMEOUT_MS });
 	});
 
-	test("falls back to the default for NaN", () => {
+	test("fall back to the default for NaN", async () => {
 		const logged: unknown[] = [];
-		const result = clampTimeout(Number.NaN, DEFAULT_DISCOVERY_TIMEOUT_MS, "discoveryTimeout", () => logged.push(true));
-		assert.strictEqual(result, DEFAULT_DISCOVERY_TIMEOUT_MS);
+		await withConfig({ discoveryTimeout: Number.NaN }, () => {
+			assert.strictEqual(
+				getDiscoveryTimeout(() => logged.push(true)),
+				DEFAULT_DISCOVERY_TIMEOUT_MS
+			);
+		});
 		assert.strictEqual(logged.length, 1);
 	});
 
-	test("falls back to the default for non-finite and non-number values", () => {
-		assert.strictEqual(clampTimeout(Number.POSITIVE_INFINITY, 30000, "discoveryTimeout"), 30000);
-		assert.strictEqual(clampTimeout(Number.NEGATIVE_INFINITY, 30000, "discoveryTimeout"), 30000);
-		assert.strictEqual(clampTimeout("5000", 30000, "discoveryTimeout"), 30000);
-		assert.strictEqual(clampTimeout(undefined, 30000, "discoveryTimeout"), 30000);
-	});
-
-	test("clamps when the fallback itself is below the minimum", () => {
-		assert.strictEqual(clampTimeout(Number.NaN, 100, "requestTimeout"), MIN_TIMEOUT_MS);
+	test("fall back to the default for non-finite and non-number values", async () => {
+		for (const raw of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, "5000", undefined]) {
+			const logged: unknown[] = [];
+			await withConfig({ discoveryTimeout: raw }, () => {
+				assert.strictEqual(
+					getDiscoveryTimeout(() => logged.push(true)),
+					DEFAULT_DISCOVERY_TIMEOUT_MS,
+					`configured value ${String(raw)} must fall back to the default`
+				);
+			});
+			assert.strictEqual(logged.length, 1, `configured value ${String(raw)} must be logged`);
+		}
 	});
 });
 

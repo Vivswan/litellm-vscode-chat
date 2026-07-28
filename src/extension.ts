@@ -28,11 +28,12 @@ import {
 import { StatusBarManager } from "./extension/status";
 import { createIssueReporterEnv, IssueReporter } from "./issueReporter";
 import { LiteLLMChatModelProvider } from "./provider";
+import { CMD, VENDOR_ID } from "./shared/commandIds";
+import { GITHUB_DOCS_URL } from "./shared/links";
 import { Logger } from "./shared/logger";
 import type { AggregatedStatus } from "./shared/servers";
+import { CONFIG_SECTION } from "./shared/settingSpec";
 import { HAS_SHOWN_WELCOME_KEY } from "./shared/storageKeys";
-
-const GITHUB_DOCS = "https://github.com/Vivswan/litellm-vscode-chat#quick-start";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
@@ -56,8 +57,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// The setting itself is the truth here, not the sync engine's view: the
 	// prompt and the welcome toast can run before the first sync pass finishes.
 	const hasDeclaredServers = () =>
-		parseServersSetting(vscode.workspace.getConfiguration("litellm-vscode-chat").get(SERVERS_SETTING_KEY)).entries
-			.length > 0;
+		parseServersSetting(vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY)).entries.length > 0;
 	// The shared not-configured gate: the registry-backed refresh path knows
 	// nothing about the newer stores, so declared servers-setting entries and
 	// live provider groups both mean "configured" before anything toasts.
@@ -81,7 +81,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		logger.error("Legacy config migration failed", error);
 	}
 
-	vscode.lm.registerLanguageModelChatProvider("litellm", provider);
+	vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, provider);
 
 	// One-shot seed dropped by `bun run dev:fake`; development-mode only. It
 	// writes the servers-setting entry and the label's stored API key; the
@@ -113,7 +113,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		notifier,
 		syncEngine,
 		vscode.workspace.onDidChangeConfiguration((event) => {
-			if (event.affectsConfiguration(`litellm-vscode-chat.${SERVERS_SETTING_KEY}`)) {
+			if (event.affectsConfiguration(`${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`)) {
 				syncEngine.requestSync();
 			}
 		})
@@ -151,7 +151,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	});
 
 	if (devSeed?.openDashboard) {
-		void vscode.commands.executeCommand("litellm.openDashboard").then(undefined, (error: unknown) => {
+		void vscode.commands.executeCommand(CMD.openDashboard).then(undefined, (error: unknown) => {
 			logger.error("Dev seed dashboard open failed", error);
 		});
 	}
@@ -163,7 +163,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	if (!hasShownWelcome && registry.getServers().length === 0 && !hasDeclaredServers()) {
 		showActionableMessage("info", "Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.", [
 			reconfigureAction("Configure Now"),
-			{ label: "Documentation", run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS)) },
+			{ label: "Documentation", run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS_URL)) },
 		]).catch((error) => {
 			logger.error("Welcome message failed", error);
 		});

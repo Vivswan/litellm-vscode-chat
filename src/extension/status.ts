@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { z } from "zod";
+import { CMD } from "../shared/commandIds";
 import type { Logger } from "../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../shared/servers";
 import { LAST_CONNECTION_STATUS_KEY } from "../shared/storageKeys";
@@ -51,7 +52,7 @@ export class StatusBarManager {
 		private readonly hasConfiguredServers: () => boolean
 	) {
 		this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-		this._statusBarItem.command = "litellm.openDashboard";
+		this._statusBarItem.command = CMD.openDashboard;
 		context.subscriptions.push(this._statusBarItem);
 
 		const lastStatus = context.globalState.get<unknown>(LAST_CONNECTION_STATUS_KEY);

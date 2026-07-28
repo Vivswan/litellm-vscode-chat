@@ -13,7 +13,9 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import type { LiteLLMChatModelProvider, ServerModelsSnapshot } from "../../provider";
+import { CMD } from "../../shared/commandIds";
 import type { Logger } from "../../shared/logger";
+import { CONFIG_SECTION } from "../../shared/settingSpec";
 import type { DeclaredServerView, ServerSyncEngine } from "../serverSync";
 import {
 	copyServerSecrets,
@@ -212,8 +214,6 @@ export class DashboardController implements vscode.Disposable {
 	}
 }
 
-const CONFIG_SECTION = "litellm-vscode-chat";
-
 // Scalar writes never land in the folder scope (resolveUpdateScope): the
 // dashboard's configuration access is resource-less, and a WorkspaceFolder
 // update without a resource throws in multi-root workspaces. Resets differ:
@@ -314,7 +314,7 @@ export function registerDashboardCommand(
 		logError: (message, error) => logger.error(message, error),
 	});
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.openDashboard", () => controller.open()),
+		vscode.commands.registerCommand(CMD.openDashboard, () => controller.open()),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration(CONFIG_SECTION)) {
 				controller.refresh();

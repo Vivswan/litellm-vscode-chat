@@ -11,12 +11,22 @@
  * from workspace configuration; nothing here is persisted anywhere.
  */
 
+export type { HeaderScalar } from "../../shared/headers";
 export { isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
 export { isUnsafeRecordKey } from "../../shared/json";
 export type { NonSecretOptionalFieldId, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 export { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+export type { BooleanSettingId, NumberSettingId } from "../../shared/settingSpec";
 
+import type { HeaderScalar } from "../../shared/headers";
 import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
+import type {
+	BooleanSettingId,
+	BooleanSettingValueSpec,
+	NumberSettingId,
+	NumberSettingValueSpec,
+} from "../../shared/settingSpec";
+import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/settingSpec";
 
 /** The non-secret configuration of a declared server, for the edit form's prefill. */
 interface DashboardServerConfig extends NonSecretOptionalFields {
@@ -108,93 +118,85 @@ export interface DashboardModel {
 	readonly reasoning: boolean;
 }
 
-export interface NumberSettingSpec {
+/** One number setting as the dashboard renders it: the shared value spec plus this module's presentation. */
+export type NumberSettingSpec = NumberSettingValueSpec & {
 	readonly label: string;
 	readonly description: string;
-	readonly minimum: number;
-	/** Whether null (meaning "unset, derive it") is a legal value. */
-	readonly nullable: boolean;
 	/** What the number counts; the form renders it as the input's suffix and humanizes durations from it. */
 	readonly unit: "ms" | "tokens";
 	/** What a configured 0 means, when 0 is legal and has a special reading (the cache TTL). */
 	readonly zeroMeaning?: string;
-}
+};
 
 /**
  * The number-valued litellm-vscode-chat.* settings the dashboard edits.
- * Labels and constraints live here so the webview form and the extension-side
- * validation read the same table; defaults stay in package.json only (the
- * state builder reads them through configuration inspection when an
- * unusable configured value needs a display fallback).
+ * The value side of each entry (default, minimum, nullability) is spread in
+ * from the shared setting spec; labels and descriptions are presentation and
+ * live only here. The state builder still reads display-fallback defaults
+ * through configuration inspection, which settingSpec.test.ts pins to the
+ * same numbers.
  */
 export const NUMBER_SETTINGS = {
 	defaultMaxOutputTokens: {
+		...NUMBER_SETTING_SPECS.defaultMaxOutputTokens,
 		label: "Default max output tokens",
 		description: "Used when the server does not report a limit.",
-		minimum: 1,
-		nullable: false,
 		unit: "tokens",
 	},
 	defaultContextLength: {
+		...NUMBER_SETTING_SPECS.defaultContextLength,
 		label: "Default context length",
 		description: "Used when the server does not report a context window.",
-		minimum: 1,
-		nullable: false,
 		unit: "tokens",
 	},
 	defaultMaxInputTokens: {
+		...NUMBER_SETTING_SPECS.defaultMaxInputTokens,
 		label: "Default max input tokens",
 		description: "Leave empty to derive it as context length minus output tokens.",
-		minimum: 1,
-		nullable: true,
 		unit: "tokens",
 	},
 	requestTimeout: {
+		...NUMBER_SETTING_SPECS.requestTimeout,
 		label: "Request timeout",
 		description: "Hard bound for one chat completion call.",
-		minimum: 1000,
-		nullable: false,
 		unit: "ms",
 	},
 	discoveryTimeout: {
+		...NUMBER_SETTING_SPECS.discoveryTimeout,
 		label: "Discovery timeout",
 		description: "Hard bound for one model discovery call.",
-		minimum: 1000,
-		nullable: false,
 		unit: "ms",
 	},
 	discoveryCacheTtl: {
+		...NUMBER_SETTING_SPECS.discoveryCacheTtl,
 		label: "Discovery cache TTL",
 		description: "How long discovered model lists are reused; 0 asks the server on every refresh.",
-		minimum: 0,
-		nullable: false,
 		unit: "ms",
 		zeroMeaning: "every refresh",
 	},
-} as const satisfies Record<string, NumberSettingSpec>;
-
-export type NumberSettingId = keyof typeof NUMBER_SETTINGS;
+} as const satisfies Record<NumberSettingId, NumberSettingSpec>;
 
 export const NUMBER_SETTING_IDS = Object.keys(NUMBER_SETTINGS) as readonly NumberSettingId[];
 
-interface BooleanSettingSpec {
+/** One boolean setting as the dashboard renders it: the shared value spec plus this module's presentation. */
+type BooleanSettingSpec = BooleanSettingValueSpec & {
 	readonly label: string;
 	readonly description: string;
-}
+};
 
-/** The boolean litellm-vscode-chat.* settings the dashboard edits. */
+/** The boolean litellm-vscode-chat.* settings the dashboard edits; value specs spread in like NUMBER_SETTINGS. */
 export const BOOLEAN_SETTINGS = {
 	"promptCaching.enabled": {
+		...BOOLEAN_SETTING_SPECS["promptCaching.enabled"],
 		label: "Prompt caching",
 		description: "Cache the system prompt on models that advertise support.",
 	},
 	maskApiKeyInput: {
+		...BOOLEAN_SETTING_SPECS.maskApiKeyInput,
 		label: "Mask API key input",
 		description: "Hide the API key while typing it into configuration prompts.",
 	},
-} as const satisfies Record<string, BooleanSettingSpec>;
-
-export type BooleanSettingId = keyof typeof BOOLEAN_SETTINGS;
+} as const satisfies Record<BooleanSettingId, BooleanSettingSpec>;
 
 export const BOOLEAN_SETTING_IDS = Object.keys(BOOLEAN_SETTINGS) as readonly BooleanSettingId[];
 
@@ -260,9 +262,6 @@ export function equivalence(id: NumberSettingId, draft: string): string | undefi
 export function draftSyncKey(value: number | null, configuredScope: SettingScope | null): string {
 	return `${value === null ? "" : String(value)}@${configuredScope ?? "default"}`;
 }
-
-/** A value legal in the headers setting: HTTP header values are scalars. */
-export type HeaderScalar = string | number | boolean;
 
 /** The configuration scopes a setting value can live in, in ascending precedence. */
 export type SettingScope = "global" | "workspace" | "workspaceFolder";

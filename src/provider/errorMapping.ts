@@ -1,4 +1,5 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
+import { CONFIG_SECTION } from "../shared/settingSpec";
 
 export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | "network" | "timeout" | "aborted";
 
@@ -56,8 +57,8 @@ function isUpstreamAuthFailure(error: unknown): boolean {
 
 export function timeoutMessage(ctx: MapErrorContext): string {
 	return ctx.surface === "chat"
-		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "litellm-vscode-chat.requestTimeout" setting if your model needs more time.`
-		: `LiteLLM model discovery timed out after ${ctx.timeoutMs}ms. Increase the "litellm-vscode-chat.discoveryTimeout" setting if your server needs more time.`;
+		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.requestTimeout" setting if your model needs more time.`
+		: `LiteLLM model discovery timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.discoveryTimeout" setting if your server needs more time.`;
 }
 
 interface ChainLink {

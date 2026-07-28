@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
+import type { CommandId } from "../shared/commandIds";
+import { CMD, INTERNAL_CMD } from "../shared/commandIds";
 import type { Logger } from "../shared/logger";
+import { CONFIG_SECTION } from "../shared/settingSpec";
 import { getMaskApiKeyInput, getModelParametersConfig } from "../shared/settings";
 import { isGroupMigrationRunning } from "./groupMigration";
 import {
@@ -121,7 +124,7 @@ export function warnAboutOrphanedModelParameters(
 	void showActionableMessage(
 		"warning",
 		`Renaming the server left ${orphaned.length} modelParameters ${noun} scoped to the old label (e.g., "${orphaned[0]}"). Update the "${prefix}" prefix to "${newLabel}/" in settings to keep them applied.`,
-		[openSettingsAction("litellm-vscode-chat.modelParameters"), dismissAction()]
+		[openSettingsAction(`${CONFIG_SECTION}.modelParameters`), dismissAction()]
 	);
 }
 
@@ -222,7 +225,7 @@ async function manageServerFlow(
 			warnAboutOrphanedModelParameters(oldLabel, label.trim(), Object.keys(getModelParametersConfig()));
 		}
 	} else if (pick.action === "test") {
-		await vscode.commands.executeCommand("litellm.testConnection");
+		await vscode.commands.executeCommand(CMD.testConnection);
 	} else if (pick.action === "remove") {
 		if (!canMutateRegistry(isMigrated)) {
 			return;
@@ -265,7 +268,7 @@ export type ManagementUiMode = "legacy" | "nativePreferred" | "nativeRequired";
  * arguments or mode logic) or names the extension command it executes as-is.
  */
 interface HubItem extends vscode.QuickPickItem {
-	action: "servers" | "settings" | `litellm.${string}`;
+	action: "servers" | "settings" | CommandId;
 }
 
 const HUB_ITEMS: readonly HubItem[] = [
@@ -277,27 +280,27 @@ const HUB_ITEMS: readonly HubItem[] = [
 	{
 		label: "$(dashboard) Open Dashboard",
 		description: "Servers, models, and settings in one view",
-		action: "litellm.openDashboard",
+		action: CMD.openDashboard,
 	},
 	{
 		label: "$(sync) Sync Models Now",
 		description: "Refetch the model list from every server",
-		action: "litellm.syncModels",
+		action: CMD.syncModels,
 	},
 	{
 		label: "$(testing-run-icon) Test Connection",
 		description: "Check every server and report the result",
-		action: "litellm.testConnection",
+		action: CMD.testConnection,
 	},
 	{
 		label: "$(pulse) Show Diagnostics",
 		description: "Connection state and per-server details",
-		action: "litellm.showDiagnostics",
+		action: CMD.showDiagnostics,
 	},
 	{
 		label: "$(key) Set Server Secret",
 		description: "Store an API key or OAuth secret outside settings files",
-		action: "litellm.setServerSecret",
+		action: CMD.setServerSecret,
 	},
 	{
 		label: "$(settings-gear) Open Settings",
@@ -307,12 +310,12 @@ const HUB_ITEMS: readonly HubItem[] = [
 	{
 		label: "$(question) Help & Feedback",
 		description: "Documentation, feature requests, bug reports",
-		action: "litellm.helpAndFeedback",
+		action: CMD.helpAndFeedback,
 	},
 	{
 		label: "$(report) Report Issue",
 		description: "Open a prefilled GitHub issue",
-		action: "litellm.reportIssue",
+		action: CMD.reportIssue,
 	},
 ];
 
@@ -396,7 +399,7 @@ export function registerManageCommand(
 	isMigrated: () => boolean = () => false
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.manage", async () => {
+		vscode.commands.registerCommand(CMD.manage, async () => {
 			const pick = await vscode.window.showQuickPick([...HUB_ITEMS], {
 				title: "LiteLLM",
 				placeHolder: "Select an action",
@@ -412,7 +415,7 @@ export function registerManageCommand(
 				await vscode.commands.executeCommand(pick.action);
 			}
 		}),
-		vscode.commands.registerCommand("litellm.manageServers", () =>
+		vscode.commands.registerCommand(INTERNAL_CMD.manageServers, () =>
 			openServerManagement(registry, logger, getUiMode(), isMigrated)
 		)
 	);

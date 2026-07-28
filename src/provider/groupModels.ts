@@ -1,4 +1,5 @@
 import type { LanguageModelChatInformation } from "vscode";
+import { normalizeBaseUrl } from "../shared/baseUrl";
 import { fingerprint } from "../shared/fingerprint";
 import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../shared/headers";
 import { isRecord } from "../shared/json";
@@ -152,7 +153,8 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 	if (!isRecord(configuration)) {
 		return undefined;
 	}
-	const baseUrl = usableString(configuration.baseUrl)?.replace(/\/+$/, "");
+	const rawBaseUrl = usableString(configuration.baseUrl);
+	const baseUrl = rawBaseUrl === undefined ? undefined : normalizeBaseUrl(rawBaseUrl);
 	if (baseUrl === undefined || baseUrl.length === 0) {
 		return undefined;
 	}

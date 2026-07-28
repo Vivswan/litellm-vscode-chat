@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { Logger } from "../shared/logger";
+import { CONFIG_SECTION } from "../shared/settingSpec";
 import { SERVERS_SETTING_KEY, updateServerSecret } from "./serverSync";
 
 /**
@@ -57,8 +58,6 @@ export interface DevSeedEnv {
 	/** Write or (with undefined) clear the label's secure-side key; the seed only clears - its key sits inline. */
 	storeApiKey(label: string, value: string | undefined): Promise<void>;
 }
-
-const CONFIG_SECTION = "litellm-vscode-chat";
 
 export function createDevSeedEnv(secrets: vscode.SecretStorage): DevSeedEnv {
 	return {
