@@ -10,12 +10,10 @@ import {
 	closeSync,
 	createWriteStream,
 	existsSync,
-	lstatSync,
 	mkdirSync,
 	openSync,
 	readdirSync,
 	readFileSync,
-	readlinkSync,
 	readSync,
 	rmSync,
 	statSync,
@@ -25,16 +23,6 @@ import {
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { composeSetting, readEnvFile, STACK_DEFAULTS } from "./litellmConfig";
-
-/** Whether a directory entry exists at all, symlink targets notwithstanding (existsSync follows symlinks). */
-function pathEntryExists(path: string): boolean {
-	try {
-		lstatSync(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
 
 const root = process.cwd();
 
@@ -151,10 +139,11 @@ console.log(`[dev:fake] seed written for ${seed.baseUrl}`);
 // profile: the existing group already matches what the sync engine expects.
 // DX cost: changing LITELLM_PORT or LITELLM_MASTER_KEY discards the whole
 // profile, including the Copilot Chat sign-in, so the next run signs in again.
-// F5's "Run Extension" launch shares this profile; because of the Electron
-// singleton, running dev:fake while an F5 host is up hands the arguments to
-// that running instance - and a changed fingerprint wipes that live session's
-// profile out from under it, so close the F5 host first.
+// F5's "Run Extension" launch shares this profile; VS Code enforces one
+// instance per user-data-dir (its code.lock), so running dev:fake while an
+// F5 host is up hands the arguments to that running instance - and a changed
+// fingerprint wipes that live session's profile out from under it, so close
+// the F5 host first.
 const profileDir = join(root, ".dev-profile");
 // rmSync below is destructive, so the root must be this repository before it
 // runs: a wrong cwd (never expected, since compose already ran here) must not
@@ -183,13 +172,11 @@ const seedFingerprint = createHash("sha256").update(JSON.stringify(seed)).digest
 const previousFingerprint = existsSync(markerFile) ? readFileSync(markerFile, "utf8").trim() : undefined;
 if (previousFingerprint !== seedFingerprint) {
 	if (existsSync(profileDir)) {
-		// Electron drops a SingletonLock in a live user-data-dir; wiping while a
-		// dev host still holds it would yank state from under it. This is not a
-		// hard lock (no cross-process guarantee), just a heads-up for the common
-		// case of a second dev:fake with a changed port. The lock is typically a
-		// dangling symlink (it points at hostname-pid, not a real file), which
-		// existsSync would report as absent, so presence is checked with lstat.
-		if (pathEntryExists(join(profileDir, "SingletonLock"))) {
+		// Wiping while a dev host still runs on this profile would yank state
+		// out from under it. Not a hard lock (no cross-process guarantee), just
+		// a heads-up for the common case of a second dev:fake with a changed
+		// port; the running host is found by argv (see findDevHostPid).
+		if (findDevHostPid() !== undefined) {
 			console.warn(
 				"[dev:fake] warning: the dev profile looks in use by another Extension Development Host; close it before continuing"
 			);
@@ -318,8 +305,8 @@ function killLogChildren(): void {
 // from a snapshot taken BEFORE the host launches (see below): everything
 // already in a channel file is history, everything appended afterwards
 // streams - including appends to a session directory that predates this
-// launch, which happens whenever the Electron singleton routes the new window
-// into an already-running session.
+// launch, which happens whenever the single-instance hand-off routes the new
+// window into an already-running session.
 const extensionLogId = `${packageMeta.publisher ?? ""}.${packageMeta.name ?? ""}`;
 const tailOffsets = new Map<string, number>();
 const vscodeSink = createWriteStream(join(logsDir, "vscode-extension.log"));
@@ -408,38 +395,57 @@ console.log("[dev:fake] window launched; the seed configures the server on activ
 const tailTimer = setInterval(tailExtensionLogsOnce, 1000);
 
 /**
- * Close the Extension Development Host with the stack: Electron's
- * SingletonLock in the dedicated profile is a symlink to "<hostname>-<pid>",
- * and nothing but dev:fake (or the F5 launch sharing this profile) uses the
- * profile, so that pid can only be the dev host. The command line is still
- * verified to mention the profile dir before signalling, so a stale lock
- * pointing at a recycled pid never kills an unrelated process.
+ * The dev host's Electron MAIN process pid, found by argv: the exact
+ * --user-data-dir element for this profile, excluding Chromium helper
+ * processes by their --type= argument (crashpad is the one helper without
+ * --type=, but it carries --database=, never --user-data-dir=, so the
+ * whole-element match already skips it). VS Code does not use Chromium's
+ * ProcessSingleton, so there is no SingletonLock to read on ANY platform;
+ * it maintains its own code.lock with the main pid, which would also work
+ * but is undocumented, while argv is observable everywhere ps exists. The
+ * whole-element match means a sibling profile like "<profileDir>-other"
+ * can never be mistaken for this one. The LAST match wins: when an old and
+ * a new dev host briefly overlap (relaunch after a config change), the
+ * newer process appears later in kernel enumeration more often than not,
+ * and single-host runs are unaffected.
+ */
+function findDevHostPid(): number | undefined {
+	// -ww: GNU ps truncates command= to COLUMNS otherwise, which would
+	// silently hide a long profile path; macOS accepts the flag as a no-op.
+	const ps = spawnSync("ps", ["-axww", "-o", "pid=,command="], { encoding: "utf8" });
+	if (ps.status !== 0) {
+		return undefined;
+	}
+	const flag = `--user-data-dir=${profileDir}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const element = new RegExp(`(^|\\s)${flag}(\\s|$)`);
+	let found: number | undefined;
+	for (const line of ps.stdout.split("\n")) {
+		if (!element.test(line.trimEnd()) || / --type=/.test(line)) {
+			continue;
+		}
+		const pid = Number(line.trim().split(/\s+/, 1)[0]);
+		if (Number.isInteger(pid) && pid > 0) {
+			found = pid;
+		}
+	}
+	return found;
+}
+
+/**
+ * Close the Extension Development Host with the stack. The main process
+ * hosts every window on this profile, so an F5-launched dev host sharing it
+ * closes too - same trade the profile-wipe logic makes.
  */
 function closeDevHost(): void {
-	let target: string;
-	try {
-		target = readlinkSync(join(profileDir, "SingletonLock"));
-	} catch {
+	const pid = findDevHostPid();
+	if (pid === undefined) {
 		return;
 	}
-	const pid = Number(target.split("-").pop());
-	if (!Number.isInteger(pid) || pid <= 0) {
-		return;
-	}
-	const ps = spawnSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" });
-	// The flag must be a whole argv element: a substring check would also
-	// accept a sibling profile like "<profileDir>-other" on a recycled pid.
-	const flag = `--user-data-dir=${profileDir}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	if (ps.status !== 0 || !new RegExp(`(^|\\s)${flag}(\\s|$)`).test(ps.stdout.trimEnd())) {
-		return;
-	}
-	// Note: the singleton hosts every window on this profile, so an F5-launched
-	// dev host sharing it closes too - same trade the profile-wipe logic makes.
 	console.log("[dev:fake] closing the Extension Development Host");
 	try {
 		process.kill(pid, "SIGTERM");
 	} catch {
-		// Already gone between the check and the signal.
+		// Already gone between the scan and the signal.
 	}
 }
 
