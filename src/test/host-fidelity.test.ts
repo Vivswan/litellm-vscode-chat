@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { type CaptureServer, createCaptureServer } from "./capture-server";
+import { MODEL_ID as CAPTURE_MODEL_ID, type CaptureServer, createCaptureServer } from "./capture-server";
 import {
 	addServer,
 	clearServers,
@@ -37,7 +37,6 @@ const REAL_API_KEY = process.env.LITELLM_REAL_API_KEY ?? "";
 const REAL_MODEL_ID = process.env.LITELLM_REAL_MODEL || "";
 const REAL_TIMEOUT = Number(process.env.LITELLM_REAL_TIMEOUT) || 0;
 const IS_LIVE = !!REAL_BASE_URL;
-const CAPTURE_MODEL_ID = "openai/gpt-5-mini-flex";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -878,8 +877,8 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			await config.update(
 				"modelParameters",
 				{
-					"openai/gpt-5-mini-flex": { temperature: 0.5 },
-					"ServerA/openai/gpt-5-mini-flex": { temperature: 0.2 },
+					[CAPTURE_MODEL_ID]: { temperature: 0.5 },
+					[`ServerA/${CAPTURE_MODEL_ID}`]: { temperature: 0.2 },
 				},
 				vscode.ConfigurationTarget.Global
 			);
@@ -913,8 +912,8 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			await config.update(
 				"modelParameters",
 				{
-					"openai/gpt-5-mini-flex": { temperature: 0.5 },
-					"ServerA/openai/gpt-5-mini-flex": { temperature: 0.2 },
+					[CAPTURE_MODEL_ID]: { temperature: 0.5 },
+					[`ServerA/${CAPTURE_MODEL_ID}`]: { temperature: 0.2 },
 				},
 				vscode.ConfigurationTarget.Global
 			);

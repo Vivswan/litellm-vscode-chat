@@ -13,9 +13,24 @@ import { COMMAND_SIGIL } from "./commands";
 import type { FakeModel, FakeModelCapabilities, FakeModelPricing } from "./models";
 import { FAKE_MODELS } from "./models";
 
-const FAKE_API_BASE = "http://fake-openai:8080/v1";
+/**
+ * The container-internal port the fake OpenAI backend binds.
+ * scripts/fake-openai-server.ts defaults its PORT env to this number, and
+ * docker-compose.yml restates it three times (the service's PORT env, the
+ * host mapping's container side, the healthcheck URL); stackDrift.test.ts
+ * pins those compose copies.
+ */
+export const FAKE_BACKEND_PORT = 8080;
 
-const REAL_PROVIDERS: ReadonlyArray<{ prefix: string; envVar: string }> = [
+const FAKE_API_BASE = `http://fake-openai:${FAKE_BACKEND_PORT}/v1`;
+
+/**
+ * The real-provider wildcard routes the generated config may emit, keyed by
+ * the API-key variable each route reads via os.environ inside the container.
+ * docker-compose.yml must pass every envVar through to the litellm service
+ * and .env.example must template it; stackDrift.test.ts pins both.
+ */
+export const REAL_PROVIDERS: ReadonlyArray<{ prefix: string; envVar: string }> = [
 	{ prefix: "openai", envVar: "OPENAI_API_KEY" },
 	{ prefix: "anthropic", envVar: "ANTHROPIC_API_KEY" },
 	{ prefix: "github", envVar: "GITHUB_API_KEY" },

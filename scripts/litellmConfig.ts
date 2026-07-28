@@ -20,12 +20,12 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { composeSetting, parseEnvFile } from "../src/test/envFile";
+import { composeSetting, parseEnvFile, STACK_DEFAULTS } from "../src/test/envFile";
 import type { GenerateOptions } from "../src/test/fakeStack/proxyConfig";
 import { generateConfig as emitConfig } from "../src/test/fakeStack/proxyConfig";
 
 export type { GenerateOptions };
-export { composeSetting };
+export { composeSetting, STACK_DEFAULTS };
 
 /**
  * Read and parse the stack's .env file with the compose-conformant grammar

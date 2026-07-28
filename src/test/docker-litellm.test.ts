@@ -2,7 +2,9 @@ import * as assert from "node:assert";
 import { createHash } from "node:crypto";
 import * as vscode from "vscode";
 import { REASONING_EFFORT_SCHEMA } from "../provider/modelConfiguration";
+import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL, COMMANDS, FALLBACK_TEXT, PNG_SHA256, WAV_SHA256 } from "./fakeStack/commands";
+import { PLAYBACK_MODEL } from "./fakeStack/models";
 import {
 	addServer,
 	clearServers,
@@ -30,7 +32,7 @@ import { expectDefined } from "./testUtils";
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
-const API_KEY = process.env.LITELLM_DOCKER_API_KEY || "sk-test-1234";
+const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
 /** The six host-visible consolidated survivors; gpt-4-turbo is blocked and must never appear. */
@@ -87,7 +89,7 @@ suite("Docker LiteLLM stack", () => {
 
 	/** Plays a canned scenario through the default playback target. */
 	const play = (scenario: string, options: vscode.LanguageModelChatRequestOptions = {}) =>
-		say("gpt-5.2-mini", `${COMMAND_SIGIL}play:${scenario}`, options);
+		say(PLAYBACK_MODEL.alias, `${COMMAND_SIGIL}play:${scenario}`, options);
 
 	/** The chat body LiteLLM forwarded to the fake backend for the last request. */
 	async function lastForwardedRequest(): Promise<ChatBody> {
@@ -823,7 +825,7 @@ suite("Docker LiteLLM stack", () => {
 				method: "POST",
 				headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" },
 				body: JSON.stringify({
-					model: "gpt-5.2-mini",
+					model: PLAYBACK_MODEL.alias,
 					stream: true,
 					messages: [{ role: "user", content: command }],
 				}),
@@ -1070,10 +1072,10 @@ suite("Docker LiteLLM stack", () => {
 			this.timeout(60000);
 			const models = await waitForHostModels(
 				60000,
-				(candidates) => candidates.some((m) => m.id === "gpt-5.2-mini"),
-				"the provider group to expose gpt-5.2-mini"
+				(candidates) => candidates.some((m) => m.id === PLAYBACK_MODEL.alias),
+				`the provider group to expose ${PLAYBACK_MODEL.alias}`
 			);
-			const model = expectDefined(models.find((m) => m.id === "gpt-5.2-mini"));
+			const model = expectDefined(models.find((m) => m.id === PLAYBACK_MODEL.alias));
 			const response = await model.sendRequest(
 				[vscode.LanguageModelChatMessage.User("hi")],
 				{},

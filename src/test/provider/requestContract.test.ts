@@ -2,7 +2,14 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { findLongestPrefixMatch, getModelParameters } from "../../provider/request";
-import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseResponse, useMsw } from "../mocks/handlers";
+import {
+	CHAT_COMPLETIONS_URL,
+	discoveryHandlers,
+	mswServer,
+	sseResponse,
+	TEST_BASE_URL,
+	useMsw,
+} from "../mocks/handlers";
 import {
 	captureRequest,
 	captureRequestBody,
@@ -36,7 +43,7 @@ suite("provider/request contract", () => {
 
 	suite("token constraints", () => {
 		test("uses token constraints from provider info when available", async () => {
-			const provider = makeProvider("http://litellm.test");
+			const provider = makeProvider(TEST_BASE_URL);
 			mswServer.use(
 				...discoveryHandlers(
 					singleProviderListing({ context_length: 100000, max_output_tokens: 8000, max_input_tokens: 90000 })
@@ -55,7 +62,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("registers models as selectable BYOK entries without the retired metadata bag", async () => {
-			const provider = makeProvider("http://litellm.test");
+			const provider = makeProvider(TEST_BASE_URL);
 			mswServer.use(...discoveryHandlers(singleProviderListing({})));
 
 			const infos = await provider.provideLanguageModelChatInformation(
@@ -79,7 +86,7 @@ suite("provider/request contract", () => {
 			const infos = await withConfig(
 				{ defaultMaxOutputTokens: 20000, defaultContextLength: 200000, defaultMaxInputTokens: null },
 				() =>
-					makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+					makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 						{ silent: true },
 						new vscode.CancellationTokenSource().token
 					)
@@ -97,7 +104,7 @@ suite("provider/request contract", () => {
 				)
 			);
 			const infos = await withConfig({ defaultMaxInputTokens: 50000 }, () =>
-				makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+				makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				)
@@ -114,7 +121,7 @@ suite("provider/request contract", () => {
 				)
 			);
 			const infos = await withConfig({ defaultMaxInputTokens: 48000 }, () =>
-				makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+				makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				)
@@ -127,7 +134,7 @@ suite("provider/request contract", () => {
 		test("uses hardcoded defaults when provider and settings absent", async () => {
 			mswServer.use(...discoveryHandlers(singleProviderListing({})));
 			const infos = await withConfig({}, () =>
-				makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+				makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 					{ silent: true },
 					new vscode.CancellationTokenSource().token
 				)
@@ -139,7 +146,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("aggregates minimum token constraints for cheapest/fastest entries", async () => {
-			const provider = makeProvider("http://litellm.test");
+			const provider = makeProvider(TEST_BASE_URL);
 			mswServer.use(
 				...discoveryHandlers({
 					object: "list",
@@ -185,7 +192,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("provider max_output_tokens takes priority over max_tokens", async () => {
-			const provider = makeProvider("http://litellm.test");
+			const provider = makeProvider(TEST_BASE_URL);
 			mswServer.use(
 				...discoveryHandlers(
 					singleProviderListing({ context_length: 100000, max_tokens: 10000, max_output_tokens: 8000 })
@@ -451,7 +458,7 @@ suite("provider/request contract", () => {
 				{ report: () => {} },
 				new vscode.CancellationTokenSource().token
 			);
-			assert.equal(chatUrl, "http://litellm.test/v1/chat/completions");
+			assert.equal(chatUrl, `${TEST_BASE_URL}/v1/chat/completions`);
 		});
 	});
 
@@ -860,7 +867,7 @@ suite("provider/request contract", () => {
 		function trackUnexpectedRequests(): string[] {
 			const urls: string[] = [];
 			mswServer.use(
-				http.all("http://litellm.test/*", ({ request }) => {
+				http.all(`${TEST_BASE_URL}/*`, ({ request }) => {
 					urls.push(request.url);
 					return HttpResponse.error();
 				})
@@ -869,7 +876,7 @@ suite("provider/request contract", () => {
 		}
 
 		test("rejects when the estimated input exceeds the model token limit without sending a request", async () => {
-			const provider = makeProvider("http://litellm.test");
+			const provider = makeProvider(TEST_BASE_URL);
 			const requests = trackUnexpectedRequests();
 			await assert.rejects(
 				provider.provideLanguageModelChatResponse(
@@ -885,7 +892,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("rejects requests with more than 128 tools without sending a request", async () => {
-			const provider = makeProvider("http://litellm.test");
+			const provider = makeProvider(TEST_BASE_URL);
 			const tools = Array.from({ length: 129 }, (_, i) => ({
 				name: `tool_${i}`,
 				description: "a tool",

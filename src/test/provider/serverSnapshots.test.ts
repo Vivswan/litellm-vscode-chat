@@ -7,6 +7,7 @@ import {
 	MODEL_INFO_URL,
 	MODELS_URL,
 	mswServer,
+	TEST_BASE_URL,
 	useMsw,
 } from "../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider } from "../testUtils";
@@ -22,7 +23,7 @@ suite("provider server snapshots", () => {
 	useMsw();
 
 	test("a registry sweep records each server's status together with its built models", async () => {
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 
 		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
@@ -41,7 +42,7 @@ suite("provider server snapshots", () => {
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 
 		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test", apiKey: "group-secret" }),
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "group-secret" }),
 			cancellation()
 		);
 
@@ -63,7 +64,7 @@ suite("provider server snapshots", () => {
 		);
 
 		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test", apiKey: "k" }),
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" }),
 			cancellation()
 		);
 
@@ -76,7 +77,7 @@ suite("provider server snapshots", () => {
 	test("a cached group refresh still records the models", async () => {
 		const provider = makeProvider();
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
-		const configuration = groupOptions({ baseUrl: "http://litellm.test", apiKey: "k" });
+		const configuration = groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" });
 
 		await provider.provideLanguageModelChatInformation(configuration, cancellation());
 		// Second refresh in the same cycle is served from the discovery cache.
@@ -112,7 +113,7 @@ suite("provider server snapshots", () => {
 		// Then a per-group refresh arrives: the latch flips the moment the host
 		// hands the configuration, independent of the fetch outcome.
 		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test", apiKey: "k" }),
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" }),
 			cancellation()
 		);
 		assert.strictEqual(provider.hasSeenGroupConfiguration(), true);

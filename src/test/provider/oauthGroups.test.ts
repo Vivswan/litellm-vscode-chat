@@ -9,6 +9,7 @@ import {
 	MODELS_URL,
 	mswServer,
 	sseTextResponse,
+	TEST_BASE_URL,
 	useMsw,
 } from "../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, toHeaderMap, userMessage } from "../testUtils";
@@ -16,7 +17,7 @@ import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, toHeaderMap, us
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
 const OAUTH_GROUP_CONFIGURATION = {
-	baseUrl: "http://litellm.test",
+	baseUrl: TEST_BASE_URL,
 	oauthTokenUrl: TOKEN_URL,
 	oauthClientId: "client-1",
 	oauthClientSecret: "secret-1",

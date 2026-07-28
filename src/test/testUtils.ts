@@ -5,7 +5,7 @@ import { LiteLLMChatModelProvider } from "../provider";
 import type { LiteLLMModelInfo } from "../provider/groupModels";
 import { Logger } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
-import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse } from "./mocks/handlers";
+import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
 
 /** Assert that an indexed read produced a value and return it narrowed. */
 export function expectDefined<T>(value: T | undefined, message = "expected value to be defined"): T {
@@ -91,7 +91,7 @@ export function makeProvider(
 }
 
 export function createConfiguredProvider(): LiteLLMChatModelProvider {
-	return makeProvider("http://litellm.test");
+	return makeProvider(TEST_BASE_URL);
 }
 
 export function makeModelInfo(overrides: Partial<LiteLLMModelInfo> = {}): LiteLLMModelInfo {

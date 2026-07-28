@@ -11,6 +11,7 @@ import {
 	MODELS_URL,
 	mswServer,
 	sseTextResponse,
+	TEST_BASE_URL,
 	useMsw,
 } from "../mocks/handlers";
 import {
@@ -38,7 +39,7 @@ suite("provider groups", () => {
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test", apiKey: "group-key" }),
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "group-key" }),
 			cancellation()
 		);
 
@@ -73,7 +74,7 @@ suite("provider groups", () => {
 		);
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test", apiKey: "group-key" }),
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "group-key" }),
 			cancellation()
 		);
 
@@ -102,7 +103,7 @@ suite("provider groups", () => {
 		);
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test/", apiKey: "group-key" }),
+			groupOptions({ baseUrl: `${TEST_BASE_URL}/`, apiKey: "group-key" }),
 			cancellation()
 		);
 		const model = expectDefined(infos[0]);
@@ -116,7 +117,7 @@ suite("provider groups", () => {
 		);
 
 		const request = expectDefined(captured, "no chat request reached the mock server");
-		assert.strictEqual(request.url, "http://litellm.test/v1/chat/completions");
+		assert.strictEqual(request.url, `${TEST_BASE_URL}/v1/chat/completions`);
 		assert.strictEqual(request.body.model, "test-model");
 		assert.strictEqual(request.headers["x-api-key"], "group-key");
 	});
@@ -133,7 +134,7 @@ suite("provider groups", () => {
 		);
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
+			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
 		await provider.provideLanguageModelChatResponse(
@@ -174,7 +175,7 @@ suite("provider groups", () => {
 		);
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
+			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
 		await withConfig({ "promptCaching.enabled": true }, () =>
@@ -224,7 +225,7 @@ suite("provider groups", () => {
 		);
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
+			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
 		await withConfig({ modelParameters: {} }, () =>
@@ -273,12 +274,9 @@ suite("provider groups", () => {
 			})
 		);
 
-		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
-			cancellation()
-		);
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		const secondSweep = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
+			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
 		assert.strictEqual(discoveryHits, 1, "the second sweep must be served from the discovery cache");
@@ -331,13 +329,13 @@ suite("provider groups", () => {
 		);
 
 		const first = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
+			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
 		assert.deepStrictEqual(expectDefined(first[0]).configurationSchema, REASONING_EFFORT_SCHEMA);
 
 		const second = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
+			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
 		assert.strictEqual(discoveryHits, 1, "the second sweep must be served from the discovery cache");
@@ -379,7 +377,7 @@ suite("provider groups", () => {
 		);
 
 		const infos = await withConfig({ defaultMaxOutputTokens: 16000 }, () =>
-			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: "http://litellm.test" }), cancellation())
+			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation())
 		);
 		await withConfig({ modelParameters: {} }, () =>
 			provider.provideLanguageModelChatResponse(
@@ -406,10 +404,10 @@ suite("provider groups", () => {
 		);
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
+			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
-		await withConfig({ modelParameters: { "http://litellm.test/test-model": { temperature: 0.9 } } }, () =>
+		await withConfig({ modelParameters: { [`${TEST_BASE_URL}/test-model`]: { temperature: 0.9 } } }, () =>
 			provider.provideLanguageModelChatResponse(
 				expectDefined(infos[0]),
 				[userMessage("hi")],
@@ -424,7 +422,7 @@ suite("provider groups", () => {
 
 	test("label-scoped modelParameters resolve through the migrated label map", async () => {
 		const provider = makeProvider();
-		provider.setMigratedServerLabels(() => ({ "http://litellm.test": ["Production"] }));
+		provider.setMigratedServerLabels(() => ({ [TEST_BASE_URL]: ["Production"] }));
 		let body: Record<string, unknown> | undefined;
 		mswServer.use(
 			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
@@ -435,7 +433,7 @@ suite("provider groups", () => {
 		);
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
+			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
 		await withConfig({ modelParameters: { "Production/test-model": { top_p: 0.5 } } }, () =>
@@ -458,7 +456,7 @@ suite("provider groups", () => {
 			error: (line: string) => lines.push(`ERROR: ${line}`),
 		} as unknown as vscode.LogOutputChannel;
 		const provider = makeProvider(undefined, "test-key", channel);
-		provider.setMigratedServerLabels(() => ({ "http://litellm.test": ["Production", "Staging"] }));
+		provider.setMigratedServerLabels(() => ({ [TEST_BASE_URL]: ["Production", "Staging"] }));
 		let body: Record<string, unknown> | undefined;
 		mswServer.use(
 			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
@@ -469,7 +467,7 @@ suite("provider groups", () => {
 		);
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
+			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
 		const chat = () =>
@@ -533,7 +531,7 @@ suite("provider groups", () => {
 	});
 
 	test("the group-agnostic refresh returns no models once the registry gate closes", async () => {
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		provider.setGrouplessRegistryEnabled(() => false);
 
 		const infos = await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
@@ -542,7 +540,7 @@ suite("provider groups", () => {
 	});
 
 	test("the group-agnostic refresh keeps serving the registry while the gate allows it", async () => {
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		provider.setGrouplessRegistryEnabled(() => true);
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 
@@ -566,10 +564,7 @@ suite("provider groups", () => {
 		// The host starts every refresh cycle with the group-agnostic call, then
 		// fetches each group.
 		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
-			cancellation()
-		);
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		await provider.provideLanguageModelChatInformation(
 			groupOptions({ baseUrl: "http://litellm.test:8080" }),
 			cancellation()
@@ -583,7 +578,7 @@ suite("provider groups", () => {
 	});
 
 	test("a group refresh leaves the registry route map untouched", async () => {
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 
@@ -596,10 +591,7 @@ suite("provider groups", () => {
 				data: [{ model_name: "other-model", model_info: { id: "other-model", supports_function_calling: true } }],
 			})
 		);
-		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
-			cancellation()
-		);
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 
 		assert.deepStrictEqual(
 			[...internals._client._modelRoutes.keys()],
@@ -622,7 +614,7 @@ suite("provider groups", () => {
 		);
 
 		const infos = await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test", apiKey }),
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey }),
 			cancellation()
 		);
 		await provider.provideLanguageModelChatResponse(
@@ -652,11 +644,11 @@ suite("provider groups", () => {
 
 		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test", apiKey: "good-key" }),
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "good-key" }),
 			cancellation()
 		);
 		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test", apiKey: "bad-key" }),
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "bad-key" }),
 			cancellation()
 		);
 
@@ -681,11 +673,11 @@ suite("provider groups", () => {
 			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl }), cancellation());
 
 		await groupless();
-		await fetchGroup("http://litellm.test");
+		await fetchGroup(TEST_BASE_URL);
 		await fetchGroup("http://litellm.test:8080");
 
 		await groupless();
-		await fetchGroup("http://litellm.test");
+		await fetchGroup(TEST_BASE_URL);
 		assert.strictEqual(
 			expectDefined(statuses.at(-1)).serverStatuses.length,
 			2,
@@ -693,7 +685,7 @@ suite("provider groups", () => {
 		);
 
 		await groupless();
-		await fetchGroup("http://litellm.test");
+		await fetchGroup(TEST_BASE_URL);
 		assert.strictEqual(
 			expectDefined(statuses.at(-1)).serverStatuses.length,
 			1,
@@ -716,11 +708,11 @@ suite("provider groups", () => {
 
 		// One sweep sees both groups; the next two sweeps (with no group-agnostic
 		// call in between) only see the first, so the second must age out.
-		await fetchGroup("http://litellm.test");
+		await fetchGroup(TEST_BASE_URL);
 		await fetchGroup("http://litellm.test:8080");
-		await fetchGroup("http://litellm.test");
+		await fetchGroup(TEST_BASE_URL);
 		assert.strictEqual(expectDefined(statuses.at(-1)).serverStatuses.length, 2, "one stale cycle is retained");
-		await fetchGroup("http://litellm.test");
+		await fetchGroup(TEST_BASE_URL);
 
 		assert.strictEqual(
 			expectDefined(statuses.at(-1)).serverStatuses.length,
@@ -739,10 +731,7 @@ suite("provider groups", () => {
 			http.get("http://litellm.test:8080/v1/models", () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
 		);
 
-		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
-			cancellation()
-		);
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		await provider.provideLanguageModelChatInformation(
 			groupOptions({ baseUrl: "http://litellm.test:8080" }),
 			cancellation()
@@ -753,17 +742,14 @@ suite("provider groups", () => {
 		try {
 			// The repeat fetch starts a new cycle; the TTL evicts the other group
 			// immediately instead of after the usual one-cycle grace.
-			await provider.provideLanguageModelChatInformation(
-				groupOptions({ baseUrl: "http://litellm.test" }),
-				cancellation()
-			);
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		} finally {
 			Date.now = realNow;
 		}
 
 		const last = expectDefined(statuses.at(-1));
 		assert.strictEqual(last.serverStatuses.length, 1, "entries older than the TTL must be evicted");
-		assert.strictEqual(expectDefined(last.serverStatuses[0]).baseUrl, "http://litellm.test");
+		assert.strictEqual(expectDefined(last.serverStatuses[0]).baseUrl, TEST_BASE_URL);
 	});
 
 	test("testKnownGroupConnections re-fetches every observed group server over the network", async () => {
@@ -778,7 +764,7 @@ suite("provider groups", () => {
 		);
 
 		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test", apiKey: "group-key" }),
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "group-key" }),
 			cancellation()
 		);
 		const hitsBefore = discoveryHits;
@@ -802,10 +788,7 @@ suite("provider groups", () => {
 			}),
 			http.get(MODELS_URL, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
 		);
-		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
-			cancellation()
-		);
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		const before = discoveryHits;
 
 		// This provider instance is not registered with the host, so the change
@@ -826,10 +809,7 @@ suite("provider groups", () => {
 			}),
 			http.get(MODELS_URL, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
 		);
-		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
-			cancellation()
-		);
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		const before = discoveryHits;
 
 		// A host that reacts with only the group-agnostic call produces zero
@@ -854,10 +834,7 @@ suite("provider groups", () => {
 			}),
 			http.get(MODELS_URL, () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
 		);
-		await provider.provideLanguageModelChatInformation(
-			groupOptions({ baseUrl: "http://litellm.test" }),
-			cancellation()
-		);
+		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 		const before = discoveryHits;
 
 		// Simulates the host reacting to the change event with a full refresh
@@ -865,10 +842,7 @@ suite("provider groups", () => {
 		provider.onDidChangeLanguageModelChatInformation(() => {
 			void (async () => {
 				await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-				await provider.provideLanguageModelChatInformation(
-					groupOptions({ baseUrl: "http://litellm.test" }),
-					cancellation()
-				);
+				await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 			})();
 		});
 

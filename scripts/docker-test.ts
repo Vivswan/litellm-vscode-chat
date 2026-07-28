@@ -15,8 +15,9 @@
 //   KEEP_DOCKER_STACK=1 bun run test:docker leave the stack running afterward
 
 import { execSync } from "node:child_process";
+import { PLAYBACK_MODEL } from "../src/test/fakeStack/models";
 import { resolveComposeCommand } from "./composeCommand";
-import { composeSetting, ensureGeneratedConfig, readEnvFile } from "./litellmConfig";
+import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } from "./litellmConfig";
 
 const args = process.argv.slice(2);
 const runFuzz = !args.includes("--skip-fuzz");
@@ -28,9 +29,9 @@ const runHostFidelity = !args.includes("--skip-host-fidelity");
 const envFile = readEnvFile();
 const setting = (key: string, fallback: string): string => composeSetting(key, fallback, envFile);
 
-const litellmPort = setting("LITELLM_PORT", "4000");
-const fakePort = setting("FAKE_OPENAI_PORT", "8090");
-const masterKey = setting("LITELLM_MASTER_KEY", "sk-test-1234");
+const litellmPort = setting("LITELLM_PORT", STACK_DEFAULTS.LITELLM_PORT);
+const fakePort = setting("FAKE_OPENAI_PORT", STACK_DEFAULTS.FAKE_OPENAI_PORT);
+const masterKey = setting("LITELLM_MASTER_KEY", STACK_DEFAULTS.LITELLM_MASTER_KEY);
 const baseUrl = `http://localhost:${litellmPort}`;
 const fakeUrl = `http://localhost:${fakePort}`;
 
@@ -74,7 +75,7 @@ try {
 		run("vscode-test --config .vscode-test.mjs --label host-fidelity", {
 			LITELLM_REAL_BASE_URL: baseUrl,
 			LITELLM_REAL_API_KEY: masterKey,
-			LITELLM_REAL_MODEL: "gpt-5.2-mini",
+			LITELLM_REAL_MODEL: PLAYBACK_MODEL.alias,
 		});
 	}
 } catch (error) {

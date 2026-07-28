@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
-import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, useMsw } from "../mocks/handlers";
+import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { expectDefined, makeProvider, toHeaderMap, withConfig } from "../testUtils";
 
 suite("provider/model info and fallback", () => {
@@ -25,7 +25,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		const infos = await provider.provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
@@ -50,7 +50,7 @@ suite("provider/model info and fallback", () => {
 		mswServer.use(http.get(MODEL_INFO_URL, captureHeaders), http.get(MODELS_URL, captureHeaders));
 
 		await withConfig({ headers: { "x-litellm-api-key": "proxy-key", "User-Agent": "spoofed-agent" } }, () =>
-			makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+			makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			)
@@ -81,7 +81,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		const infos = await provider.provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
@@ -111,7 +111,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		const infos = await provider.provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
@@ -136,7 +136,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		const infos = await provider.provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
@@ -166,7 +166,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const provider = makeProvider("http://litellm.test");
+		const provider = makeProvider(TEST_BASE_URL);
 		const infos = await provider.provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
@@ -194,7 +194,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+		const infos = await makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
 		);
@@ -223,7 +223,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+		const infos = await makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
 		);
@@ -252,7 +252,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+		const infos = await makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
 		);
@@ -275,7 +275,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+		const infos = await makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
 		);
@@ -314,7 +314,7 @@ suite("provider/model info and fallback", () => {
 			})
 		);
 
-		const infos = await makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+		const infos = await makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 			{ silent: true },
 			new vscode.CancellationTokenSource().token
 		);
@@ -335,7 +335,7 @@ suite("provider/model info and fallback", () => {
 
 	suite("reasoning-effort configuration schema", () => {
 		const discover = async () =>
-			makeProvider("http://litellm.test").provideLanguageModelChatInformation(
+			makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
 				{ silent: true },
 				new vscode.CancellationTokenSource().token
 			);

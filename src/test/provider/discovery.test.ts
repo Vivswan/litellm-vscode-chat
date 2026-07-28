@@ -19,6 +19,7 @@ import {
 	MODEL_INFO_URL,
 	MODELS_URL,
 	mswServer,
+	TEST_BASE_URL,
 	useMsw,
 } from "../mocks/handlers";
 import { expectDefined, withConfig, withFetch } from "../testUtils";
@@ -29,14 +30,14 @@ const TEST_TOKEN_DEFAULTS: TokenDefaults = { maxOutputTokens: 4096, contextLengt
 function request(log: (message: string, data?: unknown) => void = () => {}) {
 	const client = createServerClient({
 		serverId: "srv1",
-		baseUrl: "http://litellm.test",
+		baseUrl: TEST_BASE_URL,
 		apiKey: "test-key",
 		userAgent: "test-agent",
 		customHeaders: {},
 	});
 	return {
 		client,
-		baseUrl: "http://litellm.test",
+		baseUrl: TEST_BASE_URL,
 		discoveryTimeout: 5000,
 		tokenDefaults: TEST_TOKEN_DEFAULTS,
 		log,
@@ -452,7 +453,7 @@ suite("provider/discovery", () => {
 
 			const infos = await withConfig({ defaultMaxOutputTokens: 999, defaultContextLength: 777 }, async () => {
 				const { models } = await fetchModels({ ...request(), tokenDefaults: snapshot });
-				const server = { id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "test-key" };
+				const server = { id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "test-key" };
 				return buildModelInfos(models, server, 1, () => {}, snapshot).infos;
 			});
 

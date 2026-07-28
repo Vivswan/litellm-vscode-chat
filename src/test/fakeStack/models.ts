@@ -168,3 +168,32 @@ export const FAKE_MODELS: readonly FakeModel[] = [
 export const FAKE_MODEL_UPSTREAM_IDS: readonly string[] = FAKE_MODELS.filter((model) => !model.blocked).flatMap(
 	(model) => model.deployments.map((deployment) => deployment.upstreamModel)
 );
+
+/**
+ * The designated playback target (the catalog entry annotated above as the
+ * default for %play, the stream fuzzer, and the multi-turn suite), exported
+ * so target-selection plumbing (docker-conversation.test.ts, docker-litellm's
+ * play() helper, scripts/docker-test.ts's host-fidelity leg) reads one
+ * declaration. A catalog rename does NOT flow through automatically - the
+ * lookup below is by alias literal, so renaming gpt-5.2-mini throws here and
+ * the maintainer updates this one literal instead of hunting per-suite
+ * copies. The docker suites' own alias/upstream literals (docker-fuzz's
+ * proxy/direct pair, SURVIVOR_IDS, the routing asserts) stay independent
+ * oracles and must NOT be derived from this.
+ */
+export const PLAYBACK_MODEL: { readonly alias: string } = (() => {
+	const alias = "gpt-5.2-mini";
+	const model = FAKE_MODELS.find((candidate) => candidate.alias === alias);
+	if (model === undefined) {
+		throw new Error(`Playback target "${alias}" is not in FAKE_MODELS; update PLAYBACK_MODEL's alias literal`);
+	}
+	if (model.blocked === true) {
+		throw new Error(`Playback target "${alias}" is blocked, so it never registers; designate a survivor`);
+	}
+	// Single deployment is part of the designation (responses must not vary
+	// by routing); the deployment count is what this enforces.
+	if (model.deployments.length !== 1) {
+		throw new Error(`Playback target "${alias}" must keep exactly one deployment, found ${model.deployments.length}`);
+	}
+	return { alias: model.alias };
+})();

@@ -5,7 +5,7 @@ import { LiteLLMChatModelProvider } from "../../provider";
 import { DiscoveryCache } from "../../provider/discoveryCache";
 import { groupClientId, type LiteLLMModelInfo } from "../../provider/groupModels";
 import type { AggregatedStatus } from "../../shared/servers";
-import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, useMsw } from "../mocks/handlers";
+import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, withConfig } from "../testUtils";
 
 /** A manually advanced clock: the cache's one injectable time seam. */
@@ -160,7 +160,7 @@ suite("provider group discovery caching", () => {
 	}
 
 	const cancellation = () => new vscode.CancellationTokenSource().token;
-	const GROUP = { baseUrl: "http://litellm.test", apiKey: "group-key" };
+	const GROUP = { baseUrl: TEST_BASE_URL, apiKey: "group-key" };
 
 	/** Counting discovery handlers; one provider-side fetch is one /v1/model/info hit. */
 	function countingHandlers(): { hits: () => number } {
@@ -320,10 +320,10 @@ suite("provider group discovery caching", () => {
 
 		// Two full sweeps within the TTL: the second is answered from the cache.
 		await groupless();
-		await fetchGroup("http://litellm.test");
+		await fetchGroup(TEST_BASE_URL);
 		await fetchGroup("http://litellm.test:8080");
 		await groupless();
-		await fetchGroup("http://litellm.test");
+		await fetchGroup(TEST_BASE_URL);
 		await fetchGroup("http://litellm.test:8080");
 
 		assert.strictEqual(counter.hits(), 1, "the second sweep must be served from the cache");
@@ -336,8 +336,8 @@ suite("provider group discovery caching", () => {
 		const provider = makeProvider();
 		provider.setGrouplessRegistryEnabled(() => false);
 		countingHandlers();
-		const oldGroup = { baseUrl: "http://litellm.test", apiKey: "old-key" };
-		const newGroup = { baseUrl: "http://litellm.test", apiKey: "new-key" };
+		const oldGroup = { baseUrl: TEST_BASE_URL, apiKey: "old-key" };
+		const newGroup = { baseUrl: TEST_BASE_URL, apiKey: "new-key" };
 		const internals = provider as unknown as { _discoveryCache: DiscoveryCache<unknown> };
 		const groupless = () => provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 
