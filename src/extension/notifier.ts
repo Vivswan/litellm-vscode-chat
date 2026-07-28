@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
 import type { ConfigurationPrompt } from "../provider/config";
+import { CMD, INTERNAL_CMD } from "../shared/commandIds";
+import { GITHUB_DOCS_URL } from "../shared/links";
 import type { AggregatedStatus } from "../shared/servers";
-
-const GITHUB_DOCS = "https://github.com/Vivswan/litellm-vscode-chat#quick-start";
 
 export interface MessageAction {
 	label: string;
@@ -28,11 +28,11 @@ export async function showActionableMessage(
 }
 
 export function reconfigureAction(label = "Reconfigure"): MessageAction {
-	return { label, run: () => void vscode.commands.executeCommand("litellm.manageServers") };
+	return { label, run: () => void vscode.commands.executeCommand(INTERNAL_CMD.manageServers) };
 }
 
 export function reportIssueAction(label = "Report Issue"): MessageAction {
-	return { label, run: () => void vscode.commands.executeCommand("litellm.reportIssue") };
+	return { label, run: () => void vscode.commands.executeCommand(CMD.reportIssue) };
 }
 
 export function viewOutputAction(channel: vscode.OutputChannel, label = "View Output"): MessageAction {
@@ -40,7 +40,7 @@ export function viewOutputAction(channel: vscode.OutputChannel, label = "View Ou
 }
 
 export function testConnectionAction(label = "Test Connection"): MessageAction {
-	return { label, run: () => void vscode.commands.executeCommand("litellm.testConnection") };
+	return { label, run: () => void vscode.commands.executeCommand(CMD.testConnection) };
 }
 
 export function openChatAction(label = "Open Chat"): MessageAction {
@@ -73,11 +73,11 @@ export function createConfigurationPrompt(hasConfiguredServers: () => boolean): 
 				"Learn More"
 			);
 			if (choice === "Configure Now") {
-				await vscode.commands.executeCommand("litellm.manageServers");
+				await vscode.commands.executeCommand(INTERNAL_CMD.manageServers);
 				return true;
 			}
 			if (choice === "Learn More") {
-				void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS));
+				void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS_URL));
 			}
 			return false;
 		},

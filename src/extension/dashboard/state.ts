@@ -13,8 +13,10 @@ import { z } from "zod";
 import type { ServerModelsSnapshot } from "../../provider";
 import type { GroupServer, LiteLLMModelInfo } from "../../provider/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/groupModels";
+import { normalizeBaseUrl } from "../../shared/baseUrl";
+import { CMD, INTERNAL_CMD } from "../../shared/commandIds";
 import { fingerprint } from "../../shared/fingerprint";
-import { isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
+import { isHeaderScalar, isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
 import { isUnsafeRecordKey } from "../../shared/json";
 import type { OptionalEntryFields } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
@@ -131,11 +133,6 @@ function buildServer(snapshot: ServerModelsSnapshot, label: string): DashboardSe
 		origin: "external",
 		adoptHandle: adoptSourceHandle(status.serverId),
 	};
-}
-
-/** Trailing slashes are insignificant when matching a declared entry to a live group. */
-function normalizeBaseUrl(baseUrl: string): string {
-	return baseUrl.replace(/\/+$/, "");
 }
 
 /**
@@ -351,7 +348,7 @@ function sanitizeHeaders(raw: unknown): Record<string, HeaderScalar> {
 		if (isUnsafeRecordKey(name)) {
 			continue;
 		}
-		if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+		if (isHeaderScalar(value)) {
 			headers[name] = value;
 		}
 	}
@@ -495,7 +492,7 @@ export function resolveAdoptableCredentials(
 	};
 }
 
-const headerScalarSchema = z.union([z.string(), z.number(), z.boolean()]);
+const headerScalarSchema = z.custom<HeaderScalar>(isHeaderScalar);
 
 const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminatedUnion("action", [
 	z.strictObject({ action: z.literal("keep") }),
@@ -649,10 +646,10 @@ export interface IntentEnvironment {
 }
 
 const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readonly unknown[] }> = {
-	manageServers: { command: "litellm.manageServers", args: [] },
-	syncModels: { command: "litellm.syncModels", args: [] },
-	testConnection: { command: "litellm.testConnection", args: [] },
-	showDiagnostics: { command: "litellm.showDiagnostics", args: [] },
+	manageServers: { command: INTERNAL_CMD.manageServers, args: [] },
+	syncModels: { command: CMD.syncModels, args: [] },
+	testConnection: { command: CMD.testConnection, args: [] },
+	showDiagnostics: { command: CMD.showDiagnostics, args: [] },
 	openSettings: { command: "workbench.action.openSettings", args: [EXTENSION_SETTINGS_FILTER] },
 };
 

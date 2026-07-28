@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
+import { GITHUB_REPO_URL } from "./shared/links";
 import { openUrl } from "./shared/openUrl";
 
-const GITHUB_REPO_URL = "https://github.com/Vivswan/litellm-vscode-chat";
 const MAX_LOG_ENTRIES = 50;
 const MAX_URL_LENGTH = 8000;
 const COMPACT_STACK_LINES = 8;

@@ -1,6 +1,8 @@
 import { fingerprint } from "../shared/fingerprint";
 import { isValidHeaderValue } from "../shared/headers";
 import { isRecord } from "../shared/json";
+import { CONFIG_SECTION } from "../shared/settingSpec";
+import { DISCOVERY_MAX_RETRIES } from "./discovery";
 import { RequestError } from "./errorMapping";
 
 /**
@@ -47,9 +49,6 @@ const REFRESH_SKEW_MS = 60_000;
 
 /** Applied when the token response omits expires_in (RFC 6749 only recommends it). */
 const DEFAULT_EXPIRES_IN_SECONDS = 300;
-
-/** Matches the discovery GETs' maxRetries; the client-credentials exchange is just as safe to repeat. */
-const TOKEN_MAX_RETRIES = 2;
 
 const RETRY_DELAY_MS = 200;
 
@@ -173,7 +172,7 @@ function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
 
 function timeoutError(tokenUrl: string, timeoutMs: number, cause?: unknown): RequestError {
 	return new RequestError(
-		`OAuth token request to ${tokenUrl} timed out after ${timeoutMs}ms. Increase the "litellm-vscode-chat.discoveryTimeout" setting if your identity provider needs more time.`,
+		`OAuth token request to ${tokenUrl} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discoveryTimeout" setting if your identity provider needs more time.`,
 		"timeout",
 		{ cause }
 	);
@@ -273,7 +272,8 @@ async function exchangeClientCredentials(
 	});
 
 	let lastFailure: unknown;
-	for (let attempt = 0; attempt <= TOKEN_MAX_RETRIES; attempt += 1) {
+	// The client-credentials exchange is idempotent, so it retries like the discovery GETs.
+	for (let attempt = 0; attempt <= DISCOVERY_MAX_RETRIES; attempt += 1) {
 		if (attempt > 0) {
 			await sleepUnlessAborted(RETRY_DELAY_MS * attempt, signal);
 			// The outer signal wins the classification when both have fired: an

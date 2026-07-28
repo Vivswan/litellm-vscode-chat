@@ -14,6 +14,13 @@ import type {
 import { modelInfoId, providerEntrySchema, rawModelInfoItemSchema, rawModelItemSchema } from "./schemas";
 
 /**
+ * The retry budget for discovery GETs. They are idempotent, so retrying is
+ * safe; chat completions never retry. auth.ts reuses this for the equally
+ * idempotent OAuth token exchange.
+ */
+export const DISCOVERY_MAX_RETRIES = 2;
+
+/**
  * Accept an entry shaped like a models-listing item: `id` must be a string
  * and `providers`, when present, must be an array (/v1/models items omit it).
  */
@@ -445,7 +452,12 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		const infoSignal = AbortSignal.timeout(discoveryTimeout);
 		const parsedInfo: unknown = coerceJsonPayload(
 			await boundedBySignal(
-				client.get("/model/info", { signal: infoSignal, timeout: discoveryTimeout, maxRetries: 2, headers }),
+				client.get("/model/info", {
+					signal: infoSignal,
+					timeout: discoveryTimeout,
+					maxRetries: DISCOVERY_MAX_RETRIES,
+					headers,
+				}),
 				infoSignal
 			),
 			baseUrl
@@ -487,7 +499,12 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	try {
 		parsed = coerceJsonPayload(
 			await boundedBySignal(
-				client.get("/models", { signal: timeoutSignal, timeout: discoveryTimeout, maxRetries: 2, headers }),
+				client.get("/models", {
+					signal: timeoutSignal,
+					timeout: discoveryTimeout,
+					maxRetries: DISCOVERY_MAX_RETRIES,
+					headers,
+				}),
 				timeoutSignal
 			),
 			baseUrl

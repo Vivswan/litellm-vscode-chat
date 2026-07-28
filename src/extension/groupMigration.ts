@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { z } from "zod";
+import { VENDOR_ID } from "../shared/commandIds";
 import { fingerprint } from "../shared/fingerprint";
 import type { Logger } from "../shared/logger";
 import type { ServerWithKey } from "../shared/servers";
@@ -99,7 +100,7 @@ function getSkippedServers(globalState: vscode.Memento): string[] {
  */
 function isDuplicateGroupError(error: unknown, name: string): boolean {
 	const message = error instanceof Error ? error.message : String(error);
-	return message.includes("already exists") && message.includes(name) && message.includes("litellm");
+	return message.includes("already exists") && message.includes(name) && message.includes(VENDOR_ID);
 }
 
 /** Group names must be unique host-side; duplicate registry labels get a numeric suffix. */
@@ -298,7 +299,7 @@ export async function migrateServersToProviderGroups(
 			} satisfies PendingSubmission);
 			try {
 				await executeCommand(MIGRATE_GROUP_COMMAND, {
-					vendor: "litellm",
+					vendor: VENDOR_ID,
 					name,
 					baseUrl: current.baseUrl,
 					apiKey: current.apiKey || undefined,

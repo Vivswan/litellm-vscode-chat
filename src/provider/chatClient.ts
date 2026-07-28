@@ -1,5 +1,6 @@
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
+import { normalizeBaseUrl } from "../shared/baseUrl";
 import { isRecord } from "../shared/json";
 import type { Logger } from "../shared/logger";
 import { convertMessages } from "../shared/messages";
@@ -95,7 +96,7 @@ export class ChatClient {
 	 */
 	private migratedLabelsFor(baseUrl: string): string[] {
 		const map = this.getMigratedServerLabels?.() ?? {};
-		const labels = Object.entries(map).find(([url]) => url.replace(/\/+$/, "") === baseUrl)?.[1] ?? [];
+		const labels = Object.entries(map).find(([url]) => normalizeBaseUrl(url) === baseUrl)?.[1] ?? [];
 		if (labels.length > 1) {
 			if (!this.ambiguousLabelBaseUrls.has(baseUrl)) {
 				this.ambiguousLabelBaseUrls.add(baseUrl);

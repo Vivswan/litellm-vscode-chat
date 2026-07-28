@@ -19,6 +19,7 @@
 
 import * as vscode from "vscode";
 import { groupClientId, parseGroupConfiguration } from "../provider/groupModels";
+import { CMD, INTERNAL_CMD, VENDOR_ID } from "../shared/commandIds";
 import { fingerprint } from "../shared/fingerprint";
 import { isUnsafeRecordKey } from "../shared/json";
 import type { Logger } from "../shared/logger";
@@ -30,12 +31,11 @@ import type {
 	SecretLocation,
 } from "../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../shared/serverEntry";
+import { CONFIG_SECTION } from "../shared/settingSpec";
 import { SERVER_SYNC_FINGERPRINTS_KEY, serverSecretsKey } from "../shared/storageKeys";
 
 /** The configuration key, relative to the litellm-vscode-chat section. */
 export const SERVERS_SETTING_KEY = "servers";
-
-const CONFIG_SECTION = "litellm-vscode-chat";
 
 /** One parsed servers-setting entry: label and baseUrl usable, other fields present only with usable text. */
 export type DeclaredServer = { readonly label: string; readonly baseUrl: string } & OptionalEntryFields;
@@ -241,7 +241,7 @@ export interface ServerSyncEnv {
  * hashes JSON.stringify of this object.
  */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
-	const args: Record<string, string> = { name: entry.label, vendor: "litellm", baseUrl: entry.baseUrl };
+	const args: Record<string, string> = { name: entry.label, vendor: VENDOR_ID, baseUrl: entry.baseUrl };
 	for (const field of OPTIONAL_ENTRY_FIELDS) {
 		// Inline settings values outrank the label's SecretStorage blob.
 		const value = field.secret ? (entry[field.id] ?? stored[field.id]) : entry[field.id];
@@ -608,7 +608,7 @@ export function createServerSyncEnv(context: vscode.ExtensionContext, logger: Lo
 				)
 				.then((choice) => {
 					if (choice === "Open native editor") {
-						void vscode.commands.executeCommand("litellm.manageServers");
+						void vscode.commands.executeCommand(INTERNAL_CMD.manageServers);
 					}
 				});
 		},
@@ -635,13 +635,13 @@ export function registerSetServerSecretCommand(
 	logger: Logger
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.setServerSecret", async () => {
+		vscode.commands.registerCommand(CMD.setServerSecret, async () => {
 			const { entries } = parseServersSetting(
 				vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY)
 			);
 			if (entries.length === 0) {
 				void vscode.window.showInformationMessage(
-					"No servers declared in the litellm-vscode-chat.servers setting yet. Add one there or in the dashboard first."
+					`No servers declared in the ${CONFIG_SECTION}.${SERVERS_SETTING_KEY} setting yet. Add one there or in the dashboard first.`
 				);
 				return;
 			}

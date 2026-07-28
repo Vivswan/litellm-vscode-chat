@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import type { IssueReporter } from "../issueReporter";
+import { CMD } from "../shared/commandIds";
+import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../shared/links";
 import type { Logger } from "../shared/logger";
 import { openUrl } from "../shared/openUrl";
 import type { ServerConfig } from "../shared/servers";
@@ -14,9 +16,7 @@ import {
 import type { ServerRegistry } from "./serverRegistry";
 import type { ConnectionStatus } from "./status";
 
-const GITHUB_REPO = "https://github.com/Vivswan/litellm-vscode-chat";
-const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
-const GITHUB_DOCS = `${GITHUB_REPO}#quick-start`;
+const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO_URL}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
 
 interface ModelInfoProvider {
 	provideLanguageModelChatInformation(
@@ -140,7 +140,7 @@ export function registerTestConnectionCommand(
 	logger: Logger
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.testConnection", () =>
+		vscode.commands.registerCommand(CMD.testConnection, () =>
 			runConnectionTest(provider, statusBar, outputChannel, logger)
 		)
 	);
@@ -233,7 +233,7 @@ export function registerSyncModelsCommand(
 	beforeSync?: () => Promise<void>
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.syncModels", async () => {
+		vscode.commands.registerCommand(CMD.syncModels, async () => {
 			await beforeSync?.();
 			return runModelSync(provider, statusBar, outputChannel, logger);
 		})
@@ -249,7 +249,7 @@ export function registerReportIssueCommand(
 	issueReporter: IssueReporter
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.reportIssue", async () => {
+		vscode.commands.registerCommand(CMD.reportIssue, async () => {
 			const snapshot = await buildDiagnosticsSnapshot(
 				registry,
 				getConnectionStatus(),
@@ -264,7 +264,7 @@ export function registerReportIssueCommand(
 
 export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.helpAndFeedback", async () => {
+		vscode.commands.registerCommand(CMD.helpAndFeedback, async () => {
 			const choice = await vscode.window.showQuickPick(
 				[
 					{ label: "$(bug) Report Bug", id: "bug" },
@@ -277,12 +277,12 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 				return;
 			}
 			if (choice.id === "bug") {
-				await vscode.commands.executeCommand("litellm.reportIssue");
+				await vscode.commands.executeCommand(CMD.reportIssue);
 				return;
 			}
 			const urls: Record<string, string> = {
 				feature: GITHUB_NEW_ISSUE_FEATURE,
-				docs: GITHUB_DOCS,
+				docs: GITHUB_DOCS_URL,
 			};
 			const url = urls[choice.id];
 			if (url === undefined) {

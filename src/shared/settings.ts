@@ -1,22 +1,32 @@
 import * as vscode from "vscode";
 import { z } from "zod";
-import { HEADER_NAME_PATTERN } from "./headers";
+import type { HeaderScalar } from "./headers";
+import { HEADER_NAME_PATTERN, isHeaderScalar } from "./headers";
 import { isUnsafeRecordKey } from "./json";
 import { normalizePositiveNumber } from "./numbers";
+import type { BooleanSettingId, NumberSettingId } from "./settingSpec";
+import { BOOLEAN_SETTING_SPECS, CONFIG_SECTION, MIN_TIMEOUT_MS, NUMBER_SETTING_SPECS } from "./settingSpec";
 
 type LogFn = (message: string, data?: unknown) => void;
 
-const CONFIG_SECTION = "litellm-vscode-chat";
-
-export const MIN_TIMEOUT_MS = 1000;
-export const DEFAULT_DISCOVERY_TIMEOUT_MS = 30000;
-export const DEFAULT_REQUEST_TIMEOUT_MS = 300000;
-export const DEFAULT_DISCOVERY_CACHE_TTL_MS = 3600000;
-const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
-const DEFAULT_CONTEXT_LENGTH = 128000;
+export { MIN_TIMEOUT_MS };
+export const DEFAULT_DISCOVERY_TIMEOUT_MS = NUMBER_SETTING_SPECS.discoveryTimeout.default;
+export const DEFAULT_REQUEST_TIMEOUT_MS = NUMBER_SETTING_SPECS.requestTimeout.default;
+export const DEFAULT_DISCOVERY_CACHE_TTL_MS = NUMBER_SETTING_SPECS.discoveryCacheTtl.default;
+const DEFAULT_MAX_OUTPUT_TOKENS = NUMBER_SETTING_SPECS.defaultMaxOutputTokens.default;
+const DEFAULT_CONTEXT_LENGTH = NUMBER_SETTING_SPECS.defaultContextLength.default;
 
 function getConfig(): vscode.WorkspaceConfiguration {
 	return vscode.workspace.getConfiguration(CONFIG_SECTION);
+}
+
+/** The raw configured value of one number setting, defaulted from its spec. */
+function getNumberSetting(id: NumberSettingId): number | null {
+	return getConfig().get<number | null>(id, NUMBER_SETTING_SPECS[id].default);
+}
+
+function getBooleanSetting(id: BooleanSettingId): boolean {
+	return getConfig().get<boolean>(id, BOOLEAN_SETTING_SPECS[id].default);
 }
 
 /**
@@ -33,33 +43,31 @@ function clampDuration(raw: unknown, fallback: number, minimum: number, name: st
 	return clamped;
 }
 
-/** Validate a configured timeout; see clampDuration. */
-export function clampTimeout(raw: unknown, fallback: number, name: string, log?: LogFn): number {
-	return clampDuration(raw, fallback, MIN_TIMEOUT_MS, name, log);
+/** The duration settings share the clamping read; each one's default and floor come from its spec. */
+function getDurationSetting(id: "discoveryTimeout" | "requestTimeout" | "discoveryCacheTtl", log?: LogFn): number {
+	const spec = NUMBER_SETTING_SPECS[id];
+	return clampDuration(getNumberSetting(id), spec.default, spec.minimum, id, log);
 }
 
 export function getDiscoveryTimeout(log?: LogFn): number {
-	const raw = getConfig().get<number>("discoveryTimeout", DEFAULT_DISCOVERY_TIMEOUT_MS);
-	return clampTimeout(raw, DEFAULT_DISCOVERY_TIMEOUT_MS, "discoveryTimeout", log);
+	return getDurationSetting("discoveryTimeout", log);
 }
 
 export function getRequestTimeout(log?: LogFn): number {
-	const raw = getConfig().get<number>("requestTimeout", DEFAULT_REQUEST_TIMEOUT_MS);
-	return clampTimeout(raw, DEFAULT_REQUEST_TIMEOUT_MS, "requestTimeout", log);
+	return getDurationSetting("requestTimeout", log);
 }
 
 /**
  * How long cached model-discovery results are served, in milliseconds. 0 is a
- * valid configuration: it disables serving from the cache (concurrent
- * refreshes still coalesce into one request).
+ * valid configuration (the spec's floor): it disables serving from the cache
+ * (concurrent refreshes still coalesce into one request).
  */
 export function getDiscoveryCacheTtl(log?: LogFn): number {
-	const raw = getConfig().get<number>("discoveryCacheTtl", DEFAULT_DISCOVERY_CACHE_TTL_MS);
-	return clampDuration(raw, DEFAULT_DISCOVERY_CACHE_TTL_MS, 0, "discoveryCacheTtl", log);
+	return getDurationSetting("discoveryCacheTtl", log);
 }
 
 export function isPromptCachingEnabled(): boolean {
-	return getConfig().get<boolean>("promptCaching.enabled", true);
+	return getBooleanSetting("promptCaching.enabled");
 }
 
 /** Top-level shape shared by the `headers` and `modelParameters` settings: a plain object, keyed by string. */
@@ -67,7 +75,7 @@ const settingsRecordSchema = z.record(z.string(), z.unknown());
 
 const headerNameSchema = z.string().trim().regex(HEADER_NAME_PATTERN);
 
-const headerValueSchema = z.union([z.string(), z.number(), z.boolean()]).transform((value) => String(value));
+const headerValueSchema = z.custom<HeaderScalar>(isHeaderScalar).transform((value) => String(value));
 
 function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, string> {
 	const parsed = settingsRecordSchema.safeParse(raw);
@@ -110,15 +118,10 @@ export interface TokenDefaults {
 }
 
 export function getTokenDefaults(): TokenDefaults {
-	const config = getConfig();
 	return {
-		maxOutputTokens:
-			normalizePositiveNumber(config.get<number>("defaultMaxOutputTokens", DEFAULT_MAX_OUTPUT_TOKENS)) ??
-			DEFAULT_MAX_OUTPUT_TOKENS,
-		contextLength:
-			normalizePositiveNumber(config.get<number>("defaultContextLength", DEFAULT_CONTEXT_LENGTH)) ??
-			DEFAULT_CONTEXT_LENGTH,
-		maxInputTokens: normalizePositiveNumber(config.get<number | null>("defaultMaxInputTokens", null)),
+		maxOutputTokens: normalizePositiveNumber(getNumberSetting("defaultMaxOutputTokens")) ?? DEFAULT_MAX_OUTPUT_TOKENS,
+		contextLength: normalizePositiveNumber(getNumberSetting("defaultContextLength")) ?? DEFAULT_CONTEXT_LENGTH,
+		maxInputTokens: normalizePositiveNumber(getNumberSetting("defaultMaxInputTokens")),
 	};
 }
 
@@ -154,5 +157,5 @@ export function getModelParametersConfig(): Record<string, Record<string, unknow
 }
 
 export function getMaskApiKeyInput(): boolean {
-	return getConfig().get<boolean>("maskApiKeyInput", true);
+	return getBooleanSetting("maskApiKeyInput");
 }

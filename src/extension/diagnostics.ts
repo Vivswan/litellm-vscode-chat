@@ -2,9 +2,12 @@ import * as vscode from "vscode";
 import type { DiagnosticsSnapshot, IssueReporter } from "../issueReporter";
 import type { ServerModelsSnapshot } from "../provider";
 import { isGroupClientId } from "../provider/groupModels";
+import { normalizeBaseUrl } from "../shared/baseUrl";
+import { CMD, INTERNAL_CMD } from "../shared/commandIds";
 import type { SecretFieldId, SecretLocation } from "../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../shared/serverEntry";
 import type { ServerConfig, ServerStatus } from "../shared/servers";
+import { CONFIG_SECTION } from "../shared/settingSpec";
 import type { DashboardServer } from "./dashboard/protocol";
 import { classifyOverall } from "./dashboard/protocol";
 import { buildDashboardState } from "./dashboard/state";
@@ -12,11 +15,6 @@ import type { ServerRegistry } from "./serverRegistry";
 import type { DeclaredServerView } from "./serverSync";
 import { parseServersSetting, SERVERS_SETTING_KEY } from "./serverSync";
 import type { ConnectionStatus } from "./status";
-
-/** Trailing slashes are insignificant when matching a legacy server to a live or registry row. */
-function normalizeBaseUrl(baseUrl: string): string {
-	return baseUrl.replace(/\/+$/, "");
-}
 
 /**
  * Key presence for VS Code-managed group servers, read off their observed
@@ -255,11 +253,11 @@ export function registerDiagnosticsCommand(
 	outputChannel: vscode.OutputChannel
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm.showDiagnostics", async () => {
+		vscode.commands.registerCommand(CMD.showDiagnostics, async () => {
 			// The dialog renders the same DashboardState the dashboard webview
 			// renders (declared entries joined with the provider's live status
 			// window), so its counts and verdict cannot drift from the hero.
-			const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
+			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 			// The engine's declared view is authoritative once a pass has run;
 			// right after activation it is still empty, so the setting fills in.
 			const declared = getDeclared();
@@ -289,13 +287,13 @@ export function registerDiagnosticsCommand(
 			if (choice === "View Output") {
 				outputChannel.show();
 			} else if (choice === "Test Connection") {
-				void vscode.commands.executeCommand("litellm.testConnection");
+				void vscode.commands.executeCommand(CMD.testConnection);
 			} else if (choice === "Manage Servers") {
-				void vscode.commands.executeCommand("litellm.manageServers");
+				void vscode.commands.executeCommand(INTERNAL_CMD.manageServers);
 			} else if (choice === "Report Issue") {
-				void vscode.commands.executeCommand("litellm.reportIssue");
+				void vscode.commands.executeCommand(CMD.reportIssue);
 			} else if (choice === "Help & Feedback") {
-				void vscode.commands.executeCommand("litellm.helpAndFeedback");
+				void vscode.commands.executeCommand(CMD.helpAndFeedback);
 			}
 		})
 	);

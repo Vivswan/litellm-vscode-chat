@@ -1,5 +1,6 @@
 import type * as vscode from "vscode";
 import { z } from "zod";
+import { normalizeBaseUrl } from "../shared/baseUrl";
 import type { ServerConfig, ServerWithKey } from "../shared/servers";
 import {
 	apiKeySecret,
@@ -29,10 +30,6 @@ const versionedRegistrySchema = z.looseObject({
 // original objects so keys beyond id/label/baseUrl survive round-tripping.
 function filterServerConfigs(entries: unknown[]): ServerConfig[] {
 	return entries.filter((entry): entry is ServerConfig => serverConfigSchema.safeParse(entry).success);
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-	return baseUrl.replace(/\/+$/, "");
 }
 
 interface PersistedRegistry {
