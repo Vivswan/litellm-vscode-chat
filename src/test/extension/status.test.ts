@@ -5,6 +5,11 @@ import { Logger } from "../../shared/logger";
 import type { ServerStatus } from "../../shared/servers";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/storageKeys";
 
+// Managers create real, visible status bar items in the shared test host
+// window, so every created context is tracked and its subscriptions are
+// disposed after each test.
+const createdContexts: vscode.ExtensionContext[] = [];
+
 function createManager(persistedStatus: unknown, hasConfiguredServers: () => boolean = () => false): StatusBarManager {
 	const mementoStore = new Map<string, unknown>();
 	if (persistedStatus !== undefined) {
@@ -20,6 +25,7 @@ function createManager(persistedStatus: unknown, hasConfiguredServers: () => boo
 		subscriptions: [],
 		globalState,
 	} as unknown as vscode.ExtensionContext;
+	createdContexts.push(context);
 	return new StatusBarManager(context, new Logger({ info() {}, error() {} }), hasConfiguredServers);
 }
 
@@ -33,6 +39,14 @@ const CONNECTION_STATES: ReadonlyArray<ConnectionStatus["state"]> = [
 ];
 
 suite("extension/status", () => {
+	teardown(() => {
+		for (const context of createdContexts.splice(0)) {
+			for (const disposable of context.subscriptions) {
+				disposable.dispose();
+			}
+		}
+	});
+
 	test("clicking the status bar item opens the dashboard", () => {
 		const manager = createManager(undefined);
 
