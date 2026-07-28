@@ -20,8 +20,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import { URL } from "node:url";
-import type { CommandResult } from "../src/test/fakeStack/commands";
-import { dispatchCommand, fallbackReply } from "../src/test/fakeStack/commands";
+import type { CommandContext, CommandResult } from "../src/test/fakeStack/commands";
+import { dispatchCommand, dispatchLine, fallbackReply } from "../src/test/fakeStack/commands";
 import { FAKE_MODEL_UPSTREAM_IDS } from "../src/test/fakeStack/models";
 import type { Scenario } from "../src/test/scenarios";
 import { BUILTIN_SCENARIOS, collapseChunks, readBody, sendJson, sendSse, sendSseDelayed } from "../src/test/scenarios";
@@ -72,6 +72,21 @@ function playResult(res: ServerResponse, result: CommandResult, stream: boolean)
 			playScenario(res, result.scenario, stream);
 		}
 	}, result.firstByteDelayMs);
+}
+
+/**
+ * One line per chat completion in the container log, carrying the exact line
+ * the grammar dispatched on. This is the debugging surface for "I typed
+ * %help and got the fallback": a chat host that appends context after the
+ * typed text, or indents it, shows up right here.
+ */
+function logChatRequest(context: CommandContext, stream: boolean, dispatched: boolean): void {
+	const rawModel = context.request.model;
+	const model = JSON.stringify(typeof rawModel === "string" ? rawModel.slice(0, 60) : "?");
+	const line = dispatchLine(context);
+	const shown =
+		line === undefined ? "(no user text)" : JSON.stringify(line.length > 200 ? `${line.slice(0, 200)}...` : line);
+	console.log(`chat model=${model} stream=${stream} ${dispatched ? "command" : "fallback"} line=${shown}`);
 }
 
 const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -133,6 +148,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		const stream = body.stream === true;
 
 		const command = dispatchCommand(context);
+		logChatRequest(context, stream, command !== undefined);
 		if (command !== undefined) {
 			return playResult(res, command, stream);
 		}
