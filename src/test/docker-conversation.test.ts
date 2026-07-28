@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { COMMAND_SIGIL } from "./fakeStack/commands";
 import {
 	addServer,
 	clearServers,
@@ -16,11 +17,11 @@ import { expectDefined } from "./testUtils";
  *
  * Each iteration generates a conversation of randomized length against
  * gpt-5.2-mini (single deployment, deliberately: responses cannot vary by
- * routing) through the real proxy. Turns mix /echo, /text, /think, /play of
- * a runtime-registered custom scenario, and the two-turn /tool flow with a
+ * routing) through the real proxy. Turns mix %echo, %text, %think, %play of
+ * a runtime-registered custom scenario, and the two-turn %tool flow with a
  * synthesized tool result fed back. Assertions target extracted content
  * only - text, tool calls, tool-call/result pairing across turns - never raw
- * bytes (LiteLLM stamps its own created on every chunk). /deployment is
+ * bytes (LiteLLM stamps its own created on every chunk). %deployment is
  * excluded: its oracle is relational and a directed docker test covers it.
  *
  * The iteration budget is its own knob (CONVERSATION_ITERATIONS, default
@@ -73,7 +74,7 @@ function makeTurn(random: () => number, iteration: number, turnIndex: number, re
 		const word = expectDefined(ECHO_WORDS[Math.floor(random() * ECHO_WORDS.length)]);
 		const text = `${word} ${iteration}-${turnIndex}`;
 		return {
-			command: `/echo:${text}`,
+			command: `${COMMAND_SIGIL}echo:${text}`,
 			check(parts) {
 				assert.strictEqual(extractText(parts), text, "echo must round-trip verbatim");
 				return text;
@@ -84,10 +85,10 @@ function makeTurn(random: () => number, iteration: number, turnIndex: number, re
 		const words = 5 + Math.floor(random() * 40);
 		const seed = Math.floor(random() * 100000);
 		return {
-			command: `/text:${words}:${seed}`,
+			command: `${COMMAND_SIGIL}text:${words}:${seed}`,
 			check(parts) {
 				const text = extractText(parts);
-				assert.strictEqual(text.trim().split(/\s+/).length, words, "/text must produce exactly n words");
+				assert.strictEqual(text.trim().split(/\s+/).length, words, `${COMMAND_SIGIL}text must produce exactly n words`);
 				return text;
 			},
 		};
@@ -95,7 +96,7 @@ function makeTurn(random: () => number, iteration: number, turnIndex: number, re
 	if (roll < 0.75) {
 		const steps = 1 + Math.floor(random() * 5);
 		return {
-			command: `/think:${steps}`,
+			command: `${COMMAND_SIGIL}think:${steps}`,
 			check(parts) {
 				const text = extractText(parts);
 				assert.strictEqual(text, `Finished thinking in ${steps} steps.`, "the closing text is fixed");
@@ -104,7 +105,7 @@ function makeTurn(random: () => number, iteration: number, turnIndex: number, re
 		};
 	}
 	return {
-		command: `/play:${registered}`,
+		command: `${COMMAND_SIGIL}play:${registered}`,
 		check(parts) {
 			const text = extractText(parts);
 			assert.strictEqual(text, `custom body for ${registered}`, "the registered scenario plays verbatim");
@@ -182,7 +183,7 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 		this.timeout(60000);
 		const random = mulberry32(SEED ^ 0x9e3779b9);
 		const location = expectDefined(ECHO_WORDS[Math.floor(random() * ECHO_WORDS.length)]);
-		const command = `/tool:get_weather {"location":"${location}"}`;
+		const command = `${COMMAND_SIGIL}tool:get_weather {"location":"${location}"}`;
 
 		const callTurn = await sendTurns([vscode.LanguageModelChatMessage.User(command)], { tools: [TOOL] });
 		const calls = extractToolCalls(callTurn);

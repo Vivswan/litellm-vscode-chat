@@ -116,7 +116,7 @@ export const FAKE_MODELS: readonly FakeModel[] = [
 		pricing: GPT_52_PRICING,
 	},
 	{
-		// The default target for /play playback, the stream fuzzer, and the
+		// The default target for %play playback, the stream fuzzer, and the
 		// multi-turn suite: reasoning on (the fuzzer emits reasoning deltas),
 		// caching off (cache anchors would vary every fuzz request), single
 		// deployment (responses cannot vary by routing).

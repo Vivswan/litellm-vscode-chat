@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { createHash } from "node:crypto";
 import * as vscode from "vscode";
 import { REASONING_EFFORT_SCHEMA } from "../provider/modelConfiguration";
-import { COMMANDS, FALLBACK_TEXT, PNG_SHA256, WAV_SHA256 } from "./fakeStack/commands";
+import { COMMAND_SIGIL, COMMANDS, FALLBACK_TEXT, PNG_SHA256, WAV_SHA256 } from "./fakeStack/commands";
 import {
 	addServer,
 	clearServers,
@@ -22,7 +22,7 @@ import { expectDefined } from "./testUtils";
  * Drives the extension through the real VS Code LM API against the dockerized
  * LiteLLM proxy (docker-compose.yml). The consolidated fake models (realistic
  * aliases over fake- upstreams, src/test/fakeStack/models.ts) are the primary
- * surface: response shapes are selected with the /play command against
+ * surface: response shapes are selected with the %play command against
  * gpt-5.2-mini, and every other command drives its own behavior.
  * Compared to the in-process capture suite this adds a real proxy hop:
  * LiteLLM re-serializes requests and streams, so these tests pin what
@@ -37,7 +37,7 @@ const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 const SURVIVOR_IDS = ["claude-opus-4-5", "deepseek-r2", "gpt-5.2", "gpt-5.2-mini", "gpt-5.2-omni", "llama-4-scout"];
 
 /** Cancellation drives this command; the expected chunk count is read from its argument. */
-const CANCEL_STREAM_COMMAND = "/stream:50:100";
+const CANCEL_STREAM_COMMAND = `${COMMAND_SIGIL}stream:50:100`;
 const CANCEL_STREAM_COUNT = Number(CANCEL_STREAM_COMMAND.split(":")[1]);
 
 /** Minimal 1x1 red PNG for multimodal request-shape tests. */
@@ -87,7 +87,7 @@ suite("Docker LiteLLM stack", () => {
 
 	/** Plays a canned scenario through the default playback target. */
 	const play = (scenario: string, options: vscode.LanguageModelChatRequestOptions = {}) =>
-		say("gpt-5.2-mini", `/play:${scenario}`, options);
+		say("gpt-5.2-mini", `${COMMAND_SIGIL}play:${scenario}`, options);
 
 	/** The chat body LiteLLM forwarded to the fake backend for the last request. */
 	async function lastForwardedRequest(): Promise<ChatBody> {
@@ -190,9 +190,9 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("chatting with the merged model routes the raw model_name through the proxy", async () => {
-			// The /deployment command reports the upstream id the group picked;
+			// The %deployment command reports the upstream id the group picked;
 			// the oracle is relational - either declared deployment is correct.
-			const text = extractText(await say("gpt-5.2", "/deployment"));
+			const text = extractText(await say("gpt-5.2", `${COMMAND_SIGIL}deployment`));
 			assert.match(text, /^deployment: fake-balanced-(a|b)$/);
 			const body = await lastForwardedRequest();
 			assert.ok(
@@ -207,7 +207,7 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("the merged declared output limit reaches the backend uncapped", async () => {
-			await say("gpt-5.2", "/echo:limit probe");
+			await say("gpt-5.2", `${COMMAND_SIGIL}echo:limit probe`);
 			const body = await lastForwardedRequest();
 			assert.strictEqual(
 				body.max_tokens,
@@ -394,8 +394,8 @@ suite("Docker LiteLLM stack", () => {
 
 	suite("error command through the proxy", () => {
 		for (const status of [400, 401, 429]) {
-			test(`/error:${status} rejects the request`, async () => {
-				await assert.rejects(() => say("gpt-5.2-mini", `/error:${status}`));
+			test(`${COMMAND_SIGIL}error:${status} rejects the request`, async () => {
+				await assert.rejects(() => say("gpt-5.2-mini", `${COMMAND_SIGIL}error:${status}`));
 			});
 		}
 
@@ -405,9 +405,9 @@ suite("Docker LiteLLM stack", () => {
 			// deployment ("No deployments available... Try again in 5 seconds")
 			// and poison every later test that touches the model.
 			for (let i = 0; i < 3; i++) {
-				await assert.rejects(() => say("gpt-5.2-mini", "/error:429"));
+				await assert.rejects(() => say("gpt-5.2-mini", `${COMMAND_SIGIL}error:429`));
 			}
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/echo:recovered")), "recovered");
+			assert.strictEqual(extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}echo:recovered`)), "recovered");
 		});
 	});
 
@@ -449,7 +449,7 @@ suite("Docker LiteLLM stack", () => {
 
 	suite("request shapes forwarded to the backend", () => {
 		test("modern request params survive LiteLLM", async () => {
-			await say("gpt-5.2-mini", "/echo:params probe", {
+			await say("gpt-5.2-mini", `${COMMAND_SIGIL}echo:params probe`, {
 				modelOptions: {
 					temperature: 0.3,
 					seed: 42,
@@ -465,7 +465,7 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("stream_options requests the usage trailer", async () => {
-			await say("gpt-5.2-mini", "/echo:usage probe");
+			await say("gpt-5.2-mini", `${COMMAND_SIGIL}echo:usage probe`);
 			const body = await lastForwardedRequest();
 			assert.deepStrictEqual(body.stream_options, { include_usage: true });
 		});
@@ -474,7 +474,7 @@ suite("Docker LiteLLM stack", () => {
 			// deepseek-r2 advertises supports_reasoning: true, the same capability
 			// data that puts the Reasoning Effort control in the model picker; a
 			// resolved picker choice travels as this exact wire key.
-			await say("deepseek-r2", "/echo:effort probe", { modelOptions: { reasoning_effort: "high" } });
+			await say("deepseek-r2", `${COMMAND_SIGIL}echo:effort probe`, { modelOptions: { reasoning_effort: "high" } });
 			const body = await lastForwardedRequest();
 			assert.strictEqual(body.reasoning_effort, "high", "the proxy must forward the effort level to the backend");
 			assert.strictEqual(body.model, "fake-reasoner");
@@ -597,7 +597,7 @@ suite("Docker LiteLLM stack", () => {
 
 	suite("default output cap", () => {
 		test("llama-4-scout's undeclared limits fall back to the min(4096, default) cap", async () => {
-			await say("llama-4-scout", "/echo:cap probe");
+			await say("llama-4-scout", `${COMMAND_SIGIL}echo:cap probe`);
 			const body = await lastForwardedRequest();
 			assert.strictEqual(body.model, "fake-minimal");
 			assert.strictEqual(
@@ -654,18 +654,18 @@ suite("Docker LiteLLM stack", () => {
 			inputSchema: { type: "object", properties: { location: { type: "string" } } },
 		};
 
-		test("/tools lists offered tools with descriptions, and reports none honestly", async () => {
-			const withTools = extractText(await say("gpt-5.2-mini", "/tools", { tools: [weatherTool] }));
+		test(`${COMMAND_SIGIL}tools lists offered tools with descriptions, and reports none honestly`, async () => {
+			const withTools = extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}tools`, { tools: [weatherTool] }));
 			assert.ok(withTools.includes("get_weather: Get the weather"), `got: ${withTools}`);
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/tools")), "no tools offered");
+			assert.strictEqual(extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}tools`)), "no tools offered");
 		});
 
-		test("/messages reports roles and shapes, never content", async () => {
+		test(`${COMMAND_SIGIL}messages reports roles and shapes, never content`, async () => {
 			const text = extractText(
 				await send("gpt-5.2-mini", [
 					vscode.LanguageModelChatMessage.User("first question"),
 					vscode.LanguageModelChatMessage.Assistant("an answer"),
-					vscode.LanguageModelChatMessage.User("/messages"),
+					vscode.LanguageModelChatMessage.User(`${COMMAND_SIGIL}messages`),
 				])
 			);
 			assert.match(text, /message\[0\] user: text\(14\)/);
@@ -673,19 +673,19 @@ suite("Docker LiteLLM stack", () => {
 			assert.ok(!text.includes("first question"), "content never appears");
 		});
 
-		test("/cache reports the zero-marker sentence on a non-caching model", async () => {
-			const text = extractText(await say("gpt-5.2-mini", "/cache", { tools: [weatherTool] }));
+		test(`${COMMAND_SIGIL}cache reports the zero-marker sentence on a non-caching model`, async () => {
+			const text = extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}cache`, { tools: [weatherTool] }));
 			assert.strictEqual(text, "no cache_control markers received (none sent, or stripped by the proxy)");
 		});
 
-		test("/cache reports exact marker positions on the caching flagship", async () => {
+		test(`${COMMAND_SIGIL}cache reports exact marker positions on the caching flagship`, async () => {
 			const text = extractText(
 				await send(
 					"claude-opus-4-5",
 					[
 						vscode.LanguageModelChatMessage.User("Task: audit the repository."),
 						vscode.LanguageModelChatMessage.Assistant("Starting."),
-						vscode.LanguageModelChatMessage.User("/cache"),
+						vscode.LanguageModelChatMessage.User(`${COMMAND_SIGIL}cache`),
 					],
 					{ tools: [weatherTool] }
 				)
@@ -696,8 +696,8 @@ suite("Docker LiteLLM stack", () => {
 			assert.ok(text.includes("total: 3"), `tools + first user + rolling last, nothing else; got: ${text}`);
 		});
 
-		test("/deployment on a single-deployment model names its only upstream", async () => {
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/deployment")), "deployment: fake-mini");
+		test(`${COMMAND_SIGIL}deployment on a single-deployment model names its only upstream`, async () => {
+			assert.strictEqual(extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}deployment`)), "deployment: fake-mini");
 		});
 	});
 
@@ -711,7 +711,7 @@ suite("Docker LiteLLM stack", () => {
 		];
 
 		test("call turn then summary turn", async () => {
-			const callTurn = await say("gpt-5.2-mini", '/tool:get_weather {"location":"Paris"}', { tools });
+			const callTurn = await say("gpt-5.2-mini", `${COMMAND_SIGIL}tool:get_weather {"location":"Paris"}`, { tools });
 			const calls = extractToolCalls(callTurn);
 			assert.strictEqual(calls.length, 1);
 			const call = expectDefined(calls[0]);
@@ -722,7 +722,7 @@ suite("Docker LiteLLM stack", () => {
 			const summaryTurn = await send(
 				"gpt-5.2-mini",
 				[
-					vscode.LanguageModelChatMessage.User('/tool:get_weather {"location":"Paris"}'),
+					vscode.LanguageModelChatMessage.User(`${COMMAND_SIGIL}tool:get_weather {"location":"Paris"}`),
 					new vscode.LanguageModelChatMessage(vscode.LanguageModelChatMessageRole.Assistant, [
 						new vscode.LanguageModelToolCallPart(call.callId, "get_weather", { location: "Paris" }),
 					]),
@@ -792,11 +792,11 @@ suite("Docker LiteLLM stack", () => {
 			return parts.filter((p) => p instanceof vscode.LanguageModelDataPart) as vscode.LanguageModelDataPart[];
 		}
 
-		test("/image surfaces one DataPart with lossless bytes and keeps the hash line verbatim", async () => {
+		test(`${COMMAND_SIGIL}image surfaces one DataPart with lossless bytes and keeps the hash line verbatim`, async () => {
 			// The hashes are the pinned literals next to the byte constants in
 			// fakeStack/commands.ts; matching them here proves the payload
 			// survived backend -> proxy -> extension -> host round-trip intact.
-			const parts = await say("gpt-5.2-mini", "/image");
+			const parts = await say("gpt-5.2-mini", `${COMMAND_SIGIL}image`);
 			assert.strictEqual(extractText(parts), `Generated a PNG image, 69 bytes, sha256=${PNG_SHA256}.`);
 			const dataParts = extractDataParts(parts);
 			assert.strictEqual(dataParts.length, 1, "exactly one image DataPart");
@@ -805,8 +805,8 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(sha256Hex(image.data), PNG_SHA256, "DataPart bytes are lossless");
 		});
 
-		test("/audio surfaces one DataPart with lossless bytes; transcript then hash line stream as text", async () => {
-			const parts = await say("gpt-5.2-mini", "/audio");
+		test(`${COMMAND_SIGIL}audio surfaces one DataPart with lossless bytes; transcript then hash line stream as text`, async () => {
+			const parts = await say("gpt-5.2-mini", `${COMMAND_SIGIL}audio`);
 			// The transcript streams as ordinary text ahead of the reply text,
 			// and the hash line itself stays byte-verbatim.
 			assert.strictEqual(extractText(parts), `fake audio clipGenerated a WAV clip, 52 bytes, sha256=${WAV_SHA256}.`);
@@ -841,7 +841,7 @@ suite("Docker LiteLLM stack", () => {
 		}
 
 		test("the emitted PNG bytes survive the proxy verbatim (raw SSE observation)", async () => {
-			const deltas = deltasOf(await rawProxyStream("/image"));
+			const deltas = deltasOf(await rawProxyStream(`${COMMAND_SIGIL}image`));
 			const images = deltas.find((delta) => Array.isArray(delta.images))?.images as
 				| Array<{ image_url?: { url?: string } }>
 				| undefined;
@@ -851,7 +851,7 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("the emitted WAV bytes survive the proxy verbatim (raw SSE observation)", async () => {
-			const deltas = deltasOf(await rawProxyStream("/audio"));
+			const deltas = deltasOf(await rawProxyStream(`${COMMAND_SIGIL}audio`));
 			const audio = deltas.find((delta) => typeof delta.audio === "object" && delta.audio !== null)?.audio as
 				| { data?: string }
 				| undefined;
@@ -869,7 +869,7 @@ suite("Docker LiteLLM stack", () => {
 			const message = new vscode.LanguageModelChatMessage(vscode.LanguageModelChatMessageRole.User, [
 				new vscode.LanguageModelDataPart(PNG_DATA, "image/png"),
 				new vscode.LanguageModelDataPart(PDF_DATA, "application/pdf"),
-				new vscode.LanguageModelTextPart("/attachments"),
+				new vscode.LanguageModelTextPart(`${COMMAND_SIGIL}attachments`),
 			]);
 			const text = extractText(await send("claude-opus-4-5", [message]));
 			assert.ok(
@@ -885,7 +885,7 @@ suite("Docker LiteLLM stack", () => {
 		test("the conversion contract for an image on a non-vision model is pinned", async () => {
 			const message = new vscode.LanguageModelChatMessage(vscode.LanguageModelChatMessageRole.User, [
 				new vscode.LanguageModelDataPart(PNG_DATA, "image/png"),
-				new vscode.LanguageModelTextPart("/attachments"),
+				new vscode.LanguageModelTextPart(`${COMMAND_SIGIL}attachments`),
 			]);
 			const text = extractText(await send("gpt-5.2", [message]));
 			// Pinned from observation: the extension forwards data parts based on
@@ -923,8 +923,8 @@ suite("Docker LiteLLM stack", () => {
 	// ── Command grammar through the real proxy ─────────────────────────────────
 
 	suite("command grammar", () => {
-		test("/help lists every command and the play targets", async () => {
-			const text = extractText(await say("gpt-5.2-mini", "/help"));
+		test(`${COMMAND_SIGIL}help lists every command and the play targets`, async () => {
+			const text = extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}help`));
 			for (const command of COMMANDS) {
 				assert.ok(text.includes(command.usage), `help must list ${command.usage}`);
 			}
@@ -932,60 +932,84 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("only the last non-empty line dispatches: mid-message commands are ignored", async () => {
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/echo:not this\ntrailing prose")), FALLBACK_TEXT);
+			assert.strictEqual(
+				extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}echo:not this\ntrailing prose`)),
+				FALLBACK_TEXT
+			);
 		});
 
 		test("command-looking lines inside pasted context are ignored", async () => {
 			assert.strictEqual(
-				extractText(await say("gpt-5.2-mini", "```\n/error:500\n```\nwhat does this do?")),
+				extractText(await say("gpt-5.2-mini", `\`\`\`\n${COMMAND_SIGIL}error:500\n\`\`\`\nwhat does this do?`)),
 				FALLBACK_TEXT
 			);
 		});
 
 		test("with multiple command lines, the final one wins", async () => {
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/echo:first\n/echo:second")), "second");
+			assert.strictEqual(
+				extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}echo:first\n${COMMAND_SIGIL}echo:second`)),
+				"second"
+			);
 		});
 
-		test("slashless verbs are plain text", async () => {
+		test("sigil-less verbs are plain text", async () => {
 			assert.strictEqual(extractText(await say("gpt-5.2-mini", "help")), FALLBACK_TEXT);
 		});
 
-		test("/echo preserves argument case and inner spacing through the proxy", async () => {
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/EcHo:CaSe  Kept")), "CaSe  Kept");
+		test("a slash-prefixed line is plain text end to end: /help gets the fallback", async () => {
+			// The intercepted-slash scenario: Copilot Chat normally eats "/help"
+			// before it reaches the model, and when the text does arrive (another
+			// client, a paste) the grammar must treat it as prose, not a command.
+			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/help")), FALLBACK_TEXT);
 		});
 
-		test("/params echoes runtime generation parameters", async () => {
-			const text = extractText(await say("gpt-5.2-mini", "/params", { modelOptions: { temperature: 0.4, seed: 11 } }));
+		test("a bang-prefixed line is plain text end to end: !help gets the fallback", async () => {
+			// The retired second sigil: agent CLIs (Claude Code) run a leading
+			// "!" as a shell command, so "!" lines are prose exactly like "/".
+			assert.strictEqual(extractText(await say("gpt-5.2-mini", "!help")), FALLBACK_TEXT);
+		});
+
+		test(`${COMMAND_SIGIL}echo preserves argument case and inner spacing through the proxy`, async () => {
+			assert.strictEqual(extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}EcHo:CaSe  Kept`)), "CaSe  Kept");
+		});
+
+		test(`${COMMAND_SIGIL}params echoes runtime generation parameters`, async () => {
+			const text = extractText(
+				await say("gpt-5.2-mini", `${COMMAND_SIGIL}params`, { modelOptions: { temperature: 0.4, seed: 11 } })
+			);
 			assert.ok(text.includes("temperature: 0.4"), `got: ${text}`);
 			assert.ok(text.includes("seed: 11"), `got: ${text}`);
 			assert.ok(text.includes(`model: "fake-mini"`), "the routed upstream model appears");
 		});
 
-		test("/play routes any model to a named scenario", async () => {
+		test(`${COMMAND_SIGIL}play routes any model to a named scenario`, async () => {
 			// Not just the playback default: the LB pair plays scenarios too.
-			const calls = extractToolCalls(await say("gpt-5.2", "/play:parallel-tool-calls"));
+			const calls = extractToolCalls(await say("gpt-5.2", `${COMMAND_SIGIL}play:parallel-tool-calls`));
 			assert.strictEqual(calls.length, 2);
 		});
 
-		test("/stream delivers the requested chunk count", async () => {
-			const text = extractText(await say("gpt-5.2-mini", "/stream:5:50"));
+		test(`${COMMAND_SIGIL}stream delivers the requested chunk count`, async () => {
+			const text = extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}stream:5:50`));
 			assert.strictEqual(text, "chunk1 chunk2 chunk3 chunk4 chunk5 ");
 		});
 
 		test("a recognized verb with bad arguments yields the diagnostic text, not an error", async () => {
-			const text = extractText(await say("gpt-5.2-mini", "/stream:0"));
-			assert.ok(text.startsWith("Bad arguments for /stream"), `got: ${text}`);
+			const text = extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}stream:0`));
+			assert.ok(text.startsWith(`Bad arguments for ${COMMAND_SIGIL}stream`), `got: ${text}`);
 		});
 
-		test("/text streams a deterministic paragraph of the requested length", async () => {
-			const first = extractText(await say("gpt-5.2-mini", "/text:60:9"));
-			const second = extractText(await say("gpt-5.2-mini", "/text:60:9"));
+		test(`${COMMAND_SIGIL}text streams a deterministic paragraph of the requested length`, async () => {
+			const first = extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}text:60:9`));
+			const second = extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}text:60:9`));
 			assert.strictEqual(first, second, "same seed, same bytes");
 			assert.strictEqual(first.trim().split(/\s+/).length, 60);
 		});
 
-		test("/finish:length surfaces the truncated text", async () => {
-			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/finish:length")), "This reply stops early on purpose");
+		test(`${COMMAND_SIGIL}finish:length surfaces the truncated text`, async () => {
+			assert.strictEqual(
+				extractText(await say("gpt-5.2-mini", `${COMMAND_SIGIL}finish:length`)),
+				"This reply stops early on purpose"
+			);
 		});
 
 		test("a plain prompt to a consolidated model gets the fixed fallback reply", async () => {

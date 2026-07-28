@@ -260,7 +260,7 @@ If a header value is secret (for example, API keys), set `litellm-vscode-chat.he
 
 ### Local LiteLLM stack (Docker or Podman)
 
-For local testing you can run a real LiteLLM proxy in Docker, backed by a fake OpenAI server. The fake serves six realistic models and takes its instructions from the chat input itself: a slash command on the last line of your message picks the response shape, so one model can play every stream shape the extension handles.
+For local testing you can run a real LiteLLM proxy in Docker, backed by a fake OpenAI server. The fake serves six realistic models and takes its instructions from the chat input itself: a `%` command on the last line of your message picks the response shape, so one model can play every stream shape the extension handles. The sigil is `%` because the obvious choices are both intercepted before they reach the model: Copilot Chat claims `/`-prefixed input for its own slash commands, and agent CLIs like Claude Code run a leading `!` as a shell command, while no chat input surface claims `%`.
 
 ```bash
 cp .env.example .env   # optional; only needed for real provider keys or port changes
@@ -271,19 +271,22 @@ Then add a server in the extension with base URL `http://localhost:4000` and API
 
 The model list is deliberately small and shaped like a real deployment (`src/test/fakeStack/models.ts`): `claude-opus-4-5` (everything on: reasoning, caching, tiered pricing, 1M context), `gpt-5.2` (a load-balanced pair), `gpt-5.2-mini` (the everyday target), `gpt-5.2-omni` (audio flags), `deepseek-r2` (reasoning without tools), and `llama-4-scout` (nothing declared). A seventh entry, `gpt-4-turbo`, is blocked in the config and must never appear in the picker - that absence is itself under test.
 
-Pick any of them in the Copilot model picker and type a command as your message. `/help` lists everything; the ones you will reach for first:
+Pick any of them in the Copilot model picker and type a command as your message. `%help` lists everything; the ones you will reach for first:
 
 ```
-/help                     list all commands and playback scenarios
-/play:thinking-blocks     play a canned stream shape (the library lives in src/test/scenarios.ts)
-/echo:any text            reply with exactly that text
-/text:200                 a deterministic 200-word paragraph
-/tool:get_weather {}      call an offered tool, then summarize its result on the next turn
-/params, /messages, /attachments   inspect what actually reached the backend
-/error:429, /finish:length, /stream:50:100, /delay:2000   error, truncation, pacing shapes
+%help                     list all commands and playback scenarios
+%play:thinking-blocks     play a canned stream shape (the library lives in src/test/scenarios.ts)
+%echo:any text            reply with exactly that text
+%text:200                 a deterministic 200-word paragraph
+%think:5                  reasoning chunks, then a closing text
+%tool:get_weather {}      call an offered tool, then summarize its result on the next turn
+%image, %audio            byte-stable generated media carrying their own sha256
+%params, %messages, %attachments, %tools   inspect what actually reached the backend
+%cache, %deployment       cache_control marker positions; which upstream served the request
+%error:429, %finish:length, %stream:50:100, %delay:2000   error, truncation, pacing shapes
 ```
 
-A message without a command gets a fixed reply pointing at `/help`. Everything is deterministic: the same conversation produces the same bytes.
+A message without a command gets a fixed reply pointing at `%help`. Everything is deterministic: the same conversation produces the same bytes.
 
 The proxy config is generated at stack startup (`docker/.generated/litellm-config.yaml`, gitignored) from `src/test/fakeStack/models.ts`. With a real provider key set in `.env` or the environment, the generated config also routes `openai/*`, `anthropic/*`, or `github/*` model names through the proxy to that provider - the intended way to eyeball real-provider behavior through the same stack. Without a key the wildcard route is not emitted at all, so there are no phantom catalog models and no misleading 401s; note that an emitted wildcard makes LiteLLM list its whole known-model catalog, so expect a long model list in the picker. Set `LITELLM_WILDCARD_ALL=1` to add a bare `*` passthrough for anything else LiteLLM can infer. The docker test suite always generates without these routes, so local keys never change test results.
 
