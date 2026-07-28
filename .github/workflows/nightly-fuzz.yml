@@ -1,0 +1,203 @@
+# Nightly fuzzing on the repo-platform fuzzer starter; repo-platform's
+# docs/fuzzer.md documents the failure-report contract the fuzz steps follow.
+# Three shards run the unit property suites and the docker stream fuzzer,
+# each with its own random seed; a failing suite writes a report with the
+# exact replay command under .fuzz-failures/, and the report job files (or
+# updates) the label-deduplicated nightly-fuzz tracking issue. A green night
+# closes it.
+
+name: Nightly Fuzz
+
+on:
+  schedule:
+    - cron: '59 7 * * *'
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Fuzz seed (blank for a random one per shard)
+        required: false
+        default: ''
+      iterations:
+        description: Property-test runs per suite
+        required: false
+        default: '1000'
+
+# Scheduled runs supersede an in-flight scheduled run, but every manual
+# dispatch gets its own group so several fuzz passes (each with its own
+# random seed) can run side by side.
+concurrency:
+  group: nightly-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'scheduled' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+# issues: write lets the fuzz-issue action file/close the tracking issue;
+# actions: write lets the failure path dispatch auto-assign at it.
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    # A job that hits this timeout is cancelled, not failed, and the
+    # failure-reporting path never runs - so every fuzz command below is
+    # wrapped in `timeout --kill-after` (TERM, then KILL for a TERM-ignoring
+    # extension host) with budgets that leave room for setup and upload.
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up development environment
+        run: bash scripts/setup-env.sh
+
+      - name: Fuzz the unit property suites
+        shell: bash
+        env:
+          SEED_INPUT: ${{ inputs.seed }}
+          ITERATIONS: ${{ inputs.iterations || '1000' }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          SEED="${SEED_INPUT:-$RANDOM$RANDOM}"
+          echo "unit shard $SHARD: seed $SEED, $ITERATIONS runs"
+          set +e
+          FUZZ_SEED="$SEED" FUZZ_RUNS="$ITERATIONS" timeout --kill-after=60 15m xvfb-run -a bun run test 2>&1 | tee nightly-unit.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            dir=".fuzz-failures/unit-shard$SHARD"
+            mkdir -p "$dir"
+            cp nightly-unit.log "$dir/" || true
+            {
+              echo "# Unit property suites failed (shard $SHARD, seed $SEED)"
+              echo
+              echo "Replay:"
+              echo
+              echo '```bash'
+              echo "FUZZ_SEED=$SEED FUZZ_RUNS=$ITERATIONS bun run test"
+              echo '```'
+              echo
+              echo "fast-check prints the shrunk counterexample in the attached log."
+              echo "Pin it as an example test next to the failing property, or in"
+              echo "src/test/fuzzCorpus.ts when it is a FuzzEvent[] stream."
+            } > "$dir/report.md"
+            exit "$status"
+          fi
+
+      - name: Fuzz the docker stream suites
+        shell: bash
+        env:
+          # Empty on scheduled runs: the docker fuzzer then draws its own
+          # pid- and shard-mixed seed. A dispatched seed replays exactly.
+          FUZZ_SEED: ${{ inputs.seed }}
+          FUZZ_ITERATIONS: '500'
+          CONVERSATION_ITERATIONS: '50'
+          FUZZ_SHARD: ${{ matrix.shard }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set +e
+          timeout --kill-after=60 45m xvfb-run -a bun run test:docker 2>&1 | tee nightly-docker.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            # The docker orchestrator runs several suites in sequence; the seed
+            # and mode come from the last "[fuzz] seed=... mode=..." line, so
+            # the report names the suite that logged it rather than blaming the
+            # stream fuzzer for every failure.
+            fuzzline="$(grep -oE '\[fuzz\] seed=[0-9]+[^"]*' nightly-docker.log | tail -1 || true)"
+            seed="$(printf '%s' "$fuzzline" | grep -oE 'seed=[0-9]+' | grep -oE '[0-9]+' || true)"
+            mode="$(printf '%s' "$fuzzline" | grep -oE 'mode=[a-z-]+' | cut -d= -f2 || true)"
+            dir=".fuzz-failures/docker-shard$SHARD"
+            mkdir -p "$dir"
+            cp nightly-docker.log "$dir/" || true
+            {
+              echo "# Docker suites failed (shard $SHARD, mode ${mode:-unknown}, seed ${seed:-unknown})"
+              echo
+              echo "Replay:"
+              echo
+              echo '```bash'
+              if [ -n "$seed" ]; then
+                echo "FUZZ_SEED=$seed FUZZ_ITERATIONS=500 CONVERSATION_ITERATIONS=50 bun run test:docker"
+              else
+                echo "# The shard failed before any seeded suite logged; see the attached log."
+                echo "FUZZ_ITERATIONS=500 CONVERSATION_ITERATIONS=50 bun run test:docker"
+              fi
+              echo '```'
+              echo
+              echo "The seed belongs to the last suite that logged one (mode ${mode:-unknown});"
+              echo "a failure in a later unseeded suite (e.g. host-fidelity) does not use it."
+              echo "A seeded failure report includes a minimal failing event list; pin it in"
+              echo "src/test/fuzzCorpus.ts so the case replays on every run."
+            } > "$dir/report.md"
+            exit "$status"
+          fi
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-failures-shard${{ matrix.shard }}-${{ github.run_attempt }}
+          path: .fuzz-failures/
+          if-no-files-found: ignore
+
+  # Report and resolve live outside the shard matrix on purpose: as steps of
+  # a matrixed job they race, and one shard's green resolve could close the
+  # issue another shard just filed. A failing night files (or updates) the
+  # issue; cancelled contexts (a superseding scheduled run, a manual cancel,
+  # and on some runner versions a shard cancelled at the job timeout) skip
+  # filing - the `timeout --kill-after` wrappers above are what keep a hang
+  # from ever reaching the job timeout in the first place.
+  report:
+    needs: fuzz
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download failure artifacts
+        if: needs.fuzz.result != 'success'
+        # Tolerate a night where no shard produced a report (setup died before
+        # fuzzing): the action then files its bare no-report notice instead of
+        # this step failing on an empty pattern match.
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: fuzz-failures-shard*
+          path: .fuzz-failures
+          merge-multiple: true
+
+      - name: File or update the fuzz issue
+        id: file-issue
+        if: needs.fuzz.result != 'success'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@main
+        with:
+          mode: report
+          label: nightly-fuzz
+          title: Nightly fuzz failures
+          artifacts-dir: .fuzz-failures
+          artifact-name: fuzz-failures-shard*
+
+      # A GITHUB_TOKEN-created issue fires no triggers, so dispatch auto-assign.
+      # -R is required: this job never checks out the repo, so gh has no local
+      # git remote to resolve the repository from.
+      - name: Trigger auto-assign for the filed issue
+        if: needs.fuzz.result != 'success' && steps.file-issue.outputs.issue-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.file-issue.outputs.issue-number }}
+        run: gh workflow run auto-assign.yml -R "$GITHUB_REPOSITORY" -f "issue=$ISSUE_NUMBER" || echo "::warning::could not dispatch auto-assign.yml"
+
+      - name: Close the fuzz issue on a green night
+        if: needs.fuzz.result == 'success'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@main
+        with:
+          mode: resolve
+          label: nightly-fuzz

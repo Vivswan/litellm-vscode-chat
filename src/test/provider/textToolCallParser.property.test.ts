@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { type TextParseEvent, TextToolCallParser } from "../../provider/textToolCallParser";
+import { resolveFuzzSeed } from "../fuzzStream";
 
 const BEGIN = "<|tool_call_begin|>";
 const ARG_BEGIN = "<|tool_call_argument_begin|>";
@@ -8,8 +9,8 @@ const ARG_END = "<|tool_call_argument_end|>";
 const END = "<|tool_call_end|>";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// Pinned: a required CI gate must not fail on unrelated changes via seed luck.
-const SEED = 20260726;
+// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
+const SEED = resolveFuzzSeed();
 
 type TextSegment = { kind: "text"; text: string };
 type CallSegment = {

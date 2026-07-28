@@ -3,10 +3,11 @@ import * as fc from "fast-check";
 import * as vscode from "vscode";
 import { convertMessages } from "../../shared/messages";
 import { validateRequest } from "../../shared/validation";
+import { resolveFuzzSeed } from "../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
-// Pinned: a required CI gate must not fail on unrelated changes via seed luck.
-const SEED = 20260726;
+// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
+const SEED = resolveFuzzSeed();
 
 /** Minimal 1x1 PNG; convertMessages only inspects the MIME type and bytes. */
 const PNG_DATA = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03]);

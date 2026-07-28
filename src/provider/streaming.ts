@@ -281,7 +281,11 @@ export class StreamProcessor {
 				const lines = buffer.split("\n");
 				buffer = lines.pop() || "";
 
-				for (const line of lines) {
+				for (const rawLine of lines) {
+					// SSE over CRLF frames every line with a trailing \r; JSON payloads
+					// never end in a raw \r (it is escaped), so stripping it is safe and
+					// keeps "data: [DONE]\r\n" recognized instead of logged as malformed.
+					const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
 					if (!line.startsWith("data: ")) {
 						continue;
 					}

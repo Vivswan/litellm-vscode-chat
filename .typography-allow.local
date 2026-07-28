@@ -2,5 +2,8 @@
 # one per line, relative to the repository root. Read alongside the managed
 # .typography-allow; this file is repo-owned and survives template sync.
 # The stream fuzzer feeds deliberately non-ASCII inputs (CJK, RTL, emoji)
-# through the SSE parser; those strings are test data, not typography.
+# through the SSE parser; those strings are test data, not typography. They
+# live in fuzzStream.ts (shared by the docker fuzzer and the property
+# suites), and both files keep their box-drawing section dividers.
 src/test/docker-fuzz.test.ts
+src/test/fuzzStream.ts

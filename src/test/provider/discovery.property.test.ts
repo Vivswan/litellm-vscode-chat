@@ -4,11 +4,12 @@ import { mapModelInfoEntry, mergeModelDeployments } from "../../provider/discove
 import { deriveTokenConstraints } from "../../provider/modelCatalog";
 import type { LiteLLMModelInfoItem } from "../../provider/schemas";
 import type { TokenDefaults } from "../../shared/settings";
+import { resolveFuzzSeed } from "../fuzzStream";
 import { expectDefined } from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// Pinned: a required CI gate must not fail on unrelated changes via seed luck.
-const SEED = 20260726;
+// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
+const SEED = resolveFuzzSeed();
 
 const tokenLimit = fc.option(fc.integer({ min: 1, max: 500000 }), { nil: undefined });
 const flag = fc.option(fc.boolean(), { nil: null });

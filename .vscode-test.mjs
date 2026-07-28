@@ -35,6 +35,7 @@ export default defineConfig({
 			},
 			env: {
 				FUZZ_RUNS: process.env.FUZZ_RUNS || "",
+				FUZZ_SEED: process.env.FUZZ_SEED || "",
 			},
 			launchArgs,
 		},
