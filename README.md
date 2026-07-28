@@ -153,7 +153,7 @@ All non-reserved `modelParameters` keys are passed through to LiteLLM: the exten
 
 **Prefix matching**: Configuration keys use longest prefix matching. For example, `"gpt-4"` will match `"gpt-4-turbo:openai"`, `"gpt-4:azure"`, etc. More specific keys take precedence.
 
-**Server-scoped parameters**: In multi-server setups, prefix a key with the server label and `/` to scope parameters to a specific server. Server-scoped entries take priority over unscoped ones:
+**Server-scoped parameters**: Prefix a key with the server's base URL and `/` to scope parameters to that server (write the base URL without any trailing slash). Server-scoped entries take priority over unscoped ones, and within a scope the longer model prefix wins:
 
 ```json
 {
@@ -161,15 +161,17 @@ All non-reserved `modelParameters` keys are passed through to LiteLLM: the exten
     "gpt-4": {
       "temperature": 0.7
     },
-    "Production/gpt-4": {
+    "https://litellm.example.com/gpt-4": {
       "temperature": 0.3
     },
-    "Dev/gpt-4": {
+    "http://localhost:4000/gpt-4": {
       "temperature": 0.9
     }
   }
 }
 ```
+
+Servers that VS Code manages as provider groups - everything the `servers` setting or the native editor creates - match by base URL. Servers that came from the pre-migration server list also still match by their old label (for example `Production/gpt-4`), as long as the label and its base URL map one-to-one (a label that pointed at several URLs, or a URL that carried several labels, loses label scoping); when both forms could match, the more precise model prefix wins no matter how long the server part of the key is. A server still in the legacy server list matches by label only.
 
 **Parameter precedence**: Runtime options > model picker choices > user config. Any parameter left unset by all three falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one - the output limit your server declares in model info, or at most 4096 when the server declares none).
 
