@@ -2,10 +2,11 @@
 // scripts/fake-openai-server.ts
 //
 // OpenAI-compatible fake backend for the docker LiteLLM stack. The chat
-// input is the control surface: a slash command on the last non-empty line
+// input is the control surface: a "%" command on the last non-empty line
 // of the last user message selects the response (see
-// src/test/fakeStack/commands.ts); anything else gets the fixed reply
-// pointing at /help. The model id routes nothing - one grammar serves every
+// src/test/fakeStack/commands.ts for the grammar and for why the sigil is
+// "%" rather than "/" or "!"); anything else gets the fixed reply
+// pointing at %help. The model id routes nothing - one grammar serves every
 // fake- upstream.
 //
 // Routes:
@@ -83,7 +84,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 	if (req.method === "GET" && url.pathname === "/v1/models") {
 		// The consolidated fake- upstream ids only; blocked deployments are
 		// excluded exactly as a real provider would not list a decommissioned
-		// model. Scenarios are not models - they are /play targets.
+		// model. Scenarios are not models - they are %play targets.
 		return sendJson(res, 200, {
 			object: "list",
 			data: FAKE_MODEL_UPSTREAM_IDS.map((id) => ({ id, object: "model", created: 0, owned_by: "fake-openai" })),

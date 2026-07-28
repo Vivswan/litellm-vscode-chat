@@ -1,9 +1,28 @@
 /**
  * Command dispatch for the fake OpenAI backend: the chat input is the
  * control surface. The last non-empty line of the last user message, when it
- * starts with a slash and names a known verb, selects the response; nothing
+ * starts with "%" and names a known verb, selects the response; nothing
  * else in the message does. Everything here is deterministic - no clocks, no
  * Math.random - so identical conversations produce identical bytes.
+ *
+ * Why "%": both obvious sigils are intercepted before the text can reach
+ * the model. VS Code Copilot Chat's input claims "/"-prefixed text for its
+ * own slash commands (and "@" for participants, "#" for references), so a
+ * typed /help rendered as a chip, never reached the model, and the host got
+ * plain fallback text back (user-verified against the live UI). Agent CLIs
+ * like Claude Code claim a leading "!" to execute shell commands, so "!"
+ * fails the same way in a different client. "%" is unclaimed by the tested
+ * surfaces (verified against VS Code Copilot Chat and Claude Code; other
+ * chat surfaces checked by docs only). A "%" at line start can still occur
+ * in rare pasted contexts (templating markers, PostScript DSC lines); that
+ * is acceptable - only the LAST non-empty line dispatches, and an unknown
+ * verb falls through to the fallback, same as before. One hardening exists
+ * for exactly that class: %-comment languages (MATLAB, LaTeX, Erlang, csh
+ * transcripts) write "% word" and "% word: args" at line start, so the verb
+ * tolerates trailing whitespace only (trimEnd, never trim) - "% error: 429"
+ * used to return a real HTTP 429 that looked like a genuine proxy failure;
+ * now the whole comment class falls through to the fallback, which itself
+ * points at %help.
  *
  * The module is dependency-free (node builtins only): the fake-openai
  * container runs it from a read-only repo mount without node_modules.
@@ -23,13 +42,13 @@ import type { Scenario } from "../scenarios";
 export interface CommandContext {
 	/** The parsed /v1/chat/completions request body. */
 	request: Record<string, unknown>;
-	/** Built-in plus runtime-registered scenarios, for /play and /help. */
+	/** Built-in plus runtime-registered scenarios, for %play and %help. */
 	scenarios: ReadonlyMap<string, Scenario>;
 }
 
 export interface CommandResult {
 	scenario: Scenario;
-	/** Wait this long before the first response byte (/delay only). */
+	/** Wait this long before the first response byte (%delay only). */
 	firstByteDelayMs?: number;
 }
 
@@ -56,9 +75,17 @@ const MAX_SEED = 4294967295;
 const MAX_TOOL_ARGS_BYTES = 16 * 1024;
 const ERROR_STATUSES = new Set([400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503, 504]);
 
+/**
+ * The command sigil: the mandatory first byte of a command line. The whole
+ * grammar derives from this one constant (recognition, usage strings, help,
+ * diagnostics, FALLBACK_TEXT), so swapping the sigil is a one-character edit
+ * here plus the prose docs (README, AGENTS.md) and the module comments.
+ */
+export const COMMAND_SIGIL = "%";
+
 export const FALLBACK_TEXT =
-	"This fake model answers slash commands, not natural language, so this fixed reply is all plain text gets. " +
-	"Send /help on its own line to list every command and playback scenario.";
+	`This fake model only answers ${COMMAND_SIGIL} commands, so plain text always gets this same fixed reply. ` +
+	`Send ${COMMAND_SIGIL}help on its own line to list every command and playback scenario.`;
 
 // ── Message plumbing ─────────────────────────────────────────────────────────
 
@@ -103,11 +130,12 @@ function lastUserIndex(messages: WireMessage[]): number {
 
 /**
  * The last non-empty line with ONLY its trailing \r stripped - never trimmed,
- * so a leading space disqualifies the line from being a command (the SLASH
- * must be the line's first byte) and /echo keeps trailing bytes. The verb
- * AFTER the slash is trimmed by parseCommand, so "/ help" still dispatches;
- * only whitespace before the slash opts the line out. Whitespace-only lines
- * count as empty.
+ * so a leading space disqualifies the line from being a command (the "%"
+ * SIGIL must be the line's first byte) and %echo keeps trailing bytes. The
+ * verb AFTER the sigil keeps its trailing tolerance only ("%help " and
+ * "%stream :50" dispatch) - a space right after the sigil disqualifies,
+ * because %-comment languages write "% word" at line start (see the header).
+ * Whitespace-only lines count as empty.
  */
 function lastNonEmptyLine(text: string): string | undefined {
 	const lines = text.split("\n");
@@ -226,7 +254,7 @@ function textResult(context: CommandContext, text: string, finishReason = "stop"
 function diagnostic(context: CommandContext, command: CommandInfo): CommandResult {
 	return textResult(
 		context,
-		`Bad arguments for /${command.verb}. Usage: ${command.usage}. Send /help on its own line for the full command list.`
+		`Bad arguments for ${COMMAND_SIGIL}${command.verb}. Usage: ${command.usage}. Send ${COMMAND_SIGIL}help on its own line for the full command list.`
 	);
 }
 
@@ -242,7 +270,7 @@ function parseCount(text: string, max: number): number | undefined {
 	return value >= 1 && value <= max ? value : undefined;
 }
 
-/** The /text seed is 0-based: 0..4294967295, the mulberry32 state domain. */
+/** The %text seed is 0-based: 0..4294967295, the mulberry32 state domain. */
 function parseSeed(text: string): number | undefined {
 	const trimmed = text.trim();
 	if (!/^\d+$/.test(trimmed)) {
@@ -252,7 +280,7 @@ function parseSeed(text: string): number | undefined {
 	return value <= MAX_SEED ? value : undefined;
 }
 
-// ── Deterministic prose generation (/text) ───────────────────────────────────
+// ── Deterministic prose generation (%text) ───────────────────────────────────
 
 /** Same PRNG family the fuzz suites use; seed 0 is valid state. */
 function mulberry32(seed: number): () => number {
@@ -322,7 +350,7 @@ function generateProse(wordCount: number, seed: number): string {
 	return words.join(" ");
 }
 
-/** Default /text seed: hashed from the input conversation, so same conversation, same bytes. */
+/** Default %text seed: hashed from the input conversation, so same conversation, same bytes. */
 function seedFromInput(context: CommandContext): number {
 	const digest = createHash("sha256")
 		.update(JSON.stringify(context.request.messages ?? []))
@@ -330,7 +358,7 @@ function seedFromInput(context: CommandContext): number {
 	return digest.readUInt32BE(0);
 }
 
-// ── Wire-part forensics (/messages, /cache, /attachments) ───────────────────
+// ── Wire-part forensics (%messages, %cache, %attachments) ───────────────────
 
 /** JSON with object keys sorted lexicographically at every depth; arrays keep order. */
 function canonicalJson(value: unknown): string {
@@ -475,7 +503,7 @@ function cacheMarkerLines(context: CommandContext): string[] {
 	return lines;
 }
 
-// ── Generated media payloads (/image, /audio) ────────────────────────────────
+// ── Generated media payloads (%image, %audio) ────────────────────────────────
 
 // Observed against the live stack (LiteLLM v1.93): both media delta shapes
 // below - the delta.images list with a data URL, and the gpt-4o-style
@@ -499,7 +527,7 @@ export const PNG_SHA256 = "57c5b0ba802ba3aa9c4ebd11a8ef32d173abc6dd5b3deabb7cd54
 /** Pinned sha256 of WAV_BYTES; suites import this instead of re-deriving it. */
 export const WAV_SHA256 = "08662970568d4e2cf49988067bee006f7e8ded8c4cd93f4aa6ef4211b891d8af";
 
-// ── Tool-call flow (/tool) ───────────────────────────────────────────────────
+// ── Tool-call flow (%tool) ───────────────────────────────────────────────────
 
 interface OfferedTool {
 	name: string;
@@ -538,13 +566,13 @@ function runTool(arg: string | undefined, context: CommandContext, command: Comm
 	} catch {
 		return textResult(
 			context,
-			`The arguments for /tool:${name} are not valid JSON. Usage: ${command.usage}. Send /help for the full command list.`
+			`The arguments for ${COMMAND_SIGIL}tool:${name} are not valid JSON. Usage: ${command.usage}. Send ${COMMAND_SIGIL}help for the full command list.`
 		);
 	}
 	if (!offeredTools(context).some((tool) => tool.name === name)) {
 		return textResult(
 			context,
-			`The tool "${name}" is not offered by this request. Send /tools on its own line to list what the host offered.`
+			`The tool "${name}" is not offered by this request. Send ${COMMAND_SIGIL}tools on its own line to list what the host offered.`
 		);
 	}
 
@@ -585,8 +613,8 @@ const COMMAND_TABLE: ReadonlyArray<{
 }> = [
 	{
 		verb: "help",
-		usage: "/help",
-		description: "list every command and the available /play scenarios",
+		usage: `${COMMAND_SIGIL}help`,
+		description: `list every command and the available ${COMMAND_SIGIL}play scenarios`,
 		run: bare((context) => {
 			const commandLines = COMMANDS.map((command) => `${command.usage} - ${command.description}`);
 			const playTargets = Array.from(context.scenarios.keys()).sort().join(", ");
@@ -595,7 +623,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "params",
-		usage: "/params",
+		usage: `${COMMAND_SIGIL}params`,
 		description: "echo the request's generation parameters (fixed allowlist)",
 		run: bare((context) => {
 			const allowlist = [
@@ -627,7 +655,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "tools",
-		usage: "/tools",
+		usage: `${COMMAND_SIGIL}tools`,
 		description: "list the tools the host offered, with descriptions",
 		run: bare((context) => {
 			const offered = offeredTools(context);
@@ -639,7 +667,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "messages",
-		usage: "/messages",
+		usage: `${COMMAND_SIGIL}messages`,
 		description: "per message: index, role, and content part shapes (never content)",
 		run: bare((context) => {
 			const lines = requestMessages(context).map((message, index) => {
@@ -657,13 +685,13 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "cache",
-		usage: "/cache",
+		usage: `${COMMAND_SIGIL}cache`,
 		description: "report cache_control marker positions and count",
 		run: bare((context) => textResult(context, cacheMarkerLines(context).join("\n"))),
 	},
 	{
 		verb: "deployment",
-		usage: "/deployment",
+		usage: `${COMMAND_SIGIL}deployment`,
 		description: "report which upstream deployment served this request",
 		run: bare((context) =>
 			textResult(
@@ -674,13 +702,13 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "attachments",
-		usage: "/attachments",
+		usage: `${COMMAND_SIGIL}attachments`,
 		description: "per WIRE part: kind, mime, byte length, sha256 of decoded payload (post-conversion, never content)",
 		run: bare((context) => textResult(context, attachmentLines(context).join("\n"))),
 	},
 	{
 		verb: "image",
-		usage: "/image",
+		usage: `${COMMAND_SIGIL}image`,
 		description: "emit a byte-stable tiny PNG plus text carrying its sha256",
 		run: bare((context) => {
 			const text = `Generated a PNG image, ${PNG_BYTES.length} bytes, sha256=${sha256Hex(PNG_BYTES)}.`;
@@ -698,7 +726,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "audio",
-		usage: "/audio",
+		usage: `${COMMAND_SIGIL}audio`,
 		description: "emit a byte-stable tiny WAV plus text carrying its sha256",
 		run: bare((context) => {
 			const text = `Generated a WAV clip, ${WAV_BYTES.length} bytes, sha256=${sha256Hex(WAV_BYTES)}.`;
@@ -716,13 +744,13 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "tool",
-		usage: "/tool:<name> [json]",
+		usage: `${COMMAND_SIGIL}tool:<name> [json]`,
 		description: "call the offered tool <name> with the JSON args; with a tool result present, summarize it",
 		run: runTool,
 	},
 	{
 		verb: "play",
-		usage: "/play:<scenario>",
+		usage: `${COMMAND_SIGIL}play:<scenario>`,
 		description: "play a built-in or runtime-registered scenario verbatim",
 		run(arg, context, command) {
 			const name = arg?.trim();
@@ -733,7 +761,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 			if (!scenario) {
 				return textResult(
 					context,
-					`Unknown scenario "${name}". Send /help on its own line to list the available play targets.`
+					`Unknown scenario "${name}". Send ${COMMAND_SIGIL}help on its own line to list the available play targets.`
 				);
 			}
 			return { scenario };
@@ -741,7 +769,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "stream",
-		usage: "/stream:<n>[:<delay-ms>]",
+		usage: `${COMMAND_SIGIL}stream:<n>[:<delay-ms>]`,
 		description: `stream n fixed chunks with a per-chunk delay (default 100ms; n <= ${MAX_STREAM_CHUNKS}, delay <= ${MAX_STREAM_DELAY_MS})`,
 		run(arg, context, command) {
 			const pieces = (arg ?? "").split(":");
@@ -766,7 +794,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "error",
-		usage: "/error:<status>",
+		usage: `${COMMAND_SIGIL}error:<status>`,
 		description: "fail with that HTTP status (400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503, 504)",
 		run(arg, context, command) {
 			const trimmed = arg?.trim() ?? "";
@@ -785,7 +813,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "text",
-		usage: "/text:<n>[:<seed>]",
+		usage: `${COMMAND_SIGIL}text:<n>[:<seed>]`,
 		description: `a deterministic n-word paragraph (n <= ${MAX_TEXT_WORDS}); the optional seed is 0-based`,
 		run(arg, context, command) {
 			const pieces = (arg ?? "").split(":");
@@ -802,7 +830,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "think",
-		usage: "/think:<n>",
+		usage: `${COMMAND_SIGIL}think:<n>`,
 		description: `n reasoning chunks then a closing text (n <= ${MAX_THINK_STEPS})`,
 		run(arg, context, command) {
 			const count = arg === undefined ? undefined : parseCount(arg, MAX_THINK_STEPS);
@@ -824,7 +852,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "echo",
-		usage: "/echo:<text>",
+		usage: `${COMMAND_SIGIL}echo:<text>`,
 		description: "reply with exactly <text> (case preserved, line-bounded)",
 		run(arg, context, command) {
 			if (arg === undefined || arg === "") {
@@ -835,7 +863,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "finish",
-		usage: "/finish:<reason>",
+		usage: `${COMMAND_SIGIL}finish:<reason>`,
 		description: "fixed partial text ending with finish_reason length or content_filter",
 		run(arg, context, command) {
 			const reason = arg?.trim();
@@ -847,7 +875,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 	{
 		verb: "delay",
-		usage: "/delay:<ms>",
+		usage: `${COMMAND_SIGIL}delay:<ms>`,
 		description: `wait that long before the first byte, then a short text (ms <= ${MAX_DELAY_MS})`,
 		run(arg, context, command) {
 			const delayMs = arg === undefined ? undefined : parseCount(arg, MAX_DELAY_MS);
@@ -860,7 +888,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	},
 ];
 
-/** The dispatch table, exported so /help, the docker tests, and the suites read one source of truth. */
+/** The dispatch table, exported so %help, the docker tests, and the suites read one source of truth. */
 export const COMMANDS: ReadonlyArray<FakeCommand> = COMMAND_TABLE.map((entry) => ({
 	verb: entry.verb,
 	usage: entry.usage,
@@ -879,10 +907,15 @@ interface ParsedCommand {
 
 /**
  * A command is recognized ONLY on the last non-empty line of the last user
- * message, with a mandatory leading slash. The verb (between the slash and
- * the first colon, or end of line) matches case-insensitively; the argument
- * is everything after the first colon, case preserved (/echo is byte-exact
- * after that colon; numeric commands trim their pieces themselves).
+ * message, with a mandatory leading "%". The verb (between the sigil and
+ * the first colon, or end of line) matches case-insensitively and tolerates
+ * trailing whitespace ONLY - trimEnd, never trim, so "%help " and
+ * "%stream :50" dispatch while "% help" is plain text (see the module
+ * header for the %-comment rationale). The argument is everything after the
+ * first colon, case preserved (%echo is byte-exact after that colon;
+ * numeric commands trim their pieces themselves). Lines starting with "/"
+ * or "!" are ordinary text - chat surfaces intercept both before they can
+ * reach the model, so they must never dispatch here either.
  */
 function parseCommand(context: CommandContext): ParsedCommand | undefined {
 	const messages = requestMessages(context);
@@ -892,12 +925,12 @@ function parseCommand(context: CommandContext): ParsedCommand | undefined {
 		return undefined;
 	}
 	const line = lastNonEmptyLine(messageText(lastUser));
-	if (line === undefined || !line.startsWith("/")) {
+	if (line === undefined || !line.startsWith(COMMAND_SIGIL)) {
 		return undefined;
 	}
-	const body = line.slice(1);
+	const body = line.slice(COMMAND_SIGIL.length);
 	const colon = body.indexOf(":");
-	const verb = (colon === -1 ? body : body.slice(0, colon)).trim().toLowerCase();
+	const verb = (colon === -1 ? body : body.slice(0, colon)).trimEnd().toLowerCase();
 	const command = COMMANDS_BY_VERB.get(verb);
 	if (command === undefined) {
 		return undefined;

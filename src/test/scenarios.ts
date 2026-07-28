@@ -3,7 +3,7 @@
  * in-process capture server (host-fidelity tests) and the containerized
  * fake OpenAI server behind the docker LiteLLM proxy. Each scenario is a
  * canned /v1/chat/completions response, addressed per request with the
- * /play:<name> command (src/test/fakeStack/commands.ts). The model catalog
+ * %play:<name> command (src/test/fakeStack/commands.ts). The model catalog
  * lives separately in src/test/fakeStack/models.ts.
  */
 
@@ -53,7 +53,7 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 
 	// A playback shape from the era when this scenario had its own two-
 	// deployment proxy model; the load-balanced group is now gpt-5.2 in
-	// src/test/fakeStack/models.ts, and this stays as a /play target.
+	// src/test/fakeStack/models.ts, and this stays as a %play target.
 	"load-balanced": {
 		type: "sse",
 		chunks: [makeChunk({ role: "assistant", content: "Balanced across deployments" }), makeChunk({}, "stop")],

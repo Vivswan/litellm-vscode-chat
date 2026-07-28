@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import { COMMAND_SIGIL } from "./commands";
 import type { FakeModel } from "./models";
 import { FAKE_MODELS } from "./models";
 import { assertUniqueNames, consolidatedModelEntry, costLiteral, generateConfig } from "./proxyConfig";
@@ -110,7 +111,7 @@ suite("fakeStack proxyConfig emission", () => {
 		);
 	});
 
-	test("router cooldowns are disabled: deliberate /error responses must not sideline deployments", () => {
+	test(`router cooldowns are disabled: deliberate ${COMMAND_SIGIL}error responses must not sideline deployments`, () => {
 		assert.ok(config.includes("allowed_fails: 1000000"), "allowed_fails is the load-bearing knob");
 		assert.ok(config.includes("cooldown_time: 0"), "cooldown_time backs it up where the router honors 0");
 	});

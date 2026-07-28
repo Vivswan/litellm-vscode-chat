@@ -2,13 +2,14 @@
  * Pure emission of the LiteLLM proxy config text for the local docker stack.
  * The source of truth is src/test/fakeStack/models.ts (the consolidated
  * aliases); the canned response library in src/test/scenarios.ts no longer
- * feeds the config - its shapes are addressed per request via the /play
+ * feeds the config - its shapes are addressed per request via the %play
  * command. No filesystem or environment access here: real-provider decisions
  * arrive through an injected env lookup, so the unit suite pins the emission
  * on every CI OS without docker. scripts/litellmConfig.ts wraps this with
  * the .env-aware lookup and the atomic write to docker/.generated/.
  */
 
+import { COMMAND_SIGIL } from "./commands";
 import type { FakeModel, FakeModelCapabilities, FakeModelPricing } from "./models";
 import { FAKE_MODELS } from "./models";
 
@@ -147,7 +148,7 @@ export function consolidatedModelEntry(model: FakeModel): string {
 		.join("\n\n");
 }
 
-/** Duplicate aliases would form silent unintended load-balancing groups; duplicate upstreams break /deployment's oracle. */
+/** Duplicate aliases would form silent unintended load-balancing groups; duplicate upstreams break %deployment's oracle. */
 export function assertUniqueNames(models: readonly FakeModel[] = FAKE_MODELS): void {
 	const aliases = new Set<string>();
 	const upstreams = new Set<string>();
@@ -213,7 +214,7 @@ export function generateConfig(options: GenerateOptions, envValue: EnvLookup = (
 		...(options.realProviders ? realProviderSection(envValue) : []),
 		"",
 		"router_settings:",
-		"  # The fake backend serves deliberate /error:<status> responses; the",
+		`  # The fake backend serves deliberate ${COMMAND_SIGIL}error:<status> responses; the`,
 		"  # router's failure cooldown would otherwise sideline a model for",
 		"  # seconds and poison unrelated tests. This applies to the optional",
 		"  # real-provider wildcard routes too: they are single-deployment",

@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { COMMAND_SIGIL } from "./fakeStack/commands";
 import type { ExpectedToolCall, FuzzEvent } from "./fuzzCorpus";
 import { FUZZ_CORPUS } from "./fuzzCorpus";
 import {
@@ -19,7 +20,7 @@ import { expectDefined } from "./testUtils";
  * Each iteration builds a random stream as a list of serializable events
  * (text, delta/inline/duplicated/interleaved tool calls, refusals, citations,
  * reasoning, junk), registers it on the fake backend, selects it by sending
- * /play:<name> as the user message, streams it through the VS Code LM API,
+ * %play:<name> as the user message, streams it through the VS Code LM API,
  * and asserts the exact expected outcome: text arrives verbatim (including
  * the space hint and citation trailer the extension adds), tool calls
  * reassemble exactly, and IDs stay unique.
@@ -556,7 +557,7 @@ async function runStream(model: vscode.LanguageModelChat, name: string, events: 
 	const assembled = assemble(events);
 	await registerScenario(name, { type: "sse", chunks: assembled.chunks });
 	const response = await model.sendRequest(
-		[vscode.LanguageModelChatMessage.User(`/play:${name}`)],
+		[vscode.LanguageModelChatMessage.User(`${COMMAND_SIGIL}play:${name}`)],
 		{},
 		new vscode.CancellationTokenSource().token
 	);
@@ -706,7 +707,7 @@ function fuzzSuite(title: string, directMode: boolean, serverUrl: string, server
 			const cancelAfter = 1 + Math.floor(random() * 5);
 			const source = new vscode.CancellationTokenSource();
 			const request = await fuzzModel.sendRequest(
-				[vscode.LanguageModelChatMessage.User(`/play:${name}`)],
+				[vscode.LanguageModelChatMessage.User(`${COMMAND_SIGIL}play:${name}`)],
 				{},
 				source.token
 			);
