@@ -534,6 +534,54 @@ suite("extension/dashboard/panel", () => {
 		assert.ok(notice.type === "intentFailed" && notice.requestId === "req-7");
 	});
 
+	test("readInlineSecrets answers with inline values only: secure and absent fields carry no key", async () => {
+		const harness = makeHarness();
+		harness.serversSetting = [
+			{ label: "Inline", baseUrl: "http://a.test", apiKey: "sk-inline" },
+			// Mixed entry: inline key, everything else lives elsewhere or nowhere.
+			{ label: "Mixed", baseUrl: "http://c.test", apiKey: "sk-mixed", virtualKeyHeader: "x-vk" },
+		];
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		fake.receiveMessage({ type: "readInlineSecrets", label: "Mixed", requestId: "req-inline" });
+		await settle();
+
+		const response = fake.posted.at(-1) as ExtensionToWebviewMessage;
+		assert.ok(response.type === "inlineSecrets", `expected the response, got ${response.type}`);
+		assert.strictEqual(response.requestId, "req-inline");
+		assert.deepStrictEqual(response.values, { apiKey: "sk-mixed" });
+		assert.ok(!("oauthClientSecret" in response.values), "a secure-side field must be absent, not empty");
+		assert.ok(!("virtualKeyValue" in response.values), "an unset field must be absent, not empty");
+	});
+
+	test("readInlineSecrets triggers no state push, and the value never reaches the log", async () => {
+		const harness = makeHarness();
+		harness.serversSetting = [{ label: "Inline", baseUrl: "http://a.test", apiKey: "sk-inline-value" }];
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+		const before = fake.posted.length;
+
+		fake.receiveMessage({ type: "readInlineSecrets", label: "Inline", requestId: "req-a" });
+		fake.receiveMessage({ type: "readInlineSecrets", label: "No Such Entry", requestId: "req-b" });
+		await settle();
+
+		assert.strictEqual(fake.posted.length, before + 2, "exactly the two responses, no state pushes");
+		const [first, second] = fake.posted.slice(before) as ExtensionToWebviewMessage[];
+		assert.ok(first?.type === "inlineSecrets" && first.requestId === "req-a");
+		assert.deepStrictEqual(first.type === "inlineSecrets" ? first.values : undefined, { apiKey: "sk-inline-value" });
+		assert.ok(second?.type === "inlineSecrets" && second.requestId === "req-b");
+		assert.deepStrictEqual(second.type === "inlineSecrets" ? second.values : undefined, {}, "unknown label: no values");
+		const logged = JSON.stringify({ logs: harness.loggedMessages, errors: harness.loggedErrors });
+		assert.ok(!logged.includes("sk-inline-value"), "the value must never reach the log");
+		// The state canary: the pushes that did happen (the open) carry no
+		// inline secret even though the setting holds one.
+		const states = (fake.posted as ExtensionToWebviewMessage[]).filter((m) => m.type === "state");
+		assert.ok(!JSON.stringify(states).includes("sk-inline-value"), "state pushes must not carry inline values");
+	});
+
 	test("mutating intents are serialized: two rapid saves never lose an update", async () => {
 		const harness = makeHarness();
 		harness.controller.open();

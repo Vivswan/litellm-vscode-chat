@@ -1,7 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
 import type { DashboardServer, SecretFieldId, SecretLocation } from "../../extension/dashboard/protocol";
+import { SECRET_FIELD_IDS } from "../../extension/dashboard/protocol";
 import type { SecretFieldDraft, ServerFormDraft, ServerFormField } from "../../extension/dashboard/serverForm";
 import {
+	applyInlinePrefill,
 	assembleServerForm,
 	EMPTY_SERVER_FORM,
 	hasServerFormProblems,
@@ -13,7 +15,7 @@ import {
 	validateAdoptLabel,
 	validateServerForm,
 } from "../../extension/dashboard/serverForm";
-import type { FailuresByIntent, IntentAck } from "./app";
+import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
 import { postMessage } from "./vscodeApi";
 
 function formatTimestamp(iso: string | undefined): string {
@@ -131,13 +133,25 @@ function TextField({
 
 /**
  * One secret field: a password input plus the user's per-field storage
- * choice. Existing values are never shown (they never reach the webview);
- * leaving the input empty keeps the stored value where it is.
+ * choice. Values in secure storage are never shown (they never reach this
+ * page); an inline value prefills the input, masked behind a Show toggle,
+ * because settings.json already displays it in plain text. Leaving the input
+ * empty - or leaving a prefill unedited - keeps the stored value where it is.
  */
 function SecretField({ field, props }: { field: SecretFieldId; props: FieldRenderProps }) {
 	const value = props.draft[field];
 	const problem = props.problems[field];
 	const showProblem = problem !== undefined && (props.touched.has(field) || value.value.length > 0);
+	const [revealed, setRevealed] = useState(false);
+	// Nothing to reveal in an empty or removal-marked field, so the toggle
+	// disables and any lingering revealed state resets: the next value typed
+	// (or a re-ticked remove undone) starts masked again.
+	const empty = value.value.trim().length === 0;
+	useEffect(() => {
+		if (empty || value.clear) {
+			setRevealed(false);
+		}
+	}, [empty, value.clear]);
 	const id = `server-${field}`;
 	const errorId = `${id}-error`;
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
@@ -145,17 +159,29 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 	return (
 		<div class="field">
 			<label for={id}>{SERVER_FORM_FIELD_LABELS[field]}</label>
-			<input
-				id={id}
-				type="password"
-				class={showProblem ? "invalid" : ""}
-				value={value.value}
-				disabled={props.disabled || value.clear}
-				aria-invalid={showProblem}
-				aria-describedby={showProblem ? errorId : undefined}
-				onInput={(event) => patchSecret({ value: event.currentTarget.value })}
-				onBlur={() => props.touch(field)}
-			/>
+			<span class="secret-input">
+				<input
+					id={id}
+					type={revealed ? "text" : "password"}
+					class={showProblem ? "invalid" : ""}
+					value={value.value}
+					disabled={props.disabled || value.clear}
+					aria-invalid={showProblem}
+					aria-describedby={showProblem ? errorId : undefined}
+					onInput={(event) => patchSecret({ value: event.currentTarget.value })}
+					onBlur={() => props.touch(field)}
+				/>
+				<button
+					type="button"
+					class="quiet"
+					aria-pressed={revealed}
+					aria-label={`${revealed ? "Hide" : "Show"} the ${SERVER_FORM_FIELD_LABELS[field]}`}
+					disabled={props.disabled || value.clear || empty}
+					onClick={() => setRevealed((current) => !current)}
+				>
+					{revealed ? "Hide" : "Show"}
+				</button>
+			</span>
 			<span class="secret-where" role="radiogroup" aria-label={`Where to store the ${SERVER_FORM_FIELD_LABELS[field]}`}>
 				<span class="where-label">Store in:</span>
 				<label>
@@ -190,7 +216,15 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 					</label>
 				) : null}
 			</span>
-			{value.existing !== "none" && !value.clear ? (
+			{value.prefill !== undefined && !value.clear ? (
+				value.value.trim().length === 0 ? (
+					<span class="hint">Emptied, but the stored value is kept; use remove to delete it.</span>
+				) : (
+					<span class="hint">
+						Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.
+					</span>
+				)
+			) : value.existing !== "none" && !value.clear ? (
 				<span class="hint">Currently in {LOCATION_NAMES[value.existing]}; leave the field empty to keep it.</span>
 			) : null}
 			{value.clear ? <span class="hint">The stored value will be removed on save.</span> : null}
@@ -216,6 +250,7 @@ function ServerForm({
 	target,
 	ack,
 	failures,
+	inlineSecrets,
 	declaredLabels,
 	onClose,
 	onCancel,
@@ -223,6 +258,7 @@ function ServerForm({
 	target: FormTarget;
 	ack: IntentAck | undefined;
 	failures: FailuresByIntent;
+	inlineSecrets: InlineSecretsResponse | undefined;
 	declaredLabels: readonly string[];
 	onClose: () => void;
 	/** The Cancel button's close: also clears the section-level failure notice. */
@@ -232,11 +268,46 @@ function ServerForm({
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [pending, setPending] = useState<string | undefined>(undefined);
 	const [oauthOpen, setOauthOpen] = useState(false);
+	const [prefillPending, setPrefillPending] = useState<string | undefined>(undefined);
 	const saving = pending !== undefined;
+	// Save holds until the prefill response lands: saving before it arrives
+	// would assemble the still-empty fields as "keep", silently dropping a
+	// relocation the user just picked (flip the radio to secure, hit Save).
+	// The response is one round trip behind the form opening, so the gate is
+	// imperceptible in practice.
+	const prefillLoading = prefillPending !== undefined;
 	const failure = failures.saveServerSetting;
 	const failureSeq = failure?.seq;
 	const failureRequestId = failure?.requestId;
 	const failureKind = failure?.kind;
+
+	// Editing a declared entry with inline-stored secrets: ask for their values
+	// once per form instance (the key remounts a fresh form). Secure-side and
+	// absent fields are never requested-for or returned; they keep the empty
+	// placeholder input.
+	useEffect(() => {
+		const original = target.original;
+		const config = original?.config;
+		if (original === undefined || config === undefined) {
+			return;
+		}
+		if (!SECRET_FIELD_IDS.some((field) => config.secrets[field] === "settings")) {
+			return;
+		}
+		const requestId = newRequestId();
+		postMessage({ type: "readInlineSecrets", label: original.label, requestId });
+		setPrefillPending(requestId);
+	}, [target]);
+
+	// This form's own response prefills the untouched inline fields; a response
+	// for a previous form instance (a stale requestId) is ignored.
+	useEffect(() => {
+		if (prefillPending === undefined || inlineSecrets === undefined || inlineSecrets.requestId !== prefillPending) {
+			return;
+		}
+		setPrefillPending(undefined);
+		setDraft((current) => applyInlinePrefill(current, inlineSecrets.values));
+	}, [inlineSecrets, prefillPending]);
 
 	useEffect(() => {
 		if (pending !== undefined && ack?.requestId === pending) {
@@ -294,6 +365,11 @@ function ServerForm({
 	}, [oauthProblemVisible]);
 
 	const save = () => {
+		if (prefillLoading) {
+			// Belt and braces behind the disabled button: never assemble a draft
+			// whose inline fields are still on their way.
+			return;
+		}
 		if (invalid) {
 			// Surface every problem instead of refusing silently, opening the
 			// disclosure when one hides inside it.
@@ -350,16 +426,17 @@ function ServerForm({
 				<SecretField field="virtualKeyValue" props={props} />
 			</details>
 			<p class="hint">
-				Saved to the litellm-vscode-chat.servers user setting and synced to VS Code automatically. Secrets left empty
-				keep their current value.
+				Saved to the litellm-vscode-chat.servers user setting and synced to VS Code automatically. Secrets left empty or
+				unedited keep their current value.
 			</p>
 			<div class="toolbar">
-				<button type="button" disabled={saving} onClick={save}>
+				<button type="button" disabled={saving || prefillLoading} onClick={save}>
 					{saving ? "Saving..." : "Save"}
 				</button>
 				<button type="button" class="secondary" onClick={onCancel}>
 					Cancel
 				</button>
+				{prefillLoading ? <span class="hint">Loading stored values...</span> : null}
 				{firstBlocking !== undefined ? (
 					<span class="error" role="alert">
 						Cannot save: fix {SERVER_FORM_FIELD_LABELS[firstBlocking]}
@@ -645,13 +722,18 @@ export function ServersSection({
 	servers,
 	ack,
 	failures,
+	inlineSecrets,
 	onDismissFailure,
+	onClearInlineSecrets,
 }: {
 	servers: readonly DashboardServer[];
 	ack: IntentAck | undefined;
 	failures: FailuresByIntent;
+	inlineSecrets: InlineSecretsResponse | undefined;
 	/** Drop the latest failure notice for one intent type (Cancel dismisses a stale save failure). */
 	onDismissFailure: (intentType: string) => void;
+	/** Drop the held inlineSecrets response; called when the edit form closes so the value leaves webview memory. */
+	onClearInlineSecrets: () => void;
 }) {
 	// The form target survives state pushes (editing continues across a
 	// background refresh); a fresh key forces a clean draft per open.
@@ -666,7 +748,16 @@ export function ServersSection({
 	const noServers = servers.length === 0;
 
 	const openForm = (target: FormTarget) => {
+		// A fresh form must never see the previous entry's response (switching
+		// straight from one Edit to another), and the old value should not
+		// outlive its form in webview memory.
+		onClearInlineSecrets();
 		setForm((current) => ({ target, key: (current?.key ?? 0) + 1 }));
+	};
+
+	const closeForm = () => {
+		setForm(undefined);
+		onClearInlineSecrets();
 	};
 
 	const declaredLabels = servers.filter((server) => server.origin === "declared").map((server) => server.label);
@@ -730,11 +821,12 @@ export function ServersSection({
 					target={form.target}
 					ack={ack}
 					failures={failures}
+					inlineSecrets={inlineSecrets}
 					declaredLabels={declaredLabels}
-					onClose={() => setForm(undefined)}
+					onClose={closeForm}
 					onCancel={() => {
 						onDismissFailure("saveServerSetting");
-						setForm(undefined);
+						closeForm();
 					}}
 				/>
 			) : null}

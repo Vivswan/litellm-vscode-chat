@@ -289,6 +289,10 @@ const STYLES = `
 	}
 	.secret-where label { display: flex; gap: 4px; align-items: center; }
 	.secret-where .where-label { color: var(--vscode-foreground); }
+	/* A secret input with its Show/Hide toggle: the pair fills the control
+	   column, the input keeps as much of it as the toggle leaves. */
+	.secret-input { display: flex; gap: 4px; align-items: center; }
+	.secret-input input { flex: 1; min-width: 0; }
 
 	.filterbar { display: flex; gap: 12px; align-items: baseline; margin: 8px 0; flex-wrap: wrap; }
 	.filterbar input { min-width: 260px; }

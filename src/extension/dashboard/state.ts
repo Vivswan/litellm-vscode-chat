@@ -19,6 +19,7 @@ import { isUnsafeRecordKey } from "../../shared/json";
 import { normalizeModelParameters } from "../../shared/settings";
 import { EXTENSION_SETTINGS_FILTER } from "../serverManagement";
 import type { DeclaredServerView } from "../serverSync";
+import { acceptedEntryIndex } from "../serverSync";
 import type {
 	BooleanSettingId,
 	DashboardCommandId,
@@ -581,6 +582,7 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 		requestId: z.string().min(1).max(128),
 	}),
 	z.strictObject({ type: z.literal("removeServerSetting"), label: z.string(), requestId: z.string().min(1).max(128) }),
+	z.strictObject({ type: z.literal("readInlineSecrets"), label: z.string(), requestId: z.string().min(1).max(128) }),
 	z.strictObject({
 		type: z.literal("adoptServer"),
 		label: z.string(),
@@ -786,14 +788,41 @@ function isEntryRecord(entry: unknown): entry is Record<string, unknown> {
 /**
  * Whether a raw entry carries this label. Compared trimmed on both sides:
  * parseServersSetting trims labels, so a hand-written `" Prod "` entry
- * displays as "Prod" and its edits and removals must find it again.
+ * displays as "Prod" and its edits and removals must find it again. Removal
+ * matches every raw carrier of the label on purpose; per-entry resolution
+ * (the edit prefill, the save target) goes through acceptedEntryIndex instead,
+ * so it lands on the same entry the parsed views describe.
  */
 function entryHasLabel(entry: unknown, label: string): entry is Record<string, unknown> {
 	return isEntryRecord(entry) && typeof entry.label === "string" && entry.label.trim() === label.trim();
 }
 
-function findEntryIndex(entries: readonly unknown[], label: string): number {
-	return entries.findIndex((entry) => entryHasLabel(entry, label));
+/**
+ * One declared entry's inline secret values, for the edit form's on-demand
+ * prefill (the readInlineSecrets request). The entry resolves through
+ * acceptedEntryIndex, so the values come from exactly the entry the dashboard
+ * row describes (a rejected same-label sibling cannot shadow it, and a label
+ * the parser rejects yields nothing). A field counts as inline exactly when
+ * the sync engine would read it from the entry (a usable string, trimmed like
+ * parseServersSetting trims), so this agrees with the "settings" location the
+ * declared views report. Fields stored securely or absent get NO key - their
+ * values must never reach the webview. The returned values are never logged.
+ */
+export function readInlineSecretValues(raw: unknown, label: string): Readonly<Partial<Record<SecretFieldId, string>>> {
+	const entries = rawServerEntries(raw);
+	const index = acceptedEntryIndex(entries, label);
+	if (index < 0) {
+		return {};
+	}
+	const entry = entries[index] as Record<string, unknown>;
+	const values: { -readonly [K in SecretFieldId]?: string } = {};
+	for (const field of SECRET_FIELD_IDS) {
+		const value = entry[field];
+		if (typeof value === "string" && value.trim().length > 0) {
+			values[field] = value.trim();
+		}
+	}
+	return values;
 }
 
 /**
@@ -830,14 +859,17 @@ async function applySaveServerSetting(
 	// hit the same label the entry lookup resolves.
 	const targetLabel = (intent.replaceLabel ?? label).trim();
 	const entries = rawServerEntries(env.readServersSetting());
-	const existingIndex = findEntryIndex(entries, targetLabel);
+	// Resolution agrees with the parsed world (acceptedEntryIndex): the entry
+	// being edited is the one the dashboard row described, never a rejected
+	// same-label sibling sitting earlier in the raw array.
+	const existingIndex = acceptedEntryIndex(entries, targetLabel);
 	if (intent.replaceLabel !== undefined && existingIndex < 0) {
 		throw new DashboardValidationError(
 			"The entry being edited no longer exists in the servers setting; close the form and retry"
 		);
 	}
 	const renaming = targetLabel !== label;
-	if (renaming && findEntryIndex(entries, label) >= 0) {
+	if (renaming && acceptedEntryIndex(entries, label) >= 0) {
 		throw new DashboardValidationError("label: an entry with this label already exists");
 	}
 	const existing = existingIndex >= 0 ? (entries[existingIndex] as Record<string, unknown>) : undefined;
@@ -1052,7 +1084,7 @@ async function applyAdoptServer(
 		throw new DashboardValidationError("baseUrl: not a usable http(s) URL");
 	}
 	const entries = rawServerEntries(env.readServersSetting());
-	if (findEntryIndex(entries, label) >= 0) {
+	if (acceptedEntryIndex(entries, label) >= 0) {
 		throw new DashboardValidationError("label: an entry with this label already exists");
 	}
 

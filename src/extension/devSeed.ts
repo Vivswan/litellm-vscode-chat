@@ -7,10 +7,11 @@ import { SERVERS_SETTING_KEY, updateServerSecret } from "./serverSync";
  * writes this file into the extension development folder, and a
  * development-mode activation consumes it exactly once. The seed lands the
  * same way a user-configured server does: a `litellm-vscode-chat.servers`
- * entry in the user scope (the setting is machine-scoped) plus the API key
- * in the label's SecretStorage blob, and the server sync engine's forced
- * activation pass turns the entry into the provider group. Production
- * activations never look for the file.
+ * entry in the user scope (the setting is machine-scoped) with the API key
+ * inline in the entry - it is the local stack's master key, and the inline
+ * form is what the dashboard edit form's prefill exercises - and the server
+ * sync engine's forced activation pass turns the entry into the provider
+ * group. Production activations never look for the file.
  */
 export const DEV_SEED_FILENAME = ".dev-fake-seed.json";
 
@@ -53,7 +54,7 @@ export interface DevSeedEnv {
 	/** The user-scope servers setting value the seed entry is upserted into. */
 	readServersSetting(): unknown;
 	writeServersSetting(value: readonly unknown[]): Thenable<void>;
-	/** Store the seeded API key in the label's SecretStorage blob; undefined clears a stale one. */
+	/** Write or (with undefined) clear the label's secure-side key; the seed only clears - its key sits inline. */
 	storeApiKey(label: string, value: string | undefined): Promise<void>;
 }
 
@@ -79,12 +80,18 @@ export function createDevSeedEnv(secrets: vscode.SecretStorage): DevSeedEnv {
 /**
  * The setting array with the seed's entry in place. Entries other than the
  * seed's label survive verbatim (junk included); the seed's own entry is
- * replaced wholesale, so a changed port from a previous run does not linger
- * and the key never sits inline in the setting.
+ * replaced wholesale, so a changed port or key from a previous run does not
+ * linger. The key sits inline in the entry, visible in settings.json like the
+ * rest of the seed: it is the local stack's master key, and inline storage is
+ * the case the dashboard edit form's prefill exercises.
  */
 function upsertSeedEntry(raw: unknown, seed: DevSeed): unknown[] {
 	const entries: unknown[] = Array.isArray(raw) ? [...raw] : [];
-	const entry = { label: seed.label, baseUrl: seed.baseUrl };
+	const entry = {
+		label: seed.label,
+		baseUrl: seed.baseUrl,
+		...(seed.apiKey.length > 0 ? { apiKey: seed.apiKey } : {}),
+	};
 	const index = entries.findIndex(
 		(candidate) =>
 			typeof candidate === "object" &&
@@ -102,13 +109,13 @@ function upsertSeedEntry(raw: unknown, seed: DevSeed): unknown[] {
 }
 
 /**
- * The key goes to the secure side before the settings write: the setting is
- * what the sync engine acts on, and by the time it does, the blob must hold
- * the current key. An empty seed key clears a previous run's stored one.
+ * The settings write lands first, then a previous run's secure-side key is
+ * cleared: the inline key outranks the blob, so a failed clear leaves only a
+ * dormant stale leftover behind a working entry.
  */
 async function applySeed(seed: DevSeed, env: DevSeedEnv): Promise<void> {
-	await env.storeApiKey(seed.label, seed.apiKey.length > 0 ? seed.apiKey : undefined);
 	await env.writeServersSetting(upsertSeedEntry(env.readServersSetting(), seed));
+	await env.storeApiKey(seed.label, undefined);
 }
 
 /**

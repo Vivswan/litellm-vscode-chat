@@ -8,18 +8,22 @@
  */
 
 import type { SaveServerPayload, SecretDirective, SecretFieldId, SecretLocation } from "./protocol";
-import { isUnsafeRecordKey, isValidHeaderName, isValidHeaderValue } from "./protocol";
+import { isUnsafeRecordKey, isValidHeaderName, isValidHeaderValue, SECRET_FIELD_IDS } from "./protocol";
 
 /**
  * One secret field as the form edits it. `existing` is where the value lives
  * now ("none" on a fresh form); an empty `value` means keep it there. Typing
  * a value replaces it in the chosen `location`; `clear` removes it outright.
+ * `prefill` is set when the field was prefilled with the stored inline value
+ * (applyInlinePrefill): a value equal to it saves as "keep", so an untouched
+ * prefill never rewrites anything.
  */
 export interface SecretFieldDraft {
 	readonly value: string;
 	readonly location: "settings" | "secure";
 	readonly clear: boolean;
 	readonly existing: SecretLocation;
+	readonly prefill?: string | undefined;
 }
 
 export interface ServerFormDraft {
@@ -238,7 +242,42 @@ function toDirective(draft: SecretFieldDraft): SecretDirective {
 	if (value.length === 0) {
 		return { action: "keep" };
 	}
+	if (draft.prefill !== undefined && value === draft.prefill && draft.location === "settings") {
+		// The prefilled inline value, unedited and staying inline: nothing to
+		// rewrite. A changed value or a storage move (the secure radio) falls
+		// through to a real set.
+		return { action: "keep" };
+	}
 	return { action: "set", location: draft.location, value };
+}
+
+/**
+ * Merge an inlineSecrets response into the draft: each returned value lands
+ * in its field's input, marked as the prefill toDirective treats as "keep".
+ * Only fields whose storage is inline and that the user has not already typed
+ * into or marked for removal are touched, so a slow response never clobbers
+ * an edit in progress.
+ */
+export function applyInlinePrefill(
+	draft: ServerFormDraft,
+	values: Readonly<Partial<Record<SecretFieldId, string>>>
+): ServerFormDraft {
+	let next = draft;
+	for (const field of SECRET_FIELD_IDS) {
+		const value = values[field];
+		const current = draft[field];
+		if (
+			value === undefined ||
+			value.length === 0 ||
+			current.existing !== "settings" ||
+			current.clear ||
+			current.value.length > 0
+		) {
+			continue;
+		}
+		next = { ...next, [field]: { ...current, value, prefill: value } };
+	}
+	return next;
 }
 
 /** The saveServerSetting intent for a validated draft. Call only when validateServerForm is clean. */

@@ -334,6 +334,21 @@ export interface DashboardState {
 export type ExtensionToWebviewMessage =
 	| { readonly type: "state"; readonly state: DashboardState }
 	| {
+			/**
+			 * The answer to a readInlineSecrets request: the entry's secret values
+			 * whose storage is inline in the servers setting, for the edit form's
+			 * prefill. Inline values already sit in plaintext in the user's
+			 * settings file, so this reveals nothing the Settings editor does not
+			 * show. Fields stored in secure storage or absent carry NO key here
+			 * (absence, not an empty string); their values never reach the
+			 * webview. Deliberately not part of DashboardState: state pushes must
+			 * never carry secret material.
+			 */
+			readonly type: "inlineSecrets";
+			readonly requestId: string;
+			readonly values: Readonly<Partial<Record<SecretFieldId, string>>>;
+	  }
+	| {
 			readonly type: "intentSucceeded";
 			readonly intentType: DashboardIntentType;
 			readonly requestId: string;
@@ -360,8 +375,13 @@ export type ExtensionToWebviewMessage =
 			readonly requestId?: string | undefined;
 	  };
 
-/** The intent types that carry a correlation requestId, derived from the message union itself. */
-type AckedIntentType = Extract<WebviewToExtensionMessage, { requestId: string }>["type"];
+/**
+ * The intent types that carry a correlation requestId, derived from the
+ * message union itself. Intersected with DashboardIntentType so pure
+ * request/response messages (readInlineSecrets, answered by its own
+ * inlineSecrets message, never by an outcome notice) stay out.
+ */
+type AckedIntentType = Extract<WebviewToExtensionMessage, { requestId: string }>["type"] & DashboardIntentType;
 
 /**
  * The intents whose outcome arrives as its own correlated notice
@@ -448,6 +468,17 @@ export type WebviewToExtensionMessage =
 	| { readonly type: "removeServerSetting"; readonly label: string; readonly requestId: string }
 	| {
 			/**
+			 * Ask for a declared entry's inline secret values (the edit form's
+			 * on-demand prefill; see the inlineSecrets response). Carries only the
+			 * entry's label; the extension reads the values from the servers
+			 * setting itself and answers with inline-stored fields only.
+			 */
+			readonly type: "readInlineSecrets";
+			readonly label: string;
+			readonly requestId: string;
+	  }
+	| {
+			/**
 			 * Adopt an external provider group into the servers setting: the entry
 			 * is written under `label`, and the group's credentials (which exist
 			 * extension-side only; the webview never sees them) are resolved by
@@ -465,8 +496,12 @@ export type WebviewToExtensionMessage =
 	  }
 	| { readonly type: "executeCommand"; readonly command: DashboardCommandId };
 
-/** The intents that can fail and be reported back; the ready handshake has no failure mode. */
-export type DashboardIntentType = Exclude<WebviewToExtensionMessage["type"], "ready">;
+/**
+ * The intents that can fail and be reported back; the ready handshake has no
+ * failure mode, and readInlineSecrets is a read answered by its own response
+ * message (an unknown label simply yields no values).
+ */
+export type DashboardIntentType = Exclude<WebviewToExtensionMessage["type"], "ready" | "readInlineSecrets">;
 
 export type ParsedJsonValue =
 	| { readonly ok: true; readonly value: unknown }

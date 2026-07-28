@@ -90,25 +90,33 @@ suite("extension/devSeed", () => {
 		assert.strictEqual(seed?.label, "Seeded");
 	});
 
-	test("consumeDevSeed stores the key, writes the setting entry, and deletes the file first", async () => {
+	test("consumeDevSeed writes the entry with its key inline, clears a stale blob, and deletes the file first", async () => {
 		const dir = await makeSeedDir(
 			JSON.stringify({ label: "Seeded", baseUrl: "http://localhost:4000", apiKey: "sk-test", openDashboard: true })
 		);
 		const fake = makeEnv();
-		const originalStore = fake.env.storeApiKey;
-		fake.env.storeApiKey = async (label, value) => {
+		// A previous run's secure-side key: the seed must clear it so the inline
+		// key is unambiguously the one in effect (and the dashboard's edit form
+		// prefill sees a purely inline-stored key).
+		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run");
+		const originalWrite = fake.env.writeServersSetting;
+		fake.env.writeServersSetting = async (value) => {
 			assert.ok(await seedFileGone(dir), "the file must be deleted before anything acts on the seed");
-			await originalStore(label, value);
+			await originalWrite(value);
 		};
 
 		const seed = await consumeDevSeed(dir, fake.env, makeLogger());
 
 		assert.strictEqual(seed?.openDashboard, true);
-		assert.deepStrictEqual(fake.getSetting(), [{ label: "Seeded", baseUrl: "http://localhost:4000" }]);
+		assert.deepStrictEqual(
+			fake.getSetting(),
+			[{ label: "Seeded", baseUrl: "http://localhost:4000", apiKey: "sk-test" }],
+			"the key sits inline in the entry, visible in settings like the rest of the seed"
+		);
 		assert.strictEqual(
 			fake.secretStore.get(serverSecretsKey("Seeded")),
-			JSON.stringify({ apiKey: "sk-test" }),
-			"the key lands in the label's SecretStorage blob, never inline in the setting"
+			undefined,
+			"no secure-side copy remains; inline is the single storage"
 		);
 	});
 
@@ -126,7 +134,7 @@ suite("extension/devSeed", () => {
 
 		assert.deepStrictEqual(fake.getSetting(), [
 			{ label: "Other", baseUrl: "http://other.test" },
-			{ label: "Seeded", baseUrl: "http://localhost:5000" },
+			{ label: "Seeded", baseUrl: "http://localhost:5000", apiKey: "sk-2" },
 			"junk entry",
 		]);
 	});
@@ -166,11 +174,12 @@ suite("extension/devSeed", () => {
 		assert.strictEqual(seed?.openDashboard, true, "the dashboard still opens so the user sees the state");
 	});
 
-	test("a failed secret store aborts before the settings write", async () => {
+	test("the entry lands before the blob clear: a failed clear leaves a dormant leftover, never a missing key", async () => {
 		const dir = await makeSeedDir(
 			JSON.stringify({ label: "Seeded", baseUrl: "http://localhost:4000", apiKey: "sk-test" })
 		);
 		const fake = makeEnv();
+		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run");
 		fake.env.storeApiKey = async () => {
 			throw new Error("secret store refused");
 		};
@@ -178,7 +187,11 @@ suite("extension/devSeed", () => {
 		const seed = await consumeDevSeed(dir, fake.env, makeLogger());
 
 		assert.strictEqual(seed?.baseUrl, "http://localhost:4000");
-		assert.deepStrictEqual(fake.writes, [], "the entry must not land without its key in place");
+		assert.deepStrictEqual(
+			fake.writes,
+			[[{ label: "Seeded", baseUrl: "http://localhost:4000", apiKey: "sk-test" }]],
+			"the entry landed with its inline key, which outranks the surviving stale blob"
+		);
 	});
 
 	test("consumeDevSeed is a no-op without a seed file", async () => {
