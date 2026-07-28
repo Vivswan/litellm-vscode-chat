@@ -29,6 +29,8 @@ import { BUILTIN_SCENARIOS, collapseChunks, readBody, sendJson, sendSse, sendSse
 
 const PORT = Number(process.env.PORT || FAKE_BACKEND_PORT);
 const MAX_CUSTOM_SCENARIO_BYTES = 1024 * 1024;
+/** dev:fake sets this: every chat request and response body lands in the container log. */
+const VERBOSE = process.env.FAKE_VERBOSE === "1";
 
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 let lastRequest: Record<string, unknown> | null = null;
@@ -88,6 +90,24 @@ function logChatRequest(context: CommandContext, stream: boolean, dispatched: bo
 	const shown =
 		line === undefined ? "(no user text)" : JSON.stringify(line.length > 200 ? `${line.slice(0, 200)}...` : line);
 	console.log(`chat model=${model} stream=${stream} ${dispatched ? "command" : "fallback"} line=${shown}`);
+}
+
+/**
+ * Verbose exchange logging for dev:fake: the full inbound messages array and
+ * the full outbound reply, one JSON line each so the ./logs/ tee stays
+ * greppable. Streamed requests log the raw chunk list (what actually goes
+ * out - reasoning, audio, and chunk boundaries included); non-streaming
+ * requests log the collapsed body they receive. Never enabled by the test
+ * orchestrator - the fuzz suites would multiply megabytes into the log.
+ */
+function logChatExchange(context: CommandContext, result: CommandResult, stream: boolean): void {
+	console.log(`chat-request ${JSON.stringify(context.request.messages ?? [])}`);
+	if (result.scenario.type === "error") {
+		console.log(`chat-response ${JSON.stringify({ status: result.scenario.statusCode, body: result.scenario.body })}`);
+		return;
+	}
+	const sent = stream ? result.scenario.chunks : collapseChunks(result.scenario.chunks);
+	console.log(`chat-response ${JSON.stringify(sent)}`);
 }
 
 const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -150,10 +170,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 
 		const command = dispatchCommand(context);
 		logChatRequest(context, stream, command !== undefined);
-		if (command !== undefined) {
-			return playResult(res, command, stream);
+		const result = command ?? fallbackReply(context);
+		if (VERBOSE) {
+			logChatExchange(context, result, stream);
 		}
-		return playResult(res, fallbackReply(context), stream);
+		return playResult(res, result, stream);
 	}
 
 	sendJson(res, 404, { error: { message: "Not found" } });
