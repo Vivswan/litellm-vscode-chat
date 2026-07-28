@@ -2,10 +2,11 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { applyPromptCacheBreakpoints, type PromptCachedRequest } from "../../shared/promptCache";
 import type { OpenAIChatContentBlock, OpenAIChatMessage, OpenAIFunctionToolDef } from "../../shared/wire";
+import { resolveFuzzSeed } from "../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
-// Pinned: a required CI gate must not fail on unrelated changes via seed luck.
-const SEED = 20260726;
+// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
+const SEED = resolveFuzzSeed();
 
 const textArb = fc.string({ maxLength: 30 });
 

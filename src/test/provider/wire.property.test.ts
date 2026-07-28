@@ -12,10 +12,11 @@ import {
 	type ThinkingBlock,
 	type ThinkingBlockDelta,
 } from "../../provider/wire";
+import { resolveFuzzSeed } from "../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
-// Pinned: a required CI gate must not fail on unrelated changes via seed luck.
-const SEED = 20260726;
+// Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
+const SEED = resolveFuzzSeed();
 
 function isPlainRecord(value: unknown): boolean {
 	return typeof value === "object" && value !== null && !Array.isArray(value);

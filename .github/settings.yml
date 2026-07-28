@@ -43,7 +43,9 @@ labels:
   - name: fix-lint
     color: "fbca04"
     description: Lint / formatting fixes
-  # nightly.yml creates this label and queries it to dedupe the fuzz issue.
+  # nightly-fuzz.yml files the fuzz tracking issue under this label (the
+  # fuzz-issue action keys its one-open-issue dedup on it), so it must
+  # survive the label sync.
   - name: nightly-fuzz
     color: "B60205"
     description: Automated nightly fuzz failure
