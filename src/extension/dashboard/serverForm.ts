@@ -7,8 +7,20 @@
  * the same rules (state.ts) before anything is written.
  */
 
-import type { SaveServerPayload, SecretDirective, SecretFieldId, SecretLocation } from "./protocol";
-import { isUnsafeRecordKey, isValidHeaderName, isValidHeaderValue, SECRET_FIELD_IDS } from "./protocol";
+import type {
+	NonSecretOptionalFieldId,
+	SaveServerPayload,
+	SecretDirective,
+	SecretFieldId,
+	SecretLocation,
+} from "./protocol";
+import {
+	isUnsafeRecordKey,
+	isValidHeaderName,
+	isValidHeaderValue,
+	NON_SECRET_OPTIONAL_FIELD_IDS,
+	SECRET_FIELD_IDS,
+} from "./protocol";
 
 /**
  * One secret field as the form edits it. `existing` is where the value lives
@@ -26,17 +38,15 @@ export interface SecretFieldDraft {
 	readonly prefill?: string | undefined;
 }
 
-export interface ServerFormDraft {
-	readonly label: string;
-	readonly baseUrl: string;
-	readonly oauthTokenUrl: string;
-	readonly oauthClientId: string;
-	readonly oauthScopes: string;
-	readonly virtualKeyHeader: string;
-	readonly apiKey: SecretFieldDraft;
-	readonly oauthClientSecret: SecretFieldDraft;
-	readonly virtualKeyValue: SecretFieldDraft;
-}
+/**
+ * The whole draft, its field set derived from the entry descriptor: label and
+ * base URL, the non-secret optional fields as plain text inputs, and one
+ * SecretFieldDraft per secret field.
+ */
+export type ServerFormDraft = { readonly label: string; readonly baseUrl: string } & Readonly<
+	Record<NonSecretOptionalFieldId, string>
+> &
+	Readonly<Record<SecretFieldId, SecretFieldDraft>>;
 
 const EMPTY_SECRET: SecretFieldDraft = { value: "", location: "secure", clear: false, existing: "none" };
 
@@ -289,28 +299,23 @@ export function assembleServerForm(
 	secrets: Record<SecretFieldId, SecretDirective>;
 	replaceLabel?: string | undefined;
 } {
-	const optional = (value: string): { present: boolean; value: string } => {
-		const trimmed = value.trim();
-		return { present: trimmed.length > 0, value: trimmed };
+	const server: { label: string; baseUrl: string } & { -readonly [K in NonSecretOptionalFieldId]?: string } = {
+		label: draft.label.trim(),
+		baseUrl: draft.baseUrl.trim(),
 	};
-	const tokenUrl = optional(draft.oauthTokenUrl);
-	const clientId = optional(draft.oauthClientId);
-	const scopes = optional(draft.oauthScopes);
-	const header = optional(draft.virtualKeyHeader);
+	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
+		const value = draft[field].trim();
+		if (value.length > 0) {
+			server[field] = value;
+		}
+	}
+	const secrets = {} as Record<SecretFieldId, SecretDirective>;
+	for (const field of SECRET_FIELD_IDS) {
+		secrets[field] = toDirective(draft[field]);
+	}
 	return {
-		server: {
-			label: draft.label.trim(),
-			baseUrl: draft.baseUrl.trim(),
-			...(tokenUrl.present ? { oauthTokenUrl: tokenUrl.value } : {}),
-			...(clientId.present ? { oauthClientId: clientId.value } : {}),
-			...(scopes.present ? { oauthScopes: scopes.value } : {}),
-			...(header.present ? { virtualKeyHeader: header.value } : {}),
-		},
-		secrets: {
-			apiKey: toDirective(draft.apiKey),
-			oauthClientSecret: toDirective(draft.oauthClientSecret),
-			virtualKeyValue: toDirective(draft.virtualKeyValue),
-		},
+		server,
+		secrets,
 		...(replaceLabel !== undefined ? { replaceLabel } : {}),
 	};
 }

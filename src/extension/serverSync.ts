@@ -22,8 +22,14 @@ import { groupClientId, parseGroupConfiguration } from "../provider/groupModels"
 import { fingerprint } from "../shared/fingerprint";
 import { isUnsafeRecordKey } from "../shared/json";
 import type { Logger } from "../shared/logger";
-import type { SecretFieldId, SecretLocation } from "../shared/serverSecrets";
-import { SECRET_FIELD_IDS } from "../shared/serverSecrets";
+import type {
+	NonSecretOptionalFields,
+	OptionalEntryFieldId,
+	OptionalEntryFields,
+	SecretFieldId,
+	SecretLocation,
+} from "../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../shared/serverEntry";
 import { SERVER_SYNC_FINGERPRINTS_KEY, serverSecretsKey } from "../shared/storageKeys";
 
 /** The configuration key, relative to the litellm-vscode-chat section. */
@@ -31,34 +37,13 @@ export const SERVERS_SETTING_KEY = "servers";
 
 const CONFIG_SECTION = "litellm-vscode-chat";
 
-/** The string fields a servers-setting entry may carry, secrets included (inline storage is legal). */
-const ENTRY_FIELDS = [
-	"label",
-	"baseUrl",
-	"apiKey",
-	"oauthTokenUrl",
-	"oauthClientId",
-	"oauthClientSecret",
-	"oauthScopes",
-	"virtualKeyHeader",
-	"virtualKeyValue",
-] as const;
-
-type EntryField = (typeof ENTRY_FIELDS)[number];
-
 /** One parsed servers-setting entry: label and baseUrl usable, other fields present only with usable text. */
-export type DeclaredServer = { readonly label: string; readonly baseUrl: string } & Partial<
-	Readonly<Record<Exclude<EntryField, "label" | "baseUrl">, string>>
->;
+export type DeclaredServer = { readonly label: string; readonly baseUrl: string } & OptionalEntryFields;
 
 /** The non-secret view of a declared server the dashboard renders; secret values stay out. */
-export interface DeclaredServerView {
+export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly label: string;
 	readonly baseUrl: string;
-	readonly oauthTokenUrl?: string | undefined;
-	readonly oauthClientId?: string | undefined;
-	readonly oauthScopes?: string | undefined;
-	readonly virtualKeyHeader?: string | undefined;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 	/**
 	 * The group client ID the entry's resolved configuration produces: the same
@@ -127,14 +112,14 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
 			return;
 		}
 		seen.add(label);
-		const entry: { label: string; baseUrl: string } & Partial<Record<EntryField, string>> = { label, baseUrl };
-		for (const field of ENTRY_FIELDS) {
-			if (field === "label" || field === "baseUrl") {
-				continue;
-			}
-			const value = usableString(record[field]);
+		const entry: { label: string; baseUrl: string } & { -readonly [K in OptionalEntryFieldId]?: string } = {
+			label,
+			baseUrl,
+		};
+		for (const { id } of OPTIONAL_ENTRY_FIELDS) {
+			const value = usableString(record[id]);
 			if (value !== undefined) {
-				entry[field] = value;
+				entry[id] = value;
 			}
 		}
 		accepted.push({ index, entry });
@@ -251,23 +236,17 @@ export interface ServerSyncEnv {
 
 /**
  * The provider-group command arguments for one entry with its secrets
- * resolved. Field order is fixed so the JSON fingerprint is stable.
+ * resolved. Fields ride in OPTIONAL_ENTRY_FIELDS order after name, vendor,
+ * and baseUrl, and that order is frozen: the persisted sync fingerprint
+ * hashes JSON.stringify of this object.
  */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
 	const args: Record<string, string> = { name: entry.label, vendor: "litellm", baseUrl: entry.baseUrl };
-	const resolve = (field: SecretFieldId): string | undefined => entry[field] ?? stored[field];
-	const optional: Record<string, string | undefined> = {
-		apiKey: resolve("apiKey"),
-		oauthTokenUrl: entry.oauthTokenUrl,
-		oauthClientId: entry.oauthClientId,
-		oauthClientSecret: resolve("oauthClientSecret"),
-		oauthScopes: entry.oauthScopes,
-		virtualKeyHeader: entry.virtualKeyHeader,
-		virtualKeyValue: resolve("virtualKeyValue"),
-	};
-	for (const [field, value] of Object.entries(optional)) {
+	for (const field of OPTIONAL_ENTRY_FIELDS) {
+		// Inline settings values outrank the label's SecretStorage blob.
+		const value = field.secret ? (entry[field.id] ?? stored[field.id]) : entry[field.id];
 		if (value !== undefined) {
-			args[field] = value;
+			args[field.id] = value;
 		}
 	}
 	return args;
@@ -278,6 +257,14 @@ function secretLocation(entry: DeclaredServer, stored: StoredServerSecrets, fiel
 		return "settings";
 	}
 	return stored[field] !== undefined ? "secure" : "none";
+}
+
+function secretLocations(entry: DeclaredServer, stored: StoredServerSecrets): Record<SecretFieldId, SecretLocation> {
+	const locations = {} as Record<SecretFieldId, SecretLocation>;
+	for (const field of SECRET_FIELD_IDS) {
+		locations[field] = secretLocation(entry, stored, field);
+	}
+	return locations;
 }
 
 /**
@@ -572,15 +559,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 			views.push({
 				label: entry.label,
 				baseUrl: entry.baseUrl,
-				oauthTokenUrl: entry.oauthTokenUrl,
-				oauthClientId: entry.oauthClientId,
-				oauthScopes: entry.oauthScopes,
-				virtualKeyHeader: entry.virtualKeyHeader,
-				secrets: {
-					apiKey: secretLocation(entry, stored, "apiKey"),
-					oauthClientSecret: secretLocation(entry, stored, "oauthClientSecret"),
-					virtualKeyValue: secretLocation(entry, stored, "virtualKeyValue"),
-				},
+				...pickNonSecretOptionalFields(entry),
+				secrets: secretLocations(entry, stored),
 				expectedClientId: groupServer !== undefined ? groupClientId(groupServer) : undefined,
 				syncError: this.syncErrors.get(entry.label),
 			});
@@ -637,6 +617,13 @@ export function createServerSyncEnv(context: vscode.ExtensionContext, logger: Lo
 	};
 }
 
+/** Palette display copy per secret field; UI strings stay out of the shared descriptor. */
+const SECRET_PALETTE_LABELS: Readonly<Record<SecretFieldId, string>> = {
+	apiKey: "API key",
+	oauthClientSecret: "OAuth client secret",
+	virtualKeyValue: "Virtual key value",
+};
+
 /**
  * The palette path for keeping secrets out of settings.json without the
  * dashboard: pick a declared server, pick the secret field, enter the value
@@ -666,11 +653,10 @@ export function registerSetServerSecretCommand(
 				return;
 			}
 			const fieldPick = await vscode.window.showQuickPick(
-				[
-					{ label: "API key", field: "apiKey" as const },
-					{ label: "OAuth client secret", field: "oauthClientSecret" as const },
-					{ label: "Virtual key value", field: "virtualKeyValue" as const },
-				],
+				// Ids come from the descriptor so a new secret field cannot be
+				// silently unreachable here; the Record makes a missing label a
+				// compile error.
+				SECRET_FIELD_IDS.map((field) => ({ label: SECRET_PALETTE_LABELS[field], field })),
 				{ title: "LiteLLM: Set Server Secret", placeHolder: "Which secret?" }
 			);
 			if (fieldPick === undefined) {
