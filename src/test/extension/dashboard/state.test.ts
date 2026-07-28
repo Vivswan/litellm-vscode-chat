@@ -9,6 +9,7 @@ import {
 	parseHeaderValue,
 	parseJsonValue,
 } from "../../../extension/dashboard/protocol";
+import { applyInlinePrefill, assembleServerForm, EMPTY_SERVER_FORM } from "../../../extension/dashboard/serverForm";
 import type {
 	AdoptableGroupCredentials,
 	DashboardIntent,
@@ -21,6 +22,7 @@ import {
 	DashboardOperationError,
 	executeDashboardIntent,
 	readDashboardSettings,
+	readInlineSecretValues,
 	resolveAdoptableCredentials,
 	resolveConfiguredScope,
 	resolveUpdateScope,
@@ -811,6 +813,7 @@ suite("extension/dashboard/state", () => {
 					requestId: "req-2",
 				},
 				{ type: "removeServerSetting", label: "Prod", requestId: "req-3" },
+				{ type: "readInlineSecrets", label: "Prod", requestId: "req-inline" },
 				{
 					type: "adoptServer",
 					label: "Adopted",
@@ -873,6 +876,11 @@ suite("extension/dashboard/state", () => {
 				{ type: "removeServerSetting", requestId: "r" },
 				{ type: "removeServerSetting", label: 4, requestId: "r" },
 				{ type: "removeServerSetting", label: "P" },
+				// readInlineSecrets: label and requestId only, nothing rides along.
+				{ type: "readInlineSecrets", requestId: "r" },
+				{ type: "readInlineSecrets", label: "P" },
+				{ type: "readInlineSecrets", label: "P", requestId: "" },
+				{ type: "readInlineSecrets", label: "P", requestId: "r", field: "apiKey" },
 				// adoptServer: never a credential value, only storage locations.
 				{
 					type: "adoptServer",
@@ -933,6 +941,74 @@ suite("extension/dashboard/state", () => {
 					`accepted ${JSON.stringify(message)}`
 				);
 			}
+		});
+	});
+
+	suite("readInlineSecretValues", () => {
+		const setting = [
+			"junk entry",
+			{ label: "Inline", baseUrl: "http://a.test", apiKey: " sk-inline ", virtualKeyValue: "vk-inline" },
+			{ label: "Secure", baseUrl: "http://b.test" },
+			{ label: "Mixed", baseUrl: "http://c.test", apiKey: "sk-mixed", oauthClientSecret: "   " },
+		];
+
+		test("returns inline values trimmed, one key per inline-stored field", () => {
+			assert.deepStrictEqual(readInlineSecretValues(setting, "Inline"), {
+				apiKey: "sk-inline",
+				virtualKeyValue: "vk-inline",
+			});
+		});
+
+		test("secure-side and absent fields get no key at all: absence, not an empty string", () => {
+			// "Secure" holds nothing inline; whatever its SecretStorage blob holds
+			// is not consulted here and must never come back.
+			assert.deepStrictEqual(readInlineSecretValues(setting, "Secure"), {});
+			const mixed = readInlineSecretValues(setting, "Mixed");
+			assert.deepStrictEqual(mixed, { apiKey: "sk-mixed" });
+			assert.ok(!("oauthClientSecret" in mixed), "a whitespace-only inline value counts as absent");
+			assert.ok(!("virtualKeyValue" in mixed));
+		});
+
+		test("an unknown label, a junk setting, and a non-string field value all yield an empty record", () => {
+			assert.deepStrictEqual(readInlineSecretValues(setting, "Nope"), {});
+			assert.deepStrictEqual(readInlineSecretValues("not an array", "Inline"), {});
+			assert.deepStrictEqual(readInlineSecretValues(undefined, "Inline"), {});
+			assert.deepStrictEqual(readInlineSecretValues([{ label: "N", baseUrl: "http://x", apiKey: 42 }], "N"), {});
+		});
+
+		test("labels match trimmed, like entry lookup everywhere else", () => {
+			assert.deepStrictEqual(
+				readInlineSecretValues([{ label: " Prod ", baseUrl: "http://x", apiKey: "sk-1" }], "Prod"),
+				{
+					apiKey: "sk-1",
+				}
+			);
+		});
+
+		test("resolution agrees with parseServersSetting: a rejected same-label sibling cannot shadow the accepted entry", () => {
+			// The first raw entry carries the label but has no usable baseUrl, so
+			// the parser rejects it and the dashboard row describes the SECOND
+			// entry; the prefill must read that same entry.
+			const shadowed = [
+				{ label: "Prod", apiKey: "sk-shadow" },
+				{ label: "Prod", baseUrl: "http://real.test", apiKey: "sk-real" },
+			];
+			assert.deepStrictEqual(readInlineSecretValues(shadowed, "Prod"), { apiKey: "sk-real" });
+		});
+
+		test("a label the parser rejects yields nothing, even when a raw entry carries inline fields under it", () => {
+			// The dashboard never declares this entry (reserved label), so a
+			// crafted request must not be able to read its inline fields.
+			const rejected = [{ label: "__proto__", baseUrl: "http://x.test", apiKey: "sk-hidden" }];
+			assert.deepStrictEqual(readInlineSecretValues(rejected, "__proto__"), {});
+		});
+
+		test("duplicate accepted labels resolve to the first, matching the parser's first-entry-wins rule", () => {
+			const duplicated = [
+				{ label: "Prod", baseUrl: "http://a.test", apiKey: "sk-first" },
+				{ label: "Prod", baseUrl: "http://b.test", apiKey: "sk-second" },
+			];
+			assert.deepStrictEqual(readInlineSecretValues(duplicated, "Prod"), { apiKey: "sk-first" });
 		});
 	});
 
@@ -1180,6 +1256,21 @@ suite("extension/dashboard/state", () => {
 			]);
 		});
 
+		test("the save target is the parser-accepted entry: a rejected same-label sibling is not edited", async () => {
+			// The first raw carrier of the label is rejected by parseServersSetting
+			// (no usable baseUrl), so the dashboard row - and therefore this edit -
+			// describes the second entry. The save must replace THAT one; the
+			// invalid sibling survives verbatim like any junk entry, and the
+			// keep-directive carries the accepted entry's inline key.
+			const invalidSibling = { label: "Prod", apiKey: "sk-shadow" };
+			const recorded = makeEnv([invalidSibling, { label: "Prod", baseUrl: "http://old.test", apiKey: "sk-real" }]);
+			await save(recorded, { server: { label: "Prod", baseUrl: "http://new.test" }, replaceLabel: "Prod" });
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[invalidSibling, { label: "Prod", baseUrl: "http://new.test", apiKey: "sk-real" }],
+			]);
+		});
+
 		test("set-secure stores the value and keeps it out of the setting; set-settings inlines it and drops the secure copy after the write", async () => {
 			const recorded = makeEnv([]);
 			await save(recorded, {
@@ -1217,6 +1308,50 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(recorded.secretOps, [["Prod", "apiKey", undefined]]);
 			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
 			assert.deepStrictEqual(recorded.ops, ["write", "unstore:Prod.apiKey"]);
+		});
+
+		test("prefill round trip: an untouched inline value survives a save unchanged, still inline", async () => {
+			const entry = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-inline" };
+			const recorded = makeEnv([entry]);
+			// The webview's edit flow end to end: prefill the draft from the
+			// entry's inline values, leave everything untouched, assemble, save.
+			const prefilled = applyInlinePrefill(
+				{
+					...EMPTY_SERVER_FORM,
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					apiKey: { value: "", location: "settings", clear: false, existing: "settings" },
+				},
+				readInlineSecretValues([entry], "Prod")
+			);
+			assert.strictEqual(prefilled.apiKey.value, "sk-inline", "the form shows the inline value");
+			const assembled = assembleServerForm(prefilled, "Prod");
+			assert.deepStrictEqual(assembled.secrets.apiKey, { action: "keep" }, "untouched prefill assembles as keep");
+			await executeDashboardIntent({ type: "saveServerSetting", ...assembled, requestId: "req-rt" }, recorded.env);
+
+			assert.deepStrictEqual(recorded.serverWrites, [[entry]], "the value survives unchanged, storage stays inline");
+			assert.deepStrictEqual(recorded.secretOps, [], "no secure-side traffic for an untouched prefill");
+		});
+
+		test("prefill round trip: an edited prefill lands the new value inline", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-old" }]);
+			const prefilled = applyInlinePrefill(
+				{
+					...EMPTY_SERVER_FORM,
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					apiKey: { value: "", location: "settings", clear: false, existing: "settings" },
+				},
+				readInlineSecretValues(recorded.env.readServersSetting(), "Prod")
+			);
+			const edited = { ...prefilled, apiKey: { ...prefilled.apiKey, value: "sk-rotated" } };
+			const assembled = assembleServerForm(edited, "Prod");
+			assert.deepStrictEqual(assembled.secrets.apiKey, { action: "set", location: "settings", value: "sk-rotated" });
+			await executeDashboardIntent({ type: "saveServerSetting", ...assembled, requestId: "req-rt2" }, recorded.env);
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-rotated" }],
+			]);
 		});
 
 		test("overwriting a live secure value whose settings write then fails restores the old value", async () => {

@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import type { SecretStore, ServerSyncEnv, StoredServerSecrets } from "../../extension/serverSync";
 import {
+	acceptedEntryIndex,
 	buildGroupArgs,
 	copyServerSecrets,
 	deleteServerSecrets,
@@ -109,6 +110,28 @@ suite("extension/serverSync", () => {
 			assert.deepStrictEqual(parseServersSetting(undefined), { entries: [], problems: [] });
 			assert.strictEqual(parseServersSetting("junk").entries.length, 0);
 			assert.strictEqual(parseServersSetting("junk").problems.length, 1);
+		});
+	});
+
+	suite("acceptedEntryIndex", () => {
+		test("returns the raw index of exactly the entry parseServersSetting accepts for the label", () => {
+			const raw = [
+				"not an object",
+				{ label: "Prod" }, // rejected: no baseUrl; must not shadow the accepted entry below
+				{ label: "Prod", baseUrl: "http://real.test" },
+				{ label: "Prod", baseUrl: "http://dupe.test" }, // rejected: duplicate of the accepted label
+				{ label: " Staging ", baseUrl: "http://s.test" },
+			];
+			assert.strictEqual(acceptedEntryIndex(raw, "Prod"), 2);
+			assert.strictEqual(acceptedEntryIndex(raw, "Staging"), 4, "labels compare trimmed on both sides");
+			assert.strictEqual(acceptedEntryIndex(raw, " Prod "), 2);
+		});
+
+		test("labels the parser rejects resolve to nothing", () => {
+			assert.strictEqual(acceptedEntryIndex([{ label: "__proto__", baseUrl: "http://x" }], "__proto__"), -1);
+			assert.strictEqual(acceptedEntryIndex([{ label: "NoUrl" }], "NoUrl"), -1);
+			assert.strictEqual(acceptedEntryIndex([], "Prod"), -1);
+			assert.strictEqual(acceptedEntryIndex("junk", "Prod"), -1);
 		});
 	});
 

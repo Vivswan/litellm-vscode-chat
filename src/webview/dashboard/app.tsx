@@ -16,13 +16,20 @@ function asExtensionMessage(data: unknown): ExtensionToWebviewMessage | undefine
 		return undefined;
 	}
 	const type = (data as { type?: unknown }).type;
-	return type === "state" || type === "intentFailed" || type === "intentSucceeded"
+	return type === "state" || type === "intentFailed" || type === "intentSucceeded" || type === "inlineSecrets"
 		? (data as ExtensionToWebviewMessage)
 		: undefined;
 }
 
 /** The latest reported intent failures, keyed by the failed intent's type. */
 export type FailuresByIntent = Readonly<Record<string, IntentFailure>>;
+
+/**
+ * The latest inlineSecrets response (the edit form's on-demand prefill); the
+ * open form matches it against its own requestId. Held outside DashboardState
+ * on purpose: state pushes never carry secret material.
+ */
+export type InlineSecretsResponse = Extract<ExtensionToWebviewMessage, { type: "inlineSecrets" }>;
 
 /** The latest intentSucceeded notice; editors match it against their own requestId. */
 export interface IntentAck {
@@ -125,6 +132,7 @@ export function App() {
 	const [state, setState] = useState<DashboardState | undefined>(undefined);
 	const [ack, setAck] = useState<IntentAck | undefined>(undefined);
 	const [failures, setFailures] = useState<FailuresByIntent>({});
+	const [inlineSecrets, setInlineSecrets] = useState<InlineSecretsResponse | undefined>(undefined);
 
 	useEffect(() => {
 		let seq = 0;
@@ -136,6 +144,10 @@ export function App() {
 			if (message.type === "state") {
 				setState(message.state);
 				setFailures(failuresAfterStatePush);
+				return;
+			}
+			if (message.type === "inlineSecrets") {
+				setInlineSecrets(message);
 				return;
 			}
 			seq += 1;
@@ -182,7 +194,14 @@ export function App() {
 			<p class="hint">Servers, models, and settings in one place; edits land in your VS Code settings.</p>
 			<StatusHero state={state} />
 			{scalarFailure !== undefined ? <p class="error">The last change did not apply: {scalarFailure.message}</p> : null}
-			<ServersSection servers={state.servers} ack={ack} failures={failures} onDismissFailure={dismissFailure} />
+			<ServersSection
+				servers={state.servers}
+				ack={ack}
+				failures={failures}
+				inlineSecrets={inlineSecrets}
+				onDismissFailure={dismissFailure}
+				onClearInlineSecrets={() => setInlineSecrets(undefined)}
+			/>
 			<ModelsSection models={state.models} serverCount={state.servers.length} />
 			<SettingsSection settings={state.settings} failures={failures} />
 		</main>

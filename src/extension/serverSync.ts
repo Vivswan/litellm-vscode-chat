@@ -93,27 +93,37 @@ export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; 
 	if (!Array.isArray(raw)) {
 		return { entries: [], problems: ["the servers setting is not an array"] };
 	}
-	const entries: DeclaredServer[] = [];
 	const problems: string[] = [];
+	return { entries: acceptEntries(raw, problems).map(({ entry }) => entry), problems };
+}
+
+/**
+ * The accepted entries with their raw-array indices: the single place the
+ * acceptance rules live, so parseServersSetting and acceptedEntryIndex cannot
+ * disagree about which raw entry a label resolves to.
+ */
+function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: number; entry: DeclaredServer }[] {
+	const accepted: { index: number; entry: DeclaredServer }[] = [];
 	const seen = new Set<string>();
 	raw.forEach((item: unknown, index) => {
+		const reject = (why: string) => problems?.push(`entry ${index + 1} ${why}`);
 		if (typeof item !== "object" || item === null || Array.isArray(item)) {
-			problems.push(`entry ${index + 1} is not an object`);
+			reject("is not an object");
 			return;
 		}
 		const record = item as Record<string, unknown>;
 		const label = usableString(record.label);
 		const baseUrl = usableString(record.baseUrl);
 		if (label === undefined || baseUrl === undefined) {
-			problems.push(`entry ${index + 1} is missing a label or baseUrl`);
+			reject("is missing a label or baseUrl");
 			return;
 		}
 		if (isUnsafeRecordKey(label)) {
-			problems.push(`entry ${index + 1} uses a reserved label`);
+			reject("uses a reserved label");
 			return;
 		}
 		if (seen.has(label)) {
-			problems.push(`entry ${index + 1} repeats an earlier entry's label; the first entry wins`);
+			reject("repeats an earlier entry's label; the first entry wins");
 			return;
 		}
 		seen.add(label);
@@ -127,9 +137,26 @@ export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; 
 				entry[field] = value;
 			}
 		}
-		entries.push(entry);
+		accepted.push({ index, entry });
 	});
-	return { entries, problems };
+	return accepted;
+}
+
+/**
+ * The raw-array index of the entry parseServersSetting accepts for `label`,
+ * or -1 when it accepts none. The dashboard's per-entry reads and writes (the
+ * edit form's inline-value prefill, the save target) resolve through this so
+ * they act on exactly the entry the dashboard row describes: a rejected
+ * same-label sibling earlier in the array (no usable baseUrl, say) cannot
+ * shadow the accepted entry, and a label the parser rejects outright (a
+ * reserved name, a never-declared junk entry) resolves to nothing.
+ */
+export function acceptedEntryIndex(raw: unknown, label: string): number {
+	if (!Array.isArray(raw)) {
+		return -1;
+	}
+	const wanted = label.trim();
+	return acceptEntries(raw).find(({ entry }) => entry.label === wanted)?.index ?? -1;
 }
 
 /** The secure-side secrets of one label, as the SecretStorage blob holds them. */

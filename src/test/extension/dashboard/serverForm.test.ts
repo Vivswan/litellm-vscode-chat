@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import type { SecretFieldDraft, ServerFormDraft } from "../../../extension/dashboard/serverForm";
 import {
+	applyInlinePrefill,
 	assembleServerForm,
 	EMPTY_SERVER_FORM,
 	hasServerFormProblems,
@@ -169,6 +170,123 @@ suite("extension/dashboard/serverForm", () => {
 			const intent = assembleServerForm(draft({ label: "Renamed" }), "Prod");
 			assert.strictEqual(intent.replaceLabel, "Prod");
 			assert.strictEqual(intent.server.label, "Renamed");
+		});
+
+		test("an untouched prefilled inline value assembles as keep, never a rewrite", () => {
+			const prefilled = secret({
+				value: "sk-inline",
+				prefill: "sk-inline",
+				location: "settings",
+				existing: "settings",
+			});
+			const intent = assembleServerForm(draft({ apiKey: prefilled }));
+			assert.deepStrictEqual(intent.secrets.apiKey, { action: "keep" });
+		});
+
+		test("an edited prefill assembles as set with the new value; reverting to the prefill is keep again", () => {
+			const prefilled = secret({ value: "sk-new", prefill: "sk-old", location: "settings", existing: "settings" });
+			const intent = assembleServerForm(draft({ apiKey: prefilled }));
+			assert.deepStrictEqual(intent.secrets.apiKey, { action: "set", location: "settings", value: "sk-new" });
+
+			const reverted = assembleServerForm(draft({ apiKey: { ...prefilled, value: " sk-old " } }));
+			assert.deepStrictEqual(reverted.secrets.apiKey, { action: "keep" }, "untouched means unchanged value, trimmed");
+		});
+
+		test("an emptied prefill assembles as keep; the remove checkbox is the explicit clear gesture", () => {
+			const emptied = secret({ value: "", prefill: "sk-inline", location: "settings", existing: "settings" });
+			assert.deepStrictEqual(assembleServerForm(draft({ apiKey: emptied })).secrets.apiKey, { action: "keep" });
+			assert.deepStrictEqual(assembleServerForm(draft({ apiKey: { ...emptied, clear: true } })).secrets.apiKey, {
+				action: "clear",
+			});
+		});
+
+		test("a prefill with the storage choice moved to secure assembles as a set there: a real relocation", () => {
+			const moved = secret({ value: "sk-inline", prefill: "sk-inline", location: "secure", existing: "settings" });
+			const intent = assembleServerForm(draft({ apiKey: moved }));
+			assert.deepStrictEqual(intent.secrets.apiKey, { action: "set", location: "secure", value: "sk-inline" });
+		});
+	});
+
+	suite("applyInlinePrefill", () => {
+		test("fills empty inline-located fields and marks them as the prefill", () => {
+			const base = draft({
+				apiKey: secret({ existing: "settings", location: "settings" }),
+				virtualKeyValue: secret({ existing: "settings", location: "settings" }),
+			});
+			const next = applyInlinePrefill(base, { apiKey: "sk-inline", virtualKeyValue: "vk-inline" });
+			assert.deepStrictEqual(next.apiKey, {
+				value: "sk-inline",
+				prefill: "sk-inline",
+				location: "settings",
+				clear: false,
+				existing: "settings",
+			});
+			assert.strictEqual(next.virtualKeyValue.value, "vk-inline");
+			assert.strictEqual(next.oauthClientSecret.value, "", "fields the response omits stay untouched");
+		});
+
+		test("never clobbers a typed value, a cleared field, or a field not stored inline", () => {
+			const typed = secret({ existing: "settings", location: "settings", value: "sk-user-typed" });
+			const cleared = secret({ existing: "settings", location: "settings", clear: true });
+			const secure = secret({ existing: "secure" });
+			const base = draft({ apiKey: typed, oauthClientSecret: cleared, virtualKeyValue: secure });
+			const next = applyInlinePrefill(base, {
+				apiKey: "sk-late",
+				oauthClientSecret: "sk-late",
+				virtualKeyValue: "sk-late",
+			});
+			assert.deepStrictEqual(next.apiKey, typed, "a typed value outranks a slow response");
+			assert.deepStrictEqual(next.oauthClientSecret, cleared, "a field marked for removal stays marked");
+			assert.deepStrictEqual(next.virtualKeyValue, secure, "a secure-side field never receives a value");
+		});
+
+		test("an empty response leaves the draft alone", () => {
+			const base = draft({ apiKey: secret({ existing: "settings", location: "settings" }) });
+			assert.deepStrictEqual(applyInlinePrefill(base, {}), base);
+		});
+
+		test("an invalid stored inline virtual-key value blocks Save once prefilled, flagged on its own field", () => {
+			// Previously unreachable: the value input was always empty on edit, so
+			// a hand-written non-header-sendable inline value slid through. The
+			// prefill makes the stored value visible to validation; the problem
+			// must sit on the value field (not the header) and clear once the
+			// value is edited to something sendable.
+			const base = draft({
+				virtualKeyHeader: "x-key",
+				virtualKeyValue: secret({ existing: "settings", location: "settings" }),
+			});
+			const prefilled = applyInlinePrefill(base, { virtualKeyValue: "vk\nbroken" });
+			const problems = validateServerForm(prefilled);
+			assert.strictEqual(problems.virtualKeyValue, "The value cannot be sent as an HTTP header");
+			assert.strictEqual(problems.virtualKeyHeader, undefined, "the problem points at the value field only");
+			assert.ok(hasServerFormProblems(problems), "the form is not savable until the value is edited or removed");
+
+			const edited = { ...prefilled, virtualKeyValue: { ...prefilled.virtualKeyValue, value: "vk-fixed" } };
+			assert.deepStrictEqual(validateServerForm(edited), {});
+		});
+
+		test("relocation race lifecycle: a location flip before the response arrives still relocates once it does", () => {
+			// The hazard the form's Save gate exists for: the user opens Edit,
+			// flips the inline key's radio to "secret storage", and hits Save
+			// before the prefill response lands. Assembling at that moment would
+			// read the empty field as "keep" and silently drop the relocation -
+			// pinned here - so servers.tsx disables Save while the response is
+			// pending; once it arrives, the flipped location survives the prefill
+			// and the save assembles the relocation the user asked for.
+			const flipped = draft({ apiKey: secret({ existing: "settings", location: "secure" }) });
+			assert.deepStrictEqual(
+				assembleServerForm(flipped).secrets.apiKey,
+				{ action: "keep" },
+				"saving before the response would no-op the relocation; Save must be gated until it arrives"
+			);
+
+			const arrived = applyInlinePrefill(flipped, { apiKey: "sk-inline" });
+			assert.strictEqual(arrived.apiKey.location, "secure", "the user's storage choice survives the prefill");
+			assert.deepStrictEqual(assembleServerForm(arrived).secrets.apiKey, {
+				action: "set",
+				location: "secure",
+				value: "sk-inline",
+			});
 		});
 	});
 

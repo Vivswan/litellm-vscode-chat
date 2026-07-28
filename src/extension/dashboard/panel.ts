@@ -30,6 +30,7 @@ import {
 	DashboardOperationError,
 	DashboardValidationError,
 	executeDashboardIntent,
+	readInlineSecretValues,
 	resolveAdoptableCredentials,
 	resolveConfiguredScope,
 	resolveUpdateScope,
@@ -145,6 +146,18 @@ export class DashboardController implements vscode.Disposable {
 		}
 		if (parsed.data.type === "ready") {
 			this.pushState();
+			return;
+		}
+		if (parsed.data.type === "readInlineSecrets") {
+			// The edit form's on-demand prefill: values only for fields stored
+			// inline in the servers setting (already plaintext there), read at
+			// request time. No state push (the response is the whole answer) and
+			// no logging - the payload is secret material.
+			this.postToPanel({
+				type: "inlineSecrets",
+				requestId: parsed.data.requestId,
+				values: readInlineSecretValues(this.env.readServersSetting(), parsed.data.label),
+			});
 			return;
 		}
 		const intent = parsed.data;
