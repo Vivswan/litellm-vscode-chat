@@ -163,6 +163,11 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # Every gh call in this job needs an explicit repo context: the job
+      # never checks out the repo, so gh cannot resolve one from a git remote.
+      # This covers the fuzz-issue action's internal gh calls too.
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Download failure artifacts
         if: needs.fuzz.result != 'success'
@@ -188,14 +193,12 @@ jobs:
           artifact-name: fuzz-failures-shard*
 
       # A GITHUB_TOKEN-created issue fires no triggers, so dispatch auto-assign.
-      # -R is required: this job never checks out the repo, so gh has no local
-      # git remote to resolve the repository from.
       - name: Trigger auto-assign for the filed issue
         if: needs.fuzz.result != 'success' && steps.file-issue.outputs.issue-number != ''
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.file-issue.outputs.issue-number }}
-        run: gh workflow run auto-assign.yml -R "$GITHUB_REPOSITORY" -f "issue=$ISSUE_NUMBER" || echo "::warning::could not dispatch auto-assign.yml"
+        run: gh workflow run auto-assign.yml -f "issue=$ISSUE_NUMBER" || echo "::warning::could not dispatch auto-assign.yml"
 
       - name: Close the fuzz issue on a green night
         if: needs.fuzz.result == 'success'
