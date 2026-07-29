@@ -2143,6 +2143,11 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(parseHeaderValue('"42"'), "42");
 			assert.strictEqual(parseHeaderValue("abc def"), "abc def");
 			assert.strictEqual(parseHeaderValue("[1]"), "[1]", "non-scalar JSON stays a string");
+			// Overflowing numeric literals parse to Infinity, which isHeaderScalar
+			// refuses at the intent boundary; the literal string is the only
+			// reading that keeps Apply from being a silent no-op.
+			assert.strictEqual(parseHeaderValue("1e999"), "1e999", "non-finite numbers stay strings");
+			assert.strictEqual(parseHeaderValue("-1e999"), "-1e999", "non-finite numbers stay strings");
 		});
 
 		test("formatHeaderValue round-trips through parseHeaderValue", () => {
