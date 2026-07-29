@@ -9,6 +9,13 @@ export interface MessageAction {
 	run: () => void | Promise<void>;
 }
 
+/**
+ * The label every button that promises the server editor shares; such a
+ * button must route to reconfigureAction (or, for the raw showErrorMessage
+ * path below, INTERNAL_CMD.manageServers), never to the hub menu.
+ */
+export const CONFIGURE_NOW_LABEL = "Configure Now";
+
 export async function showActionableMessage(
 	kind: "info" | "warning" | "error",
 	message: string,
@@ -69,10 +76,10 @@ export function createConfigurationPrompt(hasConfiguredServers: () => boolean): 
 			}
 			const choice = await vscode.window.showErrorMessage(
 				"LiteLLM is not configured. Set up your connection to use this provider.",
-				"Configure Now",
+				CONFIGURE_NOW_LABEL,
 				"Learn More"
 			);
-			if (choice === "Configure Now") {
+			if (choice === CONFIGURE_NOW_LABEL) {
 				await vscode.commands.executeCommand(INTERNAL_CMD.manageServers);
 				return true;
 			}
@@ -93,13 +100,15 @@ interface NotifiableCondition {
 
 /** Timer effects, injectable so the grace deferral is testable without real time. */
 export interface NotifierTimer {
-	set(callback: () => void, ms: number): unknown;
-	clear(handle: unknown): void;
+	/** Schedule `callback` after `ms`; the returned closure cancels the pending call. */
+	set(callback: () => void, ms: number): () => void;
 }
 
 const REAL_TIMER: NotifierTimer = {
-	set: (callback, ms) => setTimeout(callback, ms),
-	clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+	set: (callback, ms) => {
+		const handle = setTimeout(callback, ms);
+		return () => clearTimeout(handle);
+	},
 };
 
 /**
@@ -135,7 +144,8 @@ const NO_SERVERS_GRACE_MS = 15000;
  */
 export class Notifier implements vscode.Disposable {
 	private _lastNotifiedSignature: string | undefined;
-	private _pendingClaim: unknown;
+	/** Cancels the armed no-servers claim; undefined when none is pending. */
+	private _cancelPendingClaim: (() => void) | undefined;
 
 	constructor(
 		private readonly hasConfiguredServers: () => boolean,
@@ -194,11 +204,11 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	private armNoServersClaim(condition: NotifiableCondition): void {
-		if (this._pendingClaim !== undefined || condition.signature === this._lastNotifiedSignature) {
+		if (this._cancelPendingClaim !== undefined || condition.signature === this._lastNotifiedSignature) {
 			return;
 		}
-		this._pendingClaim = this.timer.set(() => {
-			this._pendingClaim = undefined;
+		this._cancelPendingClaim = this.timer.set(() => {
+			this._cancelPendingClaim = undefined;
 			// Re-gated at expiry: by now the host has handed over any groups it
 			// manages, so a still-false gate is evidence of absence.
 			if (this.hasConfiguredServers() || condition.signature === this._lastNotifiedSignature) {
@@ -210,10 +220,8 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	private cancelPendingClaim(): void {
-		if (this._pendingClaim !== undefined) {
-			this.timer.clear(this._pendingClaim);
-			this._pendingClaim = undefined;
-		}
+		this._cancelPendingClaim?.();
+		this._cancelPendingClaim = undefined;
 	}
 
 	private evaluate(status: AggregatedStatus): NotifiableCondition | "recovered" | "suppressed" {
@@ -225,7 +233,7 @@ export class Notifier implements vscode.Disposable {
 				signature: "no-servers",
 				kind: "warning",
 				message: "LiteLLM: No servers configured. Click to configure.",
-				actions: [reconfigureAction("Configure Now")],
+				actions: [reconfigureAction(CONFIGURE_NOW_LABEL)],
 			};
 		}
 		const okCount = status.serverStatuses.filter((s) => s.state === "ok").length;

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { z } from "zod";
-import { VENDOR_ID } from "../shared/commandIds";
+import { MANAGE_COMMAND_TITLE, VENDOR_ID } from "../shared/commandIds";
 import { fingerprint } from "../shared/fingerprint";
 import type { Logger } from "../shared/logger";
 import type { ServerWithKey } from "../shared/servers";
@@ -266,7 +266,7 @@ export async function migrateServersToProviderGroups(
 				} else {
 					await markSkipped(
 						server.id,
-						`Server "${current.label}" changed after it was migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "Manage LiteLLM Provider".`
+						`Server "${current.label}" changed after it was migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "${MANAGE_COMMAND_TITLE}".`
 					);
 				}
 				continue;
@@ -319,7 +319,7 @@ export async function migrateServersToProviderGroups(
 					await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
 					await markSkipped(
 						server.id,
-						`A language models group named "${name}" already exists, so server "${current.label}" was not migrated. Review the group in the language models UI, then remove the legacy server via "Manage LiteLLM Provider".`
+						`A language models group named "${name}" already exists, so server "${current.label}" was not migrated. Review the group in the language models UI, then remove the legacy server via "${MANAGE_COMMAND_TITLE}".`
 					);
 					continue;
 				}
@@ -373,7 +373,7 @@ export async function migrateServersToProviderGroups(
 			} else {
 				await markSkipped(
 					server.id,
-					`Server "${afterSeed.label}" changed while it was being migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "Manage LiteLLM Provider".`
+					`Server "${afterSeed.label}" changed while it was being migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "${MANAGE_COMMAND_TITLE}".`
 				);
 			}
 		}

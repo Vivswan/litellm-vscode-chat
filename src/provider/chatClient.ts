@@ -17,7 +17,7 @@ import { estimateMessagesTokens, estimateToolTokens } from "../shared/tokenEstim
 import { convertTools } from "../shared/tools";
 import { validateRequest } from "../shared/validation";
 import { type OAuthConfig, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
-import { ServerClientCache } from "./clients";
+import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
 import { resolveServer } from "./config";
 import type { FetchModelsResult } from "./discovery";
 import { fetchModels } from "./discovery";
@@ -303,7 +303,7 @@ export class ChatClient {
 		});
 
 		this.log("Sending chat request", {
-			url: `${baseUrl}/v1/chat/completions`,
+			url: chatCompletionsUrl(baseUrl),
 			modelId: rawModelId,
 			messageCount: messages.length,
 		});
@@ -322,7 +322,7 @@ export class ChatClient {
 		try {
 			authHeaders = await this.resolveAuthHeaders({ oauth, virtualKey }, getDiscoveryTimeout(this.log), requestSignal);
 			const response = await client
-				.post("/chat/completions", {
+				.post(CHAT_COMPLETIONS_PATH, {
 					body: requestBody,
 					signal: requestSignal,
 					timeout: requestTimeout,
