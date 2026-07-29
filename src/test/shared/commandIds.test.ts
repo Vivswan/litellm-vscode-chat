@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CMD, INTERNAL_CMD, VENDOR_ID } from "../../shared/commandIds";
+import { CMD, INTERNAL_CMD, MANAGE_COMMAND_TITLE, VENDOR_ID } from "../../shared/commandIds";
 
 /**
  * Drift guards between the shared command-ID map and package.json: the
@@ -13,7 +13,7 @@ const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
 interface PackageJson {
 	readonly contributes: {
-		readonly commands: readonly { readonly command: string }[];
+		readonly commands: readonly { readonly command: string; readonly title?: string }[];
 		readonly languageModelChatProviders: readonly [{ readonly vendor: string }];
 		readonly walkthroughs?: unknown;
 	};
@@ -35,6 +35,22 @@ suite("shared/commandIds: package.json drift guard", () => {
 		const contributed = new Set(readPackageJson().contributes.commands.map((entry) => entry.command));
 		for (const id of Object.values(INTERNAL_CMD)) {
 			assert.ok(!contributed.has(id), `${id} is contributed; it belongs in CMD, not INTERNAL_CMD`);
+		}
+	});
+
+	test("the manage command is contributed under MANAGE_COMMAND_TITLE", () => {
+		// User-facing messages interpolate the constant when telling the user to
+		// run the command, so it must be exactly what the palette shows.
+		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.manage);
+		assert.strictEqual(entry?.title, MANAGE_COMMAND_TITLE);
+	});
+
+	test("the README and walkthrough prose name the manage command by its contributed title", () => {
+		// Presence-only guard: a retitled command must at least reach every doc
+		// that tells the user to run it.
+		for (const file of ["README.md", path.join("assets", "walkthrough", "fine-tune.md")]) {
+			const text = fs.readFileSync(path.join(repoRoot, file), "utf8");
+			assert.ok(text.includes(MANAGE_COMMAND_TITLE), `${file} names the manage command title`);
 		}
 	});
 
