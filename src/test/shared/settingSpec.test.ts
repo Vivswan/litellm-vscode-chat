@@ -1,6 +1,9 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { DEFAULT_MAX_TOKENS_CAP } from "../../provider/request";
+import type { HeaderScalar } from "../../shared/headers";
+import { HEADER_SCALAR_TYPES } from "../../shared/headers";
 import {
 	BOOLEAN_SETTING_SPECS,
 	CONFIG_SECTION,
@@ -8,13 +11,14 @@ import {
 	NUMBER_SETTING_SPECS,
 	type NumberSettingId,
 } from "../../shared/settingSpec";
+import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, SERVERS_SETTING_KEY } from "../../shared/settings";
 
 /**
- * Drift guards between the shared setting spec and its two prose mirrors:
- * package.json's contributed configuration and the README's settings
- * numbers. The spec is the code-side truth; these tests make the mirrors
- * CI-enforced. Tests run from out/test/shared, so the repo root is three
- * levels up.
+ * Drift guards between the shared setting spec and its prose mirrors:
+ * package.json's contributed configuration and the README's and AGENTS.md's
+ * settings numbers. The spec is the code-side truth; these tests make the
+ * mirrors CI-enforced. Tests run from out/test/shared, so the repo root is
+ * three levels up.
  */
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
@@ -22,6 +26,8 @@ interface SettingSchema {
 	readonly type?: string | readonly string[];
 	readonly default?: unknown;
 	readonly minimum?: number;
+	readonly scope?: string;
+	readonly additionalProperties?: boolean | { readonly type?: string | readonly string[] };
 	readonly description?: string;
 	readonly markdownDescription?: string;
 }
@@ -38,6 +44,12 @@ function readPackageJson(): PackageJson {
 
 function readReadme(): string {
 	return fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
+}
+
+// AGENTS.md is the real file (CLAUDE.md is a symlink to it, which a Windows
+// checkout may materialize as a plain link-target stub), so read it directly.
+function readAgentsDoc(): string {
+	return fs.readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
 }
 
 function settingSchema(properties: Record<string, SettingSchema>, id: string): SettingSchema {
@@ -164,5 +176,68 @@ suite("shared/settingSpec: README drift guard", () => {
 		const quoted = /Minimum timeout is (\d+)ms/.exec(readReadme())?.[1];
 		assert.ok(quoted, "the README states the minimum timeout");
 		assert.strictEqual(quoted, String(MIN_TIMEOUT_MS));
+	});
+
+	test("the max_tokens fallback sentence quotes DEFAULT_MAX_TOKENS_CAP", () => {
+		const quoted = /or at most (\d+) when the server declares none/.exec(readReadme())?.[1];
+		assert.ok(quoted, "the README states the max_tokens fallback cap");
+		assert.strictEqual(quoted, String(DEFAULT_MAX_TOKENS_CAP));
+	});
+});
+
+suite("shared/settingSpec: AGENTS.md drift guard", () => {
+	test("the request pass-through invariant quotes DEFAULT_MAX_TOKENS_CAP", () => {
+		const quoted = /min\((\d+), model max output tokens\)/.exec(readAgentsDoc())?.[1];
+		assert.ok(quoted, "AGENTS.md states the max_tokens fallback cap");
+		assert.strictEqual(quoted, String(DEFAULT_MAX_TOKENS_CAP));
+	});
+});
+
+suite("shared/settings: object-setting contributions drift guard", () => {
+	// The scalar suites above skip object settings by design (no scalar spec);
+	// these pin the object settings' keys and value shapes instead, against
+	// the constants their readers use.
+	test("the headers setting is contributed under HEADERS_SETTING_KEY with the shared value-type list", () => {
+		const { properties } = readPackageJson().contributes.configuration;
+		const schema = settingSchema(properties, HEADERS_SETTING_KEY);
+		assert.strictEqual(schema.type, "object");
+		// The contribution admits every HeaderScalar wire type. The code is
+		// deliberately stricter than this schema: isHeaderScalar refuses
+		// non-finite numbers, which JSON cannot carry anyway.
+		assert.ok(typeof schema.additionalProperties === "object", "headers declares typed additionalProperties");
+		assert.deepStrictEqual(schema.additionalProperties.type, [...HEADER_SCALAR_TYPES]);
+	});
+
+	test("HEADER_SCALAR_TYPES names exactly the HeaderScalar member types", () => {
+		// Both directions hold at compile time: a listed name without a
+		// matching HeaderScalar member fails the first assignment, and a
+		// HeaderScalar member the list does not name maps to "unlisted" and
+		// fails the second.
+		type TypeNameOf<T> = T extends string
+			? "string"
+			: T extends number
+				? "number"
+				: T extends boolean
+					? "boolean"
+					: "unlisted";
+		const listed: readonly TypeNameOf<HeaderScalar>[] = HEADER_SCALAR_TYPES;
+		const covered: readonly (typeof HEADER_SCALAR_TYPES)[number][] = listed;
+		assert.deepStrictEqual([...covered], [...HEADER_SCALAR_TYPES]);
+	});
+
+	test("the modelParameters setting is contributed under MODEL_PARAMETERS_SETTING_KEY as a record of objects", () => {
+		const { properties } = readPackageJson().contributes.configuration;
+		const schema = settingSchema(properties, MODEL_PARAMETERS_SETTING_KEY);
+		assert.strictEqual(schema.type, "object");
+		assert.deepStrictEqual(schema.additionalProperties, { type: "object" });
+	});
+
+	test("the servers setting is machine-scoped", () => {
+		// Load-bearing (see AGENTS.md, Storage): user settings only, so a
+		// workspace cannot re-point a label at another host to harvest its
+		// stored secrets.
+		const { properties } = readPackageJson().contributes.configuration;
+		const schema = settingSchema(properties, SERVERS_SETTING_KEY);
+		assert.strictEqual(schema.scope, "machine");
 	});
 });
