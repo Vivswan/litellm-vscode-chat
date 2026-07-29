@@ -16,13 +16,23 @@ export interface ToolCallBuffer {
 }
 
 /** Finish reason on a streaming choice. Providers may send values beyond the OpenAI set. */
-type FinishReason =
+export type FinishReason =
 	| "stop"
 	| "length"
 	| "tool_calls"
 	| "content_filter"
 	| "function_call"
 	| (string & Record<never, never>);
+
+/**
+ * The finish reasons that end the stream's useful output: buffered state is
+ * flushed as soon as one arrives, without waiting for the [DONE] sentinel.
+ * Deliberately not every FinishReason: length, content_filter, and
+ * function_call keep the long-standing behavior of flushing only at [DONE]
+ * or EOF. Typed as a FinishReason list (not a literal tuple) so streaming.ts
+ * can membership-test any parsed finish_reason against it.
+ */
+export const TERMINAL_FINISH_REASONS: readonly FinishReason[] = ["stop", "tool_calls"];
 
 /** Structured thinking payload used by Anthropic-style providers. */
 export interface ThinkingBlock {
@@ -97,19 +107,8 @@ export interface ChunkChoice {
 	index?: number | undefined;
 	delta?: ChunkDelta | undefined;
 	thinking?: string | ThinkingBlock | undefined;
-	finish_reason?: FinishReason | null | undefined;
-}
-
-/** Token usage trailer, including provider cache accounting fields. Logged wholesale, so extras pass through. */
-interface ChunkUsage {
-	prompt_tokens?: number;
-	completion_tokens?: number;
-	total_tokens?: number;
-	cache_creation_input_tokens?: number;
-	cache_read_input_tokens?: number;
-	prompt_tokens_details?: { cached_tokens?: number; audio_tokens?: number };
-	completion_tokens_details?: { reasoning_tokens?: number; audio_tokens?: number };
-	[key: string]: unknown;
+	/** A wire null (OpenAI sends it on every non-final chunk) parses to undefined; see narrowChoice. */
+	finish_reason?: FinishReason | undefined;
 }
 
 /** One SSE chunk of a streaming chat completion. */
@@ -119,7 +118,12 @@ export interface ChatCompletionChunk {
 	created?: number | undefined;
 	model?: string | undefined;
 	choices?: ChunkChoice[] | undefined;
-	usage?: ChunkUsage | null | undefined;
+	/**
+	 * Token usage trailer. The parser proves only that it is a record; it is
+	 * logged wholesale (provider cache accounting fields included), never read
+	 * field by field, so no per-field claims belong here.
+	 */
+	usage?: Record<string, unknown> | undefined;
 }
 
 function narrowThinking(raw: unknown): string | ThinkingBlock | undefined {
@@ -265,6 +269,6 @@ export function parseChunk(raw: unknown): ChatCompletionChunk | undefined {
 		created: typeof raw.created === "number" ? raw.created : undefined,
 		model: typeof raw.model === "string" ? raw.model : undefined,
 		choices: Array.isArray(raw.choices) ? raw.choices.filter(isRecord).map(narrowChoice) : undefined,
-		usage: isRecord(raw.usage) ? (raw.usage as ChunkUsage) : undefined,
+		usage: isRecord(raw.usage) ? raw.usage : undefined,
 	};
 }

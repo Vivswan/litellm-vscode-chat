@@ -23,8 +23,8 @@ import { resolveServer } from "./config";
 import type { FetchModelsResult } from "./discovery";
 import { fetchModels } from "./discovery";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
-import type { LiteLLMModelInfo } from "./groupModels";
-import { getGroupServer, groupClientId, modelOutputLimitSource, modelSupportsPromptCaching } from "./groupModels";
+import type { GroupServer, LiteLLMModelInfo } from "./groupModels";
+import { groupClientId, parseModelMetadata } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { requestParamsFromModelConfiguration } from "./modelConfiguration";
 import { buildRequestBody, DEFAULT_MAX_TOKENS_CAP, getModelParameters, MAX_TOOLS_PER_REQUEST } from "./request";
@@ -48,9 +48,30 @@ export interface ServerConnection extends ServerWithKey {
 	virtualKey?: VirtualKeyConfig;
 }
 
+/**
+ * Everything one chat request needs to reach its server, resolved in full
+ * before anything is sent. Every field is required (undefined must be stated,
+ * not omitted), so a resolution branch cannot silently drop the credentials
+ * or scopes another branch carries.
+ */
+interface ResolvedConnection {
+	serverId: string;
+	baseUrl: string;
+	apiKey: string;
+	rawModelId: string;
+	/** Scopes for modelParameters matching: the group's base URL and its unambiguous pre-migration label. */
+	serverScopes: readonly string[];
+	oauth: OAuthConfig | undefined;
+	virtualKey: VirtualKeyConfig | undefined;
+}
+
 export interface ChatClientOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
+	/** Resolves the legacy registry's servers; defaults to none for hosts that only serve provider groups. */
+	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
+	/** Pre-migration labels by base URL, for modelParameters scoping; defaults to none. */
+	getMigratedServerLabels?: (() => Record<string, string[]>) | undefined;
 }
 
 /**
@@ -60,8 +81,8 @@ export interface ChatClientOptions {
 export class ChatClient {
 	private readonly userAgent: string;
 	private readonly logger?: Logger | undefined;
-	private getServers?: () => Promise<ServerWithKey[]>;
-	private getMigratedServerLabels?: () => Record<string, string[]>;
+	private readonly getServers: () => Promise<ServerWithKey[]>;
+	private readonly getMigratedServerLabels: () => Record<string, string[]>;
 	private readonly ambiguousLabelBaseUrls = new Set<string>();
 	private readonly clients = new ServerClientCache();
 	private readonly oauthTokens = new OAuthTokenSource();
@@ -79,14 +100,8 @@ export class ChatClient {
 	constructor(options: ChatClientOptions) {
 		this.userAgent = options.userAgent;
 		this.logger = options.logger;
-	}
-
-	setServerProvider(getServers: () => Promise<ServerWithKey[]>): void {
-		this.getServers = getServers;
-	}
-
-	setMigratedServerLabelsProvider(getLabels: () => Record<string, string[]>): void {
-		this.getMigratedServerLabels = getLabels;
+		this.getServers = options.getServers ?? (() => Promise.resolve([]));
+		this.getMigratedServerLabels = options.getMigratedServerLabels ?? (() => ({}));
 	}
 
 	/**
@@ -96,7 +111,7 @@ export class ChatClient {
 	 * every group at that URL, so label scoping is skipped (logged once per URL).
 	 */
 	private migratedLabelsFor(baseUrl: NormalizedBaseUrl): string[] {
-		const map = this.getMigratedServerLabels?.() ?? {};
+		const map = this.getMigratedServerLabels();
 		const labels = Object.entries(map).find(([url]) => normalizeBaseUrl(url) === baseUrl)?.[1] ?? [];
 		if (labels.length > 1) {
 			if (!this.ambiguousLabelBaseUrls.has(baseUrl)) {
@@ -209,56 +224,73 @@ export class ChatClient {
 		this.oauthTokens.invalidate(oauth, sentOAuthToken);
 	}
 
+	/**
+	 * Resolve the complete connection for one chat request. Three sources, in
+	 * priority order: the group server attached to the model object, the route
+	 * registered at discovery time, and (for configuration-less hosts with
+	 * exactly one registry server) that sole server. Each branch states every
+	 * ResolvedConnection field, so none can silently drop credentials.
+	 */
+	private async resolveConnection(
+		model: LiteLLMModelInfo,
+		groupServer: GroupServer | undefined
+	): Promise<ResolvedConnection> {
+		if (groupServer) {
+			return {
+				serverId: groupClientId(groupServer),
+				baseUrl: groupServer.baseUrl,
+				apiKey: groupServer.apiKey,
+				rawModelId: model.id,
+				serverScopes: [groupServer.baseUrl, ...this.migratedLabelsFor(groupServer.baseUrl)],
+				oauth: groupServer.oauth,
+				virtualKey: groupServer.virtualKey,
+			};
+		}
+		const route = this._modelRoutes.get(model.id);
+		if (route) {
+			const server = await resolveServer(route.serverId, this.getServers);
+			if (!server) {
+				throw new Error(`Server "${route.serverLabel}" is no longer configured`);
+			}
+			return {
+				serverId: server.id,
+				baseUrl: server.baseUrl,
+				apiKey: server.apiKey,
+				rawModelId: route.rawModelId,
+				serverScopes: [],
+				oauth: undefined,
+				virtualKey: undefined,
+			};
+		}
+		const servers = await this.getServers();
+		const [soleServer] = servers;
+		if (servers.length === 1 && soleServer !== undefined) {
+			return {
+				serverId: soleServer.id,
+				baseUrl: soleServer.baseUrl,
+				apiKey: soleServer.apiKey,
+				rawModelId: model.id,
+				serverScopes: [],
+				oauth: undefined,
+				virtualKey: undefined,
+			};
+		}
+		throw new Error(
+			`Model "${model.id}" is not registered with any configured server. Refresh the model list and try again.`
+		);
+	}
+
 	async send(ctx: ChatRequestContext): Promise<void> {
 		const { model, messages, options, progress, token } = ctx;
 
-		const groupServer = getGroupServer(model, this.log);
-		const route = groupServer ? undefined : this._modelRoutes.get(model.id);
-		let serverId: string;
-		let baseUrl: string;
-		let apiKey: string;
-		let rawModelId: string;
-		let serverScopes: readonly string[] = [];
-		let oauth: OAuthConfig | undefined;
-		let virtualKey: VirtualKeyConfig | undefined;
-
-		if (groupServer) {
-			serverId = groupClientId(groupServer);
-			baseUrl = groupServer.baseUrl;
-			apiKey = groupServer.apiKey;
-			rawModelId = model.id;
-			serverScopes = [groupServer.baseUrl, ...this.migratedLabelsFor(groupServer.baseUrl)];
-			oauth = groupServer.oauth;
-			virtualKey = groupServer.virtualKey;
-		} else if (route) {
-			const server = await resolveServer(route.serverId, this.getServers);
-			if (server) {
-				serverId = server.id;
-				baseUrl = server.baseUrl;
-				apiKey = server.apiKey;
-			} else {
-				throw new Error(`Server "${route.serverLabel}" is no longer configured`);
-			}
-			rawModelId = route.rawModelId;
-		} else {
-			const servers = this.getServers ? await this.getServers() : [];
-			const [soleServer] = servers;
-			if (servers.length === 1 && soleServer !== undefined) {
-				serverId = soleServer.id;
-				baseUrl = soleServer.baseUrl;
-				apiKey = soleServer.apiKey;
-				rawModelId = model.id;
-			} else {
-				throw new Error(
-					`Model "${model.id}" is not registered with any configured server. Refresh the model list and try again.`
-				);
-			}
-		}
+		// The one parse of the model object's LiteLLM metadata; everything below
+		// reads the parsed result instead of re-narrowing the host round trip.
+		const metadata = parseModelMetadata(model, this.log);
+		const connection = await this.resolveConnection(model, metadata.server);
 
 		const promptCachingEnabled = isPromptCachingEnabled();
 		const customHeaders = getCustomHeaders(this.log);
 		const requestTimeout = getRequestTimeout(this.log);
-		const supportsPromptCaching = modelSupportsPromptCaching(model);
 		const converted = convertMessages(messages, { log: this.log });
 		validateRequest(messages);
 		const toolConfig = convertTools(options);
@@ -267,13 +299,13 @@ export class ChatClient {
 			throw new Error(`Cannot have more than ${MAX_TOOLS_PER_REQUEST} tools per request.`);
 		}
 
-		const { messages: openaiMessages, tools } =
-			promptCachingEnabled && supportsPromptCaching
-				? applyPromptCacheBreakpoints({ messages: converted, tools: toolConfig.tools })
-				: { messages: converted, tools: toolConfig.tools };
+		const { messages: openaiMessages, tools: cachedTools } =
+			promptCachingEnabled && metadata.supportsPromptCaching
+				? applyPromptCacheBreakpoints({ messages: converted, tools: toolConfig?.tools })
+				: { messages: converted, tools: toolConfig?.tools };
 
 		const inputTokenCount = estimateMessagesTokens(messages, { includeMultimodal: false });
-		const toolTokenCount = estimateToolTokens(toolConfig.tools);
+		const toolTokenCount = estimateToolTokens(toolConfig?.tools);
 		const tokenLimit = Math.max(1, model.maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {
 			throw new Error(
@@ -281,14 +313,14 @@ export class ChatClient {
 			);
 		}
 
-		const modelParams = getModelParameters(model.id, this._modelRoutes, serverScopes);
+		const modelParams = getModelParameters(model.id, this._modelRoutes, connection.serverScopes);
 
 		let maxTokens: number;
 		if (typeof options.modelOptions?.max_tokens === "number") {
 			maxTokens = options.modelOptions.max_tokens;
 		} else if (typeof modelParams.max_tokens === "number") {
 			maxTokens = modelParams.max_tokens;
-		} else if (modelOutputLimitSource(model) === "provider") {
+		} else if (metadata.outputLimitSource === "provider") {
 			// The server declared this limit, so it is honored as-is; the cap
 			// below only guards the defaults-derived guess.
 			maxTokens = model.maxOutputTokens;
@@ -297,43 +329,46 @@ export class ChatClient {
 		}
 
 		const requestBody = buildRequestBody({
-			rawModelId,
+			rawModelId: connection.rawModelId,
 			openaiMessages,
 			maxTokens,
 			modelParams,
-			toolConfig: { tools, tool_choice: toolConfig.tool_choice },
+			toolConfig: toolConfig && { tools: cachedTools ?? toolConfig.tools, tool_choice: toolConfig.tool_choice },
 			modelConfiguration: requestParamsFromModelConfiguration(options.modelConfiguration),
 			modelOptions: options.modelOptions as Record<string, unknown> | undefined,
 		});
 
 		const client = this.clients.get({
-			serverId,
-			baseUrl,
-			apiKey,
+			serverId: connection.serverId,
+			baseUrl: connection.baseUrl,
+			apiKey: connection.apiKey,
 			userAgent: this.userAgent,
 			customHeaders,
 		});
 
 		this.log("Sending chat request", {
-			url: chatCompletionsUrl(baseUrl),
-			modelId: rawModelId,
+			url: chatCompletionsUrl(connection.baseUrl),
+			modelId: connection.rawModelId,
 			messageCount: messages.length,
 		});
 
 		// User cancellation must abort the in-flight request, not just stop the
 		// read loop, so the token is bridged onto an AbortController combined
 		// with the request timeout. The per-request timeout keeps the SDK's own
-		// 600 s time-to-headers default from cutting in before ours.
+		// 600 s time-to-headers default from cutting in before ours; the
+		// AbortSignal.timeout below is what bounds the whole call, including a
+		// stream that stalls after headers (the SDK disarms its timer once
+		// headers arrive).
 		const cancelController = new AbortController();
 		const cancelListener = token.onCancellationRequested(() => cancelController.abort());
 		const timeoutSignal = AbortSignal.timeout(requestTimeout);
 		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
-		const errorContext = { surface: "chat" as const, baseUrl, timeoutMs: requestTimeout };
+		const errorContext = { surface: "chat" as const, baseUrl: connection.baseUrl, timeoutMs: requestTimeout };
 		let sentOAuthToken: string | undefined;
 
 		try {
 			const resolvedAuth = await this.resolveAuthHeaders(
-				{ oauth, virtualKey },
+				{ oauth: connection.oauth, virtualKey: connection.virtualKey },
 				getDiscoveryTimeout(this.log),
 				requestSignal
 			);
@@ -366,7 +401,7 @@ export class ChatClient {
 				throw new RequestError(timeoutMessage(errorContext), "timeout", { cause: err });
 			}
 			const mapped = mapSdkError(err, errorContext);
-			this.invalidateRejectedToken(oauth, mapped, sentOAuthToken);
+			this.invalidateRejectedToken(connection.oauth, mapped, sentOAuthToken);
 			throw mapped;
 		} finally {
 			cancelListener.dispose();

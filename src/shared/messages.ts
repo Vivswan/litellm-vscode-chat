@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { isImageMimeType, isSafeMimeType, isTextMimeType } from "./mime";
+import { isImageMimeType, isPdfMimeType, isSafeMimeType, isTextMimeType } from "./mime";
 import { thinkingPartCtor } from "./thinkingPart";
 import type {
 	OpenAIChatContentBlock,
@@ -21,7 +21,7 @@ function convertDataPartToContentBlock(
 		const base64 = Buffer.from(part.data).toString("base64");
 		return { type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } };
 	}
-	if (mime === "application/pdf") {
+	if (isPdfMimeType(mime)) {
 		const base64 = Buffer.from(part.data).toString("base64");
 		return { type: "file", file: { file_data: `data:${mime};base64,${base64}` } };
 	}
@@ -97,11 +97,16 @@ function collectToolResultText(pr: vscode.LanguageModelToolResultPart, log?: Log
 	return text;
 }
 
-interface ThinkingHistoryEntry {
-	text: string;
-	signature?: string;
-	redactedData?: string;
-}
+/**
+ * One thinking part read back from assistant history, in the three replay
+ * shapes extractThinkingHistoryEntry can prove: signed text (replayable),
+ * a redacted payload (replayable), or unsigned text (replayable only if a
+ * later signature closes over it).
+ */
+type ThinkingHistoryEntry =
+	| { kind: "unsigned"; text: string }
+	| { kind: "signed"; text: string; signature: string }
+	| { kind: "redacted"; data: string };
 
 /**
  * Read a thinking part from assistant history. Recognized via the proposed
@@ -120,13 +125,13 @@ function extractThinkingHistoryEntry(part: unknown): ThinkingHistoryEntry | unde
 			: undefined;
 	const text = typeof record.value === "string" ? record.value : "";
 	if (metadata?.type === "redacted_thinking" && typeof metadata.data === "string") {
-		return { text, redactedData: metadata.data };
+		return { kind: "redacted", data: metadata.data };
 	}
 	if (typeof metadata?.signature === "string") {
-		return { text, signature: metadata.signature };
+		return { kind: "signed", text, signature: metadata.signature };
 	}
 	if (thinkingPartCtor && part instanceof thinkingPartCtor) {
-		return { text };
+		return { kind: "unsigned", text };
 	}
 	return undefined;
 }
@@ -142,14 +147,18 @@ function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThi
 	const blocks: OpenAIThinkingBlock[] = [];
 	let pendingText = "";
 	for (const entry of entries) {
-		if (entry.redactedData !== undefined) {
-			blocks.push({ type: "redacted_thinking", data: entry.redactedData });
-			pendingText = "";
-		} else if (entry.signature !== undefined) {
-			blocks.push({ type: "thinking", thinking: pendingText + entry.text, signature: entry.signature });
-			pendingText = "";
-		} else {
-			pendingText += entry.text;
+		switch (entry.kind) {
+			case "redacted":
+				blocks.push({ type: "redacted_thinking", data: entry.data });
+				pendingText = "";
+				break;
+			case "signed":
+				blocks.push({ type: "thinking", thinking: pendingText + entry.text, signature: entry.signature });
+				pendingText = "";
+				break;
+			case "unsigned":
+				pendingText += entry.text;
+				break;
 		}
 	}
 	return blocks;
@@ -176,7 +185,6 @@ export function convertMessages(
 		const toolResults: { callId: string; content: string }[] = [];
 		const contentBlocks: OpenAIChatContentBlock[] = [];
 		const thinkingEntries: ThinkingHistoryEntry[] = [];
-		let hasNonTextBlocks = false;
 
 		for (const part of m.content ?? []) {
 			if (part instanceof vscode.LanguageModelTextPart) {
@@ -206,7 +214,6 @@ export function convertMessages(
 						textParts.length = 0;
 					}
 					contentBlocks.push(block);
-					hasNonTextBlocks = true;
 				} else {
 					const decoded = decodeDataPartText(part);
 					if (decoded !== null) {
@@ -237,9 +244,7 @@ export function convertMessages(
 		}
 
 		const thinkingBlocks = foldThinkingBlocks(thinkingEntries);
-		let emittedForMessage = false;
 
-		let emittedAssistantToolCall = false;
 		if (toolCalls.length > 0) {
 			out.push({
 				role: "assistant",
@@ -247,37 +252,36 @@ export function convertMessages(
 				tool_calls: toolCalls,
 				...(thinkingBlocks.length > 0 ? { thinking_blocks: thinkingBlocks } : {}),
 			});
-			emittedAssistantToolCall = true;
-			emittedForMessage = true;
 		}
 
 		for (const tr of toolResults) {
 			out.push({ role: "tool", tool_call_id: tr.callId, content: tr.content || "" });
 		}
 
-		if (role === "user" && hasNonTextBlocks) {
+		// contentBlocks is non-empty exactly when a binary block converted above,
+		// so its emptiness is the "multimodal user message" test.
+		if (role === "user" && contentBlocks.length > 0) {
 			if (textParts.length > 0) {
 				contentBlocks.push({ type: "text", text: textParts.join("") });
 			}
-			if (contentBlocks.length > 0) {
-				out.push({ role, content: contentBlocks });
+			out.push({ role, content: contentBlocks });
+		} else if (role === "assistant") {
+			// The turn's text rides on the tool-call message when there is one.
+			const text = toolCalls.length === 0 ? textParts.join("") : "";
+			if (text) {
+				out.push(
+					thinkingBlocks.length > 0 ? { role, content: text, thinking_blocks: thinkingBlocks } : { role, content: text }
+				);
+			} else if (toolCalls.length === 0 && thinkingBlocks.length > 0) {
+				// A signed thinking block must replay even when its assistant turn
+				// carried no text or tool calls.
+				out.push({ role, content: "", thinking_blocks: thinkingBlocks });
 			}
 		} else {
 			const text = textParts.join("");
-			if (text && (role === "system" || role === "user" || (role === "assistant" && !emittedAssistantToolCall))) {
-				if (role === "assistant" && thinkingBlocks.length > 0) {
-					out.push({ role, content: text, thinking_blocks: thinkingBlocks });
-				} else {
-					out.push({ role, content: text });
-				}
-				emittedForMessage = true;
+			if (text) {
+				out.push({ role, content: text });
 			}
-		}
-
-		// A signed thinking block must replay even when its assistant turn
-		// carried no text or tool calls.
-		if (role === "assistant" && thinkingBlocks.length > 0 && !emittedForMessage) {
-			out.push({ role, content: "", thinking_blocks: thinkingBlocks });
 		}
 	}
 	return out;

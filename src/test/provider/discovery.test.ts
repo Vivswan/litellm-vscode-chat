@@ -268,10 +268,8 @@ suite("provider/discovery", () => {
 									{
 										provider: "openai",
 										status: "active",
-										// A forged source would take registration's priced
-										// sole-deployment path; a forged output_limit_source
-										// would demote the genuinely declared limit below.
-										source: "model_info",
+										// A forged output_limit_source would demote the
+										// genuinely declared limit below.
 										output_limit_source: "defaults",
 										max_output_tokens: 8000,
 										input_cost_per_token: "0.000001",
@@ -286,7 +284,6 @@ suite("provider/discovery", () => {
 			const { models } = await fetchModels(request());
 			const model = expectDefined(models[0]);
 			const provider = expectDefined(expectShape(model, "group").providers[0], "the wire cannot mint a deployment");
-			assert.strictEqual(provider.source, undefined, "source is discovery-authored, never wire-supplied");
 			assert.strictEqual(
 				provider.output_limit_source,
 				undefined,
@@ -470,7 +467,6 @@ suite("provider/discovery", () => {
 			const model = expectDefined(models[0]);
 			assert.strictEqual(model.id, "balanced-model");
 			const provider = expectShape(model, "deployment").provider;
-			assert.strictEqual(provider.source, "model_info");
 			assert.strictEqual(provider.max_input_tokens, 64000);
 			assert.strictEqual(provider.max_output_tokens, 8000);
 			assert.strictEqual(provider.context_length, 64000);

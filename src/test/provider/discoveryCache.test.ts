@@ -239,11 +239,10 @@ suite("provider group discovery caching", () => {
 
 	test("an expired entry is refetched", async () => {
 		const clock = makeClock();
-		const provider = new LiteLLMChatModelProvider(
-			"GitHubCopilotChat/test VSCode/test",
-			undefined,
-			new DiscoveryCache<readonly PreAttachModelInfo[]>(clock.now)
-		);
+		const provider = new LiteLLMChatModelProvider({
+			userAgent: "GitHubCopilotChat/test VSCode/test",
+			discoveryCache: new DiscoveryCache<readonly PreAttachModelInfo[]>(clock.now),
+		});
 		const counter = countingHandlers();
 		await provider.provideLanguageModelChatInformation(groupOptions(GROUP), cancellation());
 
@@ -306,8 +305,10 @@ suite("provider group discovery caching", () => {
 	});
 
 	test("a sweep served from the cache keeps every group in the merged status", async () => {
-		const provider = makeProvider();
-		provider.setGrouplessRegistryEnabled(() => false);
+		const provider = new LiteLLMChatModelProvider({
+			userAgent: "GitHubCopilotChat/test VSCode/test",
+			grouplessRegistryEnabled: () => false,
+		});
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
 		const counter = countingHandlers();
@@ -334,8 +335,10 @@ suite("provider group discovery caching", () => {
 	});
 
 	test("a rotated group key evicts the old credentials' entry once its status ages out", async () => {
-		const provider = makeProvider();
-		provider.setGrouplessRegistryEnabled(() => false);
+		const provider = new LiteLLMChatModelProvider({
+			userAgent: "GitHubCopilotChat/test VSCode/test",
+			grouplessRegistryEnabled: () => false,
+		});
 		countingHandlers();
 		const oldGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "old-key" };
 		const newGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "new-key" };

@@ -8,6 +8,11 @@ export function isImageMimeType(mime: string): boolean {
 	return mime.toLowerCase().startsWith("image/");
 }
 
+/** True for PDF payloads, which convert to file content blocks and carry a fixed token estimate. */
+export function isPdfMimeType(mime: string): boolean {
+	return mime.toLowerCase() === "application/pdf";
+}
+
 /**
  * True when a MIME string is shaped like type/subtype over a conservative
  * character set, with a sane length cap. Model-supplied MIME values must pass

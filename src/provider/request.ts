@@ -1,5 +1,6 @@
 import { getModelParametersConfig } from "../shared/settings";
-import type { OpenAIChatMessage, OpenAIFunctionToolDef } from "../shared/wire";
+import type { ToolConfig } from "../shared/tools";
+import type { OpenAIChatMessage } from "../shared/wire";
 import type { ModelRoute } from "./modelCatalog";
 import type { ModelConfigurationRequestParams } from "./modelConfiguration";
 
@@ -86,7 +87,8 @@ export interface RequestBodyParams {
 	openaiMessages: OpenAIChatMessage[];
 	maxTokens: number;
 	modelParams: Record<string, unknown>;
-	toolConfig: { tools?: OpenAIFunctionToolDef[] | undefined; tool_choice?: unknown };
+	/** Tools and tool_choice as one unit (see ToolConfig); absent means the request carries neither. */
+	toolConfig: ToolConfig | undefined;
 	/** Wire params resolved from the host's modelConfiguration, i.e. the user's model-picker choices. */
 	modelConfiguration?: ModelConfigurationRequestParams | undefined;
 	modelOptions?: Record<string, unknown> | undefined;
@@ -131,10 +133,8 @@ export function buildRequestBody(params: RequestBodyParams): Record<string, unkn
 		passThrough(modelOptions);
 	}
 
-	if (toolConfig.tools) {
+	if (toolConfig) {
 		body.tools = toolConfig.tools;
-	}
-	if (toolConfig.tool_choice) {
 		body.tool_choice = toolConfig.tool_choice;
 	}
 

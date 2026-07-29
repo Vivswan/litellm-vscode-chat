@@ -11,25 +11,20 @@ export interface ConfigurationPrompt {
 
 export async function resolveServer(
 	serverId: string,
-	getServers: (() => Promise<ServerWithKey[]>) | undefined
+	getServers: () => Promise<ServerWithKey[]>
 ): Promise<ServerWithKey | undefined> {
-	if (!getServers) {
-		return undefined;
-	}
 	const servers = await getServers();
 	return servers.find((s) => s.id === serverId);
 }
 
 export async function ensureServers(
 	silent: boolean,
-	getServers: (() => Promise<ServerWithKey[]>) | undefined,
+	getServers: () => Promise<ServerWithKey[]>,
 	prompt?: ConfigurationPrompt
 ): Promise<ServerWithKey[] | undefined> {
-	if (getServers) {
-		const servers = await getServers();
-		if (servers.length > 0) {
-			return servers;
-		}
+	const servers = await getServers();
+	if (servers.length > 0) {
+		return servers;
 	}
 
 	if (silent || !prompt) {
@@ -37,11 +32,9 @@ export async function ensureServers(
 	}
 
 	if (await prompt.promptToConfigure()) {
-		if (getServers) {
-			const servers = await getServers();
-			if (servers.length > 0) {
-				return servers;
-			}
+		const refreshed = await getServers();
+		if (refreshed.length > 0) {
+			return refreshed;
 		}
 	}
 

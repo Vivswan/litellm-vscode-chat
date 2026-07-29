@@ -53,13 +53,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const logger = new Logger(outputChannel, issueReporter);
 	logger.log(`LiteLLM Extension activated (v${extVersion})`);
 	const registry = new ServerRegistry(context.globalState, context.secrets);
-	const provider = new LiteLLMChatModelProvider(ua, logger);
 	// Test mode keeps the registry live for the group-agnostic refresh even
 	// after migration: there is no programmatic way to remove provider groups,
 	// so the host-fidelity suite drives models through the registry.
 	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
+	const isMigrated = () => isGroupMigrationComplete(context.globalState);
+	const provider = new LiteLLMChatModelProvider({
+		userAgent: ua,
+		logger,
+		getServers: () => registry.getServersWithKeys(),
+		getMigratedServerLabels: () => getMigratedServerLabels(context.globalState),
+		grouplessRegistryEnabled: () => testMode || !isMigrated(),
+	});
 
-	provider.setServerProvider(() => registry.getServersWithKeys());
 	// The setting itself is the truth here, not the sync engine's view: the
 	// prompt and the welcome toast can run before the first sync pass finishes.
 	const hasDeclaredServers = () =>
@@ -73,9 +79,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const hasConfiguredServers = () =>
 		provider.getServerSnapshots().length > 0 || provider.hasSeenGroupConfiguration() || hasDeclaredServers();
 	provider.setConfigurationPrompt(createConfigurationPrompt(hasConfiguredServers));
-	const isMigrated = () => isGroupMigrationComplete(context.globalState);
-	provider.setGrouplessRegistryEnabled(() => testMode || !isMigrated());
-	provider.setMigratedServerLabels(() => getMigratedServerLabels(context.globalState));
 
 	// The provider must not see a half-migrated registry, so migration completes before registration.
 	try {

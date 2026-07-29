@@ -127,13 +127,14 @@ suite("provider", () => {
 	});
 
 	test("provideLanguageModelChatResponse throws for unregistered model when multiple servers are configured", async () => {
-		const provider = new LiteLLMChatModelProvider("GitHubCopilotChat/test VSCode/test");
-		provider.setServerProvider(() =>
-			Promise.resolve([
-				{ id: "srv1", label: "One", baseUrl: "http://one.test", apiKey: "k1" },
-				{ id: "srv2", label: "Two", baseUrl: "http://two.test", apiKey: "k2" },
-			])
-		);
+		const provider = new LiteLLMChatModelProvider({
+			userAgent: "GitHubCopilotChat/test VSCode/test",
+			getServers: () =>
+				Promise.resolve([
+					{ id: "srv1", label: "One", baseUrl: "http://one.test", apiKey: "k1" },
+					{ id: "srv2", label: "Two", baseUrl: "http://two.test", apiKey: "k2" },
+				]),
+		});
 
 		let fetchCalled = false;
 		await withFetch(

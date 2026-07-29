@@ -139,8 +139,8 @@ function assertChoice(choice: ChunkChoice, label: string): void {
 	}
 	assertThinking(choice.thinking, `${label}.thinking`);
 	assert.ok(
-		choice.finish_reason === undefined || choice.finish_reason === null || typeof choice.finish_reason === "string",
-		`${label}.finish_reason must be string | null | undefined`
+		choice.finish_reason === undefined || typeof choice.finish_reason === "string",
+		`${label}.finish_reason must be string | undefined (a wire null parses to undefined)`
 	);
 }
 
@@ -154,8 +154,8 @@ function assertChunkInvariants(chunk: ChatCompletionChunk): void {
 	);
 	assertOptionalString(chunk.model, "chunk.model");
 	assert.ok(
-		chunk.usage === undefined || chunk.usage === null || isPlainRecord(chunk.usage),
-		"chunk.usage must be a record, null, or undefined"
+		chunk.usage === undefined || isPlainRecord(chunk.usage),
+		"chunk.usage must be a record or undefined (a wire null parses to undefined)"
 	);
 	if (chunk.choices !== undefined) {
 		assert.ok(Array.isArray(chunk.choices), "chunk.choices must be an array or undefined");

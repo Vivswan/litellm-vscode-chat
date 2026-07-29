@@ -57,6 +57,10 @@ export function deriveTokenConstraints(
 
 	const contextLength = normalizePositiveNumber(provider?.context_length) ?? defaults.contextLength;
 
+	// A configured defaultMaxInputTokens is an explicit user override and
+	// outranks even a server-declared max_input_tokens (pinned by the
+	// "explicit override" request-contract test); the server's limit and the
+	// context-minus-output guess are fallbacks, in that order.
 	const maxInputTokens =
 		defaults.maxInputTokens ??
 		normalizePositiveNumber(provider?.max_input_tokens) ??

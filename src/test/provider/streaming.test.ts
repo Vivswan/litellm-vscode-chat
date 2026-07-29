@@ -203,6 +203,30 @@ suite("provider/streaming", () => {
 		assert.equal(ids.count, 1);
 	});
 
+	test("a terminal finish_reason flushes buffered state without the [DONE] fallback", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const parts: vscode.LanguageModelResponsePart[] = [];
+		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
+
+		// A buffered call with complete arguments but no name cannot emit early
+		// (only the end-of-stream flush names it unknown_tool), and no [DONE] or
+		// EOF follows here, so the finish_reason chunk alone must flush it.
+		stream.processDelta(
+			{ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_x", function: { arguments: '{"a":1}' } }] } }] },
+			progress
+		);
+		assert.equal(parts.length, 0, "a nameless buffered call must not emit before the flush");
+
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }, progress);
+
+		const toolParts = toolCallsOf(parts);
+		assert.equal(toolParts.length, 1, "the finish chunk itself must flush the buffer");
+		const toolPart = expectDefined(toolParts[0]);
+		assert.equal(toolPart.callId, "call_x");
+		assert.equal(toolPart.name, "unknown_tool");
+		assert.deepEqual(toolPart.input, { a: 1 });
+	});
+
 	test("tool call arguments split across deltas emit exactly once, including after finish_reason", async () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];

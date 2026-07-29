@@ -34,7 +34,6 @@ export interface OpenAIFunctionToolDef {
 /** OpenAI-style chat roles. */
 export type OpenAIChatRole = "system" | "user" | "assistant" | "tool";
 
-/** OpenAI-style chat message used for router requests. */
 /**
  * Anthropic extended-thinking block replayed on an assistant message.
  * LiteLLM forwards these to Anthropic so multi-turn tool use keeps its
@@ -45,20 +44,42 @@ export type OpenAIThinkingBlock =
 	| { type: "thinking"; thinking: string; signature: string }
 	| { type: "redacted_thinking"; data: string };
 
-export interface OpenAIChatMessage {
-	role: OpenAIChatRole;
+/**
+ * A system or user message. Content is required; the block-array form exists
+ * for multimodal user input and for shared/promptCache.ts's marker placement,
+ * which rewrites string content into a marked text block on any role.
+ */
+export interface OpenAIPromptMessage {
+	role: "system" | "user";
+	content: string | OpenAIChatContentBlock[];
+}
+
+/** An assistant turn: text, tool calls, and replayed thinking blocks are each optional. */
+export interface OpenAIAssistantMessage {
+	role: "assistant";
 	content?: string | OpenAIChatContentBlock[] | undefined;
-	name?: string;
 	tool_calls?: OpenAIToolCall[];
-	tool_call_id?: string;
 	thinking_blocks?: OpenAIThinkingBlock[];
+}
+
+/** A tool-result message; the pairing tool_call_id is required by construction. */
+export interface OpenAIToolMessage {
+	role: "tool";
+	tool_call_id: string;
+	content: string;
 	/**
-	 * Message-level prompt-cache marker, used only on tool-role messages:
+	 * Message-level prompt-cache marker, valid only on tool-role messages:
 	 * LiteLLM's Anthropic adapter copies it onto the top-level tool_result
 	 * block, the only cacheable position there (see shared/promptCache.ts).
 	 */
 	cache_control?: EphemeralCacheControl;
 }
+
+/**
+ * OpenAI-style chat message used for router requests, discriminated by role
+ * so every construction site is checked against that role's required fields.
+ */
+export type OpenAIChatMessage = OpenAIPromptMessage | OpenAIAssistantMessage | OpenAIToolMessage;
 
 /** Text content block for chat messages. */
 interface OpenAIChatTextContentBlock {

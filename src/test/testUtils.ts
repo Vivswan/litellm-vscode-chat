@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
-import { LiteLLMChatModelProvider } from "../provider";
+import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";
 import type { LiteLLMModelInfo, PreAttachModelInfo } from "../provider/groupModels";
 import { Logger } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
@@ -77,17 +77,23 @@ export async function withConfig<T>(
 /**
  * Create a provider wired to a single configured server, or to an empty
  * server list when `baseUrl` is omitted (the "not configured" case).
+ * `overrides` merges into the constructor options for tests that need the
+ * migrated-label map or the groupless-registry gate.
  */
 export function makeProvider(
 	baseUrl?: string,
 	apiKey = "test-key",
-	outputChannel?: vscode.LogOutputChannel
+	outputChannel?: vscode.LogOutputChannel,
+	overrides: Partial<LiteLLMChatModelProviderOptions> = {}
 ): LiteLLMChatModelProvider {
 	const logger = outputChannel ? new Logger(outputChannel) : undefined;
-	const provider = new LiteLLMChatModelProvider("GitHubCopilotChat/test VSCode/test", logger);
 	const servers = baseUrl === undefined ? [] : [{ id: "srv1", label: "Default", baseUrl, apiKey }];
-	provider.setServerProvider(() => Promise.resolve(servers));
-	return provider;
+	return new LiteLLMChatModelProvider({
+		userAgent: "GitHubCopilotChat/test VSCode/test",
+		logger,
+		getServers: () => Promise.resolve(servers),
+		...overrides,
+	});
 }
 
 export function createConfiguredProvider(): LiteLLMChatModelProvider {

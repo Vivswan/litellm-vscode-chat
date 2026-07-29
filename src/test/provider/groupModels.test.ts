@@ -3,11 +3,11 @@ import { oauthCredentialFingerprint } from "../../provider/auth";
 import {
 	attachGroupServer,
 	type GroupServer,
-	getGroupServer,
 	groupClientId,
 	type LiteLLMModelInfo,
 	type PreAttachModelInfo,
 	parseGroupConfiguration,
+	parseModelMetadata,
 } from "../../provider/groupModels";
 import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
 import { normalizeBaseUrl } from "../../shared/baseUrl";
@@ -285,7 +285,7 @@ suite("provider/groupModels", () => {
 		});
 	});
 
-	suite("getGroupServer", () => {
+	suite("parseModelMetadata", () => {
 		test("OAuth and virtual-key units survive the attach round trip", () => {
 			const server = expectDefined(
 				parseGroupConfiguration({
@@ -297,7 +297,7 @@ suite("provider/groupModels", () => {
 				})
 			);
 			const model = attachGroupServer(makeModelInfo(), server);
-			assert.deepStrictEqual(getGroupServer(model), server);
+			assert.deepStrictEqual(parseModelMetadata(model).server, server);
 		});
 
 		test("attachGroupServer keeps the configuration schema on the model", () => {
@@ -337,7 +337,7 @@ suite("provider/groupModels", () => {
 					},
 				},
 			} as unknown as LiteLLMModelInfo;
-			assert.deepStrictEqual(getGroupServer(model), { baseUrl: "http://litellm.test", apiKey: "k" });
+			assert.deepStrictEqual(parseModelMetadata(model).server, { baseUrl: "http://litellm.test", apiKey: "k" });
 		});
 
 		test("a trailing slash coming back across the host boundary re-normalizes to the parsed identity", () => {
@@ -350,7 +350,7 @@ suite("provider/groupModels", () => {
 					server: { baseUrl: "http://litellm.test/", apiKey: "k" },
 				},
 			} as unknown as LiteLLMModelInfo;
-			const server = expectDefined(getGroupServer(roundTrip));
+			const server = expectDefined(parseModelMetadata(roundTrip).server);
 			assert.strictEqual(server.baseUrl, "http://litellm.test");
 			assert.strictEqual(groupClientId(server), groupClientId(parsed), "one server, one identity, either spelling");
 		});
@@ -364,7 +364,7 @@ suite("provider/groupModels", () => {
 					server: { baseUrl: "///", apiKey: "k" },
 				},
 			} as unknown as LiteLLMModelInfo;
-			assert.strictEqual(getGroupServer(model), undefined);
+			assert.strictEqual(parseModelMetadata(model).server, undefined);
 		});
 	});
 });

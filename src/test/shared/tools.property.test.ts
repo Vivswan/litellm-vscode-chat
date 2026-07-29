@@ -74,10 +74,11 @@ suite("shared/tools convertTools properties", () => {
 			fc.property(fc.array(toolShaped, { maxLength: 5 }), (tools) => {
 				const result = convertTools(asOptions(tools as unknown as vscode.LanguageModelChatTool[]));
 				if (tools.length === 0) {
-					assert.deepStrictEqual(result, {});
+					assert.strictEqual(result, undefined, "no tools means no tool config at all");
 					return;
 				}
-				const defs = result.tools ?? [];
+				assert.ok(result, "a request with tools must yield a tool config");
+				const defs = result.tools;
 				assert.strictEqual(defs.length, tools.length, "every object tool definition must survive conversion");
 				for (const def of defs) {
 					assertToolDefInvariants(def);
@@ -94,12 +95,14 @@ suite("shared/tools convertTools properties", () => {
 				const once = convertTools(
 					asOptions([{ name: "t", description: "", inputSchema: schema } as vscode.LanguageModelChatTool])
 				);
-				const sanitized = once.tools?.[0]?.function.parameters;
+				assert.ok(once, "one tool in, a tool config out");
+				const sanitized = once.tools[0]?.function.parameters;
 				const twice = convertTools(
 					asOptions([{ name: "t", description: "", inputSchema: sanitized } as vscode.LanguageModelChatTool])
 				);
+				assert.ok(twice, "one tool in, a tool config out");
 				assert.deepStrictEqual(
-					twice.tools?.[0]?.function.parameters,
+					twice.tools[0]?.function.parameters,
 					sanitized,
 					"sanitizing an already-sanitized schema must be a no-op"
 				);
@@ -117,9 +120,10 @@ suite("shared/tools convertTools properties", () => {
 						vscode.LanguageModelChatToolMode.Required
 					)
 				);
+				assert.ok(result, "one tool in, a tool config out");
 				const choice = result.tool_choice;
 				assert.ok(typeof choice === "object" && choice.type === "function", "sole required tool must be targeted");
-				assert.strictEqual(choice.function.name, result.tools?.[0]?.function.name);
+				assert.strictEqual(choice.function.name, result.tools[0]?.function.name);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);

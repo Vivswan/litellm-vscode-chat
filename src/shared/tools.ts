@@ -35,62 +35,66 @@ function sanitizeFunctionName(name: unknown): string {
 	return sanitized.slice(0, 64);
 }
 
-function pruneUnknownSchemaKeywords(schema: unknown): Record<string, unknown> {
-	if (!isRecord(schema)) {
-		return {};
-	}
-	const allow = new Set([
-		"type",
-		"properties",
-		"required",
-		"additionalProperties",
-		"description",
-		"enum",
-		"default",
-		"items",
-		"minLength",
-		"maxLength",
-		"minimum",
-		"maximum",
-		"pattern",
-		"format",
-		"const",
-		"examples",
-		"title",
-		"exclusiveMinimum",
-		"exclusiveMaximum",
-		"minItems",
-		"maxItems",
-		"uniqueItems",
-		"$ref",
-		"definitions",
-		"$defs",
-		"anyOf",
-		"oneOf",
-		"allOf",
-	]);
+const ALLOWED_SCHEMA_KEYWORDS = new Set([
+	"type",
+	"properties",
+	"required",
+	"additionalProperties",
+	"description",
+	"enum",
+	"default",
+	"items",
+	"minLength",
+	"maxLength",
+	"minimum",
+	"maximum",
+	"pattern",
+	"format",
+	"const",
+	"examples",
+	"title",
+	"exclusiveMinimum",
+	"exclusiveMaximum",
+	"minItems",
+	"maxItems",
+	"uniqueItems",
+	"$ref",
+	"definitions",
+	"$defs",
+	"anyOf",
+	"oneOf",
+	"allOf",
+]);
+
+/** A fresh object holding only the allow-listed keywords, so sanitizeSchema can mutate it freely. */
+function pruneUnknownSchemaKeywords(schema: Record<string, unknown>): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(schema)) {
-		if (allow.has(k)) {
-			out[k] = v as unknown;
+		if (ALLOWED_SCHEMA_KEYWORDS.has(k)) {
+			out[k] = v;
 		}
 	}
 	return out;
 }
 
+const COMPOSITE_KEYWORDS = ["anyOf", "oneOf", "allOf"] as const;
+
 function sanitizeSchema(input: unknown, propName?: string): Record<string, unknown> {
 	if (!isRecord(input)) {
-		return { type: "object", properties: {} } as Record<string, unknown>;
+		return { type: "object", properties: {} };
 	}
 
-	let schema = input;
+	const schema = pruneUnknownSchemaKeywords(input);
 
-	schema = pruneUnknownSchemaKeywords(schema);
-
-	for (const composite of ["anyOf", "oneOf", "allOf"]) {
-		const branch = schema[composite] as unknown;
+	for (const composite of COMPOSITE_KEYWORDS) {
+		const branch = schema[composite];
 		if (Array.isArray(branch) && branch.length > 0) {
-			schema[composite] = branch.filter((b) => b && typeof b === "object").map((b) => sanitizeSchema(b, propName));
+			// Arrays pass this object guard deliberately: an array branch member
+			// falls through to sanitizeSchema's non-record default schema instead
+			// of being dropped, keeping the composite's branch count stable.
+			schema[composite] = branch
+				.filter((b) => typeof b === "object" && b !== null)
+				.map((b) => sanitizeSchema(b, propName));
 		}
 	}
 
@@ -105,14 +109,16 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 		}
 	}
 
-	const hasComposite = ["anyOf", "oneOf", "allOf"].some(
-		(k) => Array.isArray(schema[k]) && (schema[k] as unknown[]).length > 0
-	);
+	const hasComposite = COMPOSITE_KEYWORDS.some((key) => {
+		const branch = schema[key];
+		return Array.isArray(branch) && branch.length > 0;
+	});
 	const hasRef = typeof schema.$ref === "string";
 	const hasConst = "const" in schema;
 
-	let t = schema.type as string | undefined;
-	if (t == null && !hasComposite && !hasRef && !hasConst) {
+	const rawType = schema.type;
+	let t = typeof rawType === "string" ? rawType : undefined;
+	if (rawType == null && !hasComposite && !hasRef && !hasConst) {
 		t = "object";
 		schema.type = t;
 	}
@@ -123,55 +129,68 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 	}
 
 	if (t === "object") {
-		const props = (schema.properties as Record<string, unknown> | undefined) ?? {};
+		const props = schema.properties ?? {};
 		const newProps: Record<string, unknown> = {};
-		if (props && typeof props === "object") {
+		// Arrays pass this object guard deliberately: an array `properties` value
+		// sanitizes into an index-keyed property map rather than being emptied.
+		if (typeof props === "object" && props !== null) {
 			for (const [k, v] of Object.entries(props)) {
 				newProps[k] = sanitizeSchema(v, k);
 			}
 		}
 		schema.properties = newProps;
 
-		const req = schema.required as unknown;
+		const req = schema.required;
 		if (Array.isArray(req)) {
 			schema.required = req.filter((r) => typeof r === "string");
 		} else if (req !== undefined) {
 			schema.required = [];
 		}
 
-		const ap = schema.additionalProperties as unknown;
+		const ap = schema.additionalProperties;
 		if (ap !== undefined && typeof ap !== "boolean") {
 			delete schema.additionalProperties;
 		}
 	} else if (t === "array") {
-		const items = schema.items as unknown;
+		const items = schema.items;
 		if (Array.isArray(items) && items.length > 0) {
 			schema.items = sanitizeSchema(items[0]);
-		} else if (items && typeof items === "object") {
+		} else if (typeof items === "object" && items !== null) {
 			schema.items = sanitizeSchema(items);
 		} else {
-			schema.items = { type: "string" } as Record<string, unknown>;
+			schema.items = { type: "string" };
 		}
 	}
 
 	return schema;
 }
 
+/** Which tool the model must call: OpenAI's tool_choice values as this extension sends them. */
+type OpenAIToolChoice = "auto" | "required" | { type: "function"; function: { name: string } };
+
 /**
- * Convert VS Code tool definitions to OpenAI function tool definitions.
+ * Tools and their choice directive travel as one unit: a request either
+ * carries both or neither, so a tool_choice can never ship without the tools
+ * it refers to.
+ */
+export interface ToolConfig {
+	tools: OpenAIFunctionToolDef[];
+	tool_choice: OpenAIToolChoice;
+}
+
+/**
+ * Convert VS Code tool definitions to OpenAI function tool definitions, or
+ * undefined when the request carries no tools.
  * @param options Request options containing tools and toolMode.
  */
-export function convertTools(options: vscode.ProvideLanguageModelChatResponseOptions): {
-	tools?: OpenAIFunctionToolDef[];
-	tool_choice?: "auto" | "required" | { type: "function"; function: { name: string } };
-} {
+export function convertTools(options: vscode.ProvideLanguageModelChatResponseOptions): ToolConfig | undefined {
 	const tools = options.tools ?? [];
-	if (!tools || tools.length === 0) {
-		return {};
+	if (tools.length === 0) {
+		return undefined;
 	}
 
 	const toolDefs: OpenAIFunctionToolDef[] = tools
-		.filter((t): t is vscode.LanguageModelChatTool => t && typeof t === "object")
+		.filter((t): t is vscode.LanguageModelChatTool => typeof t === "object" && t !== null)
 		.map((t: vscode.LanguageModelChatTool) => {
 			const name = sanitizeFunctionName(t.name);
 			const description = typeof t.description === "string" ? t.description : "";
@@ -186,7 +205,7 @@ export function convertTools(options: vscode.ProvideLanguageModelChatResponseOpt
 			} satisfies OpenAIFunctionToolDef;
 		});
 
-	let tool_choice: "auto" | "required" | { type: "function"; function: { name: string } } = "auto";
+	let tool_choice: OpenAIToolChoice = "auto";
 	if (options.toolMode === vscode.LanguageModelChatToolMode.Required) {
 		const [soleTool] = tools;
 		if (tools.length === 1 && soleTool !== undefined) {

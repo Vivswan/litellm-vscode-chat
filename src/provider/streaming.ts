@@ -20,7 +20,7 @@ import type {
 	ThinkingBlockDelta,
 	ToolCallBuffer,
 } from "./wire";
-import { parseChunk } from "./wire";
+import { parseChunk, TERMINAL_FINISH_REASONS } from "./wire";
 
 /**
  * Hands out tool-call ID numbers. Owned by the ChatClient and shared across
@@ -455,7 +455,7 @@ export class StreamProcessor {
 			}
 		}
 
-		if (choice.finish_reason === "tool_calls" || choice.finish_reason === "stop") {
+		if (choice.finish_reason !== undefined && TERMINAL_FINISH_REASONS.includes(choice.finish_reason)) {
 			this.finishStream(progress, !token?.isCancellationRequested);
 		}
 

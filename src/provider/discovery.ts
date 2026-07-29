@@ -108,14 +108,13 @@ function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["log"]): 
 	for (const entry of raw.providers ?? []) {
 		if (isProviderEntry(entry)) {
 			// Pass-through entries keep their raw keys, but every field another
-			// stage trusts is authored after the spread: the internal markers
-			// (`output_limit_source` feeds deriveTokenConstraints' demotion rule;
-			// `source` is provenance a wire entry must not forge) are cleared,
+			// stage trusts is authored after the spread: the internal
+			// `output_limit_source` marker (which feeds deriveTokenConstraints'
+			// demotion rule) is cleared so a wire entry cannot forge it,
 			// the four base costs are re-narrowed, and the long-context tier
 			// costs are synthesized (same selection rule as model_info entries).
 			providers.push({
 				...entry,
-				source: undefined,
 				output_limit_source: undefined,
 				input_cost_per_token: normalizeCostPerToken(entry.input_cost_per_token),
 				output_cost_per_token: normalizeCostPerToken(entry.output_cost_per_token),
@@ -183,7 +182,6 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
 		max_tokens: maxTokens,
 		max_input_tokens: maxInputTokens,
 		max_output_tokens: maxOutputTokens,
-		source: "model_info",
 		supports_prompt_caching: item.model_info?.supports_prompt_caching ?? null,
 		supports_response_schema: item.model_info?.supports_response_schema ?? null,
 		supports_reasoning: item.model_info?.supports_reasoning ?? null,
@@ -291,7 +289,6 @@ export function mergeModelDeployments(deployments: ModelDeployments, defaults: T
 		max_input_tokens: collapsed.maxInputTokens,
 		max_output_tokens: collapsed.maxOutputTokens,
 		output_limit_source: collapsed.outputLimitSource,
-		source: "model_info",
 		supports_prompt_caching: everyDeploymentSupports(providers.map((p) => p.supports_prompt_caching)),
 		supports_response_schema: everyDeploymentSupports(providers.map((p) => p.supports_response_schema)),
 		supports_reasoning: everyDeploymentSupports(providers.map((p) => p.supports_reasoning)),

@@ -21,7 +21,7 @@ export type OutputLimitSource = "provider" | "defaults";
  * what we ask it to do (request parameters come from the modelParameters
  * configuration). Only `provider` is validated on the wire; discovery
  * re-narrows the four base cost fields and authors the internal markers
- * (source, output_limit_source, long-context costs), and the remaining
+ * (output_limit_source, long-context costs), and the remaining
  * fields are typed reads of the passed-through entry.
  */
 export interface LiteLLMProvider {
@@ -33,12 +33,6 @@ export interface LiteLLMProvider {
 	max_tokens?: number | null | undefined;
 	max_input_tokens?: number | null | undefined;
 	max_output_tokens?: number | null | undefined;
-	/**
-	 * Provenance marker for providers built by mapModelInfoEntry. Registration
-	 * switches on ModelShape.kind, not this field; discovery authors it after
-	 * the pass-through spread so a wire entry cannot forge it.
-	 */
-	source?: "model_info" | undefined;
 	/**
 	 * Set by deployment merging, which stores effective (possibly
 	 * defaults-derived) limits back into max_tokens/max_output_tokens: those
