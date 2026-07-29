@@ -2,15 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { HeaderScalar, ScopedRecordSetting } from "../../extension/dashboard/protocol";
 import { formatHeaderValue, formatJsonValue, SETTING_SCOPE_LABELS } from "../../extension/dashboard/protocol";
 import type { PrefixGroup } from "../../extension/dashboard/recordDraft";
-import {
-	assembleGroups,
-	assembleHeaderRows,
-	hasGroupProblems,
-	toGroups,
-	toHeaderRows,
-	validateGroups,
-	validateHeaderRows,
-} from "../../extension/dashboard/recordDraft";
+import { parseGroups, parseHeaderRows, toGroups, toHeaderRows } from "../../extension/dashboard/recordDraft";
 import { postMessage } from "./vscodeApi";
 
 /**
@@ -95,15 +87,21 @@ export function ModelParametersEditor({
 }) {
 	const draft = useDraftRows(toGroups(scoped.value), failure);
 	const groups = draft.rows;
-	const problems = validateGroups(groups);
-	const invalid = hasGroupProblems(problems);
+	// One parse per keystroke: the row problems, the Apply gate, and the
+	// assembled record are the same verdict, so a draft that renders clean can
+	// never assemble differently.
+	const parse = parseGroups(groups);
+	const problems = parse.ok ? [] : parse.problems;
 
 	const patchGroup = (index: number, patch: Partial<PrefixGroup>) => {
 		draft.update(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
 	};
 
 	const apply = () => {
-		postMessage({ type: "setModelParameters", value: assembleGroups(groups) });
+		if (!parse.ok) {
+			return;
+		}
+		postMessage({ type: "setModelParameters", value: parse.value });
 		draft.apply();
 	};
 
@@ -193,7 +191,7 @@ export function ModelParametersEditor({
 				>
 					Add model prefix
 				</button>
-				<button type="button" disabled={!draft.dirty || invalid} onClick={apply}>
+				<button type="button" disabled={!draft.dirty || !parse.ok} onClick={apply}>
 					Apply
 				</button>
 				<button type="button" class="secondary" disabled={!draft.dirty} onClick={() => draft.reset()}>
@@ -231,15 +229,19 @@ export function HeadersEditor({
 }) {
 	const draft = useDraftRows(toHeaderRows(scoped.value), failure);
 	const rows = draft.rows;
-	const problems = validateHeaderRows(rows);
-	const invalid = problems.some((problem) => problem !== undefined);
+	// One parse per keystroke, like the model-parameters editor above.
+	const parse = parseHeaderRows(rows);
+	const problems = parse.ok ? [] : parse.problems;
 
 	const patchRow = (index: number, patch: Partial<(typeof rows)[number]>) => {
 		draft.update(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 	};
 
 	const apply = () => {
-		postMessage({ type: "setHeaders", value: assembleHeaderRows(rows) });
+		if (!parse.ok) {
+			return;
+		}
+		postMessage({ type: "setHeaders", value: parse.value });
 		draft.apply();
 	};
 
@@ -278,7 +280,7 @@ export function HeadersEditor({
 				<button type="button" class="secondary" onClick={() => draft.update([...rows, { name: "", valueText: "" }])}>
 					Add header
 				</button>
-				<button type="button" disabled={!draft.dirty || invalid} onClick={apply}>
+				<button type="button" disabled={!draft.dirty || !parse.ok} onClick={apply}>
 					Apply
 				</button>
 				<button type="button" class="secondary" disabled={!draft.dirty} onClick={() => draft.reset()}>

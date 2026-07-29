@@ -1,11 +1,13 @@
 /**
- * The record editors' pure model: draft rows, their validation, and the
- * reassembly into the record a setSetting intent carries. DOM-free by
- * construction so the extension-host unit suite covers it; the webview
- * components render these rows and call nothing else.
+ * The record editors' pure model: draft rows and their parse back into the
+ * record a setSetting intent carries. Each parser validates and assembles in
+ * one pass - it either yields the record or the per-row problems that block
+ * it - so the two cannot diverge. DOM-free by construction so the
+ * extension-host unit suite covers it; the webview components render these
+ * rows and call nothing else.
  */
 
-import type { HeaderScalar, ParsedJsonValue } from "./protocol";
+import type { HeaderScalar } from "./protocol";
 import {
 	formatHeaderValue,
 	formatJsonValue,
@@ -57,50 +59,48 @@ function keyProblem(key: string, noun: string, dupes: Set<string>): string | und
 	return undefined;
 }
 
-export interface GroupProblems {
+interface GroupProblems {
 	readonly prefix: string | undefined;
 	readonly params: readonly (string | undefined)[];
 }
 
-export function validateGroups(groups: readonly PrefixGroup[]): GroupProblems[] {
+export type GroupsParse =
+	| { readonly ok: true; readonly value: Record<string, Record<string, unknown>> }
+	| { readonly ok: false; readonly problems: readonly GroupProblems[] };
+
+/**
+ * Parse draft groups into the modelParameters record, or the row-aligned
+ * problems that block it. Values are parsed exactly once, on the same pass
+ * that judges them.
+ */
+export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 	const duplicatePrefixes = duplicates(groups.map((group) => group.prefix.trim()));
-	return groups.map((group) => {
-		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
-		return {
-			prefix: keyProblem(group.prefix.trim(), "model prefix", duplicatePrefixes),
-			params: group.params.map((param) => {
-				const problem = keyProblem(param.key.trim(), "parameter name", duplicateKeys);
-				if (problem !== undefined) {
-					return problem;
-				}
-				const parsed: ParsedJsonValue = parseJsonValue(param.valueText);
-				return parsed.ok ? undefined : parsed.error;
-			}),
-		};
-	});
-}
-
-export function hasGroupProblems(problems: readonly GroupProblems[]): boolean {
-	return problems.some((group) => group.prefix !== undefined || group.params.some((param) => param !== undefined));
-}
-
-/** Reassemble validated groups into the modelParameters record. Call only when validateGroups is clean. */
-export function assembleGroups(groups: readonly PrefixGroup[]): Record<string, Record<string, unknown>> {
-	const result: Record<string, Record<string, unknown>> = Object.create(null) as Record<
-		string,
-		Record<string, unknown>
-	>;
+	const problems: GroupProblems[] = [];
+	let blocked = false;
+	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
+		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
+		const prefixProblem = keyProblem(group.prefix.trim(), "model prefix", duplicatePrefixes);
 		const params: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-		for (const param of group.params) {
-			const parsed = parseJsonValue(param.valueText);
-			if (parsed.ok) {
-				params[param.key.trim()] = parsed.value;
+		const paramProblems = group.params.map((param) => {
+			const problem = keyProblem(param.key.trim(), "parameter name", duplicateKeys);
+			if (problem !== undefined) {
+				return problem;
 			}
+			const parsed = parseJsonValue(param.valueText);
+			if (!parsed.ok) {
+				return parsed.error;
+			}
+			params[param.key.trim()] = parsed.value;
+			return undefined;
+		});
+		blocked = blocked || prefixProblem !== undefined || paramProblems.some((problem) => problem !== undefined);
+		problems.push({ prefix: prefixProblem, params: paramProblems });
+		if (prefixProblem === undefined) {
+			value[group.prefix.trim()] = { ...params };
 		}
-		result[group.prefix.trim()] = { ...params };
 	}
-	return { ...result };
+	return blocked ? { ok: false, problems } : { ok: true, value: { ...value } };
 }
 
 export interface HeaderRow {
@@ -112,15 +112,21 @@ export function toHeaderRows(value: Readonly<Record<string, HeaderScalar>>): Hea
 	return Object.entries(value).map(([name, headerValue]) => ({ name, valueText: formatHeaderValue(headerValue) }));
 }
 
+export type HeaderRowsParse =
+	| { readonly ok: true; readonly value: Record<string, HeaderScalar> }
+	| { readonly ok: false; readonly problems: readonly (string | undefined)[] };
+
 /**
- * Header rows must satisfy what the request path enforces (shared/settings
- * drops offenders silently at request time): RFC 9110 token names and values
- * without line breaks. Rejecting them here keeps Apply from "succeeding" on a
- * header that would never be sent.
+ * Parse draft header rows into the headers record, or the row-aligned
+ * problems that block it. Rows must satisfy what the request path enforces
+ * (shared/settings drops offenders silently at request time): RFC 9110 token
+ * names and values without line breaks. Rejecting them here keeps Apply from
+ * "succeeding" on a header that would never be sent.
  */
-export function validateHeaderRows(rows: readonly HeaderRow[]): (string | undefined)[] {
+export function parseHeaderRows(rows: readonly HeaderRow[]): HeaderRowsParse {
 	const duplicateNames = duplicates(rows.map((row) => row.name.trim()));
-	return rows.map((row) => {
+	const headers: Record<string, HeaderScalar> = Object.create(null) as Record<string, HeaderScalar>;
+	const problems = rows.map((row) => {
 		const name = row.name.trim();
 		const problem = keyProblem(name, "header name", duplicateNames);
 		if (problem !== undefined) {
@@ -129,19 +135,15 @@ export function validateHeaderRows(rows: readonly HeaderRow[]): (string | undefi
 		if (!isValidHeaderName(name)) {
 			return "Not a valid HTTP header name";
 		}
-		const value = String(parseHeaderValue(row.valueText));
-		if (value.includes("\r") || value.includes("\n")) {
+		const value = parseHeaderValue(row.valueText);
+		const text = String(value);
+		if (text.includes("\r") || text.includes("\n")) {
 			return "Header values cannot contain line breaks";
 		}
+		headers[name] = value;
 		return undefined;
 	});
-}
-
-/** Reassemble validated header rows into the headers record. Call only when validateHeaderRows is clean. */
-export function assembleHeaderRows(rows: readonly HeaderRow[]): Record<string, HeaderScalar> {
-	const headers: Record<string, HeaderScalar> = Object.create(null) as Record<string, HeaderScalar>;
-	for (const row of rows) {
-		headers[row.name.trim()] = parseHeaderValue(row.valueText);
-	}
-	return { ...headers };
+	return problems.some((problem) => problem !== undefined)
+		? { ok: false, problems }
+		: { ok: true, value: { ...headers } };
 }
