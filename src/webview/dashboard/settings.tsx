@@ -13,6 +13,7 @@ import {
 	equivalence,
 	NUMBER_SETTING_IDS,
 	NUMBER_SETTINGS,
+	parseNumberDraft,
 	SETTING_SCOPE_LABELS,
 } from "../../extension/dashboard/protocol";
 import type { FailuresByIntent } from "./app";
@@ -83,29 +84,13 @@ function ResetButton({
 	);
 }
 
-/** Why this draft cannot be committed, or undefined when it can. */
-function draftProblem(id: NumberSettingId, text: string): string | undefined {
-	const spec = NUMBER_SETTINGS[id];
-	const trimmed = text.trim();
-	if (trimmed.length === 0) {
-		return spec.nullable ? undefined : "Enter a number";
-	}
-	const parsed = Number(trimmed);
-	if (!Number.isFinite(parsed)) {
-		return "Not a number";
-	}
-	if (parsed < spec.minimum) {
-		return `Must be at least ${spec.minimum}`;
-	}
-	return undefined;
-}
-
 /**
  * A number setting edited as draft text and committed on blur or Enter, so
- * half-typed values never reach the configuration. The validation verdict is
- * derived from the draft on every keystroke, never latched at commit time: a
- * valid draft must never render as invalid, and the equivalence hint must
- * stay live while the user types their way out of a rejected value. An
+ * half-typed values never reach the configuration. The draft is parsed once
+ * per keystroke (parseNumberDraft), and the error display, the commit, and
+ * the equivalence hint all read that one verdict, never latched at commit
+ * time: a valid draft must never render as invalid, and the equivalence hint
+ * must stay live while the user types their way out of a rejected value. An
  * external state push resets the draft to the store's value.
  */
 function NumberField({
@@ -128,28 +113,27 @@ function NumberField({
 		setText(value === null ? "" : String(value));
 	}, [syncKey]);
 
-	const error = draftProblem(id, text);
+	const parse = parseNumberDraft(id, text);
+	const error = parse.kind === "invalid" ? parse.problem : undefined;
 	const commit = () => {
-		if (error !== undefined) {
+		if (parse.kind === "invalid") {
 			return;
 		}
-		const trimmed = text.trim();
-		if (trimmed.length === 0) {
+		if (parse.kind === "clear") {
 			if (value !== null) {
 				postMessage({ type: "setNumberSetting", setting: id, value: null });
 			}
 			return;
 		}
-		const parsed = Number(trimmed);
-		if (parsed !== value) {
-			postMessage({ type: "setNumberSetting", setting: id, value: parsed });
+		if (parse.value !== value) {
+			postMessage({ type: "setNumberSetting", setting: id, value: parse.value });
 		}
 	};
 
 	const inputId = `setting-${id}`;
 	const unitId = `${inputId}-unit`;
 	const errorId = `${inputId}-error`;
-	const equiv = error === undefined ? equivalence(id, text) : undefined;
+	const equiv = parse.kind === "value" ? equivalence(id, parse.value) : undefined;
 	return (
 		<SettingRow modified={configuredScope !== null}>
 			<label class="setting-title" for={inputId}>

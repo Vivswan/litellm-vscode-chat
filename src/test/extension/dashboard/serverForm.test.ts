@@ -1,17 +1,20 @@
 import * as assert from "node:assert";
-import type { SecretFieldDraft, ServerFormDraft } from "../../../extension/dashboard/serverForm";
+import type {
+	SecretFieldDraft,
+	ServerFormDraft,
+	ServerFormIntent,
+	ServerFormProblems,
+} from "../../../extension/dashboard/serverForm";
 import {
 	applyInlinePrefill,
-	assembleServerForm,
 	EMPTY_SERVER_FORM,
-	hasServerFormProblems,
 	isUsableHttpUrl,
 	OAUTH_SECTION_FIELDS,
+	parseServerForm,
 	SERVER_FORM_FIELD_LABELS,
 	SERVER_FORM_FIELD_ORDER,
 	saveFailureDisposition,
 	sectionFailureText,
-	validateServerForm,
 } from "../../../extension/dashboard/serverForm";
 
 function draft(overrides: Partial<ServerFormDraft> = {}): ServerFormDraft {
@@ -20,6 +23,21 @@ function draft(overrides: Partial<ServerFormDraft> = {}): ServerFormDraft {
 
 function secret(overrides: Partial<SecretFieldDraft> = {}): SecretFieldDraft {
 	return { value: "", location: "secure", clear: false, existing: "none", ...overrides };
+}
+
+/** The problems a draft parses to; an ok parse reads as no problems at all. */
+function problemsOf(draft: ServerFormDraft, context?: Parameters<typeof parseServerForm>[1]): ServerFormProblems {
+	const parse = parseServerForm(draft, context);
+	return parse.ok ? {} : parse.problems;
+}
+
+/** The ok arm's intent; fails the test when the draft has problems. */
+function intentOf(draft: ServerFormDraft, originalLabel?: string): ServerFormIntent {
+	const parse = parseServerForm(draft, originalLabel !== undefined ? { originalLabel } : {});
+	if (!parse.ok) {
+		assert.fail(`expected a clean parse, got problems: ${JSON.stringify(parse.problems)}`);
+	}
+	return parse.intent;
 }
 
 suite("extension/dashboard/serverForm", () => {
@@ -35,85 +53,90 @@ suite("extension/dashboard/serverForm", () => {
 		});
 	});
 
-	suite("validateServerForm", () => {
-		test("a minimal valid draft has no problems", () => {
-			assert.deepStrictEqual(validateServerForm(draft()), {});
-			assert.strictEqual(hasServerFormProblems(validateServerForm(draft())), false);
+	suite("parseServerForm problems", () => {
+		test("a minimal valid draft parses clean", () => {
+			assert.ok(parseServerForm(draft()).ok);
+			assert.deepStrictEqual(problemsOf(draft()), {});
 		});
 
 		test("label and baseUrl are required; reserved labels are refused", () => {
-			assert.notStrictEqual(validateServerForm(draft({ label: " " })).label, undefined);
-			assert.notStrictEqual(validateServerForm(draft({ label: "__proto__" })).label, undefined);
-			assert.notStrictEqual(validateServerForm(draft({ baseUrl: "" })).baseUrl, undefined);
-			assert.notStrictEqual(validateServerForm(draft({ baseUrl: "litellm.example.com" })).baseUrl, undefined);
+			assert.notStrictEqual(problemsOf(draft({ label: " " })).label, undefined);
+			assert.notStrictEqual(problemsOf(draft({ label: "__proto__" })).label, undefined);
+			assert.notStrictEqual(problemsOf(draft({ baseUrl: "" })).baseUrl, undefined);
+			assert.notStrictEqual(problemsOf(draft({ baseUrl: "litellm.example.com" })).baseUrl, undefined);
 		});
 
 		test("a rename onto a sibling label is a blocking problem; adds keep their upsert semantics", () => {
 			const context = { takenLabels: ["Prod", "Staging"], originalLabel: "Prod" };
-			assert.notStrictEqual(validateServerForm(draft({ label: "Staging" }), context).label, undefined);
+			assert.notStrictEqual(problemsOf(draft({ label: "Staging" }), context).label, undefined);
+			assert.strictEqual(problemsOf(draft({ label: "Prod" }), context).label, undefined, "keeping the label is fine");
+			assert.strictEqual(problemsOf(draft({ label: "Fresh" }), context).label, undefined);
 			assert.strictEqual(
-				validateServerForm(draft({ label: "Prod" }), context).label,
-				undefined,
-				"keeping the label is fine"
-			);
-			assert.strictEqual(validateServerForm(draft({ label: "Fresh" }), context).label, undefined);
-			assert.strictEqual(
-				validateServerForm(draft({ label: "Staging" }), { takenLabels: ["Staging"] }).label,
+				problemsOf(draft({ label: "Staging" }), { takenLabels: ["Staging"] }).label,
 				undefined,
 				"an add over an existing label replaces it; no originalLabel, no collision problem"
 			);
 		});
 
 		test("OAuth fields are one unit: any of them present requires the token URL and client ID", () => {
-			const clientOnly = validateServerForm(draft({ oauthClientId: "client" }));
+			const clientOnly = problemsOf(draft({ oauthClientId: "client" }));
 			assert.notStrictEqual(clientOnly.oauthTokenUrl, undefined);
 
-			const urlOnly = validateServerForm(draft({ oauthTokenUrl: "https://idp.test/token" }));
+			const urlOnly = problemsOf(draft({ oauthTokenUrl: "https://idp.test/token" }));
 			assert.notStrictEqual(urlOnly.oauthClientId, undefined);
 
-			const secretOnly = validateServerForm(draft({ oauthClientSecret: secret({ value: "s" }) }));
+			const secretOnly = problemsOf(draft({ oauthClientSecret: secret({ value: "s" }) }));
 			assert.notStrictEqual(secretOnly.oauthTokenUrl, undefined);
 			assert.notStrictEqual(secretOnly.oauthClientId, undefined);
 
-			const complete = validateServerForm(draft({ oauthTokenUrl: "https://idp.test/token", oauthClientId: "client" }));
+			const complete = problemsOf(draft({ oauthTokenUrl: "https://idp.test/token", oauthClientId: "client" }));
 			assert.deepStrictEqual(complete, {});
 		});
 
 		test("a kept secure-side client secret also demands the OAuth pair", () => {
-			const problems = validateServerForm(draft({ oauthClientSecret: secret({ existing: "secure" }) }));
+			const problems = problemsOf(draft({ oauthClientSecret: secret({ existing: "secure" }) }));
 			assert.notStrictEqual(problems.oauthTokenUrl, undefined);
 		});
 
 		test("the virtual key pair is both-or-neither and must be header-sendable", () => {
-			assert.notStrictEqual(validateServerForm(draft({ virtualKeyHeader: "bad name" })).virtualKeyHeader, undefined);
-			assert.notStrictEqual(validateServerForm(draft({ virtualKeyHeader: "x-key" })).virtualKeyValue, undefined);
+			assert.notStrictEqual(problemsOf(draft({ virtualKeyHeader: "bad name" })).virtualKeyHeader, undefined);
+			assert.notStrictEqual(problemsOf(draft({ virtualKeyHeader: "x-key" })).virtualKeyValue, undefined);
+			assert.notStrictEqual(problemsOf(draft({ virtualKeyValue: secret({ value: "v" }) })).virtualKeyHeader, undefined);
 			assert.notStrictEqual(
-				validateServerForm(draft({ virtualKeyValue: secret({ value: "v" }) })).virtualKeyHeader,
-				undefined
-			);
-			assert.notStrictEqual(
-				validateServerForm(draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ value: "a\nb" }) }))
-					.virtualKeyValue,
+				problemsOf(draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ value: "a\nb" }) })).virtualKeyValue,
 				undefined
 			);
 			assert.deepStrictEqual(
-				validateServerForm(draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ value: "vk-1" }) })),
+				problemsOf(draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ value: "vk-1" }) })),
 				{}
 			);
 		});
 
 		test("a header whose value is kept in secure storage satisfies the pair", () => {
-			const problems = validateServerForm(
+			const problems = problemsOf(
 				draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ existing: "secure" }) })
 			);
 			assert.deepStrictEqual(problems, {});
 		});
 
 		test("clearing the kept value re-breaks the pair", () => {
-			const problems = validateServerForm(
+			const problems = problemsOf(
 				draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ existing: "secure", clear: true }) })
 			);
 			assert.notStrictEqual(problems.virtualKeyValue, undefined);
+		});
+
+		test("a cleared virtual key with stale typed text saves as clear instead of blocking on a disabled input", () => {
+			// The regression the parse-once shape fixes: the old validator read the
+			// raw input text where assembly read the clear directive, so a value
+			// like "a\nb" left in the (disabled) input of a field marked remove
+			// blocked Save on a problem the user could not edit away. The directive
+			// says the value is going away; nothing about it can block.
+			const parse = parseServerForm(
+				draft({ virtualKeyValue: secret({ value: "a\nb", clear: true, existing: "secure" }) })
+			);
+			assert.ok(parse.ok, "the stale text of a cleared field is not validated");
+			assert.deepStrictEqual(parse.intent.secrets.virtualKeyValue, { action: "clear" });
 		});
 	});
 
@@ -133,7 +156,7 @@ suite("extension/dashboard/serverForm", () => {
 		test("a partial-OAuth draft's problems all sit inside the collapsible section", () => {
 			// The section must be forced open on save: with label and baseUrl
 			// valid, every blocking problem here would otherwise be invisible.
-			const problems = validateServerForm(draft({ oauthTokenUrl: "https://idp.test/token" }));
+			const problems = problemsOf(draft({ oauthTokenUrl: "https://idp.test/token" }));
 			const failing = SERVER_FORM_FIELD_ORDER.filter((field) => problems[field] !== undefined);
 			assert.ok(failing.length > 0);
 			for (const field of failing) {
@@ -142,18 +165,20 @@ suite("extension/dashboard/serverForm", () => {
 		});
 	});
 
-	suite("assembleServerForm", () => {
+	suite("parseServerForm intent", () => {
 		test("trims fields and omits empty optionals entirely", () => {
-			const intent = assembleServerForm(
-				draft({ label: " Prod ", baseUrl: " http://localhost:4000 ", oauthScopes: "  " })
-			);
+			const intent = intentOf(draft({ label: " Prod ", baseUrl: " http://localhost:4000 ", oauthScopes: "  " }));
 			assert.deepStrictEqual(intent.server, { label: "Prod", baseUrl: "http://localhost:4000" });
 			assert.strictEqual(intent.replaceLabel, undefined);
 		});
 
 		test("empty secret inputs become keep, typed values become set with their location, clear wins", () => {
-			const intent = assembleServerForm(
+			// The kept client secret makes the draft OAuth-shaped, so the pair it
+			// demands is present: only clean drafts parse to an intent at all.
+			const intent = intentOf(
 				draft({
+					oauthTokenUrl: "https://idp.test/token",
+					oauthClientId: "client",
 					apiKey: secret({ value: " sk-1 ", location: "secure" }),
 					oauthClientSecret: secret({ existing: "settings" }),
 					virtualKeyValue: secret({ value: "ignored", clear: true }),
@@ -167,7 +192,7 @@ suite("extension/dashboard/serverForm", () => {
 		});
 
 		test("an edit carries the original label as replaceLabel", () => {
-			const intent = assembleServerForm(draft({ label: "Renamed" }), "Prod");
+			const intent = intentOf(draft({ label: "Renamed" }), "Prod");
 			assert.strictEqual(intent.replaceLabel, "Prod");
 			assert.strictEqual(intent.server.label, "Renamed");
 		});
@@ -179,30 +204,30 @@ suite("extension/dashboard/serverForm", () => {
 				location: "settings",
 				existing: "settings",
 			});
-			const intent = assembleServerForm(draft({ apiKey: prefilled }));
+			const intent = intentOf(draft({ apiKey: prefilled }));
 			assert.deepStrictEqual(intent.secrets.apiKey, { action: "keep" });
 		});
 
 		test("an edited prefill assembles as set with the new value; reverting to the prefill is keep again", () => {
 			const prefilled = secret({ value: "sk-new", prefill: "sk-old", location: "settings", existing: "settings" });
-			const intent = assembleServerForm(draft({ apiKey: prefilled }));
+			const intent = intentOf(draft({ apiKey: prefilled }));
 			assert.deepStrictEqual(intent.secrets.apiKey, { action: "set", location: "settings", value: "sk-new" });
 
-			const reverted = assembleServerForm(draft({ apiKey: { ...prefilled, value: " sk-old " } }));
+			const reverted = intentOf(draft({ apiKey: { ...prefilled, value: " sk-old " } }));
 			assert.deepStrictEqual(reverted.secrets.apiKey, { action: "keep" }, "untouched means unchanged value, trimmed");
 		});
 
 		test("an emptied prefill assembles as keep; the remove checkbox is the explicit clear gesture", () => {
 			const emptied = secret({ value: "", prefill: "sk-inline", location: "settings", existing: "settings" });
-			assert.deepStrictEqual(assembleServerForm(draft({ apiKey: emptied })).secrets.apiKey, { action: "keep" });
-			assert.deepStrictEqual(assembleServerForm(draft({ apiKey: { ...emptied, clear: true } })).secrets.apiKey, {
+			assert.deepStrictEqual(intentOf(draft({ apiKey: emptied })).secrets.apiKey, { action: "keep" });
+			assert.deepStrictEqual(intentOf(draft({ apiKey: { ...emptied, clear: true } })).secrets.apiKey, {
 				action: "clear",
 			});
 		});
 
 		test("a prefill with the storage choice moved to secure assembles as a set there: a real relocation", () => {
 			const moved = secret({ value: "sk-inline", prefill: "sk-inline", location: "secure", existing: "settings" });
-			const intent = assembleServerForm(draft({ apiKey: moved }));
+			const intent = intentOf(draft({ apiKey: moved }));
 			assert.deepStrictEqual(intent.secrets.apiKey, { action: "set", location: "secure", value: "sk-inline" });
 		});
 	});
@@ -256,13 +281,13 @@ suite("extension/dashboard/serverForm", () => {
 				virtualKeyValue: secret({ existing: "settings", location: "settings" }),
 			});
 			const prefilled = applyInlinePrefill(base, { virtualKeyValue: "vk\nbroken" });
-			const problems = validateServerForm(prefilled);
+			const problems = problemsOf(prefilled);
 			assert.strictEqual(problems.virtualKeyValue, "The value cannot be sent as an HTTP header");
 			assert.strictEqual(problems.virtualKeyHeader, undefined, "the problem points at the value field only");
-			assert.ok(hasServerFormProblems(problems), "the form is not savable until the value is edited or removed");
+			assert.ok(!parseServerForm(prefilled).ok, "the form is not savable until the value is edited or removed");
 
 			const edited = { ...prefilled, virtualKeyValue: { ...prefilled.virtualKeyValue, value: "vk-fixed" } };
-			assert.deepStrictEqual(validateServerForm(edited), {});
+			assert.deepStrictEqual(problemsOf(edited), {});
 		});
 
 		test("relocation race lifecycle: a location flip before the response arrives still relocates once it does", () => {
@@ -270,19 +295,20 @@ suite("extension/dashboard/serverForm", () => {
 			// flips the inline key's radio to "secret storage", and hits Save
 			// before the prefill response lands. Assembling at that moment would
 			// read the empty field as "keep" and silently drop the relocation -
-			// pinned here - so servers.tsx disables Save while the response is
-			// pending; once it arrives, the flipped location survives the prefill
-			// and the save assembles the relocation the user asked for.
+			// pinned here - so servers.tsx holds the form in its prefill phase
+			// while the response is pending; once it arrives, the flipped location
+			// survives the prefill and the save assembles the relocation the user
+			// asked for.
 			const flipped = draft({ apiKey: secret({ existing: "settings", location: "secure" }) });
 			assert.deepStrictEqual(
-				assembleServerForm(flipped).secrets.apiKey,
+				intentOf(flipped).secrets.apiKey,
 				{ action: "keep" },
 				"saving before the response would no-op the relocation; Save must be gated until it arrives"
 			);
 
 			const arrived = applyInlinePrefill(flipped, { apiKey: "sk-inline" });
 			assert.strictEqual(arrived.apiKey.location, "secure", "the user's storage choice survives the prefill");
-			assert.deepStrictEqual(assembleServerForm(arrived).secrets.apiKey, {
+			assert.deepStrictEqual(intentOf(arrived).secrets.apiKey, {
 				action: "set",
 				location: "secure",
 				value: "sk-inline",

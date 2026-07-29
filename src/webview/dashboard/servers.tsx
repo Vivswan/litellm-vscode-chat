@@ -1,19 +1,27 @@
 import { useEffect, useState } from "preact/hooks";
-import type { DashboardServer, SecretFieldId, SecretLocation } from "../../extension/dashboard/protocol";
+import type {
+	DashboardIntentType,
+	DashboardServer,
+	SecretFieldId,
+	SecretLocation,
+} from "../../extension/dashboard/protocol";
 import { SECRET_FIELD_IDS } from "../../extension/dashboard/protocol";
-import type { SecretFieldDraft, ServerFormDraft, ServerFormField } from "../../extension/dashboard/serverForm";
+import type {
+	SecretFieldDraft,
+	ServerFormDraft,
+	ServerFormField,
+	ServerFormProblems,
+} from "../../extension/dashboard/serverForm";
 import {
 	applyInlinePrefill,
-	assembleServerForm,
 	EMPTY_SERVER_FORM,
-	hasServerFormProblems,
 	OAUTH_SECTION_FIELDS,
+	parseServerForm,
 	SERVER_FORM_FIELD_LABELS,
 	SERVER_FORM_FIELD_ORDER,
 	saveFailureDisposition,
 	sectionFailureText,
 	validateAdoptLabel,
-	validateServerForm,
 } from "../../extension/dashboard/serverForm";
 import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
 import { postMessage } from "./vscodeApi";
@@ -53,20 +61,42 @@ function StateCell({ server }: { server: DashboardServer }) {
 	);
 }
 
-interface FormTarget {
-	/** Editing an existing declared entry; undefined means adding a new one. */
-	readonly original?: DashboardServer | undefined;
-}
+/** The two DashboardServer origins as their own types; Extract keeps them in step with the protocol union. */
+type DeclaredDashboardServer = Extract<DashboardServer, { origin: "declared" }>;
+type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
+
+/**
+ * What the open form is for, decided once where it opens (a row's Edit or the
+ * Add button) so no component re-derives it from optional fields: adding a
+ * new entry, editing a declared one, or adopting an external group.
+ */
+type FormTarget =
+	| { readonly kind: "add" }
+	| { readonly kind: "edit"; readonly original: DeclaredDashboardServer }
+	| { readonly kind: "adopt"; readonly server: ExternalDashboardServer };
+
+/** The targets ServerForm handles; adoption renders AdoptForm instead. */
+type ServerFormTarget = Extract<FormTarget, { kind: "add" | "edit" }>;
+
+/**
+ * Where the form is in its life. The prefill and save round trips each carry
+ * their own correlation ID, but the form is only ever in one of them: fields
+ * stay editable throughout, and only Save gates on the phase being "editing".
+ */
+type FormPhase =
+	| { readonly phase: "prefill"; readonly requestId: string }
+	| { readonly phase: "editing" }
+	| { readonly phase: "saving"; readonly requestId: string };
 
 function secretDraft(existing: SecretLocation): SecretFieldDraft {
 	return { value: "", location: existing === "settings" ? "settings" : "secure", clear: false, existing };
 }
 
-function draftFor(target: FormTarget): ServerFormDraft {
-	const original = target.original;
-	if (original?.config === undefined) {
+function draftFor(target: ServerFormTarget): ServerFormDraft {
+	if (target.kind === "add") {
 		return EMPTY_SERVER_FORM;
 	}
+	const original = target.original;
 	return {
 		label: original.label,
 		baseUrl: original.baseUrl,
@@ -87,8 +117,13 @@ const LOCATION_NAMES: Record<Exclude<SecretLocation, "none">, string> = {
 
 interface FieldRenderProps {
 	readonly draft: ServerFormDraft;
-	readonly problems: Partial<Record<ServerFormField, string>>;
-	readonly touched: ReadonlySet<ServerFormField>;
+	/**
+	 * The problems the form shows right now, computed once per render in
+	 * ServerForm (a problem is visible once its field was touched or holds
+	 * content). Fields render these directly, so the field decorations, the
+	 * OAuth disclosure, and the save summary cannot disagree.
+	 */
+	readonly visibleProblems: ServerFormProblems;
 	readonly disabled: boolean;
 	readonly patch: (patch: Partial<ServerFormDraft>) => void;
 	readonly touch: (field: ServerFormField) => void;
@@ -103,8 +138,8 @@ function TextField({
 	placeholder?: string;
 	props: FieldRenderProps;
 }) {
-	const problem = props.problems[field];
-	const showProblem = problem !== undefined && (props.touched.has(field) || props.draft[field].length > 0);
+	const problem = props.visibleProblems[field];
+	const showProblem = problem !== undefined;
 	const id = `server-${field}`;
 	const errorId = `${id}-error`;
 	return (
@@ -140,8 +175,8 @@ function TextField({
  */
 function SecretField({ field, props }: { field: SecretFieldId; props: FieldRenderProps }) {
 	const value = props.draft[field];
-	const problem = props.problems[field];
-	const showProblem = problem !== undefined && (props.touched.has(field) || value.value.length > 0);
+	const problem = props.visibleProblems[field];
+	const showProblem = problem !== undefined;
 	const [revealed, setRevealed] = useState(false);
 	// Nothing to reveal in an empty or removal-marked field, so the toggle
 	// disables and any lingering revealed state resets: the next value typed
@@ -255,7 +290,7 @@ function ServerForm({
 	onClose,
 	onCancel,
 }: {
-	target: FormTarget;
+	target: ServerFormTarget;
 	ack: IntentAck | undefined;
 	failures: FailuresByIntent;
 	inlineSecrets: InlineSecretsResponse | undefined;
@@ -266,16 +301,15 @@ function ServerForm({
 }) {
 	const [draft, setDraft] = useState<ServerFormDraft>(() => draftFor(target));
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
-	const [pending, setPending] = useState<string | undefined>(undefined);
+	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [oauthOpen, setOauthOpen] = useState(false);
-	const [prefillPending, setPrefillPending] = useState<string | undefined>(undefined);
-	const saving = pending !== undefined;
-	// Save holds until the prefill response lands: saving before it arrives
-	// would assemble the still-empty fields as "keep", silently dropping a
-	// relocation the user just picked (flip the radio to secure, hit Save).
-	// The response is one round trip behind the form opening, so the gate is
-	// imperceptible in practice.
-	const prefillLoading = prefillPending !== undefined;
+	const saving = phase.phase === "saving";
+	// Save holds until the prefill response lands (phase "prefill"): saving
+	// before it arrives would assemble the still-empty fields as "keep",
+	// silently dropping a relocation the user just picked (flip the radio to
+	// secure, hit Save). Fields stay editable meanwhile; the response never
+	// clobbers what was typed. The response is one round trip behind the form
+	// opening, so the gate is imperceptible in practice.
 	const failure = failures.saveServerSetting;
 	const failureSeq = failure?.seq;
 	const failureRequestId = failure?.requestId;
@@ -286,34 +320,33 @@ function ServerForm({
 	// absent fields are never requested-for or returned; they keep the empty
 	// placeholder input.
 	useEffect(() => {
-		const original = target.original;
-		const config = original?.config;
-		if (original === undefined || config === undefined) {
+		if (target.kind !== "edit") {
 			return;
 		}
+		const config = target.original.config;
 		if (!SECRET_FIELD_IDS.some((field) => config.secrets[field] === "settings")) {
 			return;
 		}
 		const requestId = newRequestId();
-		postMessage({ type: "readInlineSecrets", label: original.label, requestId });
-		setPrefillPending(requestId);
+		postMessage({ type: "readInlineSecrets", label: target.original.label, requestId });
+		setPhase({ phase: "prefill", requestId });
 	}, [target]);
 
 	// This form's own response prefills the untouched inline fields; a response
 	// for a previous form instance (a stale requestId) is ignored.
 	useEffect(() => {
-		if (prefillPending === undefined || inlineSecrets === undefined || inlineSecrets.requestId !== prefillPending) {
+		if (phase.phase !== "prefill" || inlineSecrets === undefined || inlineSecrets.requestId !== phase.requestId) {
 			return;
 		}
-		setPrefillPending(undefined);
+		setPhase({ phase: "editing" });
 		setDraft((current) => applyInlinePrefill(current, inlineSecrets.values));
-	}, [inlineSecrets, prefillPending]);
+	}, [inlineSecrets, phase]);
 
 	useEffect(() => {
-		if (pending !== undefined && ack?.requestId === pending) {
+		if (phase.phase === "saving" && ack?.requestId === phase.requestId) {
 			onClose();
 		}
-	}, [ack, pending, onClose]);
+	}, [ack, phase, onClose]);
 
 	// This form's own failure: a validation-kind one re-opens it for editing
 	// (the draft is still the truth); an operation-kind one means the save
@@ -321,39 +354,47 @@ function ServerForm({
 	// message renders at the section level either way, so it also survives the
 	// closed form.
 	useEffect(() => {
-		if (pending === undefined || failureSeq === undefined || failureRequestId !== pending) {
+		if (phase.phase !== "saving" || failureSeq === undefined || failureRequestId !== phase.requestId) {
 			return;
 		}
 		if (saveFailureDisposition(failureKind ?? "validation") === "close") {
 			onClose();
 			return;
 		}
-		setPending(undefined);
-	}, [failureSeq, failureRequestId, failureKind, pending, onClose]);
+		setPhase({ phase: "editing" });
+	}, [failureSeq, failureRequestId, failureKind, phase, onClose]);
 
-	const originalLabel = target.original?.label;
-	const problems = validateServerForm(draft, {
+	const originalLabel = target.kind === "edit" ? target.original.label : undefined;
+	// One parse per keystroke: it either carries the intent Save posts or the
+	// problems the form renders, so what the fields show and what would be
+	// saved can never diverge.
+	const parse = parseServerForm(draft, {
 		takenLabels: declaredLabels,
 		...(originalLabel !== undefined ? { originalLabel } : {}),
 	});
-	const invalid = hasServerFormProblems(problems);
 	const label = draft.label.trim();
-	const renaming = target.original !== undefined && label !== target.original.label;
-	const collides = target.original === undefined && declaredLabels.includes(label);
+	const renaming = target.kind === "edit" && label !== target.original.label;
+	const collides = target.kind === "add" && declaredLabels.includes(label);
 
-	// A problem is visible once its field was touched or holds content; the
-	// same rule the field components render by, shared here so the OAuth
-	// disclosure and the save summary agree with what the fields show.
-	const problemVisible = (field: ServerFormField): boolean => {
-		if (problems[field] === undefined) {
-			return false;
+	// A problem is visible once its field was touched or holds content;
+	// computed once here and passed through the render props, so the fields,
+	// the OAuth disclosure, and the save summary all show the same problems.
+	const visibleProblems: ServerFormProblems = {};
+	if (!parse.ok) {
+		for (const field of SERVER_FORM_FIELD_ORDER) {
+			const problem = parse.problems[field];
+			if (problem === undefined) {
+				continue;
+			}
+			const value = draft[field];
+			const hasContent = typeof value === "string" ? value.length > 0 : value.value.length > 0;
+			if (touched.has(field) || hasContent) {
+				visibleProblems[field] = problem;
+			}
 		}
-		const value = draft[field];
-		const hasContent = typeof value === "string" ? value.length > 0 : value.value.length > 0;
-		return touched.has(field) || hasContent;
-	};
-	const firstBlocking = SERVER_FORM_FIELD_ORDER.find(problemVisible);
-	const oauthProblemVisible = OAUTH_SECTION_FIELDS.some(problemVisible);
+	}
+	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
+	const oauthProblemVisible = OAUTH_SECTION_FIELDS.some((field) => visibleProblems[field] !== undefined);
 	// A problem surfacing inside a collapsed disclosure opens it once
 	// (otherwise Save would refuse over an error the user cannot see); beyond
 	// that the element is the user's: closing it again sticks, and it does not
@@ -365,33 +406,28 @@ function ServerForm({
 	}, [oauthProblemVisible]);
 
 	const save = () => {
-		if (prefillLoading) {
-			// Belt and braces behind the disabled button: never assemble a draft
-			// whose inline fields are still on their way.
+		if (phase.phase !== "editing") {
+			// Belt and braces behind the disabled button: never post while the
+			// prefill is still on its way or a save is already in flight.
 			return;
 		}
-		if (invalid) {
+		if (!parse.ok) {
 			// Surface every problem instead of refusing silently, opening the
 			// disclosure when one hides inside it.
 			setTouched(new Set(SERVER_FORM_FIELD_ORDER));
-			if (OAUTH_SECTION_FIELDS.some((field) => problems[field] !== undefined)) {
+			if (OAUTH_SECTION_FIELDS.some((field) => parse.problems[field] !== undefined)) {
 				setOauthOpen(true);
 			}
 			return;
 		}
 		const requestId = newRequestId();
-		postMessage({
-			type: "saveServerSetting",
-			...assembleServerForm(draft, originalLabel),
-			requestId,
-		});
-		setPending(requestId);
+		postMessage({ type: "saveServerSetting", ...parse.intent, requestId });
+		setPhase({ phase: "saving", requestId });
 	};
 
 	const props: FieldRenderProps = {
 		draft,
-		problems,
-		touched,
+		visibleProblems,
 		disabled: saving,
 		patch: (patch) => setDraft((current) => ({ ...current, ...patch })),
 		touch: (field) => setTouched((current) => new Set(current).add(field)),
@@ -399,15 +435,15 @@ function ServerForm({
 
 	return (
 		<div class="form-card">
-			<h3>{target.original === undefined ? "Add server" : `Edit ${target.original.label}`}</h3>
+			<h3>{target.kind === "add" ? "Add server" : `Edit ${target.original.label}`}</h3>
 			<TextField field="label" placeholder="e.g. Production" props={props} />
-			{renaming && problems.label === undefined ? (
+			{renaming && (parse.ok || parse.problems.label === undefined) ? (
 				<p class="hint">
 					The label is this server's identity: saving under a new one creates a new provider group, and the old group
 					stays until removed in the native editor.
 				</p>
 			) : null}
-			{target.original !== undefined && !renaming ? (
+			{target.kind === "edit" && !renaming ? (
 				<p class="hint">
 					Connection changes (URL, credentials) cannot reach the existing VS Code group: VS Code has no group-update
 					API. After saving, remove the old group in the native editor and run Sync Models Now.
@@ -430,13 +466,13 @@ function ServerForm({
 				unedited keep their current value.
 			</p>
 			<div class="toolbar">
-				<button type="button" disabled={saving || prefillLoading} onClick={save}>
+				<button type="button" disabled={phase.phase !== "editing"} onClick={save}>
 					{saving ? "Saving..." : "Save"}
 				</button>
 				<button type="button" class="secondary" onClick={onCancel}>
 					Cancel
 				</button>
-				{prefillLoading ? <span class="hint">Loading stored values...</span> : null}
+				{phase.phase === "prefill" ? <span class="hint">Loading stored values...</span> : null}
 				{firstBlocking !== undefined ? (
 					<span class="error" role="alert">
 						Cannot save: fix {SERVER_FORM_FIELD_LABELS[firstBlocking]}
@@ -470,7 +506,7 @@ function AdoptForm({
 	onClose,
 	onCancel,
 }: {
-	server: DashboardServer;
+	server: ExternalDashboardServer;
 	ack: IntentAck | undefined;
 	failures: FailuresByIntent;
 	declaredLabels: readonly string[];
@@ -513,13 +549,9 @@ function AdoptForm({
 
 	const problem = validateAdoptLabel(label, declaredLabels);
 	const showProblem = problem !== undefined && (touched || label.trim() !== server.label);
-	// External rows always carry the handle; a missing one means a stale
-	// capture the extension could not resolve anyway, so adopting is refused
-	// client-side rather than posting an intent that cannot be validated.
-	const sourceHandle = server.adoptHandle;
 
 	const adopt = () => {
-		if (problem !== undefined || sourceHandle === undefined) {
+		if (problem !== undefined) {
 			setTouched(true);
 			return;
 		}
@@ -528,7 +560,9 @@ function AdoptForm({
 			type: "adoptServer",
 			label: label.trim(),
 			baseUrl: server.baseUrl,
-			sourceHandle,
+			// External rows always carry the handle; the FormTarget union
+			// guarantees only external rows reach this form.
+			sourceHandle: server.adoptHandle,
 			secrets: locations,
 			requestId,
 		});
@@ -731,7 +765,7 @@ export function ServersSection({
 	failures: FailuresByIntent;
 	inlineSecrets: InlineSecretsResponse | undefined;
 	/** Drop the latest failure notice for one intent type (Cancel dismisses a stale save failure). */
-	onDismissFailure: (intentType: string) => void;
+	onDismissFailure: (intentType: DashboardIntentType) => void;
 	/** Drop the held inlineSecrets response; called when the edit form closes so the value leaves webview memory. */
 	onClearInlineSecrets: () => void;
 }) {
@@ -761,7 +795,6 @@ export function ServersSection({
 	};
 
 	const declaredLabels = servers.filter((server) => server.origin === "declared").map((server) => server.label);
-	const adopting = form?.target.original?.origin === "external" ? form.target.original : undefined;
 
 	return (
 		<section>
@@ -769,7 +802,7 @@ export function ServersSection({
 				Servers <span class="count">{servers.length}</span>
 			</h2>
 			<div class="toolbar">
-				<button type="button" onClick={() => openForm({})}>
+				<button type="button" onClick={() => openForm({ kind: "add" })}>
 					Add server
 				</button>
 				<button
@@ -797,38 +830,40 @@ export function ServersSection({
 					Open native editor
 				</button>
 			</div>
-			{form !== undefined && adopting !== undefined ? (
-				<AdoptForm
-					key={form.key}
-					server={adopting}
-					ack={ack}
-					failures={failures}
-					declaredLabels={declaredLabels}
-					onAdopted={(message) => {
-						setAdoptNotice(
-							`Adopted into the servers setting. The original VS Code-managed group still exists, so its models appear twice until you remove that group in the native editor.${message !== undefined ? ` ${message}` : ""}`
-						);
-					}}
-					onClose={() => setForm(undefined)}
-					onCancel={() => {
-						onDismissFailure("adoptServer");
-						setForm(undefined);
-					}}
-				/>
-			) : form !== undefined ? (
-				<ServerForm
-					key={form.key}
-					target={form.target}
-					ack={ack}
-					failures={failures}
-					inlineSecrets={inlineSecrets}
-					declaredLabels={declaredLabels}
-					onClose={closeForm}
-					onCancel={() => {
-						onDismissFailure("saveServerSetting");
-						closeForm();
-					}}
-				/>
+			{form !== undefined ? (
+				form.target.kind === "adopt" ? (
+					<AdoptForm
+						key={form.key}
+						server={form.target.server}
+						ack={ack}
+						failures={failures}
+						declaredLabels={declaredLabels}
+						onAdopted={(message) => {
+							setAdoptNotice(
+								`Adopted into the servers setting. The original VS Code-managed group still exists, so its models appear twice until you remove that group in the native editor.${message !== undefined ? ` ${message}` : ""}`
+							);
+						}}
+						onClose={() => setForm(undefined)}
+						onCancel={() => {
+							onDismissFailure("adoptServer");
+							setForm(undefined);
+						}}
+					/>
+				) : (
+					<ServerForm
+						key={form.key}
+						target={form.target}
+						ack={ack}
+						failures={failures}
+						inlineSecrets={inlineSecrets}
+						declaredLabels={declaredLabels}
+						onClose={closeForm}
+						onCancel={() => {
+							onDismissFailure("saveServerSetting");
+							closeForm();
+						}}
+					/>
+				)
 			) : null}
 			{adoptNotice !== undefined ? (
 				<div class="notice" role="status">
@@ -909,7 +944,13 @@ export function ServersSection({
 									key={index}
 									server={server}
 									armed={armedRemove === server.label}
-									onEdit={() => openForm({ original: server })}
+									onEdit={() =>
+										// The one place the form's purpose is decided: a declared
+										// row edits, an external row adopts.
+										openForm(
+											server.origin === "declared" ? { kind: "edit", original: server } : { kind: "adopt", server }
+										)
+									}
 									onArmRemove={(armed) => setArmedRemove(armed ? server.label : undefined)}
 								/>
 							))}
