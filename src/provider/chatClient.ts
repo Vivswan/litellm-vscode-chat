@@ -1,5 +1,6 @@
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
+import type { NormalizedBaseUrl } from "../shared/baseUrl";
 import { normalizeBaseUrl } from "../shared/baseUrl";
 import { isRecord } from "../shared/json";
 import type { Logger } from "../shared/logger";
@@ -94,7 +95,7 @@ export class ChatClient {
 	 * several labels shared one base URL, their scoped entries would all hit
 	 * every group at that URL, so label scoping is skipped (logged once per URL).
 	 */
-	private migratedLabelsFor(baseUrl: string): string[] {
+	private migratedLabelsFor(baseUrl: NormalizedBaseUrl): string[] {
 		const map = this.getMigratedServerLabels?.() ?? {};
 		const labels = Object.entries(map).find(([url]) => normalizeBaseUrl(url) === baseUrl)?.[1] ?? [];
 		if (labels.length > 1) {
@@ -135,7 +136,7 @@ export class ChatClient {
 			userAgent: this.userAgent,
 			customHeaders,
 		});
-		const headers = await this.resolveAuthHeaders(server, discoveryTimeout);
+		const { headers, sentOAuthToken } = await this.resolveAuthHeaders(server, discoveryTimeout);
 		try {
 			return await fetchModels({
 				client,
@@ -146,7 +147,7 @@ export class ChatClient {
 				...(headers !== undefined ? { headers } : {}),
 			});
 		} catch (error) {
-			this.invalidateRejectedToken(server.oauth, error, headers);
+			this.invalidateRejectedToken(server.oauth, error, sentOAuthToken);
 			throw error;
 		}
 	}
@@ -158,43 +159,54 @@ export class ChatClient {
 	 * discovery timeout on every surface (it is auth plumbing, not a chat
 	 * call) and additionally by `signal` when the triggering call carries one,
 	 * so user cancellation and the chat timeout interrupt it too.
+	 *
+	 * `sentOAuthToken` is the bearer token the returned headers actually
+	 * carry, captured here so a later 401 never has to re-parse it out of the
+	 * Authorization header (drift between writing and stripping the scheme
+	 * would silently degrade the straggling-401 protection). When the virtual
+	 * key owns the Authorization header no token is exchanged or sent, and
+	 * the field is undefined.
 	 */
 	private async resolveAuthHeaders(
 		credentials: { oauth?: OAuthConfig | undefined; virtualKey?: VirtualKeyConfig | undefined },
 		discoveryTimeout: number,
 		signal?: AbortSignal
-	): Promise<Record<string, string> | undefined> {
+	): Promise<{ headers: Record<string, string> | undefined; sentOAuthToken: string | undefined }> {
 		const headers: Record<string, string> = {};
-		if (credentials.oauth) {
-			headers.Authorization = `Bearer ${await this.oauthTokens.getToken(credentials.oauth, discoveryTimeout, signal)}`;
+		let sentOAuthToken: string | undefined;
+		// A virtual key naming the Authorization header (any casing; HTTP header
+		// names are case-insensitive) owns it outright, so the token exchange is
+		// skipped entirely: the token could never be sent, and an unreachable
+		// identity provider must not fail a request that would not carry it.
+		const authorizationOverridden = credentials.virtualKey?.header.toLowerCase() === "authorization";
+		if (credentials.oauth && !authorizationOverridden) {
+			sentOAuthToken = await this.oauthTokens.getToken(credentials.oauth, discoveryTimeout, signal);
+			headers.Authorization = `Bearer ${sentOAuthToken}`;
 		}
 		if (credentials.virtualKey) {
 			headers[credentials.virtualKey.header] = credentials.virtualKey.value;
 		}
-		return Object.keys(headers).length > 0 ? headers : undefined;
+		return { headers: Object.keys(headers).length > 0 ? headers : undefined, sentOAuthToken };
 	}
 
 	/**
 	 * A 401 from the server means it no longer accepts the bearer token the
 	 * call sent, so the next request must perform a fresh exchange. The
 	 * rejected call itself is never retried (chat completions never retry).
-	 * The sent token is passed along so a straggling 401 cannot discard a
-	 * token that already replaced the rejected one.
+	 * `sentOAuthToken` is resolveAuthHeaders' capture of what actually went
+	 * out: a straggling 401 cannot discard a token that already replaced the
+	 * rejected one, and a request whose Authorization header the virtual key
+	 * replaced (no token on the wire) invalidates nothing.
 	 */
 	private invalidateRejectedToken(
 		oauth: OAuthConfig | undefined,
 		error: unknown,
-		sentHeaders: Record<string, string> | undefined
+		sentOAuthToken: string | undefined
 	): void {
-		if (!oauth || !(error instanceof RequestError) || error.kind !== "auth") {
+		if (!oauth || sentOAuthToken === undefined || !(error instanceof RequestError) || error.kind !== "auth") {
 			return;
 		}
-		const sentAuthorization = sentHeaders?.Authorization;
-		const bearerPrefix = "Bearer ";
-		const rejectedToken = sentAuthorization?.startsWith(bearerPrefix)
-			? sentAuthorization.slice(bearerPrefix.length)
-			: undefined;
-		this.oauthTokens.invalidate(oauth, rejectedToken);
+		this.oauthTokens.invalidate(oauth, sentOAuthToken);
 	}
 
 	async send(ctx: ChatRequestContext): Promise<void> {
@@ -215,7 +227,7 @@ export class ChatClient {
 			baseUrl = groupServer.baseUrl;
 			apiKey = groupServer.apiKey;
 			rawModelId = model.id;
-			serverScopes = [baseUrl, ...this.migratedLabelsFor(baseUrl)];
+			serverScopes = [groupServer.baseUrl, ...this.migratedLabelsFor(groupServer.baseUrl)];
 			oauth = groupServer.oauth;
 			virtualKey = groupServer.virtualKey;
 		} else if (route) {
@@ -317,16 +329,21 @@ export class ChatClient {
 		const timeoutSignal = AbortSignal.timeout(requestTimeout);
 		const requestSignal = AbortSignal.any([cancelController.signal, timeoutSignal]);
 		const errorContext = { surface: "chat" as const, baseUrl, timeoutMs: requestTimeout };
-		let authHeaders: Record<string, string> | undefined;
+		let sentOAuthToken: string | undefined;
 
 		try {
-			authHeaders = await this.resolveAuthHeaders({ oauth, virtualKey }, getDiscoveryTimeout(this.log), requestSignal);
+			const resolvedAuth = await this.resolveAuthHeaders(
+				{ oauth, virtualKey },
+				getDiscoveryTimeout(this.log),
+				requestSignal
+			);
+			sentOAuthToken = resolvedAuth.sentOAuthToken;
 			const response = await client
 				.post(CHAT_COMPLETIONS_PATH, {
 					body: requestBody,
 					signal: requestSignal,
 					timeout: requestTimeout,
-					...(authHeaders !== undefined ? { headers: authHeaders } : {}),
+					...(resolvedAuth.headers !== undefined ? { headers: resolvedAuth.headers } : {}),
 				})
 				.asResponse();
 
@@ -349,7 +366,7 @@ export class ChatClient {
 				throw new RequestError(timeoutMessage(errorContext), "timeout", { cause: err });
 			}
 			const mapped = mapSdkError(err, errorContext);
-			this.invalidateRejectedToken(oauth, mapped, authHeaders);
+			this.invalidateRejectedToken(oauth, mapped, sentOAuthToken);
 			throw mapped;
 		} finally {
 			cancelListener.dispose();

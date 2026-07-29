@@ -311,6 +311,115 @@ suite("provider groups with OAuth", () => {
 		assert.strictEqual(tokens.count(), 2, "the 401 must invalidate the cached token for the next request");
 	});
 
+	test("a 401 with the virtual key on its own header still invalidates the bearer token that was sent", async () => {
+		// Guards the discriminating half of the sent-token capture: a virtual
+		// key on a non-Authorization header leaves the bearer entry in place,
+		// so the 401 concerns the sent token and must force a fresh exchange.
+		const provider = makeProvider();
+		const tokens = tokenEndpoint();
+		let chatAttempts = 0;
+		mswServer.use(
+			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
+			http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+				chatAttempts += 1;
+				if (toHeaderMap(request.headers).authorization === "Bearer tok-1") {
+					return HttpResponse.json({ error: { message: "token expired" } }, { status: 401 });
+				}
+				return sseTextResponse("ok");
+			})
+		);
+
+		const infos = await provider.provideLanguageModelChatInformation(
+			groupOptions({
+				...OAUTH_GROUP_CONFIGURATION,
+				virtualKeyHeader: "x-litellm-api-key",
+				virtualKeyValue: "vk-secret",
+			}),
+			cancellation()
+		);
+		const model = expectDefined(infos[0]);
+
+		await assert.rejects(sendChat(provider, model), /Authentication failed/);
+		await sendChat(provider, model);
+		assert.strictEqual(chatAttempts, 2);
+		assert.strictEqual(tokens.count(), 2, "the sent bearer token was rejected and must be replaced");
+	});
+
+	test("a 401 when the virtual key overwrites the Authorization header does not discard the unsent OAuth token", async () => {
+		// The virtual key replaces the bearer entry - under any casing, since
+		// HTTP header names are case-insensitive - so no OAuth token went out
+		// and the 401 says nothing about the cached one: invalidating it anyway
+		// (the old header re-parse missed the overwrite) would force a needless
+		// exchange on every retry against a misconfigured gateway.
+		for (const spelling of ["Authorization", "authorization"]) {
+			const provider = makeProvider();
+			const tokens = tokenEndpoint();
+			let chatAttempts = 0;
+			const chatAuth: Array<string | undefined> = [];
+			mswServer.use(
+				...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
+				http.post(CHAT_COMPLETIONS_URL, ({ request }) => {
+					chatAttempts += 1;
+					chatAuth.push(toHeaderMap(request.headers).authorization);
+					if (chatAttempts === 1) {
+						return HttpResponse.json({ error: { message: "bad virtual key" } }, { status: 401 });
+					}
+					return sseTextResponse("ok");
+				})
+			);
+
+			const infos = await provider.provideLanguageModelChatInformation(
+				groupOptions({
+					...OAUTH_GROUP_CONFIGURATION,
+					virtualKeyHeader: spelling,
+					virtualKeyValue: "vk-master",
+				}),
+				cancellation()
+			);
+			const model = expectDefined(infos[0]);
+
+			await assert.rejects(sendChat(provider, model), /Authentication failed/);
+			await sendChat(provider, model);
+
+			assert.deepStrictEqual(
+				chatAuth,
+				["vk-master", "vk-master"],
+				`the virtual key must own the Authorization header alone (spelled "${spelling}"), never combined with the bearer entry`
+			);
+			assert.strictEqual(
+				tokens.count(),
+				0,
+				`the token could never be sent (spelled "${spelling}"), so no exchange runs and the 401 invalidates nothing`
+			);
+		}
+	});
+
+	test("a 401 on discovery invalidates the sent bearer token, so the next sweep exchanges afresh", async () => {
+		const provider = makeProvider();
+		const tokens = tokenEndpoint();
+		const reject401 = (request: Request) =>
+			toHeaderMap(request.headers).authorization === "Bearer tok-1"
+				? HttpResponse.json({ error: "expired" }, { status: 401 })
+				: HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+		mswServer.use(
+			http.get(MODEL_INFO_URL, ({ request }) => reject401(request)),
+			http.get(MODELS_URL, ({ request }) => reject401(request))
+		);
+
+		const first = await provider.provideLanguageModelChatInformation(
+			groupOptions(OAUTH_GROUP_CONFIGURATION),
+			cancellation()
+		);
+		assert.deepStrictEqual(first, [], "the silent rejected sweep serves no models");
+
+		const second = await provider.provideLanguageModelChatInformation(
+			groupOptions(OAUTH_GROUP_CONFIGURATION),
+			cancellation()
+		);
+		assert.ok(second.length > 0, "the fresh token's sweep must succeed");
+		assert.strictEqual(tokens.count(), 2, "the discovery 401 must invalidate the token it sent");
+	});
+
 	test("a credential rejection at the token endpoint surfaces its message and stops before the server", async () => {
 		const provider = makeProvider();
 		let tokenAttempts = 0;
