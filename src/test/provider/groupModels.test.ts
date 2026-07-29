@@ -1,12 +1,16 @@
 import * as assert from "node:assert";
+import { oauthCredentialFingerprint } from "../../provider/auth";
 import {
 	attachGroupServer,
 	type GroupServer,
 	getGroupServer,
 	groupClientId,
+	type LiteLLMModelInfo,
+	type PreAttachModelInfo,
 	parseGroupConfiguration,
 } from "../../provider/groupModels";
 import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
+import { normalizeBaseUrl } from "../../shared/baseUrl";
 import { fingerprint } from "../../shared/fingerprint";
 import { expectDefined, makeModelInfo } from "../testUtils";
 
@@ -168,7 +172,7 @@ suite("provider/groupModels", () => {
 	});
 
 	suite("groupClientId", () => {
-		const plain: GroupServer = { baseUrl: "http://litellm.test", apiKey: "k" };
+		const plain: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k" };
 
 		test("servers without OAuth or a virtual key keep the pre-OAuth identity format", () => {
 			assert.strictEqual(groupClientId(plain), `group:${fingerprint("k")}:http://litellm.test`);
@@ -202,6 +206,83 @@ suite("provider/groupModels", () => {
 			const second = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
 			assert.strictEqual(groupClientId(first), groupClientId(second));
 		});
+
+		test("rotating any credential part mints a new identity: every OAuth field, the API key, both virtual-key halves", () => {
+			// The OAuth half of the identity is oauthCredentialFingerprint (the
+			// canonical enumeration in provider/auth), so each rotation must move
+			// the fingerprint and the group ID together; a field the fingerprint
+			// ever stopped covering would fail both assertions here.
+			const base = {
+				baseUrl: "http://litellm.test",
+				apiKey: "k",
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "client-1",
+				oauthClientSecret: "secret-1",
+				oauthScopes: "read",
+				virtualKeyHeader: "x-vk",
+				virtualKeyValue: "vk-1",
+			};
+			const baseline = expectDefined(parseGroupConfiguration(base));
+			const rotations: Partial<typeof base>[] = [
+				{ apiKey: "k2" },
+				{ oauthTokenUrl: "https://idp2.test/token" },
+				{ oauthClientId: "client-2" },
+				{ oauthClientSecret: "secret-2" },
+				{ oauthScopes: "read write" },
+				{ virtualKeyHeader: "x-vk-2" },
+				{ virtualKeyValue: "vk-2" },
+			];
+			for (const rotation of rotations) {
+				const rotated = expectDefined(parseGroupConfiguration({ ...base, ...rotation }));
+				const which = Object.keys(rotation).join(",");
+				assert.notStrictEqual(groupClientId(rotated), groupClientId(baseline), `rotating ${which}`);
+				if (rotated.oauth !== undefined && baseline.oauth !== undefined) {
+					const oauthRotation = which.startsWith("oauth");
+					assert.strictEqual(
+						oauthCredentialFingerprint(rotated.oauth) !== oauthCredentialFingerprint(baseline.oauth),
+						oauthRotation,
+						`the OAuth fingerprint moves exactly with OAuth rotations (${which})`
+					);
+				}
+			}
+		});
+
+		test("adding or dropping the whole OAuth or virtual-key unit mints a new identity", () => {
+			const bare = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
+			const withOAuth = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", ...OAUTH_FIELDS })
+			);
+			const withKey = expectDefined(
+				parseGroupConfiguration({
+					baseUrl: "http://litellm.test",
+					apiKey: "k",
+					virtualKeyHeader: "x-vk",
+					virtualKeyValue: "vk-1",
+				})
+			);
+			assert.notStrictEqual(groupClientId(withOAuth), groupClientId(bare));
+			assert.notStrictEqual(groupClientId(withKey), groupClientId(bare));
+			assert.notStrictEqual(groupClientId(withOAuth), groupClientId(withKey));
+		});
+
+		test("an API key spelling out delimiter material never collides with a real credential unit", () => {
+			// The API key is free-form, so the credential material is JSON-encoded
+			// before hashing: under a delimiter join, a bare key containing the
+			// join sequence could hash like a key-plus-virtual-key configuration
+			// and share that group's cached SDK client.
+			const smuggled = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k\nvirtual-key\nx-vk\nvk-1" })
+			);
+			const genuine = expectDefined(
+				parseGroupConfiguration({
+					baseUrl: "http://litellm.test",
+					apiKey: "k",
+					virtualKeyHeader: "x-vk",
+					virtualKeyValue: "vk-1",
+				})
+			);
+			assert.notStrictEqual(groupClientId(smuggled), groupClientId(genuine));
+		});
 	});
 
 	suite("getGroupServer", () => {
@@ -229,8 +310,22 @@ suite("provider/groupModels", () => {
 			);
 		});
 
+		test("the type system refuses an attached copy where a pre-attach info belongs", () => {
+			const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
+			const attached = attachGroupServer(makeModelInfo(), server);
+			// The one-token-away mistake the split exists to stop: caching or
+			// snapshotting attach(...) output instead of the pre-attach infos.
+			// @ts-expect-error an attached copy embeds the group's credentials and is not a PreAttachModelInfo
+			const leaked: PreAttachModelInfo = attached;
+			void leaked;
+			assert.deepStrictEqual(attached.litellm.server, server, "the attached copy itself keeps its server");
+		});
+
 		test("a malformed oauth sub-object coming back across the host boundary degrades to absent", () => {
-			const model = makeModelInfo({
+			// Built by hand, not through attachGroupServer: this is the hostile
+			// round-trip shape whose type the host boundary cannot vouch for.
+			const model = {
+				...makeModelInfo(),
 				litellm: {
 					supportsPromptCaching: false,
 					outputLimitSource: "defaults",
@@ -239,10 +334,37 @@ suite("provider/groupModels", () => {
 						apiKey: "k",
 						oauth: { tokenUrl: "http://idp.test/token" },
 						virtualKey: { header: "x-vk" },
-					} as unknown as GroupServer,
+					},
 				},
-			});
+			} as unknown as LiteLLMModelInfo;
 			assert.deepStrictEqual(getGroupServer(model), { baseUrl: "http://litellm.test", apiKey: "k" });
+		});
+
+		test("a trailing slash coming back across the host boundary re-normalizes to the parsed identity", () => {
+			const parsed = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
+			const roundTrip = {
+				...makeModelInfo(),
+				litellm: {
+					supportsPromptCaching: false,
+					outputLimitSource: "defaults",
+					server: { baseUrl: "http://litellm.test/", apiKey: "k" },
+				},
+			} as unknown as LiteLLMModelInfo;
+			const server = expectDefined(getGroupServer(roundTrip));
+			assert.strictEqual(server.baseUrl, "http://litellm.test");
+			assert.strictEqual(groupClientId(server), groupClientId(parsed), "one server, one identity, either spelling");
+		});
+
+		test("a URL that normalizes to nothing degrades to absent, like the configuration parse", () => {
+			const model = {
+				...makeModelInfo(),
+				litellm: {
+					supportsPromptCaching: false,
+					outputLimitSource: "defaults",
+					server: { baseUrl: "///", apiKey: "k" },
+				},
+			} as unknown as LiteLLMModelInfo;
+			assert.strictEqual(getGroupServer(model), undefined);
 		});
 	});
 });

@@ -33,11 +33,25 @@ export interface VirtualKeyConfig {
 }
 
 /**
- * Non-secret identity of a credential set. Rotating any part (secret
- * included) changes the key, so caches keyed by it self-invalidate.
+ * Non-secret identity of a credential set: the canonical enumeration of what
+ * makes OAuth credentials "the same" (groupClientId composes group identity
+ * from it). Rotating any part (secret included) changes the key, so caches
+ * keyed by it self-invalidate. JSON-encoded before hashing: the fields are
+ * free-form strings, so a delimiter join would let two different credential
+ * sets serialize identically and share a cached token.
  */
 export function oauthCredentialFingerprint(config: OAuthConfig): string {
-	return fingerprint([config.tokenUrl, config.clientId, config.clientSecret, config.scopes ?? ""].join("\n"));
+	// Every OAuthConfig field participates in the identity: the satisfies
+	// clause breaks the build when a field is added without extending `parts`,
+	// and hashing the whole object (not a hand-picked array) means extending
+	// `parts` is the same edit as extending the hash.
+	const parts = {
+		tokenUrl: config.tokenUrl,
+		clientId: config.clientId,
+		clientSecret: config.clientSecret,
+		scopes: config.scopes ?? "",
+	} satisfies Record<keyof OAuthConfig, string>;
+	return fingerprint(JSON.stringify(parts));
 }
 
 /**

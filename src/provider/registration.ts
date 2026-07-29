@@ -2,7 +2,7 @@ import type { LanguageModelChatInformation } from "vscode";
 import { normalizeCostPerToken } from "../shared/numbers";
 import type { ServerWithKey } from "../shared/servers";
 import type { TokenDefaults } from "../shared/settings";
-import type { LiteLLMModelInfo } from "./groupModels";
+import type { PreAttachModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildExposedModelId, collapseTokenConstraints, deriveTokenConstraints } from "./modelCatalog";
 import { REASONING_EFFORT_SCHEMA, supportsReasoningEffort } from "./modelConfiguration";
@@ -10,7 +10,8 @@ import type { LiteLLMModelItem, LiteLLMProvider } from "./schemas";
 import { supportsTools } from "./schemas";
 
 export interface RegistrationResult {
-	infos: LiteLLMModelInfo[];
+	/** Pre-attach on purpose: registration output must never carry a group's credentials. */
+	infos: PreAttachModelInfo[];
 	routes: Map<string, ModelRoute>;
 }
 
@@ -175,7 +176,7 @@ export function buildModelInfos(
 	} as const;
 
 	/** The registered entries for one model, switched on its discovery-decided shape. */
-	function entriesForModel(m: LiteLLMModelItem): LiteLLMModelInfo[] {
+	function entriesForModel(m: LiteLLMModelItem): PreAttachModelInfo[] {
 		const shape = m.shape;
 		const modalities = m.architecture?.input_modalities ?? [];
 		const vision = Array.isArray(modalities) && modalities.includes("image");
@@ -205,7 +206,7 @@ export function buildModelInfos(
 							supportsPromptCaching: provider.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
 						},
-					} satisfies LiteLLMModelInfo,
+					} satisfies PreAttachModelInfo,
 				];
 			}
 
@@ -227,7 +228,7 @@ export function buildModelInfos(
 							imageInput: vision,
 						},
 						litellm: { supportsPromptCaching: false, outputLimitSource: constraints.outputLimitSource },
-					} satisfies LiteLLMModelInfo,
+					} satisfies PreAttachModelInfo,
 				];
 			}
 
@@ -235,7 +236,7 @@ export function buildModelInfos(
 				const providers = shape.providers;
 				const [firstTool, ...restTools] = providers.filter(supportsTools);
 				const toolProviders = firstTool === undefined ? [] : [firstTool, ...restTools];
-				const entries: LiteLLMModelInfo[] = [];
+				const entries: PreAttachModelInfo[] = [];
 
 				if (firstTool !== undefined) {
 					// The aggregates stand for whichever tool-capable provider the
@@ -270,7 +271,7 @@ export function buildModelInfos(
 						capabilities: aggregateCapabilities,
 						...aggregateConfigurationSchema,
 						litellm: aggregateMetadata,
-					} satisfies LiteLLMModelInfo);
+					} satisfies PreAttachModelInfo);
 					registerRoute(cheapestId, cheapestRaw);
 
 					entries.push({
@@ -284,7 +285,7 @@ export function buildModelInfos(
 						capabilities: aggregateCapabilities,
 						...aggregateConfigurationSchema,
 						litellm: aggregateMetadata,
-					} satisfies LiteLLMModelInfo);
+					} satisfies PreAttachModelInfo);
 					registerRoute(fastestId, fastestRaw);
 				}
 
@@ -310,7 +311,7 @@ export function buildModelInfos(
 							supportsPromptCaching: p.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
 						},
-					} satisfies LiteLLMModelInfo);
+					} satisfies PreAttachModelInfo);
 					registerRoute(exposedId, rawId);
 				}
 
@@ -340,7 +341,7 @@ export function buildModelInfos(
 							supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),
 							outputLimitSource: constraints.outputLimitSource,
 						},
-					} satisfies LiteLLMModelInfo);
+					} satisfies PreAttachModelInfo);
 					registerRoute(exposedId, m.id);
 				}
 
@@ -349,7 +350,7 @@ export function buildModelInfos(
 		}
 	}
 
-	const infos: LiteLLMModelInfo[] = models.flatMap((m) => {
+	const infos: PreAttachModelInfo[] = models.flatMap((m) => {
 		log(`Processing model: ${m.id} from server "${server.label}"`);
 		return entriesForModel(m);
 	});

@@ -51,8 +51,12 @@ export interface DevSeedEnv {
 	/** The user-scope servers setting value the seed entry is upserted into. */
 	readServersSetting(): unknown;
 	writeServersSetting(value: readonly unknown[]): Thenable<void>;
-	/** Write or (with undefined) clear the label's secure-side key; the seed only clears - its key sits inline. */
-	storeApiKey(label: string, value: string | undefined): Promise<void>;
+	/**
+	 * Clear the label's secure-side key. Deliberately not a write capability:
+	 * the seed's key sits inline in the entry, so the dev path can only remove
+	 * a previous run's leftover, never plant a secure-side secret.
+	 */
+	clearApiKey(label: string): Promise<void>;
 }
 
 export function createDevSeedEnv(secrets: vscode.SecretStorage): DevSeedEnv {
@@ -68,7 +72,7 @@ export function createDevSeedEnv(secrets: vscode.SecretStorage): DevSeedEnv {
 			vscode.workspace
 				.getConfiguration(CONFIG_SECTION)
 				.update(SERVERS_SETTING_KEY, value, vscode.ConfigurationTarget.Global),
-		storeApiKey: (label, value) => updateServerSecret(secrets, label, "apiKey", value),
+		clearApiKey: (label) => updateServerSecret(secrets, label, "apiKey", undefined),
 	};
 }
 
@@ -105,7 +109,7 @@ function upsertSeedEntry(raw: unknown, seed: DevSeed): unknown[] {
  */
 async function applySeed(seed: DevSeed, env: DevSeedEnv): Promise<void> {
 	await env.writeServersSetting(upsertSeedEntry(env.readServersSetting(), seed));
-	await env.storeApiKey(seed.label, undefined);
+	await env.clearApiKey(seed.label);
 }
 
 /**

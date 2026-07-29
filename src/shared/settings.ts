@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { z } from "zod";
 import type { HeaderScalar } from "./headers";
-import { HEADER_NAME_PATTERN, isHeaderScalar } from "./headers";
+import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "./headers";
 import { isUnsafeRecordKey } from "./json";
 import { normalizePositiveNumber } from "./numbers";
 import type { BooleanSettingId, NumberSettingId } from "./settingSpec";
@@ -89,7 +89,15 @@ const headerNameSchema = z.string().trim().regex(HEADER_NAME_PATTERN);
 
 const headerValueSchema = z.custom<HeaderScalar>(isHeaderScalar).transform((value) => String(value));
 
-function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, string> {
+/**
+ * Narrow the raw headers setting to the record the wire carries. Values must
+ * pass isValidHeaderValue (the one owner of the header-value charset rule,
+ * shared with the dashboard's editors and intent validation): a value that
+ * reached the platform's Headers instead would throw a TypeError embedding
+ * the full plaintext value, and these values can be secrets. Exported for the
+ * unit suite; the request path reads it through getCustomHeaders.
+ */
+export function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, string> {
 	const parsed = settingsRecordSchema.safeParse(raw);
 	if (!parsed.success) {
 		return {};
@@ -107,8 +115,8 @@ function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, strin
 			log?.("Ignoring custom header with non-primitive value", { name: parsedName.data });
 			continue;
 		}
-		if (parsedValue.data.includes("\r") || parsedValue.data.includes("\n")) {
-			log?.("Ignoring custom header with unsafe newline characters", { name: parsedName.data });
+		if (!isValidHeaderValue(parsedValue.data)) {
+			log?.("Ignoring custom header whose value cannot be sent as an HTTP header", { name: parsedName.data });
 			continue;
 		}
 		headers[parsedName.data] = parsedValue.data;

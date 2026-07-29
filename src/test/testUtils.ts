@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
-import type { LiteLLMModelInfo } from "../provider/groupModels";
+import type { LiteLLMModelInfo, PreAttachModelInfo } from "../provider/groupModels";
 import { Logger } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
@@ -94,7 +94,7 @@ export function createConfiguredProvider(): LiteLLMChatModelProvider {
 	return makeProvider(TEST_BASE_URL);
 }
 
-export function makeModelInfo(overrides: Partial<LiteLLMModelInfo> = {}): LiteLLMModelInfo {
+export function makeModelInfo(overrides: Partial<PreAttachModelInfo> = {}): PreAttachModelInfo {
 	return {
 		id: "test-model",
 		name: "test-model",

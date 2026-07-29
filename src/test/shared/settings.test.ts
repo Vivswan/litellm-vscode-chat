@@ -7,6 +7,7 @@ import {
 	getDiscoveryTimeout,
 	getRequestTimeout,
 	MIN_TIMEOUT_MS,
+	normalizeCustomHeaders,
 } from "../../shared/settings";
 import { expectDefined, withConfig } from "../testUtils";
 
@@ -118,5 +119,47 @@ suite("shared/settings getDiscoveryCacheTtl", () => {
 			});
 			assert.strictEqual(logged.length, 1, `configured value ${String(raw)} must be logged`);
 		}
+	});
+});
+
+suite("shared/settings normalizeCustomHeaders", () => {
+	test("values with CR, LF, or CRLF are dropped by the shared header-value predicate", () => {
+		const logged: { msg: string; data: unknown }[] = [];
+		const headers = normalizeCustomHeaders(
+			{
+				"x-cr": "start\rend",
+				"x-lf": "start\nend",
+				"x-crlf": "start\r\nend",
+				"x-ok": "value",
+			},
+			(msg, data) => logged.push({ msg, data })
+		);
+
+		assert.deepStrictEqual(headers, { "x-ok": "value" });
+		assert.strictEqual(logged.length, 3, "each rejected header logs exactly once");
+		for (const entry of logged) {
+			assert.ok(entry.msg.includes("cannot be sent as an HTTP header"), entry.msg);
+			// The classification names the header, never the value: these values
+			// can be secrets and the log buffer feeds public issue reports.
+			assert.ok(!JSON.stringify(entry).includes("start"), "the rejected value must not reach the log");
+		}
+	});
+
+	test("other control octets fail the same predicate the platform Headers enforces; empty stays legal", () => {
+		const headers = normalizeCustomHeaders({ "x-nul": "a\u0000b", "x-del": "a\u007fb", "x-empty": "" });
+		assert.deepStrictEqual(headers, { "x-empty": "" }, "an empty field value is legal HTTP and must keep flowing");
+	});
+
+	test("scalar values stringify and travel; tab and obs-text stay legal", () => {
+		const headers = normalizeCustomHeaders({ "x-num": 42, "x-bool": true, "x-tab": "a\tb", "x-hi": "caf\u00e9" });
+		assert.deepStrictEqual(headers, { "x-num": "42", "x-bool": "true", "x-tab": "a\tb", "x-hi": "caf\u00e9" });
+	});
+
+	test("invalid names, non-scalar values, and non-record inputs drop without throwing", () => {
+		assert.deepStrictEqual(normalizeCustomHeaders({ "bad name": "v", "x-obj": { nested: 1 }, "x-ok": "v" }), {
+			"x-ok": "v",
+		});
+		assert.deepStrictEqual(normalizeCustomHeaders("not a record"), {});
+		assert.deepStrictEqual(normalizeCustomHeaders(undefined), {});
 	});
 });

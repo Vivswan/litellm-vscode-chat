@@ -13,7 +13,7 @@ import { ChatClient, type ServerConnection } from "./provider/chatClient";
 import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
 import { DiscoveryCache } from "./provider/discoveryCache";
-import type { GroupServer, LiteLLMModelInfo } from "./provider/groupModels";
+import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./provider/groupModels";
 import { attachGroupServer, groupClientId, groupServerLabel, parseGroupConfiguration } from "./provider/groupModels";
 import type { ModelRoute } from "./provider/modelCatalog";
 import { buildModelInfos } from "./provider/registration";
@@ -29,11 +29,12 @@ const STATUS_TTL_MS = 10 * 60 * 1000;
 /**
  * One server's slice of the status window, for read-only consumers (the
  * dashboard). `models` are the infos as built by registration, before any
- * group server is attached, so a snapshot never carries credentials.
+ * group server is attached - PreAttachModelInfo by type, so a snapshot that
+ * carries credentials does not compile.
  */
 export interface ServerModelsSnapshot {
 	readonly status: ServerStatus;
-	readonly models: readonly LiteLLMModelInfo[];
+	readonly models: readonly PreAttachModelInfo[];
 }
 
 /**
@@ -48,7 +49,7 @@ type StatusWindowEntry = {
 	cycle: number;
 	at: number;
 	status: ServerStatus;
-	models: readonly LiteLLMModelInfo[];
+	models: readonly PreAttachModelInfo[];
 } & StatusWindowSource;
 
 function delay(ms: number): Promise<void> {
@@ -67,7 +68,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// legacy registry sweep is deliberately uncached: it fetches all servers
 	// at once and aggregates errors, and it only serves pre-migration and
 	// non-production hosts.
-	private readonly _discoveryCache: DiscoveryCache<readonly LiteLLMModelInfo[]>;
+	private readonly _discoveryCache: DiscoveryCache<readonly PreAttachModelInfo[]>;
 	private _statusCallback?: (status: AggregatedStatus) => void;
 	private _getServers?: () => Promise<ServerWithKey[]>;
 	private _configurationPrompt?: ConfigurationPrompt;
@@ -103,7 +104,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	constructor(
 		userAgent: string,
 		private readonly logger?: Logger,
-		discoveryCache?: DiscoveryCache<readonly LiteLLMModelInfo[]>
+		discoveryCache?: DiscoveryCache<readonly PreAttachModelInfo[]>
 	) {
 		this._client = new ChatClient({ userAgent, logger });
 		this._discoveryCache = discoveryCache ?? new DiscoveryCache();
@@ -154,13 +155,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
-	 * `models` must be the pre-attach infos (registration output), never the
-	 * group-attached copies: getServerSnapshots hands them to the dashboard,
-	 * and attached copies embed the server's credentials.
+	 * `models` are the pre-attach infos (registration output) by type, never
+	 * the group-attached copies: getServerSnapshots hands them to the
+	 * dashboard, and attached copies embed the server's credentials, so
+	 * AttachedModelInfo does not compile here.
 	 */
 	private recordServerStatus(
 		status: ServerStatus,
-		models: readonly LiteLLMModelInfo[],
+		models: readonly PreAttachModelInfo[],
 		source: StatusWindowSource
 	): void {
 		this._serverStatuses.set(status.serverId, {
@@ -281,9 +283,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		);
 
 		const serverStatuses: ServerStatus[] = [];
-		const allInfos: LiteLLMModelInfo[] = [];
+		const allInfos: PreAttachModelInfo[] = [];
 		const allRoutes = new Map<string, ModelRoute>();
-		const modelsByServer = new Map<string, readonly LiteLLMModelInfo[]>();
+		const modelsByServer = new Map<string, readonly PreAttachModelInfo[]>();
 
 		const successfulCount = results.filter(({ outcome }) => outcome.ok).length;
 		const serverCount = servers.length;
@@ -410,7 +412,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
 			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
 		};
-		const attach = (infos: readonly LiteLLMModelInfo[]): LiteLLMModelInfo[] =>
+		const attach = (infos: readonly PreAttachModelInfo[]): AttachedModelInfo[] =>
 			infos.map((info) => attachGroupServer(info, groupServer));
 
 		if (bypassCache) {
@@ -519,8 +521,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		groupServer: GroupServer,
 		silent: boolean,
 		outcome: { state: "ok"; modelCount: number } | { state: "error"; error: string },
-		/** Pre-attach infos only; see recordServerStatus. */
-		models: readonly LiteLLMModelInfo[]
+		/** Pre-attach infos only; recordServerStatus's type enforces it. */
+		models: readonly PreAttachModelInfo[]
 	): void {
 		this._groupStatusReportCount += 1;
 		this.recordServerStatus(

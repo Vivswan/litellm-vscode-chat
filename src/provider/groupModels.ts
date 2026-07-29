@@ -1,9 +1,13 @@
 import type { LanguageModelChatInformation } from "vscode";
+import type { NormalizedBaseUrl } from "../shared/baseUrl";
 import { normalizeBaseUrl } from "../shared/baseUrl";
 import { fingerprint } from "../shared/fingerprint";
 import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../shared/headers";
 import { isRecord } from "../shared/json";
+import type { OptionalEntryFieldId } from "../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS } from "../shared/serverEntry";
 import type { OAuthConfig, VirtualKeyConfig } from "./auth";
+import { oauthCredentialFingerprint } from "./auth";
 import type { OutputLimitSource } from "./schemas";
 
 /**
@@ -17,7 +21,7 @@ import type { OutputLimitSource } from "./schemas";
 
 /** Connection details resolved from a provider group's configuration. */
 export interface GroupServer {
-	baseUrl: string;
+	baseUrl: NormalizedBaseUrl;
 	apiKey: string;
 	/** Client-credentials authentication; present only when the configuration names a token URL and client ID. */
 	oauth?: OAuthConfig;
@@ -25,19 +29,34 @@ export interface GroupServer {
 	virtualKey?: VirtualKeyConfig;
 }
 
-/** LiteLLM facts attached to a model object, carried across the host round trip. */
-interface LiteLLMModelMetadata {
-	/** Resolved connection for provider-group models; registry models resolve through the route map instead. */
-	readonly server?: GroupServer;
+/** The LiteLLM facts every model object carries, with or without a server attached. */
+interface LiteLLMModelMetadataBase {
 	readonly supportsPromptCaching: boolean;
 	/** Where maxOutputTokens came from; only "provider" values escape the request-side cap. */
 	readonly outputLimitSource: OutputLimitSource;
 }
 
-/** The model information this provider returns to the host. */
-export interface LiteLLMModelInfo extends LanguageModelChatInformation {
-	readonly litellm: LiteLLMModelMetadata;
+/**
+ * Registration output before any group server is attached. The `never` pins
+ * the split: the discovery cache, recordServerStatus, and every snapshot the
+ * dashboard reads hold this type, and a group-attached copy (whose server
+ * embeds the group's credentials) does not compile there.
+ */
+export interface PreAttachModelInfo extends LanguageModelChatInformation {
+	readonly litellm: LiteLLMModelMetadataBase & { readonly server?: never };
 }
+
+/**
+ * A model entry with its group's resolved connection attached, for the host
+ * round trip only: attachGroupServer is the sole constructor, and the value
+ * must never enter a cache, a status snapshot, or a state push.
+ */
+export interface AttachedModelInfo extends LanguageModelChatInformation {
+	readonly litellm: LiteLLMModelMetadataBase & { readonly server: GroupServer };
+}
+
+/** The model information this provider returns to (and receives back from) the host. */
+export type LiteLLMModelInfo = PreAttachModelInfo | AttachedModelInfo;
 
 /** Client-cache IDs for group servers, disjoint from registry server IDs. */
 const GROUP_CLIENT_ID_PREFIX = "group:";
@@ -45,20 +64,29 @@ const GROUP_CLIENT_ID_PREFIX = "group:";
 /**
  * Two groups may point at one base URL with different credentials, so group
  * identity includes a non-secret fingerprint over the whole credential
- * material: API key, OAuth client credentials, and virtual key. Rotating any
- * of them mints a new identity: the group double-counts in the status window
- * for one cycle until the old identity ages out, which self-heals. Servers
- * without OAuth or a virtual key fingerprint the API key alone, so their
- * identities survive this field addition unchanged.
+ * material: API key, OAuth client credentials (delegated to
+ * oauthCredentialFingerprint, the canonical enumeration of the OAuth
+ * identity), and virtual key. Within the credential branch the material is
+ * JSON-encoded before hashing - the API key is free-form, so a delimiter
+ * join would let two different credential sets serialize identically. The
+ * plain branch hashes the raw API key so those identities survive
+ * credential-field additions and encoding changes unchanged (pinned by
+ * test); the trade-off is that the two branches share a hash domain, so a
+ * bare API key that is byte-for-byte the credential branch's JSON text
+ * collides with that configuration - accepted, since both configurations
+ * are the same user's own settings. Rotating any part mints a new identity:
+ * the group double-counts in the status window for one cycle until the old
+ * identity ages out, which self-heals.
  */
 export function groupClientId(server: GroupServer): string {
-	const credentials = [
-		server.apiKey,
-		...(server.oauth
-			? ["oauth", server.oauth.tokenUrl, server.oauth.clientId, server.oauth.clientSecret, server.oauth.scopes ?? ""]
-			: []),
-		...(server.virtualKey ? ["virtual-key", server.virtualKey.header, server.virtualKey.value] : []),
-	].join("\n");
+	const credentials =
+		server.oauth || server.virtualKey
+			? JSON.stringify([
+					server.apiKey,
+					server.oauth ? oauthCredentialFingerprint(server.oauth) : null,
+					server.virtualKey ? [server.virtualKey.header, server.virtualKey.value] : null,
+				])
+			: server.apiKey;
 	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(credentials)}:${server.baseUrl}`;
 }
 
@@ -148,6 +176,12 @@ function narrowVirtualKey(header: unknown, value: unknown, log?: NarrowLog): Vir
  * non-string apiKey means a keyless server, and partial or malformed OAuth
  * and virtual-key fields degrade to absent rather than failing the group.
  * Unknown fields are ignored for forward compatibility.
+ *
+ * The entry fields are read through OPTIONAL_ENTRY_FIELDS (the one descriptor
+ * of a server entry's fields), and the rest-destructure below is the totality
+ * guard: a field added to the descriptor fails this function's compile until
+ * the parser consumes it, so nothing buildGroupArgs sends can silently drop
+ * on the host-configuration path.
  */
 export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog): GroupServer | undefined {
 	if (!isRecord(configuration)) {
@@ -158,26 +192,38 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 	if (baseUrl === undefined || baseUrl.length === 0) {
 		return undefined;
 	}
-	const oauth = narrowOAuth(
-		configuration.oauthTokenUrl,
-		configuration.oauthClientId,
-		configuration.oauthClientSecret,
-		configuration.oauthScopes
-	);
-	const virtualKey = narrowVirtualKey(configuration.virtualKeyHeader, configuration.virtualKeyValue, log);
+	const fields: { -readonly [K in OptionalEntryFieldId]?: unknown } = {};
+	for (const { id } of OPTIONAL_ENTRY_FIELDS) {
+		fields[id] = configuration[id];
+	}
+	const {
+		apiKey,
+		oauthTokenUrl,
+		oauthClientId,
+		oauthClientSecret,
+		oauthScopes,
+		virtualKeyHeader,
+		virtualKeyValue,
+		...unconsumed
+	} = fields;
+	// A new descriptor field lands in `unconsumed` and fails this assignment.
+	void (unconsumed satisfies Record<string, never>);
+	const oauth = narrowOAuth(oauthTokenUrl, oauthClientId, oauthClientSecret, oauthScopes);
+	const virtualKey = narrowVirtualKey(virtualKeyHeader, virtualKeyValue, log);
 	return {
 		baseUrl,
-		apiKey: typeof configuration.apiKey === "string" ? configuration.apiKey : "",
+		apiKey: typeof apiKey === "string" ? apiKey : "",
 		...(oauth !== undefined ? { oauth } : {}),
 		...(virtualKey !== undefined ? { virtualKey } : {}),
 	};
 }
 
 /**
- * Attach the resolved server to a model entry. The detail field is dropped so
- * the host fills it with the group name.
+ * Attach the resolved server to a pre-attach model entry: the sole
+ * constructor of AttachedModelInfo. The detail field is dropped so the host
+ * fills it with the group name.
  */
-export function attachGroupServer(info: LiteLLMModelInfo, server: GroupServer): LiteLLMModelInfo {
+export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer): AttachedModelInfo {
 	const { detail: _detail, ...rest } = info;
 	return {
 		...rest,
@@ -192,12 +238,21 @@ export function attachGroupServer(info: LiteLLMModelInfo, server: GroupServer): 
 /**
  * The model's attached server, re-validated because model objects come back
  * across the host boundary and only their shape is trustworthy, not their
- * type. OAuth and virtual-key sub-objects get the same lenient narrowing as
- * the group configuration: malformed ones degrade to absent.
+ * type. The base URL is re-normalized for the same reason: identity surfaces
+ * (groupClientId, the migrated-label lookup) require the normalized form, and
+ * the host round trip could hand back anything string-shaped. OAuth and
+ * virtual-key sub-objects get the same lenient narrowing as the group
+ * configuration: malformed ones degrade to absent.
  */
 export function getGroupServer(model: LiteLLMModelInfo, log?: NarrowLog): GroupServer | undefined {
 	const candidate: unknown = model.litellm?.server;
 	if (!isRecord(candidate) || typeof candidate.baseUrl !== "string" || typeof candidate.apiKey !== "string") {
+		return undefined;
+	}
+	const baseUrl = normalizeBaseUrl(candidate.baseUrl);
+	if (baseUrl.length === 0) {
+		// Symmetric with parseGroupConfiguration: a URL that normalizes to
+		// nothing (e.g. "/") is no server.
 		return undefined;
 	}
 	const rawOAuth: unknown = candidate.oauth;
@@ -209,7 +264,7 @@ export function getGroupServer(model: LiteLLMModelInfo, log?: NarrowLog): GroupS
 		? narrowVirtualKey(rawVirtualKey.header, rawVirtualKey.value, log)
 		: undefined;
 	return {
-		baseUrl: candidate.baseUrl,
+		baseUrl,
 		apiKey: candidate.apiKey,
 		...(oauth !== undefined ? { oauth } : {}),
 		...(virtualKey !== undefined ? { virtualKey } : {}),

@@ -31,8 +31,10 @@ const headerName = fc
 
 const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true }).map((n) => (Object.is(n, -0) ? 0 : n));
 
-// The request path drops CR/LF values and parseHeaderValue trims, so the
-// clean domain is trim-stable strings without line breaks.
+// The request path drops values outside the shared header-value charset
+// (isValidHeaderValue: no CR/LF or other control octets; empty is legal) and
+// parseHeaderValue trims, so the clean domain is trim-stable strings without
+// line breaks.
 const headerValueString = fc.string({ maxLength: 20 }).map((s) => s.replace(/[\r\n]/g, " ").trim());
 
 const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, headerValueString);

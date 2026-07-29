@@ -38,6 +38,7 @@ import {
 } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/modelConfiguration";
+import { normalizeBaseUrl } from "../../../shared/baseUrl";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
 
 /** The intent body a clean draft parses to; fails the test if the draft has problems. */
@@ -1975,14 +1976,14 @@ suite("extension/dashboard/state", () => {
 			[
 				"group:aaa:http://ext.test",
 				{
-					baseUrl: "http://ext.test",
+					baseUrl: normalizeBaseUrl("http://ext.test"),
 					apiKey: "sk-one",
 				},
 			],
 			[
 				"group:bbb:http://ext.test",
 				{
-					baseUrl: "http://ext.test",
+					baseUrl: normalizeBaseUrl("http://ext.test"),
 					apiKey: "",
 					oauth: {
 						tokenUrl: "https://idp.test/token",

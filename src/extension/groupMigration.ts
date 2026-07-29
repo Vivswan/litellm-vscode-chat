@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { z } from "zod";
 import { MANAGE_COMMAND_TITLE, VENDOR_ID } from "../shared/commandIds";
-import { fingerprint } from "../shared/fingerprint";
+import { fingerprint, fingerprintSchema } from "../shared/fingerprint";
 import type { Logger } from "../shared/logger";
 import type { ServerWithKey } from "../shared/servers";
 import {
@@ -30,7 +30,9 @@ const seededGroupSchema = z.object({
 	name: z.string(),
 	label: z.string(),
 	baseUrl: z.string(),
-	keyFingerprint: z.string(),
+	// Branded at compile time: constructing a record with a raw apiKey where
+	// the non-secret identity belongs does not typecheck.
+	keyFingerprint: fingerprintSchema,
 });
 
 type SeededGroup = z.infer<typeof seededGroupSchema>;
@@ -45,7 +47,7 @@ const pendingSubmissionSchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	baseUrl: z.string(),
-	keyFingerprint: z.string(),
+	keyFingerprint: fingerprintSchema,
 });
 
 type PendingSubmission = z.infer<typeof pendingSubmissionSchema>;
