@@ -3,6 +3,7 @@ import type { ConfigurationPrompt } from "../provider/config";
 import { CMD, INTERNAL_CMD } from "../shared/commandIds";
 import { GITHUB_DOCS_URL } from "../shared/links";
 import type { AggregatedStatus } from "../shared/servers";
+import { isErrorServerStatus } from "../shared/servers";
 
 export interface MessageAction {
 	label: string;
@@ -98,6 +99,16 @@ interface NotifiableCondition {
 	actions: MessageAction[];
 }
 
+/**
+ * What one aggregated report means for notification. The three notifiable
+ * conditions are discriminated by tag, so consumers dispatch on the condition
+ * itself instead of re-deriving it from the dedup signature string.
+ */
+type NotifierOutcome =
+	| ({ tag: "no-servers" | "all-failed" | "no-models" } & NotifiableCondition)
+	| { tag: "recovered" }
+	| { tag: "suppressed" };
+
 /** Timer effects, injectable so the grace deferral is testable without real time. */
 export interface NotifierTimer {
 	/** Schedule `callback` after `ms`; the returned closure cancels the pending call. */
@@ -164,14 +175,14 @@ export class Notifier implements vscode.Disposable {
 
 	handleAggregatedStatus(status: AggregatedStatus): void {
 		const outcome = this.evaluate(status);
-		if (outcome === "recovered") {
+		if (outcome.tag === "recovered") {
 			// A healthy refresh resets dedup so a recovered-then-broken setup
 			// notifies again; a pending no-servers claim is obviously stale.
 			this.cancelPendingClaim();
 			this._lastNotifiedSignature = undefined;
 			return;
 		}
-		if (outcome === "suppressed") {
+		if (outcome.tag === "suppressed") {
 			// An empty status window on a configured install: the world is not
 			// fully known (the groupless refresh reports before the per-group
 			// refreshes), so no claim is made AND the dedup signature is left
@@ -181,7 +192,7 @@ export class Notifier implements vscode.Disposable {
 			this.cancelPendingClaim();
 			return;
 		}
-		if (outcome.signature === "no-servers") {
+		if (outcome.tag === "no-servers") {
 			// The claim needs evidence of absence, not absence of evidence; see
 			// the class comment. Non-silent refreshes do not arm it either: their
 			// caller surfaces the outcome directly, as with every other condition.
@@ -224,36 +235,39 @@ export class Notifier implements vscode.Disposable {
 		this._cancelPendingClaim = undefined;
 	}
 
-	private evaluate(status: AggregatedStatus): NotifiableCondition | "recovered" | "suppressed" {
+	private evaluate(status: AggregatedStatus): NotifierOutcome {
 		if (status.serverStatuses.length === 0) {
 			if (this.hasConfiguredServers()) {
-				return "suppressed";
+				return { tag: "suppressed" };
 			}
 			return {
+				tag: "no-servers",
 				signature: "no-servers",
 				kind: "warning",
 				message: "LiteLLM: No servers configured. Click to configure.",
 				actions: [reconfigureAction(CONFIGURE_NOW_LABEL)],
 			};
 		}
-		const okCount = status.serverStatuses.filter((s) => s.state === "ok").length;
-		if (okCount === 0) {
-			const firstError = status.serverStatuses.find((s) => s.error)?.error ?? "Unknown error";
+		const failures = status.serverStatuses.filter(isErrorServerStatus);
+		const firstFailure = failures[0];
+		if (firstFailure !== undefined && failures.length === status.serverStatuses.length) {
 			return {
-				signature: `all-failed:${firstError}`,
+				tag: "all-failed",
+				signature: `all-failed:${firstFailure.error}`,
 				kind: "error",
-				message: `LiteLLM: ${firstError}`,
+				message: `LiteLLM: ${firstFailure.error}`,
 				actions: [reconfigureAction(), reportIssueAction()],
 			};
 		}
 		if (status.totalModels === 0) {
 			return {
+				tag: "no-models",
 				signature: "no-models",
 				kind: "warning",
 				message: "LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.",
 				actions: [testConnectionAction("Check Server"), reconfigureAction(), reportIssueAction()],
 			};
 		}
-		return "recovered";
+		return { tag: "recovered" };
 	}
 }

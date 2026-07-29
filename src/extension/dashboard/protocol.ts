@@ -34,38 +34,59 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 }
 
-/**
- * One server row: a declared entry from the litellm-vscode-chat.servers
- * setting, a live provider group the status window saw, or both merged
- * (joined by label and base URL). Secrets never reach the webview; only
- * their locations do.
- */
-export interface DashboardServer {
+interface DashboardServerBase {
 	readonly label: string;
 	readonly baseUrl: string;
-	/** "unchecked": declared in settings but not yet seen by a discovery pass. */
-	readonly state: "ok" | "error" | "unchecked";
 	readonly modelCount: number;
-	readonly error?: string | undefined;
 	/** ISO timestamp of the last discovery attempt; absent while unchecked. */
 	readonly lastChecked?: string | undefined;
 	/** Whether the server has credentials configured anywhere; never the credentials themselves. */
 	readonly hasApiKey: boolean;
 	readonly hasOAuth: boolean;
-	/** "declared": in the servers setting (editable here). "external": a provider group managed outside it. */
-	readonly origin: "declared" | "external";
-	/** Present on declared servers: the edit form's prefill. */
-	readonly config?: DashboardServerConfig | undefined;
-	/**
-	 * Present on external rows: the opaque token the adopt intent names its
-	 * source group by. A salted one-way hash of the extension-side server ID,
-	 * stable across state pushes for the session (rendered labels and row
-	 * order are not); it carries no credential material, cannot be reproduced
-	 * outside the extension host, and resolves back to a group only while
-	 * that group is still external.
-	 */
-	readonly adoptHandle?: string | undefined;
 }
+
+/**
+ * One server row: a declared entry from the litellm-vscode-chat.servers
+ * setting, a live provider group the status window saw, or both merged
+ * (joined by label and base URL). Secrets never reach the webview; only
+ * their locations do.
+ *
+ * Discriminated twice. On `origin`: a declared row always carries the edit
+ * form's config prefill, an external row always carries the opaque adopt
+ * handle, and neither carries the other's field. On `state`: an error row
+ * always has its message, an "ok" row may STILL carry one (deliberate: a
+ * declared entry whose group upsert failed while an already-live group keeps
+ * serving renders "OK (N models) - <sync error>"), and "unchecked" (declared
+ * in settings but not yet seen by a discovery pass) carries none.
+ */
+export type DashboardServer = DashboardServerBase &
+	(
+		| {
+				/** In the servers setting (editable here); `config` is the edit form's prefill. */
+				readonly origin: "declared";
+				readonly config: DashboardServerConfig;
+				readonly adoptHandle?: undefined;
+		  }
+		| {
+				/**
+				 * A provider group managed outside the setting. `adoptHandle` is the
+				 * opaque token the adopt intent names its source group by: a salted
+				 * one-way hash of the extension-side server ID, stable across state
+				 * pushes for the session (rendered labels and row order are not); it
+				 * carries no credential material, cannot be reproduced outside the
+				 * extension host, and resolves back to a group only while that group
+				 * is still external.
+				 */
+				readonly origin: "external";
+				readonly adoptHandle: string;
+				readonly config?: undefined;
+		  }
+	) &
+	(
+		| { readonly state: "ok"; readonly error?: string | undefined }
+		| { readonly state: "error"; readonly error: string }
+		| { readonly state: "unchecked"; readonly error?: undefined }
+	);
 
 /**
  * The overall configuration verdict, shared by the dashboard hero and the

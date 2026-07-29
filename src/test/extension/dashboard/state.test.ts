@@ -215,7 +215,6 @@ suite("extension/dashboard/state", () => {
 							label: "Alpha",
 							state: "error",
 							error: "boom",
-							modelCount: 0,
 						}),
 						models: [],
 					},

@@ -6,28 +6,15 @@ import type { DeclaredServerView } from "../../extension/serverSync";
 import type { ConnectionStatus } from "../../extension/status";
 import { IssueReporter } from "../../issueReporter";
 import type { ServerModelsSnapshot } from "../../provider";
-import type { ServerStatus } from "../../shared/servers";
-import { expectDefined, makeExtensionStorage, makeModelInfo } from "../testUtils";
+import { expectDefined, makeExtensionStorage, makeModelInfo, makeServerStatus } from "../testUtils";
 
 function createRegistry(): ServerRegistry {
 	const storage = makeExtensionStorage();
 	return new ServerRegistry(storage.memento, storage.secrets);
 }
 
-function makeServerStatus(overrides: Partial<ServerStatus> = {}): ServerStatus {
-	return {
-		serverId: "srv1",
-		label: "Prod",
-		baseUrl: "http://prod.test",
-		state: "ok",
-		modelCount: 4,
-		lastChecked: "2026-07-26T00:00:00.000Z",
-		...overrides,
-	};
-}
-
 /** A live status-window snapshot whose model list agrees with its model count. */
-function makeSnapshot(overrides: Partial<ServerStatus> = {}): ServerModelsSnapshot {
+function makeSnapshot(overrides: Parameters<typeof makeServerStatus>[0] = {}): ServerModelsSnapshot {
 	const status = makeServerStatus(overrides);
 	const count = status.state === "ok" ? status.modelCount : 0;
 	return {
@@ -58,7 +45,7 @@ suite("extension/diagnostics", () => {
 
 			const snapshot = await buildDiagnosticsSnapshot(
 				createRegistry(),
-				{ state: "connected", totalModels: 7 },
+				{ state: "connected", totalModels: 7, serverStatuses: [] },
 				"1.2.3",
 				"9.9.9",
 				reporter
@@ -82,7 +69,7 @@ suite("extension/diagnostics", () => {
 
 			const snapshot = await buildDiagnosticsSnapshot(
 				registry,
-				{ state: "connected", totalModels: 1 },
+				{ state: "connected", totalModels: 1, serverStatuses: [] },
 				"1.2.3",
 				"9.9.9",
 				new IssueReporter()
@@ -144,27 +131,6 @@ suite("extension/diagnostics", () => {
 
 			assert.strictEqual(snapshot.baseUrlConfigured, true);
 			assert.strictEqual(snapshot.apiKeyConfigured, false, "keyless groups must not report a configured key");
-		});
-
-		test("junk elements in a persisted status do not crash the snapshot", async () => {
-			// The status loader deliberately tolerates arbitrary array elements
-			// from older extension versions.
-			const junkStatus = {
-				state: "connected",
-				totalModels: 1,
-				serverStatuses: [42, null, makeServerStatus({ serverId: "group:abc:http://prod.test", hasApiKey: true })],
-			} as unknown as ConnectionStatus;
-
-			const snapshot = await buildDiagnosticsSnapshot(
-				createRegistry(),
-				junkStatus,
-				"1.2.3",
-				"9.9.9",
-				new IssueReporter()
-			);
-
-			assert.strictEqual(snapshot.baseUrlConfigured, true, "the valid group entry must still be recognized");
-			assert.strictEqual(snapshot.apiKeyConfigured, true);
 		});
 
 		test("key presence is unknown until group statuses are observed", async () => {
@@ -452,7 +418,6 @@ suite("extension/diagnostics", () => {
 							label: "Backup",
 							baseUrl: "http://backup.test",
 							state: "error",
-							modelCount: 0,
 							error: "connection refused",
 						}),
 					],
@@ -485,21 +450,10 @@ suite("extension/diagnostics", () => {
 			assert.ok(run.message.includes("  Prod: http://prod.test"), "with no matching status it falls back to the list");
 		});
 
-		test("the legacy path skips junk persisted status elements", async () => {
-			const registry = createRegistry();
-			await registry.addServer("Prod", "http://prod.test", "");
-			// Persisted statuses from older versions are deliberately unvalidated;
-			// a null element must not crash the command.
-			const status = {
-				state: "connected",
-				totalModels: 4,
-				serverStatuses: [42, null, makeServerStatus()],
-			} as unknown as ConnectionStatus;
-			const run = await runDiagnosticsCommand({ registry, status });
-
-			assert.ok(run.message.includes("  Prod: OK (4 models)"), "the valid matching status still renders");
-			assert.ok(run.message.includes("Connection Status: Legacy registry only (1 server)"), run.message);
-		});
+		// Junk persisted status elements never reach this command anymore: the
+		// status bar's normalizing restore drops them at the persistence trust
+		// boundary (pinned in status.test.ts), so ConnectionStatus values here
+		// only ever carry real ServerStatus elements.
 
 		test("a partial sweep renders outcomes where known and listings for the rest", async () => {
 			const registry = createRegistry();
@@ -516,21 +470,6 @@ suite("extension/diagnostics", () => {
 			assert.ok(run.message.includes("Connection Status: Legacy registry only (2 servers)"), run.message);
 			assert.ok(run.message.includes("  Prod: OK (4 models)"), run.message);
 			assert.ok(run.message.includes("  Backup: http://backup.test"), "the unswept server still renders as a listing");
-		});
-
-		test("a status matching by URL but missing renderable fields falls back to the listing", async () => {
-			const registry = createRegistry();
-			await registry.addServer("Prod", "http://prod.test", "");
-			// label and baseUrl match, but the fields the renderer reads are junk:
-			// an "ok" without a model count must not render "OK (undefined models)".
-			const status = {
-				state: "connected",
-				serverStatuses: [{ label: "Prod", baseUrl: "http://prod.test", state: "ok" }],
-			} as unknown as ConnectionStatus;
-			const run = await runDiagnosticsCommand({ registry, status });
-
-			assert.ok(!run.message.includes("undefined"), run.message);
-			assert.ok(run.message.includes("  Prod: http://prod.test"), "the junk match falls back to the listing");
 		});
 
 		test("live groups without declared entries still count", async () => {
@@ -561,7 +500,6 @@ suite("extension/diagnostics", () => {
 						label: "backup.test",
 						baseUrl: "http://backup.test",
 						state: "error",
-						modelCount: 0,
 						error: "connection refused",
 					}),
 				],
@@ -578,7 +516,6 @@ suite("extension/diagnostics", () => {
 					makeSnapshot({
 						serverId: "group:1:http://prod.test",
 						state: "error",
-						modelCount: 0,
 						error: "connection refused",
 					}),
 				],

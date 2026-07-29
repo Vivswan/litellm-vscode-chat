@@ -41,7 +41,7 @@ function StateCell({ server }: { server: DashboardServer }) {
 	}
 	if (server.state === "error") {
 		return (
-			<span class="state-error" title={server.error ?? ""}>
+			<span class="state-error" title={server.error}>
 				error
 			</span>
 		);

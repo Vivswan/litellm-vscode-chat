@@ -157,7 +157,11 @@ suite("extension/commands", () => {
 		});
 
 		test("asks the host to re-resolve provider groups for a real round trip", async () => {
-			const statusBar = makeStatusBar({ state: "connected", totalModels: 1 });
+			const statusBar = makeStatusBar({
+				state: "connected",
+				totalModels: 1,
+				serverStatuses: [makeServerStatus({ modelCount: 1 })],
+			});
 			let refreshed = 0;
 			const provider = {
 				provideLanguageModelChatInformation: async () => [],
@@ -172,7 +176,11 @@ suite("extension/commands", () => {
 		});
 
 		test("a second invocation while one is running is refused instead of misreporting", async () => {
-			const statusBar = makeStatusBar({ state: "connected", totalModels: 2 });
+			const statusBar = makeStatusBar({
+				state: "connected",
+				totalModels: 2,
+				serverStatuses: [makeServerStatus({ modelCount: 2 })],
+			});
 			let release: (() => void) | undefined;
 			const blocked = new Promise<void>((resolve) => {
 				release = resolve;
@@ -287,7 +295,11 @@ suite("extension/commands", () => {
 		test("reports the error outcome the refresh left behind instead of claiming success", async () => {
 			const lines: string[] = [];
 			const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
-			const statusBar = makeStatusBar({ state: "connected", totalModels: 2 });
+			const statusBar = makeStatusBar({
+				state: "connected",
+				totalModels: 2,
+				serverStatuses: [makeServerStatus({ modelCount: 2 })],
+			});
 			const provider = {
 				refreshViaHost: async () => {
 					await statusBar.updateStatusBar({ state: "error", error: "ECONNREFUSED", totalModels: 0 });
@@ -328,7 +340,11 @@ suite("extension/commands", () => {
 
 		test("a second invocation while one is running is refused", async () => {
 			const logger = new Logger({ info: () => {}, error: () => {} });
-			const statusBar = makeStatusBar({ state: "connected", totalModels: 1 });
+			const statusBar = makeStatusBar({
+				state: "connected",
+				totalModels: 1,
+				serverStatuses: [makeServerStatus({ modelCount: 1 })],
+			});
 			let release: (() => void) | undefined;
 			const blocked = new Promise<void>((resolve) => {
 				release = resolve;
@@ -355,7 +371,11 @@ suite("extension/commands", () => {
 		test("logs a failing refresh and still reports from the status", async () => {
 			const errors: string[] = [];
 			const logger = new Logger({ info: () => {}, error: (line: string) => errors.push(line) });
-			const statusBar = makeStatusBar({ state: "connected", totalModels: 1 });
+			const statusBar = makeStatusBar({
+				state: "connected",
+				totalModels: 1,
+				serverStatuses: [makeServerStatus({ modelCount: 1 })],
+			});
 			const provider = {
 				refreshViaHost: async () => {
 					throw new Error("host unavailable");

@@ -82,7 +82,7 @@ export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; 
 
 /**
  * The accepted entries with their raw-array indices: the single place the
- * acceptance rules live, so parseServersSetting and acceptedEntryIndex cannot
+ * acceptance rules live, so parseServersSetting and acceptedEntry cannot
  * disagree about which raw entry a label resolves to.
  */
 function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: number; entry: DeclaredServer }[] {
@@ -126,20 +126,22 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
 }
 
 /**
- * The raw-array index of the entry parseServersSetting accepts for `label`,
- * or -1 when it accepts none. The dashboard's per-entry reads and writes (the
- * edit form's inline-value prefill, the save target) resolve through this so
- * they act on exactly the entry the dashboard row describes: a rejected
- * same-label sibling earlier in the array (no usable baseUrl, say) cannot
- * shadow the accepted entry, and a label the parser rejects outright (a
- * reserved name, a never-declared junk entry) resolves to nothing.
+ * The entry parseServersSetting accepts for `label`, with its raw-array
+ * index, or undefined when it accepts none. The dashboard's per-entry reads
+ * and writes (the edit form's inline-value prefill, the save target) resolve
+ * through this so they act on exactly the entry the dashboard row describes:
+ * a rejected same-label sibling earlier in the array (no usable baseUrl, say)
+ * cannot shadow the accepted entry, and a label the parser rejects outright
+ * (a reserved name, a never-declared junk entry) resolves to nothing. The
+ * returned entry is the parsed view - usable fields only, trimmed - so
+ * callers consume what the sync engine would read, not the raw record.
  */
-export function acceptedEntryIndex(raw: unknown, label: string): number {
+export function acceptedEntry(raw: unknown, label: string): { index: number; entry: DeclaredServer } | undefined {
 	if (!Array.isArray(raw)) {
-		return -1;
+		return undefined;
 	}
 	const wanted = label.trim();
-	return acceptEntries(raw).find(({ entry }) => entry.label === wanted)?.index ?? -1;
+	return acceptEntries(raw).find(({ entry }) => entry.label === wanted);
 }
 
 /** The secure-side secrets of one label, as the SecretStorage blob holds them. */
@@ -305,6 +307,32 @@ function isDuplicateGroupError(error: unknown): boolean {
 }
 
 /**
+ * Why a label's last add attempt did not land, keyed to the exact fingerprint
+ * it concerned; the two kinds are mutually exclusive per label, so one map
+ * holds them.
+ *
+ * "blocked": the host refused the add as a duplicate while the entry had
+ * changed. There is nothing a retry with the same configuration can do (no
+ * update API), so unforced passes skip the host call and keep the actionable
+ * error instead of hammering; a forced pass (activation, Sync Models Now)
+ * retries anyway, because the user may have removed the stale group natively
+ * by then.
+ *
+ * "upsertFailed": the add failed for a non-duplicate reason. The persisted
+ * fingerprint map records last-known-good only, so this is the separate retry
+ * signal: an unforced pass re-calls the host while the entry still holds the
+ * failed configuration, whereas a revert to last-known-good is in sync
+ * without a call (the failure concerned a configuration that no longer
+ * exists). Overloading the fingerprint map with both roles wedged entries:
+ * dropping the fingerprint to force a retry destroyed the only record that
+ * lets a healthy group's later duplicate response read as in-sync.
+ */
+interface RetryState {
+	kind: "blocked" | "upsertFailed";
+	fingerprint: string;
+}
+
+/**
  * Keeps provider groups in step with the servers setting. syncNow is
  * serialized: a call during an in-flight pass queues exactly one follow-up
  * and resolves after that follow-up (the pass that includes the caller's
@@ -314,28 +342,8 @@ function isDuplicateGroupError(error: unknown): boolean {
  */
 export class ServerSyncEngine implements vscode.Disposable {
 	private views: DeclaredServerView[] = [];
-	private syncErrors = new Map<string, string>();
-	/**
-	 * Labels whose add the host refused as a duplicate while their entry had
-	 * changed, keyed to the fingerprint that was refused: there is nothing a
-	 * retry with the same configuration can do (no update API), so unforced
-	 * passes skip the host call and keep the actionable error instead of
-	 * hammering. A forced pass (activation, Sync Models Now) retries anyway,
-	 * because the user may have removed the stale group natively by then.
-	 */
-	private blocked = new Map<string, string>();
-	/**
-	 * Labels whose last add attempt failed for a non-duplicate reason, keyed
-	 * to the fingerprint that failed. The persisted fingerprint map records
-	 * last-known-good only, so this is the separate retry signal: an unforced
-	 * pass re-calls the host while the entry still holds the failed
-	 * configuration, whereas a revert to last-known-good is in sync without a
-	 * call (the failure concerned a configuration that no longer exists).
-	 * Overloading the fingerprint map with both roles wedged entries: dropping
-	 * the fingerprint to force a retry destroyed the only record that lets a
-	 * healthy group's later duplicate response read as in-sync.
-	 */
-	private failedUpserts = new Map<string, string>();
+	/** Per-label retry state that must survive between passes; see RetryState. */
+	private retry = new Map<string, RetryState>();
 	private running: Promise<void> | undefined;
 	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
 	private timer: ReturnType<typeof setTimeout> | undefined;
@@ -424,6 +432,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 		for (const entry of entries) {
 			let stored: StoredServerSecrets = {};
 			let secretsUnreadable = false;
+			// The entry's user-facing message for THIS pass: exactly one branch
+			// below decides it, and only this iteration's view reads it. What must
+			// survive between passes is the retry state, which the message is
+			// recomputed from - so a pass that cannot read the stored secrets
+			// overwrites the message while the blocked fingerprint stays put, and
+			// the next healthy pass re-asserts the name-conflict text.
+			let syncError: string | undefined;
 			try {
 				stored = await this.env.readSecrets(entry.label);
 			} catch (error) {
@@ -434,7 +449,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// is skipped for the pass; its view renders the classified error
 				// and degrades the secret locations to the inline-only reading.
 				secretsUnreadable = true;
-				this.syncErrors.set(entry.label, SECRETS_READ_FAILED_MESSAGE);
+				syncError = SECRETS_READ_FAILED_MESSAGE;
 				this.env.log("Reading a server entry's stored secrets failed", {
 					label: entry.label,
 					error: error instanceof Error ? error.name : typeof error,
@@ -442,14 +457,20 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 			const args = buildGroupArgs(entry, stored);
 			const printed = fingerprint(JSON.stringify(args));
+			const retryState = this.retry.get(entry.label);
 			if (secretsUnreadable) {
-				// Without the real secrets the fingerprint is not meaningful, so
-				// no host call and no retry bookkeeping; last-known-good carries.
+				// Without the real secrets the fingerprint is not meaningful, so no
+				// host call and no retry bookkeeping (the stored retry state stays
+				// put on purpose); last-known-good carries.
 				const lastGood = previous[entry.label];
 				if (lastGood !== undefined) {
 					next[entry.label] = lastGood;
 				}
-			} else if (!force && previous[entry.label] === printed && this.failedUpserts.get(entry.label) !== printed) {
+			} else if (
+				!force &&
+				previous[entry.label] === printed &&
+				!(retryState?.kind === "upsertFailed" && retryState.fingerprint === printed)
+			) {
 				next[entry.label] = printed;
 				// An entry stuck on the duplicate error that now matches its
 				// last-known-good fingerprint again was reverted: the live group
@@ -457,18 +478,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// A pending retry recorded for some OTHER configuration is moot
 				// for the same reason; only a failure for this very fingerprint
 				// (the guard above) sends the entry back to the host.
-				this.syncErrors.delete(entry.label);
-				this.blocked.delete(entry.label);
-				this.failedUpserts.delete(entry.label);
-			} else if (!force && this.blocked.get(entry.label) === printed) {
+				this.retry.delete(entry.label);
+			} else if (!force && retryState?.kind === "blocked" && retryState.fingerprint === printed) {
 				// The host already refused this exact configuration as a duplicate
 				// and offers no update path; retrying without a user gesture would
-				// just hammer the command. The classification is re-asserted, not
-				// assumed: an intervening pass may have overwritten it (a failed
-				// secret read, say), and this branch must describe the state it
-				// short-circuits on. The last-known-good fingerprint is carried so
-				// a later revert of the entry can still match it.
-				this.syncErrors.set(entry.label, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+				// just hammer the command. The last-known-good fingerprint is
+				// carried so a later revert of the entry can still match it.
+				syncError = GROUP_UPDATE_UNAVAILABLE_MESSAGE;
 				const lastGood = previous[entry.label];
 				if (lastGood !== undefined) {
 					next[entry.label] = lastGood;
@@ -477,9 +493,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				try {
 					await this.env.addProviderGroup(args);
 					next[entry.label] = printed;
-					this.syncErrors.delete(entry.label);
-					this.blocked.delete(entry.label);
-					this.failedUpserts.delete(entry.label);
+					this.retry.delete(entry.label);
 					// Write-through: a completed add persists its fingerprint at
 					// once, merged over the stored map. If anything later in the
 					// pass (or the final wholesale write) fails, the group now
@@ -498,15 +512,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 					});
 				} catch (error) {
 					if (isDuplicateGroupError(error)) {
-						this.failedUpserts.delete(entry.label);
 						if (previous[entry.label] === printed) {
 							// A forced pass re-adding an unchanged entry: under an add-only
 							// host (no upsert), "the group already exists" IS the synced
 							// steady state, so every activation lands here for every
 							// healthy entry. Not logged for that reason.
 							next[entry.label] = printed;
-							this.syncErrors.delete(entry.label);
-							this.blocked.delete(entry.label);
+							this.retry.delete(entry.label);
 						} else {
 							// The entry changed (or is new under a taken name) but the host
 							// cannot update or replace an existing group. The last-known-
@@ -514,38 +526,38 @@ export class ServerSyncEngine implements vscode.Disposable {
 							// it still describes the live group's content, so reverting
 							// the entry lands back on the in-sync branch as a silent no-op
 							// instead of wedging on this error forever. The refused
-							// fingerprint goes into `blocked` (not the map) so unforced
-							// passes keep the error without hammering and a forced pass
-							// retries after the user removes the stale group natively.
+							// fingerprint goes into the retry state as "blocked" (not the
+							// map) so unforced passes keep the error without hammering and
+							// a forced pass retries after the user removes the stale group
+							// natively.
 							const lastGood = previous[entry.label];
 							if (lastGood !== undefined) {
 								next[entry.label] = lastGood;
 							}
-							this.blocked.set(entry.label, printed);
-							this.syncErrors.set(entry.label, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+							this.retry.set(entry.label, { kind: "blocked", fingerprint: printed });
+							syncError = GROUP_UPDATE_UNAVAILABLE_MESSAGE;
 							this.env.log("Provider group exists and the host has no update path", { label: entry.label });
 						}
 					} else {
 						// The persisted map keeps the last-known-good fingerprint (a
 						// failed add changed nothing about the live group), and the
-						// retry rides failedUpserts instead: dropping the fingerprint
-						// here would destroy the only record that lets the healthy
-						// group's next duplicate response read as in-sync, or a revert
-						// land silently. Any duplicate-refusal knowledge is stale now
-						// (the group may have been removed natively, which is often
-						// why this call ran at all), so `blocked` clears too -
-						// otherwise its shortcut would suppress the retry this
-						// failure needs. The raw error stays out of the view and the
-						// log: the command carried resolved secrets, and a host that
-						// echoes its arguments would leak them into public issue
+						// retry rides the "upsertFailed" state instead: dropping the
+						// fingerprint here would destroy the only record that lets the
+						// healthy group's next duplicate response read as in-sync, or a
+						// revert land silently. Any duplicate-refusal knowledge is stale
+						// now (the group may have been removed natively, which is often
+						// why this call ran at all), so setting the state also clears a
+						// stale "blocked" - otherwise its shortcut would suppress the
+						// retry this failure needs. The raw error stays out of the view
+						// and the log: the command carried resolved secrets, and a host
+						// that echoes its arguments would leak them into public issue
 						// reports.
 						const lastGood = previous[entry.label];
 						if (lastGood !== undefined) {
 							next[entry.label] = lastGood;
 						}
-						this.blocked.delete(entry.label);
-						this.failedUpserts.set(entry.label, printed);
-						this.syncErrors.set(entry.label, GROUP_UPSERT_FAILED_MESSAGE);
+						this.retry.set(entry.label, { kind: "upsertFailed", fingerprint: printed });
+						syncError = GROUP_UPSERT_FAILED_MESSAGE;
 						this.env.log("Provider group upsert failed", {
 							label: entry.label,
 							error: error instanceof Error ? error.name : typeof error,
@@ -560,19 +572,17 @@ export class ServerSyncEngine implements vscode.Disposable {
 				...pickNonSecretOptionalFields(entry),
 				secrets: secretLocations(entry, stored),
 				expectedClientId: groupServer !== undefined ? groupClientId(groupServer) : undefined,
-				syncError: this.syncErrors.get(entry.label),
+				syncError,
 			});
 		}
 
 		const currentLabels = new Set(entries.map((entry) => entry.label));
 		const removed = Object.keys(previous).filter((label) => !currentLabels.has(label));
-		// Per-label state is pruned with its entry; the maps are keyed by
+		// Per-label retry state is pruned with its entry; the map is keyed by
 		// user-controlled labels and would otherwise grow without bound.
-		for (const map of [this.blocked, this.syncErrors, this.failedUpserts]) {
-			for (const label of [...map.keys()]) {
-				if (!currentLabels.has(label)) {
-					map.delete(label);
-				}
+		for (const label of [...this.retry.keys()]) {
+			if (!currentLabels.has(label)) {
+				this.retry.delete(label);
 			}
 		}
 		this.views = views;

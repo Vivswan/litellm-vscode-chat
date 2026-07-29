@@ -14,17 +14,12 @@ import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
 import { DiscoveryCache } from "./provider/discoveryCache";
 import type { GroupServer, LiteLLMModelInfo } from "./provider/groupModels";
-import {
-	attachGroupServer,
-	groupClientId,
-	groupServerLabel,
-	isGroupClientId,
-	parseGroupConfiguration,
-} from "./provider/groupModels";
+import { attachGroupServer, groupClientId, groupServerLabel, parseGroupConfiguration } from "./provider/groupModels";
 import type { ModelRoute } from "./provider/modelCatalog";
 import { buildModelInfos } from "./provider/registration";
 import type { Logger } from "./shared/logger";
 import type { AggregatedStatus, ServerStatus, ServerWithKey } from "./shared/servers";
+import { isErrorServerStatus } from "./shared/servers";
 import { getDiscoveryCacheTtl, getTokenDefaults } from "./shared/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "./shared/tokenEstimation";
 
@@ -40,6 +35,21 @@ export interface ServerModelsSnapshot {
 	readonly status: ServerStatus;
 	readonly models: readonly LiteLLMModelInfo[];
 }
+
+/**
+ * Where a status-window entry came from. A VS Code provider group carries its
+ * resolved connection (the extension layer's one path to a group's
+ * credentials); a legacy-registry entry has none, and the union makes a
+ * group entry without its GroupServer unrepresentable.
+ */
+type StatusWindowSource = { kind: "registry" } | { kind: "group"; groupServer: GroupServer };
+
+type StatusWindowEntry = {
+	cycle: number;
+	at: number;
+	status: ServerStatus;
+	models: readonly LiteLLMModelInfo[];
+} & StatusWindowSource;
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -73,16 +83,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// one cycle also starts a new cycle, and entries untouched for
 	// STATUS_TTL_MS go regardless.
 	private _statusCycle = 0;
-	private readonly _serverStatuses = new Map<
-		string,
-		{
-			cycle: number;
-			at: number;
-			status: ServerStatus;
-			models: readonly LiteLLMModelInfo[];
-			groupServer?: GroupServer;
-		}
-	>();
+	private readonly _serverStatuses = new Map<string, StatusWindowEntry>();
 	// Counts per-group status reports only: the groupless report says nothing
 	// about whether the host is re-resolving groups, so refreshViaHost's
 	// settle-wait must not be armed by it.
@@ -160,16 +161,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private recordServerStatus(
 		status: ServerStatus,
 		models: readonly LiteLLMModelInfo[],
-		groupServer?: GroupServer
+		source: StatusWindowSource
 	): void {
-		const entry = {
+		this._serverStatuses.set(status.serverId, {
 			cycle: this._statusCycle,
 			at: Date.now(),
 			status,
 			models,
-			...(groupServer ? { groupServer } : {}),
-		};
-		this._serverStatuses.set(status.serverId, entry);
+			...source,
+		});
 	}
 
 	/** The status window's current view for read-only consumers; see ServerModelsSnapshot. */
@@ -196,11 +196,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * Registry servers and aged-out groups resolve to undefined.
 	 */
 	getGroupServer(serverId: string): GroupServer | undefined {
-		return this._serverStatuses.get(serverId)?.groupServer;
+		const entry = this._serverStatuses.get(serverId);
+		return entry?.kind === "group" ? entry.groupServer : undefined;
 	}
 
 	private groupClientIdsInStatuses(): string[] {
-		return [...this._serverStatuses.keys()].filter(isGroupClientId);
+		return [...this._serverStatuses].flatMap(([serverId, entry]) => (entry.kind === "group" ? [serverId] : []));
 	}
 
 	/**
@@ -289,14 +290,17 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 		for (const { server, outcome } of results) {
 			if (!outcome.ok) {
-				const errorMsg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+				const message = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+				// The error variant's message renders directly in the status bar and
+				// toasts, so an empty one (new Error("")) is classified here, at the
+				// boundary that constructs the status.
+				const errorMsg = message.length > 0 ? message : "Unknown error";
 				this.logError(`Failed to fetch models from server "${server.label}"`, outcome.reason);
 				serverStatuses.push({
 					serverId: server.id,
 					label: server.label,
 					baseUrl: server.baseUrl,
 					state: "error",
-					modelCount: 0,
 					error: errorMsg,
 					lastChecked: new Date().toISOString(),
 					hasApiKey: server.apiKey.length > 0,
@@ -334,16 +338,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.log("Final model count:", allInfos.length);
 
 		for (const status of serverStatuses) {
-			this.recordServerStatus(status, modelsByServer.get(status.serverId) ?? []);
+			this.recordServerStatus(status, modelsByServer.get(status.serverId) ?? [], { kind: "registry" });
 		}
 		this.reportMergedStatus(options.silent);
 
-		if (successfulCount === 0 && servers.length > 0) {
+		const firstFailure = serverStatuses.find(isErrorServerStatus);
+		if (successfulCount === 0 && firstFailure !== undefined) {
 			if (options.silent) {
 				return [];
 			}
-			const firstError = serverStatuses.find((s) => s.error)?.error ?? "Unknown error";
-			throw new Error(firstError);
+			throw new Error(firstFailure.error);
 		}
 
 		return allInfos;
@@ -438,7 +442,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		} catch (error) {
 			this.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
 			const message = error instanceof Error ? error.message : String(error);
-			this.reportGroupStatus(server, groupServer, silent, { state: "error", modelCount: 0, error: message }, []);
+			// Like the registry sweep: the status message renders directly, so an
+			// empty one is classified at this construction boundary.
+			this.reportGroupStatus(
+				server,
+				groupServer,
+				silent,
+				{ state: "error", error: message.length > 0 ? message : "Unknown error" },
+				[]
+			);
 			if (silent) {
 				return [];
 			}
@@ -489,9 +501,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * to the change event; outcomes land in the merged status.
 	 */
 	async testKnownGroupConnections(): Promise<void> {
-		const groupServers = [...this._serverStatuses.values()]
-			.map((entry) => entry.groupServer)
-			.filter((groupServer): groupServer is GroupServer => groupServer !== undefined);
+		const groupServers = [...this._serverStatuses.values()].flatMap((entry) =>
+			entry.kind === "group" ? [entry.groupServer] : []
+		);
 		for (const groupServer of groupServers) {
 			try {
 				await this.fetchGroupModels(groupServer, false, true);
@@ -506,7 +518,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		server: ServerWithKey,
 		groupServer: GroupServer,
 		silent: boolean,
-		outcome: Pick<ServerStatus, "state" | "modelCount" | "error">,
+		outcome: { state: "ok"; modelCount: number } | { state: "error"; error: string },
 		/** Pre-attach infos only; see recordServerStatus. */
 		models: readonly LiteLLMModelInfo[]
 	): void {
@@ -523,7 +535,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				...outcome,
 			},
 			models,
-			groupServer
+			{ kind: "group", groupServer }
 		);
 		this.reportMergedStatus(silent);
 	}

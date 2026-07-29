@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import type { SecretStore, ServerSyncEnv, StoredServerSecrets } from "../../extension/serverSync";
 import {
-	acceptedEntryIndex,
+	acceptedEntry,
 	buildGroupArgs,
 	copyServerSecrets,
 	deleteServerSecrets,
@@ -113,8 +113,8 @@ suite("extension/serverSync", () => {
 		});
 	});
 
-	suite("acceptedEntryIndex", () => {
-		test("returns the raw index of exactly the entry parseServersSetting accepts for the label", () => {
+	suite("acceptedEntry", () => {
+		test("returns exactly the entry parseServersSetting accepts for the label, with its raw index", () => {
 			const raw = [
 				"not an object",
 				{ label: "Prod" }, // rejected: no baseUrl; must not shadow the accepted entry below
@@ -122,16 +122,20 @@ suite("extension/serverSync", () => {
 				{ label: "Prod", baseUrl: "http://dupe.test" }, // rejected: duplicate of the accepted label
 				{ label: " Staging ", baseUrl: "http://s.test" },
 			];
-			assert.strictEqual(acceptedEntryIndex(raw, "Prod"), 2);
-			assert.strictEqual(acceptedEntryIndex(raw, "Staging"), 4, "labels compare trimmed on both sides");
-			assert.strictEqual(acceptedEntryIndex(raw, " Prod "), 2);
+			assert.deepStrictEqual(acceptedEntry(raw, "Prod"), {
+				index: 2,
+				entry: { label: "Prod", baseUrl: "http://real.test" },
+			});
+			assert.strictEqual(acceptedEntry(raw, "Staging")?.index, 4, "labels compare trimmed on both sides");
+			assert.strictEqual(acceptedEntry(raw, "Staging")?.entry.label, "Staging", "the entry is the parsed view");
+			assert.strictEqual(acceptedEntry(raw, " Prod ")?.index, 2);
 		});
 
 		test("labels the parser rejects resolve to nothing", () => {
-			assert.strictEqual(acceptedEntryIndex([{ label: "__proto__", baseUrl: "http://x" }], "__proto__"), -1);
-			assert.strictEqual(acceptedEntryIndex([{ label: "NoUrl" }], "NoUrl"), -1);
-			assert.strictEqual(acceptedEntryIndex([], "Prod"), -1);
-			assert.strictEqual(acceptedEntryIndex("junk", "Prod"), -1);
+			assert.strictEqual(acceptedEntry([{ label: "__proto__", baseUrl: "http://x" }], "__proto__"), undefined);
+			assert.strictEqual(acceptedEntry([{ label: "NoUrl" }], "NoUrl"), undefined);
+			assert.strictEqual(acceptedEntry([], "Prod"), undefined);
+			assert.strictEqual(acceptedEntry("junk", "Prod"), undefined);
 		});
 	});
 

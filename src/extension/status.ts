@@ -3,41 +3,211 @@ import { z } from "zod";
 import { CMD } from "../shared/commandIds";
 import type { Logger } from "../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../shared/servers";
+import { isErrorServerStatus } from "../shared/servers";
 import { LAST_CONNECTION_STATUS_KEY } from "../shared/storageKeys";
 
-export interface ConnectionStatus {
-	state: "not-configured" | "connecting" | "loading" | "connected" | "degraded" | "error";
-	totalModels?: number;
-	serverStatuses?: ServerStatus[];
-	error?: string;
-	lastChecked?: string;
+/** Every connection state, the single source for the union type and the persisted-status schema. */
+const CONNECTION_STATES = ["not-configured", "connecting", "loading", "connected", "degraded", "error"] as const;
+
+type ConnectionState = (typeof CONNECTION_STATES)[number];
+
+/**
+ * The status bar's (and diagnostics') view of the world, one variant per
+ * state so each carries exactly the facts its rendering needs. The
+ * "connecting" variant's `attention` flag is presentation state, not a state
+ * of its own: a single empty window is normal cold-start ordering (the
+ * groupless refresh reports before the per-group ones), but the state must
+ * not spin neutrally forever - a second consecutive empty report is evidence
+ * of persistence (a declared entry whose sync keeps failing, a native group
+ * deleted after the latch flipped), so the presentation degrades to a warning
+ * with an actionable tooltip. Any report with servers resets it. It rides
+ * inside the variant (not a new state string) so statuses persisted by this
+ * version still parse under older versions' state enums.
+ */
+export type ConnectionStatus =
+	| { state: "not-configured"; lastChecked?: string | undefined }
+	| {
+			/**
+			 * `attention` on a transient loading state is carried evidence, not
+			 * presentation: the connection test overwrites a connecting state with
+			 * "loading", and the degraded-connecting warning must survive that
+			 * round trip. The field is engine-owned - updateStatusBar sets it from
+			 * the state being replaced and overrides whatever a caller passed -
+			 * and handleAggregatedStatus reads it back. Loading always renders as
+			 * the neutral spinner.
+			 */
+			state: "loading";
+			attention?: boolean | undefined;
+			lastChecked?: string | undefined;
+	  }
+	| { state: "connecting"; attention: boolean; lastChecked?: string | undefined }
+	| {
+			state: "connected" | "degraded";
+			totalModels: number;
+			serverStatuses: readonly ServerStatus[];
+			lastChecked?: string | undefined;
+	  }
+	| {
+			state: "error";
+			error: string;
+			totalModels?: number | undefined;
+			serverStatuses?: readonly ServerStatus[] | undefined;
+			lastChecked?: string | undefined;
+	  };
+
+// The union and CONNECTION_STATES are the same set, checked both ways at
+// compile time: a state added to the union but not the list would silently
+// discard every persisted status of that state (the schema below rejects it),
+// and a listed state the union lacks could never be constructed.
+const _connectionStatesMatchUnion: [
+	Exclude<ConnectionStatus["state"], ConnectionState>,
+	Exclude<ConnectionState, ConnectionStatus["state"]>,
+] extends [never, never]
+	? true
+	: never = true;
+
+/** The server statuses a connection status carries; empty for the states without a status window. */
+export function statusServerStatuses(status: ConnectionStatus): readonly ServerStatus[] {
+	switch (status.state) {
+		case "connected":
+		case "degraded":
+			return status.serverStatuses;
+		case "error":
+			return status.serverStatuses ?? [];
+		default:
+			return [];
+	}
 }
 
-// Persisted statuses may come from other extension versions, so only the fields
-// the status bar dispatches on are validated: unknown keys pass through and
-// serverStatuses elements stay unchecked.
-const connectionStatusSchema = z.looseObject({
-	state: z.enum(["not-configured", "connecting", "loading", "connected", "degraded", "error"]),
+/** The model count a connection status carries, or undefined for states that have none. */
+export function statusTotalModels(status: ConnectionStatus): number | undefined {
+	switch (status.state) {
+		case "connected":
+		case "degraded":
+		case "error":
+			return status.totalModels;
+		default:
+			return undefined;
+	}
+}
+
+/**
+ * One persisted status-window element, over only the fields consumers read
+ * (the status bar's counts, diagnostics' group classification and legacy
+ * rows). Loose, because older extension versions may have persisted extra
+ * fields; discriminated, so an "ok" without a model count or an "error"
+ * without its message is malformed rather than half-usable.
+ */
+const persistedServerStatusSchema = z.discriminatedUnion("state", [
+	z.looseObject({
+		state: z.literal("ok"),
+		label: z.string(),
+		baseUrl: z.string(),
+		modelCount: z.number(),
+		serverId: z.string().optional().catch(undefined),
+		lastChecked: z.string().optional().catch(undefined),
+		hasApiKey: z.boolean().optional().catch(undefined),
+	}),
+	z.looseObject({
+		state: z.literal("error"),
+		label: z.string(),
+		baseUrl: z.string(),
+		// A message-less (or empty) error element cannot render honestly, so it
+		// is malformed and drops; a junk serverId/lastChecked/hasApiKey only
+		// drops that field (the catch), never the whole element.
+		error: z.string().min(1),
+		serverId: z.string().optional().catch(undefined),
+		lastChecked: z.string().optional().catch(undefined),
+		hasApiKey: z.boolean().optional().catch(undefined),
+	}),
+]);
+
+/** A persisted element as a real ServerStatus, or undefined for junk the parse drops. */
+function restoreServerStatus(value: unknown): ServerStatus | undefined {
+	const parsed = persistedServerStatusSchema.safeParse(value);
+	if (!parsed.success) {
+		return undefined;
+	}
+	const element = parsed.data;
+	const common = {
+		serverId: element.serverId ?? "",
+		label: element.label,
+		baseUrl: element.baseUrl,
+		lastChecked: element.lastChecked ?? "",
+		...(element.hasApiKey !== undefined ? { hasApiKey: element.hasApiKey } : {}),
+	};
+	return element.state === "ok"
+		? { ...common, state: "ok", modelCount: element.modelCount }
+		: { ...common, state: "error", error: element.error };
+}
+
+const persistedStatusSchema = z.looseObject({
+	state: z.enum(CONNECTION_STATES),
+	totalModels: z.number().optional(),
 	serverStatuses: z.array(z.unknown()).optional(),
+	// An empty persisted message reads as no message at all, so it takes the
+	// error state's downgrade path below instead of rendering blank text.
+	error: z.string().min(1).optional().catch(undefined),
+	lastChecked: z.string().optional(),
 });
 
-function isConnectionStatus(value: unknown): value is ConnectionStatus {
-	return connectionStatusSchema.safeParse(value).success;
+/**
+ * The normalizing parse at the persistence trust boundary: statuses may come
+ * from other extension versions, so this validates the fields consumers
+ * dispatch on and rebuilds a status the union can vouch for. Malformed
+ * serverStatuses elements are dropped (never rendered, never crashed on),
+ * missing counts default to zero, and two staleness rules apply on restore: a
+ * "connecting" that survived a session boundary starts in its needs-attention
+ * presentation, and an "error" that lost its message downgrades to that same
+ * degraded connecting instead of inventing an error text. Anything else
+ * unusable restores as undefined and the caller starts from not-configured.
+ */
+function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
+	const parsed = persistedStatusSchema.safeParse(value);
+	if (!parsed.success) {
+		return undefined;
+	}
+	const raw = parsed.data;
+	const lastChecked = raw.lastChecked !== undefined ? { lastChecked: raw.lastChecked } : {};
+	const serverStatuses = (raw.serverStatuses ?? []).flatMap((element) => {
+		const restored = restoreServerStatus(element);
+		return restored === undefined ? [] : [restored];
+	});
+	switch (raw.state) {
+		case "not-configured":
+			return { state: "not-configured", ...lastChecked };
+		case "loading":
+			// A carried attention flag is not restored: like the connecting rule
+			// below, the session boundary makes it stale, and the first empty
+			// report after a restored loading never counted as consecutive.
+			return { state: "loading", ...lastChecked };
+		case "connecting":
+			// A restored "connecting" is stale by definition (it survived a whole
+			// session boundary without resolving), so it starts degraded instead
+			// of spinning neutrally on last session's unfinished state.
+			return { state: "connecting", attention: true, ...lastChecked };
+		case "connected":
+		case "degraded":
+			return { state: raw.state, totalModels: raw.totalModels ?? 0, serverStatuses, ...lastChecked };
+		case "error":
+			if (raw.error === undefined) {
+				// An error that lost its message cannot render honestly; it is as
+				// stale as a restored connecting, so it degrades the same way.
+				return { state: "connecting", attention: true, ...lastChecked };
+			}
+			return {
+				state: "error",
+				error: raw.error,
+				serverStatuses,
+				...(raw.totalModels !== undefined ? { totalModels: raw.totalModels } : {}),
+				...lastChecked,
+			};
+	}
 }
 
 export class StatusBarManager {
 	private _connectionStatus: ConnectionStatus = { state: "not-configured" };
 	private readonly _statusBarItem: vscode.StatusBarItem;
-	/**
-	 * Whether "connecting" has degraded to its needs-attention presentation.
-	 * A single empty window is normal cold-start ordering (the groupless
-	 * refresh reports before the per-group ones), but the state must not spin
-	 * neutrally forever: a second consecutive empty report is evidence of
-	 * persistence (a declared entry whose sync keeps failing, a native group
-	 * deleted after the latch flipped), so the presentation degrades to a
-	 * warning with an actionable tooltip. Any report with servers resets it.
-	 */
-	private _connectingAttention = false;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -55,13 +225,9 @@ export class StatusBarManager {
 		this._statusBarItem.command = CMD.openDashboard;
 		context.subscriptions.push(this._statusBarItem);
 
-		const lastStatus = context.globalState.get<unknown>(LAST_CONNECTION_STATUS_KEY);
-		if (isConnectionStatus(lastStatus)) {
-			this._connectionStatus = lastStatus;
-			// A restored "connecting" is stale by definition (it survived a whole
-			// session boundary without resolving), so it starts degraded instead
-			// of spinning neutrally on last session's unfinished state.
-			this._connectingAttention = lastStatus.state === "connecting";
+		const restored = restoreConnectionStatus(context.globalState.get<unknown>(LAST_CONNECTION_STATUS_KEY));
+		if (restored !== undefined) {
+			this._connectionStatus = restored;
 		}
 		// Rendering without an argument never persists, so nothing needs awaiting.
 		void this.updateStatusBar();
@@ -73,7 +239,7 @@ export class StatusBarManager {
 
 	/** Whether the connecting state renders as needs-attention; pinned by tests. */
 	get connectingAttention(): boolean {
-		return this._connectingAttention;
+		return this._connectionStatus.state === "connecting" && this._connectionStatus.attention;
 	}
 
 	/** The command the status bar item runs on click; pinned by tests. */
@@ -83,18 +249,24 @@ export class StatusBarManager {
 
 	async updateStatusBar(status?: ConnectionStatus): Promise<void> {
 		if (status) {
-			this._connectionStatus = status;
-			await this.context.globalState.update(LAST_CONNECTION_STATUS_KEY, status);
+			// A transient "loading" (the connection test) overwrites a connecting
+			// state; its needs-attention evidence rides along so the next empty
+			// report can read it back instead of resetting to the neutral spinner.
+			const next: ConnectionStatus =
+				status.state === "loading" && this.connectingAttention ? { ...status, attention: true } : status;
+			this._connectionStatus = next;
+			await this.context.globalState.update(LAST_CONNECTION_STATUS_KEY, next);
 		}
 
-		switch (this._connectionStatus.state) {
+		const current = this._connectionStatus;
+		switch (current.state) {
 			case "not-configured":
 				this._statusBarItem.text = "$(warning) LiteLLM";
 				this._statusBarItem.tooltip = "Not configured - click to set up";
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
 				break;
 			case "connecting":
-				if (this._connectingAttention) {
+				if (current.attention) {
 					this._statusBarItem.text = "$(warning) LiteLLM";
 					this._statusBarItem.tooltip =
 						"Configured servers have not reported any models\nClick to open the dashboard and check the configuration";
@@ -111,8 +283,8 @@ export class StatusBarManager {
 				this._statusBarItem.backgroundColor = undefined;
 				break;
 			case "connected": {
-				const count = this._connectionStatus.totalModels ?? 0;
-				const serverCount = this._connectionStatus.serverStatuses?.length ?? 0;
+				const count = current.totalModels;
+				const serverCount = current.serverStatuses.length;
 				const serverText = serverCount > 1 ? ` from ${serverCount} servers` : "";
 				this._statusBarItem.text = `$(check) LiteLLM (${count})`;
 				this._statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available${serverText}\nClick for diagnostics`;
@@ -120,9 +292,8 @@ export class StatusBarManager {
 				break;
 			}
 			case "degraded": {
-				const count = this._connectionStatus.totalModels ?? 0;
-				const statuses = this._connectionStatus.serverStatuses ?? [];
-				const failedCount = statuses.filter((s) => s.state === "error").length;
+				const count = current.totalModels;
+				const failedCount = current.serverStatuses.filter(isErrorServerStatus).length;
 				this._statusBarItem.text = `$(warning) LiteLLM (${count})`;
 				this._statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available\n${failedCount} server${failedCount === 1 ? "" : "s"} unreachable\nClick for diagnostics`;
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
@@ -130,7 +301,7 @@ export class StatusBarManager {
 			}
 			case "error":
 				this._statusBarItem.text = "$(error) LiteLLM";
-				this._statusBarItem.tooltip = `Connection failed\n${this._connectionStatus.error || "Unknown error"}\nClick for details`;
+				this._statusBarItem.tooltip = `Connection failed\n${current.error}\nClick for details`;
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
 				break;
 		}
@@ -146,35 +317,39 @@ export class StatusBarManager {
 			// proves servers exist; at cold start the groupless refresh reports
 			// empty before the per-group refreshes arrive.
 			if (this.hasConfiguredServers()) {
-				// Already connecting = a second consecutive empty report; see
-				// _connectingAttention for why that degrades the presentation.
-				this._connectingAttention ||= this._connectionStatus.state === "connecting";
+				// Already connecting = a second consecutive empty report; see the
+				// connecting variant's attention flag for why that degrades. A
+				// loading state that carried the flag counts the same: the warning
+				// must survive the connection test's transient overwrite.
+				const previous = this._connectionStatus;
 				this.logger.log("No server statuses yet; configured servers have not reported");
-				void this.updateStatusBar({ state: "connecting", lastChecked: now });
+				void this.updateStatusBar({
+					state: "connecting",
+					attention: previous.state === "connecting" || (previous.state === "loading" && previous.attention === true),
+					lastChecked: now,
+				});
 			} else {
-				this._connectingAttention = false;
 				this.logger.log("No servers configured");
 				void this.updateStatusBar({ state: "not-configured", lastChecked: now });
 			}
 			return;
 		}
 
-		this._connectingAttention = false;
-		const okCount = serverStatuses.filter((s) => s.state === "ok").length;
-		const errCount = serverStatuses.filter((s) => s.state === "error").length;
+		const failures = serverStatuses.filter(isErrorServerStatus);
+		const firstFailure = failures[0];
+		const okCount = serverStatuses.length - failures.length;
 
-		if (okCount === 0) {
-			const firstError = serverStatuses.find((s) => s.error)?.error ?? "All servers failed";
-			this.logger.log(`All servers failed: ${firstError}`);
+		if (firstFailure !== undefined && okCount === 0) {
+			this.logger.log(`All servers failed: ${firstFailure.error}`);
 			void this.updateStatusBar({
 				state: "error",
-				error: firstError,
+				error: firstFailure.error,
 				serverStatuses,
 				totalModels: 0,
 				lastChecked: now,
 			});
-		} else if (errCount > 0) {
-			this.logger.log(`Partial success: ${okCount} ok, ${errCount} failed, ${totalModels} models`);
+		} else if (failures.length > 0) {
+			this.logger.log(`Partial success: ${okCount} ok, ${failures.length} failed, ${totalModels} models`);
 			void this.updateStatusBar({
 				state: "degraded",
 				serverStatuses,

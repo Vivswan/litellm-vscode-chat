@@ -16,6 +16,7 @@ import type { ServerRegistry } from "./serverRegistry";
 import type { DeclaredServerView } from "./serverSync";
 import { parseServersSetting } from "./serverSync";
 import type { ConnectionStatus } from "./status";
+import { statusServerStatuses, statusTotalModels } from "./status";
 
 /**
  * Key presence for VS Code-managed group servers, read off their observed
@@ -45,11 +46,11 @@ export async function buildDiagnosticsSnapshot(
 	const serversWithKeys = await registry.getServersWithKeys();
 	// VS Code-managed groups exist regardless of the migration flag (fresh
 	// installs never set it), so configuration presence is the union of the
-	// registry and every observed group status. Persisted statuses are only
-	// loosely validated, so element access must survive junk entries.
-	const groupStatuses = (connectionStatus.serverStatuses ?? []).filter((s) =>
-		isGroupClientId((s as Partial<ServerStatus> | null)?.serverId)
-	);
+	// registry and every observed group status. The persisted-status trust
+	// boundary lives in the status bar's normalizing restore, so the elements
+	// here are real ServerStatus values; isGroupClientId still classifies the
+	// serverId because OLD persisted entries predate the group-entry kind.
+	const groupStatuses = statusServerStatuses(connectionStatus).filter((s) => isGroupClientId(s.serverId));
 	const registryHasKey = serversWithKeys.some((s) => s.apiKey.trim().length > 0);
 	const groupKeyPresence = observedKeyPresence(groupStatuses);
 	let hasApiKey: boolean | "unknown";
@@ -69,7 +70,7 @@ export async function buildDiagnosticsSnapshot(
 		vscodeVersion: vscodeVersion,
 		platform: `${process.platform} ${process.arch}`,
 		connectionState: connectionStatus.state,
-		modelCount: connectionStatus.totalModels,
+		modelCount: statusTotalModels(connectionStatus),
 		apiKeyConfigured: hasApiKey,
 		baseUrlConfigured: hasBaseUrl,
 		latestError: issueReporter.getLatestError(),
@@ -88,7 +89,9 @@ function overallStatusText(servers: readonly DashboardServer[], modelCount: numb
 		case "not-configured":
 			return "Not configured";
 		case "error": {
-			const firstError = servers.find((server) => server.error)?.error ?? "Unknown error";
+			// The verdict guarantees at least one error-state server; the fallback
+			// only satisfies the type checker, which cannot see that.
+			const firstError = servers.find((server) => server.state === "error")?.error ?? "Unknown error";
 			return `Error: ${firstError}`;
 		}
 		case "degraded":
@@ -109,7 +112,7 @@ function serverOutcomeText(server: DashboardServer): string {
 				? `OK (${server.modelCount} models) - ${server.error}`
 				: `OK (${server.modelCount} models)`;
 		case "error":
-			return `Error: ${server.error ?? "Unknown error"}`;
+			return `Error: ${server.error}`;
 		case "unchecked":
 			return "Not checked yet";
 	}
@@ -164,38 +167,14 @@ function buildDiagnosticsMessage(
 }
 
 /**
- * A persisted status element safe to render: persisted statuses are only
- * loosely validated (older extension versions, junk elements), so every field
- * the legacy rows read must be present with a usable type - a junk element
- * matching only by URL would otherwise render "Error: undefined" and displace
- * the configured-list fallback.
- */
-function isRenderableStatus(value: unknown): value is ServerStatus {
-	const candidate = value as Partial<ServerStatus> | null;
-	if (typeof candidate !== "object" || candidate === null) {
-		return false;
-	}
-	if (typeof candidate.label !== "string" || typeof candidate.baseUrl !== "string") {
-		return false;
-	}
-	if (candidate.state === "ok") {
-		return typeof candidate.modelCount === "number";
-	}
-	if (candidate.state === "error") {
-		return typeof candidate.error === "string";
-	}
-	return false;
-}
-
-/**
  * Pre-migration rendering: with an empty declared/live world, the legacy
  * registry is the only configuration there is. It stays out of the main
  * count (which mirrors the dashboard), but the verdict names it and its
  * rows become the details. Each registry server renders its persisted sweep
  * outcome when the status bar's connection status holds one for its base URL
- * (junk elements and statuses for servers no longer in the registry are
- * ignored), and its configured listing otherwise, so a partial sweep still
- * shows every configured server.
+ * (statuses for servers no longer in the registry are ignored; junk elements
+ * never get this far - the status restore drops them), and its configured
+ * listing otherwise, so a partial sweep still shows every configured server.
  */
 function buildLegacyDiagnosticsMessage(servers: readonly ServerConfig[], status: ConnectionStatus): string {
 	const lastCheckedText = status.lastChecked ? new Date(status.lastChecked).toLocaleString() : "Never";
@@ -209,8 +188,8 @@ function buildLegacyDiagnosticsMessage(servers: readonly ServerConfig[], status:
 		"Server Details:",
 	];
 	const statusByUrl = new Map<string, ServerStatus>();
-	for (const candidate of status.serverStatuses ?? []) {
-		if (isRenderableStatus(candidate) && !statusByUrl.has(normalizeBaseUrl(candidate.baseUrl))) {
+	for (const candidate of statusServerStatuses(status)) {
+		if (!statusByUrl.has(normalizeBaseUrl(candidate.baseUrl))) {
 			statusByUrl.set(normalizeBaseUrl(candidate.baseUrl), candidate);
 		}
 	}

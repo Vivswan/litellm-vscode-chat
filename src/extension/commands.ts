@@ -5,6 +5,7 @@ import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../shared/links";
 import type { Logger } from "../shared/logger";
 import { openUrl } from "../shared/openUrl";
 import type { ServerConfig } from "../shared/servers";
+import { isErrorServerStatus } from "../shared/servers";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import {
 	CONFIGURE_NOW_LABEL,
@@ -90,7 +91,7 @@ export async function runConnectionTest(
 
 		switch (status.state) {
 			case "connected": {
-				const count = status.totalModels ?? 0;
+				const count = status.totalModels;
 				logger.log(`SUCCESS: ${count} models available`);
 				void showActionableMessage(
 					"info",
@@ -100,17 +101,17 @@ export async function runConnectionTest(
 				break;
 			}
 			case "degraded": {
-				const failed = (status.serverStatuses ?? []).filter((s) => s.state === "error").length;
+				const failed = status.serverStatuses.filter(isErrorServerStatus).length;
 				logger.log(`WARNING: ${failed} server(s) unreachable`);
 				void showActionableMessage(
 					"warning",
-					`LiteLLM: Connected with issues - ${status.totalModels ?? 0} model${status.totalModels === 1 ? "" : "s"} available, ${failed} server${failed === 1 ? "" : "s"} unreachable.`,
+					`LiteLLM: Connected with issues - ${status.totalModels} model${status.totalModels === 1 ? "" : "s"} available, ${failed} server${failed === 1 ? "" : "s"} unreachable.`,
 					[viewOutputAction(outputChannel), reconfigureAction(), reportIssueAction()]
 				);
 				break;
 			}
 			case "error":
-				void showActionableMessage("error", `LiteLLM: Connection failed - ${status.error ?? "Unknown error"}`, [
+				void showActionableMessage("error", `LiteLLM: Connection failed - ${status.error}`, [
 					viewOutputAction(outputChannel),
 					reconfigureAction(),
 					reportIssueAction(),
@@ -179,7 +180,7 @@ export async function runModelSync(
 		const status = statusBar.connectionStatus;
 		switch (status.state) {
 			case "connected": {
-				const count = status.totalModels ?? 0;
+				const count = status.totalModels;
 				logger.log(`Model sync finished: ${count} models available`);
 				void showActionableMessage("info", `LiteLLM: Models synced - found ${count} model${count === 1 ? "" : "s"}.`, [
 					viewOutputAction(outputChannel, "View Models"),
@@ -188,18 +189,18 @@ export async function runModelSync(
 				break;
 			}
 			case "degraded": {
-				const failed = (status.serverStatuses ?? []).filter((s) => s.state === "error").length;
+				const failed = status.serverStatuses.filter(isErrorServerStatus).length;
 				logger.log(`Model sync finished with issues: ${failed} server(s) unreachable`);
 				void showActionableMessage(
 					"warning",
-					`LiteLLM: Models synced with issues - ${status.totalModels ?? 0} model${status.totalModels === 1 ? "" : "s"} available, ${failed} server${failed === 1 ? "" : "s"} unreachable.`,
+					`LiteLLM: Models synced with issues - ${status.totalModels} model${status.totalModels === 1 ? "" : "s"} available, ${failed} server${failed === 1 ? "" : "s"} unreachable.`,
 					[viewOutputAction(outputChannel), reconfigureAction(), reportIssueAction()]
 				);
 				break;
 			}
 			case "error":
-				logger.log(`Model sync failed: ${status.error ?? "Unknown error"}`);
-				void showActionableMessage("error", `LiteLLM: Model sync failed - ${status.error ?? "Unknown error"}`, [
+				logger.log(`Model sync failed: ${status.error}`);
+				void showActionableMessage("error", `LiteLLM: Model sync failed - ${status.error}`, [
 					viewOutputAction(outputChannel),
 					reconfigureAction(),
 					reportIssueAction(),
