@@ -449,5 +449,15 @@ suite("provider/auth", () => {
 			assert.notStrictEqual(oauthCredentialFingerprint(oauthConfig({ tokenUrl: "http://idp.test/other" })), base);
 			assert.notStrictEqual(oauthCredentialFingerprint(oauthConfig({ scopes: "read" })), base);
 		});
+
+		test("field boundaries are unambiguous: content shifted across fields never collides", () => {
+			// The fields are free-form strings, so a delimiter join would make
+			// {clientId: "a\nb", clientSecret: "c"} and {clientId: "a",
+			// clientSecret: "b\nc"} hash identically and share a cached token
+			// across genuinely different credentials.
+			const shifted = oauthCredentialFingerprint(oauthConfig({ clientId: "a\nb", clientSecret: "c" }));
+			const original = oauthCredentialFingerprint(oauthConfig({ clientId: "a", clientSecret: "b\nc" }));
+			assert.notStrictEqual(shifted, original);
+		});
 	});
 });

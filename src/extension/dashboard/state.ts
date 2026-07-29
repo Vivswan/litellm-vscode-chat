@@ -11,7 +11,7 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { ServerModelsSnapshot } from "../../provider";
-import type { GroupServer, LiteLLMModelInfo } from "../../provider/groupModels";
+import type { GroupServer, PreAttachModelInfo } from "../../provider/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/groupModels";
 import { normalizeBaseUrl } from "../../shared/baseUrl";
 import { CMD, INTERNAL_CMD } from "../../shared/commandIds";
@@ -24,7 +24,7 @@ import type { ServerStatus } from "../../shared/servers";
 import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, normalizeModelParameters } from "../../shared/settings";
 import { EXTENSION_SETTINGS_FILTER } from "../serverManagement";
 import type { DeclaredServer, DeclaredServerView } from "../serverSync";
-import { acceptedEntry } from "../serverSync";
+import { acceptedEntry, inlineSecretValues } from "../serverSync";
 import type {
 	BooleanSettingId,
 	DashboardCommandId,
@@ -254,7 +254,7 @@ function buildServers(
 	return { servers, snapshotLabels: labeled.map((entry) => displayLabels.get(entry) ?? entry.label) };
 }
 
-function buildModel(info: LiteLLMModelInfo, serverLabel: string): DashboardModel {
+function buildModel(info: PreAttachModelInfo, serverLabel: string): DashboardModel {
 	return {
 		id: info.id,
 		name: info.name,
@@ -682,9 +682,10 @@ export function validateNumberSetting(setting: NumberSettingId, value: number | 
 /**
  * Header-record parity with the request path (shared/settings silently drops
  * offenders at request time): names must be RFC 9110 tokens and values must
- * not carry line breaks, so an accepted write is a header that is actually
- * sent. Also refuses prototype-polluting keys, mirroring the editors'
- * validation for messages that bypassed them.
+ * pass the same isValidHeaderValue predicate normalizeCustomHeaders applies,
+ * so an accepted write is a header that is actually sent. Also refuses
+ * prototype-polluting keys, mirroring the editors' validation for messages
+ * that bypassed them.
  */
 export function validateHeadersRecord(value: Readonly<Record<string, HeaderScalar>>): string | undefined {
 	for (const [name, headerValue] of Object.entries(value)) {
@@ -694,9 +695,8 @@ export function validateHeadersRecord(value: Readonly<Record<string, HeaderScala
 		if (!isValidHeaderName(name)) {
 			return `"${name}" is not a valid HTTP header name`;
 		}
-		const text = String(headerValue);
-		if (text.includes("\r") || text.includes("\n")) {
-			return `The value of header "${name}" contains line breaks`;
+		if (!isValidHeaderValue(String(headerValue))) {
+			return `The value of header "${name}" cannot be sent as an HTTP header`;
 		}
 	}
 	return undefined;
@@ -796,26 +796,15 @@ function entryHasLabel(entry: unknown, label: string): entry is Record<string, u
  * prefill (the readInlineSecrets request). The entry resolves through
  * acceptedEntry, so the values come from exactly the entry the dashboard
  * row describes (a rejected same-label sibling cannot shadow it, and a label
- * the parser rejects yields nothing). A field counts as inline exactly when
- * the sync engine would read it from the entry - the parsed entry carries
- * only usable strings, trimmed like parseServersSetting trims - so this
- * agrees with the "settings" location the declared views report. Fields
- * stored securely or absent get NO key - their values must never reach the
- * webview. The returned values are never logged.
+ * the parser rejects yields nothing), and the values come from
+ * inlineSecretValues, the sync engine's own rule for what counts as inline -
+ * so the prefilled fields are exactly the ones whose pushed location reads
+ * "settings". Fields stored securely or absent get NO key: their values must
+ * never reach the webview. The returned values are never logged.
  */
 export function readInlineSecretValues(raw: unknown, label: string): Readonly<Partial<Record<SecretFieldId, string>>> {
 	const accepted = acceptedEntry(raw, label);
-	if (accepted === undefined) {
-		return {};
-	}
-	const values: { -readonly [K in SecretFieldId]?: string } = {};
-	for (const field of SECRET_FIELD_IDS) {
-		const value = accepted.entry[field];
-		if (value !== undefined) {
-			values[field] = value;
-		}
-	}
-	return values;
+	return accepted === undefined ? {} : inlineSecretValues(accepted.entry);
 }
 
 /**
@@ -930,9 +919,9 @@ async function applySaveServerSetting(
 			case "clear":
 				return { kind: "cleared" };
 			case "keep": {
-				// The parsed entry carries only usable inline values, so a kept
-				// field is inline exactly when the sync engine would read it inline.
-				const inline = existing?.[field];
+				// Inline exactly when the sync engine reads it inline: the shared
+				// inlineSecretValues rule, not a re-derivation.
+				const inline = existing === undefined ? undefined : inlineSecretValues(existing)[field];
 				if (inline !== undefined) {
 					return { kind: "kept-inline", value: inline };
 				}

@@ -36,10 +36,12 @@ export function isValidHeaderName(name: string): boolean {
 
 /**
  * Whether a string can travel as an HTTP header value: tab, visible ASCII,
- * and RFC 9110 obs-text; no CR/LF/NUL or other control octets. Values that
- * fail this must never reach the platform's Headers, whose TypeError embeds
- * the full plaintext value.
+ * and RFC 9110 obs-text; no CR/LF/NUL or other control octets. Empty is
+ * legal (RFC 9110 allows an empty field value); callers for whom a value is
+ * a credential (virtual keys, OAuth tokens) require non-empty separately.
+ * Values that fail this must never reach the platform's Headers, whose
+ * TypeError embeds the full plaintext value.
  */
 export function isValidHeaderValue(value: string): boolean {
-	return value.length > 0 && /^[\t\x20-\x7e\x80-\xff]+$/.test(value);
+	return /^[\t\x20-\x7e\x80-\xff]*$/.test(value);
 }

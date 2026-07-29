@@ -13,6 +13,7 @@ import {
 	formatJsonValue,
 	isUnsafeRecordKey,
 	isValidHeaderName,
+	isValidHeaderValue,
 	parseHeaderValue,
 	parseJsonValue,
 } from "./protocol";
@@ -120,8 +121,9 @@ export type HeaderRowsParse =
  * Parse draft header rows into the headers record, or the row-aligned
  * problems that block it. Rows must satisfy what the request path enforces
  * (shared/settings drops offenders silently at request time): RFC 9110 token
- * names and values without line breaks. Rejecting them here keeps Apply from
- * "succeeding" on a header that would never be sent.
+ * names and values that pass the shared isValidHeaderValue predicate.
+ * Rejecting them here keeps Apply from "succeeding" on a header that would
+ * never be sent.
  */
 export function parseHeaderRows(rows: readonly HeaderRow[]): HeaderRowsParse {
 	const duplicateNames = duplicates(rows.map((row) => row.name.trim()));
@@ -136,9 +138,8 @@ export function parseHeaderRows(rows: readonly HeaderRow[]): HeaderRowsParse {
 			return "Not a valid HTTP header name";
 		}
 		const value = parseHeaderValue(row.valueText);
-		const text = String(value);
-		if (text.includes("\r") || text.includes("\n")) {
-			return "Header values cannot contain line breaks";
+		if (!isValidHeaderValue(String(value))) {
+			return "This value cannot be sent as an HTTP header";
 		}
 		headers[name] = value;
 		return undefined;

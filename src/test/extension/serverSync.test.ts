@@ -1,5 +1,7 @@
 import * as assert from "node:assert";
-import type { SecretStore, ServerSyncEnv, StoredServerSecrets } from "../../extension/serverSync";
+import * as vscode from "vscode";
+import { readInlineSecretValues } from "../../extension/dashboard/state";
+import type { DeclaredServer, SecretStore, ServerSyncEnv, StoredServerSecrets } from "../../extension/serverSync";
 import {
 	acceptedEntry,
 	buildGroupArgs,
@@ -7,14 +9,18 @@ import {
 	deleteServerSecrets,
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
 	GROUP_UPSERT_FAILED_MESSAGE,
+	inlineSecretValues,
 	parseServersSetting,
 	readServerSecrets,
 	SECRETS_READ_FAILED_MESSAGE,
 	ServerSyncEngine,
 	updateServerSecret,
 } from "../../extension/serverSync";
-import { groupClientId } from "../../provider/groupModels";
+import { groupClientId, parseGroupConfiguration } from "../../provider/groupModels";
+import { normalizeBaseUrl } from "../../shared/baseUrl";
+import { CMD } from "../../shared/commandIds";
 import { serverSecretsKey } from "../../shared/storageKeys";
+import { withConfig } from "../testUtils";
 
 function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {
 	const values = new Map(Object.entries(initial));
@@ -650,7 +656,7 @@ suite("extension/serverSync", () => {
 			assert.ok(a !== undefined && b !== undefined);
 			assert.strictEqual(
 				a.expectedClientId,
-				groupClientId({ baseUrl: "http://x.test", apiKey: "sk-a" }),
+				groupClientId({ baseUrl: normalizeBaseUrl("http://x.test"), apiKey: "sk-a" }),
 				"the same identity the provider stamps on its status snapshots"
 			);
 			assert.notStrictEqual(
@@ -690,7 +696,7 @@ suite("extension/serverSync", () => {
 			assert.strictEqual(
 				oauth?.expectedClientId,
 				groupClientId({
-					baseUrl: "http://oauth.test",
+					baseUrl: normalizeBaseUrl("http://oauth.test"),
 					apiKey: "",
 					oauth: { tokenUrl: "https://idp.test/token", clientId: "client", clientSecret: "cs-1", scopes: "read write" },
 				}),
@@ -699,7 +705,7 @@ suite("extension/serverSync", () => {
 			assert.strictEqual(
 				virtualKey?.expectedClientId,
 				groupClientId({
-					baseUrl: "http://vk.test",
+					baseUrl: normalizeBaseUrl("http://vk.test"),
 					apiKey: "",
 					virtualKey: { header: "x-litellm-api-key", value: "vk-1" },
 				}),
@@ -747,6 +753,155 @@ suite("extension/serverSync", () => {
 			assert.strictEqual(passes, 1);
 			assert.strictEqual(recorded.upserts.length, 1);
 			engine.dispose();
+		});
+	});
+
+	suite("buildGroupArgs round trip through parseGroupConfiguration", () => {
+		test("an entry populating every descriptor field survives the host-configuration parse intact", () => {
+			// buildGroupArgs is the writer of the provider-group configuration and
+			// parseGroupConfiguration the reader; both iterate
+			// OPTIONAL_ENTRY_FIELDS, so a descriptor field can only ship if it
+			// round-trips here.
+			const entry: DeclaredServer = {
+				label: "Everything",
+				baseUrl: "http://round.test/",
+				apiKey: "sk-inline",
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "client-1",
+				oauthClientSecret: "cs-1",
+				oauthScopes: "models.read models.write",
+				virtualKeyHeader: "x-litellm-key",
+				virtualKeyValue: "vk-1",
+			};
+			const args = buildGroupArgs(entry, {});
+			const server = parseGroupConfiguration(args);
+
+			assert.deepStrictEqual(server, {
+				baseUrl: normalizeBaseUrl("http://round.test"),
+				apiKey: "sk-inline",
+				oauth: {
+					tokenUrl: "https://idp.test/token",
+					clientId: "client-1",
+					clientSecret: "cs-1",
+					scopes: "models.read models.write",
+				},
+				virtualKey: { header: "x-litellm-key", value: "vk-1" },
+			});
+		});
+	});
+
+	suite("inlineSecretValues", () => {
+		test("reports exactly the secret fields the entry carries inline", () => {
+			const entry: DeclaredServer = {
+				label: "Prod",
+				baseUrl: "http://prod.test",
+				apiKey: "sk-inline",
+				oauthClientId: "client-1",
+				virtualKeyValue: "vk-inline",
+			};
+			assert.deepStrictEqual(inlineSecretValues(entry), { apiKey: "sk-inline", virtualKeyValue: "vk-inline" });
+			assert.deepStrictEqual(inlineSecretValues({ label: "Bare", baseUrl: "http://bare.test" }), {});
+		});
+
+		test("buildGroupArgs prefers the inline value exactly where inlineSecretValues reports one", () => {
+			// The dormancy rule everywhere ("a stored secret stays dormant behind
+			// an inline value") is this agreement: for every secret field, the
+			// argument sent to the host is the inline value when
+			// inlineSecretValues holds the field, the stored one otherwise.
+			const entry: DeclaredServer = {
+				label: "Mixed",
+				baseUrl: "http://mixed.test",
+				apiKey: "sk-inline",
+				virtualKeyHeader: "x-vk",
+			};
+			const stored: StoredServerSecrets = { apiKey: "sk-stored", oauthClientSecret: "cs-stored" };
+			const args = buildGroupArgs(entry, stored);
+			const inline = inlineSecretValues(entry);
+			for (const field of ["apiKey", "oauthClientSecret", "virtualKeyValue"] as const) {
+				assert.strictEqual(args[field], inline[field] ?? stored[field], field);
+			}
+		});
+	});
+
+	suite("secret-location parity with the dashboard prefill", () => {
+		test("the edit form's prefill keys are exactly the fields whose pushed location is settings", async () => {
+			// One fixture through both paths: the engine's declared views carry
+			// the locations the dashboard state pushes, and readInlineSecretValues
+			// answers the edit form's prefill request. Both derive from
+			// inlineSecretValues, and this pins the agreement end to end.
+			const setting = [
+				{
+					label: "Mixed",
+					baseUrl: "http://mixed.test",
+					apiKey: "sk-inline",
+					virtualKeyHeader: "x-vk",
+					virtualKeyValue: "vk-inline",
+					oauthTokenUrl: "https://idp.test/token",
+					oauthClientId: "client-1",
+				},
+				{ label: "Secure", baseUrl: "http://secure.test" },
+			];
+			const recorded = makeSyncEnv(setting, { Secure: { apiKey: "sk-stored" } });
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			for (const view of engine.getDeclared()) {
+				const prefill = readInlineSecretValues(setting, view.label);
+				const settingsLocated = Object.entries(view.secrets)
+					.filter(([, location]) => location === "settings")
+					.map(([field]) => field)
+					.sort();
+				assert.deepStrictEqual(
+					Object.keys(prefill).sort(),
+					settingsLocated,
+					`prefill keys for "${view.label}" must equal the fields pushed as "settings"`
+				);
+			}
+			const secure = engine.getDeclared().find((view) => view.label === "Secure");
+			assert.strictEqual(secure?.secrets.apiKey, "secure", "the stored-only field reads secure, never prefilled");
+		});
+	});
+
+	suite("Set Server Secret palette", () => {
+		test("warns that the stored secret stays dormant when the entry holds an inline value", async () => {
+			const original = {
+				showQuickPick: vscode.window.showQuickPick,
+				showInputBox: vscode.window.showInputBox,
+				showWarningMessage: vscode.window.showWarningMessage,
+			};
+			const warnings: string[] = [];
+			let storedValue = "sk-freshly-stored";
+			(vscode.window as Record<string, unknown>).showQuickPick = async (items: { label: string }[]) => items[0];
+			(vscode.window as Record<string, unknown>).showInputBox = async () => storedValue;
+			(vscode.window as Record<string, unknown>).showWarningMessage = async (message: string) => {
+				warnings.push(message);
+				return undefined;
+			};
+			try {
+				// The registered command re-reads the setting through
+				// getConfiguration, so withConfig serves it the fixture entry whose
+				// apiKey (the first quick-pick field) sits inline.
+				await withConfig(
+					{ servers: [{ label: "Dormancy Probe", baseUrl: "http://dormant.test", apiKey: "sk-inline" }] },
+					async () => {
+						await vscode.commands.executeCommand(CMD.setServerSecret);
+						assert.strictEqual(warnings.length, 1, "storing behind an inline value must warn");
+						const warning = warnings[0] ?? "";
+						assert.ok(/inline values take precedence/.test(warning), warning);
+						assert.ok(!warning.includes("sk-"), "the warning names the field, never a value");
+
+						// Cleanup through the same command: an empty value removes the
+						// stored secret, and removal must not warn about dormancy.
+						storedValue = "";
+						await vscode.commands.executeCommand(CMD.setServerSecret);
+						assert.strictEqual(warnings.length, 1, "clearing the stored value fires no dormancy warning");
+					}
+				);
+			} finally {
+				(vscode.window as Record<string, unknown>).showQuickPick = original.showQuickPick;
+				(vscode.window as Record<string, unknown>).showInputBox = original.showInputBox;
+				(vscode.window as Record<string, unknown>).showWarningMessage = original.showWarningMessage;
+			}
 		});
 	});
 });

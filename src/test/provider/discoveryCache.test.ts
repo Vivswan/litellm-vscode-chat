@@ -3,7 +3,8 @@ import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../provider";
 import { DiscoveryCache } from "../../provider/discoveryCache";
-import { groupClientId, type LiteLLMModelInfo } from "../../provider/groupModels";
+import { groupClientId, type PreAttachModelInfo } from "../../provider/groupModels";
+import { normalizeBaseUrl } from "../../shared/baseUrl";
 import type { AggregatedStatus } from "../../shared/servers";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, withConfig } from "../testUtils";
@@ -241,7 +242,7 @@ suite("provider group discovery caching", () => {
 		const provider = new LiteLLMChatModelProvider(
 			"GitHubCopilotChat/test VSCode/test",
 			undefined,
-			new DiscoveryCache<readonly LiteLLMModelInfo[]>(clock.now)
+			new DiscoveryCache<readonly PreAttachModelInfo[]>(clock.now)
 		);
 		const counter = countingHandlers();
 		await provider.provideLanguageModelChatInformation(groupOptions(GROUP), cancellation());
@@ -336,8 +337,8 @@ suite("provider group discovery caching", () => {
 		const provider = makeProvider();
 		provider.setGrouplessRegistryEnabled(() => false);
 		countingHandlers();
-		const oldGroup = { baseUrl: TEST_BASE_URL, apiKey: "old-key" };
-		const newGroup = { baseUrl: TEST_BASE_URL, apiKey: "new-key" };
+		const oldGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "old-key" };
+		const newGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "new-key" };
 		const internals = provider as unknown as { _discoveryCache: DiscoveryCache<unknown> };
 		const groupless = () => provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 

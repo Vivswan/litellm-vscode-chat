@@ -235,7 +235,10 @@ suite("shared/settings: object-setting contributions drift guard", () => {
 	test("the servers setting is machine-scoped", () => {
 		// Load-bearing (see AGENTS.md, Storage): user settings only, so a
 		// workspace cannot re-point a label at another host to harvest its
-		// stored secrets.
+		// stored secrets. The dashboard panel's readServersSetting reads
+		// inspect(...).globalValue and writes ConfigurationTarget.Global, and
+		// the dev seed writes the Global scope too; both are correct only
+		// while this scope keeps workspace values out of the merge.
 		const { properties } = readPackageJson().contributes.configuration;
 		const schema = settingSchema(properties, SERVERS_SETTING_KEY);
 		assert.strictEqual(schema.scope, "machine");

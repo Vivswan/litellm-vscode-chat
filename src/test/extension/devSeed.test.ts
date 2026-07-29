@@ -38,7 +38,7 @@ function makeEnv(initialSetting?: unknown) {
 			writes.push([...value]);
 			setting = value;
 		},
-		storeApiKey: (label, value) => updateServerSecret(storage.secrets, label, "apiKey", value),
+		clearApiKey: (label) => updateServerSecret(storage.secrets, label, "apiKey", undefined),
 	};
 	return {
 		env,
@@ -182,7 +182,7 @@ suite("extension/devSeed", () => {
 		);
 		const fake = makeEnv();
 		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run");
-		fake.env.storeApiKey = async () => {
+		fake.env.clearApiKey = async () => {
 			throw new Error("secret store refused");
 		};
 

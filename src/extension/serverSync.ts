@@ -235,6 +235,27 @@ export interface ServerSyncEnv {
 }
 
 /**
+ * The inline (in-settings) secret values of a parsed entry: THE rule for
+ * "this field is stored inline in the servers setting", and inline values
+ * outrank the label's SecretStorage blob. One home, several consumers, so
+ * they cannot drift: buildGroupArgs resolves each secret through it,
+ * secretLocations reports "settings" exactly for its keys, the dashboard's
+ * edit-form prefill (readInlineSecretValues) returns exactly it, and the
+ * Set Server Secret palette warns about a dormant stored value exactly when
+ * it holds the field. Values are secrets: never log or push them.
+ */
+export function inlineSecretValues(entry: DeclaredServer): Readonly<Partial<Record<SecretFieldId, string>>> {
+	const values: { -readonly [K in SecretFieldId]?: string } = {};
+	for (const field of SECRET_FIELD_IDS) {
+		const value = entry[field];
+		if (value !== undefined) {
+			values[field] = value;
+		}
+	}
+	return values;
+}
+
+/**
  * The provider-group command arguments for one entry with its secrets
  * resolved. Fields ride in OPTIONAL_ENTRY_FIELDS order after name, vendor,
  * and baseUrl, and that order is frozen: the persisted sync fingerprint
@@ -242,9 +263,10 @@ export interface ServerSyncEnv {
  */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
 	const args: Record<string, string> = { name: entry.label, vendor: VENDOR_ID, baseUrl: entry.baseUrl };
+	const inline = inlineSecretValues(entry);
 	for (const field of OPTIONAL_ENTRY_FIELDS) {
 		// Inline settings values outrank the label's SecretStorage blob.
-		const value = field.secret ? (entry[field.id] ?? stored[field.id]) : entry[field.id];
+		const value = field.secret ? (inline[field.id] ?? stored[field.id]) : entry[field.id];
 		if (value !== undefined) {
 			args[field.id] = value;
 		}
@@ -252,17 +274,11 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
 	return args;
 }
 
-function secretLocation(entry: DeclaredServer, stored: StoredServerSecrets, field: SecretFieldId): SecretLocation {
-	if (entry[field] !== undefined) {
-		return "settings";
-	}
-	return stored[field] !== undefined ? "secure" : "none";
-}
-
 function secretLocations(entry: DeclaredServer, stored: StoredServerSecrets): Record<SecretFieldId, SecretLocation> {
+	const inline = inlineSecretValues(entry);
 	const locations = {} as Record<SecretFieldId, SecretLocation>;
 	for (const field of SECRET_FIELD_IDS) {
-		locations[field] = secretLocation(entry, stored, field);
+		locations[field] = inline[field] !== undefined ? "settings" : stored[field] !== undefined ? "secure" : "none";
 	}
 	return locations;
 }
@@ -684,9 +700,10 @@ export function registerSetServerSecretCommand(
 				field: fieldPick.field,
 				cleared: value.length === 0,
 			});
-			if (value.length > 0 && entryPick.entry[fieldPick.field] !== undefined) {
-				// Inline settings values outrank the stored blob, so the just-stored
-				// secret stays dormant until the inline one is removed.
+			if (value.length > 0 && inlineSecretValues(entryPick.entry)[fieldPick.field] !== undefined) {
+				// Inline settings values outrank the stored blob (the same
+				// inlineSecretValues rule buildGroupArgs resolves through), so the
+				// just-stored secret stays dormant until the inline one is removed.
 				void vscode.window.showWarningMessage(
 					`"${entryPick.label}" also sets ${fieldPick.field} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.`
 				);

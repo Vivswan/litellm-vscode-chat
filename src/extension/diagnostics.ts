@@ -14,7 +14,7 @@ import { classifyOverall } from "./dashboard/protocol";
 import { buildDashboardState } from "./dashboard/state";
 import type { ServerRegistry } from "./serverRegistry";
 import type { DeclaredServerView } from "./serverSync";
-import { parseServersSetting } from "./serverSync";
+import { inlineSecretValues, parseServersSetting } from "./serverSync";
 import type { ConnectionStatus } from "./status";
 import { statusServerStatuses, statusTotalModels } from "./status";
 
@@ -211,14 +211,16 @@ function buildLegacyDiagnosticsMessage(servers: readonly ServerConfig[], status:
  * DeclaredServerView equivalents straight from the setting, for the window
  * right after activation when the sync engine's first pass has not landed
  * yet. Secret locations reflect only what the setting itself can prove: an
- * inline value reads as "settings", anything else as "none" (a secure blob
- * may exist, but checking it is async and the dialog never shows locations).
+ * inline value (per the sync engine's own inlineSecretValues rule) reads as
+ * "settings", anything else as "none" (a secure blob may exist, but checking
+ * it is async and the dialog never shows locations).
  */
 function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
 	return parseServersSetting(raw).entries.map((entry) => {
+		const inline = inlineSecretValues(entry);
 		const secrets = {} as Record<SecretFieldId, SecretLocation>;
 		for (const field of SECRET_FIELD_IDS) {
-			secrets[field] = entry[field] !== undefined ? "settings" : "none";
+			secrets[field] = inline[field] !== undefined ? "settings" : "none";
 		}
 		return { label: entry.label, baseUrl: entry.baseUrl, ...pickNonSecretOptionalFields(entry), secrets };
 	});
