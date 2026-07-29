@@ -1,6 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
-import type { DashboardServer, DashboardState, ExtensionToWebviewMessage } from "../../extension/dashboard/protocol";
-import { classifyOverall, failuresAfterStatePush } from "../../extension/dashboard/protocol";
+import type {
+	DashboardIntentType,
+	DashboardServer,
+	DashboardState,
+	ExtensionToWebviewMessage,
+} from "../../extension/dashboard/protocol";
+import { classifyOverall, failuresAfterStatePush, isExtensionMessageType } from "../../extension/dashboard/protocol";
 import { ModelsSection } from "./models";
 import type { IntentFailure } from "./recordEditors";
 import { ServersSection } from "./servers";
@@ -10,19 +15,19 @@ import { postMessage } from "./vscodeApi";
 /**
  * Messages arriving on the window come from the extension only (the CSP
  * allows no other frames), so a shape check on the discriminant suffices.
+ * The accepted set is derived from the message union in the protocol module,
+ * so a new message type cannot be silently dropped here.
  */
 function asExtensionMessage(data: unknown): ExtensionToWebviewMessage | undefined {
 	if (typeof data !== "object" || data === null) {
 		return undefined;
 	}
 	const type = (data as { type?: unknown }).type;
-	return type === "state" || type === "intentFailed" || type === "intentSucceeded" || type === "inlineSecrets"
-		? (data as ExtensionToWebviewMessage)
-		: undefined;
+	return isExtensionMessageType(type) ? (data as ExtensionToWebviewMessage) : undefined;
 }
 
 /** The latest reported intent failures, keyed by the failed intent's type. */
-export type FailuresByIntent = Readonly<Record<string, IntentFailure>>;
+export type FailuresByIntent = Readonly<Partial<Record<DashboardIntentType, IntentFailure>>>;
 
 /**
  * The latest inlineSecrets response (the edit form's on-demand prefill); the
@@ -179,7 +184,7 @@ export function App() {
 		return <LoadingSkeleton />;
 	}
 
-	const dismissFailure = (intentType: string) => {
+	const dismissFailure = (intentType: DashboardIntentType) => {
 		setFailures((current) => {
 			const { [intentType]: _dropped, ...rest } = current;
 			return rest;

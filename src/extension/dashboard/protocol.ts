@@ -249,20 +249,43 @@ function formatDuration(ms: number): string | undefined {
 }
 
 /**
- * The muted equivalence rendered next to a number input, recomputed from the
- * draft as the user types: millisecond durations in clock units, and the
- * TTL's special zero reading ("= every refresh"). Token counts get no
- * equivalence (a digit-grouped echo of the same number says nothing); their
- * unit suffix on the input carries the meaning.
+ * One number-setting draft parsed once: rejected with the reason to render,
+ * an empty draft that clears a nullable setting, or the committed value. The
+ * error display, the commit, and the equivalence hint all read this one
+ * parse, so a keystroke is judged exactly once.
  */
-export function equivalence(id: NumberSettingId, draft: string): string | undefined {
-	const trimmed = draft.trim();
+export type NumberDraftParse =
+	| { readonly kind: "invalid"; readonly problem: string }
+	| { readonly kind: "clear" }
+	| { readonly kind: "value"; readonly value: number };
+
+export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraftParse {
+	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
+	const trimmed = text.trim();
 	if (trimmed.length === 0) {
-		return undefined;
+		return spec.nullable ? { kind: "clear" } : { kind: "invalid", problem: "Enter a number" };
 	}
 	const value = Number(trimmed);
+	if (!Number.isFinite(value)) {
+		return { kind: "invalid", problem: "Not a number" };
+	}
+	if (value < spec.minimum) {
+		return { kind: "invalid", problem: `Must be at least ${spec.minimum}` };
+	}
+	return { kind: "value", value };
+}
+
+/**
+ * The muted equivalence rendered next to a number input, recomputed from the
+ * parsed draft as the user types: millisecond durations in clock units, and
+ * the TTL's special zero reading ("= every refresh"). Takes the value
+ * parseNumberDraft committed to, so it cannot re-read the raw text by other
+ * rules. Token counts get no equivalence (a digit-grouped echo of the same
+ * number says nothing); their unit suffix on the input carries the meaning.
+ */
+export function equivalence(id: NumberSettingId, value: number): string | undefined {
 	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
-	if (!Number.isFinite(value) || value < spec.minimum || spec.unit !== "ms") {
+	if (spec.unit !== "ms") {
 		return undefined;
 	}
 	if (value === 0) {
@@ -400,6 +423,24 @@ export type ExtensionToWebviewMessage =
 type AckedIntentType = Extract<WebviewToExtensionMessage, { requestId: string }>["type"] & DashboardIntentType;
 
 /**
+ * Every extension-to-webview discriminant, as a Record over the union: a
+ * message type added to ExtensionToWebviewMessage stops compiling until it is
+ * registered here, instead of being silently dropped by the webview's
+ * receive guard.
+ */
+const EXTENSION_MESSAGE_TYPES: Readonly<Record<ExtensionToWebviewMessage["type"], true>> = {
+	state: true,
+	inlineSecrets: true,
+	intentSucceeded: true,
+	intentFailed: true,
+};
+
+/** Whether an incoming discriminant names an extension-to-webview message; the webview's receive guard. */
+export function isExtensionMessageType(type: unknown): type is ExtensionToWebviewMessage["type"] {
+	return typeof type === "string" && Object.hasOwn(EXTENSION_MESSAGE_TYPES, type);
+}
+
+/**
  * The intents whose outcome arrives as its own correlated notice
  * (intentSucceeded or intentFailed echoing the intent's requestId). Their
  * failure notices survive state pushes: a push is not their success signal,
@@ -416,12 +457,15 @@ const ACKED_INTENT_TYPES: Readonly<Record<AckedIntentType, true>> = {
 	adoptServer: true,
 };
 
-const ACKED_INTENT_TYPE_SET: ReadonlySet<string> = new Set(Object.keys(ACKED_INTENT_TYPES));
-
-/** The failure notices a state push leaves standing; see ACKED_INTENT_TYPES. */
-export function failuresAfterStatePush<T>(failures: Readonly<Record<string, T>>): Readonly<Record<string, T>> {
-	const kept = Object.entries(failures).filter(([intentType]) => ACKED_INTENT_TYPE_SET.has(intentType));
-	return kept.length === Object.keys(failures).length ? failures : Object.fromEntries(kept);
+/** The failure notices a state push leaves standing, keyed like FailuresByIntent; see ACKED_INTENT_TYPES. */
+export function failuresAfterStatePush<K extends string, V>(
+	failures: Readonly<Partial<Record<K, V>>>
+): Readonly<Partial<Record<K, V>>> {
+	const kept = Object.entries(failures).filter(([intentType]) => Object.hasOwn(ACKED_INTENT_TYPES, intentType));
+	if (kept.length === Object.keys(failures).length) {
+		return failures;
+	}
+	return Object.fromEntries(kept) as Partial<Record<K, V>>;
 }
 
 /** Actions the webview can trigger; the extension maps each ID to the command it already registers. */

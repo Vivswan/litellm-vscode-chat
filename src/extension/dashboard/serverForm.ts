@@ -1,10 +1,12 @@
 /**
  * The server form's pure model: the draft the inline Add/Edit server form
- * edits, its validation, and the assembly into the saveServerSetting intent.
- * DOM-free by construction so the extension-host unit suite covers it, and
- * shared across the trust boundary: the webview renders the problems this
- * module computes, and the extension re-validates the assembled payload with
- * the same rules (state.ts) before anything is written.
+ * edits and its parse into the saveServerSetting intent. One parser does both
+ * jobs - it either yields the assembled intent body or the field problems that
+ * block it - so validation and assembly cannot diverge. DOM-free by
+ * construction so the extension-host unit suite covers it, and shared across
+ * the trust boundary: the webview renders the problems this module computes,
+ * and the extension re-validates the assembled payload with the same rules
+ * (state.ts) before anything is written.
  */
 
 import type {
@@ -118,28 +120,73 @@ export function isUsableHttpUrl(text: string): boolean {
 	return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname.length > 0;
 }
 
-/** Whether a secret field will hold a value after this draft is applied. */
-function secretWillExist(draft: SecretFieldDraft): boolean {
-	if (draft.clear) {
-		return false;
-	}
-	return draft.value.trim().length > 0 || draft.existing !== "none";
+/**
+ * One secret field parsed once: the protocol directive the save will carry,
+ * whether the field still resolves to a value afterwards, and the value that
+ * will be in effect when the form can see it (a typed value or an unedited
+ * prefill; nothing for cleared fields or values resting in storage). Both the
+ * validation rules and the assembled intent read this one derivation, so a
+ * field the directive says is going away can never block Save on its stale
+ * input text.
+ */
+interface SecretParse {
+	readonly directive: SecretDirective;
+	readonly resolves: boolean;
+	readonly visibleValue: string | undefined;
 }
 
-/** The context a draft is validated against: sibling labels for rename-collision checks. */
+function parseSecret(draft: SecretFieldDraft): SecretParse {
+	if (draft.clear) {
+		return { directive: { action: "clear" }, resolves: false, visibleValue: undefined };
+	}
+	const value = draft.value.trim();
+	if (value.length === 0) {
+		return { directive: { action: "keep" }, resolves: draft.existing !== "none", visibleValue: undefined };
+	}
+	if (draft.prefill !== undefined && value === draft.prefill && draft.location === "settings") {
+		// The prefilled inline value, unedited and staying inline: nothing to
+		// rewrite. A changed value or a storage move (the secure radio) falls
+		// through to a real set.
+		return { directive: { action: "keep" }, resolves: true, visibleValue: value };
+	}
+	return { directive: { action: "set", location: draft.location, value }, resolves: true, visibleValue: value };
+}
+
+/** The context a draft is parsed against: sibling labels for rename-collision checks. */
 export interface ServerFormContext {
 	/** Labels of the other declared entries. */
 	readonly takenLabels?: readonly string[];
-	/** The label of the entry being edited; absent when adding. */
+	/** The label of the entry being edited; absent when adding. Doubles as the intent's replaceLabel. */
 	readonly originalLabel?: string;
 }
 
+/** The saveServerSetting intent body a clean draft parses to; the webview adds only the requestId. */
+export interface ServerFormIntent {
+	readonly server: SaveServerPayload;
+	readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
+	readonly replaceLabel?: string | undefined;
+}
+
+export type ServerFormParse =
+	| { readonly ok: true; readonly intent: ServerFormIntent }
+	| { readonly ok: false; readonly problems: ServerFormProblems };
+
 /**
- * Validate a draft. The messages never repeat an entered value: drafts carry
- * secrets, and the extension surfaces the same messages through logs and the
- * intentFailed notice.
+ * Parse a draft into the saveServerSetting intent it assembles to, or the
+ * problems that block it; there is no separate validation pass to drift from
+ * the assembly. The problem messages never repeat an entered value: drafts
+ * carry secrets, and the extension surfaces the same messages through logs
+ * and the intentFailed notice.
  */
-export function validateServerForm(draft: ServerFormDraft, context: ServerFormContext = {}): ServerFormProblems {
+export function parseServerForm(draft: ServerFormDraft, context: ServerFormContext = {}): ServerFormParse {
+	// Spelled out per field (no cast-and-loop): a secret field added to the
+	// catalog fails to compile here instead of surfacing at runtime.
+	const secrets: Record<SecretFieldId, SecretParse> = {
+		apiKey: parseSecret(draft.apiKey),
+		oauthClientSecret: parseSecret(draft.oauthClientSecret),
+		virtualKeyValue: parseSecret(draft.virtualKeyValue),
+	};
+
 	const problems: { -readonly [K in ServerFormField]?: string } = {};
 	const label = draft.label.trim();
 	if (label.length === 0) {
@@ -166,7 +213,7 @@ export function validateServerForm(draft: ServerFormDraft, context: ServerFormCo
 	// silently, so a partial one must not save as if it worked.
 	const tokenUrl = draft.oauthTokenUrl.trim();
 	const clientId = draft.oauthClientId.trim();
-	const oauthExtras = secretWillExist(draft.oauthClientSecret) || draft.oauthScopes.trim().length > 0;
+	const oauthExtras = secrets.oauthClientSecret.resolves || draft.oauthScopes.trim().length > 0;
 	if (tokenUrl.length > 0 && !isUsableHttpUrl(tokenUrl)) {
 		problems.oauthTokenUrl = "Must be a usable http(s) URL";
 	} else if ((clientId.length > 0 || oauthExtras) && tokenUrl.length === 0) {
@@ -177,24 +224,49 @@ export function validateServerForm(draft: ServerFormDraft, context: ServerFormCo
 	}
 
 	// The virtual key is likewise both-or-neither, and must be sendable as an
-	// HTTP header: the request path drops anything less without a trace.
+	// HTTP header: the request path drops anything less without a trace. The
+	// sendability check reads the parsed visible value, not the raw input, so
+	// a cleared field's stale text (sitting in a disabled input) cannot block.
 	const header = draft.virtualKeyHeader.trim();
-	const valueTyped = draft.virtualKeyValue.value.trim();
+	const virtualKey = secrets.virtualKeyValue;
 	if (header.length > 0 && !isValidHeaderName(header)) {
 		problems.virtualKeyHeader = "Not a valid HTTP header name";
-	} else if (secretWillExist(draft.virtualKeyValue) && header.length === 0) {
+	} else if (virtualKey.resolves && header.length === 0) {
 		problems.virtualKeyHeader = "Name the header that carries the key";
 	}
-	if (header.length > 0 && !secretWillExist(draft.virtualKeyValue)) {
+	if (header.length > 0 && !virtualKey.resolves) {
 		problems.virtualKeyValue = "Enter the key sent in this header";
-	} else if (valueTyped.length > 0 && !isValidHeaderValue(valueTyped)) {
+	} else if (virtualKey.visibleValue !== undefined && !isValidHeaderValue(virtualKey.visibleValue)) {
 		problems.virtualKeyValue = "The value cannot be sent as an HTTP header";
 	}
-	return problems;
-}
 
-export function hasServerFormProblems(problems: ServerFormProblems): boolean {
-	return Object.values(problems).some((problem) => problem !== undefined);
+	if (Object.values(problems).some((problem) => problem !== undefined)) {
+		return { ok: false, problems };
+	}
+
+	const server: { label: string; baseUrl: string } & { -readonly [K in NonSecretOptionalFieldId]?: string } = {
+		label,
+		baseUrl,
+	};
+	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
+		const value = draft[field].trim();
+		if (value.length > 0) {
+			server[field] = value;
+		}
+	}
+	const directives: Record<SecretFieldId, SecretDirective> = {
+		apiKey: secrets.apiKey.directive,
+		oauthClientSecret: secrets.oauthClientSecret.directive,
+		virtualKeyValue: secrets.virtualKeyValue.directive,
+	};
+	return {
+		ok: true,
+		intent: {
+			server,
+			secrets: directives,
+			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
+		},
+	};
 }
 
 /**
@@ -237,33 +309,17 @@ export function saveFailureDisposition(kind: "validation" | "operation"): "edit"
  */
 export function sectionFailureText(prefix: string, message: string): string {
 	const colon = message.indexOf(":");
-	const field = colon > 0 ? message.slice(0, colon) : undefined;
-	if (field !== undefined && Object.hasOwn(SERVER_FORM_FIELD_LABELS, field)) {
-		return `${SERVER_FORM_FIELD_LABELS[field as ServerFormField]}${message.slice(colon)}`;
+	const prefixText = colon > 0 ? message.slice(0, colon) : undefined;
+	const field = SERVER_FORM_FIELD_ORDER.find((candidate) => candidate === prefixText);
+	if (field !== undefined) {
+		return `${SERVER_FORM_FIELD_LABELS[field]}${message.slice(colon)}`;
 	}
 	return `${prefix} ${message}`;
 }
 
-function toDirective(draft: SecretFieldDraft): SecretDirective {
-	if (draft.clear) {
-		return { action: "clear" };
-	}
-	const value = draft.value.trim();
-	if (value.length === 0) {
-		return { action: "keep" };
-	}
-	if (draft.prefill !== undefined && value === draft.prefill && draft.location === "settings") {
-		// The prefilled inline value, unedited and staying inline: nothing to
-		// rewrite. A changed value or a storage move (the secure radio) falls
-		// through to a real set.
-		return { action: "keep" };
-	}
-	return { action: "set", location: draft.location, value };
-}
-
 /**
  * Merge an inlineSecrets response into the draft: each returned value lands
- * in its field's input, marked as the prefill toDirective treats as "keep".
+ * in its field's input, marked as the prefill parseSecret treats as "keep".
  * Only fields whose storage is inline and that the user has not already typed
  * into or marked for removal are touched, so a slow response never clobbers
  * an edit in progress.
@@ -288,34 +344,4 @@ export function applyInlinePrefill(
 		next = { ...next, [field]: { ...current, value, prefill: value } };
 	}
 	return next;
-}
-
-/** The saveServerSetting intent for a validated draft. Call only when validateServerForm is clean. */
-export function assembleServerForm(
-	draft: ServerFormDraft,
-	replaceLabel?: string
-): {
-	server: SaveServerPayload;
-	secrets: Record<SecretFieldId, SecretDirective>;
-	replaceLabel?: string | undefined;
-} {
-	const server: { label: string; baseUrl: string } & { -readonly [K in NonSecretOptionalFieldId]?: string } = {
-		label: draft.label.trim(),
-		baseUrl: draft.baseUrl.trim(),
-	};
-	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
-		const value = draft[field].trim();
-		if (value.length > 0) {
-			server[field] = value;
-		}
-	}
-	const secrets = {} as Record<SecretFieldId, SecretDirective>;
-	for (const field of SECRET_FIELD_IDS) {
-		secrets[field] = toDirective(draft[field]);
-	}
-	return {
-		server,
-		secrets,
-		...(replaceLabel !== undefined ? { replaceLabel } : {}),
-	};
 }

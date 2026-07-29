@@ -1,15 +1,19 @@
 import * as assert from "node:assert";
+import type { NumberSettingId } from "../../../extension/dashboard/protocol";
 import {
 	BOOLEAN_SETTING_IDS,
 	draftSyncKey,
 	equivalence,
 	failuresAfterStatePush,
 	formatHeaderValue,
+	isExtensionMessageType,
 	NUMBER_SETTING_IDS,
 	parseHeaderValue,
 	parseJsonValue,
+	parseNumberDraft,
 } from "../../../extension/dashboard/protocol";
-import { applyInlinePrefill, assembleServerForm, EMPTY_SERVER_FORM } from "../../../extension/dashboard/serverForm";
+import type { ServerFormDraft } from "../../../extension/dashboard/serverForm";
+import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../extension/dashboard/serverForm";
 import type {
 	AdoptableGroupCredentials,
 	DashboardIntent,
@@ -35,6 +39,13 @@ import {
 import type { DeclaredServerView } from "../../../extension/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/modelConfiguration";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
+
+/** The intent body a clean draft parses to; fails the test if the draft has problems. */
+function parseClean(draft: ServerFormDraft, originalLabel: string) {
+	const parse = parseServerForm(draft, { originalLabel });
+	assert.ok(parse.ok, "the draft must parse clean");
+	return parse.intent;
+}
 
 /** A declared-server view with every secret absent; overrides fill in the specifics. */
 function makeDeclared(overrides: Partial<DeclaredServerView> = {}): DeclaredServerView {
@@ -1324,7 +1335,7 @@ suite("extension/dashboard/state", () => {
 				readInlineSecretValues([entry], "Prod")
 			);
 			assert.strictEqual(prefilled.apiKey.value, "sk-inline", "the form shows the inline value");
-			const assembled = assembleServerForm(prefilled, "Prod");
+			const assembled = parseClean(prefilled, "Prod");
 			assert.deepStrictEqual(assembled.secrets.apiKey, { action: "keep" }, "untouched prefill assembles as keep");
 			await executeDashboardIntent({ type: "saveServerSetting", ...assembled, requestId: "req-rt" }, recorded.env);
 
@@ -1344,7 +1355,7 @@ suite("extension/dashboard/state", () => {
 				readInlineSecretValues(recorded.env.readServersSetting(), "Prod")
 			);
 			const edited = { ...prefilled, apiKey: { ...prefilled.apiKey, value: "sk-rotated" } };
-			const assembled = assembleServerForm(edited, "Prod");
+			const assembled = parseClean(edited, "Prod");
 			assert.deepStrictEqual(assembled.secrets.apiKey, { action: "set", location: "settings", value: "sk-rotated" });
 			await executeDashboardIntent({ type: "saveServerSetting", ...assembled, requestId: "req-rt2" }, recorded.env);
 
@@ -2108,6 +2119,16 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(failuresAfterStatePush(failures), failures);
 		});
 
+		test("isExtensionMessageType accepts exactly the extension-to-webview discriminants", () => {
+			for (const type of ["state", "inlineSecrets", "intentSucceeded", "intentFailed"]) {
+				assert.ok(isExtensionMessageType(type), type);
+			}
+			assert.ok(!isExtensionMessageType("saveServerSetting"), "webview-to-extension intents are not accepted");
+			assert.ok(!isExtensionMessageType("__proto__"), "inherited names never pass the own-key test");
+			assert.ok(!isExtensionMessageType(undefined));
+			assert.ok(!isExtensionMessageType(42));
+		});
+
 		test("parseJsonValue is strict JSON with an error for junk and empty input", () => {
 			assert.deepStrictEqual(parseJsonValue("0.2"), { ok: true, value: 0.2 });
 			assert.deepStrictEqual(parseJsonValue(' ["stop"] '), { ok: true, value: ["stop"] });
@@ -2130,6 +2151,26 @@ suite("extension/dashboard/state", () => {
 			}
 		});
 
+		test("parseNumberDraft: invalid, clear, and value verdicts follow the spec", () => {
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", " 300000 "), { kind: "value", value: 300000 });
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", ""), {
+				kind: "invalid",
+				problem: "Enter a number",
+			});
+			assert.deepStrictEqual(parseNumberDraft("defaultMaxInputTokens", "  "), {
+				kind: "clear",
+			});
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "soon"), { kind: "invalid", problem: "Not a number" });
+			assert.strictEqual(parseNumberDraft("requestTimeout", "999").kind, "invalid", "below the 1000 minimum");
+			assert.deepStrictEqual(parseNumberDraft("discoveryCacheTtl", "0"), { kind: "value", value: 0 });
+		});
+
+		/** The hint the settings form shows for a draft: parse once, then the equivalence of the committed value. */
+		function equivalenceOfDraft(id: NumberSettingId, draft: string): string | undefined {
+			const parse = parseNumberDraft(id, draft);
+			return parse.kind === "value" ? equivalence(id, parse.value) : undefined;
+		}
+
 		test("equivalence renders millisecond durations in clock units, pinned at the unit boundaries", () => {
 			const cases: [string, string | undefined][] = [
 				["59999", "= ~59 s"],
@@ -2140,25 +2181,26 @@ suite("extension/dashboard/state", () => {
 				["3661000", "= ~1 h 1 min"],
 			];
 			for (const [draft, expected] of cases) {
-				assert.strictEqual(equivalence("requestTimeout", draft), expected, `draft ${draft}`);
+				assert.strictEqual(equivalenceOfDraft("requestTimeout", draft), expected, `draft ${draft}`);
 			}
 		});
 
 		test("equivalence yields nothing for empty, unparsable, below-minimum, or sub-second drafts", () => {
-			assert.strictEqual(equivalence("requestTimeout", ""), undefined);
-			assert.strictEqual(equivalence("requestTimeout", "soon"), undefined);
-			assert.strictEqual(equivalence("requestTimeout", "999"), undefined, "below the 1000 minimum");
-			assert.strictEqual(equivalence("discoveryCacheTtl", "500"), undefined, "sub-second reads as milliseconds");
+			assert.strictEqual(equivalenceOfDraft("requestTimeout", ""), undefined);
+			assert.strictEqual(equivalenceOfDraft("requestTimeout", "soon"), undefined);
+			assert.strictEqual(equivalenceOfDraft("requestTimeout", "999"), undefined, "below the 1000 minimum");
+			assert.strictEqual(equivalenceOfDraft("discoveryCacheTtl", "500"), undefined, "sub-second reads as milliseconds");
 		});
 
 		test("equivalence reads the TTL's zero through zeroMeaning, and only where 0 is legal", () => {
-			assert.strictEqual(equivalence("discoveryCacheTtl", "0"), "= every refresh");
-			assert.strictEqual(equivalence("requestTimeout", "0"), undefined);
+			assert.strictEqual(equivalenceOfDraft("discoveryCacheTtl", "0"), "= every refresh");
+			assert.strictEqual(equivalenceOfDraft("requestTimeout", "0"), undefined, "0 never parses below the minimum");
+			assert.strictEqual(equivalence("requestTimeout", 0), undefined, "and the hint itself has no zero reading");
 		});
 
 		test("equivalence says nothing about token counts; the unit suffix carries the meaning", () => {
-			assert.strictEqual(equivalence("defaultMaxOutputTokens", "128000"), undefined);
-			assert.strictEqual(equivalence("defaultContextLength", "1000000"), undefined);
+			assert.strictEqual(equivalenceOfDraft("defaultMaxOutputTokens", "128000"), undefined);
+			assert.strictEqual(equivalenceOfDraft("defaultContextLength", "1000000"), undefined);
 		});
 
 		test("draftSyncKey changes on a reset that only removes the configured scope, so a stale draft resyncs", () => {
