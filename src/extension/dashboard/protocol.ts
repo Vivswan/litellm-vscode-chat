@@ -583,14 +583,23 @@ export function parseJsonValue(text: string): ParsedJsonValue {
 /**
  * Parse a header value typed into the dashboard. Header values are scalars,
  * and most are plain strings, so this is lenient where parseJsonValue is
- * strict: JSON scalars are taken as typed values ("true" is a boolean, "42" a
- * number, "\"42\"" a string) and anything else is the literal string.
+ * strict: finite JSON scalars are taken as typed values ("true" is a boolean,
+ * "42" a number, "\"42\"" a string) and anything else is the literal string.
  */
 export function parseHeaderValue(text: string): HeaderScalar {
 	const trimmed = text.trim();
 	try {
 		const parsed: unknown = JSON.parse(trimmed);
-		if (typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
+		if (typeof parsed === "string" || typeof parsed === "boolean") {
+			return parsed;
+		}
+		// Non-finite numbers (JSON.parse("1e999") is Infinity) fall through to
+		// the literal string: isHeaderScalar refuses them at the setHeaders
+		// intent boundary, so parsing them as numbers would make Apply a
+		// silent no-op - the draft looks applied, no failure is acked, and the
+		// setting is never written. The literal string is the only lossless,
+		// sendable reading.
+		if (typeof parsed === "number" && Number.isFinite(parsed)) {
 			return parsed;
 		}
 	} catch {

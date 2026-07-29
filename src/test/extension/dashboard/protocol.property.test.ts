@@ -7,6 +7,7 @@ import {
 	parseHeaderValue,
 	parseJsonValue,
 } from "../../../extension/dashboard/protocol";
+import { isHeaderScalar } from "../../../shared/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -80,13 +81,13 @@ suite("extension/dashboard/protocol header value properties", () => {
 		);
 	});
 
-	test("parseHeaderValue never throws and always returns a scalar", () => {
+	test("parseHeaderValue never throws and always returns a sendable scalar", () => {
 		fc.assert(
 			fc.property(fc.string(), (text) => {
 				const value = parseHeaderValue(text);
 				assert.ok(
-					typeof value === "string" || typeof value === "number" || typeof value === "boolean",
-					"header values are scalars"
+					isHeaderScalar(value),
+					"header values satisfy the same predicate the setHeaders intent schema enforces"
 				);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
