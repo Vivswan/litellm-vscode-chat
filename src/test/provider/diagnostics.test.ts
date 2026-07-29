@@ -65,6 +65,28 @@ suite("provider/diagnostics", () => {
 		assert.ok(expectDefined(callbackStatus).serverStatuses.some((s) => s.error?.includes("Network")));
 	});
 
+	// Stays on withFetch: msw cannot produce a rejection with an empty message.
+	test("a failure with an empty message still reports a non-empty status message", async () => {
+		const provider = makeProvider(TEST_BASE_URL);
+		let callbackStatus: AggregatedStatus | undefined;
+		provider.setStatusCallback((status: AggregatedStatus) => {
+			callbackStatus = status;
+		});
+		await withFetch(
+			async () => {
+				throw new Error("");
+			},
+			() => provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token)
+		);
+
+		assert.ok(callbackStatus);
+		const failure = expectDefined(callbackStatus).serverStatuses.find((s) => s.state === "error");
+		assert.ok(
+			expectDefined(failure).error.length > 0,
+			"the error variant's message renders directly, so it must never be empty"
+		);
+	});
+
 	test("status callback reports empty model list", async () => {
 		const provider = makeProvider(TEST_BASE_URL);
 		let callbackStatus: AggregatedStatus | undefined;

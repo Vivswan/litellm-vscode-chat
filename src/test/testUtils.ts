@@ -214,17 +214,24 @@ export async function captureRequestBody(
 	return (await captureRequest(provider, model, opts, overrides)).body;
 }
 
+/** Overrides for makeServerStatus; the state-specific payload rides the matching variant. */
+type ServerStatusOverrides = Partial<
+	Pick<ServerStatus, "serverId" | "label" | "baseUrl" | "lastChecked" | "hasApiKey">
+> &
+	({ state?: "ok"; modelCount?: number } | { state: "error"; error: string });
+
 /** A ServerStatus with sensible defaults for status-driven tests. */
-export function makeServerStatus(overrides: Partial<ServerStatus> = {}): ServerStatus {
-	return {
-		serverId: "srv1",
-		label: "Prod",
-		baseUrl: "http://prod.test",
-		state: "ok",
-		modelCount: 4,
-		lastChecked: "2026-07-26T00:00:00.000Z",
-		...overrides,
+export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerStatus {
+	const common = {
+		serverId: overrides.serverId ?? "srv1",
+		label: overrides.label ?? "Prod",
+		baseUrl: overrides.baseUrl ?? "http://prod.test",
+		lastChecked: overrides.lastChecked ?? "2026-07-26T00:00:00.000Z",
+		...(overrides.hasApiKey !== undefined ? { hasApiKey: overrides.hasApiKey } : {}),
 	};
+	return overrides.state === "error"
+		? { ...common, state: "error", error: overrides.error }
+		: { ...common, state: "ok", modelCount: overrides.modelCount ?? 4 };
 }
 
 export interface FakeExtensionStorage {

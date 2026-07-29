@@ -199,6 +199,112 @@ async function persistPendingSecretDeletions(globalState: vscode.Memento, server
 type ExecuteCommand = (command: string, ...args: unknown[]) => Thenable<unknown>;
 
 /**
+ * How one server's group submission ended, for the migration loop to switch
+ * on. "seeded": the group exists and its progress record verifiably persisted,
+ * so removing the registry entry is safe. "deferred": the host did not accept
+ * the submission; retry on the next activation. "skipped": a foreign group
+ * already owns the name; the server was marked skipped and announced.
+ * "halt-pass": the progress record would not persist, which signals storage
+ * trouble every remaining submission would share - and continuing would let
+ * the next server overwrite the single pending-marker slot this server's
+ * retry depends on - so the whole pass stops.
+ */
+type SeedSubmissionOutcome = "seeded" | "deferred" | "skipped" | "halt-pass";
+
+/**
+ * Submit one registry server to the host as the provider group `record`
+ * describes and persist that progress record. This function owns the
+ * submission lifecycle's touches of PENDING_GROUP_SUBMISSION_KEY (the one
+ * other writer is finalizeIfDone's wholesale completion clear): the marker is
+ * written before the submission so a crash mid-flight is recognizable, read
+ * back on retry to tell our own interrupted submission from a foreign name
+ * collision, cleared on ordinary rejection, and cleared after success only
+ * once the seeded record verifiably survives in storage - a persist failure
+ * keeps the marker so the retry can still recognize the already-created group
+ * as our own submission.
+ */
+async function submitGroupSeed(
+	globalState: vscode.Memento,
+	logger: Logger,
+	executeCommand: ExecuteCommand,
+	current: ServerWithKey,
+	record: SeededGroup,
+	markSkipped: (serverId: string, notice: string) => Promise<void>
+): Promise<SeedSubmissionOutcome> {
+	// A crash while a submission is in flight would make the retry collide
+	// with our own group. The marker written before each submission tells
+	// that case apart from a foreign name collision, but only when the
+	// server's current identity still matches what the marker recorded.
+	// An ordinary rejection clears it: only an accepted-but-lost
+	// submission (a crash) may leave the marker standing.
+	const pending = getPendingSubmission(globalState);
+	const wasOurSubmission =
+		pending !== undefined &&
+		pending.id === record.id &&
+		pending.name === record.name &&
+		pending.baseUrl === record.baseUrl &&
+		pending.keyFingerprint === record.keyFingerprint;
+	await globalState.update(PENDING_GROUP_SUBMISSION_KEY, {
+		id: record.id,
+		name: record.name,
+		baseUrl: record.baseUrl,
+		keyFingerprint: record.keyFingerprint,
+	} satisfies PendingSubmission);
+	try {
+		await executeCommand(MIGRATE_GROUP_COMMAND, {
+			vendor: VENDOR_ID,
+			name: record.name,
+			baseUrl: record.baseUrl,
+			apiKey: current.apiKey || undefined,
+		});
+	} catch (error) {
+		if (!isDuplicateGroupError(error, record.name)) {
+			await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
+			const message = error instanceof Error ? error.message : String(error);
+			logger.log(
+				`Provider-group migration deferred server "${current.label}": not accepted (${message}); retrying on next activation`
+			);
+			return "deferred";
+		}
+		if (!wasOurSubmission) {
+			// A group with this name exists but its configuration is not
+			// readable, so equivalence with this server is unknowable.
+			await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
+			await markSkipped(
+				current.id,
+				`A language models group named "${record.name}" already exists, so server "${current.label}" was not migrated. Review the group in the language models UI, then remove the legacy server via "${MANAGE_COMMAND_TITLE}".`
+			);
+			return "skipped";
+		}
+		logger.log(
+			`Provider group "${record.name}" was created by an interrupted earlier submission; treating it as seeded`
+		);
+	}
+
+	const records = await persistSeededRecord(globalState, record);
+	await globalState.update(MIGRATED_SERVER_LABELS_KEY, mergeLabelMap(getMigratedServerLabels(globalState), records));
+
+	// Removing the entry is only safe while its progress record verifiably
+	// sits in storage: a concurrent window's wholesale write can race the
+	// record out, and an entry removed without a surviving record has
+	// nothing left to resurface it. One re-persist is attempted; if the
+	// record still does not stick, the entry stays for the next activation.
+	const recordSurvives = () =>
+		getSeededGroups(globalState).some((group) => group.id === record.id && group.name === record.name);
+	if (!recordSurvives()) {
+		await persistSeededRecord(globalState, record);
+	}
+	if (!recordSurvives()) {
+		logger.log(
+			`Provider-group migration stopped at server "${current.label}": its progress record did not persist; retrying on next activation`
+		);
+		return "halt-pass";
+	}
+	await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
+	return "seeded";
+}
+
+/**
  * Hand every registry server to VS Code as a named provider group, one server
  * at a time: seed the group, persist a progress record (with a non-secret key
  * fingerprint), merge the server's label into the label map, and remove the
@@ -278,54 +384,6 @@ export async function migrateServersToProviderGroups(
 			}
 
 			const name = disambiguateGroupName(current.label, usedNames);
-			// A crash while a submission is in flight would make the retry collide
-			// with our own group. The marker written before each submission tells
-			// that case apart from a foreign name collision, but only when the
-			// server's current identity still matches what the marker recorded.
-			// An ordinary rejection clears it: only an accepted-but-lost
-			// submission (a crash) may leave the marker standing.
-			const pending = getPendingSubmission(globalState);
-			const wasOurSubmission =
-				pending !== undefined &&
-				pending.id === current.id &&
-				pending.name === name &&
-				pending.baseUrl === current.baseUrl &&
-				pending.keyFingerprint === fingerprint(current.apiKey);
-			await globalState.update(PENDING_GROUP_SUBMISSION_KEY, {
-				id: current.id,
-				name,
-				baseUrl: current.baseUrl,
-				keyFingerprint: fingerprint(current.apiKey),
-			} satisfies PendingSubmission);
-			try {
-				await executeCommand(MIGRATE_GROUP_COMMAND, {
-					vendor: VENDOR_ID,
-					name,
-					baseUrl: current.baseUrl,
-					apiKey: current.apiKey || undefined,
-				});
-			} catch (error) {
-				if (!isDuplicateGroupError(error, name)) {
-					await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
-					const message = error instanceof Error ? error.message : String(error);
-					logger.log(
-						`Provider-group migration deferred server "${current.label}": not accepted (${message}); retrying on next activation`
-					);
-					continue;
-				}
-				if (!wasOurSubmission) {
-					// A group with this name exists but its configuration is not
-					// readable, so equivalence with this server is unknowable.
-					await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
-					await markSkipped(
-						server.id,
-						`A language models group named "${name}" already exists, so server "${current.label}" was not migrated. Review the group in the language models UI, then remove the legacy server via "${MANAGE_COMMAND_TITLE}".`
-					);
-					continue;
-				}
-				logger.log(`Provider group "${name}" was created by an interrupted earlier submission; treating it as seeded`);
-			}
-
 			const newRecord: SeededGroup = {
 				id: current.id,
 				name,
@@ -333,34 +391,15 @@ export async function migrateServersToProviderGroups(
 				baseUrl: current.baseUrl,
 				keyFingerprint: fingerprint(current.apiKey),
 			};
-			usedNames.add(name);
-			seeded = await persistSeededRecord(globalState, newRecord);
-			await globalState.update(MIGRATED_SERVER_LABELS_KEY, mergeLabelMap(getMigratedServerLabels(globalState), seeded));
-
-			// Removing the entry is only safe while its progress record verifiably
-			// sits in storage: a concurrent window's wholesale write can race the
-			// record out, and an entry removed without a surviving record has
-			// nothing left to resurface it. One re-persist is attempted; if the
-			// record still does not stick, the entry stays for the next activation.
-			// The pending marker is cleared only after the record survives, so a
-			// persist failure keeps the marker and the retry can still recognize
-			// the already-created group as our own submission.
-			const recordSurvives = () =>
-				getSeededGroups(globalState).some((group) => group.id === newRecord.id && group.name === newRecord.name);
-			if (!recordSurvives()) {
-				seeded = await persistSeededRecord(globalState, newRecord);
+			const outcome = await submitGroupSeed(globalState, logger, executeCommand, current, newRecord, markSkipped);
+			if (outcome === "deferred" || outcome === "skipped") {
+				continue;
 			}
-			if (!recordSurvives()) {
-				// Stop the pass entirely: continuing would let the next server
-				// overwrite the single pending-marker slot that this server's
-				// retry depends on, and a persist failure signals storage trouble
-				// the remaining submissions would share.
-				logger.log(
-					`Provider-group migration stopped at server "${current.label}": its progress record did not persist; retrying on next activation`
-				);
+			if (outcome === "halt-pass") {
 				break;
 			}
-			await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
+			usedNames.add(name);
+			seeded = getSeededGroups(globalState);
 
 			// The seed command validates over the network; re-read before removing
 			// so an edit from another window is never deleted.

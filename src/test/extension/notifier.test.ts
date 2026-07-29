@@ -32,13 +32,23 @@ suite("extension/notifier", () => {
 
 	teardown(() => restore());
 
-	function serverStatus(state: "ok" | "error", modelCount: number, error?: string): ServerStatus {
+	function okStatus(modelCount: number): ServerStatus {
 		return {
 			serverId: "srv1",
 			label: "Default",
 			baseUrl: "http://litellm.test",
-			state,
+			state: "ok",
 			modelCount,
+			lastChecked: new Date().toISOString(),
+		};
+	}
+
+	function errorStatus(error: string): ServerStatus {
+		return {
+			serverId: "srv1",
+			label: "Default",
+			baseUrl: "http://litellm.test",
+			state: "error",
 			error,
 			lastChecked: new Date().toISOString(),
 		};
@@ -46,17 +56,17 @@ suite("extension/notifier", () => {
 
 	const noServers = (silent = true): AggregatedStatus => ({ serverStatuses: [], totalModels: 0, silent });
 	const allFailed = (error: string, silent = true): AggregatedStatus => ({
-		serverStatuses: [serverStatus("error", 0, error)],
+		serverStatuses: [errorStatus(error)],
 		totalModels: 0,
 		silent,
 	});
 	const noModels = (silent = true): AggregatedStatus => ({
-		serverStatuses: [serverStatus("ok", 0)],
+		serverStatuses: [okStatus(0)],
 		totalModels: 0,
 		silent,
 	});
 	const success = (silent = true): AggregatedStatus => ({
-		serverStatuses: [serverStatus("ok", 3)],
+		serverStatuses: [okStatus(3)],
 		totalModels: 3,
 		silent,
 	});

@@ -20,10 +20,11 @@ import { isHeaderScalar, isValidHeaderName, isValidHeaderValue } from "../../sha
 import { isRecord, isUnsafeRecordKey } from "../../shared/json";
 import type { OptionalEntryFields } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
+import type { ServerStatus } from "../../shared/servers";
 import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, normalizeModelParameters } from "../../shared/settings";
 import { EXTENSION_SETTINGS_FILTER } from "../serverManagement";
-import type { DeclaredServerView } from "../serverSync";
-import { acceptedEntryIndex } from "../serverSync";
+import type { DeclaredServer, DeclaredServerView } from "../serverSync";
+import { acceptedEntry } from "../serverSync";
 import type {
 	BooleanSettingId,
 	DashboardCommandId,
@@ -74,9 +75,12 @@ export interface SettingsReader {
  * server IDs stay out of the state because they embed a credential
  * fingerprint.
  */
-function labeledSnapshots(
-	snapshots: readonly ServerModelsSnapshot[]
-): { snapshot: ServerModelsSnapshot; label: string }[] {
+interface LabeledSnapshot {
+	readonly snapshot: ServerModelsSnapshot;
+	readonly label: string;
+}
+
+function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): LabeledSnapshot[] {
 	// The serverId tiebreak keeps the sort total: the status window's Map
 	// re-inserts refreshed entries at the end, so without it two groups on one
 	// host would swap ordinals whenever their insertion order churned.
@@ -121,18 +125,18 @@ function adoptSourceHandle(serverId: string): string {
 
 function buildServer(snapshot: ServerModelsSnapshot, label: string): DashboardServer {
 	const { status } = snapshot;
-	return {
+	const base = {
 		label,
 		baseUrl: status.baseUrl,
-		state: status.state,
-		modelCount: status.modelCount,
-		error: status.error,
 		lastChecked: status.lastChecked,
 		hasApiKey: status.hasApiKey === true,
 		hasOAuth: false,
 		origin: "external",
 		adoptHandle: adoptSourceHandle(status.serverId),
-	};
+	} as const;
+	return status.state === "ok"
+		? { ...base, state: "ok", modelCount: status.modelCount }
+		: { ...base, state: "error", modelCount: 0, error: status.error };
 }
 
 /**
@@ -145,16 +149,16 @@ function buildServer(snapshot: ServerModelsSnapshot, label: string): DashboardSe
  * resolution, which must agree on which snapshots are external.
  */
 function joinDeclared(
-	labeled: readonly { snapshot: ServerModelsSnapshot; label: string }[],
+	labeled: readonly LabeledSnapshot[],
 	declared: readonly DeclaredServerView[]
 ): {
-	/** Labeled-snapshot index by declared index, for entries a pass matched. */
-	matchedByDeclared: Map<number, number>;
-	/** Labeled-snapshot indices no declared entry claimed: the external rows. */
-	unmatched: Set<number>;
+	/** The labeled snapshot each declared entry matched, by declared index. */
+	matchedByDeclared: Map<number, LabeledSnapshot>;
+	/** Labeled snapshots no declared entry claimed: the external rows. */
+	unmatched: Set<LabeledSnapshot>;
 } {
-	const unmatched = new Set<number>(labeled.map((_, index) => index));
-	const matchedByDeclared = new Map<number, number>();
+	const unmatched = new Set<LabeledSnapshot>(labeled);
+	const matchedByDeclared = new Map<number, LabeledSnapshot>();
 	const passes: readonly ((snapshot: ServerModelsSnapshot, view: DeclaredServerView) => boolean)[] = [
 		(snapshot, view) => view.expectedClientId !== undefined && snapshot.status.serverId === view.expectedClientId,
 		(snapshot, view) =>
@@ -167,10 +171,7 @@ function joinDeclared(
 			if (matchedByDeclared.has(declaredIndex)) {
 				return;
 			}
-			const found = [...unmatched].find((index) => {
-				const entry = labeled[index];
-				return entry !== undefined && pass(entry.snapshot, view);
-			});
+			const found = [...unmatched].find((entry) => pass(entry.snapshot, view));
 			if (found !== undefined) {
 				matchedByDeclared.set(declaredIndex, found);
 				unmatched.delete(found);
@@ -178,6 +179,32 @@ function joinDeclared(
 		});
 	}
 	return { matchedByDeclared, unmatched };
+}
+
+/**
+ * The state slice of a declared row. The sync error always rides the row's
+ * error (a live status's own error cannot mask it): the group still serving
+ * is the entry's OLD configuration, and the remove-and-resync instruction
+ * must show. A reachable group keeps its live state, though - the surfaces
+ * render the error text alongside the live facts (diagnostics'
+ * serverOutcomeText, the dashboard's per-server error list).
+ */
+function declaredOutcome(
+	status: ServerStatus | undefined,
+	syncError: string | undefined
+):
+	| { state: "ok"; modelCount: number; error?: string | undefined }
+	| { state: "error"; modelCount: number; error: string }
+	| { state: "unchecked"; modelCount: number } {
+	if (status?.state === "ok") {
+		return { state: "ok", modelCount: status.modelCount, error: syncError };
+	}
+	if (status?.state === "error") {
+		return { state: "error", modelCount: 0, error: syncError ?? status.error };
+	}
+	return syncError !== undefined
+		? { state: "error", modelCount: 0, error: syncError }
+		: { state: "unchecked", modelCount: 0 };
 }
 
 /**
@@ -195,49 +222,36 @@ function joinDeclared(
  * models table agrees with the server rows.
  */
 function buildServers(
-	labeled: readonly { snapshot: ServerModelsSnapshot; label: string }[],
+	labeled: readonly LabeledSnapshot[],
 	declared: readonly DeclaredServerView[]
 ): { servers: DashboardServer[]; snapshotLabels: string[] } {
-	const snapshotLabels = labeled.map(({ label }) => label);
 	const { matchedByDeclared, unmatched } = joinDeclared(labeled, declared);
+	const displayLabels = new Map<LabeledSnapshot, string>(labeled.map((entry) => [entry, entry.label]));
 	const servers: DashboardServer[] = [];
 	declared.forEach((view, declaredIndex) => {
-		const matchedIndex = matchedByDeclared.get(declaredIndex);
-		const status = matchedIndex !== undefined ? labeled[matchedIndex]?.snapshot.status : undefined;
-		if (matchedIndex !== undefined) {
-			snapshotLabels[matchedIndex] = view.label;
+		const matched = matchedByDeclared.get(declaredIndex);
+		if (matched !== undefined) {
+			displayLabels.set(matched, view.label);
 		}
-		const syncError = view.syncError;
 		servers.push({
 			label: view.label,
 			baseUrl: view.baseUrl,
-			// The sync error always rides the row's error (a live status's own
-			// error cannot mask it): the group still serving is the entry's OLD
-			// configuration, and the remove-and-resync instruction must show.
-			// A reachable group keeps its live state, though - the surfaces
-			// render the error text alongside the live facts (diagnostics'
-			// serverOutcomeText, the dashboard's per-server error list).
-			state: status?.state ?? (syncError !== undefined ? "error" : "unchecked"),
-			modelCount: status?.modelCount ?? 0,
-			error: syncError ?? status?.error,
-			lastChecked: status?.lastChecked,
-			hasApiKey: status?.hasApiKey === true || view.secrets.apiKey !== "none",
+			lastChecked: matched?.snapshot.status.lastChecked,
+			hasApiKey: matched?.snapshot.status.hasApiKey === true || view.secrets.apiKey !== "none",
 			hasOAuth: view.oauthTokenUrl !== undefined && view.oauthClientId !== undefined,
 			origin: "declared",
 			config: {
 				...pickNonSecretOptionalFields(view),
 				secrets: view.secrets,
 			},
+			...declaredOutcome(matched?.snapshot.status, view.syncError),
 		});
 	});
-	for (const index of unmatched) {
-		const entry = labeled[index];
-		if (entry !== undefined) {
-			servers.push(buildServer(entry.snapshot, entry.label));
-		}
+	for (const entry of unmatched) {
+		servers.push(buildServer(entry.snapshot, entry.label));
 	}
 	servers.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
-	return { servers, snapshotLabels };
+	return { servers, snapshotLabels: labeled.map((entry) => displayLabels.get(entry) ?? entry.label) };
 }
 
 function buildModel(info: LiteLLMModelInfo, serverLabel: string): DashboardModel {
@@ -380,22 +394,13 @@ function buildScopedRecord<V>(
 }
 
 export function readDashboardSettings(reader: SettingsReader): DashboardSettings {
-	const numbers = {} as Record<NumberSettingId, number | null>;
-	const numberScopes = {} as Record<NumberSettingId, SettingScope | null>;
-	for (const id of NUMBER_SETTING_IDS) {
-		numbers[id] = readNumberSetting(reader, id);
-		numberScopes[id] = resolveConfiguredScope(reader.inspect(id));
-	}
-	const booleans = {} as Record<BooleanSettingId, boolean>;
-	const booleanScopes = {} as Record<BooleanSettingId, SettingScope | null>;
-	for (const id of BOOLEAN_SETTING_IDS) {
-		booleans[id] = readBooleanSetting(reader, id);
-		booleanScopes[id] = resolveConfiguredScope(reader.inspect(id));
-	}
 	return {
-		numbers,
-		booleans,
-		configuredScopes: { numbers: numberScopes, booleans: booleanScopes },
+		numbers: recordFromKeys(NUMBER_SETTING_IDS, (id) => readNumberSetting(reader, id)),
+		booleans: recordFromKeys(BOOLEAN_SETTING_IDS, (id) => readBooleanSetting(reader, id)),
+		configuredScopes: {
+			numbers: recordFromKeys(NUMBER_SETTING_IDS, (id) => resolveConfiguredScope(reader.inspect(id))),
+			booleans: recordFromKeys(BOOLEAN_SETTING_IDS, (id) => resolveConfiguredScope(reader.inspect(id))),
+		},
 		modelParameters: buildScopedRecord(reader.inspect(MODEL_PARAMETERS_SETTING_KEY), normalizeModelParameters),
 		headers: buildScopedRecord(reader.inspect(HEADERS_SETTING_KEY), sanitizeHeaders),
 	};
@@ -461,14 +466,11 @@ export function resolveAdoptableCredentials(
 ): AdoptableGroupCredentials | undefined {
 	const labeled = labeledSnapshots(snapshots);
 	const { unmatched } = joinDeclared(labeled, declared);
-	const source = [...unmatched]
-		.map((index) => labeled[index]?.snapshot)
-		.find(
-			(snapshot) =>
-				snapshot !== undefined &&
-				adoptSourceHandle(snapshot.status.serverId) === sourceHandle &&
-				normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl)
-		);
+	const source = [...unmatched].find(
+		(entry) =>
+			adoptSourceHandle(entry.snapshot.status.serverId) === sourceHandle &&
+			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl)
+	)?.snapshot;
 	if (source === undefined) {
 		return undefined;
 	}
@@ -504,13 +506,13 @@ const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminatedUnion("
 	}),
 ]);
 
-/** One schema per field id as a strict-object shape; the field lists come from the entry descriptor. */
-function fieldShape<K extends string, S extends z.ZodType>(fields: readonly K[], schema: S): Record<K, S> {
-	const shape = {} as Record<K, S>;
-	for (const field of fields) {
-		shape[field] = schema;
-	}
-	return shape;
+/**
+ * A fully populated record over a closed key list: the one place the
+ * fill-every-key pattern asserts totality, so schema shapes and settings
+ * builders stop casting empty objects into total records themselves.
+ */
+function recordFromKeys<K extends string, V>(keys: readonly K[], value: (key: K) => V): Record<K, V> {
+	return Object.fromEntries(keys.map((key) => [key, value(key)])) as Record<K, V>;
 }
 
 /**
@@ -522,15 +524,15 @@ function fieldShape<K extends string, S extends z.ZodType>(fields: readonly K[],
 const saveServerSchema = z.strictObject({
 	label: z.string(),
 	baseUrl: z.string(),
-	...fieldShape(NON_SECRET_OPTIONAL_FIELD_IDS, z.string().optional()),
+	...recordFromKeys(NON_SECRET_OPTIONAL_FIELD_IDS, () => z.string().optional()),
 });
 
-const secretDirectivesSchema = z.strictObject(fieldShape(SECRET_FIELD_IDS, secretDirectiveSchema));
+const secretDirectivesSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretDirectiveSchema));
 
 const secretLocationChoiceSchema = z.union([z.literal("settings"), z.literal("secure")]);
 
 /** Where each of an adoption's copied secrets should land; never the values themselves. */
-const adoptSecretsSchema = z.strictObject(fieldShape(SECRET_FIELD_IDS, secretLocationChoiceSchema));
+const adoptSecretsSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretLocationChoiceSchema));
 
 /**
  * Bound on the correlation tokens the webview mints (request IDs and the
@@ -782,7 +784,7 @@ function rawServerEntries(raw: unknown): unknown[] {
  * parseServersSetting trims labels, so a hand-written `" Prod "` entry
  * displays as "Prod" and its edits and removals must find it again. Removal
  * matches every raw carrier of the label on purpose; per-entry resolution
- * (the edit prefill, the save target) goes through acceptedEntryIndex instead,
+ * (the edit prefill, the save target) goes through acceptedEntry instead,
  * so it lands on the same entry the parsed views describe.
  */
 function entryHasLabel(entry: unknown, label: string): entry is Record<string, unknown> {
@@ -792,29 +794,60 @@ function entryHasLabel(entry: unknown, label: string): entry is Record<string, u
 /**
  * One declared entry's inline secret values, for the edit form's on-demand
  * prefill (the readInlineSecrets request). The entry resolves through
- * acceptedEntryIndex, so the values come from exactly the entry the dashboard
+ * acceptedEntry, so the values come from exactly the entry the dashboard
  * row describes (a rejected same-label sibling cannot shadow it, and a label
  * the parser rejects yields nothing). A field counts as inline exactly when
- * the sync engine would read it from the entry (a usable string, trimmed like
- * parseServersSetting trims), so this agrees with the "settings" location the
- * declared views report. Fields stored securely or absent get NO key - their
- * values must never reach the webview. The returned values are never logged.
+ * the sync engine would read it from the entry - the parsed entry carries
+ * only usable strings, trimmed like parseServersSetting trims - so this
+ * agrees with the "settings" location the declared views report. Fields
+ * stored securely or absent get NO key - their values must never reach the
+ * webview. The returned values are never logged.
  */
 export function readInlineSecretValues(raw: unknown, label: string): Readonly<Partial<Record<SecretFieldId, string>>> {
-	const entries = rawServerEntries(raw);
-	const index = acceptedEntryIndex(entries, label);
-	if (index < 0) {
+	const accepted = acceptedEntry(raw, label);
+	if (accepted === undefined) {
 		return {};
 	}
-	const entry = entries[index] as Record<string, unknown>;
 	const values: { -readonly [K in SecretFieldId]?: string } = {};
 	for (const field of SECRET_FIELD_IDS) {
-		const value = entry[field];
-		if (typeof value === "string" && value.trim().length > 0) {
-			values[field] = value.trim();
+		const value = accepted.entry[field];
+		if (value !== undefined) {
+			values[field] = value;
 		}
 	}
 	return values;
+}
+
+/**
+ * How one save lands in the servers setting, computed once so the pairing
+ * checks, the guarded apply, and the cleanup agree on it: a brand-new entry,
+ * an in-place edit of the accepted entry, or a rename. A rename copies the
+ * old label's secret blob to the new label only when the old blob holds
+ * anything (`willCopy`); that same flag decides whether a failed write
+ * restores the new label's blob wholesale or field by field.
+ */
+type SaveMode =
+	| { kind: "create" }
+	| { kind: "edit"; index: number; existing: DeclaredServer }
+	| { kind: "rename"; index: number; existing: DeclaredServer; oldLabel: string; willCopy: boolean };
+
+/**
+ * What one secret field does in this save, shared by the pairing checks, the
+ * guarded apply, and the cleanup. "cleared" stays distinct from "absent" on
+ * purpose: cleanup deletes the stored value (with a retry, failing the
+ * intent if it sticks) only for cleared fields.
+ */
+type SecretPlan =
+	| { kind: "set-inline"; value: string }
+	| { kind: "set-secure"; value: string }
+	| { kind: "kept-inline"; value: string }
+	| { kind: "stored" }
+	| { kind: "cleared" }
+	| { kind: "absent" };
+
+/** Whether the field will hold a value once the plan is applied. */
+function planResolves(plan: SecretPlan): boolean {
+	return plan.kind !== "cleared" && plan.kind !== "absent";
 }
 
 /**
@@ -838,7 +871,7 @@ export function readInlineSecretValues(raw: unknown, label: string): Readonly<Pa
  * behind. A cleared secret that survives its deletion is still effective (the
  * saved entry carries no inline value to outrank it), so after one retry the
  * intent fails with an actionable message; retrying the save converges, the
- * clear directive re-runs the delete. The stale secure copy behind a fresh
+ * clear plan re-runs the delete. The stale secure copy behind a fresh
  * inline value and the old rename blob are dormant, so those failures log a
  * classification and the intent still succeeds.
  */
@@ -851,20 +884,62 @@ async function applySaveServerSetting(
 	// hit the same label the entry lookup resolves.
 	const targetLabel = (intent.replaceLabel ?? label).trim();
 	const entries = rawServerEntries(env.readServersSetting());
-	// Resolution agrees with the parsed world (acceptedEntryIndex): the entry
+	// Resolution agrees with the parsed world (acceptedEntry): the entry
 	// being edited is the one the dashboard row described, never a rejected
 	// same-label sibling sitting earlier in the raw array.
-	const existingIndex = acceptedEntryIndex(entries, targetLabel);
-	if (intent.replaceLabel !== undefined && existingIndex < 0) {
+	const accepted = acceptedEntry(entries, targetLabel);
+	if (intent.replaceLabel !== undefined && accepted === undefined) {
 		throw new DashboardValidationError(
 			"The entry being edited no longer exists in the servers setting; close the form and retry"
 		);
 	}
 	const renaming = targetLabel !== label;
-	if (renaming && acceptedEntryIndex(entries, label) >= 0) {
+	if (renaming && acceptedEntry(entries, label) !== undefined) {
 		throw new DashboardValidationError("label: an entry with this label already exists");
 	}
-	const existing = existingIndex >= 0 ? (entries[existingIndex] as Record<string, unknown>) : undefined;
+
+	// What the sync engine will read for this entry's label after the save: a
+	// rename copies the old label's whole blob over the new label's, but only
+	// when the old blob is non-empty, so an orphan blob already sitting under
+	// the new label otherwise keeps serving and must satisfy pairing too.
+	const storedOld = await env.readServerSecrets(targetLabel);
+	const storedNew = renaming ? await env.readServerSecrets(label) : storedOld;
+
+	const mode: SaveMode =
+		accepted === undefined
+			? { kind: "create" }
+			: renaming
+				? {
+						kind: "rename",
+						index: accepted.index,
+						existing: accepted.entry,
+						oldLabel: targetLabel,
+						willCopy: Object.keys(storedOld).length > 0,
+					}
+				: { kind: "edit", index: accepted.index, existing: accepted.entry };
+	const existing = mode.kind === "create" ? undefined : mode.existing;
+	const storedEffective = mode.kind === "rename" && mode.willCopy ? storedOld : storedNew;
+
+	const plans = recordFromKeys(SECRET_FIELD_IDS, (field): SecretPlan => {
+		const directive = intent.secrets[field];
+		switch (directive.action) {
+			case "set":
+				return directive.location === "secure"
+					? { kind: "set-secure", value: directive.value }
+					: { kind: "set-inline", value: directive.value };
+			case "clear":
+				return { kind: "cleared" };
+			case "keep": {
+				// The parsed entry carries only usable inline values, so a kept
+				// field is inline exactly when the sync engine would read it inline.
+				const inline = existing?.[field];
+				if (inline !== undefined) {
+					return { kind: "kept-inline", value: inline };
+				}
+				return storedEffective[field] !== undefined ? { kind: "stored" } : { kind: "absent" };
+			}
+		}
+	});
 
 	// The final entry's non-secret fields, needed for the pairing checks below.
 	const newEntry: Record<string, string> = { label, baseUrl: intent.server.baseUrl.trim() };
@@ -875,35 +950,11 @@ async function applySaveServerSetting(
 		}
 	}
 
-	// What the sync engine will read for this entry's label after the save: a
-	// rename copies the old label's whole blob over the new label's, but only
-	// when the old blob is non-empty, so an orphan blob already sitting under
-	// the new label otherwise keeps serving and must satisfy pairing too.
-	const storedOld = await env.readServerSecrets(targetLabel);
-	const storedNew = renaming ? await env.readServerSecrets(label) : storedOld;
-	const storedEffective = renaming && Object.keys(storedOld).length > 0 ? storedOld : storedNew;
-
-	/** Whether a secret field will hold a value once the directives are applied. */
-	const willResolve = (field: SecretFieldId): boolean => {
-		const directive = intent.secrets[field];
-		if (directive.action === "set") {
-			return true;
-		}
-		if (directive.action === "clear") {
-			return false;
-		}
-		const inline = existing?.[field];
-		if (typeof inline === "string" && inline.length > 0) {
-			return true;
-		}
-		return storedEffective[field] !== undefined;
-	};
-
 	// OAuth is one unit, mirroring serverForm's exact rules: the request path
 	// drops partial configurations silently, so anything OAuth-shaped (a token
 	// URL, a client ID, scopes, or a client secret that would resolve) requires
 	// the token URL and client ID pair.
-	const oauthExtras = willResolve("oauthClientSecret") || newEntry.oauthScopes !== undefined;
+	const oauthExtras = planResolves(plans.oauthClientSecret) || newEntry.oauthScopes !== undefined;
 	if ((newEntry.oauthClientId !== undefined || oauthExtras) && newEntry.oauthTokenUrl === undefined) {
 		throw new DashboardValidationError("oauthTokenUrl: OAuth needs the token URL and client ID");
 	}
@@ -912,7 +963,7 @@ async function applySaveServerSetting(
 	}
 
 	// The virtual key pair is both-or-neither, like the form enforces.
-	const virtualKeyResolves = willResolve("virtualKeyValue");
+	const virtualKeyResolves = planResolves(plans.virtualKeyValue);
 	if (newEntry.virtualKeyHeader !== undefined && !virtualKeyResolves) {
 		throw new DashboardValidationError("virtualKeyValue: enter the key sent in this header");
 	}
@@ -924,41 +975,33 @@ async function applySaveServerSetting(
 	// rename's blob copy, set-secure writes), then the settings write
 	// everything hinges on. Secure values the additive steps overwrite are
 	// remembered (pre-write state) for the rollback.
-	const copied = renaming && Object.keys(storedOld).length > 0;
 	const overwritten = new Map<SecretFieldId, string | undefined>();
 	try {
-		if (renaming) {
-			await env.copyServerSecrets(targetLabel, label);
+		if (mode.kind === "rename") {
+			await env.copyServerSecrets(mode.oldLabel, label);
 		}
-		const inline: Record<string, string> = {};
 		for (const field of SECRET_FIELD_IDS) {
-			const directive = intent.secrets[field];
-			switch (directive.action) {
-				case "keep": {
-					const kept = existing?.[field];
-					if (typeof kept === "string" && kept.length > 0) {
-						inline[field] = kept;
-					}
+			const plan = plans[field];
+			switch (plan.kind) {
+				case "set-inline":
+				case "kept-inline":
+					newEntry[field] = plan.value;
 					break;
-				}
-				case "clear":
+				case "set-secure":
+					overwritten.set(field, storedNew[field]);
+					await env.storeServerSecret(label, field, plan.value);
 					break;
-				case "set":
-					if (directive.location === "secure") {
-						overwritten.set(field, storedNew[field]);
-						await env.storeServerSecret(label, field, directive.value);
-					} else {
-						inline[field] = directive.value;
-					}
+				case "stored":
+				case "cleared":
+				case "absent":
 					break;
 			}
 		}
-		Object.assign(newEntry, inline);
 		const next = [...entries];
-		if (existingIndex >= 0) {
-			next[existingIndex] = newEntry;
-		} else {
+		if (mode.kind === "create") {
 			next.push(newEntry);
+		} else {
+			next[mode.index] = newEntry;
 		}
 		await env.writeServersSetting(next);
 	} catch (error) {
@@ -967,9 +1010,10 @@ async function applySaveServerSetting(
 		// blob is restored wholesale to its pre-copy state (deleting fields it
 		// never held), which also undoes any set-secure write on top of the
 		// copy; otherwise only the overwritten fields are touched.
-		const restores: [SecretFieldId, string | undefined][] = copied
-			? SECRET_FIELD_IDS.map((field) => [field, storedNew[field]])
-			: [...overwritten];
+		const restores: [SecretFieldId, string | undefined][] =
+			mode.kind === "rename" && mode.willCopy
+				? SECRET_FIELD_IDS.map((field) => [field, storedNew[field]])
+				: [...overwritten];
 		let restoreFailed = false;
 		for (const [field, previous] of restores) {
 			try {
@@ -1009,8 +1053,8 @@ async function applySaveServerSetting(
 	// are log-only.
 	let clearFailed = false;
 	for (const field of SECRET_FIELD_IDS) {
-		const directive = intent.secrets[field];
-		if (directive.action === "clear") {
+		const plan = plans[field];
+		if (plan.kind === "cleared") {
 			try {
 				await env.storeServerSecret(label, field, undefined);
 			} catch {
@@ -1021,7 +1065,7 @@ async function applySaveServerSetting(
 					env.log("Removing a cleared secret failed; the stored value is still in effect", { field });
 				}
 			}
-		} else if (directive.action === "set" && directive.location === "settings") {
+		} else if (plan.kind === "set-inline") {
 			try {
 				await env.storeServerSecret(label, field, undefined);
 			} catch {
@@ -1029,9 +1073,9 @@ async function applySaveServerSetting(
 			}
 		}
 	}
-	if (renaming) {
+	if (mode.kind === "rename") {
 		try {
-			await env.deleteServerSecrets(targetLabel);
+			await env.deleteServerSecrets(mode.oldLabel);
 		} catch {
 			env.log("Post-rename secret cleanup failed; the old label's blob remains");
 		}
@@ -1075,7 +1119,7 @@ async function applyAdoptServer(
 		throw new DashboardValidationError("baseUrl: not a usable http(s) URL");
 	}
 	const entries = rawServerEntries(env.readServersSetting());
-	if (acceptedEntryIndex(entries, label) >= 0) {
+	if (acceptedEntry(entries, label) !== undefined) {
 		throw new DashboardValidationError("label: an entry with this label already exists");
 	}
 

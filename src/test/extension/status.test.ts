@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
-import { type ConnectionStatus, StatusBarManager } from "../../extension/status";
+import { StatusBarManager } from "../../extension/status";
 import { Logger } from "../../shared/logger";
 import type { ServerStatus } from "../../shared/servers";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/storageKeys";
@@ -28,15 +28,6 @@ function createManager(persistedStatus: unknown, hasConfiguredServers: () => boo
 	createdContexts.push(context);
 	return new StatusBarManager(context, new Logger({ info() {}, error() {} }), hasConfiguredServers);
 }
-
-const CONNECTION_STATES: ReadonlyArray<ConnectionStatus["state"]> = [
-	"not-configured",
-	"connecting",
-	"loading",
-	"connected",
-	"degraded",
-	"error",
-];
 
 suite("extension/status", () => {
 	teardown(() => {
@@ -116,35 +107,169 @@ suite("extension/status", () => {
 			assert.strictEqual(manager.connectionStatus.state, "connecting");
 			assert.strictEqual(manager.connectingAttention, true);
 		});
-	});
 
-	suite("persisted status restore", () => {
-		test("restores a status whose serverStatuses field is absent", () => {
-			const manager = createManager({ state: "connected" });
+		test("a transient loading state does not clear the connecting attention", async () => {
+			// The connection test overwrites the status with "loading" before it
+			// runs; an empty report arriving mid-test must not reset the warning
+			// back to the neutral spinner.
+			const manager = createManager(undefined, () => true);
 
-			assert.deepStrictEqual(manager.connectionStatus, { state: "connected" });
+			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
+			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
+			assert.strictEqual(manager.connectingAttention, true);
+
+			await manager.updateStatusBar({ state: "loading" });
+			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
+
+			assert.strictEqual(manager.connectionStatus.state, "connecting");
+			assert.strictEqual(manager.connectingAttention, true, "the transient loading state must carry the evidence");
 		});
 
-		for (const state of CONNECTION_STATES) {
+		test("a loading state over a neutral connecting stays neutral", async () => {
+			const manager = createManager(undefined, () => true);
+
+			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
+			assert.strictEqual(manager.connectingAttention, false);
+
+			await manager.updateStatusBar({ state: "loading" });
+			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
+
+			assert.strictEqual(manager.connectionStatus.state, "connecting");
+			assert.strictEqual(manager.connectingAttention, false, "loading must not invent attention it never carried");
+		});
+	});
+
+	suite("persisted status restore normalizes at the trust boundary", () => {
+		test("a connected status missing its counts restores with defaults", () => {
+			const manager = createManager({ state: "connected" });
+
+			assert.deepStrictEqual(manager.connectionStatus, { state: "connected", totalModels: 0, serverStatuses: [] });
+		});
+
+		for (const state of ["not-configured", "loading"] as const) {
 			test(`restores state "${state}"`, () => {
 				const manager = createManager({ state });
 
-				assert.strictEqual(manager.connectionStatus.state, state);
+				assert.deepStrictEqual(manager.connectionStatus, { state });
 			});
 		}
 
-		test("restores serverStatuses arrays without validating their elements", () => {
-			const persisted = { state: "connected", serverStatuses: [42, "junk"] };
-			const manager = createManager(persisted);
+		for (const state of ["connected", "degraded"] as const) {
+			test(`restores state "${state}" with its counts`, () => {
+				const manager = createManager({ state, totalModels: 3, serverStatuses: [] });
 
-			assert.deepStrictEqual(manager.connectionStatus, persisted);
+				assert.deepStrictEqual(manager.connectionStatus, { state, totalModels: 3, serverStatuses: [] });
+			});
+		}
+
+		test("restores an error status with its message", () => {
+			const manager = createManager({ state: "error", error: "boom" });
+
+			assert.deepStrictEqual(manager.connectionStatus, { state: "error", error: "boom", serverStatuses: [] });
 		});
 
-		test("restores a status carrying unknown top-level fields", () => {
-			const persisted = { state: "degraded", totalModels: 3, futureField: { nested: true } };
-			const manager = createManager(persisted);
+		test("an error status that lost its message downgrades to degraded connecting", () => {
+			// The message cannot be invented and the state is as stale as a
+			// restored connecting, so it degrades the same way instead of
+			// rendering a made-up "Unknown error".
+			const manager = createManager({ state: "error" });
 
-			assert.deepStrictEqual(manager.connectionStatus, persisted);
+			assert.deepStrictEqual(manager.connectionStatus, { state: "connecting", attention: true });
+		});
+
+		test("an empty persisted error message counts as lost, not as a message", () => {
+			const manager = createManager({ state: "error", error: "" });
+
+			assert.deepStrictEqual(manager.connectionStatus, { state: "connecting", attention: true });
+		});
+
+		test("a restored connecting state carries the needs-attention flag", () => {
+			const manager = createManager({ state: "connecting", attention: false });
+
+			assert.deepStrictEqual(manager.connectionStatus, { state: "connecting", attention: true });
+		});
+
+		test("junk serverStatuses elements are dropped, never rendered or crashed on", () => {
+			// A persisted [null] element used to throw in the degraded renderer;
+			// junk of any shape must become a dropped element instead.
+			const ok = {
+				serverId: "srv1",
+				label: "Prod",
+				baseUrl: "http://prod.test",
+				state: "ok",
+				modelCount: 2,
+				lastChecked: "2026-07-26T00:00:00.000Z",
+			};
+			const manager = createManager({
+				state: "degraded",
+				totalModels: 2,
+				serverStatuses: [null, 42, "junk", { label: "Prod", baseUrl: "http://x", state: "ok" }, ok],
+			});
+
+			assert.deepStrictEqual(manager.connectionStatus, {
+				state: "degraded",
+				totalModels: 2,
+				serverStatuses: [ok],
+			});
+		});
+
+		test("an ok element without a model count and an error element without a message are malformed", () => {
+			// The same shapes the legacy diagnostics renderer refuses to print
+			// ("OK (undefined models)", "Error: undefined") never survive the
+			// restore in the first place; an empty error message counts as none.
+			const manager = createManager({
+				state: "connected",
+				totalModels: 0,
+				serverStatuses: [
+					{ label: "Prod", baseUrl: "http://prod.test", state: "ok" },
+					{ label: "Backup", baseUrl: "http://backup.test", state: "error" },
+					{ label: "Blank", baseUrl: "http://blank.test", state: "error", error: "" },
+				],
+			});
+
+			assert.deepStrictEqual(manager.connectionStatus, { state: "connected", totalModels: 0, serverStatuses: [] });
+		});
+
+		test("a junk-typed optional field drops the field, never the whole element", () => {
+			const manager = createManager({
+				state: "connected",
+				totalModels: 1,
+				serverStatuses: [
+					{ serverId: 42, hasApiKey: "yes", label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 1 },
+				],
+			});
+
+			assert.deepStrictEqual(manager.connectionStatus, {
+				state: "connected",
+				totalModels: 1,
+				serverStatuses: [
+					{ serverId: "", label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 1, lastChecked: "" },
+				],
+			});
+		});
+
+		test("an element missing serverId or lastChecked still restores with empty defaults", () => {
+			// Older versions' elements are classified by serverId in diagnostics;
+			// a missing one reads as a legacy (non-group) entry, not junk.
+			const manager = createManager({
+				state: "connected",
+				totalModels: 1,
+				serverStatuses: [{ label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 1 }],
+			});
+
+			assert.deepStrictEqual(manager.connectionStatus, {
+				state: "connected",
+				totalModels: 1,
+				serverStatuses: [
+					{ serverId: "", label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 1, lastChecked: "" },
+				],
+			});
+		});
+
+		test("unknown top-level fields are dropped by the normalizing parse", () => {
+			const manager = createManager({ state: "degraded", totalModels: 3, futureField: { nested: true } });
+
+			assert.deepStrictEqual(manager.connectionStatus, { state: "degraded", totalModels: 3, serverStatuses: [] });
 		});
 
 		suite("falls back to not-configured", () => {
