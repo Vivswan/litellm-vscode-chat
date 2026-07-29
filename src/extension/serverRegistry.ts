@@ -16,7 +16,9 @@ const serverConfigSchema = z.looseObject({
 	baseUrl: z.string(),
 });
 
-// Accepts any number, including NaN and Infinity, which z.number() rejects.
+// Accepts any number so a blob with a broken version still yields its servers
+// (z.number() rejects NaN and Infinity, which would drop the whole registry);
+// parsePersistedRegistry sanitizes the version itself to a safe integer.
 const versionSchema = z.custom<number>((value) => typeof value === "number");
 
 const bareArrayRegistrySchema = z.array(z.unknown());
@@ -45,7 +47,19 @@ function parsePersistedRegistry(raw: unknown): PersistedRegistry {
 	}
 	const versioned = versionedRegistrySchema.safeParse(raw);
 	if (versioned.success) {
-		return { version: versioned.data.version, servers: filterServerConfigs(versioned.data.servers) };
+		// A broken persisted version would poison the protocol: Infinity (a
+		// hand-edited 1e999 survives JSON.parse) wins every "strictly newer"
+		// comparison yet can never be exceeded, NaN compares newer to nothing,
+		// and a huge finite value like 1e20 freezes too because version + 1
+		// rounds back to version. Anything that is not a nonnegative safe
+		// integer re-enters versioning at 0 instead, keeping the servers. A
+		// window still running with a higher healthy version outranks the
+		// recovered state until its own next persist - the last-write-wins
+		// concession the class comment documents - which beats the permanent
+		// cross-window freeze the broken version caused.
+		const rawVersion = versioned.data.version;
+		const version = Number.isSafeInteger(rawVersion) && rawVersion >= 0 ? rawVersion : 0;
+		return { version, servers: filterServerConfigs(versioned.data.servers) };
 	}
 	return { version: 0, servers: [] };
 }
@@ -140,16 +154,11 @@ export class ServerRegistry {
 
 	async updateServer(id: string, label: string, baseUrl: string, apiKey: string | undefined): Promise<void> {
 		this.syncFromStorage();
-		const idx = this.servers.findIndex((s) => s.id === id);
-		if (idx === -1) {
-			return;
-		}
-		const previous = this.servers[idx];
+		const previous = this.servers.find((s) => s.id === id);
 		if (previous === undefined) {
-			// Unreachable: idx comes from findIndex above; the guard exists for
-			// noUncheckedIndexedAccess.
 			return;
 		}
+		const idx = this.servers.indexOf(previous);
 		const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
 		this.servers[idx] = { id, label, baseUrl: normalizedBaseUrl };
 		try {

@@ -288,6 +288,29 @@ suite("extension/serverRegistry", () => {
 			});
 		});
 
+		test("a broken persisted version re-enters versioning at 0 instead of freezing adoption", async () => {
+			// A hand-edited 1e999 in the persisted JSON survives JSON.parse as
+			// Infinity, and a huge finite value like 1e20 is just as poisonous
+			// (version + 1 rounds back to version): in both cases no local write
+			// could ever persist a strictly newer version, so cross-window
+			// adoption would freeze.
+			const existing = { id: "srv1", label: "Existing", baseUrl: "http://existing:4000" };
+			for (const broken of [Number.POSITIVE_INFINITY, Number.NaN, 1e20, -1, 1.5]) {
+				const { registry, mementoStore } = createRegistry({ version: broken, servers: [existing] });
+
+				// The servers survive the broken version...
+				assert.deepStrictEqual(registry.getServers(), [existing], `servers survive version ${broken}`);
+
+				// ...and the next persist writes a version other windows can exceed.
+				const added = await registry.addServer("New", "http://new:4000", "");
+				assert.deepStrictEqual(
+					mementoStore.get(SERVER_REGISTRY_KEY),
+					{ version: 1, servers: [existing, added] },
+					`version ${broken} re-enters at 0`
+				);
+			}
+		});
+
 		test("a failed persist's optimistic cache residue is not re-adopted after rollback", async () => {
 			// VS Code's Memento caches an update before the async write settles, so a
 			// failed persist can leave the rejected snapshot readable in the cache.
