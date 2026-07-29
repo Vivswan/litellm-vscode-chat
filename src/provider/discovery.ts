@@ -496,7 +496,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// buffer (the raw SDK message and even mapped messages for non-401 API
 		// errors embed the body), so the log carries only the classification.
 		const mapped = mapSdkError(error, { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout });
-		log("model/info failed, falling back to /v1/models", {
+		log(`model/info failed, falling back to ${modelsUrl(baseUrl)}`, {
 			error: mapped.name,
 			...(mapped instanceof RequestError
 				? { kind: mapped.kind, ...(mapped.status !== undefined ? { status: mapped.status } : {}) }

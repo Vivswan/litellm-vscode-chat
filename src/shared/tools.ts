@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isRecord } from "./json";
 import type { OpenAIFunctionToolDef } from "./wire";
 
 function isIntegerLikePropertyName(propertyName: string | undefined): boolean {
@@ -35,7 +36,7 @@ function sanitizeFunctionName(name: unknown): string {
 }
 
 function pruneUnknownSchemaKeywords(schema: unknown): Record<string, unknown> {
-	if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+	if (!isRecord(schema)) {
 		return {};
 	}
 	const allow = new Set([
@@ -69,7 +70,7 @@ function pruneUnknownSchemaKeywords(schema: unknown): Record<string, unknown> {
 		"allOf",
 	]);
 	const out: Record<string, unknown> = {};
-	for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+	for (const [k, v] of Object.entries(schema)) {
 		if (allow.has(k)) {
 			out[k] = v as unknown;
 		}
@@ -78,11 +79,11 @@ function pruneUnknownSchemaKeywords(schema: unknown): Record<string, unknown> {
 }
 
 function sanitizeSchema(input: unknown, propName?: string): Record<string, unknown> {
-	if (!input || typeof input !== "object" || Array.isArray(input)) {
+	if (!isRecord(input)) {
 		return { type: "object", properties: {} } as Record<string, unknown>;
 	}
 
-	let schema = input as Record<string, unknown>;
+	let schema = input;
 
 	schema = pruneUnknownSchemaKeywords(schema);
 
@@ -94,8 +95,8 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 	}
 
 	for (const defKey of ["definitions", "$defs"]) {
-		const defs = schema[defKey] as Record<string, unknown> | undefined;
-		if (defs && typeof defs === "object" && !Array.isArray(defs)) {
+		const defs = schema[defKey];
+		if (isRecord(defs)) {
 			const sanitized: Record<string, unknown> = {};
 			for (const [k, v] of Object.entries(defs)) {
 				sanitized[k] = sanitizeSchema(v);
