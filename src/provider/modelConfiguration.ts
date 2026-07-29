@@ -75,8 +75,8 @@ export const REASONING_EFFORT_SCHEMA: LanguageModelConfigurationSchema = {
 /**
  * Whether a provider entry's capability data says the model accepts a
  * reasoning-effort request parameter. An explicit supports_reasoning: false
- * is a veto (matching the supports_tools !== false convention): a deployment
- * merge ANDs the flag across deployments but only intersects the
+ * is a veto (matching the supportsTools convention in schemas.ts): a
+ * deployment merge ANDs the flag across deployments but only intersects the
  * supported-params lists, so without the veto a params list could resurrect a
  * capability one deployment explicitly disclaimed. Otherwise the explicit
  * true flag or reasoning_effort among the supported OpenAI params counts.

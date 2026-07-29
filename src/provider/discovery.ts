@@ -3,7 +3,7 @@ import { isRecord } from "../shared/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../shared/numbers";
 import type { TokenDefaults } from "../shared/settings";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
-import { combinedOutputLimitSource, deriveTokenConstraints } from "./modelCatalog";
+import { collapseTokenConstraints } from "./modelCatalog";
 import type {
 	LiteLLMArchitecture,
 	LiteLLMModelInfoItem,
@@ -11,7 +11,7 @@ import type {
 	LiteLLMProvider,
 	RawModelItem,
 } from "./schemas";
-import { modelInfoId, providerEntrySchema, rawModelInfoItemSchema, rawModelItemSchema } from "./schemas";
+import { providerEntrySchema, rawModelInfoItemSchema, rawModelItemSchema, supportsTools } from "./schemas";
 
 /**
  * The retry budget for discovery GETs. They are idempotent, so retrying is
@@ -29,12 +29,14 @@ export function isLiteLLMModelItem(value: unknown): value is RawModelItem {
 }
 
 /**
- * Accept an entry shaped like a /v1/model/info item: at least one usable
- * model identifier among model_name, litellm_params.model, model_info.key,
- * and model_info.id.
+ * Parse an entry shaped like a /v1/model/info item: at least one usable model
+ * identifier among model_name, litellm_params.model, model_info.key, and
+ * model_info.id. The parsed entry carries its resolved model id; malformed
+ * fields degrade to undefined rather than dropping the entry.
  */
-export function isLiteLLMModelInfoItem(value: unknown): value is LiteLLMModelInfoItem {
-	return rawModelInfoItemSchema.safeParse(value).success;
+export function parseModelInfoItem(value: unknown): LiteLLMModelInfoItem | undefined {
+	const parsed = rawModelInfoItemSchema.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
 }
 
 function isProviderEntry(value: unknown): value is LiteLLMProvider {
@@ -104,17 +106,34 @@ function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["log"]): 
 	const providers: LiteLLMProvider[] = [];
 	for (const entry of raw.providers ?? []) {
 		if (isProviderEntry(entry)) {
-			// Pass-through entries keep their raw keys; the synthesized
-			// long-context tier costs (same selection rule as model_info
-			// entries) are the one addition.
-			providers.push({ ...entry, ...longContextCosts(entry) });
+			// Pass-through entries keep their raw keys, but every field another
+			// stage trusts is authored after the spread: the internal markers
+			// (`output_limit_source` feeds deriveTokenConstraints' demotion rule;
+			// `source` is provenance a wire entry must not forge) are cleared,
+			// the four base costs are re-narrowed, and the long-context tier
+			// costs are synthesized (same selection rule as model_info entries).
+			providers.push({
+				...entry,
+				source: undefined,
+				output_limit_source: undefined,
+				input_cost_per_token: normalizeCostPerToken(entry.input_cost_per_token),
+				output_cost_per_token: normalizeCostPerToken(entry.output_cost_per_token),
+				cache_read_input_token_cost: normalizeCostPerToken(entry.cache_read_input_token_cost),
+				cache_creation_input_token_cost: normalizeCostPerToken(entry.cache_creation_input_token_cost),
+				...longContextCosts(entry),
+			});
 		} else {
 			log("Skipping malformed provider entry", { modelId: raw.id, entry: truncateForLog(entry) });
 		}
 	}
-	// The architecture field is read on the same trust basis as the rest of the
-	// entry: shape-checked only where registration actually consumes it.
-	return { id: raw.id, providers, architecture: raw.architecture as LiteLLMArchitecture | undefined };
+	const [first, ...rest] = providers;
+	return {
+		id: raw.id,
+		shape: first === undefined ? { kind: "bare" } : { kind: "group", providers: [first, ...rest] },
+		// The architecture field is read on the same trust basis as the rest of the
+		// entry: shape-checked only where registration actually consumes it.
+		architecture: raw.architecture as LiteLLMArchitecture | undefined,
+	};
 }
 
 function truncateForLog(value: unknown): string {
@@ -142,21 +161,13 @@ export interface MappedModelInfo {
 export type ModelDeployments = readonly [MappedModelInfo, ...MappedModelInfo[]];
 
 /**
- * Map one /v1/model/info entry to its MappedModelInfo. Exported so tests can
- * build deployment entries through the same mapping the production path uses.
+ * Map one parsed /v1/model/info entry to its MappedModelInfo. Total: the
+ * parse already resolved the model id. Exported so tests can build deployment
+ * entries through the same parse-and-map path production uses.
  */
-export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo | undefined {
-	const modelId = modelInfoId(item);
-
-	if (!modelId) {
-		return undefined;
-	}
-
-	const supportsTools = item.model_info?.supports_function_calling ?? item.model_info?.supports_tool_choice ?? true;
-	// The lenient schema lets a non-string litellm_provider through; anything
-	// but a string must not reach the host as the model family.
-	const rawProvider = item.model_info?.litellm_provider;
-	const providerName = typeof rawProvider === "string" ? rawProvider : "litellm";
+export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
+	const toolSupport = item.model_info?.supports_function_calling ?? item.model_info?.supports_tool_choice ?? true;
+	const providerName = item.model_info?.litellm_provider ?? "litellm";
 	const maxInputTokens = normalizePositiveNumber(item.model_info?.max_input_tokens);
 	const maxOutputTokens =
 		normalizePositiveNumber(item.model_info?.max_output_tokens) ?? normalizePositiveNumber(item.model_info?.max_tokens);
@@ -166,7 +177,7 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo |
 	const provider: LiteLLMProvider = {
 		provider: providerName,
 		status: "ok",
-		supports_tools: supportsTools,
+		supports_tools: toolSupport,
 		context_length: maxInputTokens ?? maxTokens,
 		max_tokens: maxTokens,
 		max_input_tokens: maxInputTokens,
@@ -185,20 +196,20 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo |
 	};
 
 	const inputModalities: string[] = [];
-	if (item.model_info?.supports_vision) {
+	if (item.model_info?.supports_vision === true) {
 		inputModalities.push("image");
 	}
-	if (item.model_info?.supports_pdf_input) {
+	if (item.model_info?.supports_pdf_input === true) {
 		inputModalities.push("pdf");
 	}
 
-	return { id: modelId, provider, inputModalities };
+	return { id: item.modelId, provider, inputModalities };
 }
 
 function toModelItem(mapped: MappedModelInfo): LiteLLMModelItem {
 	return {
 		id: mapped.id,
-		providers: [mapped.provider],
+		shape: { kind: "deployment", provider: mapped.provider },
 		architecture: mapped.inputModalities.length > 0 ? { input_modalities: [...mapped.inputModalities] } : undefined,
 	};
 }
@@ -233,21 +244,22 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
  * load-balanced model would register duplicate ids and overwrite its own
  * routes.
  *
- * Token limits: each deployment's standalone constraints are derived through
- * deriveTokenConstraints (the same rules registration applies), the per-field
- * minimum is taken, and those effective values are stored on the merged
- * provider, which deriveTokenConstraints reproduces verbatim: `defaults` is
- * the refresh pass's one snapshot, threaded to both this merge and
- * registration, so the reproduction cannot drift when settings change
+ * Token limits: the deployments' provider entries collapse through
+ * collapseTokenConstraints (the one home of the min-collapse rule, shared
+ * with registration's aggregates), and those effective values are stored on
+ * the merged provider, which deriveTokenConstraints reproduces verbatim:
+ * `defaults` is the refresh pass's one snapshot, threaded to both this merge
+ * and registration, so the reproduction cannot drift when settings change
  * mid-refresh. This guarantees the merged advertisement never exceeds what
  * any deployment would have advertised on its own, whichever combination of
  * raw limit fields each one set. Because a defaults-filled deployment can
  * contribute the minimum, the merged provider also records whether the
- * stored output limit counts as server-declared (see combinedOutputLimitSource);
- * without the marker, storing effective values back into provider fields
- * would launder the defaults guess into a declared limit. Capability flags
- * hold only when every deployment advertises them, and input modalities and
- * supported_openai_params intersect. Pricing carries over only when every
+ * stored output limit counts as server-declared (the collapse's
+ * outputLimitSource); without the marker, storing effective values back into
+ * provider fields would launder the defaults guess into a declared limit.
+ * Capability flags hold only when every deployment advertises them, and
+ * input modalities and supported_openai_params intersect. Pricing carries
+ * over only when every
  * deployment advertises the identical per-field cost: with differing prices
  * the proxy's routing decides which deployment (and cost) actually serves a
  * request, so advertising either number would lie, and the merged entry
@@ -264,20 +276,20 @@ export function mergeModelDeployments(deployments: ModelDeployments, defaults: T
 	if (rest.length === 0) {
 		return first;
 	}
-	const providers = deployments.map((deployment) => deployment.provider);
-	const standalone = providers.map((p) => deriveTokenConstraints(p, defaults));
-	const maxOutputTokens = Math.min(...standalone.map((c) => c.maxOutputTokens));
-	const contextLength = Math.min(...standalone.map((c) => c.contextLength));
-	const maxInputTokens = Math.min(...standalone.map((c) => c.maxInputTokens));
+	const providers: [LiteLLMProvider, ...LiteLLMProvider[]] = [
+		first.provider,
+		...rest.map((deployment) => deployment.provider),
+	];
+	const collapsed = collapseTokenConstraints(providers, defaults);
 	const provider: LiteLLMProvider = {
 		provider: first.provider.provider,
 		status: first.provider.status,
-		supports_tools: providers.every((p) => p.supports_tools !== false),
-		context_length: contextLength,
-		max_tokens: maxOutputTokens,
-		max_input_tokens: maxInputTokens,
-		max_output_tokens: maxOutputTokens,
-		output_limit_source: combinedOutputLimitSource(standalone),
+		supports_tools: providers.every(supportsTools),
+		context_length: collapsed.contextLength,
+		max_tokens: collapsed.maxOutputTokens,
+		max_input_tokens: collapsed.maxInputTokens,
+		max_output_tokens: collapsed.maxOutputTokens,
+		output_limit_source: collapsed.outputLimitSource,
 		source: "model_info",
 		supports_prompt_caching: everyDeploymentSupports(providers.map((p) => p.supports_prompt_caching)),
 		supports_response_schema: everyDeploymentSupports(providers.map((p) => p.supports_response_schema)),
@@ -407,24 +419,23 @@ function narrowModelInfoData(
 	const slots: Slot[] = [];
 	const deploymentsById = new Map<string, [MappedModelInfo, ...MappedModelInfo[]]>();
 	for (const entry of data) {
-		if (isLiteLLMModelInfoItem(entry)) {
-			const mapped = mapModelInfoEntry(entry);
-			if (mapped) {
-				usableEntryCount += 1;
-				if (entry.model_info?.blocked === true) {
-					log("Skipping blocked model/info entry", { modelId: mapped.id });
-					continue;
-				}
-				const group = deploymentsById.get(mapped.id);
-				if (group) {
-					group.push(mapped);
-				} else {
-					const newGroup: [MappedModelInfo, ...MappedModelInfo[]] = [mapped];
-					deploymentsById.set(mapped.id, newGroup);
-					slots.push({ kind: "deployments", group: newGroup });
-				}
+		const parsed = parseModelInfoItem(entry);
+		if (parsed !== undefined) {
+			usableEntryCount += 1;
+			if (parsed.model_info?.blocked === true) {
+				log("Skipping blocked model/info entry", { modelId: parsed.modelId });
 				continue;
 			}
+			const mapped = mapModelInfoEntry(parsed);
+			const group = deploymentsById.get(mapped.id);
+			if (group) {
+				group.push(mapped);
+			} else {
+				const newGroup: [MappedModelInfo, ...MappedModelInfo[]] = [mapped];
+				deploymentsById.set(mapped.id, newGroup);
+				slots.push({ kind: "deployments", group: newGroup });
+			}
+			continue;
 		}
 		if (isLiteLLMModelItem(entry)) {
 			usableEntryCount += 1;

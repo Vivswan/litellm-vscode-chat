@@ -4,9 +4,10 @@ import type { ServerWithKey } from "../shared/servers";
 import type { TokenDefaults } from "../shared/settings";
 import type { LiteLLMModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
-import { buildExposedModelId, combinedOutputLimitSource, deriveTokenConstraints } from "./modelCatalog";
+import { buildExposedModelId, collapseTokenConstraints, deriveTokenConstraints } from "./modelCatalog";
 import { REASONING_EFFORT_SCHEMA, supportsReasoningEffort } from "./modelConfiguration";
 import type { LiteLLMModelItem, LiteLLMProvider } from "./schemas";
+import { supportsTools } from "./schemas";
 
 export interface RegistrationResult {
 	infos: LiteLLMModelInfo[];
@@ -173,168 +174,184 @@ export function buildModelInfos(
 		isUserSelectable: true,
 	} as const;
 
-	const infos: LiteLLMModelInfo[] = models.flatMap((m) => {
-		log(`Processing model: ${m.id} from server "${server.label}"`);
-		const providers = m.providers;
+	/** The registered entries for one model, switched on its discovery-decided shape. */
+	function entriesForModel(m: LiteLLMModelItem): LiteLLMModelInfo[] {
+		const shape = m.shape;
 		const modalities = m.architecture?.input_modalities ?? [];
 		const vision = Array.isArray(modalities) && modalities.includes("image");
 
-		const soleProvider = providers.length === 1 ? providers[0] : undefined;
-		if (soleProvider !== undefined && soleProvider.source === "model_info") {
-			const constraints = deriveTokenConstraints(soleProvider, tokenDefaults);
-			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-			registerRoute(exposedId, m.id);
-			return [
-				{
-					...common,
-					id: exposedId,
-					name: `${namePrefix}${m.id}`,
-					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-					family: familyFromProvider(soleProvider),
-					maxInputTokens: constraints.maxInputTokens,
-					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: {
-						toolCalling: soleProvider.supports_tools !== false,
-						imageInput: vision,
-					},
-					...pricingFromProvider(soleProvider),
-					...configurationSchemaFor([soleProvider]),
-					litellm: {
-						supportsPromptCaching: soleProvider.supports_prompt_caching === true,
-						outputLimitSource: constraints.outputLimitSource,
-					},
-				} satisfies LiteLLMModelInfo,
-			];
-		}
+		switch (shape.kind) {
+			case "deployment": {
+				const provider = shape.provider;
+				const constraints = deriveTokenConstraints(provider, tokenDefaults);
+				const exposedId = buildExposedModelId(m.id, server.id, serverCount);
+				registerRoute(exposedId, m.id);
+				return [
+					{
+						...common,
+						id: exposedId,
+						name: `${namePrefix}${m.id}`,
+						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+						family: familyFromProvider(provider),
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: {
+							toolCalling: supportsTools(provider),
+							imageInput: vision,
+						},
+						...pricingFromProvider(provider),
+						...configurationSchemaFor([provider]),
+						litellm: {
+							supportsPromptCaching: provider.supports_prompt_caching === true,
+							outputLimitSource: constraints.outputLimitSource,
+						},
+					} satisfies LiteLLMModelInfo,
+				];
+			}
 
-		if (providers.length === 0) {
-			const constraints = deriveTokenConstraints(undefined, tokenDefaults);
-			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-			registerRoute(exposedId, m.id);
-			return [
-				{
-					...common,
-					id: exposedId,
-					name: `${namePrefix}${m.id}`,
-					tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-					family: "litellm",
-					maxInputTokens: constraints.maxInputTokens,
-					maxOutputTokens: constraints.maxOutputTokens,
-					capabilities: {
+			case "bare": {
+				const constraints = deriveTokenConstraints(undefined, tokenDefaults);
+				const exposedId = buildExposedModelId(m.id, server.id, serverCount);
+				registerRoute(exposedId, m.id);
+				return [
+					{
+						...common,
+						id: exposedId,
+						name: `${namePrefix}${m.id}`,
+						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+						family: "litellm",
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: {
+							toolCalling: true,
+							imageInput: vision,
+						},
+						litellm: { supportsPromptCaching: false, outputLimitSource: constraints.outputLimitSource },
+					} satisfies LiteLLMModelInfo,
+				];
+			}
+
+			case "group": {
+				const providers = shape.providers;
+				const [firstTool, ...restTools] = providers.filter(supportsTools);
+				const toolProviders = firstTool === undefined ? [] : [firstTool, ...restTools];
+				const entries: LiteLLMModelInfo[] = [];
+
+				if (firstTool !== undefined) {
+					// The aggregates stand for whichever tool-capable provider the
+					// proxy routes to, so they advertise the conservative collapse
+					// (the same rule deployment merging applies): never more than the
+					// strictest provider's standalone constraints.
+					const constraints = collapseTokenConstraints([firstTool, ...restTools], tokenDefaults);
+					const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
+					const aggregateMetadata = {
+						supportsPromptCaching: aggregatePromptCaching,
+						outputLimitSource: constraints.outputLimitSource,
+					};
+					const aggregateConfigurationSchema = configurationSchemaFor(toolProviders);
+					const aggregateCapabilities = {
 						toolCalling: true,
 						imageInput: vision,
-					},
-					litellm: { supportsPromptCaching: false, outputLimitSource: constraints.outputLimitSource },
-				} satisfies LiteLLMModelInfo,
-			];
+					};
+
+					const cheapestRaw = `${m.id}:cheapest`;
+					const fastestRaw = `${m.id}:fastest`;
+					const cheapestId = buildExposedModelId(cheapestRaw, server.id, serverCount);
+					const fastestId = buildExposedModelId(fastestRaw, server.id, serverCount);
+
+					entries.push({
+						...common,
+						id: cheapestId,
+						name: `${namePrefix}${m.id} (cheapest)`,
+						tooltip: `LiteLLM via the cheapest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
+						family: "litellm",
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: aggregateCapabilities,
+						...aggregateConfigurationSchema,
+						litellm: aggregateMetadata,
+					} satisfies LiteLLMModelInfo);
+					registerRoute(cheapestId, cheapestRaw);
+
+					entries.push({
+						...common,
+						id: fastestId,
+						name: `${namePrefix}${m.id} (fastest)`,
+						tooltip: `LiteLLM via the fastest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
+						family: "litellm",
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: aggregateCapabilities,
+						...aggregateConfigurationSchema,
+						litellm: aggregateMetadata,
+					} satisfies LiteLLMModelInfo);
+					registerRoute(fastestId, fastestRaw);
+				}
+
+				for (const p of toolProviders) {
+					const constraints = deriveTokenConstraints(p, tokenDefaults);
+					const rawId = `${m.id}:${p.provider}`;
+					const exposedId = buildExposedModelId(rawId, server.id, serverCount);
+					entries.push({
+						...common,
+						id: exposedId,
+						name: `${namePrefix}${m.id} via ${p.provider}`,
+						tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
+						family: familyFromProvider(p),
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: {
+							toolCalling: true,
+							imageInput: vision,
+						},
+						...pricingFromProvider(p),
+						...configurationSchemaFor([p]),
+						litellm: {
+							supportsPromptCaching: p.supports_prompt_caching === true,
+							outputLimitSource: constraints.outputLimitSource,
+						},
+					} satisfies LiteLLMModelInfo);
+					registerRoute(exposedId, rawId);
+				}
+
+				if (firstTool === undefined) {
+					const base = providers[0];
+					// The untooled base entry stands for the whole provider group (the
+					// proxy routes it to any of them), so its constraints collapse
+					// across every provider, prompt caching and reasoning support need
+					// every provider, and only its display identity (name, family)
+					// follows the first.
+					const constraints = collapseTokenConstraints(providers, tokenDefaults);
+					const exposedId = buildExposedModelId(m.id, server.id, serverCount);
+					entries.push({
+						...common,
+						id: exposedId,
+						name: `${namePrefix}${m.id}`,
+						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+						family: familyFromProvider(base),
+						maxInputTokens: constraints.maxInputTokens,
+						maxOutputTokens: constraints.maxOutputTokens,
+						capabilities: {
+							toolCalling: false,
+							imageInput: vision,
+						},
+						...configurationSchemaFor(providers),
+						litellm: {
+							supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),
+							outputLimitSource: constraints.outputLimitSource,
+						},
+					} satisfies LiteLLMModelInfo);
+					registerRoute(exposedId, m.id);
+				}
+
+				return entries;
+			}
 		}
+	}
 
-		const toolProviders = providers.filter((p) => p.supports_tools !== false);
-		const entries: LiteLLMModelInfo[] = [];
-
-		if (toolProviders.length > 0) {
-			const providerConstraints = toolProviders.map((p) => deriveTokenConstraints(p, tokenDefaults));
-			const aggregateContextLen = Math.min(...providerConstraints.map((c) => c.contextLength));
-			const maxOutput = Math.min(...providerConstraints.map((c) => c.maxOutputTokens));
-			const outputLimitSource = combinedOutputLimitSource(providerConstraints);
-			const maxInput = Math.max(1, aggregateContextLen - maxOutput);
-			const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
-			const aggregateMetadata = { supportsPromptCaching: aggregatePromptCaching, outputLimitSource };
-			const aggregateConfigurationSchema = configurationSchemaFor(toolProviders);
-			const aggregateCapabilities = {
-				toolCalling: true,
-				imageInput: vision,
-			};
-
-			const cheapestRaw = `${m.id}:cheapest`;
-			const fastestRaw = `${m.id}:fastest`;
-			const cheapestId = buildExposedModelId(cheapestRaw, server.id, serverCount);
-			const fastestId = buildExposedModelId(fastestRaw, server.id, serverCount);
-
-			entries.push({
-				...common,
-				id: cheapestId,
-				name: `${namePrefix}${m.id} (cheapest)`,
-				tooltip: `LiteLLM via the cheapest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
-				family: "litellm",
-				maxInputTokens: maxInput,
-				maxOutputTokens: maxOutput,
-				capabilities: aggregateCapabilities,
-				...aggregateConfigurationSchema,
-				litellm: aggregateMetadata,
-			} satisfies LiteLLMModelInfo);
-			registerRoute(cheapestId, cheapestRaw);
-
-			entries.push({
-				...common,
-				id: fastestId,
-				name: `${namePrefix}${m.id} (fastest)`,
-				tooltip: `LiteLLM via the fastest provider${serverCount > 1 ? ` on ${server.label}` : ""}`,
-				family: "litellm",
-				maxInputTokens: maxInput,
-				maxOutputTokens: maxOutput,
-				capabilities: aggregateCapabilities,
-				...aggregateConfigurationSchema,
-				litellm: aggregateMetadata,
-			} satisfies LiteLLMModelInfo);
-			registerRoute(fastestId, fastestRaw);
-		}
-
-		for (const p of toolProviders) {
-			const constraints = deriveTokenConstraints(p, tokenDefaults);
-			const rawId = `${m.id}:${p.provider}`;
-			const exposedId = buildExposedModelId(rawId, server.id, serverCount);
-			entries.push({
-				...common,
-				id: exposedId,
-				name: `${namePrefix}${m.id} via ${p.provider}`,
-				tooltip: `LiteLLM via ${p.provider}${serverCount > 1 ? ` on ${server.label}` : ""}`,
-				family: familyFromProvider(p),
-				maxInputTokens: constraints.maxInputTokens,
-				maxOutputTokens: constraints.maxOutputTokens,
-				capabilities: {
-					toolCalling: true,
-					imageInput: vision,
-				},
-				...pricingFromProvider(p),
-				...configurationSchemaFor([p]),
-				litellm: {
-					supportsPromptCaching: p.supports_prompt_caching === true,
-					outputLimitSource: constraints.outputLimitSource,
-				},
-			} satisfies LiteLLMModelInfo);
-			registerRoute(exposedId, rawId);
-		}
-
-		const base = providers[0];
-		if (toolProviders.length === 0 && base !== undefined) {
-			const constraints = deriveTokenConstraints(base, tokenDefaults);
-			const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-			entries.push({
-				...common,
-				id: exposedId,
-				name: `${namePrefix}${m.id}`,
-				tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
-				family: familyFromProvider(base),
-				maxInputTokens: constraints.maxInputTokens,
-				maxOutputTokens: constraints.maxOutputTokens,
-				capabilities: {
-					toolCalling: false,
-					imageInput: vision,
-				},
-				// The untooled base entry stands for the whole provider group (the
-				// proxy routes it to any of them), so like the aggregates it needs
-				// every backing provider to support reasoning, not just the first.
-				...configurationSchemaFor(providers),
-				litellm: {
-					supportsPromptCaching: base.supports_prompt_caching === true,
-					outputLimitSource: constraints.outputLimitSource,
-				},
-			} satisfies LiteLLMModelInfo);
-			registerRoute(exposedId, m.id);
-		}
-
-		return entries;
+	const infos: LiteLLMModelInfo[] = models.flatMap((m) => {
+		log(`Processing model: ${m.id} from server "${server.label}"`);
+		return entriesForModel(m);
 	});
 
 	return { infos, routes };

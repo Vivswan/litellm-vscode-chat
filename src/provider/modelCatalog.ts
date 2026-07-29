@@ -30,7 +30,7 @@ export interface TokenConstraints {
  * contributors at all also means defaults, so the helper can never fail
  * open on vacuous input.
  */
-export function combinedOutputLimitSource(constraints: readonly TokenConstraints[]): OutputLimitSource {
+function combinedOutputLimitSource(constraints: readonly TokenConstraints[]): OutputLimitSource {
 	return constraints.length > 0 && constraints.every((c) => c.outputLimitSource === "provider")
 		? "provider"
 		: "defaults";
@@ -63,4 +63,30 @@ export function deriveTokenConstraints(
 		Math.max(1, contextLength - maxOutputTokens);
 
 	return { maxOutputTokens, outputLimitSource, contextLength, maxInputTokens };
+}
+
+/**
+ * The conservative collapse of several contributors' effective constraints:
+ * each contributor's standalone constraints are derived under the same
+ * defaults snapshot, the per-field minimum is taken, and the combined output
+ * limit counts as server-declared only when every contributor declared one
+ * (see combinedOutputLimitSource above). The one home of the min-collapse
+ * rule: deployment merging (mergeModelDeployments) and registration's
+ * cheapest/fastest aggregates both advertise through it, so neither can
+ * advertise more input than the strictest contributor accepts, whichever
+ * combination of raw limit fields each contributor set. The non-empty
+ * parameter type keeps the minimums grounded in at least one real
+ * contributor.
+ */
+export function collapseTokenConstraints(
+	contributors: readonly [LiteLLMProvider, ...LiteLLMProvider[]],
+	defaults: TokenDefaults
+): TokenConstraints {
+	const standalone = contributors.map((provider) => deriveTokenConstraints(provider, defaults));
+	return {
+		maxOutputTokens: Math.min(...standalone.map((c) => c.maxOutputTokens)),
+		outputLimitSource: combinedOutputLimitSource(standalone),
+		contextLength: Math.min(...standalone.map((c) => c.contextLength)),
+		maxInputTokens: Math.min(...standalone.map((c) => c.maxInputTokens)),
+	};
 }

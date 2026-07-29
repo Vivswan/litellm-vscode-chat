@@ -145,7 +145,11 @@ suite("provider/request contract", () => {
 			assert.equal(providerEntry.maxInputTokens, 112000);
 		});
 
-		test("aggregates minimum token constraints for cheapest/fastest entries", async () => {
+		test("aggregates collapse to the minimum standalone constraints for cheapest/fastest entries", async () => {
+			// provider-a declares a max_input_tokens tighter than its context minus
+			// output; the aggregate must respect it. The retired inline formula
+			// (min context - min output = 46000) ignored declared input limits and
+			// advertised more input than provider-a accepts.
 			const provider = makeProvider(TEST_BASE_URL);
 			mswServer.use(
 				...discoveryHandlers({
@@ -163,6 +167,7 @@ suite("provider/request contract", () => {
 									supports_tools: true,
 									context_length: 100000,
 									max_output_tokens: 8000,
+									max_input_tokens: 30000,
 								},
 								{
 									provider: "provider-b",
@@ -188,7 +193,12 @@ suite("provider/request contract", () => {
 			assert.ok(fastestEntry);
 			assert.equal(cheapestEntry.maxOutputTokens, 4000);
 			assert.equal(fastestEntry.maxOutputTokens, 4000);
-			assert.equal(cheapestEntry.maxInputTokens, 46000);
+			assert.equal(
+				cheapestEntry.maxInputTokens,
+				30000,
+				"provider-a's declared input limit is the strictest standalone constraint and must cap the aggregate"
+			);
+			assert.equal(fastestEntry.maxInputTokens, 30000);
 		});
 
 		test("provider max_output_tokens takes priority over max_tokens", async () => {

@@ -233,19 +233,71 @@ suite("provider", () => {
 			assert.strictEqual(info.capabilities.toolCalling, false);
 		});
 
+		test("an untooled group's base entry collapses limits and caching across every provider", () => {
+			const { infos } = buildModelInfos(
+				[
+					{
+						id: "no-tools",
+						shape: {
+							kind: "group",
+							providers: [
+								{
+									provider: "perplexity",
+									status: "active",
+									supports_tools: false,
+									max_input_tokens: 128000,
+									max_output_tokens: 16000,
+									supports_prompt_caching: true,
+								},
+								{
+									provider: "other",
+									status: "active",
+									supports_tools: false,
+									max_input_tokens: 64000,
+									max_output_tokens: 8000,
+								},
+							],
+						},
+					},
+				],
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				1,
+				() => {},
+				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+			);
+
+			assert.strictEqual(infos.length, 1, "an untooled group registers exactly its base entry");
+			const info = expectDefined(infos[0]);
+			assert.strictEqual(info.family, "perplexity", "display identity still follows the first provider");
+			assert.strictEqual(info.maxOutputTokens, 8000, "the base entry stands for the whole group, so limits collapse");
+			assert.strictEqual(info.maxInputTokens, 64000);
+			assert.strictEqual(info.litellm.outputLimitSource, "provider", "every provider declared its output limit");
+			assert.strictEqual(
+				info.litellm.supportsPromptCaching,
+				false,
+				"caching holds only when every provider advertises it, not just the first"
+			);
+		});
+
 		test("every entry flavor emits exactly the registered field set", () => {
 			const { infos } = buildModelInfos(
 				[
-					{ id: "sole", providers: [{ provider: "openai", status: "ok", source: "model_info" }] },
-					{ id: "bare", providers: [] },
+					{ id: "sole", shape: { kind: "deployment", provider: { provider: "openai", status: "ok" } } },
+					{ id: "bare", shape: { kind: "bare" } },
 					{
 						id: "multi",
-						providers: [
-							{ provider: "groq", status: "active", supports_tools: true },
-							{ provider: "together", status: "active", supports_tools: true },
-						],
+						shape: {
+							kind: "group",
+							providers: [
+								{ provider: "groq", status: "active", supports_tools: true },
+								{ provider: "together", status: "active", supports_tools: true },
+							],
+						},
 					},
-					{ id: "no-tools", providers: [{ provider: "perplexity", status: "active", supports_tools: false }] },
+					{
+						id: "no-tools",
+						shape: { kind: "group", providers: [{ provider: "perplexity", status: "active", supports_tools: false }] },
+					},
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
@@ -282,57 +334,60 @@ suite("provider", () => {
 				[
 					{
 						id: "sole",
-						providers: [
-							{
+						shape: {
+							kind: "deployment",
+							provider: {
 								provider: "openai",
 								status: "ok",
-								source: "model_info",
 								input_cost_per_token: 0.000003,
 								output_cost_per_token: 0.000015,
 								cache_read_input_token_cost: 0.0000003,
 								cache_creation_input_token_cost: 0.00000375,
 							},
-						],
+						},
 					},
-					{ id: "bare", providers: [] },
+					{ id: "bare", shape: { kind: "bare" } },
 					{
 						id: "free",
-						providers: [
-							{
+						shape: {
+							kind: "deployment",
+							provider: {
 								provider: "openai",
 								status: "ok",
-								source: "model_info",
 								input_cost_per_token: 0,
 								output_cost_per_token: 1e308,
 							},
-						],
+						},
 					},
 					{
 						id: "stamped",
-						providers: [
-							{
+						shape: {
+							kind: "deployment",
+							provider: {
 								provider: "openai",
 								status: "ok",
-								source: "model_info",
 								input_cost_per_token: 0,
 								output_cost_per_token: 0,
 								cache_read_input_token_cost: 0.0000003,
 								long_context_input_cost_per_token: 0.00001,
 							},
-						],
+						},
 					},
 					{
 						id: "multi",
-						providers: [
-							{
-								provider: "groq",
-								status: "active",
-								supports_tools: true,
-								input_cost_per_token: 0.000001,
-								output_cost_per_token: "0.000002" as unknown as number,
-							},
-							{ provider: "together", status: "active", supports_tools: true, input_cost_per_token: 0.000002 },
-						],
+						shape: {
+							kind: "group",
+							providers: [
+								{
+									provider: "groq",
+									status: "active",
+									supports_tools: true,
+									input_cost_per_token: 0.000001,
+									output_cost_per_token: "0.000002" as unknown as number,
+								},
+								{ provider: "together", status: "active", supports_tools: true, input_cost_per_token: 0.000002 },
+							],
+						},
 					},
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
@@ -412,11 +467,11 @@ suite("provider", () => {
 				[
 					{
 						id: "tiered",
-						providers: [
-							{
+						shape: {
+							kind: "deployment",
+							provider: {
 								provider: "anthropic",
 								status: "ok",
-								source: "model_info",
 								input_cost_per_token: 0.000003,
 								output_cost_per_token: 0.000015,
 								cache_read_input_token_cost: 0.0000003,
@@ -425,38 +480,41 @@ suite("provider", () => {
 								long_context_cache_read_input_token_cost: 0.0000003,
 								long_context_cache_creation_input_token_cost: 0.00000375,
 							},
-						],
+						},
 					},
 					{
 						id: "overflow",
-						providers: [
-							{
+						shape: {
+							kind: "deployment",
+							provider: {
 								provider: "openai",
 								status: "ok",
-								source: "model_info",
 								input_cost_per_token: 0.000003,
 								long_context_input_cost_per_token: 1e308,
 							},
-						],
+						},
 					},
 					{
 						id: "multi",
-						providers: [
-							{
-								provider: "groq",
-								status: "active",
-								supports_tools: true,
-								input_cost_per_token: 0.000001,
-								long_context_input_cost_per_token: 0.000002,
-							},
-							{
-								provider: "together",
-								status: "active",
-								supports_tools: true,
-								input_cost_per_token: 0.000001,
-								long_context_input_cost_per_token: 0.000002,
-							},
-						],
+						shape: {
+							kind: "group",
+							providers: [
+								{
+									provider: "groq",
+									status: "active",
+									supports_tools: true,
+									input_cost_per_token: 0.000001,
+									long_context_input_cost_per_token: 0.000002,
+								},
+								{
+									provider: "together",
+									status: "active",
+									supports_tools: true,
+									input_cost_per_token: 0.000001,
+									long_context_input_cost_per_token: 0.000002,
+								},
+							],
+						},
 					},
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
