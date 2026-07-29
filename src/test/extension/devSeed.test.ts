@@ -1,10 +1,12 @@
 import * as assert from "node:assert";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import * as vscode from "vscode";
 import type { DevSeedEnv } from "../../extension/devSeed";
-import { consumeDevSeed, DEV_SEED_FILENAME, parseDevSeed } from "../../extension/devSeed";
+import { consumeDevSeed, parseDevSeed } from "../../extension/devSeed";
 import { updateServerSecret } from "../../extension/serverSync";
+import { DEV_SEED_FILENAME } from "../../shared/devSeed";
 import { Logger } from "../../shared/logger";
 import { serverSecretsKey } from "../../shared/storageKeys";
 import { makeExtensionStorage } from "../testUtils";
@@ -200,5 +202,16 @@ suite("extension/devSeed", () => {
 
 		assert.strictEqual(await consumeDevSeed(dir, fake.env, makeLogger()), undefined);
 		assert.deepStrictEqual(fake.writes, []);
+	});
+
+	test("the ignore files keep the seed file out of commits and the VSIX", () => {
+		// The seed carries the local stack's master key inline, so renaming
+		// DEV_SEED_FILENAME must not silently un-ignore a secret-bearing file.
+		// Tests run from out/test/extension, so the repo root is three levels up.
+		const repoRoot = resolve(__dirname, "..", "..", "..");
+		for (const ignoreFile of [".gitignore", ".vscodeignore"]) {
+			const lines = fs.readFileSync(join(repoRoot, ignoreFile), "utf8").split(/\r?\n/);
+			assert.ok(lines.includes(DEV_SEED_FILENAME), `${ignoreFile} ignores ${DEV_SEED_FILENAME}`);
+		}
 	});
 });

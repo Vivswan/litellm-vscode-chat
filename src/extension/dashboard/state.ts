@@ -17,10 +17,10 @@ import { normalizeBaseUrl } from "../../shared/baseUrl";
 import { CMD, INTERNAL_CMD } from "../../shared/commandIds";
 import { fingerprint } from "../../shared/fingerprint";
 import { isHeaderScalar, isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
-import { isUnsafeRecordKey } from "../../shared/json";
+import { isRecord, isUnsafeRecordKey } from "../../shared/json";
 import type { OptionalEntryFields } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
-import { normalizeModelParameters } from "../../shared/settings";
+import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, normalizeModelParameters } from "../../shared/settings";
 import { EXTENSION_SETTINGS_FILTER } from "../serverManagement";
 import type { DeclaredServerView } from "../serverSync";
 import { acceptedEntryIndex } from "../serverSync";
@@ -396,8 +396,8 @@ export function readDashboardSettings(reader: SettingsReader): DashboardSettings
 		numbers,
 		booleans,
 		configuredScopes: { numbers: numberScopes, booleans: booleanScopes },
-		modelParameters: buildScopedRecord(reader.inspect("modelParameters"), normalizeModelParameters),
-		headers: buildScopedRecord(reader.inspect("headers"), sanitizeHeaders),
+		modelParameters: buildScopedRecord(reader.inspect(MODEL_PARAMETERS_SETTING_KEY), normalizeModelParameters),
+		headers: buildScopedRecord(reader.inspect(HEADERS_SETTING_KEY), sanitizeHeaders),
 	};
 }
 
@@ -533,6 +533,15 @@ const secretLocationChoiceSchema = z.union([z.literal("settings"), z.literal("se
 const adoptSecretsSchema = z.strictObject(fieldShape(SECRET_FIELD_IDS, secretLocationChoiceSchema));
 
 /**
+ * Bound on the correlation tokens the webview mints (request IDs and the
+ * adopt handle it echoes back): long enough for any honest token, short
+ * enough that a hostile page cannot balloon the message.
+ */
+const REQUEST_ID_MAX_LENGTH = 128;
+
+const requestIdSchema = z.string().min(1).max(REQUEST_ID_MAX_LENGTH);
+
+/**
  * The schema every message from the webview must pass before anything acts on
  * it: the webview is outside the trust boundary, so its messages are data,
  * not types. Strict objects keep unknown fields from riding along.
@@ -566,17 +575,17 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 		server: saveServerSchema,
 		secrets: secretDirectivesSchema,
 		replaceLabel: z.string().optional(),
-		requestId: z.string().min(1).max(128),
+		requestId: requestIdSchema,
 	}),
-	z.strictObject({ type: z.literal("removeServerSetting"), label: z.string(), requestId: z.string().min(1).max(128) }),
-	z.strictObject({ type: z.literal("readInlineSecrets"), label: z.string(), requestId: z.string().min(1).max(128) }),
+	z.strictObject({ type: z.literal("removeServerSetting"), label: z.string(), requestId: requestIdSchema }),
+	z.strictObject({ type: z.literal("readInlineSecrets"), label: z.string(), requestId: requestIdSchema }),
 	z.strictObject({
 		type: z.literal("adoptServer"),
 		label: z.string(),
 		baseUrl: z.string(),
-		sourceHandle: z.string().min(1).max(128),
+		sourceHandle: requestIdSchema,
 		secrets: adoptSecretsSchema,
-		requestId: z.string().min(1).max(128),
+		requestId: requestIdSchema,
 	}),
 	z.strictObject({ type: z.literal("executeCommand"), command: asEnum(DASHBOARD_COMMAND_IDS) }),
 ]);
@@ -768,10 +777,6 @@ function rawServerEntries(raw: unknown): unknown[] {
 	return Array.isArray(raw) ? [...raw] : [];
 }
 
-function isEntryRecord(entry: unknown): entry is Record<string, unknown> {
-	return typeof entry === "object" && entry !== null && !Array.isArray(entry);
-}
-
 /**
  * Whether a raw entry carries this label. Compared trimmed on both sides:
  * parseServersSetting trims labels, so a hand-written `" Prod "` entry
@@ -781,7 +786,7 @@ function isEntryRecord(entry: unknown): entry is Record<string, unknown> {
  * so it lands on the same entry the parsed views describe.
  */
 function entryHasLabel(entry: unknown, label: string): entry is Record<string, unknown> {
-	return isEntryRecord(entry) && typeof entry.label === "string" && entry.label.trim() === label.trim();
+	return isRecord(entry) && typeof entry.label === "string" && entry.label.trim() === label.trim();
 }
 
 /**
@@ -1209,7 +1214,7 @@ export async function executeDashboardIntent(
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
 			}
-			await env.updateSetting("modelParameters", intent.value);
+			await env.updateSetting(MODEL_PARAMETERS_SETTING_KEY, intent.value);
 			return undefined;
 		}
 		case "setHeaders": {
@@ -1217,7 +1222,7 @@ export async function executeDashboardIntent(
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
 			}
-			await env.updateSetting("headers", intent.value);
+			await env.updateSetting(HEADERS_SETTING_KEY, intent.value);
 			return undefined;
 		}
 		case "saveServerSetting": {

@@ -2,6 +2,7 @@ import type OpenAI from "openai";
 import { isRecord } from "../shared/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../shared/numbers";
 import type { TokenDefaults } from "../shared/settings";
+import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "./clients";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
 import { collapseTokenConstraints } from "./modelCatalog";
 import type {
@@ -453,7 +454,7 @@ function narrowModelInfoData(
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
 	const { client, baseUrl, discoveryTimeout, tokenDefaults, headers, log } = request;
 
-	log("Fetching from:", `${baseUrl}/v1/model/info`);
+	log("Fetching from:", modelInfoUrl(baseUrl));
 
 	try {
 		// The per-request timeout keeps the SDK's own 600 s default from
@@ -463,7 +464,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		const infoSignal = AbortSignal.timeout(discoveryTimeout);
 		const parsedInfo: unknown = coerceJsonPayload(
 			await boundedBySignal(
-				client.get("/model/info", {
+				client.get(MODEL_INFO_PATH, {
 					signal: infoSignal,
 					timeout: discoveryTimeout,
 					maxRetries: DISCOVERY_MAX_RETRIES,
@@ -503,14 +504,14 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		});
 	}
 
-	log("Fetching from:", `${baseUrl}/v1/models`);
+	log("Fetching from:", modelsUrl(baseUrl));
 	const timeoutSignal = AbortSignal.timeout(discoveryTimeout);
 	const errorContext = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };
 	let parsed: unknown;
 	try {
 		parsed = coerceJsonPayload(
 			await boundedBySignal(
-				client.get("/models", {
+				client.get(MODELS_PATH, {
 					signal: timeoutSignal,
 					timeout: discoveryTimeout,
 					maxRetries: DISCOVERY_MAX_RETRIES,

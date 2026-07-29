@@ -69,11 +69,9 @@ suite("extension/notifier", () => {
 			timer: {
 				set: (callback) => {
 					nextHandle += 1;
-					pending.set(nextHandle, callback);
-					return nextHandle;
-				},
-				clear: (handle) => {
-					pending.delete(handle as number);
+					const handle = nextHandle;
+					pending.set(handle, callback);
+					return () => pending.delete(handle);
 				},
 			},
 			elapseGrace: () => {

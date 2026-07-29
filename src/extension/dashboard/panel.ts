@@ -16,14 +16,10 @@ import type { LiteLLMChatModelProvider, ServerModelsSnapshot } from "../../provi
 import { CMD } from "../../shared/commandIds";
 import type { Logger } from "../../shared/logger";
 import { CONFIG_SECTION } from "../../shared/settingSpec";
+import { SERVERS_SETTING_KEY } from "../../shared/settings";
+import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../shared/webviewPaths";
 import type { DeclaredServerView, ServerSyncEngine } from "../serverSync";
-import {
-	copyServerSecrets,
-	deleteServerSecrets,
-	readServerSecrets,
-	SERVERS_SETTING_KEY,
-	updateServerSecret,
-} from "../serverSync";
+import { copyServerSecrets, deleteServerSecrets, readServerSecrets, updateServerSecret } from "../serverSync";
 import { buildDashboardHtml } from "./html";
 import type { ExtensionToWebviewMessage } from "./protocol";
 import type { IntentEnvironment, SettingsReader } from "./state";
@@ -39,9 +35,8 @@ import {
 	webviewMessageSchema,
 } from "./state";
 
-/** The slice of vscode.Webview the controller uses. */
+/** The slice of vscode.Webview the controller uses; createPanel sets the HTML before handing the panel over. */
 interface DashboardWebview {
-	html: string;
 	postMessage(message: unknown): Thenable<boolean>;
 	onDidReceiveMessage: vscode.Event<unknown>;
 }
@@ -236,7 +231,7 @@ function createNonce(): string {
 }
 
 function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
-	const distDir = vscode.Uri.joinPath(extensionUri, "dist", "webview");
+	const distDir = vscode.Uri.joinPath(extensionUri, ...WEBVIEW_DIST_SEGMENTS);
 	const panel = vscode.window.createWebviewPanel("litellm.dashboard", "LiteLLM Dashboard", vscode.ViewColumn.Active, {
 		enableScripts: true,
 		localResourceRoots: [distDir],
@@ -244,7 +239,7 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 	panel.webview.html = buildDashboardHtml({
 		cspSource: panel.webview.cspSource,
 		nonce: createNonce(),
-		scriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, "dashboard.js")).toString(),
+		scriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, DASHBOARD_BUNDLE_FILENAME)).toString(),
 	});
 	return panel;
 }

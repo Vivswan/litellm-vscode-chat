@@ -1,12 +1,13 @@
 import * as vscode from "vscode";
 import type { IssueReporter } from "../issueReporter";
-import { CMD } from "../shared/commandIds";
+import { CMD, MANAGE_COMMAND_TITLE } from "../shared/commandIds";
 import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../shared/links";
 import type { Logger } from "../shared/logger";
 import { openUrl } from "../shared/openUrl";
 import type { ServerConfig } from "../shared/servers";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import {
+	CONFIGURE_NOW_LABEL,
 	openChatAction,
 	reconfigureAction,
 	reportIssueAction,
@@ -118,8 +119,8 @@ export async function runConnectionTest(
 			case "not-configured":
 				void showActionableMessage(
 					"error",
-					"LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.",
-					[reconfigureAction("Configure Now")]
+					`LiteLLM: No servers configured. Please run '${MANAGE_COMMAND_TITLE}' first.`,
+					[reconfigureAction(CONFIGURE_NOW_LABEL)]
 				);
 				break;
 			default:
@@ -208,8 +209,8 @@ export async function runModelSync(
 				logger.log("Model sync found no configured servers");
 				void showActionableMessage(
 					"error",
-					"LiteLLM: No servers configured. Please run 'Manage LiteLLM Provider' first.",
-					[reconfigureAction("Configure Now")]
+					`LiteLLM: No servers configured. Please run '${MANAGE_COMMAND_TITLE}' first.`,
+					[reconfigureAction(CONFIGURE_NOW_LABEL)]
 				);
 				break;
 			default:
@@ -265,33 +266,17 @@ export function registerReportIssueCommand(
 export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.helpAndFeedback, async () => {
+			// Each entry carries its own action, so a new entry cannot be added
+			// without saying what it does.
 			const choice = await vscode.window.showQuickPick(
 				[
-					{ label: "$(bug) Report Bug", id: "bug" },
-					{ label: "$(lightbulb) Request Feature", id: "feature" },
-					{ label: "$(book) Documentation", id: "docs" },
+					{ label: "$(bug) Report Bug", run: () => vscode.commands.executeCommand(CMD.reportIssue) },
+					{ label: "$(lightbulb) Request Feature", run: () => openUrl(GITHUB_NEW_ISSUE_FEATURE) },
+					{ label: "$(book) Documentation", run: () => openUrl(GITHUB_DOCS_URL) },
 				],
 				{ title: "LiteLLM: Help & Feedback", placeHolder: "What would you like to do?" }
 			);
-			if (!choice) {
-				return;
-			}
-			if (choice.id === "bug") {
-				await vscode.commands.executeCommand(CMD.reportIssue);
-				return;
-			}
-			const urls: Record<string, string> = {
-				feature: GITHUB_NEW_ISSUE_FEATURE,
-				docs: GITHUB_DOCS_URL,
-			};
-			const url = urls[choice.id];
-			if (url === undefined) {
-				// Loud failure so a future quick-pick entry without a matching URL
-				// cannot silently do nothing.
-				void vscode.window.showErrorMessage(`LiteLLM: no destination configured for "${choice.id}"`);
-				return;
-			}
-			void openUrl(url);
+			await choice?.run();
 		})
 	);
 }

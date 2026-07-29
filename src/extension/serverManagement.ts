@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import type { CommandId } from "../shared/commandIds";
-import { CMD, INTERNAL_CMD } from "../shared/commandIds";
+import { CMD, INTERNAL_CMD, MANAGE_COMMAND_TITLE } from "../shared/commandIds";
 import type { Logger } from "../shared/logger";
 import { CONFIG_SECTION } from "../shared/settingSpec";
-import { getMaskApiKeyInput, getModelParametersConfig } from "../shared/settings";
+import { getMaskApiKeyInput, getModelParametersConfig, MODEL_PARAMETERS_SETTING_KEY } from "../shared/settings";
 import { isGroupMigrationRunning } from "./groupMigration";
 import {
 	dismissAction,
@@ -39,20 +39,25 @@ export function canMutateRegistry(isMigrated: () => boolean): boolean {
 	}
 	if (isMigrated()) {
 		void vscode.window.showInformationMessage(
-			'LiteLLM servers are now managed in VS Code\'s language models UI. Re-run "Manage LiteLLM Provider" to open it.'
+			`LiteLLM servers are now managed in VS Code's language models UI. Re-run "${MANAGE_COMMAND_TITLE}" to open it.`
 		);
 		return false;
 	}
 	return true;
 }
 
+/**
+ * The three input prompts return their value already trimmed (undefined on
+ * cancel), so callers store, log, and compare exactly the string the
+ * validation checked.
+ */
 async function promptForServerLabel(
 	registry: ServerRegistry,
 	initial?: string,
 	excludeId?: string
 ): Promise<string | undefined> {
 	const editing = initial !== undefined;
-	return vscode.window.showInputBox({
+	const value = await vscode.window.showInputBox({
 		title: editing ? "LiteLLM: Edit Server - Label" : "LiteLLM: Add Server - Label",
 		prompt: editing
 			? "Update the server label"
@@ -72,11 +77,12 @@ async function promptForServerLabel(
 			return null;
 		},
 	});
+	return value?.trim();
 }
 
 async function promptForBaseUrl(initial?: string): Promise<string | undefined> {
 	const editing = initial !== undefined;
-	return vscode.window.showInputBox({
+	const value = await vscode.window.showInputBox({
 		title: editing ? "LiteLLM: Edit Server - Base URL" : "LiteLLM: Add Server - Base URL",
 		prompt: editing ? "Update the LiteLLM base URL" : "Enter the LiteLLM base URL",
 		ignoreFocusOut: true,
@@ -91,17 +97,19 @@ async function promptForBaseUrl(initial?: string): Promise<string | undefined> {
 			return null;
 		},
 	});
+	return value?.trim();
 }
 
 async function promptForApiKey(masked: boolean, initial?: string): Promise<string | undefined> {
 	const editing = initial !== undefined;
-	return vscode.window.showInputBox({
+	const value = await vscode.window.showInputBox({
 		title: editing ? "LiteLLM: Edit Server - API Key" : "LiteLLM: Add Server - API Key",
 		prompt: editing && initial ? "Update the API key" : "Enter the API key (leave empty if not required)",
 		ignoreFocusOut: true,
 		password: masked,
 		...(editing ? { value: initial } : {}),
 	});
+	return value?.trim();
 }
 
 /**
@@ -124,7 +132,7 @@ export function warnAboutOrphanedModelParameters(
 	void showActionableMessage(
 		"warning",
 		`Renaming the server left ${orphaned.length} modelParameters ${noun} scoped to the old label (e.g., "${orphaned[0]}"). Update the "${prefix}" prefix to "${newLabel}/" in settings to keep them applied.`,
-		[openSettingsAction(`${CONFIG_SECTION}.modelParameters`), dismissAction()]
+		[openSettingsAction(`${CONFIG_SECTION}.${MODEL_PARAMETERS_SETTING_KEY}`), dismissAction()]
 	);
 }
 
@@ -151,10 +159,10 @@ async function addServerFlow(registry: ServerRegistry, logger: Logger, isMigrate
 	if (!canMutateRegistry(isMigrated)) {
 		return false;
 	}
-	await registry.addServer(label.trim(), baseUrl.trim(), apiKey.trim());
-	logger.log(`Added server "${label.trim()}" at ${baseUrl.trim()}`);
+	await registry.addServer(label, baseUrl, apiKey);
+	logger.log(`Added server "${label}" at ${baseUrl}`);
 
-	void showActionableMessage("info", `Server "${label.trim()}" added!`, [
+	void showActionableMessage("info", `Server "${label}" added!`, [
 		testConnectionAction(),
 		openChatAction(),
 		dismissAction(),
@@ -216,13 +224,13 @@ async function manageServerFlow(
 		if (!canMutateRegistry(isMigrated)) {
 			return;
 		}
-		await registry.updateServer(serverId, label.trim(), baseUrl.trim(), apiKey.trim());
-		logger.log(`Updated server "${label.trim()}"`);
+		await registry.updateServer(serverId, label, baseUrl, apiKey);
+		logger.log(`Updated server "${label}"`);
 
-		void showActionableMessage("info", `Server "${label.trim()}" updated!`, [testConnectionAction(), dismissAction()]);
+		void showActionableMessage("info", `Server "${label}" updated!`, [testConnectionAction(), dismissAction()]);
 
-		if (label.trim() !== oldLabel) {
-			warnAboutOrphanedModelParameters(oldLabel, label.trim(), Object.keys(getModelParametersConfig()));
+		if (label !== oldLabel) {
+			warnAboutOrphanedModelParameters(oldLabel, label, Object.keys(getModelParametersConfig()));
 		}
 	} else if (pick.action === "test") {
 		await vscode.commands.executeCommand(CMD.testConnection);

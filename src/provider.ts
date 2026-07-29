@@ -265,10 +265,17 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		// values even if the settings change while servers are being fetched.
 		const tokenDefaults = getTokenDefaults();
 
-		const results = await Promise.allSettled(
+		// Each server's discovery outcome is tagged with its server inside the
+		// map, so the loop below never has to re-pair results with servers by
+		// index. A rejection is caught in place; nothing else here can throw.
+		const results = await Promise.all(
 			servers.map(async (server) => {
-				const result = await this._client.fetchModels(server, tokenDefaults);
-				return { server, models: result.models };
+				try {
+					const result = await this._client.fetchModels(server, tokenDefaults);
+					return { server, outcome: { ok: true as const, models: result.models } };
+				} catch (reason) {
+					return { server, outcome: { ok: false as const, reason } };
+				}
 			})
 		);
 
@@ -277,20 +284,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const allRoutes = new Map<string, ModelRoute>();
 		const modelsByServer = new Map<string, readonly LiteLLMModelInfo[]>();
 
-		const successfulCount = results.filter((r) => r.status === "fulfilled").length;
+		const successfulCount = results.filter(({ outcome }) => outcome.ok).length;
 		const serverCount = servers.length;
 
-		for (const [i, result] of results.entries()) {
-			const server = servers[i];
-			if (server === undefined) {
-				// Unreachable: allSettled preserves input length; the guard exists
-				// for noUncheckedIndexedAccess.
-				continue;
-			}
-
-			if (result.status === "rejected") {
-				const errorMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-				this.logError(`Failed to fetch models from server "${server.label}"`, result.reason);
+		for (const { server, outcome } of results) {
+			if (!outcome.ok) {
+				const errorMsg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+				this.logError(`Failed to fetch models from server "${server.label}"`, outcome.reason);
 				serverStatuses.push({
 					serverId: server.id,
 					label: server.label,
@@ -304,7 +304,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				continue;
 			}
 
-			const { models } = result.value;
+			const { models } = outcome;
 			this.log(`Server "${server.label}" returned ${models.length} models`);
 
 			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg), tokenDefaults);

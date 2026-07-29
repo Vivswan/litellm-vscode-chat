@@ -32,7 +32,6 @@ function makeFakePanel(): FakePanel {
 		triggerDispose: () => disposeEmitter.fire(),
 		panel: {
 			webview: {
-				html: "",
 				postMessage: (message: unknown) => {
 					posted.push(message);
 					return Promise.resolve(true);

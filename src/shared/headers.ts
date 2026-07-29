@@ -8,6 +8,14 @@
 /** A value legal in the headers setting: HTTP header values are scalars, stringified on the wire. */
 export type HeaderScalar = string | number | boolean;
 
+/**
+ * The JSON schema types the headers contribution admits for a value, one per
+ * HeaderScalar member; settingSpec.test.ts pins package.json against this
+ * list. The code is deliberately stricter than the schema: isHeaderScalar
+ * refuses non-finite numbers, which JSON cannot carry anyway.
+ */
+export const HEADER_SCALAR_TYPES = ["string", "number", "boolean"] as const;
+
 /** Narrow an unknown settings value to a header scalar. */
 export function isHeaderScalar(value: unknown): value is HeaderScalar {
 	if (typeof value === "number") {

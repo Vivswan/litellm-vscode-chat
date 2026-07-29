@@ -22,6 +22,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { DEV_SEED_FILENAME, type DevSeed } from "../src/shared/devSeed";
 import { composeSetting, readEnvFile, STACK_DEFAULTS } from "./litellmConfig";
 
 const root = process.cwd();
@@ -121,13 +122,13 @@ run("starting the fake LiteLLM stack", ["bun", "scripts/compose.ts", "up", "-d",
 });
 run("building the dev bundle", ["bun", "run", "bundle:dev"]);
 
-const seed = {
+const seed: DevSeed = {
 	label: "Fake LiteLLM",
 	baseUrl: `http://localhost:${port}`,
 	apiKey,
 	openDashboard: true,
 };
-writeFileSync(join(root, ".dev-fake-seed.json"), `${JSON.stringify(seed, null, "\t")}\n`);
+writeFileSync(join(root, DEV_SEED_FILENAME), `${JSON.stringify(seed, null, "\t")}\n`);
 console.log(`[dev:fake] seed written for ${seed.baseUrl}`);
 
 // The dev host runs on its own persistent profile. The host's provider-group

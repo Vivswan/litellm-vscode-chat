@@ -10,6 +10,18 @@ import { BOOLEAN_SETTING_SPECS, CONFIG_SECTION, MIN_TIMEOUT_MS, NUMBER_SETTING_S
 type LogFn = (message: string, data?: unknown) => void;
 
 export { MIN_TIMEOUT_MS };
+
+/**
+ * The object settings' keys under the config section. The scalar settings get
+ * theirs from settingSpec.ts; these have no scalar spec, so their readers
+ * (here, the server sync engine, and the dashboard's editors) share the keys
+ * through these constants, and settingSpec.test.ts pins the package.json
+ * contributions against them.
+ */
+export const HEADERS_SETTING_KEY = "headers";
+export const MODEL_PARAMETERS_SETTING_KEY = "modelParameters";
+export const SERVERS_SETTING_KEY = "servers";
+
 export const DEFAULT_DISCOVERY_TIMEOUT_MS = NUMBER_SETTING_SPECS.discoveryTimeout.default;
 export const DEFAULT_REQUEST_TIMEOUT_MS = NUMBER_SETTING_SPECS.requestTimeout.default;
 export const DEFAULT_DISCOVERY_CACHE_TTL_MS = NUMBER_SETTING_SPECS.discoveryCacheTtl.default;
@@ -106,7 +118,7 @@ function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, strin
 }
 
 export function getCustomHeaders(log?: LogFn): Record<string, string> {
-	const raw = getConfig().get<Record<string, unknown>>("headers", {});
+	const raw = getConfig().get<Record<string, unknown>>(HEADERS_SETTING_KEY, {});
 	return normalizeCustomHeaders(raw, log);
 }
 
@@ -153,7 +165,7 @@ export function normalizeModelParameters(raw: unknown): Record<string, Record<st
 }
 
 export function getModelParametersConfig(): Record<string, Record<string, unknown>> {
-	return normalizeModelParameters(getConfig().get<Record<string, unknown>>("modelParameters", {}));
+	return normalizeModelParameters(getConfig().get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY, {}));
 }
 
 export function getMaskApiKeyInput(): boolean {

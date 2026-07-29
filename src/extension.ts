@@ -7,7 +7,6 @@ import {
 	registerTestConnectionCommand,
 } from "./extension/commands";
 import { registerDashboardCommand } from "./extension/dashboard/panel";
-import type { DevSeed } from "./extension/devSeed";
 import { consumeDevSeed, createDevSeedEnv } from "./extension/devSeed";
 import { registerDiagnosticsCommand } from "./extension/diagnostics";
 import {
@@ -15,24 +14,31 @@ import {
 	isGroupMigrationComplete,
 	migrateServersToProviderGroups,
 } from "./extension/groupMigration";
-import { createConfigurationPrompt, Notifier, reconfigureAction, showActionableMessage } from "./extension/notifier";
+import {
+	CONFIGURE_NOW_LABEL,
+	createConfigurationPrompt,
+	Notifier,
+	reconfigureAction,
+	showActionableMessage,
+} from "./extension/notifier";
 import { registerManageCommand } from "./extension/serverManagement";
 import { ServerRegistry } from "./extension/serverRegistry";
 import {
 	createServerSyncEnv,
 	parseServersSetting,
 	registerSetServerSecretCommand,
-	SERVERS_SETTING_KEY,
 	ServerSyncEngine,
 } from "./extension/serverSync";
 import { StatusBarManager } from "./extension/status";
 import { createIssueReporterEnv, IssueReporter } from "./issueReporter";
 import { LiteLLMChatModelProvider } from "./provider";
 import { CMD, VENDOR_ID } from "./shared/commandIds";
+import type { DevSeed } from "./shared/devSeed";
 import { GITHUB_DOCS_URL } from "./shared/links";
 import { Logger } from "./shared/logger";
 import type { AggregatedStatus } from "./shared/servers";
 import { CONFIG_SECTION } from "./shared/settingSpec";
+import { SERVERS_SETTING_KEY } from "./shared/settings";
 import { HAS_SHOWN_WELCOME_KEY } from "./shared/storageKeys";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -162,7 +168,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const hasShownWelcome = context.globalState.get<boolean>(HAS_SHOWN_WELCOME_KEY, false);
 	if (!hasShownWelcome && registry.getServers().length === 0 && !hasDeclaredServers()) {
 		showActionableMessage("info", "Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.", [
-			reconfigureAction("Configure Now"),
+			reconfigureAction(CONFIGURE_NOW_LABEL),
 			{ label: "Documentation", run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS_URL)) },
 		]).catch((error) => {
 			logger.error("Welcome message failed", error);

@@ -1,27 +1,23 @@
 import * as vscode from "vscode";
+import { DEV_SEED_FILENAME, type DevSeed } from "../shared/devSeed";
+import { isRecord } from "../shared/json";
 import type { Logger } from "../shared/logger";
 import { CONFIG_SECTION } from "../shared/settingSpec";
-import { SERVERS_SETTING_KEY, updateServerSecret } from "./serverSync";
+import { SERVERS_SETTING_KEY } from "../shared/settings";
+import { updateServerSecret } from "./serverSync";
 
 /**
  * One-shot development seeding for `bun run dev:fake`: the launcher script
- * writes this file into the extension development folder, and a
- * development-mode activation consumes it exactly once. The seed lands the
- * same way a user-configured server does: a `litellm-vscode-chat.servers`
- * entry in the user scope (the setting is machine-scoped) with the API key
- * inline in the entry - it is the local stack's master key, and the inline
- * form is what the dashboard edit form's prefill exercises - and the server
- * sync engine's forced activation pass turns the entry into the provider
- * group. Production activations never look for the file.
+ * writes the seed file (shared/devSeed.ts owns the filename and shape) into
+ * the extension development folder, and a development-mode activation
+ * consumes it exactly once. The seed lands the same way a user-configured
+ * server does: a `litellm-vscode-chat.servers` entry in the user scope (the
+ * setting is machine-scoped) with the API key inline in the entry - it is
+ * the local stack's master key, and the inline form is what the dashboard
+ * edit form's prefill exercises - and the server sync engine's forced
+ * activation pass turns the entry into the provider group. Production
+ * activations never look for the file.
  */
-export const DEV_SEED_FILENAME = ".dev-fake-seed.json";
-
-export interface DevSeed {
-	readonly label: string;
-	readonly baseUrl: string;
-	readonly apiKey: string;
-	readonly openDashboard: boolean;
-}
 
 const DEFAULT_SEED_LABEL = "Fake LiteLLM";
 
@@ -32,10 +28,10 @@ export function parseDevSeed(raw: string): DevSeed | undefined {
 	} catch {
 		return undefined;
 	}
-	if (typeof value !== "object" || value === null) {
+	if (!isRecord(value)) {
 		return undefined;
 	}
-	const record = value as Record<string, unknown>;
+	const record = value;
 	if (typeof record.baseUrl !== "string" || record.baseUrl.trim().length === 0) {
 		return undefined;
 	}
@@ -92,12 +88,7 @@ function upsertSeedEntry(raw: unknown, seed: DevSeed): unknown[] {
 		...(seed.apiKey.length > 0 ? { apiKey: seed.apiKey } : {}),
 	};
 	const index = entries.findIndex(
-		(candidate) =>
-			typeof candidate === "object" &&
-			candidate !== null &&
-			!Array.isArray(candidate) &&
-			typeof (candidate as Record<string, unknown>).label === "string" &&
-			((candidate as Record<string, unknown>).label as string).trim() === seed.label
+		(candidate) => isRecord(candidate) && typeof candidate.label === "string" && candidate.label.trim() === seed.label
 	);
 	if (index >= 0) {
 		entries[index] = entry;

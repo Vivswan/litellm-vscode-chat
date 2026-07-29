@@ -23,6 +23,14 @@ export const CMD = {
 } as const;
 
 /**
+ * CMD.manage's palette title, exactly as package.json contributes it
+ * (commandIds.test.ts pins the mirror). User-facing messages that tell the
+ * user to run the command interpolate this so they always name what the
+ * palette really shows.
+ */
+export const MANAGE_COMMAND_TITLE = "Manage LiteLLM Provider";
+
+/**
  * User-facing commands registered at runtime but kept out of
  * contributes.commands on purpose: manageServers is the direct route to the
  * server editor for buttons that promise configuration, while the palette

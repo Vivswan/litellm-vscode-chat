@@ -21,7 +21,7 @@ import * as vscode from "vscode";
 import { groupClientId, parseGroupConfiguration } from "../provider/groupModels";
 import { CMD, INTERNAL_CMD, VENDOR_ID } from "../shared/commandIds";
 import { fingerprint } from "../shared/fingerprint";
-import { isUnsafeRecordKey } from "../shared/json";
+import { isRecord, isUnsafeRecordKey } from "../shared/json";
 import type { Logger } from "../shared/logger";
 import type {
 	NonSecretOptionalFields,
@@ -32,10 +32,8 @@ import type {
 } from "../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../shared/serverEntry";
 import { CONFIG_SECTION } from "../shared/settingSpec";
+import { SERVERS_SETTING_KEY } from "../shared/settings";
 import { SERVER_SYNC_FINGERPRINTS_KEY, serverSecretsKey } from "../shared/storageKeys";
-
-/** The configuration key, relative to the litellm-vscode-chat section. */
-export const SERVERS_SETTING_KEY = "servers";
 
 /** One parsed servers-setting entry: label and baseUrl usable, other fields present only with usable text. */
 export type DeclaredServer = { readonly label: string; readonly baseUrl: string } & OptionalEntryFields;
@@ -92,11 +90,11 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
 	const seen = new Set<string>();
 	raw.forEach((item: unknown, index) => {
 		const reject = (why: string) => problems?.push(`entry ${index + 1} ${why}`);
-		if (typeof item !== "object" || item === null || Array.isArray(item)) {
+		if (!isRecord(item)) {
 			reject("is not an object");
 			return;
 		}
-		const record = item as Record<string, unknown>;
+		const record = item;
 		const label = usableString(record.label);
 		const baseUrl = usableString(record.baseUrl);
 		if (label === undefined || baseUrl === undefined) {

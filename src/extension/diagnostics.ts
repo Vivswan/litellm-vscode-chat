@@ -8,12 +8,13 @@ import type { SecretFieldId, SecretLocation } from "../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../shared/serverEntry";
 import type { ServerConfig, ServerStatus } from "../shared/servers";
 import { CONFIG_SECTION } from "../shared/settingSpec";
+import { SERVERS_SETTING_KEY } from "../shared/settings";
 import type { DashboardServer } from "./dashboard/protocol";
 import { classifyOverall } from "./dashboard/protocol";
 import { buildDashboardState } from "./dashboard/state";
 import type { ServerRegistry } from "./serverRegistry";
 import type { DeclaredServerView } from "./serverSync";
-import { parseServersSetting, SERVERS_SETTING_KEY } from "./serverSync";
+import { parseServersSetting } from "./serverSync";
 import type { ConnectionStatus } from "./status";
 
 /**

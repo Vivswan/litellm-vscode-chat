@@ -8,16 +8,15 @@ import { expectDefined, makeServerStatus } from "../testUtils";
 suite("extension/commands", () => {
 	interface QuickPickItem {
 		label: string;
-		id: string;
 	}
 
-	function mockHelpFeedback(pickId: string | undefined, onOpen: (uri: string) => void): { restore: () => void } {
+	function mockHelpFeedback(pickLabel: string | undefined, onOpen: (uri: string) => void): { restore: () => void } {
 		const origPick = vscode.window.showQuickPick;
 		const origOpen = vscode.env.openExternal;
 		const origExecute = vscode.commands.executeCommand;
 
 		(vscode.window as Record<string, unknown>).showQuickPick = async (items: QuickPickItem[]) => {
-			return pickId ? items.find((i) => i.id === pickId) : undefined;
+			return pickLabel === undefined ? undefined : items.find((i) => i.label === pickLabel);
 		};
 		(vscode.env as Record<string, unknown>).openExternal = async (uri: vscode.Uri) => {
 			// The browser href VS Code derives from a Uri handed to env.openExternal (openerService).
@@ -43,7 +42,7 @@ suite("extension/commands", () => {
 
 	test("helpAndFeedback delegates to reportIssue when Report Bug selected", async () => {
 		let openedUri: string | undefined;
-		const mock = mockHelpFeedback("bug", (uri) => (openedUri = uri));
+		const mock = mockHelpFeedback("$(bug) Report Bug", (uri) => (openedUri = uri));
 		try {
 			await vscode.commands.executeCommand("litellm.helpAndFeedback");
 			const uri = expectDefined(openedUri, "Should open a URL via reportIssue");
@@ -57,7 +56,7 @@ suite("extension/commands", () => {
 
 	test("helpAndFeedback opens feature request URL when Request Feature selected", async () => {
 		let openedUri: string | undefined;
-		const mock = mockHelpFeedback("feature", (uri) => (openedUri = uri));
+		const mock = mockHelpFeedback("$(lightbulb) Request Feature", (uri) => (openedUri = uri));
 		try {
 			await vscode.commands.executeCommand("litellm.helpAndFeedback");
 			const uri = expectDefined(openedUri, "Should open a URL");
@@ -70,7 +69,7 @@ suite("extension/commands", () => {
 
 	test("helpAndFeedback opens docs URL when Documentation selected", async () => {
 		let openedUri: string | undefined;
-		const mock = mockHelpFeedback("docs", (uri) => (openedUri = uri));
+		const mock = mockHelpFeedback("$(book) Documentation", (uri) => (openedUri = uri));
 		try {
 			await vscode.commands.executeCommand("litellm.helpAndFeedback");
 			assert.ok(openedUri, "Should open a URL");

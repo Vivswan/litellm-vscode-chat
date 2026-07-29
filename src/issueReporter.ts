@@ -33,12 +33,40 @@ function apiKeyConfiguredText(snapshot: DiagnosticsSnapshot): string {
 	return snapshot.apiKeyConfigured ? "yes" : "no";
 }
 
-interface BodyOptions {
-	recentLogs?: string[];
-	omittedLogCount?: number;
-	stackMode?: "full" | "compact";
-	compactedDiagnosticsHint?: string;
-}
+/**
+ * Where the full diagnostics land when the issue URL had to be compacted,
+ * derived once from the environment's capabilities in openIssue. "unknown"
+ * is the plain URL-building path (buildIssueUrl), where no environment is in
+ * play: nothing gets copied anywhere, so the hint promises nothing.
+ */
+type CompactedDiagnosticsSink = "clipboard" | "clipboard-and-file" | "unknown";
+
+/** What the compacted body tells the reader per sink: where the omitted content went, and what to do with it. */
+const SINK_TEXT: Record<CompactedDiagnosticsSink, { hint: string; action: string }> = {
+	"clipboard-and-file": {
+		hint: "full diagnostics copied to clipboard and saved to a diagnostics file",
+		action: "Please attach the generated file or paste the contents here.",
+	},
+	clipboard: {
+		hint: "full diagnostics copied to clipboard",
+		action: "Please paste the copied contents here.",
+	},
+	unknown: {
+		hint: "full diagnostics omitted from URL",
+		action: "Please add the full diagnostics separately.",
+	},
+};
+
+/**
+ * Which body buildBody renders: the full one, or one of the compaction steps
+ * with the sink hint its omission markers quote. "compact-logs" also compacts
+ * the stack (it is the step after "compact-stack" in buildIssuePayload's
+ * shrinking sequence) and always omits at least one line.
+ */
+type BodyVariant =
+	| { kind: "full" }
+	| { kind: "compact-stack"; hint: string }
+	| { kind: "compact-logs"; hint: string; omittedLogCount: number };
 
 interface IssuePayload {
 	url: string;
@@ -136,11 +164,10 @@ export class IssueReporter {
 		return "[Bug] Issue report from diagnostics";
 	}
 
-	buildBody(snapshot: DiagnosticsSnapshot, options: BodyOptions = {}): string {
+	buildBody(snapshot: DiagnosticsSnapshot, variant: BodyVariant = { kind: "full" }): string {
 		const sections: string[] = [];
-		const recentLogs = options.recentLogs ?? snapshot.recentLogs;
-		const stackMode = options.stackMode ?? "full";
-		const compactedDiagnosticsHint = options.compactedDiagnosticsHint ?? "full diagnostics omitted from URL";
+		const recentLogs =
+			variant.kind === "compact-logs" ? snapshot.recentLogs.slice(variant.omittedLogCount) : snapshot.recentLogs;
 
 		sections.push("## What happened\n\n<!-- Describe what happened -->\n");
 		sections.push("## Expected behavior\n\n<!-- What did you expect to happen? -->\n");
@@ -177,12 +204,11 @@ export class IssueReporter {
 		diagLines.push("");
 		sections.push(diagLines.join("\n"));
 
-		if (recentLogs.length > 0 || options.omittedLogCount) {
+		if (recentLogs.length > 0 || variant.kind === "compact-logs") {
 			const logLines = recentLogs.map((l) => redactSecrets(l));
-			if (options.omittedLogCount) {
-				logLines.unshift(
-					`... (${options.omittedLogCount} older log line${options.omittedLogCount === 1 ? "" : "s"} omitted; ${compactedDiagnosticsHint})`
-				);
+			if (variant.kind === "compact-logs") {
+				const omitted = variant.omittedLogCount;
+				logLines.unshift(`... (${omitted} older log line${omitted === 1 ? "" : "s"} omitted; ${variant.hint})`);
 			}
 			sections.push(
 				[
@@ -202,12 +228,10 @@ export class IssueReporter {
 
 		if (snapshot.latestError?.stack) {
 			const stack =
-				stackMode === "compact"
-					? compactStack(snapshot.latestError.stack, compactedDiagnosticsHint)
-					: snapshot.latestError.stack;
+				variant.kind === "full" ? snapshot.latestError.stack : compactStack(snapshot.latestError.stack, variant.hint);
 			sections.push(
 				[
-					`<details><summary>${stackMode === "compact" ? "Stack trace (trimmed)" : "Stack trace"}</summary>`,
+					`<details><summary>${variant.kind === "full" ? "Stack trace" : "Stack trace (trimmed)"}</summary>`,
 					"",
 					"```",
 					redactSecrets(stack),
@@ -223,10 +247,8 @@ export class IssueReporter {
 	}
 
 	async openIssue(snapshot: DiagnosticsSnapshot): Promise<void> {
-		const compactedDiagnosticsHint = this.env.saveDiagnosticsFile
-			? "full diagnostics copied to clipboard and saved to a diagnostics file"
-			: "full diagnostics copied to clipboard";
-		const payload = this.buildIssuePayload(snapshot, compactedDiagnosticsHint);
+		const sink: CompactedDiagnosticsSink = this.env.saveDiagnosticsFile ? "clipboard-and-file" : "clipboard";
+		const payload = this.buildIssuePayload(snapshot, sink);
 		let diagnosticsFile: vscode.Uri | undefined;
 
 		if (payload.compacted) {
@@ -241,10 +263,8 @@ export class IssueReporter {
 		}
 	}
 
-	private buildIssuePayload(
-		snapshot: DiagnosticsSnapshot,
-		compactedDiagnosticsHint = "full diagnostics omitted from URL"
-	): IssuePayload {
+	private buildIssuePayload(snapshot: DiagnosticsSnapshot, sink: CompactedDiagnosticsSink = "unknown"): IssuePayload {
+		const { hint } = SINK_TEXT[sink];
 		const title = this.buildTitle(snapshot);
 		const fullBody = this.buildBody(snapshot);
 		const fullUrl = createIssueUrl(title, fullBody);
@@ -252,27 +272,21 @@ export class IssueReporter {
 			return { url: fullUrl, fullBody, compacted: false };
 		}
 
-		const compactStackBody = this.buildBody(snapshot, { stackMode: "compact", compactedDiagnosticsHint });
+		const compactStackBody = this.buildBody(snapshot, { kind: "compact-stack", hint });
 		const compactStackUrl = createIssueUrl(title, compactStackBody);
 		if (compactStackUrl.length <= MAX_URL_LENGTH) {
 			return { url: compactStackUrl, fullBody, compacted: true };
 		}
 
 		for (let omitted = 1; omitted <= snapshot.recentLogs.length; omitted++) {
-			const logs = snapshot.recentLogs.slice(omitted);
-			const body = this.buildBody(snapshot, {
-				recentLogs: logs,
-				omittedLogCount: omitted,
-				stackMode: "compact",
-				compactedDiagnosticsHint,
-			});
+			const body = this.buildBody(snapshot, { kind: "compact-logs", hint, omittedLogCount: omitted });
 			const url = createIssueUrl(title, body);
 			if (url.length <= MAX_URL_LENGTH) {
 				return { url, fullBody, compacted: true };
 			}
 		}
 
-		const fallbackBody = buildClipboardFallbackBody(snapshot, compactedDiagnosticsHint);
+		const fallbackBody = buildClipboardFallbackBody(snapshot, sink);
 		return {
 			url: createIssueUrl(title, fallbackBody),
 			fullBody,
@@ -291,7 +305,7 @@ function createIssueUrl(title: string, body: string): string {
 	return `${GITHUB_REPO_URL}/issues/new?${params.toString()}`;
 }
 
-function compactStack(stack: string, compactedDiagnosticsHint: string): string {
+function compactStack(stack: string, hint: string): string {
 	const lines = stack.split(/\r?\n/);
 	if (lines.length <= COMPACT_STACK_LINES) {
 		return stack;
@@ -300,11 +314,12 @@ function compactStack(stack: string, compactedDiagnosticsHint: string): string {
 	const omitted = lines.length - COMPACT_STACK_LINES;
 	return [
 		...lines.slice(0, COMPACT_STACK_LINES),
-		`... (${omitted} stack line${omitted === 1 ? "" : "s"} omitted; ${compactedDiagnosticsHint})`,
+		`... (${omitted} stack line${omitted === 1 ? "" : "s"} omitted; ${hint})`,
 	].join("\n");
 }
 
-function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, compactedDiagnosticsHint: string): string {
+function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, sink: CompactedDiagnosticsSink): string {
+	const { hint, action } = SINK_TEXT[sink];
 	const lines = [
 		"## What happened",
 		"",
@@ -325,26 +340,13 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, compactedDiag
 		lines.push(`- Message: ${shortenLine(redactSecrets(snapshot.latestError.message.split(/\r?\n/)[0] ?? ""), 500)}`);
 	}
 
-	lines.push(
-		"",
-		`Full redacted diagnostics were too large to prefill in GitHub. ${capitalizeFirst(compactedDiagnosticsHint)}. ${getCompactedDiagnosticsAction(compactedDiagnosticsHint)}`
-	);
+	lines.push("", `Full redacted diagnostics were too large to prefill in GitHub. ${capitalizeFirst(hint)}. ${action}`);
 
 	return lines.filter((line): line is string => line !== null).join("\n");
 }
 
 function capitalizeFirst(text: string): string {
 	return text.length === 0 ? text : `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
-}
-
-function getCompactedDiagnosticsAction(compactedDiagnosticsHint: string): string {
-	if (compactedDiagnosticsHint.includes("saved to a diagnostics file")) {
-		return "Please attach the generated file or paste the contents here.";
-	}
-	if (compactedDiagnosticsHint.includes("clipboard")) {
-		return "Please paste the copied contents here.";
-	}
-	return "Please add the full diagnostics separately.";
 }
 
 function shortenLine(text: string, maxLength: number): string {
