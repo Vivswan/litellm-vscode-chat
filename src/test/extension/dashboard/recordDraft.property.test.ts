@@ -1,15 +1,7 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { HeaderScalar } from "../../../extension/dashboard/protocol";
-import {
-	assembleGroups,
-	assembleHeaderRows,
-	hasGroupProblems,
-	toGroups,
-	toHeaderRows,
-	validateGroups,
-	validateHeaderRows,
-} from "../../../extension/dashboard/recordDraft";
+import { parseGroups, parseHeaderRows, toGroups, toHeaderRows } from "../../../extension/dashboard/recordDraft";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -44,7 +36,7 @@ const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true }).map((n)
 const headerValueString = fc.string({ maxLength: 20 }).map((s) => s.replace(/[\r\n]/g, " ").trim());
 
 const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, headerValueString);
-// Ordinary prototype: assembleHeaderRows always returns one, and the round trip compares prototypes.
+// Ordinary prototype: parseHeaderRows always returns one, and the round trip compares prototypes.
 const headersRecord = fc.dictionary(headerName, headerScalar, { maxKeys: 6, noNullPrototype: true });
 
 const hostileText = fc.oneof(
@@ -61,28 +53,24 @@ const hostileGroups = fc.array(
 const hostileRows = fc.array(fc.record({ name: hostileText, valueText: hostileText }), { maxLength: 6 });
 
 suite("extension/dashboard/recordDraft round-trip properties", () => {
-	test("clean modelParameters records validate clean and reassemble unchanged", () => {
+	test("clean modelParameters records parse clean and reassemble unchanged", () => {
 		fc.assert(
 			fc.property(modelParametersRecord, (raw) => {
 				const value = JSON.parse(JSON.stringify(raw)) as Record<string, Record<string, unknown>>;
-				const groups = toGroups(value);
-				assert.strictEqual(hasGroupProblems(validateGroups(groups)), false, "the clean domain must validate clean");
-				assert.deepStrictEqual(assembleGroups(groups), value);
+				const parse = parseGroups(toGroups(value));
+				assert.ok(parse.ok, "the clean domain must parse clean");
+				assert.deepStrictEqual(parse.value, value);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
 	});
 
-	test("clean header records validate clean and reassemble with their scalar types intact", () => {
+	test("clean header records parse clean and reassemble with their scalar types intact", () => {
 		fc.assert(
 			fc.property(headersRecord, (value) => {
-				const rows = toHeaderRows(value);
-				assert.deepStrictEqual(
-					validateHeaderRows(rows).filter((problem) => problem !== undefined),
-					[],
-					"the clean domain must validate clean"
-				);
-				assert.deepStrictEqual(assembleHeaderRows(rows), value);
+				const parse = parseHeaderRows(toHeaderRows(value));
+				assert.ok(parse.ok, "the clean domain must parse clean");
+				assert.deepStrictEqual(parse.value, value);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
@@ -95,17 +83,23 @@ suite("extension/dashboard/recordDraft hostile-input properties", () => {
 			fc.property(hostileGroups, hostileRows, (groups, rows) => {
 				const before = Object.getOwnPropertyNames(Object.prototype).sort();
 
-				validateGroups(groups);
-				const assembledGroups = assembleGroups(groups);
-				validateHeaderRows(rows);
-				const assembledHeaders = assembleHeaderRows(rows);
+				const parsedGroups = parseGroups(groups);
+				const parsedHeaders = parseHeaderRows(rows);
 
-				assert.strictEqual(Object.getPrototypeOf(assembledGroups), Object.prototype, "group prototype stays ordinary");
-				assert.strictEqual(
-					Object.getPrototypeOf(assembledHeaders),
-					Object.prototype,
-					"header prototype stays ordinary"
-				);
+				if (parsedGroups.ok) {
+					assert.strictEqual(
+						Object.getPrototypeOf(parsedGroups.value),
+						Object.prototype,
+						"group prototype stays ordinary"
+					);
+				}
+				if (parsedHeaders.ok) {
+					assert.strictEqual(
+						Object.getPrototypeOf(parsedHeaders.value),
+						Object.prototype,
+						"header prototype stays ordinary"
+					);
+				}
 				assert.deepStrictEqual(
 					Object.getOwnPropertyNames(Object.prototype).sort(),
 					before,
