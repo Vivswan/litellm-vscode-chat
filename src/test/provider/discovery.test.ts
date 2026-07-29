@@ -3,15 +3,15 @@ import { HttpResponse, http } from "msw";
 import { createServerClient } from "../../provider/clients";
 import {
 	fetchModels,
-	isLiteLLMModelInfoItem,
 	isLiteLLMModelItem,
 	type MappedModelInfo,
 	mapModelInfoEntry,
 	mergeModelDeployments,
+	parseModelInfoItem,
 } from "../../provider/discovery";
 import { deriveTokenConstraints } from "../../provider/modelCatalog";
 import { buildModelInfos } from "../../provider/registration";
-import type { LiteLLMModelInfoItem } from "../../provider/schemas";
+import type { LiteLLMModelItem, ModelShape } from "../../provider/schemas";
 import type { TokenDefaults } from "../../shared/settings";
 import {
 	discoveryHandlers,
@@ -44,6 +44,12 @@ function request(log: (message: string, data?: unknown) => void = () => {}) {
 	};
 }
 
+/** Narrow a model to one shape kind and return that shape, failing the test otherwise. */
+function expectShape<K extends ModelShape["kind"]>(model: LiteLLMModelItem, kind: K): Extract<ModelShape, { kind: K }> {
+	assert.strictEqual(model.shape.kind, kind, `model ${model.id} took the wrong registration shape`);
+	return model.shape as Extract<ModelShape, { kind: K }>;
+}
+
 suite("provider/discovery", () => {
 	useMsw();
 
@@ -57,15 +63,41 @@ suite("provider/discovery", () => {
 			assert.ok(!isLiteLLMModelItem("m1"));
 		});
 
-		test("isLiteLLMModelInfoItem requires one usable model identifier", () => {
-			assert.ok(isLiteLLMModelInfoItem({ model_name: "gpt-4" }));
-			assert.ok(isLiteLLMModelInfoItem({ litellm_params: { model: "openai/gpt-4" } }));
-			assert.ok(isLiteLLMModelInfoItem({ model_info: { key: "gpt-4" } }));
-			assert.ok(isLiteLLMModelInfoItem({ model_info: { id: "abc" } }));
-			assert.ok(!isLiteLLMModelInfoItem({ model_name: "" }));
-			assert.ok(!isLiteLLMModelInfoItem({ model_name: 42 }));
-			assert.ok(!isLiteLLMModelInfoItem({}));
-			assert.ok(!isLiteLLMModelInfoItem(null));
+		test("parseModelInfoItem requires one usable model identifier and resolves it by priority", () => {
+			assert.strictEqual(expectDefined(parseModelInfoItem({ model_name: "gpt-4" })).modelId, "gpt-4");
+			assert.strictEqual(
+				expectDefined(parseModelInfoItem({ litellm_params: { model: "openai/gpt-4" } })).modelId,
+				"openai/gpt-4"
+			);
+			assert.strictEqual(expectDefined(parseModelInfoItem({ model_info: { key: "gpt-4" } })).modelId, "gpt-4");
+			assert.strictEqual(expectDefined(parseModelInfoItem({ model_info: { id: "abc" } })).modelId, "abc");
+			assert.strictEqual(parseModelInfoItem({ model_name: "" }), undefined);
+			assert.strictEqual(parseModelInfoItem({ model_name: 42 }), undefined);
+			assert.strictEqual(parseModelInfoItem({}), undefined);
+			assert.strictEqual(parseModelInfoItem(null), undefined);
+		});
+
+		test("a malformed model_info field degrades to undefined without dropping the entry", () => {
+			const parsed = expectDefined(
+				parseModelInfoItem({
+					model_name: "lenient-model",
+					model_info: {
+						supports_vision: "yes",
+						supports_function_calling: true,
+						supported_openai_params: ["temperature", 42],
+						max_output_tokens: "16000",
+					},
+				}),
+				"one malformed field must never lose the model"
+			);
+			assert.strictEqual(parsed.model_info?.supports_vision, undefined, "a string flag is malformed, not truthy");
+			assert.strictEqual(parsed.model_info?.supports_function_calling, true);
+			assert.deepStrictEqual(
+				parsed.model_info?.supported_openai_params,
+				["temperature"],
+				"a non-string params member drops alone; the usable members survive"
+			);
+			assert.strictEqual(parsed.model_info?.max_output_tokens, "16000", "numeric strings stay for normalization");
 		});
 	});
 
@@ -182,7 +214,7 @@ suite("provider/discovery", () => {
 			assert.strictEqual(models.length, 1);
 			const model = expectDefined(models[0]);
 			assert.strictEqual(model.id, "bare-model");
-			assert.deepStrictEqual(model.providers, []);
+			assert.deepStrictEqual(model.shape, { kind: "bare" });
 			assert.ok(
 				logs.some((m) => m.includes("Skipping malformed models entry")),
 				"Malformed /v1/models entries should be skipped with a log line"
@@ -213,7 +245,7 @@ suite("provider/discovery", () => {
 			);
 
 			const { models } = await fetchModels(request());
-			const provider = expectDefined(expectDefined(models[0]).providers[0]);
+			const provider = expectDefined(expectShape(expectDefined(models[0]), "group").providers[0]);
 			assert.strictEqual(provider.long_context_input_cost_per_token, 0.000002);
 			assert.strictEqual(
 				provider.long_context_output_cost_per_token,
@@ -221,6 +253,51 @@ suite("provider/discovery", () => {
 				"a raw look-alike of the synthesized key never smuggles a tier cost past selection"
 			);
 			assert.strictEqual(provider.input_cost_per_token, 0.000001, "base costs still pass through untouched");
+		});
+
+		test("wire provider entries cannot forge the internal discriminants or smuggle malformed costs", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => emptyErrorResponse(500)),
+				http.get(MODELS_URL, () =>
+					HttpResponse.json({
+						object: "list",
+						data: [
+							{
+								id: "forged-model",
+								providers: [
+									{
+										provider: "openai",
+										status: "active",
+										// A forged source would take registration's priced
+										// sole-deployment path; a forged output_limit_source
+										// would demote the genuinely declared limit below.
+										source: "model_info",
+										output_limit_source: "defaults",
+										max_output_tokens: 8000,
+										input_cost_per_token: "0.000001",
+									},
+								],
+							},
+						],
+					})
+				)
+			);
+
+			const { models } = await fetchModels(request());
+			const model = expectDefined(models[0]);
+			const provider = expectDefined(expectShape(model, "group").providers[0], "the wire cannot mint a deployment");
+			assert.strictEqual(provider.source, undefined, "source is discovery-authored, never wire-supplied");
+			assert.strictEqual(
+				provider.output_limit_source,
+				undefined,
+				"the merge's provenance marker is discovery-authored, never wire-supplied"
+			);
+			assert.strictEqual(
+				deriveTokenConstraints(provider, TEST_TOKEN_DEFAULTS).outputLimitSource,
+				"provider",
+				"the declared 8000 output limit stays server-declared despite the forged demotion"
+			);
+			assert.strictEqual(provider.input_cost_per_token, undefined, "a string cost is re-narrowed to absent");
 		});
 
 		test("malformed nested provider entries are dropped without crashing registration", async () => {
@@ -240,9 +317,9 @@ suite("provider/discovery", () => {
 			const logs: string[] = [];
 			const { models } = await fetchModels(request((msg) => logs.push(msg)));
 			assert.strictEqual(models.length, 1);
-			const model = expectDefined(models[0]);
-			assert.strictEqual(model.providers.length, 1, "Only the well-formed provider survives");
-			assert.strictEqual(expectDefined(model.providers[0]).provider, "openai");
+			const shape = expectShape(expectDefined(models[0]), "group");
+			assert.strictEqual(shape.providers.length, 1, "Only the well-formed provider survives");
+			assert.strictEqual(shape.providers[0].provider, "openai");
 			assert.ok(
 				logs.some((l) => l.includes("Skipping malformed provider entry")),
 				"Dropped provider entries must be logged"
@@ -392,8 +469,7 @@ suite("provider/discovery", () => {
 			assert.strictEqual(models.length, 1, "One deployment entry per model_name must collapse to one model");
 			const model = expectDefined(models[0]);
 			assert.strictEqual(model.id, "balanced-model");
-			assert.strictEqual(model.providers.length, 1, "The merge must keep the sole-provider registration path");
-			const provider = expectDefined(model.providers[0]);
+			const provider = expectShape(model, "deployment").provider;
 			assert.strictEqual(provider.source, "model_info");
 			assert.strictEqual(provider.max_input_tokens, 64000);
 			assert.strictEqual(provider.max_output_tokens, 8000);
@@ -429,7 +505,7 @@ suite("provider/discovery", () => {
 			const { models } = await fetchModels(request());
 
 			assert.strictEqual(models.length, 1);
-			const provider = expectDefined(expectDefined(models[0]).providers[0]);
+			const provider = expectShape(expectDefined(models[0]), "deployment").provider;
 			assert.strictEqual(provider.max_input_tokens, 128000);
 			assert.strictEqual(provider.max_output_tokens, 16000);
 			assert.strictEqual(provider.supports_tools, true, "The blocked deployment must not veto tool support");
@@ -559,9 +635,9 @@ suite("provider/discovery", () => {
 		/** The same fixed snapshot the fetchModels helper threads; tests never read workspace settings. */
 		const DEFAULTS = TEST_TOKEN_DEFAULTS;
 
-		/** Build a deployment through the production mapper, never by hand. */
-		function deployment(modelInfo: NonNullable<LiteLLMModelInfoItem["model_info"]>): MappedModelInfo {
-			return expectDefined(mapModelInfoEntry({ model_name: "balanced", model_info: modelInfo }));
+		/** Build a deployment through the production parse-and-map path, never by hand. */
+		function deployment(modelInfo: Record<string, unknown>): MappedModelInfo {
+			return mapModelInfoEntry(expectDefined(parseModelInfoItem({ model_name: "balanced", model_info: modelInfo })));
 		}
 
 		test("a single deployment passes through unchanged", () => {
@@ -619,9 +695,11 @@ suite("provider/discovery", () => {
 		});
 
 		test("a passed-through output_limit_source can demote but never promote", () => {
-			// providerEntrySchema is loose, so a wire payload could carry the
-			// merge's internal marker; claiming "provider" without declared limit
-			// fields must not lift the cap.
+			// normalizeModelItem strips the marker from wire entries, so only
+			// discovery's own merged providers carry it; this pins the
+			// deriveTokenConstraints defense in depth: even a provider object that
+			// somehow claims "provider" without declared limit fields must not
+			// lift the cap.
 			const spoofed = deriveTokenConstraints(
 				{ provider: "wire", status: "ok", output_limit_source: "provider" },
 				DEFAULTS
