@@ -236,16 +236,38 @@ export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer)
 }
 
 /**
- * The model's attached server, re-validated because model objects come back
- * across the host boundary and only their shape is trustworthy, not their
- * type. The base URL is re-normalized for the same reason: identity surfaces
- * (groupClientId, the migrated-label lookup) require the normalized form, and
- * the host round trip could hand back anything string-shaped. OAuth and
- * virtual-key sub-objects get the same lenient narrowing as the group
- * configuration: malformed ones degrade to absent.
+ * The LiteLLM facts of one model object, re-validated in a single pass. Model
+ * objects come back across the host boundary, so only their shape is
+ * trustworthy, not their type; this is the chat path's one parse of
+ * `model.litellm`, and everything downstream reads the parsed result instead
+ * of narrowing the model again.
  */
-export function getGroupServer(model: LiteLLMModelInfo, log?: NarrowLog): GroupServer | undefined {
-	const candidate: unknown = model.litellm?.server;
+export interface ParsedModelMetadata {
+	/** The attached group server, or undefined for registry-served models. */
+	readonly server: GroupServer | undefined;
+	readonly supportsPromptCaching: boolean;
+	/** Anything but an exact "provider" (a missing field, an older extension's metadata) keeps the conservative cap. */
+	readonly outputLimitSource: OutputLimitSource;
+}
+
+/**
+ * Parse a model object's LiteLLM metadata at the host boundary. The attached
+ * server's base URL is re-normalized because identity surfaces (groupClientId,
+ * the migrated-label lookup) require the normalized form, and the host round
+ * trip could hand back anything string-shaped. OAuth and virtual-key
+ * sub-objects get the same lenient narrowing as the group configuration:
+ * malformed ones degrade to absent.
+ */
+export function parseModelMetadata(model: LiteLLMModelInfo, log?: NarrowLog): ParsedModelMetadata {
+	return {
+		server: parseAttachedServer(model.litellm?.server, log),
+		supportsPromptCaching: modelSupportsPromptCaching(model),
+		outputLimitSource: modelOutputLimitSource(model),
+	};
+}
+
+/** The lenient re-narrowing of an attached group server; see parseModelMetadata. */
+function parseAttachedServer(candidate: unknown, log?: NarrowLog): GroupServer | undefined {
 	if (!isRecord(candidate) || typeof candidate.baseUrl !== "string" || typeof candidate.apiKey !== "string") {
 		return undefined;
 	}
@@ -279,8 +301,9 @@ export function modelSupportsPromptCaching(model: LiteLLMModelInfo): boolean {
  * The provenance of model.maxOutputTokens, re-validated because model objects
  * come back across the host boundary: anything but an exact "provider" (a
  * missing field, an older extension's metadata) keeps the conservative cap.
+ * Chat requests read this through parseModelMetadata's single parse.
  */
-export function modelOutputLimitSource(model: LiteLLMModelInfo): OutputLimitSource {
+function modelOutputLimitSource(model: LiteLLMModelInfo): OutputLimitSource {
 	return model.litellm?.outputLimitSource === "provider" ? "provider" : "defaults";
 }
 

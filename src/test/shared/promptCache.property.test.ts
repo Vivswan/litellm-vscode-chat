@@ -44,10 +44,19 @@ const requestArb = fc.record({
 	tools: fc.option(fc.array(toolArb, { maxLength: 5 }), { nil: undefined }),
 });
 
+/**
+ * The message-level marker, probed structurally rather than through the wire
+ * type (which only admits it on tool-role messages): the budget property must
+ * also catch a marker misplaced on a system/user/assistant message.
+ */
+function messageMarker(message: OpenAIChatMessage): unknown {
+	return (message as { cache_control?: unknown }).cache_control;
+}
+
 function countMarkers(result: PromptCachedRequest): number {
 	let count = (result.tools ?? []).filter((tool) => tool.cache_control !== undefined).length;
 	for (const message of result.messages) {
-		if (message.cache_control !== undefined) {
+		if (messageMarker(message) !== undefined) {
 			count += 1;
 		}
 		if (Array.isArray(message.content)) {
@@ -60,7 +69,7 @@ function countMarkers(result: PromptCachedRequest): number {
 /** True when the message carries no marker anywhere. */
 function isUnmarked(message: OpenAIChatMessage): boolean {
 	return (
-		message.cache_control === undefined &&
+		messageMarker(message) === undefined &&
 		(!Array.isArray(message.content) ||
 			message.content.every((block) => block.type !== "text" || block.cache_control === undefined))
 	);

@@ -31,6 +31,7 @@ suite("shared/tools", () => {
 			requestInitiator: "test",
 			tools: [{ name: "only_tool", description: "Only tool", inputSchema: {} }],
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+		assert.ok(out);
 		assert.deepEqual(out.tool_choice, { type: "function", function: { name: "only_tool" } });
 	});
 
@@ -43,6 +44,7 @@ suite("shared/tools", () => {
 				{ name: "tool_b", description: "B", inputSchema: {} },
 			],
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
+		assert.ok(out);
 		assert.equal(out.tool_choice, "required");
 		assert.ok(Array.isArray(out.tools) && out.tools.length === 2);
 	});
@@ -59,7 +61,7 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
-		assert.ok(out.tools);
+		assert.ok(out);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
 		const value = expectDefined(props.value);
@@ -79,7 +81,7 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
-		assert.ok(out.tools);
+		assert.ok(out);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
 		assert.equal(expectDefined(props.action).const, "submit", "const keyword should be preserved");
@@ -97,7 +99,7 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
-		assert.ok(out.tools);
+		assert.ok(out);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
 		const action = expectDefined(props.action);
@@ -122,7 +124,7 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
-		assert.ok(out.tools);
+		assert.ok(out);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
 		const item = expectDefined(props.item);
@@ -148,7 +150,7 @@ suite("shared/tools", () => {
 			toolMode: vscode.LanguageModelChatToolMode.Auto,
 			requestInitiator: "test",
 		} satisfies vscode.ProvideLanguageModelChatResponseOptions);
-		assert.ok(out.tools);
+		assert.ok(out);
 		const params = expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
 		const props = params.properties as Record<string, Record<string, unknown>>;
 		const value = expectDefined(props.value);

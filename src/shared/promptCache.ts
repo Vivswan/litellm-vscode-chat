@@ -1,4 +1,12 @@
-import type { EphemeralCacheControl, OpenAIChatContentBlock, OpenAIChatMessage, OpenAIFunctionToolDef } from "./wire";
+import type {
+	EphemeralCacheControl,
+	OpenAIAssistantMessage,
+	OpenAIChatContentBlock,
+	OpenAIChatMessage,
+	OpenAIFunctionToolDef,
+	OpenAIPromptMessage,
+	OpenAIToolMessage,
+} from "./wire";
 
 /**
  * Prompt-cache breakpoint pass. Runs after message and tool conversion, owns
@@ -46,56 +54,74 @@ export interface PromptCachedRequest {
 }
 
 /**
- * A message can carry a marker only when it has non-empty text: Anthropic
- * rejects `cache_control` on empty text blocks, and tool-call-only assistant
- * turns have no content block to mark.
+ * Where one message's marker would go, parsed once per message by
+ * locateCacheable and carrying everything markCacheable needs: tool-role
+ * messages take the message-level marker (the adapter's only cacheable
+ * position there), string content converts to a single marked text block, and
+ * array content is marked on its last non-empty text block. No site means the
+ * message cannot anchor: Anthropic rejects `cache_control` on empty text
+ * blocks, and tool-call-only assistant turns have no content block to mark.
  */
-function hasCacheableText(message: OpenAIChatMessage): boolean {
-	const { content } = message;
-	if (typeof content === "string") {
-		return content.length > 0;
-	}
-	return Array.isArray(content) && content.some((block) => block.type === "text" && block.text.length > 0);
-}
+type CacheableSite =
+	| { kind: "message"; message: OpenAIToolMessage }
+	| { kind: "string"; message: OpenAIPromptMessage | OpenAIAssistantMessage; text: string }
+	| {
+			kind: "block";
+			message: OpenAIPromptMessage | OpenAIAssistantMessage;
+			blocks: OpenAIChatContentBlock[];
+			index: number;
+	  };
 
-/**
- * A copy of `message` carrying the marker. Tool-role messages are marked at
- * the message level and keep their content form; other roles get the marker
- * on their last non-empty text block (see the module comment for why).
- */
-function withCacheControl(message: OpenAIChatMessage): OpenAIChatMessage {
+/** The one cacheability parse; anchor selection and marker placement both consume its result. */
+function locateCacheable(message: OpenAIChatMessage): CacheableSite | undefined {
 	if (message.role === "tool") {
-		return { ...message, cache_control: CACHE_CONTROL };
+		// The string check re-proves what the type declares: this pass must stay
+		// total (a widened tool content would still have .length and mismark).
+		return typeof message.content === "string" && message.content.length > 0 ? { kind: "message", message } : undefined;
 	}
 	const { content } = message;
 	if (typeof content === "string") {
-		return { ...message, content: [{ type: "text", text: content, cache_control: CACHE_CONTROL }] };
+		return content.length > 0 ? { kind: "string", message, text: content } : undefined;
 	}
 	if (!Array.isArray(content)) {
-		return message;
+		return undefined;
 	}
-	const lastText = content.findLastIndex((block) => block.type === "text" && block.text.length > 0);
-	if (lastText === -1) {
-		return message;
+	const index = content.findLastIndex((block) => block.type === "text" && block.text.length > 0);
+	return index === -1 ? undefined : { kind: "block", message, blocks: content, index };
+}
+
+/** A copy of the site's message carrying the marker; total because the site proves placement. */
+function markCacheable(site: CacheableSite): OpenAIChatMessage {
+	switch (site.kind) {
+		case "message":
+			return { ...site.message, cache_control: CACHE_CONTROL };
+		case "string":
+			return { ...site.message, content: [{ type: "text", text: site.text, cache_control: CACHE_CONTROL }] };
+		case "block":
+			return {
+				...site.message,
+				content: site.blocks.map((block, i) =>
+					i === site.index && block.type === "text" ? { ...block, cache_control: CACHE_CONTROL } : block
+				),
+			};
 	}
-	const blocks: OpenAIChatContentBlock[] = content.map((block, i) =>
-		i === lastText && block.type === "text" ? { ...block, cache_control: CACHE_CONTROL } : block
-	);
-	return { ...message, content: blocks };
 }
 
 /** The deduplicated message anchors: system, first user, rolling last. */
-function anchorIndices(messages: readonly OpenAIChatMessage[]): Set<number> {
+function anchorIndices(
+	messages: readonly OpenAIChatMessage[],
+	sites: readonly (CacheableSite | undefined)[]
+): Set<number> {
 	const anchors = new Set<number>();
-	const system = messages.findIndex((m) => m.role === "system" && hasCacheableText(m));
+	const system = messages.findIndex((m, i) => m.role === "system" && sites[i] !== undefined);
 	if (system !== -1) {
 		anchors.add(system);
 	}
-	const firstUser = messages.findIndex((m) => m.role === "user" && hasCacheableText(m));
+	const firstUser = messages.findIndex((m, i) => m.role === "user" && sites[i] !== undefined);
 	if (firstUser !== -1) {
 		anchors.add(firstUser);
 	}
-	const rolling = messages.findLastIndex((m) => hasCacheableText(m));
+	const rolling = sites.findLastIndex((site) => site !== undefined);
 	if (rolling !== -1) {
 		anchors.add(rolling);
 	}
@@ -108,8 +134,12 @@ function anchorIndices(messages: readonly OpenAIChatMessage[]): Set<number> {
  * model's capability.
  */
 export function applyPromptCacheBreakpoints(request: PromptCacheRequest): PromptCachedRequest {
-	const anchors = anchorIndices(request.messages);
-	const messages = request.messages.map((message, i) => (anchors.has(i) ? withCacheControl(message) : message));
+	const sites = request.messages.map((message) => locateCacheable(message));
+	const anchors = anchorIndices(request.messages, sites);
+	const messages = request.messages.map((message, i) => {
+		const site = sites[i];
+		return anchors.has(i) && site !== undefined ? markCacheable(site) : message;
+	});
 	const { tools } = request;
 	if (tools === undefined || tools.length === 0) {
 		return { messages, tools: tools === undefined ? undefined : [...tools] };

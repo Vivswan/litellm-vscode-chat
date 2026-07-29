@@ -56,6 +56,22 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface LiteLLMChatModelProviderOptions {
+	userAgent: string;
+	logger?: Logger | undefined;
+	/** Resolves the legacy registry's servers; defaults to an empty list for group-only hosts. */
+	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
+	/** Pre-migration labels by base URL, for modelParameters scoping; defaults to none. */
+	getMigratedServerLabels?: (() => Record<string, string[]>) | undefined;
+	/**
+	 * Gate for refreshes that arrive without a group configuration: while it
+	 * returns true (the default) they serve the server registry; once the
+	 * registry is migrated to provider groups they serve nothing.
+	 */
+	grouplessRegistryEnabled?: (() => boolean) | undefined;
+	discoveryCache?: DiscoveryCache<readonly PreAttachModelInfo[]> | undefined;
+}
+
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteLLMModelInfo> {
 	private readonly _client: ChatClient;
 	// Pre-attach group discovery results, keyed by group client ID. The host
@@ -69,10 +85,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// at once and aggregates errors, and it only serves pre-migration and
 	// non-production hosts.
 	private readonly _discoveryCache: DiscoveryCache<readonly PreAttachModelInfo[]>;
+	private readonly logger?: Logger | undefined;
 	private _statusCallback?: (status: AggregatedStatus) => void;
-	private _getServers?: () => Promise<ServerWithKey[]>;
+	private readonly _getServers: () => Promise<ServerWithKey[]>;
 	private _configurationPrompt?: ConfigurationPrompt;
-	private _grouplessRegistryEnabled?: () => boolean;
+	private readonly _grouplessRegistryEnabled: () => boolean;
 	// The host fetches each provider group in its own call, so no single call
 	// sees the whole picture. Statuses accumulate here keyed by server ID; the
 	// group-agnostic call (normally the first of a refresh cycle) advances the
@@ -101,39 +118,25 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/** Fired to make the host re-resolve the group-agnostic call and every group through this provider. */
 	readonly onDidChangeLanguageModelChatInformation: Event<void> = this._onDidChangeEmitter.event;
 
-	constructor(
-		userAgent: string,
-		private readonly logger?: Logger,
-		discoveryCache?: DiscoveryCache<readonly PreAttachModelInfo[]>
-	) {
-		this._client = new ChatClient({ userAgent, logger });
-		this._discoveryCache = discoveryCache ?? new DiscoveryCache();
+	constructor(options: LiteLLMChatModelProviderOptions) {
+		this.logger = options.logger;
+		this._getServers = options.getServers ?? (() => Promise.resolve([]));
+		this._grouplessRegistryEnabled = options.grouplessRegistryEnabled ?? (() => true);
+		this._client = new ChatClient({
+			userAgent: options.userAgent,
+			logger: options.logger,
+			getServers: this._getServers,
+			getMigratedServerLabels: options.getMigratedServerLabels,
+		});
+		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 	}
 
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
 		this._statusCallback = callback;
 	}
 
-	setServerProvider(getServers: () => Promise<ServerWithKey[]>): void {
-		this._getServers = getServers;
-		this._client.setServerProvider(getServers);
-	}
-
 	setConfigurationPrompt(prompt: ConfigurationPrompt): void {
 		this._configurationPrompt = prompt;
-	}
-
-	/**
-	 * Gate for refreshes that arrive without a group configuration: while the
-	 * gate allows it (or no gate is set) they serve the server registry; once
-	 * the registry is migrated to provider groups they serve nothing.
-	 */
-	setGrouplessRegistryEnabled(enabled: () => boolean): void {
-		this._grouplessRegistryEnabled = enabled;
-	}
-
-	setMigratedServerLabels(getLabels: () => Record<string, string[]>): void {
-		this._client.setMigratedServerLabelsProvider(getLabels);
 	}
 
 	private log(message: string, data?: unknown): void {
@@ -243,7 +246,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.log("provideLanguageModelChatInformation called", { silent: options.silent });
 		this.beginStatusCycle();
 
-		if (this._grouplessRegistryEnabled && !this._grouplessRegistryEnabled()) {
+		if (!this._grouplessRegistryEnabled()) {
 			this.log("Registry servers are migrated to provider groups; serving no models for the group-agnostic refresh");
 			this.pruneServerCaches(this.groupClientIdsInStatuses());
 			// The merged report keeps the status bar tracking group removals: once

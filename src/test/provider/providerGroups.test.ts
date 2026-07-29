@@ -421,8 +421,9 @@ suite("provider groups", () => {
 	});
 
 	test("label-scoped modelParameters resolve through the migrated label map", async () => {
-		const provider = makeProvider();
-		provider.setMigratedServerLabels(() => ({ [TEST_BASE_URL]: ["Production"] }));
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getMigratedServerLabels: () => ({ [TEST_BASE_URL]: ["Production"] }),
+		});
 		let body: Record<string, unknown> | undefined;
 		mswServer.use(
 			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
@@ -455,8 +456,9 @@ suite("provider groups", () => {
 			info: (line: string) => lines.push(line),
 			error: (line: string) => lines.push(`ERROR: ${line}`),
 		} as unknown as vscode.LogOutputChannel;
-		const provider = makeProvider(undefined, "test-key", channel);
-		provider.setMigratedServerLabels(() => ({ [TEST_BASE_URL]: ["Production", "Staging"] }));
+		const provider = makeProvider(undefined, "test-key", channel, {
+			getMigratedServerLabels: () => ({ [TEST_BASE_URL]: ["Production", "Staging"] }),
+		});
 		let body: Record<string, unknown> | undefined;
 		mswServer.use(
 			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
@@ -531,8 +533,7 @@ suite("provider groups", () => {
 	});
 
 	test("the group-agnostic refresh returns no models once the registry gate closes", async () => {
-		const provider = makeProvider(TEST_BASE_URL);
-		provider.setGrouplessRegistryEnabled(() => false);
+		const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, { grouplessRegistryEnabled: () => false });
 
 		const infos = await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 
@@ -540,8 +541,7 @@ suite("provider groups", () => {
 	});
 
 	test("the group-agnostic refresh keeps serving the registry while the gate allows it", async () => {
-		const provider = makeProvider(TEST_BASE_URL);
-		provider.setGrouplessRegistryEnabled(() => true);
+		const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, { grouplessRegistryEnabled: () => true });
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 
 		const infos = await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
@@ -551,8 +551,7 @@ suite("provider groups", () => {
 	});
 
 	test("one failing group degrades the merged status instead of masking the healthy one", async () => {
-		const provider = makeProvider();
-		provider.setGrouplessRegistryEnabled(() => false);
+		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
 		mswServer.use(
@@ -659,8 +658,7 @@ suite("provider groups", () => {
 	});
 
 	test("a group that stops reporting survives one groupless-marked cycle and disappears at the next", async () => {
-		const provider = makeProvider();
-		provider.setGrouplessRegistryEnabled(() => false);
+		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
 		mswServer.use(
@@ -799,8 +797,7 @@ suite("provider groups", () => {
 	});
 
 	test("refreshViaHost falls back when the host only makes the group-agnostic call", async () => {
-		const provider = makeProvider();
-		provider.setGrouplessRegistryEnabled(() => false);
+		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
 		let discoveryHits = 0;
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => {
@@ -824,8 +821,7 @@ suite("provider groups", () => {
 	});
 
 	test("refreshViaHost resolves once host-driven reports settle, without a fallback probe", async () => {
-		const provider = makeProvider();
-		provider.setGrouplessRegistryEnabled(() => false);
+		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
 		let discoveryHits = 0;
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => {

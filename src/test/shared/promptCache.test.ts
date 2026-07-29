@@ -42,7 +42,7 @@ function markers(result: PromptCachedRequest): string[] {
 		}
 	}
 	for (const [i, message] of result.messages.entries()) {
-		if (message.cache_control) {
+		if (message.role === "tool" && message.cache_control) {
 			found.push(`message:${i}`);
 		}
 		if (Array.isArray(message.content)) {
@@ -116,8 +116,10 @@ suite("shared/promptCache applyPromptCacheBreakpoints", () => {
 			],
 		});
 		assert.deepStrictEqual(result.messages[1]?.content, [{ type: "text", text: "done", cache_control: EPHEMERAL }]);
-		assert.strictEqual(result.messages[2]?.content, "", "empty tool results are never marked");
-		assert.strictEqual(result.messages[2]?.cache_control, undefined);
+		const emptyToolResult = expectDefined(result.messages[2]);
+		assert.ok(emptyToolResult.role === "tool", "the empty tool result keeps its role");
+		assert.strictEqual(emptyToolResult.content, "", "empty tool results are never marked");
+		assert.strictEqual(emptyToolResult.cache_control, undefined);
 		assert.strictEqual(result.messages[3]?.content, undefined);
 	});
 
@@ -138,6 +140,7 @@ suite("shared/promptCache applyPromptCacheBreakpoints", () => {
 		});
 		assert.deepStrictEqual(markers(result), ["message:0:block:0", "message:1:block:0"]);
 		const anchored = expectDefined(result.messages[1]);
+		assert.ok(anchored.role === "assistant", "the anchor stays an assistant turn");
 		assert.deepStrictEqual(anchored.content, [
 			{ type: "text", text: "I will read the file next.", cache_control: EPHEMERAL },
 		]);

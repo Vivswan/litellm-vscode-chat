@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { isImageMimeType, isTextMimeType } from "./mime";
+import { isImageMimeType, isPdfMimeType, isTextMimeType } from "./mime";
 import type { OpenAIFunctionToolDef } from "./wire";
 
 export const CHARS_PER_TOKEN = 4;
@@ -23,7 +23,7 @@ export function estimatePartTokens(part: unknown, options: TokenEstimationOption
 			if (isImageMimeType(part.mimeType)) {
 				return IMAGE_TOKEN_ESTIMATE;
 			}
-			if (part.mimeType.toLowerCase() === "application/pdf") {
+			if (isPdfMimeType(part.mimeType)) {
 				return PDF_TOKEN_ESTIMATE;
 			}
 		}

@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { ChatClient } from "../../provider/chatClient";
 import type { LiteLLMModelInfo } from "../../provider/groupModels";
-import { withFetch } from "../testUtils";
+import { withConfig, withFetch } from "../testUtils";
 
 function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: string): void; close(): void } {
 	let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -79,10 +79,11 @@ suite("provider/chatClient", () => {
 				return new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 			},
 			async () => {
-				const client = new ChatClient({ userAgent: "test-agent" });
-				client.setServerProvider(() =>
-					Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }])
-				);
+				const client = new ChatClient({
+					userAgent: "test-agent",
+					getServers: () =>
+						Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
+				});
 
 				const a = collector();
 				const b = collector();
@@ -115,10 +116,11 @@ suite("provider/chatClient", () => {
 		await withFetch(
 			async () => new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
 			async () => {
-				const client = new ChatClient({ userAgent: "test-agent" });
-				client.setServerProvider(() =>
-					Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }])
-				);
+				const client = new ChatClient({
+					userAgent: "test-agent",
+					getServers: () =>
+						Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
+				});
 
 				const parts: vscode.LanguageModelResponsePart[] = [];
 				const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
@@ -162,10 +164,11 @@ suite("provider/chatClient", () => {
 				return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 			},
 			async () => {
-				const client = new ChatClient({ userAgent: "test-agent" });
-				client.setServerProvider(() =>
-					Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }])
-				);
+				const client = new ChatClient({
+					userAgent: "test-agent",
+					getServers: () =>
+						Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
+				});
 
 				const cts = new vscode.CancellationTokenSource();
 				const sendPromise = client.send({
@@ -193,10 +196,11 @@ suite("provider/chatClient", () => {
 				throw new DOMException("The operation timed out.", "TimeoutError");
 			},
 			async () => {
-				const client = new ChatClient({ userAgent: "test-agent" });
-				client.setServerProvider(() =>
-					Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }])
-				);
+				const client = new ChatClient({
+					userAgent: "test-agent",
+					getServers: () =>
+						Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
+				});
 
 				const token = new vscode.CancellationTokenSource().token;
 				await assert.rejects(
@@ -204,6 +208,48 @@ suite("provider/chatClient", () => {
 					/requestTimeout/
 				);
 			}
+		);
+	});
+
+	test("a stream that stalls mid-body aborts at the configured requestTimeout", async function () {
+		// The configured timeouts are hard whole-call bounds. The SDK's own
+		// timeout disarms once headers arrive, so only send()'s
+		// AbortSignal.timeout wiring can abort a body that stops flowing;
+		// deleting that wiring must fail this test.
+		this.timeout(10000);
+		await withFetch(
+			async (_url, init) => {
+				const signal = init?.signal;
+				const encoder = new TextEncoder();
+				const stream = new ReadableStream<Uint8Array>({
+					start(controller) {
+						// One delta arrives, then the body stalls forever. Like a real
+						// fetch, the body stream errors when the request signal aborts.
+						controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
+						signal?.addEventListener("abort", () => controller.error(signal.reason ?? new Error("aborted")));
+					},
+				});
+				return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+			},
+			() =>
+				withConfig({ requestTimeout: 1000 }, async () => {
+					const client = new ChatClient({
+						userAgent: "test-agent",
+						getServers: () =>
+							Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
+					});
+
+					const token = new vscode.CancellationTokenSource().token;
+					const startedAt = Date.now();
+					await assert.rejects(
+						client.send({ model, messages, options, progress: collector().progress, token }),
+						/requestTimeout/
+					);
+					assert.ok(
+						Date.now() - startedAt >= 900,
+						"the abort must come from the whole-call timeout, not an early transport failure"
+					);
+				})
 		);
 	});
 });

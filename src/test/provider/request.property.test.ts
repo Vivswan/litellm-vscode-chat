@@ -188,7 +188,7 @@ suite("provider/request buildRequestBody ownership properties", () => {
 						openaiMessages: MESSAGES,
 						maxTokens,
 						modelParams,
-						toolConfig: {},
+						toolConfig: undefined,
 						modelConfiguration: modelConfiguration as ModelConfigurationRequestParams,
 						modelOptions,
 					});
