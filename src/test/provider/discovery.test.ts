@@ -175,7 +175,7 @@ suite("provider/discovery", () => {
 					["fallback-model"],
 					`status ${status}`
 				);
-				const fallbackLog = logged.find((l) => l.message.includes("falling back to /v1/models"));
+				const fallbackLog = logged.find((l) => l.message.includes(`falling back to ${MODELS_URL}`));
 				assert.ok(fallbackLog, `Expected the classified fallback log line for status ${status}`);
 				assert.strictEqual(
 					(fallbackLog.data as { status?: number }).status,

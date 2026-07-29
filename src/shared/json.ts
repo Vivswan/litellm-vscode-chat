@@ -24,7 +24,7 @@ export function tryParseJSONObject(text: string): { ok: true; value: Record<stri
 			return { ok: false };
 		}
 		const value = JSON.parse(text);
-		if (value && typeof value === "object" && !Array.isArray(value)) {
+		if (isRecord(value)) {
 			return { ok: true, value };
 		}
 		return { ok: false };
