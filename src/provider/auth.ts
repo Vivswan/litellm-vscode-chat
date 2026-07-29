@@ -11,9 +11,9 @@ import { RequestError } from "./errorMapping";
  * token endpoint for a short-lived bearer token and sends that token as the
  * Authorization header on every request to the server.
  *
- * Error ownership follows the transport modules: this file constructs
- * specific errors and throws without logging; the provider boundary logs
- * once. Token values and client secrets never appear in any message.
+ * Error ownership follows the transport-module convention (AGENTS.md,
+ * "Error ownership"). Token values and client secrets never appear in any
+ * message.
  */
 
 /** Client-credentials grant configuration; present as a whole or not at all. */

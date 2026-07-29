@@ -21,9 +21,9 @@ export interface EphemeralCacheControl {
 }
 
 /**
- * OpenAI function tool definition used to advertise tools. LiteLLM reads a
- * tool-level `cache_control` for both its Anthropic and Bedrock adapters
- * (caching the whole tools block up to the marked tool).
+ * OpenAI function tool definition used to advertise tools. Placement of the
+ * tool-level `cache_control` marker is owned by shared/promptCache.ts, like
+ * the message-level marker below.
  */
 export interface OpenAIFunctionToolDef {
 	type: "function";

@@ -2,10 +2,10 @@
  * Ambient augmentation of the "vscode" module with Language Model provider
  * API surface that exists at runtime for published extensions but is not in
  * the published @types/vscode typings (latest is 1.125). Every member below
- * is verified against the VS Code source: the extension host passes or reads
- * them without an API-proposal gate
- * (src/vs/workbench/api/common/extHostLanguageModels.ts; a reference checkout
- * lives at .worktrees/vscode).
+ * was verified against the VS Code sources when it was added: the extension
+ * host passes or reads them without an API-proposal gate
+ * (src/vs/workbench/api/common/extHostLanguageModels.ts in the
+ * microsoft/vscode repository).
  *
  * Declarations mirror their vscode.proposed.*.d.ts sources (chatProvider,
  * languageModelPricing) character for character so a future @types/vscode

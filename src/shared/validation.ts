@@ -3,7 +3,8 @@ import { isToolResultPart } from "./messages";
 
 /**
  * Validate the request message sequence for correct tool call/result pairing.
- * Diagnostic detail travels in the thrown error so the boundary logs it once.
+ * Diagnostic detail travels in the thrown error, following the
+ * transport-module error-ownership convention (AGENTS.md, "Error ownership").
  */
 export function validateRequest(messages: readonly vscode.LanguageModelChatRequestMessage[]): void {
 	const lastMessage = messages[messages.length - 1];

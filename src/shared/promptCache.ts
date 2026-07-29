@@ -28,7 +28,9 @@ import type { EphemeralCacheControl, OpenAIChatContentBlock, OpenAIChatMessage, 
  * sub-content, where a block-level marker would end up). Every other role
  * takes a block-level marker on its last non-empty text block, so string
  * content converts to the array-of-blocks form. Uncached messages keep
- * string content.
+ * string content. The tools anchor is a tool-level marker on the last tool
+ * definition, which both the Anthropic and Bedrock adapters read (caching
+ * the whole tools block up to the marked tool).
  */
 
 const CACHE_CONTROL: EphemeralCacheControl = Object.freeze({ type: "ephemeral" });
