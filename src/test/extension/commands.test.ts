@@ -484,7 +484,8 @@ suite("extension/commands", () => {
 				{} as unknown as ServerRegistry,
 				{ provideLanguageModelChatInformation: async () => [] },
 				{ getRecentLogs: () => [] },
-				{ getDeclared: () => [] }
+				{ getDeclared: () => [] },
+				{ injectMessageForTest: async () => "ok" as const }
 			);
 			assert.strictEqual(context.subscriptions.length, 0, "the production gate must register nothing");
 		});
