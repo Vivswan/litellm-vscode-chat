@@ -657,4 +657,61 @@ suite("extension/dashboard/panel", () => {
 		assert.ok(!observable.includes(secret), "the secret leaked into an observable surface");
 		assert.deepStrictEqual(harness.secretOps.at(0), ["Prod", "apiKey", secret], "the secret store is the one sink");
 	});
+
+	suite("injectMessageForTest", () => {
+		test("classifies outcomes through the real schema boundary", async () => {
+			const harness = makeHarness();
+			harness.controller.open();
+
+			assert.strictEqual(
+				await harness.controller.injectMessageForTest({
+					type: "setBooleanSetting",
+					setting: "maskApiKeyInput",
+					value: true,
+				}),
+				"ok"
+			);
+			assert.deepStrictEqual(harness.updates.at(-1), ["maskApiKeyInput", true]);
+
+			assert.strictEqual(await harness.controller.injectMessageForTest({ junk: 1 }), "ignored-malformed");
+			assert.strictEqual(
+				await harness.controller.injectMessageForTest({
+					type: "setNumberSetting",
+					setting: "requestTimeout",
+					value: -1,
+				}),
+				"validation-error"
+			);
+			assert.strictEqual(harness.updates.length, 1, "rejected messages must never act");
+		});
+
+		test("injected messages join the same serialized chain as webview posts", async () => {
+			const harness = makeHarness();
+			harness.controller.open();
+			const fake = harness.panels[0];
+			assert.ok(fake);
+
+			// The webview save lands with simulated latency; the injected removal
+			// finds its entry ONLY if the chain serialized it behind the save.
+			fake.receiveMessage({
+				type: "saveServerSetting",
+				server: { label: "Chained", baseUrl: "http://chained.test" },
+				secrets: {
+					apiKey: { action: "keep" },
+					oauthClientSecret: { action: "keep" },
+					virtualKeyValue: { action: "keep" },
+				},
+				requestId: "req-chain-1",
+			});
+			assert.strictEqual(
+				await harness.controller.injectMessageForTest({
+					type: "removeServerSetting",
+					label: "Chained",
+					requestId: "req-chain-2",
+				}),
+				"ok"
+			);
+			assert.deepStrictEqual(harness.serversSetting, [], "the removal ran after the save it was queued behind");
+		});
+	});
 });
