@@ -124,6 +124,13 @@ export interface ChatCompletionChunk {
 	 * field by field, so no per-field claims belong here.
 	 */
 	usage?: Record<string, unknown> | undefined;
+	/**
+	 * In-band error envelope: a streamed `data: {"error": {...}}` payload,
+	 * which LiteLLM emits when an upstream fails after the 200 went out. Only
+	 * a record narrows; a non-record error value stays unknown junk under the
+	 * leniency rules.
+	 */
+	error?: Record<string, unknown> | undefined;
 }
 
 function narrowThinking(raw: unknown): string | ThinkingBlock | undefined {
@@ -270,5 +277,6 @@ export function parseChunk(raw: unknown): ChatCompletionChunk | undefined {
 		model: typeof raw.model === "string" ? raw.model : undefined,
 		choices: Array.isArray(raw.choices) ? raw.choices.filter(isRecord).map(narrowChoice) : undefined,
 		usage: isRecord(raw.usage) ? raw.usage : undefined,
+		error: isRecord(raw.error) ? raw.error : undefined,
 	};
 }

@@ -10,7 +10,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import { URL } from "node:url";
 import type { Scenario } from "./scenarios";
-import { BUILTIN_SCENARIOS, readBody, sendJson, sendSse, sendSseDelayed } from "./scenarios";
+import { BUILTIN_SCENARIOS, playScenario, readBody, sendJson } from "./scenarios";
 
 /** The single model this fixture serves; host-fidelity.test.ts derives its scoped modelParameters keys from it. */
 export const MODEL_ID = "openai/gpt-5-mini-flex";
@@ -109,16 +109,9 @@ export function createCaptureServer(): CaptureServer {
 				return sendJson(res, 500, { error: { message: `No scenario configured` } });
 			}
 
-			if (scenario.type === "error") {
-				return sendJson(res, scenario.statusCode, scenario.body);
-			}
-
-			if (scenario.type === "sse-delayed") {
-				return sendSseDelayed(res, scenario.chunks, scenario.delayMs);
-			}
-
-			// Default: immediate SSE
-			return sendSse(res, scenario.chunks);
+			// Always the streaming rendition: this fixture's host-fidelity callers
+			// stream every request, and the pre-refactor behavior never collapsed.
+			return playScenario(res, scenario, true);
 		}
 
 		sendJson(res, 404, { error: { message: "Not found" } });

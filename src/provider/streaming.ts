@@ -9,6 +9,7 @@ import {
 	logThinkingPartProbeErrorOnce,
 	thinkingPartCtor,
 } from "../shared/thinkingPart";
+import { streamErrorFrame } from "./errorMapping";
 import type { TextParseResult, TextToolCall } from "./textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "./textToolCallParser";
 import type {
@@ -269,6 +270,7 @@ export class StreamProcessor {
 		const reader = responseBody.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
+		let sawDone = false;
 
 		try {
 			while (!token.isCancellationRequested) {
@@ -291,6 +293,7 @@ export class StreamProcessor {
 					}
 					const data = line.slice(6);
 					if (data === "[DONE]") {
+						sawDone = true;
 						this.finishStream(progress, !token.isCancellationRequested);
 						continue;
 					}
@@ -310,6 +313,17 @@ export class StreamProcessor {
 					if (!chunk) {
 						this._log("Skipping malformed SSE line", { length: data.length });
 						continue;
+					}
+					// An in-band error frame with no usable choices terminates the
+					// request: LiteLLM streams `data: {"error": {...}}` when an
+					// upstream dies after the 200, and swallowing it would end the
+					// request as a silent truncation. This is NOT the log-and-skip
+					// path - that leniency covers unparseable junk, and an error
+					// frame is a perfectly parseable statement of failure. After
+					// [DONE] the response already completed, so a late frame must
+					// not turn success into failure.
+					if (!sawDone && chunk.error && !(chunk.choices && chunk.choices.length > 0)) {
+						throw streamErrorFrame(chunk.error);
 					}
 					this.processDelta(chunk, progress, token);
 				}

@@ -113,7 +113,7 @@ suite("provider/errorMapping properties", () => {
 	test("mapSdkError is total: any input under any context maps to an Error and never throws", () => {
 		fc.assert(
 			fc.property(
-				fc.oneof(fc.anything({ maxDepth: 3, maxKeys: 5 }), fc.jsonValue({ maxDepth: 3 })),
+				fc.oneof(fc.anything({ maxDepth: 3, maxKeys: 5, withNullPrototype: true }), fc.jsonValue({ maxDepth: 3 })),
 				ctxArb,
 				(raw, ctx) => {
 					const mapped = mapSdkError(raw, ctx);
