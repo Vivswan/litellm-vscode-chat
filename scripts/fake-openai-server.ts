@@ -14,8 +14,14 @@
 //   GET  /v1/models               the consolidated fake- upstream ids
 //                                 (blocked deployments excluded)
 //   POST /v1/chat/completions     command dispatch, else the fixed reply
+//   POST /oauth/token             client-credentials grant for the fixed fake
+//                                 credentials (src/test/fakeStack/oauth.ts)
+//   *    /authed/...              bearer-guarded mirror: a live token strips
+//                                 the prefix and dispatches normally, else 401
 //   PUT  /_test/custom-scenario   registers {name, config} at runtime (<= 1 MiB)
 //   GET  /_test/last-request      last parsed chat completion body
+//   GET  /_test/oauth-stats       { issued, rejected, live }
+//   POST /_test/oauth-revoke      revoke all live tokens
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
@@ -23,6 +29,16 @@ import { URL } from "node:url";
 import type { CommandContext, CommandResult } from "../src/test/fakeStack/commands";
 import { dispatchCommand, dispatchLine, fallbackReply } from "../src/test/fakeStack/commands";
 import { FAKE_MODEL_UPSTREAM_IDS } from "../src/test/fakeStack/models";
+import {
+	authErrorBody,
+	createOAuthProviderState,
+	grantToken,
+	hasDotSegmentBypass,
+	isLiveBearer,
+	oauthStats,
+	parseTokenRequestBody,
+	revokeAllTokens,
+} from "../src/test/fakeStack/oauth";
 import { FAKE_BACKEND_PORT } from "../src/test/fakeStack/proxyConfig";
 import type { Scenario } from "../src/test/scenarios";
 import { BUILTIN_SCENARIOS, collapseChunks, isScenario, playScenario, readBody, sendJson } from "../src/test/scenarios";
@@ -34,6 +50,7 @@ const VERBOSE = process.env.FAKE_VERBOSE === "1";
 
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 let lastRequest: Record<string, unknown> | null = null;
+const oauthState = createOAuthProviderState();
 
 interface BoundedBody {
 	body: string;
@@ -127,13 +144,59 @@ function logChatExchange(context: CommandContext, result: CommandResult, stream:
 }
 
 const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-	const url = new URL(req.url || "/", `http://${req.headers.host}`);
+	const rawUrl = req.url || "/";
+	// Checked on the RAW request line, before URL parsing: new URL() folds
+	// dot segments away, so "/authed/../v1/models" (or a percent-encoded
+	// spelling) would otherwise dodge the /authed guard below. No served
+	// route contains ".." or "%2e", so the blanket rejection is total.
+	if (hasDotSegmentBypass(rawUrl)) {
+		return sendJson(res, 404, { error: { message: "Not found" } });
+	}
+	const url = new URL(rawUrl, `http://${req.headers.host}`);
 
-	if (req.method === "GET" && url.pathname === "/health") {
+	if (req.method === "POST" && url.pathname === "/oauth/token") {
+		const read = await readBodyBounded(req, MAX_CUSTOM_SCENARIO_BYTES);
+		if (read.overflow) {
+			req.resume();
+			return sendJson(res, 413, { error: { message: "Token request body exceeds 1 MiB" } });
+		}
+		const outcome = grantToken(oauthState, parseTokenRequestBody(read.body, req.headers["content-type"]));
+		return sendJson(res, outcome.status, outcome.body);
+	}
+
+	if (req.method === "GET" && url.pathname === "/_test/oauth-stats") {
+		return sendJson(res, 200, oauthStats(oauthState));
+	}
+
+	if (req.method === "POST" && url.pathname === "/_test/oauth-revoke") {
+		return sendJson(res, 200, { revoked: revokeAllTokens(oauthState) });
+	}
+
+	// The /authed prefix is the bearer-guarded mirror of every route below: a
+	// live token (issued by /oauth/token and not yet revoked) strips the
+	// prefix and dispatches to the normal handlers, so the OAuth suites drive
+	// real discovery and chat over a real socket without a second port.
+	// Anything else gets the LiteLLM-shaped 401 the extension's error mapping
+	// classifies as an auth failure.
+	let pathname = url.pathname;
+	if (pathname === "/authed" || pathname.startsWith("/authed/")) {
+		if (req.method === "POST" && pathname === "/authed/v1/chat/completions") {
+			// Every wire attempt counts, auth outcome included: the suite's
+			// no-retry assertions read this as "how many times did the client
+			// actually hit the guarded chat endpoint".
+			oauthState.authedChatRequests += 1;
+		}
+		if (!isLiveBearer(oauthState, req.headers.authorization)) {
+			return sendJson(res, 401, authErrorBody("Authentication Error: invalid or revoked bearer token"));
+		}
+		pathname = pathname.slice("/authed".length) || "/";
+	}
+
+	if (req.method === "GET" && pathname === "/health") {
 		return sendJson(res, 200, { status: "ok" });
 	}
 
-	if (req.method === "GET" && url.pathname === "/v1/models") {
+	if (req.method === "GET" && pathname === "/v1/models") {
 		// The consolidated fake- upstream ids only; blocked deployments are
 		// excluded exactly as a real provider would not list a decommissioned
 		// model. Scenarios are not models - they are %play targets.
@@ -143,11 +206,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		});
 	}
 
-	if (req.method === "GET" && url.pathname === "/_test/last-request") {
+	if (req.method === "GET" && pathname === "/_test/last-request") {
 		return sendJson(res, 200, lastRequest || {});
 	}
 
-	if (req.method === "PUT" && url.pathname === "/_test/custom-scenario") {
+	if (req.method === "PUT" && pathname === "/_test/custom-scenario") {
 		const oversized = { error: { message: "Custom scenario body exceeds 1 MiB" } };
 		// Fast path on the declared length; the bounded read below still guards
 		// chunked or lying senders. resume() drains the unread remainder so the
@@ -179,7 +242,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		return sendJson(res, 200, { scenario: name });
 	}
 
-	if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
+	if (req.method === "POST" && pathname === "/v1/chat/completions") {
 		const raw = await readBody(req);
 		let body: Record<string, unknown>;
 		try {

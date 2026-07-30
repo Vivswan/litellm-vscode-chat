@@ -1,8 +1,10 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { runConnectionTest, runModelSync } from "../../extension/commands";
+import { registerTestCommands, runConnectionTest, runModelSync } from "../../extension/commands";
+import type { ServerRegistry } from "../../extension/serverRegistry";
 import type { ConnectionStatus } from "../../extension/status";
 import { Logger } from "../../shared/logger";
+import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { expectDefined, makeServerStatus } from "../testUtils";
 
 suite("extension/commands", () => {
@@ -412,6 +414,79 @@ suite("extension/commands", () => {
 			assert.strictEqual(add.modelIds, null, "A superseded mutation must report null model IDs");
 			assert.deepStrictEqual(clearResult, [], "The last mutation returns the fresh (empty) model list");
 			assert.deepStrictEqual(await vscode.commands.executeCommand("litellm._test.getServers"), []);
+		});
+	});
+
+	// The docker-serversync harness commands. Their behavior end to end (real
+	// sync passes, real provider groups) belongs to the docker suite; what the
+	// unit host pins is that they register in test mode and return the safe
+	// shapes the suite's assertions build on.
+	suite("test-only serversync commands", () => {
+		test("the three serversync harness commands are registered in a non-production host", async () => {
+			const commands = await vscode.commands.getCommands(true);
+			for (const id of [
+				"litellm._test.getRecentLogs",
+				"litellm._test.setServerSecret",
+				"litellm._test.getDeclaredServers",
+			]) {
+				assert.ok(commands.includes(id), `${id} must be registered on activation`);
+			}
+		});
+
+		test("getRecentLogs returns the classification-only string buffer", async () => {
+			const logs = (await vscode.commands.executeCommand("litellm._test.getRecentLogs")) as unknown;
+			assert.ok(Array.isArray(logs), "the command returns an array");
+			assert.ok(
+				logs.every((line) => typeof line === "string"),
+				"every buffer entry is a string"
+			);
+		});
+
+		test("setServerSecret stores and clears a label's secret field", async () => {
+			// No command reads secret values back (by design), so the unit host
+			// pins the round trip completing; the docker suite proves the stored
+			// value actually drives discovery.
+			await vscode.commands.executeCommand("litellm._test.setServerSecret", "Cmd Probe", "apiKey", "sk-probe");
+			await vscode.commands.executeCommand("litellm._test.setServerSecret", "Cmd Probe", "apiKey", undefined);
+		});
+
+		test("setServerSecret rejects an unknown secret field loudly", async () => {
+			await assert.rejects(
+				async () => {
+					await vscode.commands.executeCommand("litellm._test.setServerSecret", "Cmd Probe", "notAField", "x");
+				},
+				/Unknown secret field/,
+				"a typoed field must fail the command, not silently no-op"
+			);
+		});
+
+		test("getDeclaredServers returns views that carry no secret values", async () => {
+			const views = (await vscode.commands.executeCommand("litellm._test.getDeclaredServers")) as unknown;
+			assert.ok(Array.isArray(views), "the command returns an array");
+			for (const view of views as Record<string, unknown>[]) {
+				for (const field of SECRET_FIELD_IDS) {
+					assert.ok(!(field in view), `declared views must never carry a ${field} value`);
+				}
+			}
+		});
+
+		test("registerTestCommands is a no-op in a production-mode context", () => {
+			// Everything the function registers goes through context.subscriptions,
+			// so an empty array after the call proves the gate held; a broken gate
+			// would also throw here on the duplicate command ids this host already
+			// registered at activation.
+			const context = {
+				extensionMode: vscode.ExtensionMode.Production,
+				subscriptions: [] as vscode.Disposable[],
+			};
+			registerTestCommands(
+				context as unknown as vscode.ExtensionContext,
+				{} as unknown as ServerRegistry,
+				{ provideLanguageModelChatInformation: async () => [] },
+				{ getRecentLogs: () => [] },
+				{ getDeclared: () => [] }
+			);
+			assert.strictEqual(context.subscriptions.length, 0, "the production gate must register nothing");
 		});
 	});
 });

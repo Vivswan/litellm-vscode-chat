@@ -28,6 +28,7 @@ export default defineConfig({
 				"!out/test/docker-fuzz.test.js",
 				"!out/test/docker-conversation.test.js",
 				"!out/test/docker-transport.test.js",
+				"!out/test/docker-serversync.test.js",
 			],
 			mocha: {
 				ui: "tdd",
@@ -74,6 +75,21 @@ export default defineConfig({
 		{
 			label: "docker-transport",
 			files: "out/test/docker-transport.test.js",
+			mocha: {
+				ui: "tdd",
+				timeout: 120000,
+				color: true,
+			},
+			env: {
+				LITELLM_DOCKER_BASE_URL: process.env.LITELLM_DOCKER_BASE_URL || "",
+				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
+				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
+			},
+			launchArgs,
+		},
+		{
+			label: "docker-serversync",
+			files: "out/test/docker-serversync.test.js",
 			mocha: {
 				ui: "tdd",
 				timeout: 120000,

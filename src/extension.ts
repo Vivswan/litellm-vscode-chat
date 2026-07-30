@@ -104,9 +104,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}
 	}
 
-	// Test-only commands
-	registerTestCommands(context, registry, provider);
-
 	// Status bar, refresh notifications, and the dashboard share the same
 	// status callback, isolated so one consumer's failure cannot starve the
 	// others.
@@ -127,6 +124,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			}
 		})
 	);
+	// Test-only commands; registered after the sync engine exists because the
+	// docker-serversync suite reads its declared views through them.
+	registerTestCommands(context, registry, provider, issueReporter, syncEngine);
 	registerSetServerSecretCommand(context, syncEngine, logger);
 	const dashboard = registerDashboardCommand(context, provider, logger, syncEngine);
 	syncEngine.onDidSync = () => dashboard.refresh();
