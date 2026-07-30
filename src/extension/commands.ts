@@ -4,6 +4,8 @@ import { CMD, MANAGE_COMMAND_TITLE } from "../shared/commandIds";
 import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../shared/links";
 import type { Logger } from "../shared/logger";
 import { openUrl } from "../shared/openUrl";
+import type { SecretFieldId } from "../shared/serverEntry";
+import { SECRET_FIELD_IDS } from "../shared/serverEntry";
 import type { ServerConfig } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
@@ -16,6 +18,8 @@ import {
 	viewOutputAction,
 } from "./notifier";
 import type { ServerRegistry } from "./serverRegistry";
+import type { ServerSyncEngine } from "./serverSync";
+import { updateServerSecret } from "./serverSync";
 import type { ConnectionStatus } from "./status";
 
 const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO_URL}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
@@ -285,7 +289,9 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 export function registerTestCommands(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
-	provider: ModelInfoProvider
+	provider: ModelInfoProvider,
+	issueReporter: Pick<IssueReporter, "getRecentLogs">,
+	syncEngine: Pick<ServerSyncEngine, "getDeclared">
 ): void {
 	if (context.extensionMode === vscode.ExtensionMode.Production) {
 		return;
@@ -351,6 +357,25 @@ export function registerTestCommands(
 		}),
 		vscode.commands.registerCommand("litellm._test.getServers", () => {
 			return registry.getServers();
-		})
+		}),
+		// The docker-serversync suite's observability trio. getRecentLogs is the
+		// same classification-only buffer that feeds public issue reports, so a
+		// suite can assert secrets never reach it. setServerSecret writes a
+		// label's SecretStorage blob exactly as the dashboard and palette do.
+		// getDeclaredServers returns the sync engine's views, which carry secret
+		// locations but no secret values by construction.
+		vscode.commands.registerCommand("litellm._test.getRecentLogs", () => issueReporter.getRecentLogs()),
+		vscode.commands.registerCommand(
+			"litellm._test.setServerSecret",
+			(label: string, field: string, value: string | undefined) => {
+				// Loud on junk: a typoed field silently no-oping would let a suite
+				// pass while testing nothing.
+				if (!(SECRET_FIELD_IDS as readonly string[]).includes(field)) {
+					throw new Error(`Unknown secret field: ${field}`);
+				}
+				return updateServerSecret(context.secrets, label, field as SecretFieldId, value);
+			}
+		),
+		vscode.commands.registerCommand("litellm._test.getDeclaredServers", () => syncEngine.getDeclared())
 	);
 }

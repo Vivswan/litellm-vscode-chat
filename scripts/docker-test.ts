@@ -2,13 +2,14 @@
 // scripts/docker-test.ts
 // Runs the docker-stack test suites against the dockerized LiteLLM proxy:
 // brings the compose stack up, runs the `docker` label, then optionally the
-// `docker-transport`, `docker-fuzz`, and `docker-conversation` labels, then
-// the host-fidelity live suite pointed at the stack, and tears everything
-// down.
+// `docker-transport`, `docker-serversync`, `docker-fuzz`, and
+// `docker-conversation` labels, then the host-fidelity live suite pointed at
+// the stack, and tears everything down.
 //
 // Usage:
-//   bun run test:docker                     docker suite + transport + fuzzer + conversations + host-fidelity live
+//   bun run test:docker                     docker suite + transport + serversync + fuzzer + conversations + host-fidelity live
 //   bun run test:docker --skip-transport    skip the transport-failure suite
+//   bun run test:docker --skip-serversync   skip the server-sync provider-group suite
 //   bun run test:docker --skip-fuzz         skip the stream fuzzer
 //   bun run test:docker --skip-conversation skip the multi-turn conversation suite
 //   FUZZ_ITERATIONS=100 bun run test:docker larger fuzz budget (default 10)
@@ -23,6 +24,7 @@ import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } fr
 
 const args = process.argv.slice(2);
 const runTransport = !args.includes("--skip-transport");
+const runServerSync = !args.includes("--skip-serversync");
 const runFuzz = !args.includes("--skip-fuzz");
 const runConversation = !args.includes("--skip-conversation");
 const runHostFidelity = !args.includes("--skip-host-fidelity");
@@ -66,6 +68,13 @@ try {
 	if (runTransport) {
 		console.log("\nRunning the transport-failure suite...");
 		run("vscode-test --config .vscode-test.mjs --label docker-transport", suiteEnv);
+	}
+
+	if (runServerSync) {
+		// A fresh extension host on purpose: the suite's provider groups are
+		// add-only for the host lifetime and must not leak into other labels.
+		console.log("\nRunning the server-sync suite...");
+		run("vscode-test --config .vscode-test.mjs --label docker-serversync", suiteEnv);
 	}
 
 	if (runFuzz) {
