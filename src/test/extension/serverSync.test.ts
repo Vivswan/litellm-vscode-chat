@@ -19,8 +19,9 @@ import {
 import { groupClientId, parseGroupConfiguration } from "../../provider/groupModels";
 import { normalizeBaseUrl } from "../../shared/baseUrl";
 import { CMD } from "../../shared/commandIds";
+import { fingerprint } from "../../shared/fingerprint";
 import { serverSecretsKey } from "../../shared/storageKeys";
-import { withConfig } from "../testUtils";
+import { expectDefined, withConfig } from "../testUtils";
 
 function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {
 	const values = new Map(Object.entries(initial));
@@ -578,6 +579,151 @@ suite("extension/serverSync", () => {
 
 			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
 			assert.deepStrictEqual(recorded.fingerprints, {}, "no fingerprint for an entry that never landed");
+		});
+
+		test("a genuine name conflict recovers once the conflicting group is removed natively", async () => {
+			const recorded = makeSyncEnv([{ label: "Taken", baseUrl: "http://a.test" }]);
+			recorded.duplicateLabels.add("Taken");
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+
+			// The user removes the stale group in the native editor and runs Sync
+			// Models Now: the forced pass retries the add, and this time it lands.
+			recorded.duplicateLabels.delete("Taken");
+			await engine.syncNow(true);
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the blocked entry heals");
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Taken"], "the landed add records its fingerprint");
+		});
+
+		test("a stale fingerprint re-read cannot misclassify the engine's own group as a name conflict", async () => {
+			// The monkey fuzzer caught globalState losing an awaited update: the
+			// fingerprint map read moments after a group add came back as its
+			// pre-add value, so the engine re-added its own group, took the
+			// duplicate rejection as a foreign name conflict, and - with no
+			// last-known-good left to carry - kept the error on every later pass.
+			// The engine's session map is therefore in-memory; the persisted map
+			// only seeds the first pass. Simulated here by a store whose reads
+			// always return the stale pre-add snapshot.
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			recorded.env.getFingerprints = () => ({});
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the add persisted its fingerprint");
+			recorded.duplicateLabels.add("A");
+
+			// The debounced follow-up pass: in-sync from the session map, so no
+			// host call at all and no spurious error - even though the store's
+			// re-read still claims no fingerprint exists.
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1, "the in-sync entry must not be re-added");
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "no spurious name-conflict classification");
+
+			// Even a forced pass (activation, Sync Models Now) reads the duplicate
+			// rejection as the add-only steady state, not a conflict.
+			await engine.syncNow(true);
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the forced re-add reads as steady state");
+		});
+
+		test("a restarted engine seeds from the persisted map, so the steady-state duplicate stays silent", async () => {
+			// The most-executed production path: every activation after the first
+			// runs a forced pass whose adds all come back as duplicates, and the
+			// silence depends entirely on the seed from the persisted map.
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			await new ServerSyncEngine(recorded.env).syncNow();
+			recorded.duplicateLabels.add("A");
+
+			const restarted = new ServerSyncEngine(recorded.env);
+			await restarted.syncNow(true);
+			assert.strictEqual(restarted.getDeclared()[0]?.syncError, undefined, "the re-add reads as steady state");
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the record survives the restart pass");
+		});
+
+		test("a duplicate for a configuration another window already synced confirms against the store", async () => {
+			// Two windows share the machine-scoped setting, globalState, and the
+			// host's groups, but run separate engines. This window seeded before
+			// the other window's add landed, so its session map is empty; the
+			// fresh store read on the duplicate path is the positive confirmation
+			// that the live group holds exactly these args. The pass-end persist
+			// must keep the record, not clobber the other window's write.
+			const setting = [{ label: "A", baseUrl: "http://a.test" }];
+			const recorded = makeSyncEnv(setting);
+			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
+			const printed = fingerprint(JSON.stringify(buildGroupArgs(parsed, {})));
+			let seeded = false;
+			recorded.env.getFingerprints = () => {
+				if (!seeded) {
+					seeded = true;
+					return {};
+				}
+				return { A: printed };
+			};
+			recorded.duplicateLabels.add("A");
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the other window's record confirms");
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the persist keeps the shared record");
+		});
+
+		test("a store record for a different configuration does not confirm; the conflict stays", async () => {
+			// The confirmation is positive-only: a stale store can under-report
+			// but never invent a match, so anything but an exact fingerprint
+			// match keeps the actionable name-conflict classification.
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			let seeded = false;
+			recorded.env.getFingerprints = () => {
+				if (!seeded) {
+					seeded = true;
+					return {};
+				}
+				return { A: "some-other-configuration" };
+			};
+			recorded.duplicateLabels.add("A");
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+		});
+
+		test("a confirmed fingerprint joins the session map at once, so a later write-through keeps it", async () => {
+			// Confirmed A, then successfully-added B, in ONE pass: B's
+			// write-through persists a spread of the session map, so if the
+			// confirmation only flowed into the pass's `next`, that persist
+			// would re-clobber the other window's record mid-pass - the exact
+			// loss the confirmation path exists to prevent.
+			const setting = [
+				{ label: "A", baseUrl: "http://a.test" },
+				{ label: "B", baseUrl: "http://b.test" },
+			];
+			const recorded = makeSyncEnv(setting);
+			const parsedA = expectDefined(parseServersSetting(setting).entries[0]);
+			const printedA = fingerprint(JSON.stringify(buildGroupArgs(parsedA, {})));
+			let seeded = false;
+			recorded.env.getFingerprints = () => {
+				if (!seeded) {
+					seeded = true;
+					return {};
+				}
+				return { A: printedA };
+			};
+			const persists: Record<string, string>[] = [];
+			const setFingerprints = recorded.env.setFingerprints;
+			recorded.env.setFingerprints = async (map) => {
+				persists.push({ ...map });
+				await setFingerprints(map);
+			};
+			recorded.duplicateLabels.add("A"); // the other window's group holds A
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			assert.ok(persists.length >= 2, "B's write-through and the pass-end write both persist");
+			for (const [index, map] of persists.entries()) {
+				assert.strictEqual(map.A, printedA, `persist #${index + 1} must carry the confirmed record`);
+			}
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints).sort(), ["A", "B"], "the final map holds both");
+			assert.ok(
+				engine.getDeclared().every((view) => view.syncError === undefined),
+				"both entries read as synced"
+			);
 		});
 
 		test("syncNow during an in-flight pass resolves after the pass that includes the request", async () => {
