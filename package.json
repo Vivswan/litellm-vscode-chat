@@ -355,7 +355,7 @@
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.4",
+		"@biomejs/biome": "^2.5.5",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^26.1.1",
 		"@types/vscode": "^1.125.0",
