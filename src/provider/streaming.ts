@@ -207,7 +207,33 @@ interface RequestState {
 	emittedCitations: boolean;
 	/** The generated audio being accumulated, or undefined when none is in flight (also after each flush). */
 	audioBuffer: AudioBuffer | undefined;
+	/** Set by every part handed to progress; the end-of-stream empty-response check reads it. */
+	reportedAnyPart: boolean;
+	/**
+	 * Aggregate of reasoning parts dropped because no thinking part could be
+	 * built (class missing, or its constructor threw): counts and lengths only,
+	 * never the text. "Parts" counts thinking items, not SSE chunks - one delta
+	 * carrying three thinking_blocks counts three.
+	 */
+	droppedReasoningParts: number;
+	droppedReasoningLength: number;
+	/** Set once the per-request drop classification was logged; finishStream runs more than once per stream. */
+	loggedDroppedReasoning: boolean;
+	/** Set once the reasoning-only empty response error was thrown; finishStream runs more than once per stream. */
+	threwReasoningOnly: boolean;
 }
+
+/**
+ * The fixed message for a normally-finished stream that produced no parts at
+ * all while reasoning output was dropped - because the host has no
+ * LanguageModelThinkingPart class, or because the class it has failed to
+ * construct. A thrown error rather than a fallback text part: text parts
+ * round-trip into replayed chat history, and an error surfaces in the chat UI
+ * and flows through the provider boundary's single-point logging. Static
+ * string only; nothing response-derived.
+ */
+const REASONING_ONLY_RESPONSE_MESSAGE =
+	"The model produced only reasoning output, which this version of VS Code could not display: the LanguageModelThinkingPart API is missing or failed. Update VS Code to a version that supports thinking parts, or use a model that returns final text.";
 
 /**
  * The known numeric token counts of a usage trailer. The record is
@@ -260,6 +286,11 @@ function freshRequestState(): RequestState {
 		citations: new Map(),
 		emittedCitations: false,
 		audioBuffer: undefined,
+		reportedAnyPart: false,
+		droppedReasoningParts: 0,
+		droppedReasoningLength: 0,
+		loggedDroppedReasoning: false,
+		threwReasoningOnly: false,
 	};
 }
 
@@ -294,6 +325,38 @@ export class StreamProcessor {
 
 	resetState(): void {
 		this._req = freshRequestState();
+	}
+
+	/** Every part reaches the host through here, so the end-of-stream empty-response check sees all emissions. */
+	private reportPart(
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		part: vscode.LanguageModelResponsePart
+	): void {
+		this._req.reportedAnyPart = true;
+		progress.report(part);
+	}
+
+	/** Aggregate only (part count and character length); the reasoning text never reaches the logs. */
+	private recordDroppedReasoning(thinking: ThinkingContent): void {
+		this._req.droppedReasoningParts += 1;
+		this._req.droppedReasoningLength += thinking.text.length;
+	}
+
+	/**
+	 * Log the per-request drop aggregate once. Called from finishStream and
+	 * from the transport loop's cleanup, so a request that failed mid-stream
+	 * (in-band error frame, reader failure) still ties its lost reasoning to
+	 * the turn a user reports; the once-per-session support notice cannot.
+	 */
+	private logDroppedReasoningAggregate(): void {
+		if (this._req.droppedReasoningParts === 0 || this._req.loggedDroppedReasoning) {
+			return;
+		}
+		this._req.loggedDroppedReasoning = true;
+		this._log("Dropped reasoning output; LanguageModelThinkingPart missing or failed", {
+			parts: this._req.droppedReasoningParts,
+			totalLength: this._req.droppedReasoningLength,
+		});
 	}
 
 	async processStreamingResponse(
@@ -369,6 +432,10 @@ export class StreamProcessor {
 			} catch {
 				// The stream may already be errored (e.g. aborted fetch); the lock is moot then.
 			}
+			// A request that fails mid-stream (in-band error frame, reader
+			// failure) never reaches finishStream; its drop aggregate still logs
+			// here before the state resets.
+			this.logDroppedReasoningAggregate();
 			this._req = freshRequestState();
 		}
 	}
@@ -395,9 +462,6 @@ export class StreamProcessor {
 		// mints an id when a part has none, so minting ids here would only risk
 		// colliding with wire ids or the host's thinking-title cache.
 		const thinkingContents = extractThinking(choice, delta);
-		if (thinkingContents.length > 0 && !this._thinkingPartCtor) {
-			logMissingThinkingPartSupportOnce(this._log);
-		}
 		if (this._thinkingPartCtor) {
 			for (const thinking of thinkingContents) {
 				let part: vscode.LanguageModelResponsePart | undefined;
@@ -407,9 +471,18 @@ export class StreamProcessor {
 					this._log("Failed to construct thinking part", { error: String(e) });
 				}
 				if (part) {
-					progress.report(part);
+					this.reportPart(progress, part);
 					emitted = true;
+				} else {
+					// A host class that throws loses the reasoning exactly like a
+					// missing one; both routes feed the same per-request aggregate.
+					this.recordDroppedReasoning(thinking);
 				}
+			}
+		} else if (thinkingContents.length > 0) {
+			logMissingThinkingPartSupportOnce(this._log);
+			for (const thinking of thinkingContents) {
+				this.recordDroppedReasoning(thinking);
 			}
 		}
 
@@ -419,7 +492,7 @@ export class StreamProcessor {
 				// No content: refusal text can echo user data into issue reports.
 				this._log("Model refused the request");
 			}
-			progress.report(new vscode.LanguageModelTextPart(delta.refusal));
+			this.reportPart(progress, new vscode.LanguageModelTextPart(delta.refusal));
 			this._req.hasEmittedAssistantText = true;
 			emitted = true;
 		}
@@ -478,7 +551,7 @@ export class StreamProcessor {
 
 		if (delta?.tool_calls) {
 			if (!this._req.emittedBeginToolCallsHint && this._req.hasEmittedAssistantText && delta.tool_calls.length > 0) {
-				progress.report(new vscode.LanguageModelTextPart(" "));
+				this.reportPart(progress, new vscode.LanguageModelTextPart(" "));
 				this._req.emittedBeginToolCallsHint = true;
 			}
 
@@ -544,7 +617,7 @@ export class StreamProcessor {
 			}
 			const part = this.constructDataPart(decoded.bytes, decoded.mime);
 			if (part) {
-				progress.report(part);
+				this.reportPart(progress, part);
 				emitted = true;
 			}
 		}
@@ -595,7 +668,7 @@ export class StreamProcessor {
 		if (!part) {
 			return false;
 		}
-		progress.report(part);
+		this.reportPart(progress, part);
 		return true;
 	}
 
@@ -628,7 +701,7 @@ export class StreamProcessor {
 
 		for (const event of result.events) {
 			if (event.type === "text") {
-				progress.report(new vscode.LanguageModelTextPart(event.text));
+				this.reportPart(progress, new vscode.LanguageModelTextPart(event.text));
 				emittedText = true;
 				emittedAny = true;
 				continue;
@@ -718,7 +791,7 @@ export class StreamProcessor {
 
 		ownCounts.set(key, (ownCounts.get(key) ?? 0) + 1);
 		const id = call.id ?? `call_${this._toolCallIds.next()}`;
-		progress.report(new vscode.LanguageModelToolCallPart(id, call.name, call.parsedArgs));
+		this.reportPart(progress, new vscode.LanguageModelToolCallPart(id, call.name, call.parsedArgs));
 		retireBuffer();
 		return true;
 	}
@@ -790,7 +863,7 @@ export class StreamProcessor {
 					length: trailingText.length,
 				});
 			} else {
-				progress.report(new vscode.LanguageModelTextPart(trailingText));
+				this.reportPart(progress, new vscode.LanguageModelTextPart(trailingText));
 			}
 		}
 
@@ -814,11 +887,28 @@ export class StreamProcessor {
 			const lines = Array.from(this._req.citations.entries()).map(
 				([url, title]) => `- [${escapeTitle(title)}](${escapeUrl(url)})`
 			);
-			progress.report(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
+			this.reportPart(progress, new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
 		}
+
+		this.logDroppedReasoningAggregate();
 
 		if (invalidCount > 0 && finishedNormally) {
 			throw new Error("Invalid JSON for tool call");
+		}
+
+		// A normally-finished stream that emitted nothing but did drop reasoning
+		// must fail loudly instead of resolving empty ("Sorry, no response was
+		// returned" with no trace). A stream that emitted nothing and dropped
+		// nothing resolves as before. The flag keeps the repeated finishStream
+		// runs (finish_reason, then [DONE], then EOF) from double-throwing.
+		if (
+			finishedNormally &&
+			!this._req.reportedAnyPart &&
+			this._req.droppedReasoningParts > 0 &&
+			!this._req.threwReasoningOnly
+		) {
+			this._req.threwReasoningOnly = true;
+			throw new Error(REASONING_ONLY_RESPONSE_MESSAGE);
 		}
 	}
 }

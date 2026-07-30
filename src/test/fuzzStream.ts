@@ -263,6 +263,12 @@ function citationEvent(state: GeneratorState): FuzzEvent {
 	};
 }
 
+/**
+ * Reasoning-only streams are legitimate generator output: every fuzz consumer
+ * runs in the pinned extension-host build, which exposes
+ * LanguageModelThinkingPart, so reasoning emits as thinking parts instead of
+ * hitting the reasoning-only empty-response error a ctor-less host throws.
+ */
 function reasoningEvent(state: GeneratorState): FuzzEvent {
 	const roll = state.random();
 	if (roll < 0.34) {
