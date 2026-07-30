@@ -19,6 +19,13 @@ suite("fuzzSeed contract", () => {
 		}
 	});
 
+	test("the monkey suite's mode is declared, so its seed lines reach the nightly grep", () => {
+		// docker-monkey.test.ts logs via logFuzzSeed(SEED, WALKS, "monkey"); a
+		// mode dropped from FUZZ_MODES would fail compilation there, and this
+		// pin keeps the intent visible next to the grep contract.
+		assert.ok((FUZZ_MODES as readonly string[]).includes("monkey"));
+	});
+
 	test("the unit harness prefix satisfies the seed grep on its own", () => {
 		// fuzzStream.ts logs only the prefix (no iterations/mode) into the unit
 		// leg's log; the seed extraction must still work there.

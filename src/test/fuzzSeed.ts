@@ -13,7 +13,7 @@
  */
 
 /** Every mode the docker suites emit; the workflow's mode regex only admits lowercase and hyphens. */
-export const FUZZ_MODES = ["proxy", "direct", "conversation"] as const;
+export const FUZZ_MODES = ["proxy", "direct", "conversation", "monkey"] as const;
 export type FuzzMode = (typeof FUZZ_MODES)[number];
 
 /**
