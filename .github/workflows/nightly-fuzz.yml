@@ -175,7 +175,7 @@ jobs:
         # fuzzing): the action then files its bare no-report notice instead of
         # this step failing on an empty pattern match.
         continue-on-error: true
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: fuzz-failures-shard*
           path: .fuzz-failures
