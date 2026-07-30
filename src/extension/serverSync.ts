@@ -226,6 +226,11 @@ export interface ServerSyncEnv {
 	readSecrets(label: string): Promise<StoredServerSecrets>;
 	/** The host's provider-group upsert; args are the group configuration with the name and vendor. */
 	addProviderGroup(args: Readonly<Record<string, string>>): Thenable<unknown>;
+	/**
+	 * The persisted fingerprint map: read to seed the engine's in-memory
+	 * session map (see ServerSyncEngine.fingerprints), and re-read on the
+	 * duplicate-rejection path as positive confirmation only.
+	 */
 	getFingerprints(): Readonly<Record<string, string>>;
 	setFingerprints(map: Readonly<Record<string, string>>): Promise<void>;
 	/** Entries removed from the setting; the group itself needs the native editor. */
@@ -358,6 +363,21 @@ interface RetryState {
  */
 export class ServerSyncEngine implements vscode.Disposable {
 	private views: DeclaredServerView[] = [];
+	/**
+	 * The session's authoritative fingerprint map: seeded from the persisted
+	 * store on the first pass, maintained in memory from then on, and written
+	 * through for the next session only - decisions never trust store
+	 * re-reads, with ONE exception: the duplicate-rejection path may take a
+	 * fresh read as positive confirmation that another window already synced
+	 * the same configuration (see syncPass; matches are safe, absences prove
+	 * nothing). The monkey fuzzer caught why blind re-reads wedge entries: an
+	 * awaited globalState.update can be reverted moments later by a stale
+	 * value from the storage layer (the whole key came back as its previous
+	 * version), and a pass that trusts that read re-adds its own group, takes
+	 * the duplicate rejection as a foreign name conflict, and - with no
+	 * last-known-good left to carry - keeps the error forever.
+	 */
+	private fingerprints: Record<string, string> | undefined;
 	/** Per-label retry state that must survive between passes; see RetryState. */
 	private retry = new Map<string, RetryState>();
 	private running: Promise<void> | undefined;
@@ -442,7 +462,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 			this.env.log(`Servers setting: ${problem}`);
 		}
 
-		const previous = this.env.getFingerprints();
+		// Seed once, then the in-memory map is the truth for every comparison
+		// below; `previous` keeps pass-start snapshot semantics because the
+		// write-through replaces this.fingerprints instead of mutating it.
+		this.fingerprints ??= { ...this.env.getFingerprints() };
+		const previous: Readonly<Record<string, string>> = this.fingerprints;
 		const next: Record<string, string> = {};
 		const views: DeclaredServerView[] = [];
 		for (const entry of entries) {
@@ -510,13 +534,14 @@ export class ServerSyncEngine implements vscode.Disposable {
 					await this.env.addProviderGroup(args);
 					next[entry.label] = printed;
 					this.retry.delete(entry.label);
-					// Write-through: a completed add persists its fingerprint at
-					// once, merged over the stored map. If anything later in the
-					// pass (or the final wholesale write) fails, the group now
-					// exists host-side, and without this record its next duplicate
-					// response would misread as a name conflict.
+					// Write-through: a completed add records its fingerprint at once
+					// (in-memory first - that record is what keeps the group's next
+					// duplicate response reading as in-sync, and it must survive any
+					// storage misbehavior), then persists for the next session. A
+					// failed persist is log-only for the same reason.
+					this.fingerprints = { ...this.fingerprints, [entry.label]: printed };
 					try {
-						await this.env.setFingerprints({ ...this.env.getFingerprints(), [entry.label]: printed });
+						await this.env.setFingerprints(this.fingerprints);
 					} catch (error) {
 						this.env.logError("Persisting a synced fingerprint failed", error);
 					}
@@ -528,12 +553,29 @@ export class ServerSyncEngine implements vscode.Disposable {
 					});
 				} catch (error) {
 					if (isDuplicateGroupError(error)) {
-						if (previous[entry.label] === printed) {
-							// A forced pass re-adding an unchanged entry: under an add-only
-							// host (no upsert), "the group already exists" IS the synced
-							// steady state, so every activation lands here for every
+						// The session map first; failing that, ONE fresh store read as
+						// POSITIVE confirmation only. The servers setting is machine-
+						// scoped and globalState is shared, so another window's engine
+						// may have added this exact configuration and persisted its
+						// fingerprint - a record this window's seed-once map predates.
+						// The asymmetry is load-bearing: the stale-read failure mode
+						// the in-memory map guards against can only UNDER-report (an
+						// older map), never invent a matching fingerprint, so a match
+						// proves the live group holds exactly these args while an
+						// absence proves nothing.
+						const confirmed = previous[entry.label] === printed || this.env.getFingerprints()[entry.label] === printed;
+						if (confirmed) {
+							// Under an add-only host (no upsert), "the group already
+							// exists" for a confirmed configuration IS the synced steady
+							// state: every activation's forced pass lands here for every
 							// healthy entry. Not logged for that reason.
 							next[entry.label] = printed;
+							// Into the session map at once, like a successful add: a
+							// LATER entry's write-through persists a spread of this map,
+							// and without the confirmed label it would re-clobber the
+							// other window's record mid-pass - the exact loss the
+							// confirmation exists to prevent.
+							this.fingerprints = { ...this.fingerprints, [entry.label]: printed };
 							this.retry.delete(entry.label);
 						} else {
 							// The entry changed (or is new under a taken name) but the host
@@ -602,6 +644,9 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 		}
 		this.views = views;
+		// In-memory before the persist: session truth must survive a failing
+		// (or later-reverted) storage write.
+		this.fingerprints = next;
 		await this.env.setFingerprints(next);
 		if (removed.length > 0) {
 			// The setting entry is gone but the provider group survives: there is
