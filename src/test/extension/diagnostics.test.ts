@@ -6,6 +6,7 @@ import type { DeclaredServerView } from "../../extension/serverSync";
 import type { ConnectionStatus } from "../../extension/status";
 import { IssueReporter } from "../../issueReporter";
 import type { ServerModelsSnapshot } from "../../provider";
+import { markLogSafe } from "../../shared/logger";
 import { expectDefined, makeExtensionStorage, makeModelInfo, makeServerStatus } from "../testUtils";
 
 function createRegistry(): ServerRegistry {
@@ -87,7 +88,7 @@ suite("extension/diagnostics", () => {
 
 			const snapshot = await buildDiagnosticsSnapshot(
 				registry,
-				{ state: "error", error: "boom" },
+				{ state: "error", error: "boom", logSafeError: markLogSafe("boom") },
 				"1.2.3",
 				"9.9.9",
 				new IssueReporter()

@@ -4,6 +4,8 @@
  * (the dependency between layers is one-way: extension -> provider -> shared).
  */
 
+import type { LogSafeErrorText } from "./logger";
+
 export interface ServerConfig {
 	id: string;
 	label: string;
@@ -31,7 +33,17 @@ interface ServerStatusOk extends ServerStatusCommon {
 
 export interface ServerStatusError extends ServerStatusCommon {
 	state: "error";
+	/**
+	 * Display rendering for UI surfaces only (status bar, toasts, the
+	 * dashboard): an http failure's text embeds the response body. NEVER
+	 * interpolate this into a log line, and never rebuild an Error from it
+	 * (rethrow the original so its classification survives) - log lines land
+	 * in the issue-report buffer, which prefills public GitHub issues; that
+	 * is what logSafeError is for.
+	 */
 	error: string;
+	/** The rendering for log lines; the brand makes a display string a compile error here (see LogSafeErrorText). */
+	logSafeError: LogSafeErrorText;
 	modelCount?: undefined;
 }
 

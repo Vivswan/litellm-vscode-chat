@@ -1,5 +1,6 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
 import { MANAGE_COMMAND_TITLE } from "../shared/commandIds";
+import { errorMessageText } from "../shared/logger";
 import { CONFIG_SECTION } from "../shared/settingSpec";
 
 export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | "network" | "timeout" | "aborted";
@@ -8,16 +9,33 @@ export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | 
  * Error thrown across the provider's transport boundary. `kind` lets callers
  * branch without matching on message text; the message itself stays the
  * user-facing string surfaced in the chat UI and the status callback.
+ *
+ * `logClassification` is an explicit PER-CONSTRUCTION-SITE opt-in, never
+ * derived from `kind`: a site whose message embeds response-derived text (an
+ * HTTP error body, an IdP's error_description) must pass the
+ * classification-only rendering that public surfaces (the issue-report
+ * buffer and the latest-error prefill; see shared/logger.ts) record instead
+ * of the message. Sites with template-only messages omit it so their text
+ * stays useful in issues. Each site's string should be distinct enough that
+ * maintainers can tell the failure modes apart in an issue without the body.
  */
 export class RequestError extends Error {
 	readonly kind: RequestErrorKind;
 	readonly status?: number | undefined;
+	readonly logClassification?: string;
 
-	constructor(message: string, kind: RequestErrorKind, options?: { status?: number; cause?: unknown }) {
+	constructor(
+		message: string,
+		kind: RequestErrorKind,
+		options?: { status?: number; cause?: unknown; logClassification?: string }
+	) {
 		super(message, { cause: options?.cause });
 		this.name = "RequestError";
 		this.kind = kind;
 		this.status = options?.status;
+		if (options?.logClassification !== undefined) {
+			this.logClassification = options.logClassification;
+		}
 	}
 }
 
@@ -99,7 +117,11 @@ function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
  * so the RequestError carries none.
  */
 export function streamErrorFrame(error: Record<string, unknown>): RequestError {
-	return new RequestError(`LiteLLM API error: the stream reported an error\n${JSON.stringify({ error })}`, "http");
+	return new RequestError(`LiteLLM API error: the stream reported an error\n${JSON.stringify({ error })}`, "http", {
+		// The re-serialized envelope is response-derived; the distinct
+		// classification keeps a mid-stream death recognizable in an issue.
+		logClassification: "RequestError(http, in-band stream error frame)",
+	});
 }
 
 /**
@@ -133,7 +155,12 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			ctx.surface === "chat"
 				? `LiteLLM API error: ${err.status}${text ? `\n${text}` : ""}`
 				: `Failed to fetch LiteLLM models: ${err.status}${text ? `\n${text}` : ""}`;
-		return new RequestError(message, "http", { status: err.status, cause: err });
+		return new RequestError(message, "http", {
+			status: err.status,
+			cause: err,
+			// The message embeds the response body (errorBodyText above).
+			logClassification: `RequestError(http, status ${err.status})`,
+		});
 	}
 
 	if (err instanceof APIConnectionTimeoutError) {
@@ -208,11 +235,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof Error) {
 		return err;
 	}
-	try {
-		return new Error(String(err));
-	} catch {
-		// String() itself can throw (a non-callable toString, a hostile
-		// Symbol.toPrimitive); the tag never does, and this path must be total.
-		return new Error(Object.prototype.toString.call(err));
-	}
+	// errorMessageText is total: it falls back to the Object.prototype.toString
+	// tag when a hostile value's String() coercion throws.
+	return new Error(errorMessageText(err));
 }

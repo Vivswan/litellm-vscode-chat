@@ -3,7 +3,7 @@ import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";
 import type { LiteLLMModelInfo, PreAttachModelInfo } from "../provider/groupModels";
-import { Logger } from "../shared/logger";
+import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
 
@@ -224,7 +224,7 @@ export async function captureRequestBody(
 type ServerStatusOverrides = Partial<
 	Pick<ServerStatus, "serverId" | "label" | "baseUrl" | "lastChecked" | "hasApiKey">
 > &
-	({ state?: "ok"; modelCount?: number } | { state: "error"; error: string });
+	({ state?: "ok"; modelCount?: number } | { state: "error"; error: string; logSafeError?: string });
 
 /** A ServerStatus with sensible defaults for status-driven tests. */
 export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerStatus {
@@ -236,7 +236,15 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 		...(overrides.hasApiKey !== undefined ? { hasApiKey: overrides.hasApiKey } : {}),
 	};
 	return overrides.state === "error"
-		? { ...common, state: "error", error: overrides.error }
+		? {
+				...common,
+				state: "error",
+				error: overrides.error,
+				// Tests hand plain strings; the helper is the one place that brands
+				// them (publicErrorText on a string is the identity rendering).
+				logSafeError:
+					overrides.logSafeError !== undefined ? markLogSafe(overrides.logSafeError) : publicErrorText(overrides.error),
+			}
 		: { ...common, state: "ok", modelCount: overrides.modelCount ?? 4 };
 }
 

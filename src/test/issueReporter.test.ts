@@ -1,7 +1,9 @@
 import * as assert from "node:assert";
+import { APIError } from "openai";
 import * as vscode from "vscode";
 import type { DiagnosticsSnapshot } from "../issueReporter";
 import { IssueReporter, redactSecrets } from "../issueReporter";
+import { mapSdkError, RequestError } from "../provider/errorMapping";
 import { expectDefined } from "./testUtils";
 
 suite("IssueReporter", () => {
@@ -104,6 +106,42 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("### Latest error"));
 		assert.ok(body.includes("timeout"));
 		assert.ok(body.includes("Stack trace"));
+	});
+
+	test("an http RequestError's response body never reaches the issue prefill", () => {
+		const reporter = new IssueReporter();
+		// Through the real mapping: a non-JSON body whose text contains both a
+		// marker and a line SHAPED like a stack frame (the reviewer-reproduced
+		// case: prefix-stripping by length must remove it; a frame-shape filter
+		// alone would keep it).
+		const sdkError = new APIError(
+			422,
+			undefined,
+			"422 BODY-MARKER-422\n\tat com.example.Foo.bar(Foo.java:1)",
+			new Headers()
+		);
+		const mapped = mapSdkError(sdkError, { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 });
+		reporter.recordError("Chat request failed", mapped);
+		const snapshot = makeSnapshot({ latestError: reporter.getLatestError() });
+
+		const body = reporter.buildBody(snapshot);
+		assert.ok(!body.includes("BODY-MARKER-422"), "the response body leaked into the issue prefill");
+		assert.ok(!body.includes("com.example.Foo.bar"), "the body's frame-shaped line leaked into the issue prefill");
+		assert.ok(body.includes("RequestError(http, status 422)"), "the classification replaces the message");
+		assert.ok(!reporter.buildTitle(snapshot).includes("BODY-MARKER-422"), "the title must not leak the body either");
+
+		// The stack section keeps its call frames but nothing message-derived.
+		const stack = expectDefined(expectDefined(reporter.getLatestError()).stack);
+		assert.ok(!stack.includes("BODY-MARKER-422"), "the stack's message line leaked the body");
+		assert.ok(!stack.includes("com.example.Foo.bar"), "the stack kept the body's frame-shaped line");
+		assert.match(stack, /^RequestError\(http, status 422\)\n\s+at /);
+	});
+
+	test("non-http RequestErrors keep their template message in the prefill", () => {
+		const reporter = new IssueReporter();
+		reporter.recordError("Chat request failed", new RequestError("LiteLLM request timed out after 3000ms.", "timeout"));
+		const body = reporter.buildBody(makeSnapshot({ latestError: reporter.getLatestError() }));
+		assert.ok(body.includes("LiteLLM request timed out after 3000ms."), "template text stays useful in the issue");
 	});
 
 	test("buildBody includes recent logs", () => {

@@ -3,7 +3,8 @@ import * as vscode from "vscode";
 import { registerTestCommands, runConnectionTest, runModelSync } from "../../extension/commands";
 import type { ServerRegistry } from "../../extension/serverRegistry";
 import type { ConnectionStatus } from "../../extension/status";
-import { Logger } from "../../shared/logger";
+import { RequestError } from "../../provider/errorMapping";
+import { Logger, markLogSafe } from "../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { expectDefined, makeServerStatus } from "../testUtils";
 
@@ -233,7 +234,11 @@ suite("extension/commands", () => {
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
 				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
-					await statusBar.updateStatusBar({ state: "error", error: "ECONNREFUSED" });
+					await statusBar.updateStatusBar({
+						state: "error",
+						error: "ECONNREFUSED",
+						logSafeError: markLogSafe("ECONNREFUSED"),
+					});
 					throw new Error("ECONNREFUSED");
 				},
 				refreshViaHost: async () => {},
@@ -244,6 +249,38 @@ suite("extension/commands", () => {
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "error");
 			assert.ok(toast.message.includes("ECONNREFUSED"), toast.message);
+		});
+
+		test("a classified refresh failure reaches the buffer as its classification, never its body", async () => {
+			// The Test Connection catch logs the thrown error; with the provider
+			// rethrowing the ORIGINAL classified error (never one rebuilt from the
+			// display string), the buffer line stays body-free.
+			const bufferLines: string[] = [];
+			const bufferLogger = new Logger(
+				{ info: () => {}, error: () => {} },
+				{ appendLog: (line) => bufferLines.push(line), recordError: () => {} }
+			);
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+					throw new RequestError("LiteLLM API error: 502\n<html>internal-billing-host-MARKER</html>", "http", {
+						status: 502,
+						logClassification: "RequestError(http, status 502)",
+					});
+				},
+				refreshViaHost: async () => {},
+			};
+
+			await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, bufferLogger));
+
+			assert.ok(
+				bufferLines.some((line) => line.includes("Connection test failed: RequestError(http, status 502)")),
+				`the buffer must carry the classification; lines: ${bufferLines.join(" | ")}`
+			);
+			assert.ok(
+				bufferLines.every((line) => !line.includes("internal-billing-host-MARKER")),
+				"the response body leaked into the buffer"
+			);
 		});
 
 		test("reports not configured when nothing was ever configured", async () => {
@@ -304,7 +341,12 @@ suite("extension/commands", () => {
 			});
 			const provider = {
 				refreshViaHost: async () => {
-					await statusBar.updateStatusBar({ state: "error", error: "ECONNREFUSED", totalModels: 0 });
+					await statusBar.updateStatusBar({
+						state: "error",
+						error: "ECONNREFUSED",
+						logSafeError: markLogSafe("ECONNREFUSED"),
+						totalModels: 0,
+					});
 				},
 			};
 
@@ -316,6 +358,37 @@ suite("extension/commands", () => {
 			assert.ok(
 				lines.some((line) => line.includes("Model sync failed: ECONNREFUSED")),
 				`The log must carry the real outcome, not "finished". Lines: ${lines.join(" | ")}`
+			);
+		});
+
+		test("the sync-failed log carries the log-safe rendering while the toast keeps the display text", async () => {
+			// The "Model sync failed" line lands in the issue-report buffer, so it
+			// must use logSafeError; the toast is a UI surface and keeps `error`.
+			const lines: string[] = [];
+			const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				refreshViaHost: async () => {
+					await statusBar.updateStatusBar({
+						state: "error",
+						error: "LiteLLM API error: 502\n<html>internal-billing-host-MARKER</html>",
+						logSafeError: markLogSafe("RequestError(http, status 502)"),
+						totalModels: 0,
+					});
+				},
+			};
+
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.ok(toast.message.includes("internal-billing-host-MARKER"), "the toast keeps the display rendering");
+			assert.ok(
+				lines.some((line) => line.includes("Model sync failed: RequestError(http, status 502)")),
+				`the log must carry the classification; lines: ${lines.join(" | ")}`
+			);
+			assert.ok(
+				lines.every((line) => !line.includes("internal-billing-host-MARKER")),
+				"the display error's body text leaked into a log line"
 			);
 		});
 

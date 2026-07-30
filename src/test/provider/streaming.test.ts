@@ -853,7 +853,10 @@ suite("provider/streaming refusal and annotations", () => {
 });
 
 suite("provider/streaming pass-through of unhandled modern fields", () => {
-	test("usage token detail objects are logged wholesale", async () => {
+	test("usage logging is restricted to the known numeric token counts", async () => {
+		// The usage record is response-owned: unknown keys (and non-numeric
+		// values in known slots) must never ride into the log data, only the
+		// standard counts and the two detail groups' numeric fields.
 		const logged: { message: string; data?: unknown }[] = [];
 		const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }));
 		const { progress } = collector();
@@ -865,17 +868,22 @@ suite("provider/streaming pass-through of unhandled modern fields", () => {
 					prompt_tokens: 120,
 					completion_tokens: 80,
 					total_tokens: 200,
-					prompt_tokens_details: { cached_tokens: 90 },
+					prompt_tokens_details: { cached_tokens: 90, gateway_note: "internal-usage-MARKER" },
 					completion_tokens_details: { reasoning_tokens: 40 },
+					gateway_debug: "internal-usage-MARKER",
 				},
 			},
 			progress
 		);
 
 		const usageLog = logged.find((l) => l.message === "Token usage");
-		const data = expectDefined(usageLog?.data) as Record<string, unknown>;
-		assert.deepEqual(data.prompt_tokens_details, { cached_tokens: 90 });
-		assert.deepEqual(data.completion_tokens_details, { reasoning_tokens: 40 });
+		assert.deepStrictEqual(expectDefined(usageLog?.data), {
+			prompt_tokens: 120,
+			completion_tokens: 80,
+			total_tokens: 200,
+			"prompt_tokens_details.cached_tokens": 90,
+			"completion_tokens_details.reasoning_tokens": 40,
+		});
 	});
 });
 

@@ -329,6 +329,8 @@ async function exchangeClientCredentials(
 		if (status >= 500) {
 			lastFailure = new RequestError(`OAuth token request to ${config.tokenUrl} failed: ${status}${detail}`, "http", {
 				status,
+				// `detail` quotes the IdP's error/error_description (response-derived).
+				logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
 			});
 			continue;
 		}
@@ -336,10 +338,17 @@ async function exchangeClientCredentials(
 			throw new RequestError(
 				`OAuth authentication failed: the token endpoint at ${config.tokenUrl} rejected the client credentials (${status}${detail}). Check the OAuth client ID, client secret, and scopes in the provider configuration.`,
 				"auth",
-				{ status }
+				{
+					status,
+					// Same: the IdP detail can carry correlation IDs and tenant text.
+					logClassification: `RequestError(auth, status ${status}, oauth token endpoint)`,
+				}
 			);
 		}
-		throw new RequestError(`OAuth token request to ${config.tokenUrl} failed: ${status}${detail}`, "http", { status });
+		throw new RequestError(`OAuth token request to ${config.tokenUrl} failed: ${status}${detail}`, "http", {
+			status,
+			logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
+		});
 	}
 
 	if (lastFailure instanceof RequestError) {

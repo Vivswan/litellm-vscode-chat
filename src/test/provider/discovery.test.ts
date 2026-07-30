@@ -9,9 +9,11 @@ import {
 	mergeModelDeployments,
 	parseModelInfoItem,
 } from "../../provider/discovery";
+import { RequestError } from "../../provider/errorMapping";
 import { deriveTokenConstraints } from "../../provider/modelCatalog";
 import { buildModelInfos } from "../../provider/registration";
 import type { LiteLLMModelItem, ModelShape } from "../../provider/schemas";
+import { publicErrorText } from "../../shared/logger";
 import type { TokenDefaults } from "../../shared/settings";
 import {
 	discoveryHandlers,
@@ -187,6 +189,27 @@ suite("provider/discovery", () => {
 					assert.ok(!line.includes(echoedSecret), `Log line leaked the ${status} response body: ${line}`);
 				}
 			}
+		});
+
+		test("a non-JSON models response throws classified: the payload snippet stays off public surfaces", async () => {
+			// V8's SyntaxError quotes a snippet of the unparseable payload, so the
+			// thrown error's message is response-derived; the classification is
+			// what the issue-report buffer and prefill record instead.
+			const marker = "internal-gateway-host-MARKER upstream capacity exhausted";
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => HttpResponse.text(marker, { status: 200 })),
+				http.get(MODELS_URL, () => HttpResponse.text(marker, { status: 200 }))
+			);
+
+			const error = await fetchModels(request()).then(
+				() => assert.fail("a non-JSON models body must fail discovery"),
+				(e: unknown) => e
+			);
+
+			assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
+			assert.ok(error.message.startsWith("Failed to parse LiteLLM models response from"), error.message);
+			assert.strictEqual(error.logClassification, "RequestError(http, unparseable models response body)");
+			assert.ok(!publicErrorText(error).includes("MARKER"), "the public rendering leaked the payload snippet");
 		});
 
 		test("model/info payload without a data array falls back to /v1/models", async () => {

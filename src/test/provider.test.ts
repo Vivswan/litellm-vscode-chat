@@ -1,8 +1,10 @@
 import * as assert from "node:assert";
+import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
+import { RequestError } from "../provider/errorMapping";
 import { buildModelInfos } from "../provider/registration";
-import { discoveryHandlers, mswServer, TEST_BASE_URL, useMsw } from "./mocks/handlers";
+import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "./mocks/handlers";
 import { expectDefined, makeModelInfo, makeProvider, userMessage, withFetch } from "./testUtils";
 
 suite("provider", () => {
@@ -156,6 +158,33 @@ suite("provider", () => {
 				assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no route");
 			}
 		);
+	});
+
+	// This nested suite mocks the network with msw; it stays after the withFetch
+	// tests above so the interceptor never overlaps their fetch swaps.
+	suite("all servers failing", () => {
+		useMsw();
+
+		test("a non-silent refresh rethrows the ORIGINAL classified error, never one rebuilt from the display string", async () => {
+			// 400 responses are not retried, so the failure is immediate; the body
+			// carries a marker that must survive to the USER-FACING message while
+			// the classification keeps it out of anything that logs the throw.
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => HttpResponse.json({ error: "internal-billing-host-MARKER" }, { status: 400 })),
+				http.get(MODELS_URL, () => HttpResponse.json({ error: "internal-billing-host-MARKER" }, { status: 400 }))
+			);
+			const provider = makeProvider(TEST_BASE_URL);
+
+			await assert.rejects(
+				provider.provideLanguageModelChatInformation({ silent: false }, new vscode.CancellationTokenSource().token),
+				(error: unknown) => {
+					assert.ok(error instanceof RequestError, `expected the original RequestError, got ${String(error)}`);
+					assert.strictEqual(error.logClassification, "RequestError(http, status 400)");
+					assert.ok(error.message.includes("internal-billing-host-MARKER"), "the display message keeps the body");
+					return true;
+				}
+			);
+		});
 	});
 
 	// This nested suite mocks the network with msw; it stays after the withFetch

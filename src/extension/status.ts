@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import { z } from "zod";
 import { CMD } from "../shared/commandIds";
-import type { Logger } from "../shared/logger";
+import type { Logger, LogSafeErrorText } from "../shared/logger";
+import { markLogSafe } from "../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
 import { LAST_CONNECTION_STATUS_KEY } from "../shared/storageKeys";
@@ -49,7 +50,9 @@ export type ConnectionStatus =
 	  }
 	| {
 			state: "error";
+			/** Display-only; log lines must use logSafeError (see ServerStatusError for the split's rationale). */
 			error: string;
+			logSafeError: LogSafeErrorText;
 			totalModels?: number | undefined;
 			serverStatuses?: readonly ServerStatus[] | undefined;
 			lastChecked?: string | undefined;
@@ -116,6 +119,7 @@ const persistedServerStatusSchema = z.discriminatedUnion("state", [
 		// is malformed and drops; a junk serverId/lastChecked/hasApiKey only
 		// drops that field (the catch), never the whole element.
 		error: z.string().min(1),
+		logSafeError: z.string().min(1).optional().catch(undefined),
 		serverId: z.string().optional().catch(undefined),
 		lastChecked: z.string().optional().catch(undefined),
 		hasApiKey: z.boolean().optional().catch(undefined),
@@ -138,8 +142,23 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 	};
 	return element.state === "ok"
 		? { ...common, state: "ok", modelCount: element.modelCount }
-		: { ...common, state: "error", error: element.error };
+		: {
+				...common,
+				state: "error",
+				error: element.error,
+				// A status persisted before logSafeError existed carries a display
+				// message that may embed response text, so the restore fails closed
+				// instead of promoting it to the log-safe slot. A present value was
+				// written by publicErrorText (globalState is machine-local and only
+				// this extension writes the key), so re-branding it is sound.
+				logSafeError: element.logSafeError !== undefined ? markLogSafe(element.logSafeError) : RESTORED_ERROR_LOG_TEXT,
+			};
 }
+
+/** The fail-closed log rendering for error statuses restored from a version that persisted no logSafeError. */
+const RESTORED_ERROR_LOG_TEXT = markLogSafe(
+	"server error restored from a previous session (message withheld from logs)"
+);
 
 const persistedStatusSchema = z.looseObject({
 	state: z.enum(CONNECTION_STATES),
@@ -148,6 +167,7 @@ const persistedStatusSchema = z.looseObject({
 	// An empty persisted message reads as no message at all, so it takes the
 	// error state's downgrade path below instead of rendering blank text.
 	error: z.string().min(1).optional().catch(undefined),
+	logSafeError: z.string().min(1).optional().catch(undefined),
 	lastChecked: z.string().optional(),
 });
 
@@ -198,6 +218,9 @@ function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 			return {
 				state: "error",
 				error: raw.error,
+				// Same fail-closed rule as restoreServerStatus: a pre-upgrade
+				// display message never becomes the log rendering.
+				logSafeError: raw.logSafeError !== undefined ? markLogSafe(raw.logSafeError) : RESTORED_ERROR_LOG_TEXT,
 				serverStatuses,
 				...(raw.totalModels !== undefined ? { totalModels: raw.totalModels } : {}),
 				...lastChecked,
@@ -340,10 +363,12 @@ export class StatusBarManager {
 		const okCount = serverStatuses.length - failures.length;
 
 		if (firstFailure !== undefined && okCount === 0) {
-			this.logger.log(`All servers failed: ${firstFailure.error}`);
+			// logSafeError, never error: this line lands in the issue-report buffer.
+			this.logger.log(`All servers failed: ${firstFailure.logSafeError}`);
 			void this.updateStatusBar({
 				state: "error",
 				error: firstFailure.error,
+				logSafeError: firstFailure.logSafeError,
 				serverStatuses,
 				totalModels: 0,
 				lastChecked: now,
@@ -361,6 +386,7 @@ export class StatusBarManager {
 			void this.updateStatusBar({
 				state: "error",
 				error: "Servers returned 0 models",
+				logSafeError: markLogSafe("Servers returned 0 models"),
 				serverStatuses,
 				totalModels: 0,
 				lastChecked: now,

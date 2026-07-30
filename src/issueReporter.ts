@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { GITHUB_REPO_URL } from "./shared/links";
+import { publicErrorStack, publicErrorText } from "./shared/logger";
 import { openUrl } from "./shared/openUrl";
 
 const MAX_LOG_ENTRIES = 50;
@@ -134,12 +135,13 @@ export class IssueReporter {
 	}
 
 	recordError(source: string, error: unknown): void {
-		const message = error instanceof Error ? error.message : String(error);
-		const stack = error instanceof Error ? error.stack : undefined;
+		// The public renderings: an http RequestError's message (and the copy of
+		// it V8 prefixes onto the stack) embeds the response body, so both
+		// degrade to its classification; every other error keeps its text.
 		this._latestError = {
 			source,
-			message,
-			stack,
+			message: publicErrorText(error),
+			stack: publicErrorStack(error),
 			timestamp: new Date().toISOString(),
 		};
 	}

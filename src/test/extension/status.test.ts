@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import { StatusBarManager } from "../../extension/status";
-import { Logger } from "../../shared/logger";
+import { Logger, markLogSafe } from "../../shared/logger";
 import type { ServerStatus } from "../../shared/servers";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/storageKeys";
 
@@ -10,7 +10,11 @@ import { LAST_CONNECTION_STATUS_KEY } from "../../shared/storageKeys";
 // disposed after each test.
 const createdContexts: vscode.ExtensionContext[] = [];
 
-function createManager(persistedStatus: unknown, hasConfiguredServers: () => boolean = () => false): StatusBarManager {
+function createManager(
+	persistedStatus: unknown,
+	hasConfiguredServers: () => boolean = () => false,
+	recorder?: { appendLog(line: string): void; recordError(source: string, error: unknown): void }
+): StatusBarManager {
 	const mementoStore = new Map<string, unknown>();
 	if (persistedStatus !== undefined) {
 		mementoStore.set(LAST_CONNECTION_STATUS_KEY, persistedStatus);
@@ -26,7 +30,7 @@ function createManager(persistedStatus: unknown, hasConfiguredServers: () => boo
 		globalState,
 	} as unknown as vscode.ExtensionContext;
 	createdContexts.push(context);
-	return new StatusBarManager(context, new Logger({ info() {}, error() {} }), hasConfiguredServers);
+	return new StatusBarManager(context, new Logger({ info() {}, error() {} }, recorder), hasConfiguredServers);
 }
 
 suite("extension/status", () => {
@@ -42,6 +46,40 @@ suite("extension/status", () => {
 		const manager = createManager(undefined);
 
 		assert.strictEqual(manager.clickCommand, "litellm.openDashboard");
+	});
+
+	test("an all-failed report logs the log-safe rendering, never the display error", () => {
+		// The "All servers failed" line lands in the issue-report buffer, which
+		// prefills public GitHub issues, so it must carry logSafeError; the
+		// display error (which embeds the response body for http failures)
+		// stays on the UI surfaces only.
+		const bufferLines: string[] = [];
+		const manager = createManager(undefined, () => true, {
+			appendLog: (line) => bufferLines.push(line),
+			recordError: () => {},
+		});
+		const failed: ServerStatus = {
+			serverId: "srv1",
+			label: "Prod",
+			baseUrl: "http://prod.test",
+			state: "error",
+			error: "LiteLLM API error: 502\n<html>internal-billing-host-MARKER</html>",
+			logSafeError: markLogSafe("RequestError(http, status 502)"),
+			lastChecked: new Date().toISOString(),
+		};
+
+		manager.handleAggregatedStatus({ serverStatuses: [failed], totalModels: 0, silent: true });
+
+		assert.ok(
+			bufferLines.some((line) => line.includes("All servers failed: RequestError(http, status 502)")),
+			`the buffer must carry the classification; lines: ${bufferLines.join(" | ")}`
+		);
+		assert.ok(
+			bufferLines.every((line) => !line.includes("internal-billing-host-MARKER")),
+			"the display error's body text leaked into the buffer"
+		);
+		const status = manager.connectionStatus;
+		assert.ok(status.state === "error" && status.error.includes("MARKER"), "the display surface keeps the full text");
 	});
 
 	suite("the empty status window", () => {
@@ -162,10 +200,30 @@ suite("extension/status", () => {
 			});
 		}
 
-		test("restores an error status with its message", () => {
+		test("restores an error status with its message; a pre-upgrade one gets the fail-closed log rendering", () => {
 			const manager = createManager({ state: "error", error: "boom" });
 
-			assert.deepStrictEqual(manager.connectionStatus, { state: "error", error: "boom", serverStatuses: [] });
+			assert.deepStrictEqual(manager.connectionStatus, {
+				state: "error",
+				error: "boom",
+				// Persisted before logSafeError existed: the display message may
+				// embed response text, so it never gets promoted to the log slot.
+				logSafeError: "server error restored from a previous session (message withheld from logs)",
+				serverStatuses: [],
+			});
+		});
+
+		test("restores a persisted logSafeError alongside the display message", () => {
+			const manager = createManager({
+				state: "error",
+				error: "boom body",
+				logSafeError: "RequestError(http, status 502)",
+			});
+
+			const status = manager.connectionStatus;
+			assert.ok(status.state === "error");
+			assert.strictEqual(status.error, "boom body");
+			assert.strictEqual(status.logSafeError, "RequestError(http, status 502)");
 		});
 
 		test("an error status that lost its message downgrades to degraded connecting", () => {

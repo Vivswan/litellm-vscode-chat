@@ -310,5 +310,29 @@ suite("provider/errorMapping", () => {
 			// mapSdkError must hand it through untouched on the way out of send().
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
 		});
+
+		test("logClassification is an explicit construction-site opt-in, never derived from kind", () => {
+			const optedIn = new RequestError("LiteLLM API error: 503\nresponse body text", "http", {
+				status: 503,
+				logClassification: "RequestError(http, status 503)",
+			});
+			assert.strictEqual(optedIn.logClassification, "RequestError(http, status 503)");
+			// No opt-in, no classification - regardless of kind: a site with a
+			// template-only message keeps its text useful in issues.
+			assert.strictEqual(new RequestError("template text", "http", { status: 503 }).logClassification, undefined);
+			assert.strictEqual(new RequestError("timed out", "timeout").logClassification, undefined);
+			assert.strictEqual(new RequestError("auth template", "auth", { status: 401 }).logClassification, undefined);
+		});
+
+		test("mapSdkError's http mapping opts in with the status, never the body", () => {
+			const err = new APIError(503, { error: { message: "internal-host body" } }, "503 boom", new Headers());
+			const mapped = expectRequestError(mapSdkError(err, chatCtx), "http");
+			assert.strictEqual(mapped.logClassification, "RequestError(http, status 503)");
+		});
+
+		test("streamErrorFrame carries its own distinct classification", () => {
+			const err = streamErrorFrame({ message: "upstream died" });
+			assert.strictEqual(err.logClassification, "RequestError(http, in-band stream error frame)");
+		});
 	});
 });

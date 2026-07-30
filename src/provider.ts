@@ -17,7 +17,8 @@ import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelIn
 import { attachGroupServer, groupClientId, groupServerLabel, parseGroupConfiguration } from "./provider/groupModels";
 import type { ModelRoute } from "./provider/modelCatalog";
 import { buildModelInfos } from "./provider/registration";
-import type { Logger } from "./shared/logger";
+import type { Logger, LogSafeErrorText } from "./shared/logger";
+import { errorMessageText, markLogSafe, publicErrorText } from "./shared/logger";
 import type { AggregatedStatus, ServerStatus, ServerWithKey } from "./shared/servers";
 import { isErrorServerStatus } from "./shared/servers";
 import { getDiscoveryCacheTtl, getTokenDefaults } from "./shared/settings";
@@ -54,6 +55,21 @@ type StatusWindowEntry = {
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Both renderings of a failed fetch for the error status: `error` renders
+ * directly in the status bar and toasts, `logSafeError` is what log lines
+ * carry (see ServerStatusError). An empty message (new Error("")) is
+ * classified here, at the boundary that constructs the status.
+ */
+function statusErrorTexts(reason: unknown): { error: string; logSafeError: LogSafeErrorText } {
+	const display = errorMessageText(reason);
+	const logSafe = publicErrorText(reason);
+	return {
+		error: display.length > 0 ? display : "Unknown error",
+		logSafeError: logSafe.length > 0 ? logSafe : markLogSafe("Unknown error"),
+	};
 }
 
 export interface LiteLLMChatModelProviderOptions {
@@ -292,21 +308,25 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 		const successfulCount = results.filter(({ outcome }) => outcome.ok).length;
 		const serverCount = servers.length;
+		// The original thrown value of the first failing server, kept so the
+		// all-failed throw below rethrows it instead of rebuilding an Error
+		// from the display string (which would lose the classification and
+		// leak the body when the caller logs it).
+		let firstFailureReason: unknown;
 
 		for (const { server, outcome } of results) {
 			if (!outcome.ok) {
-				const message = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
-				// The error variant's message renders directly in the status bar and
-				// toasts, so an empty one (new Error("")) is classified here, at the
-				// boundary that constructs the status.
-				const errorMsg = message.length > 0 ? message : "Unknown error";
+				if (firstFailureReason === undefined) {
+					firstFailureReason = outcome.reason;
+				}
+				const texts = statusErrorTexts(outcome.reason);
 				this.logError(`Failed to fetch models from server "${server.label}"`, outcome.reason);
 				serverStatuses.push({
 					serverId: server.id,
 					label: server.label,
 					baseUrl: server.baseUrl,
 					state: "error",
-					error: errorMsg,
+					...texts,
 					lastChecked: new Date().toISOString(),
 					hasApiKey: server.apiKey.length > 0,
 				});
@@ -352,7 +372,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			if (options.silent) {
 				return [];
 			}
-			throw new Error(firstFailure.error);
+			// Like the group site below: the ORIGINAL error is rethrown so its
+			// classification, kind, and status survive to the caller's log.
+			throw firstFailureReason instanceof Error ? firstFailureReason : new Error(firstFailure.error);
 		}
 
 		return allInfos;
@@ -446,20 +468,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			return attach(infos);
 		} catch (error) {
 			this.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
-			const message = error instanceof Error ? error.message : String(error);
-			// Like the registry sweep: the status message renders directly, so an
-			// empty one is classified at this construction boundary.
-			this.reportGroupStatus(
-				server,
-				groupServer,
-				silent,
-				{ state: "error", error: message.length > 0 ? message : "Unknown error" },
-				[]
-			);
+			// Like the registry sweep: both status renderings are constructed at
+			// this boundary (see statusErrorTexts).
+			const texts = statusErrorTexts(error);
+			this.reportGroupStatus(server, groupServer, silent, { state: "error", ...texts }, []);
 			if (silent) {
 				return [];
 			}
-			throw error instanceof Error ? error : new Error(message);
+			throw error instanceof Error ? error : new Error(texts.error);
 		}
 	}
 
@@ -523,7 +539,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		server: ServerWithKey,
 		groupServer: GroupServer,
 		silent: boolean,
-		outcome: { state: "ok"; modelCount: number } | { state: "error"; error: string },
+		outcome: { state: "ok"; modelCount: number } | { state: "error"; error: string; logSafeError: LogSafeErrorText },
 		/** Pre-attach infos only; recordServerStatus's type enforces it. */
 		models: readonly PreAttachModelInfo[]
 	): void {

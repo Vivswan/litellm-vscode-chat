@@ -209,6 +209,40 @@ interface RequestState {
 	audioBuffer: AudioBuffer | undefined;
 }
 
+/**
+ * The known numeric token counts of a usage trailer. The record is
+ * response-owned, so logging it wholesale would let arbitrary server keys
+ * ride into the issue-report buffer; only these counts have diagnostic
+ * value, and only numbers pass.
+ */
+function knownUsageCounts(usage: object): Record<string, number> {
+	const record = usage as Record<string, unknown>;
+	const counts: Record<string, number> = {};
+	for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"]) {
+		const value = record[key];
+		if (typeof value === "number") {
+			counts[key] = value;
+		}
+	}
+	const detailGroups: ReadonlyArray<readonly [string, readonly string[]]> = [
+		["prompt_tokens_details", ["cached_tokens", "audio_tokens"]],
+		["completion_tokens_details", ["reasoning_tokens", "audio_tokens"]],
+	];
+	for (const [group, keys] of detailGroups) {
+		const nested = record[group];
+		if (typeof nested !== "object" || nested === null) {
+			continue;
+		}
+		for (const key of keys) {
+			const value = (nested as Record<string, unknown>)[key];
+			if (typeof value === "number") {
+				counts[`${group}.${key}`] = value;
+			}
+		}
+	}
+	return counts;
+}
+
 function freshRequestState(): RequestState {
 	return {
 		toolCallBuffers: new Map(),
@@ -347,7 +381,7 @@ export class StreamProcessor {
 		let emitted = false;
 
 		if (chunk.usage) {
-			this._log("Token usage", chunk.usage);
+			this._log("Token usage", knownUsageCounts(chunk.usage));
 		}
 
 		const choice = chunk.choices?.[0];

@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { NotifierTimer } from "../../extension/notifier";
 import { createConfigurationPrompt, Notifier, reconfigureAction } from "../../extension/notifier";
+import { publicErrorText } from "../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
 import { expectDefined } from "../testUtils";
 
@@ -50,6 +51,7 @@ suite("extension/notifier", () => {
 			baseUrl: "http://litellm.test",
 			state: "error",
 			error,
+			logSafeError: publicErrorText(error),
 			lastChecked: new Date().toISOString(),
 		};
 	}
