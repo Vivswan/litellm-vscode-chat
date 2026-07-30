@@ -330,9 +330,6 @@ export function registerTestCommands(
 	};
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm._test.refreshModels", async () => {
-			return (await refreshModelIds()).length;
-		}),
 		vscode.commands.registerCommand("litellm._test.refreshModelIds", refreshModelIds),
 		// The full prepared infos, for suites asserting registration metadata
 		// (e.g. configurationSchema) that vscode.lm.selectChatModels never
@@ -348,9 +345,6 @@ export function registerTestCommands(
 				return { server, modelIds };
 			}
 		),
-		vscode.commands.registerCommand("litellm._test.removeServer", async (serverId: string) => {
-			return mutateAndRefresh(() => registry.removeServer(serverId));
-		}),
 		vscode.commands.registerCommand("litellm._test.clearServers", async () => {
 			return mutateAndRefresh(async () => {
 				for (const s of registry.getServers()) {

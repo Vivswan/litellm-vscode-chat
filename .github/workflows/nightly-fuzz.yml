@@ -43,7 +43,7 @@ jobs:
     # failure-reporting path never runs - so every fuzz command below is
     # wrapped in `timeout --kill-after` (TERM, then KILL for a TERM-ignoring
     # extension host) with budgets that leave room for setup and upload.
-    timeout-minutes: 75
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -106,7 +106,14 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           set +e
-          timeout --kill-after=60 45m xvfb-run -a bun run test:docker 2>&1 | tee nightly-docker.log
+          # 60m covers all seven docker legs, including the 40 monkey walks.
+          # A step killed by this timeout still files an issue, but the
+          # extracted mode blames the last-seeded suite. docker-monkey runs
+          # last and logs its own seed line, so a monkey-leg timeout is
+          # attributed correctly; the caveat bites for the unseeded
+          # host-fidelity leg just before it. If nightly starts timing out,
+          # suspect this budget before the oracle.
+          timeout --kill-after=60 60m xvfb-run -a bun run test:docker 2>&1 | tee nightly-docker.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
