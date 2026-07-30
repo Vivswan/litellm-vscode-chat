@@ -10,7 +10,7 @@ updates:
     cooldown:
       default-days: 7
     # Conventional PR titles so the commit-names/pr-title gates pass; action
-    # bumps are workflow changes, hence ci (toolchain fragments use build).
+    # bumps are workflow changes, hence ci (package-manifest entries use build).
     commit-message:
       prefix: "ci"
       include: "scope"

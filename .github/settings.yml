@@ -1,13 +1,18 @@
 ---
-# Repository settings, applied from Vivswan/repo-platform's settings-repos
-# run via repo-settings-as-code. Carrying this file is the opt-in for the
-# in-repo settings home; a central settings/repos/litellm-vscode-chat.yml in
-# repo-platform would win over it.
+# Repository settings, applied by Vivswan/repo-platform's
+# central settings-repos run (and, when this file changes, by the
+# settings-sync workflow if the repo carries its own REPO_PLATFORM_TOKEN;
+# without one it skips with a warning). Undeclared labels are deleted;
+# undeclared rulesets are left alone.
+# Rendered by the settings-sync module: template updates keep the
+# baseline current via three-way merge (repo additions survive), and sync
+# NEVER deletes this file - it stays even if the module is deselected. A
+# central settings/repos/<name>.yml in repo-platform wins over it.
 
 repository:
-  description: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
-  homepage: https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat
-  topics: litellm, vscode-extension, copilot-chat, llm, ai, typescript, bun
+  description: "Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM."
+  homepage: "https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat"
+  topics: "ai,bun,copilot-chat,litellm,llm,typescript,vscode-extension"
   has_issues: true
   has_wiki: false
   has_projects: false
@@ -16,6 +21,12 @@ repository:
   allow_squash_merge: true
   allow_merge_commit: false
   allow_rebase_merge: false
+  # The squash subject must ALWAYS be the PR title (the pr-title check and
+  # release-please rely on it); GitHub only defaults to that for
+  # single-commit PRs.
+  squash_merge_commit_title: PR_TITLE
+  squash_merge_commit_message: PR_BODY
+  allow_update_branch: true
   delete_branch_on_merge: true
   allow_auto_merge: true
   enable_vulnerability_alerts: true
@@ -25,9 +36,10 @@ labels:
   - name: dependencies
     color: "0366d6"
     description: Dependency updates
-  # Dependabot's default per-ecosystem labels: without a `labels:` override in
-  # dependabot.yml it applies these and recreates them if missing, so leaving
-  # them undeclared would make the settings sync delete/recreate them forever.
+  # Dependabot's default labels: the managed dependabot.yml sets no `labels:`
+  # override, so dependabot applies these and recreates them when missing.
+  # Undeclared they would loop forever: every settings apply deletes what
+  # dependabot re-adds on its next run. Values match what dependabot creates.
   - name: github_actions
     color: "000000"
     description: Pull requests that update GitHub Actions code
@@ -43,12 +55,6 @@ labels:
   - name: fix-lint
     color: "fbca04"
     description: Lint / formatting fixes
-  # nightly-fuzz.yml files the fuzz tracking issue under this label (the
-  # fuzz-issue action keys its one-open-issue dedup on it), so it must
-  # survive the label sync.
-  - name: nightly-fuzz
-    color: "B60205"
-    description: Automated nightly fuzz failure
   # release-please manages these two; listing them here keeps the settings
   # sync from deleting them (it removes any label not declared in this file).
   - name: "autorelease: pending"
@@ -57,13 +63,20 @@ labels:
   - name: "autorelease: tagged"
     color: "ededed"
     description: release-please release PR has been tagged
+  # The nightly-fuzz tracking label (fuzzer module): the fuzz-issue action
+  # keys its one-open-issue-per-label dedup on it, so it must survive the
+  # label sync. Values match what the action creates when the label is absent.
+  - name: "nightly-fuzz"
+    color: "B60205"
+    description: Automated nightly fuzz failure
 
-# Branch ruleset for the default branch. Admins (RepositoryRole id 5) are in the
-# bypass list, so direct pushes to main still work.
-# "Automatically request Copilot code review" is the `copilot_code_review` rule
-# below. "Require code quality results" is NOT yet a documented ruleset rule type
-# (public preview, no published REST schema) -- enable it in the UI
-# (Settings -> Rules -> Rulesets -> main).
+
+# Branch ruleset for the default branch. Admins (RepositoryRole id 5) are in
+# the bypass list, so direct pushes to main still work. The single required
+# status check is `all-green` (ci.yml), which `needs:` every gating CI job - the
+# list stays stable when jobs are added or renamed.
+# "Require code quality results" is a public-preview rule with no published
+# REST schema; enable it in the UI (Settings -> Rules -> Rulesets -> main).
 rulesets:
   - name: main
     target: branch
@@ -82,8 +95,6 @@ rulesets:
           strict_required_status_checks_policy: false
           do_not_enforce_on_create: true
           required_status_checks:
-            # Single aggregate gate (ci.yml `all-green`, which `needs:` every CI
-            # job). Keeps this list stable when matrix jobs are added or renamed.
             - context: all-green
       - type: code_scanning
         parameters:
@@ -95,8 +106,8 @@ rulesets:
         parameters:
           required_approving_review_count: 0
           dismiss_stale_reviews_on_push: false
-          # Require an approving review from a CODEOWNER (.github/CODEOWNERS) before
-          # merge. Admins in bypass_actors can still merge without one.
+          # Require an approving review from a CODEOWNER before merge.
+          # Admins in bypass_actors can still merge without one.
           require_code_owner_review: true
           require_last_push_approval: false
           required_review_thread_resolution: false
