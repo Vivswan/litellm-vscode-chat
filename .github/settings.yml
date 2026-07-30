@@ -75,6 +75,8 @@ labels:
 # the bypass list, so direct pushes to main still work. The single required
 # status check is `all-green` (ci.yml), which `needs:` every gating CI job - the
 # list stays stable when jobs are added or renamed.
+# "Require code quality results" is a public-preview rule with no published
+# REST schema; enable it in the UI (Settings -> Rules -> Rulesets -> main).
 rulesets:
   - name: main
     target: branch
