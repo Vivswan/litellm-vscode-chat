@@ -4,8 +4,9 @@ _commit: 1e44504
 _src_path: gh:Vivswan/repo-platform
 channel: staging
 description: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
-fuzzer_label: fuzz-nightly
+fuzzer_label: nightly-fuzz
 github_username: Vivswan
+homepage: https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat
 modules:
 - agents
 - bun
@@ -17,3 +18,4 @@ modules:
 private: false
 project_name: LiteLLM VSCode Chat
 project_slug: litellm-vscode-chat
+topics: ai,bun,copilot-chat,litellm,llm,typescript,vscode-extension
