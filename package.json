@@ -369,7 +369,7 @@
 		"husky": "^9.1.7",
 		"jiti": "^2.7.0",
 		"knip": "^6.27.0",
-		"lint-staged": "^17.0.8",
+		"lint-staged": "^17.1.1",
 		"msw": "^2.15.0",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "8.64.1-alpha.10"
