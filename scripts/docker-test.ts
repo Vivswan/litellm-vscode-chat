@@ -4,16 +4,19 @@
 // brings the compose stack up, runs the `docker` label, then optionally the
 // `docker-transport`, `docker-serversync`, `docker-fuzz`, and
 // `docker-conversation` labels, then the host-fidelity live suite pointed at
-// the stack, and tears everything down.
+// the stack, then the `docker-monkey` label last (it deliberately dirties
+// host state), and tears everything down.
 //
 // Usage:
-//   bun run test:docker                     docker suite + transport + serversync + fuzzer + conversations + host-fidelity live
+//   bun run test:docker                     docker suite + transport + serversync + fuzzer + conversations + host-fidelity live + monkey
 //   bun run test:docker --skip-transport    skip the transport-failure suite
 //   bun run test:docker --skip-serversync   skip the server-sync provider-group suite
 //   bun run test:docker --skip-fuzz         skip the stream fuzzer
 //   bun run test:docker --skip-conversation skip the multi-turn conversation suite
+//   bun run test:docker --skip-monkey       skip the interaction (monkey) fuzzer
 //   FUZZ_ITERATIONS=100 bun run test:docker larger fuzz budget (default 10)
 //   CONVERSATION_ITERATIONS=50 bun run test:docker larger conversation budget (default 10)
+//   MONKEY_ITERATIONS=40 bun run test:docker larger monkey-walk budget (default 5)
 //   bun run test:docker --skip-host-fidelity
 //   KEEP_DOCKER_STACK=1 bun run test:docker leave the stack running afterward
 
@@ -28,6 +31,7 @@ const runServerSync = !args.includes("--skip-serversync");
 const runFuzz = !args.includes("--skip-fuzz");
 const runConversation = !args.includes("--skip-conversation");
 const runHostFidelity = !args.includes("--skip-host-fidelity");
+const runMonkey = !args.includes("--skip-monkey");
 
 // The suite must agree with docker-compose on ports and key, so it resolves
 // them with the same ${VAR:-fallback} semantics compose uses.
@@ -94,6 +98,14 @@ try {
 			LITELLM_REAL_API_KEY: masterKey,
 			LITELLM_REAL_MODEL: PLAYBACK_MODEL.alias,
 		});
+	}
+
+	if (runMonkey) {
+		// Last on purpose, and in its own fresh extension host: monkey walks
+		// deliberately dirty host state (add-only provider groups, settings
+		// churn) that no later suite should inherit.
+		console.log("\nRunning the interaction (monkey) fuzzer...");
+		run("vscode-test --config .vscode-test.mjs --label docker-monkey", suiteEnv);
 	}
 } catch (error) {
 	failed = true;
