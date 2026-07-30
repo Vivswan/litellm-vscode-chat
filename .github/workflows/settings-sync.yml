@@ -1,0 +1,34 @@
+# This file is managed by Vivswan/repo-platform.
+# Local edits may be replaced during template updates.
+#
+# Applies this repository's .github/settings.yml via repo-settings-as-code.
+# Without the REPO_PLATFORM_TOKEN secret the run warns and skips; with
+# one, it needs Administration + Issues write, and a section the token
+# cannot reach fails the run. No heal cron here on purpose:
+# Vivswan/repo-platform's central settings-repos run applies this
+# repository's settings.yml regardless of this workflow.
+
+name: Settings Sync
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/settings.yml]
+  workflow_dispatch:
+    inputs:
+      check_only:
+        description: Report drift without writing
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    uses: Vivswan/repo-platform/.github/workflows/reusable-apply-settings.yml@main
+    with:
+      check_only: ${{ inputs.check_only || false }}
+    secrets:
+      REPO_PLATFORM_TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN }}
