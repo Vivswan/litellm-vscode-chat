@@ -1,4 +1,6 @@
 import * as assert from "node:assert";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as vscode from "vscode";
 import { RequestError } from "../../provider/errorMapping";
 import { StreamProcessor } from "../../provider/streaming";
@@ -1762,6 +1764,242 @@ suite("provider/streaming end-of-stream policy", () => {
 			logs.some((l) => l.includes("Invalid JSON for tool call")),
 			"The dropped buffer must be logged"
 		);
+	});
+});
+
+suite("provider/streaming reasoning-only empty responses", () => {
+	class FakeThinkingPart {
+		constructor(
+			public text: string,
+			public id?: string,
+			public metadata?: unknown
+		) {}
+	}
+	const fakeCtor = FakeThinkingPart as unknown as ThinkingPartCtor;
+
+	const REASONING_ONLY_MESSAGE =
+		"The model produced only reasoning output, which this version of VS Code could not display: the LanguageModelThinkingPart API is missing or failed. Update VS Code to a version that supports thinking parts, or use a model that returns final text.";
+	const DROP_LOG = "Dropped reasoning output; LanguageModelThinkingPart missing or failed";
+
+	setup(() => resetThinkingPartLogOnce());
+	teardown(() => resetThinkingPartLogOnce());
+
+	function token(): vscode.CancellationToken {
+		return new vscode.CancellationTokenSource().token;
+	}
+
+	test("a reasoning-only stream without the thinking class rejects with the fixed message instead of resolving empty", async () => {
+		const logs: Array<{ msg: string; data?: unknown }> = [];
+		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), null);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"step one "}}]}\n',
+			'data: {"choices":[{"delta":{"reasoning_content":"step two"}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => {
+				assert.ok(e instanceof Error, `expected an Error, got ${String(e)}`);
+				assert.strictEqual(e.message, REASONING_ONLY_MESSAGE, "the message is a fixed string, never response-derived");
+				return true;
+			}
+		);
+		assert.strictEqual(parts.length, 0, "nothing may be emitted for a reasoning-only stream without the class");
+		const drops = logs.filter((l) => l.msg === DROP_LOG);
+		assert.strictEqual(drops.length, 1, "exactly one per-request drop classification");
+		assert.deepStrictEqual(
+			expectDefined(drops[0]).data,
+			{ parts: 2, totalLength: "step one ".length + "step two".length },
+			"the aggregate carries counts and lengths only"
+		);
+		assert.ok(!JSON.stringify(logs).includes("step one"), "reasoning text must never reach the logs");
+		assert.ok(!JSON.stringify(logs).includes("step two"), "reasoning text must never reach the logs");
+	});
+
+	test("the same stream with the thinking class emits thinking parts, resolves, and logs no drop", async () => {
+		const logs: Array<{ msg: string; data?: unknown }> = [];
+		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), fakeCtor);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"step one "}}]}\n',
+			'data: {"choices":[{"delta":{"reasoning_content":"step two"}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.strictEqual(parts.filter((p) => p instanceof FakeThinkingPart).length, 2);
+		assert.ok(!logs.some((l) => l.msg === DROP_LOG), "a host with the class drops nothing and must not log a drop");
+	});
+
+	test("a reasoning-plus-text stream without the class emits the text, resolves, and logs the drop aggregate once", async () => {
+		const logs: Array<{ msg: string; data?: unknown }> = [];
+		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), null);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"quietly reasoning"}}]}\n',
+			'data: {"choices":[{"delta":{"content":"final answer"}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.strictEqual(visibleTextOf(parts), "final answer");
+		// finishStream runs three times here (finish_reason, [DONE], EOF); the
+		// drop classification must still appear exactly once.
+		const drops = logs.filter((l) => l.msg === DROP_LOG);
+		assert.strictEqual(drops.length, 1);
+		assert.deepStrictEqual(expectDefined(drops[0]).data, { parts: 1, totalLength: "quietly reasoning".length });
+	});
+
+	test("a cancelled reasoning-only stream does not gain a new failure", async () => {
+		const stream = new StreamProcessor(idSource(), () => {}, null);
+		const { parts, progress } = collector();
+		const source = new vscode.CancellationTokenSource();
+		const body = sseStream(['data: {"choices":[{"delta":{"reasoning_content":"partial thoughts"}}]}\n'], () =>
+			source.cancel()
+		);
+
+		// finishedNormally is false, so the empty-response error must not fire.
+		await stream.processStreamingResponse(body, progress, source.token);
+
+		assert.strictEqual(parts.length, 0);
+	});
+
+	test("an empty stream with no reasoning keeps today's silent empty resolution", async () => {
+		// A model that genuinely returned nothing dropped nothing: there is no
+		// evidence of lost output to report, so the request resolves empty
+		// exactly as before this guard existed. Only the reasoning-drop case
+		// changed, because there the extension itself discarded the output.
+		const logs: Array<{ msg: string; data?: unknown }> = [];
+		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), null);
+		const { parts, progress } = collector();
+		const body = sseStream(["data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.strictEqual(parts.length, 0);
+		assert.ok(!logs.some((l) => l.msg === DROP_LOG));
+	});
+
+	test("repeated end-of-stream runs after the throw cannot double-throw", async () => {
+		// processStreamingResponse stops at the first rejection, but processDelta
+		// is a public entry point: a finish_reason replay after the error must
+		// not throw a second time.
+		const stream = new StreamProcessor(idSource(), () => {}, null);
+		const { progress } = collector();
+
+		stream.processDelta({ choices: [{ delta: { reasoning_content: "hidden" } }] }, progress);
+		assert.throws(
+			() => stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress),
+			(e: unknown) => e instanceof Error && e.message === REASONING_ONLY_MESSAGE
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+	});
+
+	test("a host class whose constructor always throws is the same empty response and rejects identically", async () => {
+		// Issue #215's symptom via the other route: the class exists but every
+		// construction fails, so the request would still resolve with zero parts.
+		const logs: Array<{ msg: string; data?: unknown }> = [];
+		const throwingCtor = class {
+			constructor() {
+				throw new Error("boom");
+			}
+		} as unknown as ThinkingPartCtor;
+		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), throwingCtor);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"lost thoughts"}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => e instanceof Error && e.message === REASONING_ONLY_MESSAGE
+		);
+		assert.strictEqual(parts.length, 0);
+		assert.ok(
+			logs.some((l) => l.msg === "Failed to construct thinking part"),
+			"each failed construction stays individually logged"
+		);
+		const drops = logs.filter((l) => l.msg === DROP_LOG);
+		assert.strictEqual(drops.length, 1);
+		assert.deepStrictEqual(expectDefined(drops[0]).data, { parts: 1, totalLength: "lost thoughts".length });
+	});
+
+	test("an invalid buffered tool call outranks the reasoning-only error at end of stream", async () => {
+		const stream = new StreamProcessor(idSource(), () => {}, null);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}]}\n',
+			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{\\"a\\":"}}]}}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => e instanceof Error && e.message === "Invalid JSON for tool call"
+		);
+		assert.strictEqual(parts.length, 0);
+	});
+
+	test("a reasoning-dropping stream whose only emission is a tool call resolves, with the drop logged", async () => {
+		const logs: Array<{ msg: string; data?: unknown }> = [];
+		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), null);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}]}\n',
+			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{}"}}]}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.strictEqual(toolCallsOf(parts).length, 1, "the tool call is the response; no error may replace it");
+		assert.strictEqual(logs.filter((l) => l.msg === DROP_LOG).length, 1);
+	});
+
+	test("a request failing on an in-band error frame still logs the drop aggregate", async () => {
+		// The error frame throws out of the transport loop before any
+		// finishStream runs; the cleanup path must still tie the lost reasoning
+		// to this turn, because a failed request is exactly what gets reported.
+		const logs: Array<{ msg: string; data?: unknown }> = [];
+		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), null);
+		const { progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"lost thoughts"}}]}\n',
+			'data: {"error":{"message":"upstream exploded"}}\n',
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => e instanceof RequestError && e.kind === "http"
+		);
+		const drops = logs.filter((l) => l.msg === DROP_LOG);
+		assert.strictEqual(drops.length, 1);
+		assert.deepStrictEqual(expectDefined(drops[0]).data, { parts: 1, totalLength: "lost thoughts".length });
+	});
+});
+
+suite("provider/streaming progress funnel", () => {
+	test("every emission goes through reportPart: progress.report appears exactly once in the source", () => {
+		// The empty-response check counts emissions via reportPart; a direct
+		// progress.report call anywhere else would bypass it silently and only
+		// surface as a spurious reasoning-only error, so the funnel is pinned
+		// structurally.
+		const source = fs.readFileSync(
+			path.resolve(__dirname, "..", "..", "..", "src", "provider", "streaming.ts"),
+			"utf8"
+		);
+		const calls = source.match(/progress\.report\(/g) ?? [];
+		assert.strictEqual(calls.length, 1, "all part emission must go through reportPart");
 	});
 });
 

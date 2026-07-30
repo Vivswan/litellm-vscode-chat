@@ -26,6 +26,13 @@ import {
  * streaming.sse.property.test.ts. A shrunk counterexample here is a
  * serializable FuzzEvent[]: pin it in fuzzCorpus.ts when it reproduces
  * through the docker direct target, otherwise as an example test.
+ *
+ * StreamProcessor is built with its default, host-probed thinking ctor, and
+ * the pinned test host exposes LanguageModelThinkingPart, so reasoning-only
+ * generated streams emit thinking parts instead of hitting the
+ * reasoning-only empty-response error a ctor-less host would throw. If a
+ * host bump removes the proposed class, that error is the failure to look
+ * for here.
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
