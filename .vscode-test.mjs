@@ -29,6 +29,7 @@ export default defineConfig({
 				"!out/test/docker-conversation.test.js",
 				"!out/test/docker-transport.test.js",
 				"!out/test/docker-serversync.test.js",
+				"!out/test/docker-monkey.test.js",
 			],
 			mocha: {
 				ui: "tdd",
@@ -134,6 +135,24 @@ export default defineConfig({
 				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
 				FUZZ_SEED: process.env.FUZZ_SEED || "",
 				CONVERSATION_ITERATIONS: process.env.CONVERSATION_ITERATIONS || "",
+			},
+			launchArgs,
+		},
+		{
+			label: "docker-monkey",
+			files: "out/test/docker-monkey.test.js",
+			mocha: {
+				ui: "tdd",
+				// Whole-walk tests; the suite raises its own per-test budgets on top.
+				timeout: 300000,
+				color: true,
+			},
+			env: {
+				LITELLM_DOCKER_BASE_URL: process.env.LITELLM_DOCKER_BASE_URL || "",
+				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
+				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
+				FUZZ_SEED: process.env.FUZZ_SEED || "",
+				MONKEY_ITERATIONS: process.env.MONKEY_ITERATIONS || "",
 			},
 			launchArgs,
 		},

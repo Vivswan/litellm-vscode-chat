@@ -101,6 +101,7 @@ jobs:
           FUZZ_SEED: ${{ inputs.seed }}
           FUZZ_ITERATIONS: '500'
           CONVERSATION_ITERATIONS: '50'
+          MONKEY_ITERATIONS: '40'
           FUZZ_SHARD: ${{ matrix.shard }}
           SHARD: ${{ matrix.shard }}
         run: |
@@ -128,10 +129,10 @@ jobs:
               echo
               echo '```bash'
               if [ -n "$seed" ]; then
-                echo "FUZZ_SEED=$seed FUZZ_ITERATIONS=500 CONVERSATION_ITERATIONS=50 bun run test:docker"
+                echo "FUZZ_SEED=$seed FUZZ_ITERATIONS=500 CONVERSATION_ITERATIONS=50 MONKEY_ITERATIONS=40 bun run test:docker"
               else
                 echo "# The shard failed before any seeded suite logged; see the attached log."
-                echo "FUZZ_ITERATIONS=500 CONVERSATION_ITERATIONS=50 bun run test:docker"
+                echo "FUZZ_ITERATIONS=500 CONVERSATION_ITERATIONS=50 MONKEY_ITERATIONS=40 bun run test:docker"
               fi
               echo '```'
               echo
