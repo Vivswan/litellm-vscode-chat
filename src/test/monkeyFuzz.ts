@@ -253,6 +253,10 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 		serial++;
 		const roll = random();
 		if (roll < 0.15) {
+			// Labels are never recycled BY DESIGN: a removed label's fingerprint is
+			// pruned at end of pass, so re-declaring it - even with identical args -
+			// would hit the add-only duplicate rejection (GROUP_UPDATE_UNAVAILABLE_MESSAGE)
+			// while the oracle expects undefined, desynchronizing oracle from engine.
 			const label = `s${++labelCounter}`;
 			const credential = expectDefined(CREDENTIAL_MODES[Math.floor(random() * CREDENTIAL_MODES.length)]);
 			live.push(label);
@@ -974,6 +978,9 @@ export class MonkeySession {
 	 * secrets) stay, by design.
 	 */
 	async runActions(walkTag: string, actions: readonly MonkeyAction[]): Promise<void> {
+		// Fresh namespace per run, never recycled: reusing a removed label would
+		// hit the add-only duplicate rejection with a pruned fingerprint (see
+		// generateWalk's label allocation) and desynchronize oracle from engine.
 		const namespace = `${walkTag}-r${++this.executionCounter}`;
 		try {
 			for (const [index, action] of actions.entries()) {
