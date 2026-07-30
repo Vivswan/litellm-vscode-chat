@@ -496,7 +496,8 @@ export function resolveAdoptableCredentials(
 
 const headerScalarSchema = z.custom<HeaderScalar>(isHeaderScalar);
 
-const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminatedUnion("action", [
+/** Exported so tests can drive the same per-field parse path the webview message schema embeds. */
+export const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminatedUnion("action", [
 	z.strictObject({ action: z.literal("keep") }),
 	z.strictObject({ action: z.literal("clear") }),
 	z.strictObject({

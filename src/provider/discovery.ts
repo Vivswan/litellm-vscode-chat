@@ -103,7 +103,8 @@ function longContextCosts(entry: unknown): LongContextCosts {
 	};
 }
 
-function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["log"]): LiteLLMModelItem {
+/** Exported so tests can drive the same /v1/models normalization path production uses. */
+export function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["log"]): LiteLLMModelItem {
 	const providers: LiteLLMProvider[] = [];
 	for (const entry of raw.providers ?? []) {
 		if (isProviderEntry(entry)) {

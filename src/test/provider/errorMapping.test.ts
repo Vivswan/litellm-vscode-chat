@@ -239,6 +239,12 @@ suite("provider/errorMapping", () => {
 			assert.strictEqual(mapped.message, "boom");
 		});
 
+		test("a value whose String() coercion throws still maps to an Error", () => {
+			const mapped = mapSdkError({ toString: null, valueOf: null }, chatCtx);
+			assert.ok(mapped instanceof Error);
+			assert.strictEqual(mapped.message, "[object Object]");
+		});
+
 		test("RequestError preserves cause, status, kind, and name", () => {
 			const cause = new Error("underlying failure");
 			const err = new RequestError("wrapped", "network", { status: 502, cause });

@@ -163,5 +163,14 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		return new RequestError(message, "network", { cause: err });
 	}
 
-	return err instanceof Error ? err : new Error(String(err));
+	if (err instanceof Error) {
+		return err;
+	}
+	try {
+		return new Error(String(err));
+	} catch {
+		// String() itself can throw (a non-callable toString, a hostile
+		// Symbol.toPrimitive); the tag never does, and this path must be total.
+		return new Error(Object.prototype.toString.call(err));
+	}
 }
