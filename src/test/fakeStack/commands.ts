@@ -47,6 +47,7 @@
 
 import { createHash } from "node:crypto";
 import type { Scenario } from "../scenarios";
+import { MAX_STALL_MS, STALL_MS_DEFAULT } from "../scenarios";
 
 export interface CommandContext {
 	/** The parsed /v1/chat/completions request body. */
@@ -278,6 +279,13 @@ function diagnostic(context: CommandContext, command: CommandInfo): CommandResul
 	return textResult(
 		context,
 		`Bad arguments for ${COMMAND_SIGIL}${command.verb}. Usage: ${command.usage}. Send ${COMMAND_SIGIL}help on its own line for the full command list.`
+	);
+}
+
+/** The numbered "chunkN " content deltas %stream and the transport verbs share; realism rules apply (role on the first delta). */
+function numberedChunks(context: CommandContext, count: number): unknown[] {
+	return Array.from({ length: count }, (_, i) =>
+		chunkOf(context, i === 0 ? { role: "assistant", content: "chunk1 " } : { content: `chunk${i + 1} ` })
 	);
 }
 
@@ -875,7 +883,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	{
 		verb: "stream",
 		usage: `${COMMAND_SIGIL}stream:<n>[:<delay-ms>]`,
-		description: `stream n fixed chunks with a per-chunk delay (default 100ms; n <= ${MAX_STREAM_CHUNKS}, delay <= ${MAX_STREAM_DELAY_MS})`,
+		description: `stream n fixed chunks with a per-chunk delay (default 100ms; n <= ${MAX_STREAM_CHUNKS}, delay <= ${MAX_STREAM_DELAY_MS}; total playback is cut off at 60s)`,
 		run(arg, context, command) {
 			const pieces = (arg ?? "").split(":");
 			if (arg === undefined || pieces.length > 2) {
@@ -888,13 +896,52 @@ const COMMAND_TABLE: ReadonlyArray<{
 			}
 			const contentChars = Array.from({ length: count }, (_, i) => `chunk${i + 1} `.length).reduce((a, b) => a + b, 0);
 			const chunks = [
-				...Array.from({ length: count }, (_, i) =>
-					chunkOf(context, i === 0 ? { role: "assistant", content: "chunk1 " } : { content: `chunk${i + 1} ` })
-				),
+				...numberedChunks(context, count),
 				chunkOf(context, {}, "stop"),
 				...usageTrailerChunks(context, contentChars),
 			];
 			return { scenario: { type: "sse-delayed", delayMs, chunks } };
+		},
+	},
+	{
+		verb: "abort",
+		usage: `${COMMAND_SIGIL}abort:<n>`,
+		description: `stream n chunks, then destroy the socket instead of finishing (n <= ${MAX_STREAM_CHUNKS})`,
+		run(arg, context, command) {
+			const count = arg === undefined ? undefined : parseCount(arg, MAX_STREAM_CHUNKS);
+			if (count === undefined) {
+				return diagnostic(context, command);
+			}
+			return { scenario: { type: "sse-abort", chunks: numberedChunks(context, count), tail: "destroy" } };
+		},
+	},
+	{
+		verb: "nodone",
+		usage: `${COMMAND_SIGIL}nodone:<n>`,
+		description: `stream n chunks, then end the body cleanly without the [DONE] sentinel (n <= ${MAX_STREAM_CHUNKS})`,
+		run(arg, context, command) {
+			const count = arg === undefined ? undefined : parseCount(arg, MAX_STREAM_CHUNKS);
+			if (count === undefined) {
+				return diagnostic(context, command);
+			}
+			return { scenario: { type: "sse-abort", chunks: numberedChunks(context, count), tail: "no-done" } };
+		},
+	},
+	{
+		verb: "stall",
+		usage: `${COMMAND_SIGIL}stall:<n>[:<ms>]`,
+		description: `stream n chunks, then hold the connection silent for ms before dropping it (default ${STALL_MS_DEFAULT}, ms <= ${MAX_STALL_MS})`,
+		run(arg, context, command) {
+			const pieces = (arg ?? "").split(":");
+			if (arg === undefined || pieces.length > 2) {
+				return diagnostic(context, command);
+			}
+			const count = parseCount(pieces[0] ?? "", MAX_STREAM_CHUNKS);
+			const stallMs = pieces.length === 2 ? parseCount(pieces[1] ?? "", MAX_STALL_MS) : STALL_MS_DEFAULT;
+			if (count === undefined || stallMs === undefined) {
+				return diagnostic(context, command);
+			}
+			return { scenario: { type: "sse-abort", chunks: numberedChunks(context, count), tail: "stall", stallMs } };
 		},
 	},
 	{

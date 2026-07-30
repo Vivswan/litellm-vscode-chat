@@ -40,7 +40,11 @@ interface RunResult {
 	parts: vscode.LanguageModelResponsePart[];
 }
 
-/** Drive every assembled chunk through parseChunk and processDelta, mirroring the transport loop. */
+/**
+ * Drive every assembled chunk through parseChunk and processDelta, mirroring
+ * the transport loop's delta handling (its in-band error-frame guard sits a
+ * layer above and is covered by unit and docker tests, not here).
+ */
 function runChunks(chunks: unknown[]): RunResult {
 	const processor = new StreamProcessor(idSource(), () => {});
 	const parts: vscode.LanguageModelResponsePart[] = [];

@@ -6,7 +6,13 @@ import {
 	APIUserAbortError,
 	AuthenticationError,
 } from "openai";
-import { type MapErrorContext, mapSdkError, RequestError, timeoutMessage } from "../../provider/errorMapping";
+import {
+	type MapErrorContext,
+	mapSdkError,
+	RequestError,
+	streamErrorFrame,
+	timeoutMessage,
+} from "../../provider/errorMapping";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
@@ -227,6 +233,43 @@ suite("provider/errorMapping", () => {
 			assert.strictEqual(mapped.message, "Request was aborted.");
 		});
 
+		test("a bare body-read termination maps to the mid-stream network message per surface", () => {
+			// The shape undici throws when the socket dies AFTER headers: the SDK
+			// already returned the Response, so no SDK error class wraps it and
+			// the user would otherwise see the raw "terminated".
+			const err = Object.assign(new TypeError("terminated"), {
+				cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
+			});
+			const mapped = expectRequestError(mapSdkError(err, chatCtx), "network");
+			assert.ok(
+				mapped.message.startsWith(
+					"Network Error: The connection to http://litellm.test was closed before the response completed."
+				),
+				mapped.message
+			);
+			assert.ok(mapped.message.includes("other side closed"), "the deepest cause stays in the detail");
+			assert.strictEqual(mapped.cause, err);
+			const disco = expectRequestError(mapSdkError(err, discoveryCtx), "network");
+			assert.ok(disco.message.startsWith("Network Error: Failed to fetch models from http://litellm.test."));
+		});
+
+		test("an ECONNRESET without SDK wrapping still classifies as a network error", () => {
+			const err = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+			expectRequestError(mapSdkError(err, chatCtx), "network");
+		});
+
+		test("an already-classified RequestError passes through even when its message mentions a socket term", () => {
+			const err = new RequestError("upstream said: terminated", "http", { status: 500 });
+			assert.strictEqual(mapSdkError(err, chatCtx), err);
+		});
+
+		test("a plain Error merely containing the word terminated is not reclassified", () => {
+			// The termination branch requires a socket-level signature or undici's
+			// exact top-level TypeError; unrelated errors keep their identity.
+			const err = new Error("worker terminated by policy");
+			assert.strictEqual(mapSdkError(err, chatCtx), err);
+		});
+
 		test("an unknown plain Error passes through as the same instance", () => {
 			const err = new Error("boom");
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
@@ -253,6 +296,19 @@ suite("provider/errorMapping", () => {
 			assert.strictEqual(err.kind, "network");
 			assert.strictEqual(err.name, "RequestError");
 			assert.strictEqual(err.message, "wrapped");
+		});
+
+		test("streamErrorFrame re-serializes the envelope and carries no HTTP status", () => {
+			const envelope = { message: "upstream died mid-stream", code: "500" };
+			const err = streamErrorFrame(envelope);
+			assert.strictEqual(err.kind, "http");
+			assert.strictEqual(err.status, undefined, "the response was already 200; there is no status to carry");
+			assert.strictEqual(
+				err.message,
+				`LiteLLM API error: the stream reported an error\n${JSON.stringify({ error: envelope })}`
+			);
+			// mapSdkError must hand it through untouched on the way out of send().
+			assert.strictEqual(mapSdkError(err, chatCtx), err);
 		});
 	});
 });

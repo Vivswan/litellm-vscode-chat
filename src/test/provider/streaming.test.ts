@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { RequestError } from "../../provider/errorMapping";
 import { StreamProcessor } from "../../provider/streaming";
 import type { DataPartCtor } from "../../shared/dataPart";
 import { resetDataPartLogOnce } from "../../shared/dataPart";
@@ -1468,6 +1469,73 @@ suite("provider/streaming end-of-stream policy", () => {
 	function token(): vscode.CancellationToken {
 		return new vscode.CancellationTokenSource().token;
 	}
+
+	test("an in-band error frame terminates the stream with a classified error, prior text intact", async () => {
+		// The shape LiteLLM streams when an upstream dies after the 200: valid
+		// chunks, then data: {"error": {...}}, then a clean end. Swallowing it
+		// would deliver a silent truncation; aborts must be observable.
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"before "}}]}\n',
+			'data: {"error":{"message":"upstream exploded","code":"500"}}\n',
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => {
+				assert.ok(e instanceof RequestError, `expected a RequestError, got ${String(e)}`);
+				assert.strictEqual(e.kind, "http");
+				assert.ok(e.message.startsWith("LiteLLM API error: the stream reported an error"), e.message);
+				assert.ok(e.message.includes('"upstream exploded"'), "the envelope is re-serialized into the message");
+				return true;
+			}
+		);
+		assert.strictEqual(visibleTextOf(parts), "before ", "text emitted before the error frame stands");
+	});
+
+	test("an error frame alongside usable choices does not terminate the stream", async () => {
+		// The termination rule is scoped to frames with NO usable choices; a
+		// chunk that still carries deltas keeps the log-and-skip spirit and
+		// processes normally.
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"error":{"message":"noise"},"choices":[{"delta":{"content":"kept"}}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		assert.strictEqual(visibleTextOf(parts), "kept");
+	});
+
+	test("an error frame after [DONE] does not turn a completed response into a failure", async () => {
+		// [DONE] already finished the stream; a straggling error frame behind it
+		// must not retroactively fail the request the user just watched succeed.
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"done "}}]}\n',
+			"data: [DONE]\n",
+			'data: {"error":{"message":"late straggler"}}\n',
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		assert.strictEqual(visibleTextOf(parts), "done ");
+	});
+
+	test("a non-record error value stays junk under the leniency rules", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"error":"not an envelope"}\n',
+			'data: {"choices":[{"delta":{"content":"still fine"}}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+		assert.strictEqual(visibleTextOf(parts), "still fine");
+	});
 
 	test("trailing text held back by the control-token scanner is emitted at end of stream", async () => {
 		const stream = new StreamProcessor(idSource(), () => {});

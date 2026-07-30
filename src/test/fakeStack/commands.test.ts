@@ -278,6 +278,17 @@ suite("fakeStack commands: numeric domains and diagnostics", () => {
 		[`${COMMAND_SIGIL}finish:stop`, "unsupported finish reason"],
 		[`${COMMAND_SIGIL}help:extra`, "bare command with an argument"],
 		[`${COMMAND_SIGIL}params:x`, "bare command with an argument"],
+		[`${COMMAND_SIGIL}abort:0`, "zero abort count"],
+		[`${COMMAND_SIGIL}abort:501`, "abort count over the chunk cap"],
+		[`${COMMAND_SIGIL}abort`, "bare abort without a colon"],
+		[`${COMMAND_SIGIL}nodone:0`, "zero nodone count"],
+		[`${COMMAND_SIGIL}nodone:2.5`, "fractional nodone count"],
+		[`${COMMAND_SIGIL}nodone`, "bare nodone without a colon"],
+		[`${COMMAND_SIGIL}stall:0`, "zero stall count"],
+		[`${COMMAND_SIGIL}stall:3:0`, "zero stall duration"],
+		[`${COMMAND_SIGIL}stall:3:60001`, "stall duration over the cap"],
+		[`${COMMAND_SIGIL}stall:3:10:9`, "extra stall separator"],
+		[`${COMMAND_SIGIL}stall`, "bare stall without a colon"],
 	];
 	for (const [input, label] of diagnosticCases) {
 		test(`${label} (${input}) yields the fixed diagnostic text, never an HTTP error`, () => {
@@ -405,6 +416,7 @@ suite("fakeStack commands: behavior", () => {
 		// An independent literal list, not derived from the implementation: a
 		// verb added or dropped in commands.ts must fail here first.
 		const expected = [
+			"abort",
 			"attachments",
 			"audio",
 			"cache",
@@ -417,8 +429,10 @@ suite("fakeStack commands: behavior", () => {
 			"help",
 			"image",
 			"messages",
+			"nodone",
 			"params",
 			"play",
+			"stall",
 			"stream",
 			"text",
 			"think",
@@ -522,6 +536,68 @@ suite("fakeStack commands: behavior", () => {
 		assert.strictEqual(result.scenario.delayMs, 50);
 		const text = collapseChunks(result.scenario.chunks) as { choices: Array<{ message: { content: string } }> };
 		assert.strictEqual(text.choices[0]?.message.content, "chunk1 chunk2 chunk3 chunk4 chunk5 ");
+	});
+
+	// The transport verbs deliberately emit NO finish_reason chunk and no usage
+	// trailer: the point is a stream that never completes, so a well-formed
+	// ending would defeat the scenario.
+	suite("transport verbs build sse-abort scenarios", () => {
+		/** Dispatch a transport verb and narrow to its sse-abort scenario. */
+		function abortScenario(input: string): { chunks: unknown[]; tail: string; stallMs?: number } {
+			const result = dispatchCommand(makeContext(input));
+			assert.ok(result, `${input} must dispatch`);
+			assert.strictEqual(result.scenario.type, "sse-abort", `${input} must build an sse-abort scenario`);
+			return result.scenario as { chunks: unknown[]; tail: string; stallMs?: number };
+		}
+
+		function contentOf(chunks: unknown[]): string {
+			const collapsed = collapseChunks(chunks) as { choices: Array<{ message: { content: string } }> };
+			return collapsed.choices[0]?.message.content ?? "";
+		}
+
+		test(`${COMMAND_SIGIL}abort:<n> emits n numbered chunks then the destroy tail`, () => {
+			const scenario = abortScenario(`${COMMAND_SIGIL}abort:3`);
+			assert.strictEqual(scenario.tail, "destroy");
+			assert.strictEqual(scenario.chunks.length, 3, "content chunks only, no finish or usage chunk");
+			assert.strictEqual(contentOf(scenario.chunks), "chunk1 chunk2 chunk3 ");
+		});
+
+		test(`${COMMAND_SIGIL}nodone:<n> emits n numbered chunks then the no-done tail`, () => {
+			const scenario = abortScenario(`${COMMAND_SIGIL}nodone:5`);
+			assert.strictEqual(scenario.tail, "no-done");
+			assert.strictEqual(scenario.chunks.length, 5);
+			assert.strictEqual(contentOf(scenario.chunks), "chunk1 chunk2 chunk3 chunk4 chunk5 ");
+		});
+
+		test(`${COMMAND_SIGIL}stall:<n>:<ms> emits n numbered chunks then the stall tail with that duration`, () => {
+			const scenario = abortScenario(`${COMMAND_SIGIL}stall:2:30000`);
+			assert.strictEqual(scenario.tail, "stall");
+			assert.strictEqual(scenario.stallMs, 30000);
+			assert.strictEqual(contentOf(scenario.chunks), "chunk1 chunk2 ");
+		});
+
+		test(`${COMMAND_SIGIL}stall without a duration defaults to 10000ms`, () => {
+			assert.strictEqual(abortScenario(`${COMMAND_SIGIL}stall:1`).stallMs, 10000);
+		});
+
+		test("no finish_reason appears in any transport-verb chunk", () => {
+			for (const input of [`${COMMAND_SIGIL}abort:2`, `${COMMAND_SIGIL}nodone:2`, `${COMMAND_SIGIL}stall:2`]) {
+				const scenario = abortScenario(input);
+				for (const chunk of scenario.chunks) {
+					const finish = (chunk as { choices?: Array<{ finish_reason?: unknown }> }).choices?.[0]?.finish_reason;
+					assert.strictEqual(finish, undefined, `${input} must not carry a finish_reason`);
+				}
+			}
+		});
+
+		test("transport-verb chunks carry the standard envelope", () => {
+			const scenario = abortScenario(`${COMMAND_SIGIL}abort:2`);
+			for (const chunk of scenario.chunks) {
+				const envelope = chunk as { object?: string; service_tier?: string };
+				assert.strictEqual(envelope.object, "chat.completion.chunk");
+				assert.strictEqual(envelope.service_tier, "default");
+			}
+		});
 	});
 
 	test(`${COMMAND_SIGIL}delay carries the first-byte delay alongside a text scenario`, () => {

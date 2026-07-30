@@ -82,6 +82,26 @@ function causeChain(err: unknown): ChainLink[] {
 	return chain;
 }
 
+/** The first message plus the deepest cause, the detail suffix both network branches share. */
+function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
+	const first = chain[0]?.message ?? fallbackMessage;
+	const deepest = chain.at(-1)?.message;
+	return `${first}${deepest && deepest !== first ? `. Cause: ${deepest}` : ""}`;
+}
+
+/**
+ * An in-band error frame: a streamed `data: {"error": {...}}` payload, the
+ * shape LiteLLM emits when an upstream dies after the 200 and the first
+ * chunks already went out. Constructed here so the stream processor throws a
+ * classified transport error instead of ending the request as a silent
+ * truncation; the envelope is re-serialized exactly like errorBodyText does
+ * for HTTP errors. There is no HTTP status - the response was already 200 -
+ * so the RequestError carries none.
+ */
+export function streamErrorFrame(error: Record<string, unknown>): RequestError {
+	return new RequestError(`LiteLLM API error: the stream reported an error\n${JSON.stringify({ error })}`, "http");
+}
+
 /**
  * The old raiseHttpError appended the raw response text; the SDK only keeps a
  * parsed representation, so the body is re-serialized in the LiteLLM error
@@ -153,14 +173,36 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				{ cause: err }
 			);
 		}
-		const first = chain[0]?.message ?? err.message;
-		const deepest = chain.at(-1)?.message;
-		const detail = `${first}${deepest && deepest !== first ? `. Cause: ${deepest}` : ""}`;
+		const detail = chainDetail(chain, err.message);
 		const message =
 			ctx.surface === "chat"
 				? `Network Error: Unable to reach ${ctx.baseUrl}. ${detail}`
 				: `Network Error: Failed to fetch models from ${ctx.baseUrl}. ${detail}`;
 		return new RequestError(message, "network", { cause: err });
+	}
+
+	// A socket that dies AFTER headers surfaces from the body reader, not from
+	// the SDK transport: the SDK already returned the Response, so undici's
+	// bare TypeError ("terminated", cause SocketError "other side closed" /
+	// ECONNRESET) arrives here wrapped in no SDK error class. Without this
+	// branch the user would see the raw "terminated". The match requires a
+	// socket-level signature (or undici's exact top-level TypeError): a mere
+	// "terminated" inside some other error's message must not reclassify it.
+	// RequestErrors are excluded: an already-classified error whose message
+	// happens to mention a socket term must pass through unchanged.
+	if (err instanceof Error && !(err instanceof RequestError)) {
+		const chain = causeChain(err);
+		const haystack = chain.map((link) => `${link.name} ${link.message} ${link.code ?? ""}`).join(" ");
+		const socketSignature = /other side closed|ECONNRESET|UND_ERR_SOCKET/.test(haystack);
+		const undiciTermination = err instanceof TypeError && err.message === "terminated";
+		if (socketSignature || undiciTermination) {
+			const detail = chainDetail(chain, err.message);
+			const message =
+				ctx.surface === "chat"
+					? `Network Error: The connection to ${ctx.baseUrl} was closed before the response completed. ${detail}`
+					: `Network Error: Failed to fetch models from ${ctx.baseUrl}. ${detail}`;
+			return new RequestError(message, "network", { cause: err });
+		}
 	}
 
 	if (err instanceof Error) {

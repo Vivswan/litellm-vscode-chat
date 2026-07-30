@@ -25,7 +25,7 @@ import { dispatchCommand, dispatchLine, fallbackReply } from "../src/test/fakeSt
 import { FAKE_MODEL_UPSTREAM_IDS } from "../src/test/fakeStack/models";
 import { FAKE_BACKEND_PORT } from "../src/test/fakeStack/proxyConfig";
 import type { Scenario } from "../src/test/scenarios";
-import { BUILTIN_SCENARIOS, collapseChunks, readBody, sendJson, sendSse, sendSseDelayed } from "../src/test/scenarios";
+import { BUILTIN_SCENARIOS, collapseChunks, isScenario, playScenario, readBody, sendJson } from "../src/test/scenarios";
 
 const PORT = Number(process.env.PORT || FAKE_BACKEND_PORT);
 const MAX_CUSTOM_SCENARIO_BYTES = 1024 * 1024;
@@ -35,33 +35,44 @@ const VERBOSE = process.env.FAKE_VERBOSE === "1";
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 let lastRequest: Record<string, unknown> | null = null;
 
-function isScenario(value: unknown): value is Scenario {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-	const record = value as Record<string, unknown>;
-	if (record.type === "sse") {
-		return Array.isArray(record.chunks);
-	}
-	if (record.type === "sse-delayed") {
-		return Array.isArray(record.chunks) && typeof record.delayMs === "number";
-	}
-	if (record.type === "error") {
-		return typeof record.statusCode === "number";
-	}
-	return false;
+interface BoundedBody {
+	body: string;
+	overflow: boolean;
 }
 
-function playScenario(res: ServerResponse, scenario: Scenario, stream: boolean): void {
-	if (scenario.type === "error") {
-		sendJson(res, scenario.statusCode, scenario.body ?? {});
-	} else if (!stream) {
-		sendJson(res, 200, collapseChunks(scenario.chunks));
-	} else if (scenario.type === "sse-delayed") {
-		sendSseDelayed(res, scenario.chunks, scenario.delayMs);
-	} else {
-		sendSse(res, scenario.chunks);
-	}
+/**
+ * Read a request body, giving up as soon as it exceeds maxBytes: buffering
+ * stops right there instead of after the whole payload arrived. The remainder
+ * is drained rather than the socket destroyed, because fetch clients cannot
+ * read an early response over a killed connection - the 413 would surface as
+ * a network error instead of a status.
+ */
+function readBodyBounded(req: IncomingMessage, maxBytes: number): Promise<BoundedBody> {
+	return new Promise((resolve, reject) => {
+		req.setEncoding("utf8");
+		let data = "";
+		let bytes = 0;
+		let overflowed = false;
+		req.on("data", (chunk: string) => {
+			if (overflowed) {
+				return;
+			}
+			bytes += Buffer.byteLength(chunk, "utf8");
+			if (bytes > maxBytes) {
+				overflowed = true;
+				data = "";
+				resolve({ body: "", overflow: true });
+				return;
+			}
+			data += chunk;
+		});
+		req.on("end", () => {
+			if (!overflowed) {
+				resolve({ body: data, overflow: false });
+			}
+		});
+		req.on("error", reject);
+	});
 }
 
 function playResult(res: ServerResponse, result: CommandResult, stream: boolean): void {
@@ -106,6 +117,11 @@ function logChatExchange(context: CommandContext, result: CommandResult, stream:
 		console.log(`chat-response ${JSON.stringify({ status: result.scenario.statusCode, body: result.scenario.body })}`);
 		return;
 	}
+	if (result.scenario.type === "raw") {
+		// Raw scenarios ARE their bytes; the whole definition is the honest log.
+		console.log(`chat-response ${JSON.stringify(result.scenario)}`);
+		return;
+	}
 	const sent = stream ? result.scenario.chunks : collapseChunks(result.scenario.chunks);
 	console.log(`chat-response ${JSON.stringify(sent)}`);
 }
@@ -132,13 +148,23 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 	}
 
 	if (req.method === "PUT" && url.pathname === "/_test/custom-scenario") {
-		const raw = await readBody(req);
-		if (Buffer.byteLength(raw, "utf8") > MAX_CUSTOM_SCENARIO_BYTES) {
-			return sendJson(res, 413, { error: { message: "Custom scenario body exceeds 1 MiB" } });
+		const oversized = { error: { message: "Custom scenario body exceeds 1 MiB" } };
+		// Fast path on the declared length; the bounded read below still guards
+		// chunked or lying senders. resume() drains the unread remainder so the
+		// client can complete its upload and read the 413.
+		const declared = Number(req.headers["content-length"]);
+		if (Number.isFinite(declared) && declared > MAX_CUSTOM_SCENARIO_BYTES) {
+			req.resume();
+			return sendJson(res, 413, oversized);
+		}
+		const read = await readBodyBounded(req, MAX_CUSTOM_SCENARIO_BYTES);
+		if (read.overflow) {
+			req.resume();
+			return sendJson(res, 413, oversized);
 		}
 		let parsed: unknown;
 		try {
-			parsed = JSON.parse(raw);
+			parsed = JSON.parse(read.body);
 		} catch {
 			return sendJson(res, 400, { error: { message: "Body must be JSON: {name, config}" } });
 		}
@@ -146,7 +172,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		const name = typeof record.name === "string" ? record.name : "";
 		if (!name || !isScenario(record.config)) {
 			return sendJson(res, 400, {
-				error: { message: "Expected {name: string, config: {type: sse|sse-delayed|error, ...}}" },
+				error: { message: "Expected {name: string, config: {type: sse|sse-delayed|error|sse-abort|raw, ...}}" },
 			});
 		}
 		scenarios.set(name, record.config);

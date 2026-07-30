@@ -287,6 +287,7 @@ Pick any of them in the Copilot model picker and type a command as your message.
 %params, %messages, %attachments, %tools   inspect what actually reached the backend
 %cache, %deployment       cache_control marker positions; which upstream served the request
 %error:429, %finish:length, %stream:50:100, %delay:2000   error, truncation, pacing shapes
+%abort:3, %nodone:5, %stall:3:30000   transport failures: dropped socket, missing [DONE], silent stall
 ```
 
 A message without a command gets a fixed reply pointing at `%help`. Everything is deterministic: the same conversation produces the same bytes.

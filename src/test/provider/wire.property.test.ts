@@ -157,6 +157,10 @@ function assertChunkInvariants(chunk: ChatCompletionChunk): void {
 		chunk.usage === undefined || isPlainRecord(chunk.usage),
 		"chunk.usage must be a record or undefined (a wire null parses to undefined)"
 	);
+	assert.ok(
+		chunk.error === undefined || isPlainRecord(chunk.error),
+		"chunk.error must be a record or undefined (non-record error values stay junk)"
+	);
 	if (chunk.choices !== undefined) {
 		assert.ok(Array.isArray(chunk.choices), "chunk.choices must be an array or undefined");
 		for (const [i, choice] of chunk.choices.entries()) {

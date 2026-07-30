@@ -26,7 +26,58 @@ interface ErrorScenario {
 	body: unknown;
 }
 
-export type Scenario = SseScenario | SseDelayedScenario | ErrorScenario;
+/**
+ * A well-formed SSE prefix with a broken ending: after the chunks, "destroy"
+ * drops the socket, "no-done" ends the body cleanly WITHOUT the [DONE]
+ * sentinel, and "stall" holds the connection silent for stallMs (default
+ * STALL_MS_DEFAULT) before destroying it server-side. delayMs paces the
+ * chunks like sse-delayed.
+ */
+interface SseAbortScenario {
+	type: "sse-abort";
+	chunks: unknown[];
+	tail: "destroy" | "no-done" | "stall";
+	stallMs?: number;
+	delayMs?: number;
+}
+
+/**
+ * Verbatim response bytes: statusCode and headers as given, then the frames
+ * written in order (each frame's characters are single bytes, written as
+ * latin1, so a test can split a multi-byte UTF-8 sequence across frames).
+ * Nothing is implied - no Content-Type, no [DONE]; callers spell out every
+ * byte. This is the surface for malformed SSE framing, wrong content types,
+ * and non-JSON error bodies.
+ */
+interface RawScenario {
+	type: "raw";
+	statusCode: number;
+	headers: Record<string, string>;
+	frames: string[];
+	frameDelayMs?: number;
+	tail: "end" | "destroy" | "stall";
+	stallMs?: number;
+}
+
+export type Scenario = SseScenario | SseDelayedScenario | ErrorScenario | SseAbortScenario | RawScenario;
+
+/** Stall duration when an sse-abort or raw scenario names none. */
+export const STALL_MS_DEFAULT = 10000;
+
+/**
+ * Hard bound on stall durations and per-step pacing delays, and the whole
+ * paced-playback deadline: paced sse-abort/raw playback destroys its response
+ * this long after it starts even when steps times delay would run longer, so
+ * a leaked test cannot wedge the fake backend's container.
+ */
+export const MAX_STALL_MS = 60000;
+
+/**
+ * Upper bound on the chunks/frames list of a runtime-registered scenario: the
+ * 1 MiB body cap alone still admits hundreds of thousands of entries, whose
+ * paced playback would occupy the socket far past every delay cap.
+ */
+export const MAX_SCENARIO_ITEMS = 10000;
 
 /** Total content chunks in the "slow-stream" scenario; cancellation tests assert against this. */
 export const SLOW_STREAM_CHUNK_COUNT = 50;
@@ -481,6 +532,9 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 
 export const readBody = (req: IncomingMessage): Promise<string> =>
 	new Promise((resolve, reject) => {
+		// Decode as one utf8 stream: per-chunk Buffer.toString would corrupt a
+		// multi-byte character split across TCP reads.
+		req.setEncoding("utf8");
 		let data = "";
 		req.on("data", (chunk) => {
 			data += chunk;
@@ -498,12 +552,14 @@ export const sendJson = (res: ServerResponse, statusCode: number, body: unknown)
 	res.end(json);
 };
 
-export const sendSse = (res: ServerResponse, chunks: unknown[]): void => {
-	res.writeHead(200, {
-		"Content-Type": "text/event-stream",
-		"Cache-Control": "no-cache",
-		Connection: "keep-alive",
-	});
+const SSE_HEADERS = {
+	"Content-Type": "text/event-stream",
+	"Cache-Control": "no-cache",
+	Connection: "keep-alive",
+} as const;
+
+const sendSse = (res: ServerResponse, chunks: unknown[]): void => {
+	res.writeHead(200, SSE_HEADERS);
 	for (const chunk of chunks) {
 		res.write(`data: ${JSON.stringify(chunk)}\n\n`);
 	}
@@ -511,29 +567,243 @@ export const sendSse = (res: ServerResponse, chunks: unknown[]): void => {
 	res.end();
 };
 
-export const sendSseDelayed = (res: ServerResponse, chunks: unknown[], delayMs: number): void => {
-	res.writeHead(200, {
-		"Content-Type": "text/event-stream",
-		"Cache-Control": "no-cache",
-		Connection: "keep-alive",
+const sendSseDelayed = (res: ServerResponse, chunks: unknown[], delayMs: number): void => {
+	res.writeHead(200, SSE_HEADERS);
+	runPaced(
+		res,
+		chunks.length,
+		(i) => res.write(`data: ${JSON.stringify(chunks[i])}\n\n`),
+		delayMs,
+		() => {
+			res.write("data: [DONE]\n\n");
+			res.end();
+		}
+	);
+};
+
+/**
+ * Delay between the last written bytes and a destroy tail. Destroying in the
+ * same tick as the writes sends an RST while headers and chunks still sit in
+ * local buffers, and the peer then observes a zero-byte connection failure
+ * instead of a mid-stream abort; the pause lets the peer read what was
+ * written first.
+ */
+const DESTROY_FLUSH_MS = 100;
+
+/**
+ * A timer that dies with the response: cleared when the client closes, so a
+ * cancelled request never keeps its response retained by a pending callback.
+ */
+const armTimer = (res: ServerResponse, fn: () => void, ms: number): void => {
+	// codeql[js/resource-exhaustion] -- fake-backend timer; every duration here is capped at MAX_STALL_MS
+	const timer = setTimeout(fn, ms);
+	res.once("close", () => clearTimeout(timer));
+};
+
+/** Hold the connection silent, then destroy it server-side; the duration is capped at MAX_STALL_MS regardless of the ask. */
+const stallThenDestroy = (res: ServerResponse, stallMs: number | undefined): void => {
+	armTimer(res, () => res.destroy(), Math.min(stallMs ?? STALL_MS_DEFAULT, MAX_STALL_MS));
+};
+
+/** Destroy the socket once the written bytes had a chance to reach the peer; see DESTROY_FLUSH_MS. */
+const destroyAfterFlush = (res: ServerResponse): void => {
+	armTimer(res, () => res.destroy(), DESTROY_FLUSH_MS);
+};
+
+/**
+ * Write `count` paced steps, then finish. One close listener clears whatever
+ * timer is pending, and a whole-playback deadline destroys the response
+ * MAX_STALL_MS after the first write: a validator-passing scenario can still
+ * carry thousands of steps, so the per-value caps alone do not bound socket
+ * occupation. The deadline stays armed through the finish tail (a stall after
+ * a long playback dies with it) and is cleared by the close event.
+ */
+function runPaced(
+	res: ServerResponse,
+	count: number,
+	writeStep: (i: number) => void,
+	delayMs: number,
+	finish: () => void
+): void {
+	let pending: NodeJS.Timeout | undefined;
+	// codeql[js/resource-exhaustion] -- fake-backend deadline; fixed at MAX_STALL_MS
+	const deadline = setTimeout(() => res.destroy(), MAX_STALL_MS);
+	res.once("close", () => {
+		clearTimeout(deadline);
+		if (pending !== undefined) {
+			clearTimeout(pending);
+		}
 	});
 	let i = 0;
 	const next = (): void => {
 		if (res.destroyed) {
 			return;
 		}
-		if (i < chunks.length) {
-			res.write(`data: ${JSON.stringify(chunks[i])}\n\n`);
+		if (i < count) {
+			writeStep(i);
 			i++;
-			// codeql[js/resource-exhaustion] -- fake-backend timer; delayMs comes from authored scenario definitions
-			setTimeout(next, delayMs);
+			// codeql[js/resource-exhaustion] -- fake-backend pacing timer; delay capped by the validator, total by the deadline
+			pending = setTimeout(next, delayMs);
 		} else {
-			res.write("data: [DONE]\n\n");
-			res.end();
+			finish();
 		}
 	};
 	next();
+}
+
+const sendSseAbort = (res: ServerResponse, scenario: SseAbortScenario): void => {
+	res.writeHead(200, SSE_HEADERS);
+	const finish = (): void => {
+		if (res.destroyed) {
+			return;
+		}
+		if (scenario.tail === "destroy") {
+			destroyAfterFlush(res);
+		} else if (scenario.tail === "no-done") {
+			res.end();
+		} else {
+			stallThenDestroy(res, scenario.stallMs);
+		}
+	};
+	const writeChunk = (i: number): void => {
+		res.write(`data: ${JSON.stringify(scenario.chunks[i])}\n\n`);
+	};
+	if (scenario.delayMs === undefined) {
+		for (let i = 0; i < scenario.chunks.length; i++) {
+			writeChunk(i);
+		}
+		finish();
+	} else {
+		runPaced(res, scenario.chunks.length, writeChunk, scenario.delayMs, finish);
+	}
 };
+
+const sendRaw = (res: ServerResponse, scenario: RawScenario): void => {
+	res.writeHead(scenario.statusCode, scenario.headers);
+	const finish = (): void => {
+		if (res.destroyed) {
+			return;
+		}
+		if (scenario.tail === "end") {
+			res.end();
+		} else if (scenario.tail === "destroy") {
+			destroyAfterFlush(res);
+		} else {
+			stallThenDestroy(res, scenario.stallMs);
+		}
+	};
+	// latin1 maps each character to one byte, so frames state exact wire bytes.
+	const writeFrame = (i: number): void => {
+		res.write(Buffer.from(scenario.frames[i] as string, "latin1"));
+	};
+	if (scenario.frameDelayMs === undefined) {
+		for (let i = 0; i < scenario.frames.length; i++) {
+			writeFrame(i);
+		}
+		finish();
+	} else {
+		runPaced(res, scenario.frames.length, writeFrame, scenario.frameDelayMs, finish);
+	}
+};
+
+/**
+ * The one playback dispatch, shared by the containerized fake OpenAI server
+ * and the in-process capture server. `raw` plays verbatim regardless of the
+ * stream flag; `sse-abort` collapses for stream:false like plain sse does,
+ * because abort semantics are stream-only (there is no mid-body failure to
+ * fake in a single JSON response).
+ */
+export function playScenario(res: ServerResponse, scenario: Scenario, stream: boolean): void {
+	if (scenario.type === "error") {
+		sendJson(res, scenario.statusCode, scenario.body ?? {});
+	} else if (scenario.type === "raw") {
+		sendRaw(res, scenario);
+	} else if (!stream) {
+		sendJson(res, 200, collapseChunks(scenario.chunks));
+	} else if (scenario.type === "sse-abort") {
+		sendSseAbort(res, scenario);
+	} else if (scenario.type === "sse-delayed") {
+		sendSseDelayed(res, scenario.chunks, scenario.delayMs);
+	} else {
+		sendSse(res, scenario.chunks);
+	}
+}
+
+// ── Runtime-registration validation ──────────────────────────────────────────
+
+/** Bounded chunk/frame lists; the count cap is what keeps paced playback finite (see MAX_SCENARIO_ITEMS). */
+const isBoundedList = (value: unknown): value is unknown[] =>
+	Array.isArray(value) && value.length <= MAX_SCENARIO_ITEMS;
+
+/** Durations must be finite and inside [0, MAX_STALL_MS]; optional ones may be absent. */
+const isBoundedMs = (value: unknown): boolean =>
+	typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_STALL_MS;
+const isOptionalBoundedMs = (value: unknown): boolean => value === undefined || isBoundedMs(value);
+
+/** Statuses a scenario may answer with: writeHead-safe, no 1xx interim responses. */
+const isStatusCode = (value: unknown): boolean =>
+	typeof value === "number" && Number.isInteger(value) && value >= 200 && value <= 599;
+
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+	typeof value === "object" &&
+	value !== null &&
+	!Array.isArray(value) &&
+	Object.values(value).every((entry) => typeof entry === "string");
+
+/** Raw frames are written as latin1, one char per byte; a code point above 0xFF would silently mojibake, so it is rejected here. */
+const isByteString = (value: unknown): value is string => {
+	if (typeof value !== "string") {
+		return false;
+	}
+	for (let i = 0; i < value.length; i++) {
+		if (value.charCodeAt(i) > 0xff) {
+			return false;
+		}
+	}
+	return true;
+};
+
+/**
+ * Validator for PUT /_test/custom-scenario payloads. Built-in scenarios do
+ * not pass through here; the caps exist so a runtime registration cannot
+ * wedge the fake backend (unbounded lists, delays, or statuses writeHead
+ * would reject).
+ */
+export function isScenario(value: unknown): value is Scenario {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const record = value as Record<string, unknown>;
+	if (record.type === "sse") {
+		return isBoundedList(record.chunks);
+	}
+	if (record.type === "sse-delayed") {
+		return isBoundedList(record.chunks) && isBoundedMs(record.delayMs);
+	}
+	if (record.type === "error") {
+		return isStatusCode(record.statusCode);
+	}
+	if (record.type === "sse-abort") {
+		return (
+			isBoundedList(record.chunks) &&
+			(record.tail === "destroy" || record.tail === "no-done" || record.tail === "stall") &&
+			isOptionalBoundedMs(record.stallMs) &&
+			isOptionalBoundedMs(record.delayMs)
+		);
+	}
+	if (record.type === "raw") {
+		return (
+			isStatusCode(record.statusCode) &&
+			isStringRecord(record.headers) &&
+			isBoundedList(record.frames) &&
+			record.frames.every(isByteString) &&
+			(record.tail === "end" || record.tail === "destroy" || record.tail === "stall") &&
+			isOptionalBoundedMs(record.frameDelayMs) &&
+			isOptionalBoundedMs(record.stallMs)
+		);
+	}
+	return false;
+}
 
 /**
  * Collapse an SSE chunk list into one non-streaming chat.completion body.
