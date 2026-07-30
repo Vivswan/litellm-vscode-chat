@@ -93,7 +93,7 @@ suite("provider/auth", () => {
 			assert.ok(!error.message.includes("secret-1"), "the client secret must never appear in the error message");
 		});
 
-		test("a 400 error body's description reaches the message", async () => {
+		test("a 400 error body's description reaches the message but never the log classification", async () => {
 			mswServer.use(
 				http.post(TOKEN_URL, () =>
 					HttpResponse.json({ error: "invalid_scope", error_description: "unknown scope" }, { status: 400 })
@@ -104,6 +104,10 @@ suite("provider/auth", () => {
 			const error = await expectRequestError(source.getToken(oauthConfig(), 5000), "auth");
 
 			assert.ok(error.message.includes("invalid_scope: unknown scope"), `unexpected message: ${error.message}`);
+			// The IdP detail is response-derived (Azure AD puts correlation IDs
+			// there), so this construction site opts into a classification that
+			// public surfaces record instead of the message.
+			assert.strictEqual(error.logClassification, "RequestError(auth, status 400, oauth token endpoint)");
 		});
 
 		test("an error description echoing the client secret is scrubbed before it reaches the message", async () => {

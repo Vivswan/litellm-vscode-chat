@@ -1,5 +1,6 @@
 import type OpenAI from "openai";
 import { isRecord } from "../shared/json";
+import { errorMessageText } from "../shared/logger";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../shared/numbers";
 import type { TokenDefaults } from "../shared/settings";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "./clients";
@@ -353,8 +354,16 @@ function coerceJsonPayload(value: unknown, baseUrl: string): unknown {
 	try {
 		return JSON.parse(value);
 	} catch (error) {
-		const msg = error instanceof Error ? error.message : String(error);
-		throw new Error(`Failed to parse LiteLLM models response from ${baseUrl}: ${msg}`);
+		// V8's SyntaxError message quotes a snippet of the unparseable payload
+		// (response-derived), so the classification keeps it off public
+		// surfaces while the user-facing message keeps the diagnostic value.
+		throw new RequestError(
+			`Failed to parse LiteLLM models response from ${baseUrl}: ${errorMessageText(error)}`,
+			"http",
+			{
+				logClassification: "RequestError(http, unparseable models response body)",
+			}
+		);
 	}
 }
 
@@ -527,7 +536,12 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			throw error;
 		}
 		if (error instanceof SyntaxError) {
-			throw new Error(`Failed to parse LiteLLM models response from ${baseUrl}: ${error.message}`);
+			// The SDK's own response.json() on a malformed application/json body:
+			// same leak shape as coerceJsonPayload, same classification.
+			throw new RequestError(`Failed to parse LiteLLM models response from ${baseUrl}: ${error.message}`, "http", {
+				cause: error,
+				logClassification: "RequestError(http, unparseable models response body)",
+			});
 		}
 		throw mapSdkError(error, errorContext);
 	}

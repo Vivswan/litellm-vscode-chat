@@ -14,6 +14,136 @@ export interface ErrorRecorder {
 }
 
 /**
+ * The message text of an unknown thrown value, total by construction: the
+ * instanceof check, the message read, and String() can all throw (a revoked
+ * or hostile proxy, a non-callable toString, a hostile Symbol.toPrimitive),
+ * so every step degrades to the next fallback. Every boundary that renders a
+ * caught unknown (status construction, the log sink) goes through here so
+ * none of them can die on a hostile value.
+ */
+export function errorMessageText(error: unknown): string {
+	try {
+		if (error instanceof Error) {
+			return error.message;
+		}
+		return String(error);
+	} catch {
+		return objectTag(error);
+	}
+}
+
+/** The Object.prototype.toString tag, itself guarded: a proxy's Symbol.toStringTag read can throw too. */
+function objectTag(value: unknown): string {
+	try {
+		return Object.prototype.toString.call(value);
+	} catch {
+		return "[unrenderable value]";
+	}
+}
+
+/**
+ * Errors whose user-facing message embeds response-derived text offer a
+ * classification-only rendering under a `logClassification` property (a
+ * RequestError construction site opts in explicitly; see errorMapping.ts).
+ * Total against hostile getters.
+ */
+function classificationOf(error: unknown): string | undefined {
+	try {
+		const classification = (error as { logClassification?: unknown } | null | undefined)?.logClassification;
+		return typeof classification === "string" ? classification : undefined;
+	} catch {
+		// A hostile logClassification getter must not break logging.
+		return undefined;
+	}
+}
+
+/**
+ * A string proven to have gone through the public-rendering gate, so it may
+ * sit in a field that log lines interpolate (ServerStatus.logSafeError, the
+ * status bar's error state). The brand has exactly two producers:
+ * publicErrorText (the gate) and markLogSafe (compile-time template
+ * constants and this extension's own persistence, which only ever stored
+ * gate output). A display string does not compile into a branded slot, so
+ * the "never log `.error`" rule is enforced by the type checker, not by
+ * convention.
+ */
+export type LogSafeErrorText = string & { readonly __brand: "logSafe" };
+
+/**
+ * Brand a string as log-safe WITHOUT the gate. Only for compile-time
+ * template constants ("Unknown error", restore placeholders) and values read
+ * back from this extension's own persistence (which only ever stored branded
+ * values). Passing response-derived or display text here defeats the brand -
+ * use publicErrorText.
+ */
+export function markLogSafe(text: string): LogSafeErrorText {
+	return text as LogSafeErrorText;
+}
+
+/**
+ * The rendering of a thrown value for public surfaces (the issue-report
+ * buffer and the latest-error snapshot, both of which prefill public GitHub
+ * issues): its classification when it offers one, its message text otherwise.
+ */
+export function publicErrorText(error: unknown): LogSafeErrorText {
+	return (classificationOf(error) ?? errorMessageText(error)) as LogSafeErrorText;
+}
+
+/**
+ * The public rendering of a thrown value's stack. When the value classifies
+ * its message away, the `${name}: ${message}` prefix V8 puts on the stack is
+ * stripped BY LENGTH, never by line shape: an http body can contain lines
+ * shaped like stack frames ("\tat com.acme.internal...(...)"), so a shape
+ * filter alone would keep attacker-controlled lines. A stack that does not
+ * start with the exact prefix fails closed to the classification alone; the
+ * frame filter afterwards is belt and braces.
+ */
+export function publicErrorStack(error: unknown): string | undefined {
+	try {
+		if (!(error instanceof Error) || typeof error.stack !== "string") {
+			return undefined;
+		}
+		const classification = classificationOf(error);
+		if (classification === undefined) {
+			return error.stack;
+		}
+		const prefix = `${error.name}: ${error.message}`;
+		if (!error.stack.startsWith(prefix)) {
+			return classification;
+		}
+		const frames = error.stack
+			.slice(prefix.length)
+			.split("\n")
+			.filter((line) => /^\s+at /.test(line));
+		return [classification, ...frames].join("\n");
+	} catch {
+		// classificationOf is total; a hostile stack/name/message getter loses
+		// its frames, never breaks logging.
+		return classificationOf(error);
+	}
+}
+
+/** The raw stack for the output channel, total: instanceof and the stack getter can both throw on hostile proxies. */
+function rawErrorStack(error: unknown): string | undefined {
+	try {
+		return error instanceof Error && typeof error.stack === "string" && error.stack.length > 0
+			? error.stack
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** JSON for log data, total: circular or otherwise unserializable data degrades to its object tag instead of throwing inside logging. */
+function logDataText(data: unknown): string {
+	try {
+		return JSON.stringify(data, null, 2) ?? objectTag(data);
+	} catch {
+		return objectTag(data);
+	}
+}
+
+/**
  * The single logging implementation for the extension. Every line goes to the
  * output channel and, when a recorder is attached, to the issue-report buffer,
  * so litellm.reportIssue sees logs from all layers. Channel output is not
@@ -26,18 +156,21 @@ export class Logger {
 	) {}
 
 	log(message: string, data?: unknown): void {
-		const text = data !== undefined ? `${message}: ${JSON.stringify(data, null, 2)}` : message;
+		const text = data !== undefined ? `${message}: ${logDataText(data)}` : message;
 		this.output.info(text);
 		this.recorder?.appendLog(`[${new Date().toISOString()}] ${text}`);
 	}
 
 	error(message: string, error: unknown): void {
-		const errorMsg = error instanceof Error ? error.message : String(error);
-		const text = `${message}: ${errorMsg}`;
+		const text = `${message}: ${errorMessageText(error)}`;
 		this.output.error(text);
-		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${text}`);
-		if (error instanceof Error && error.stack) {
-			this.output.error(`Stack trace: ${error.stack}`);
+		// The channel keeps the full message (local debugging surface); the
+		// buffer opens public issues, so it takes the classification when the
+		// error carries one.
+		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${message}: ${publicErrorText(error)}`);
+		const stack = rawErrorStack(error);
+		if (stack !== undefined) {
+			this.output.error(`Stack trace: ${stack}`);
 		}
 		this.recorder?.recordError(message, error);
 	}

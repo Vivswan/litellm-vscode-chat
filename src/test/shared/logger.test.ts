@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { Logger } from "../../shared/logger";
+import { errorMessageText, Logger, publicErrorStack, publicErrorText } from "../../shared/logger";
 import { expectDefined } from "../testUtils";
 
 function makeSinks() {
@@ -45,6 +45,19 @@ suite("shared/logger", () => {
 		assert.equal(sinks.bufferLines.length, 2);
 		assert.match(expectDefined(sinks.bufferLines[0]), /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] hello$/);
 		assert.ok(expectDefined(sinks.bufferLines[1]).includes('with data: {\n  "a": 1\n}'));
+	});
+
+	test("log with unserializable data does not throw: circular and JSON-invisible values take the object tag", () => {
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const circular: Record<string, unknown> = {};
+		circular.self = circular;
+
+		logger.log("circular", circular);
+		// JSON.stringify returns undefined for a bare function; the tag covers that too.
+		logger.log("function", () => {});
+
+		assert.deepStrictEqual(sinks.infoLines, ["circular: [object Object]", "function: [object Function]"]);
 	});
 
 	test("error routes to the channel's error level and records the error", () => {
@@ -95,5 +108,167 @@ suite("shared/logger", () => {
 		logger.error("failed", "string reason");
 
 		assert.deepStrictEqual(sinks.errorLines, ["failed: string reason"]);
+	});
+
+	test("a value whose String() coercion throws still logs, via the object tag", () => {
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+
+		logger.error("failed", { toString: null, valueOf: null });
+
+		assert.deepStrictEqual(sinks.errorLines, ["failed: [object Object]"]);
+		assert.equal(sinks.recorded.length, 1);
+	});
+
+	test("an error carrying a logClassification keeps its message out of the buffer, not the channel", () => {
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const err = Object.assign(new Error("LiteLLM API error: 503\n<html>response body</html>"), {
+			logClassification: "RequestError(http, status 503)",
+		});
+		delete err.stack;
+
+		logger.error("Chat request failed", err);
+
+		assert.deepStrictEqual(sinks.errorLines, [
+			"Chat request failed: LiteLLM API error: 503\n<html>response body</html>",
+		]);
+		assert.match(
+			expectDefined(sinks.bufferLines[0]),
+			/^\[.+\] ERROR: Chat request failed: RequestError\(http, status 503\)$/,
+			"the issue-report buffer takes the classification, never the response-derived message"
+		);
+	});
+
+	test("a hostile logClassification getter falls back to the message text", () => {
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const err = new Error("boom");
+		Object.defineProperty(err, "logClassification", {
+			get() {
+				throw new Error("hostile getter");
+			},
+		});
+
+		logger.error("failed", err);
+
+		assert.ok(expectDefined(sinks.bufferLines[0]).endsWith("ERROR: failed: boom"));
+	});
+
+	test("Logger.error never throws on a fully hostile proxy", () => {
+		// The same throwing-getPrototypeOf proxy the helper tests use: the
+		// instanceof and stack reads inside error() must be guarded too, since
+		// a logging call must never throw.
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const hostile = new Proxy(
+			{},
+			{
+				getPrototypeOf() {
+					throw new Error("no proto");
+				},
+				get() {
+					throw new Error("no reads");
+				},
+			}
+		);
+
+		logger.error("failed", hostile);
+
+		assert.deepStrictEqual(sinks.errorLines, ["failed: [unrenderable value]"]);
+		assert.ok(expectDefined(sinks.bufferLines[0]).endsWith("ERROR: failed: [unrenderable value]"));
+		assert.equal(sinks.recorded.length, 1, "the recorder still gets the raw value");
+	});
+});
+
+suite("shared/logger errorMessageText", () => {
+	test("an Error yields its message", () => {
+		assert.strictEqual(errorMessageText(new Error("boom")), "boom");
+	});
+
+	test("plain values go through String()", () => {
+		assert.strictEqual(errorMessageText("string reason"), "string reason");
+		assert.strictEqual(errorMessageText(42), "42");
+		assert.strictEqual(errorMessageText(undefined), "undefined");
+		assert.strictEqual(errorMessageText(null), "null");
+	});
+
+	test("a value whose String() coercion throws falls back to the object tag", () => {
+		assert.strictEqual(errorMessageText({ toString: null, valueOf: null }), "[object Object]");
+		assert.strictEqual(
+			errorMessageText(
+				Object.create(null, {
+					[Symbol.toPrimitive]: {
+						value: () => {
+							throw new Error("hostile");
+						},
+					},
+				})
+			),
+			"[object Object]"
+		);
+	});
+
+	test("hostile proxies cannot break the coercion: every step degrades to the next fallback", () => {
+		// A proxy whose getPrototypeOf trap throws breaks the instanceof check;
+		// the object tag still works because the get trap is honest.
+		const throwingProto = new Proxy(
+			{},
+			{
+				getPrototypeOf() {
+					throw new Error("no proto for you");
+				},
+			}
+		);
+		assert.strictEqual(errorMessageText(throwingProto), "[object Object]");
+
+		// A proxy that also throws on property reads defeats the tag too (it
+		// reads Symbol.toStringTag); the literal is the last resort.
+		const fullyHostile = new Proxy(
+			{},
+			{
+				getPrototypeOf() {
+					throw new Error("no proto");
+				},
+				get() {
+					throw new Error("no reads");
+				},
+			}
+		);
+		assert.strictEqual(errorMessageText(fullyHostile), "[unrenderable value]");
+	});
+});
+
+suite("shared/logger public renderings", () => {
+	test("publicErrorText prefers the classification and falls back to the message", () => {
+		const classified = Object.assign(new Error("secret body"), { logClassification: "RequestError(http, status 502)" });
+		assert.strictEqual(publicErrorText(classified), "RequestError(http, status 502)");
+		assert.strictEqual(publicErrorText(new Error("template text")), "template text");
+	});
+
+	test("publicErrorStack strips the message BY LENGTH: frame-shaped body lines never survive", () => {
+		// An http body can contain lines shaped like stack frames; a shape
+		// filter alone would keep them. The exact `${name}: ${message}` prefix
+		// strip removes the whole message before any line filtering runs.
+		const err = Object.assign(
+			new Error("LiteLLM API error: 502\n\tat com.acme.internal.BillingService.charge(BillingService.java:42)"),
+			{ logClassification: "RequestError(http, status 502)" }
+		);
+		const stack = expectDefined(publicErrorStack(err));
+		assert.ok(!stack.includes("com.acme.internal"), `the body's frame-shaped line survived: ${stack}`);
+		assert.ok(stack.startsWith("RequestError(http, status 502)"), stack);
+		assert.match(stack, /\n\s+at /, "the real call frames must be kept");
+	});
+
+	test("publicErrorStack fails closed to the classification when the stack lacks the message prefix", () => {
+		const err = Object.assign(new Error("boom"), { logClassification: "RequestError(http, status 502)" });
+		err.stack = "\tat com.acme.internal.Evil.line(Evil.java:1)\n    at real (x.ts:1:1)";
+		assert.strictEqual(publicErrorStack(err), "RequestError(http, status 502)");
+	});
+
+	test("publicErrorStack leaves unclassified errors' stacks alone", () => {
+		const err = new Error("plain");
+		assert.strictEqual(publicErrorStack(err), err.stack);
+		assert.strictEqual(publicErrorStack("not an error"), undefined);
 	});
 });

@@ -204,7 +204,8 @@ export async function runModelSync(
 				break;
 			}
 			case "error":
-				logger.log(`Model sync failed: ${status.error}`);
+				// logSafeError, never error: this line lands in the issue-report buffer.
+				logger.log(`Model sync failed: ${status.logSafeError}`);
 				void showActionableMessage("error", `LiteLLM: Model sync failed - ${status.error}`, [
 					viewOutputAction(outputChannel),
 					reconfigureAction(),
