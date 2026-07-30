@@ -489,4 +489,48 @@ suite("extension/commands", () => {
 			assert.strictEqual(context.subscriptions.length, 0, "the production gate must register nothing");
 		});
 	});
+
+	// The monkey fuzzer's harness commands. The fuzzer's end-to-end behavior
+	// belongs to the docker-monkey suite; the unit host pins that the commands
+	// register in test mode and that the injection outcome classes come from
+	// the panel's real schema boundary.
+	suite("test-only monkey harness commands", () => {
+		test("dashboardMessage and getStorageKeys are registered in a non-production host", async () => {
+			const commands = await vscode.commands.getCommands(true);
+			for (const id of ["litellm._test.dashboardMessage", "litellm._test.getStorageKeys"]) {
+				assert.ok(commands.includes(id), `${id} must be registered on activation`);
+			}
+		});
+
+		test("getStorageKeys returns the extension's globalState key strings", async () => {
+			const keys = (await vscode.commands.executeCommand("litellm._test.getStorageKeys")) as unknown;
+			assert.ok(Array.isArray(keys), "the command returns an array");
+			assert.ok(
+				keys.every((key) => typeof key === "string"),
+				"every storage key is a string"
+			);
+		});
+
+		test("dashboardMessage classifies raw payloads through the real message path", async () => {
+			// Schema-rejected junk never acts.
+			assert.strictEqual(
+				await vscode.commands.executeCommand("litellm._test.dashboardMessage", { type: "no-such-intent" }),
+				"ignored-malformed"
+			);
+			// Schema-valid but value-invalid: validateNumberSetting refuses, no write lands.
+			assert.strictEqual(
+				await vscode.commands.executeCommand("litellm._test.dashboardMessage", {
+					type: "setNumberSetting",
+					setting: "requestTimeout",
+					value: -1,
+				}),
+				"validation-error"
+			);
+			// The harmless handshake completes the whole round trip.
+			assert.strictEqual(
+				await vscode.commands.executeCommand("litellm._test.dashboardMessage", { type: "ready" }),
+				"ok"
+			);
+		});
+	});
 });

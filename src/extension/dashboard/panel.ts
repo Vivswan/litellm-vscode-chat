@@ -62,15 +62,25 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	logError(message: string, error: unknown): void;
 }
 
+/**
+ * How the message boundary classified one raw webview message. The classes
+ * exist for the test-only injection seam (the monkey fuzzer branches on
+ * them): "ignored-malformed" is a schema rejection before anything acted,
+ * "validation-error" is any intent the handler refused or failed to apply,
+ * and "ok" is an intent that ran to completion.
+ */
+export type DashboardMessageOutcome = "ok" | "validation-error" | "ignored-malformed";
+
 export class DashboardController implements vscode.Disposable {
 	private _panel: DashboardPanel | undefined;
 	private readonly _panelSubscriptions: vscode.Disposable[] = [];
 	/**
 	 * Mutating intents run one at a time: two concurrent saves would
 	 * read-modify-write the same servers array and lose one of the updates, so
-	 * every incoming message joins this chain.
+	 * every incoming message joins this chain. The settled value is irrelevant
+	 * to the chain itself (outcomes matter only to injectMessageForTest).
 	 */
-	private _messageChain: Promise<void> = Promise.resolve();
+	private _messageChain: Promise<unknown> = Promise.resolve();
 
 	constructor(private readonly env: DashboardControllerEnv) {}
 
@@ -85,11 +95,7 @@ export class DashboardController implements vscode.Disposable {
 		this._panel = panel;
 		this._panelSubscriptions.push(
 			panel.webview.onDidReceiveMessage((message) => {
-				this._messageChain = this._messageChain.then(() =>
-					this.handleMessage(message).catch((error) => {
-						this.env.logError("Dashboard message handling failed", error);
-					})
-				);
+				void this.enqueueMessage(message);
 			}),
 			panel.onDidChangeViewState(() => {
 				// Context is not retained while hidden, so a re-shown webview needs
@@ -111,6 +117,36 @@ export class DashboardController implements vscode.Disposable {
 		if (this._panel?.visible === true) {
 			this.pushState();
 		}
+	}
+
+	/**
+	 * Test-only injection seam: run one raw message through the exact same
+	 * serialized path a webview post takes - both callers share enqueueMessage,
+	 * so an injected message cannot overtake a real one and cannot drift from
+	 * the real handling. Nothing is bypassed: the message meets
+	 * webviewMessageSchema.safeParse precisely as a webview-posted message
+	 * would. Registered behind the non-production litellm._test.dashboardMessage
+	 * command.
+	 */
+	injectMessageForTest(raw: unknown): Promise<DashboardMessageOutcome> {
+		return this.enqueueMessage(raw);
+	}
+
+	/**
+	 * The one enqueue path for every message, webview-posted or injected: the
+	 * outcome joins the serialized chain, and the chain's rejection handler
+	 * (which also marks the outcome promise handled for fire-and-forget
+	 * callers) logs the failure.
+	 */
+	private enqueueMessage(raw: unknown): Promise<DashboardMessageOutcome> {
+		const outcome = this._messageChain.then(() => this.handleMessage(raw));
+		this._messageChain = outcome.then(
+			() => undefined,
+			(error) => {
+				this.env.logError("Dashboard message handling failed", error);
+			}
+		);
+		return outcome;
 	}
 
 	dispose(): void {
@@ -135,15 +171,15 @@ export class DashboardController implements vscode.Disposable {
 		});
 	}
 
-	private async handleMessage(raw: unknown): Promise<void> {
+	private async handleMessage(raw: unknown): Promise<DashboardMessageOutcome> {
 		const parsed = webviewMessageSchema.safeParse(raw);
 		if (!parsed.success) {
 			this.env.log("Ignoring malformed dashboard message", { issues: parsed.error.issues });
-			return;
+			return "ignored-malformed";
 		}
 		if (parsed.data.type === "ready") {
 			this.pushState();
-			return;
+			return "ok";
 		}
 		if (parsed.data.type === "readInlineSecrets") {
 			// The edit form's on-demand prefill: values only for fields stored
@@ -155,7 +191,7 @@ export class DashboardController implements vscode.Disposable {
 				requestId: parsed.data.requestId,
 				values: readInlineSecretValues(this.env.readServersSetting(), parsed.data.label),
 			});
-			return;
+			return "ok";
 		}
 		const intent = parsed.data;
 		const requestId = "requestId" in intent ? intent.requestId : undefined;
@@ -173,6 +209,7 @@ export class DashboardController implements vscode.Disposable {
 			// intents (a secure-only secret change, a no-op settings write) fire
 			// no configuration event of their own.
 			this.pushState();
+			return "ok";
 		} catch (error) {
 			// The write did not land (or only partially landed), so the failure
 			// notice is the webview's signal to surface the message and return the
@@ -198,6 +235,10 @@ export class DashboardController implements vscode.Disposable {
 				});
 			}
 			this.postToPanel({ type: "intentFailed", intentType: intent.type, message, kind, requestId });
+			// One class for every refused-or-failed intent: the outcome consumer
+			// (the monkey fuzzer) only needs "did not act as asked", and the
+			// validation/operation split already travels via intentFailed's kind.
+			return "validation-error";
 		}
 	}
 

@@ -8,6 +8,7 @@ import type { SecretFieldId } from "../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../shared/serverEntry";
 import type { ServerConfig } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
+import type { DashboardController } from "./dashboard/panel";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import {
 	CONFIGURE_NOW_LABEL,
@@ -291,7 +292,8 @@ export function registerTestCommands(
 	registry: ServerRegistry,
 	provider: ModelInfoProvider,
 	issueReporter: Pick<IssueReporter, "getRecentLogs">,
-	syncEngine: Pick<ServerSyncEngine, "getDeclared">
+	syncEngine: Pick<ServerSyncEngine, "getDeclared">,
+	dashboard: Pick<DashboardController, "injectMessageForTest">
 ): void {
 	if (context.extensionMode === vscode.ExtensionMode.Production) {
 		return;
@@ -376,6 +378,18 @@ export function registerTestCommands(
 				return updateServerSecret(context.secrets, label, field as SecretFieldId, value);
 			}
 		),
-		vscode.commands.registerCommand("litellm._test.getDeclaredServers", () => syncEngine.getDeclared())
+		vscode.commands.registerCommand("litellm._test.getDeclaredServers", () => syncEngine.getDeclared()),
+		// The monkey fuzzer's intent injection: open the dashboard through its
+		// real command, then run the raw payload through the panel's actual
+		// webview-message path (webviewMessageSchema.safeParse included; the
+		// seam never bypasses validation) and hand back the outcome class.
+		vscode.commands.registerCommand("litellm._test.dashboardMessage", async (raw: unknown) => {
+			await vscode.commands.executeCommand(CMD.openDashboard);
+			return dashboard.injectMessageForTest(raw);
+		}),
+		// The monkey fuzzer's storage-hygiene probe: every Memento key the
+		// extension holds, checked against shared/storageKeys.ts. SecretStorage
+		// has no enumeration API, so secret keys stay out of reach here.
+		vscode.commands.registerCommand("litellm._test.getStorageKeys", () => [...context.globalState.keys()])
 	);
 }

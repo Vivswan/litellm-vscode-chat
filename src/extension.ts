@@ -124,12 +124,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			}
 		})
 	);
-	// Test-only commands; registered after the sync engine exists because the
-	// docker-serversync suite reads its declared views through them.
-	registerTestCommands(context, registry, provider, issueReporter, syncEngine);
 	registerSetServerSecretCommand(context, syncEngine, logger);
 	const dashboard = registerDashboardCommand(context, provider, logger, syncEngine);
 	syncEngine.onDidSync = () => dashboard.refresh();
+	// Test-only commands; registered after the sync engine and the dashboard
+	// exist because the docker-serversync suite reads the engine's declared
+	// views through them and the monkey fuzzer injects dashboard messages.
+	registerTestCommands(context, registry, provider, issueReporter, syncEngine, dashboard);
 	// The first pass runs off the activation path: it may hit the host command
 	// (which validates groups against the provider) and the network. Forced,
 	// so groups edited or deleted natively since the last session reconcile.
