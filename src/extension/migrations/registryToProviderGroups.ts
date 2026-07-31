@@ -651,7 +651,9 @@ async function rerunLabelCopyForNewEntries(ctx: MigrationContext, before: Record
 	}
 	try {
 		if ((await labelScopedModelParametersMigration.run(ctx)) === "migrated") {
-			ctx.logger.log(labelScopedModelParametersMigration.description);
+			ctx.logger.log(
+				`${labelScopedModelParametersMigration.description} (away from v${labelScopedModelParametersMigration.sourceRelease} state)`
+			);
 		}
 	} catch (error) {
 		ctx.logger.error(`Migration "${labelScopedModelParametersMigration.state}" failed`, error);
@@ -673,6 +675,7 @@ async function rerunLabelCopyForNewEntries(ctx: MigrationContext, before: Record
 export const registryToProviderGroupsMigration: ExtensionMigration = {
 	state: "registry-to-provider-groups",
 	description: "Migrated the server registry to VS Code provider groups",
+	sourceRelease: "0.3.1",
 	phase: "post-registration",
 	async run(ctx: MigrationContext): Promise<MigrationOutcome> {
 		const labelsBefore = getMigratedServerLabels(ctx.globalState);

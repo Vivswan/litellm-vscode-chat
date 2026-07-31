@@ -119,6 +119,7 @@ async function migrateLegacySingleServer(ctx: MigrationContext): Promise<Migrati
 export const legacySingleServerMigration: ExtensionMigration = {
 	state: "legacy-single-server",
 	description: "Migrated legacy single-server config to server registry",
+	sourceRelease: "0.2.2",
 	phase: "pre-registration",
 	run: migrateLegacySingleServer,
 };

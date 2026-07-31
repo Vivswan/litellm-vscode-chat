@@ -237,6 +237,7 @@ export async function rewriteLabelScopedModelParameters(
 export const labelScopedModelParametersMigration: ExtensionMigration = {
 	state: "label-scoped-model-parameters",
 	description: "Added base-URL-scoped copies of label-scoped modelParameters keys",
+	sourceRelease: "0.3.1",
 	phase: "pre-registration",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
 		return rewriteLabelScopedModelParameters(

@@ -33,6 +33,8 @@ export interface ExtensionMigration {
 	state: string;
 	/** One line logged when the migration does work. */
 	description: string;
+	/** The last release whose state this migrates away from; MIGRATIONS stays ordered by it. */
+	readonly sourceRelease: string;
 	/**
 	 * "pre-registration" runs are awaited before registerLanguageModelChatProvider;
 	 * "post-registration" runs fire-and-forget after it and may hit the host or the network.
@@ -43,17 +45,18 @@ export interface ExtensionMigration {
 }
 
 /**
- * Chronological by the release whose state each one migrates away from (the
- * per-file headers carry the full story); registration order is execution
- * order within each phase. labelScopedModelParameters reads the label map
- * registryToProviderGroups writes during post-registration seeding; since the
- * copy pass runs pre-registration, the group migration reruns it directly
- * whenever a seeding pass merges new label-map entries.
+ * Chronological by sourceRelease, ties keeping registration order (a test
+ * pins this); the per-file headers carry each migration's full story.
+ * Registration order is execution order within each phase.
+ * labelScopedModelParameters reads the label map registryToProviderGroups
+ * writes during post-registration seeding; since the copy pass runs
+ * pre-registration, the group migration reruns it directly whenever a
+ * seeding pass merges new label-map entries.
  */
-const MIGRATIONS: readonly ExtensionMigration[] = [
-	legacySingleServerMigration, // away from <= v0.2.2 (pre-registry single-server secrets)
-	registryToProviderGroupsMigration, // away from v0.2.3..v0.3.1 (registry-stored servers)
-	labelScopedModelParametersMigration, // away from <= v0.3.1 (label-scoped modelParameters keys)
+export const MIGRATIONS: readonly ExtensionMigration[] = [
+	legacySingleServerMigration,
+	registryToProviderGroupsMigration,
+	labelScopedModelParametersMigration,
 ];
 
 /** Best-effort: a failing migration logs once and the rest still run; never rejects. */
@@ -68,7 +71,7 @@ export async function runMigrations(
 		}
 		try {
 			if ((await migration.run(ctx)) === "migrated") {
-				ctx.logger.log(migration.description);
+				ctx.logger.log(`${migration.description} (away from v${migration.sourceRelease} state)`);
 			}
 		} catch (error) {
 			ctx.logger.error(`Migration "${migration.state}" failed`, error);
