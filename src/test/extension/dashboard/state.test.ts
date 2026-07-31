@@ -465,6 +465,136 @@ suite("extension/dashboard/state", () => {
 			assert.ok(!JSON.stringify(state).includes("fp-shared"), "the join key never reaches the webview state");
 		});
 
+		test("an entry with modelParameters served by a pre-label group flags the inactive parameters", () => {
+			// The connection-identity join means the live group carries no label,
+			// so the request path never applies this entry's parameters. The row
+			// must warn instead of rendering silently healthy - but only via the
+			// classification; the copy stays webview-side.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-shared:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 3,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-prod-labeled:http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+						modelParameters: { "gpt-4": { temperature: 0.2 } },
+					}),
+					makeDeclared({
+						label: "Staging",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-staging-labeled:http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+					}),
+				]
+			);
+
+			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
+			assert.strictEqual(byLabel.get("Prod")?.notice, "entry-params-inactive");
+			assert.strictEqual(byLabel.get("Prod")?.state, "ok", "the notice never degrades the live status");
+			assert.strictEqual(byLabel.get("Staging")?.notice, undefined, "no entry parameters, nothing to flag");
+		});
+
+		test("an entry with modelParameters joined by its exact labeled identity carries no notice", () => {
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-prod-labeled:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 3,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-prod-labeled:http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+						modelParameters: { "gpt-4": { temperature: 0.2 } },
+					}),
+				]
+			);
+
+			assert.strictEqual(state.servers[0]?.notice, undefined, "a labeled group serves the entry's parameters");
+		});
+
+		test("an entry with modelParameters joined by the label-and-URL fallback still flags them", () => {
+			// The snapshot's display label is the URL host, so this pass can match
+			// an unlabeled group whose credentials differ from the entry (neither
+			// identity joins). Only the exact labeled-identity join proves the
+			// group carries the entry's label; anything else must warn.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-other:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 3,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "x.test",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-labeled:http://x.test",
+						expectedConnectionId: "group:fp-conn:http://x.test",
+						modelParameters: { "gpt-4": { temperature: 0.2 } },
+					}),
+				]
+			);
+
+			assert.strictEqual(state.servers[0]?.notice, "entry-params-inactive");
+			assert.strictEqual(state.servers[0]?.state, "ok", "the notice never degrades the live status");
+		});
+
+		test("an entry with modelParameters joined by the URL-only fallback still flags them", () => {
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-other:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 3,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-labeled:http://x.test",
+						expectedConnectionId: "group:fp-conn:http://x.test",
+						modelParameters: { "gpt-4": { temperature: 0.2 } },
+					}),
+				]
+			);
+
+			assert.strictEqual(state.servers[0]?.notice, "entry-params-inactive");
+		});
+
 		test("the shared pass never crosses connections: a different-credential entry keeps its own outcome", () => {
 			// One live group under key A. The entry declaring key B shares only
 			// the URL, not the connection, so handing it key A's status would

@@ -39,6 +39,20 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
 }
 
+/**
+ * Row-level warning classifications for declared entries. Only the
+ * classification crosses the extension-webview boundary; the user-facing copy
+ * is rendered webview-side - the same rule the logs follow (classifications,
+ * never free text).
+ *
+ * "entry-params-inactive": the entry declares per-entry modelParameters, but
+ * the live group serving it did not join by the entry's exact labeled
+ * identity - it predates entry labels, predates a rename, or carries someone
+ * else's label - so the request path's label-and-URL check does not apply
+ * those parameters. Recreating the group activates them.
+ */
+type DeclaredServerNotice = "entry-params-inactive";
+
 interface DashboardServerBase {
 	readonly label: string;
 	readonly baseUrl: string;
@@ -71,6 +85,8 @@ export type DashboardServer = DashboardServerBase &
 				readonly origin: "declared";
 				readonly config: DashboardServerConfig;
 				readonly adoptHandle?: undefined;
+				/** A warning classification for the row, when one applies; see DeclaredServerNotice. */
+				readonly notice?: DeclaredServerNotice | undefined;
 		  }
 		| {
 				/**
@@ -85,6 +101,7 @@ export type DashboardServer = DashboardServerBase &
 				readonly origin: "external";
 				readonly adoptHandle: string;
 				readonly config?: undefined;
+				readonly notice?: undefined;
 		  }
 	) &
 	(

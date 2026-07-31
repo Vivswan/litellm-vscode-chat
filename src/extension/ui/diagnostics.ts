@@ -103,18 +103,30 @@ function overallStatusText(servers: readonly DashboardServer[], modelCount: numb
 	}
 }
 
+/**
+ * The dialog's rendering of the entry-params-inactive classification. Fixed
+ * text derived from the classification alone (no user or response content):
+ * "my per-entry parameters do nothing" is exactly what lands in issue
+ * reports, so the dialog must name it where users collect diagnostics.
+ */
+const ENTRY_PARAMS_INACTIVE_TEXT =
+	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); remove the group in the native Manage Language Models editor and run Sync Models Now, or save the entry under a new label";
+
 function serverOutcomeText(server: DashboardServer): string {
+	// The notice rides alongside whatever the state line says: a noticed row
+	// is usually healthy ("ok"), which is exactly why it needs calling out.
+	const noticeSuffix = server.notice === "entry-params-inactive" ? ` - ${ENTRY_PARAMS_INACTIVE_TEXT}` : "";
 	switch (server.state) {
 		case "ok":
 			// A reachable server can still carry an error: a declared entry whose
 			// group upsert failed while an already-live group keeps serving.
 			return server.error !== undefined
-				? `OK (${server.modelCount} models) - ${server.error}`
-				: `OK (${server.modelCount} models)`;
+				? `OK (${server.modelCount} models) - ${server.error}${noticeSuffix}`
+				: `OK (${server.modelCount} models)${noticeSuffix}`;
 		case "error":
-			return `Error: ${server.error}`;
+			return `Error: ${server.error}${noticeSuffix}`;
 		case "unchecked":
-			return "Not checked yet";
+			return `Not checked yet${noticeSuffix}`;
 	}
 }
 

@@ -376,6 +376,33 @@ suite("extension/ui/diagnostics", () => {
 			assert.ok(run.message.includes("  Fake: OK (2 models) - upsert refused"), run.message);
 		});
 
+		test("an entry whose group cannot serve its per-entry parameters says so in the details", async () => {
+			// The row is healthy, which is exactly why the dialog must call the
+			// inactive parameters out: this is what users collect into reports.
+			const run = await runDiagnosticsCommand({
+				snapshots: [
+					makeSnapshot({
+						serverId: "group:fp-shared:http://x.test",
+						label: "x.test",
+						baseUrl: "http://x.test",
+						modelCount: 2,
+					}),
+				],
+				declared: [
+					makeDeclared({
+						label: "Fake",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-labeled:http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+						modelParameters: { "gpt-4": { temperature: 0.2 } },
+					}),
+				],
+			});
+
+			assert.ok(run.message.includes("  Fake: OK (2 models) - per-entry modelParameters are not applied"), run.message);
+			assert.ok(run.message.includes("run Sync Models Now"), run.message);
+		});
+
 		test("the dialog never renders a transient loading verdict", async () => {
 			// The old status-bar-backed "Loading..." state was removed on purpose:
 			// invoked mid-first-refresh, the dialog now says what is actually known

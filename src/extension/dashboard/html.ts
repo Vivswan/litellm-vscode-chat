@@ -312,6 +312,7 @@ const STYLES = `
 	.caps { color: var(--vscode-descriptionForeground); }
 	.state-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
 	.state-error { color: var(--vscode-errorForeground); }
+	.state-warn { color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow)); }
 	.state-muted { color: var(--vscode-descriptionForeground); }
 
 	.rows { margin: 4px 0 8px; }

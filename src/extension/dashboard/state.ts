@@ -109,6 +109,16 @@ function buildServer(snapshot: ServerModelsSnapshot, label: string): DashboardSe
 }
 
 /**
+ * Which pairing pass joined a declared entry to its snapshot: the exact
+ * labeled group identity, the label-agnostic connection identity (pre-label
+ * groups), or the label/URL fallbacks for entries the engine has not
+ * resolved. buildServers reads it to flag entries whose per-entry
+ * modelParameters the serving group may not apply: only the identity pass
+ * proves the group carries the entry's label.
+ */
+type JoinPass = "identity" | "connection" | "label-url" | "url";
+
+/**
  * Pair declared entries with live snapshots. Declared entries pair by the
  * group client ID first (the sync engine computes the same
  * credential-fingerprinted identity the provider stamps on its snapshots, so
@@ -126,33 +136,40 @@ export function joinDeclared(
 	labeled: readonly LabeledSnapshot[],
 	declared: readonly DeclaredServerView[]
 ): {
-	/** The labeled snapshot each declared entry matched, by declared index. */
-	matchedByDeclared: Map<number, LabeledSnapshot>;
+	/** The labeled snapshot each declared entry matched, with the pass that matched it, by declared index. */
+	matchedByDeclared: Map<number, { entry: LabeledSnapshot; pass: JoinPass }>;
 	/** Labeled snapshots no declared entry claimed: the external rows. */
 	unmatched: Set<LabeledSnapshot>;
 } {
 	const unmatched = new Set<LabeledSnapshot>(labeled);
-	const matchedByDeclared = new Map<number, LabeledSnapshot>();
+	const matchedByDeclared = new Map<number, { entry: LabeledSnapshot; pass: JoinPass }>();
 	const passes: readonly {
+		pass: JoinPass;
 		match: (snapshot: ServerModelsSnapshot, view: DeclaredServerView) => boolean;
 		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide (see the doc above). */
 		shared?: boolean;
 	}[] = [
 		{
+			pass: "identity",
 			match: (snapshot, view) =>
 				view.expectedClientId !== undefined && snapshot.status.serverId === view.expectedClientId,
 		},
 		{
+			pass: "connection",
 			match: (snapshot, view) =>
 				view.expectedConnectionId !== undefined && snapshot.status.serverId === view.expectedConnectionId,
 			shared: true,
 		},
 		{
+			pass: "label-url",
 			match: (snapshot, view) =>
 				snapshot.status.label === view.label &&
 				normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
 		},
-		{ match: (snapshot, view) => normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl) },
+		{
+			pass: "url",
+			match: (snapshot, view) => normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
+		},
 	];
 	for (const pass of passes) {
 		// Snapshots this pass already handed out, still claimable when shared.
@@ -164,7 +181,7 @@ export function joinDeclared(
 			const pool = pass.shared === true ? [...unmatched, ...claimed] : [...unmatched];
 			const found = pool.find((entry) => pass.match(entry.snapshot, view));
 			if (found !== undefined) {
-				matchedByDeclared.set(declaredIndex, found);
+				matchedByDeclared.set(declaredIndex, { entry: found, pass: pass.pass });
 				claimed.add(found);
 				unmatched.delete(found);
 			}
@@ -224,11 +241,21 @@ function buildServers(
 	const relabeled = new Set<LabeledSnapshot>();
 	const servers: DashboardServer[] = [];
 	declared.forEach((view, declaredIndex) => {
-		const matched = matchedByDeclared.get(declaredIndex);
+		const match = matchedByDeclared.get(declaredIndex);
+		const matched = match?.entry;
 		if (matched !== undefined && !relabeled.has(matched)) {
 			relabeled.add(matched);
 			displayLabels.set(matched, view.label);
 		}
+		// Only the exact labeled-identity join proves the live group carries
+		// this entry's label, which is what the request path's label-and-URL
+		// resolution keys on. Any other pass - the label-agnostic connection
+		// identity (pre-label groups), or the label/URL fallbacks (a group
+		// predating a rename, different credentials, someone else's label) -
+		// means the entry's modelParameters may silently not apply, and the
+		// row must say so instead of rendering silently healthy; the copy
+		// renders webview-side from this classification.
+		const entryParamsInactive = match !== undefined && match.pass !== "identity" && view.modelParameters !== undefined;
 		servers.push({
 			label: view.label,
 			baseUrl: view.baseUrl,
@@ -241,6 +268,7 @@ function buildServers(
 				secrets: view.secrets,
 				...(view.modelParameters !== undefined ? { modelParameters: view.modelParameters } : {}),
 			},
+			...(entryParamsInactive ? { notice: "entry-params-inactive" as const } : {}),
 			...declaredOutcome(matched?.snapshot.status, view.syncError),
 		});
 	});
