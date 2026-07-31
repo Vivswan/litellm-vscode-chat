@@ -628,6 +628,7 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(opus.longContextCacheCost, 1);
 			assert.strictEqual(opus.longContextCacheWriteCost, 12.5);
 			assert.strictEqual(opus.priceCategory, "high", "blended (3*5+25)/4 = 10 lands in the high band");
+			assert.strictEqual(opus.pricing, "$5 in / $25 out per 1M tokens");
 
 			const pair = expectDefined(byId.get("gpt-5.2"));
 			assert.strictEqual(pair.inputCost, 1.25);
@@ -649,6 +650,7 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(scout.inputCost, undefined);
 			assert.strictEqual(scout.outputCost, undefined);
 			assert.strictEqual(scout.priceCategory, undefined, "undeclared pricing derives no cost badge");
+			assert.strictEqual(scout.pricing, undefined, "undeclared pricing derives no display label");
 		});
 	});
 
