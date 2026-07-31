@@ -648,6 +648,196 @@ suite("shared/messages", () => {
 		});
 	});
 
+	suite("prompt-tsx parts and tool-result content", () => {
+		function userMessage(parts: unknown[]): vscode.LanguageModelChatMessage {
+			return {
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: parts,
+				name: undefined,
+			} as vscode.LanguageModelChatMessage;
+		}
+
+		function circular(): Record<string, unknown> {
+			const value: Record<string, unknown> = {};
+			value.self = value;
+			return value;
+		}
+
+		test("a PromptTsxPart with a string value flows into user message text", () => {
+			const out = convertMessages([
+				userMessage([
+					new vscode.LanguageModelPromptTsxPart("rendered @workspace context"),
+					new vscode.LanguageModelTextPart(" and a question"),
+				]),
+			]);
+			assert.strictEqual(expectDefined(out[0]).content, "rendered @workspace context and a question");
+		});
+
+		test("a PromptTsxPart with an object value is JSON-stringified; a circular value is dropped without crashing", () => {
+			const out = convertMessages([
+				userMessage([new vscode.LanguageModelPromptTsxPart({ node: "root", flags: [1, 2] })]),
+			]);
+			assert.strictEqual(expectDefined(out[0]).content, '{"node":"root","flags":[1,2]}');
+
+			// A host-supplied circular value must not kill the whole request.
+			const dropped = convertMessages([
+				userMessage([new vscode.LanguageModelPromptTsxPart(circular()), new vscode.LanguageModelTextPart("kept")]),
+			]);
+			assert.strictEqual(expectDefined(dropped[0]).content, "kept");
+		});
+
+		test("a PromptTsxPart with a null or undefined value contributes nothing", () => {
+			const out = convertMessages([
+				userMessage([
+					new vscode.LanguageModelPromptTsxPart(null),
+					new vscode.LanguageModelPromptTsxPart(undefined),
+					new vscode.LanguageModelTextPart("kept"),
+				]),
+			]);
+			// A regression would push the literal strings "null"/"undefined" into the prompt.
+			assert.strictEqual(expectDefined(out[0]).content, "kept");
+
+			const empty = convertMessages([userMessage([new vscode.LanguageModelPromptTsxPart(null)])]);
+			assert.deepStrictEqual(empty, []);
+		});
+
+		test("tool result content collects PromptTsxPart, raw string, and unknown-object elements", () => {
+			const result = new vscode.LanguageModelToolResultPart("call_1", [
+				new vscode.LanguageModelPromptTsxPart("tsx says: "),
+				// Some hosts hand tool-result content over as bare strings after a
+				// serialization round trip; unknown shapes fall back to JSON.
+				"raw string, " as unknown as vscode.LanguageModelTextPart,
+				{ verdict: "ok" } as unknown as vscode.LanguageModelTextPart,
+			]);
+			const out = convertMessages([
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [result],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+			]);
+			const toolMessage = expectDefined(out[0]);
+			assert.strictEqual(toolMessage.role, "tool");
+			assert.strictEqual(toolMessage.content, 'tsx says: raw string, {"verdict":"ok"}');
+		});
+
+		test("a circular unknown object inside a tool result is ignored rather than throwing", () => {
+			const result = new vscode.LanguageModelToolResultPart("call_1", [
+				new vscode.LanguageModelTextPart("before "),
+				circular() as unknown as vscode.LanguageModelTextPart,
+				new vscode.LanguageModelTextPart("after"),
+			]);
+			const out = convertMessages([
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [result],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+			]);
+			assert.strictEqual(expectDefined(out[0]).content, "before after");
+		});
+
+		test("non-vision tool result DataParts: text mimes decode, image mimes log the cannot-forward message, other binaries drop silently", () => {
+			const logged: string[] = [];
+			const result = new vscode.LanguageModelToolResultPart("call_1", [
+				new vscode.LanguageModelDataPart(new TextEncoder().encode('{"rows":3}'), "application/json"),
+				new vscode.LanguageModelDataPart(new Uint8Array([0x89, 0x50]), "image/png"),
+				new vscode.LanguageModelDataPart(new Uint8Array([0x00, 0x01]), "application/octet-stream"),
+			]);
+			const out = convertMessages(
+				[
+					{
+						role: vscode.LanguageModelChatMessageRole.Assistant,
+						content: [result],
+						name: undefined,
+					} as vscode.LanguageModelChatMessage,
+				],
+				{ log: (message) => logged.push(message) }
+			);
+			assert.strictEqual(expectDefined(out[0]).content, '{"rows":3}');
+			// The vision arm (imageInput: true synthesizing an image message) is
+			// pinned by the tool-result images suite above; this is the gate's
+			// other side, with no imageInput capability.
+			assert.strictEqual(logged.length, 1, "only the image warrants a log; the opaque binary drops silently");
+			assert.ok(expectDefined(logged[0]).includes("cannot be forwarded"), expectDefined(logged[0]));
+		});
+
+		test("an empty tool result still emits a tool message with empty-string content", () => {
+			const emptyArray = new vscode.LanguageModelToolResultPart("call_a", []);
+			// A serialization round trip can legally drop the content field.
+			const noContent = new vscode.LanguageModelToolResultPart("call_b", []);
+			(noContent as unknown as { content: unknown }).content = undefined;
+			const out = convertMessages([
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [emptyArray, noContent],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+			]);
+			// OpenAI requires the tool message for call/result pairing even when empty.
+			assert.deepStrictEqual(out, [
+				{ role: "tool", tool_call_id: "call_a", content: "" },
+				{ role: "tool", tool_call_id: "call_b", content: "" },
+			]);
+		});
+
+		test("a tool call with an empty callId gets a generated id, and circular input serializes as {}", () => {
+			const out = convertMessages([
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [new vscode.LanguageModelToolCallPart("", "lookup", circular())],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+			]) as Array<{ tool_calls?: { id: string; function: { arguments: string } }[] }>;
+			const call = expectDefined(expectDefined(out[0]).tool_calls?.[0]);
+			assert.ok(call.id.length > 0, "an empty callId would break tool-call/result pairing on the wire");
+			assert.strictEqual(call.function.arguments, "{}");
+		});
+
+		test("a null or primitive part in assistant content is ignored", () => {
+			const out = convertMessages([
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [null, 42, "a stray string", new vscode.LanguageModelTextPart("kept")],
+					name: undefined,
+				} as unknown as vscode.LanguageModelChatMessage,
+			]);
+			assert.strictEqual(expectDefined(out[0]).content, "kept");
+		});
+
+		test("a role-3 system message carrying an image DataPart keeps its text and logs the drop with role system", () => {
+			const logged: { message: string; data?: unknown }[] = [];
+			const out = convertMessages(
+				[
+					{
+						role: 3 as vscode.LanguageModelChatMessageRole,
+						content: [
+							new vscode.LanguageModelTextPart("you are helpful"),
+							new vscode.LanguageModelDataPart(new Uint8Array([1, 2]), "image/png"),
+						],
+						name: undefined,
+					},
+				],
+				{ log: (message, data) => logged.push({ message, data }) }
+			);
+			// Content-block arrays on system messages are rejected by many
+			// OpenAI-compatible backends; the text must stay a plain string.
+			assert.deepStrictEqual(out, [{ role: "system", content: "you are helpful" }]);
+			assert.deepStrictEqual(expectDefined(logged[0]).data, { role: "system", mimeType: "image/png" });
+		});
+
+		test("a message with undefined content converts to nothing without crashing", () => {
+			const out = convertMessages([
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: undefined,
+					name: undefined,
+				} as unknown as vscode.LanguageModelChatRequestMessage,
+			]);
+			assert.deepStrictEqual(out, []);
+		});
+	});
+
 	suite("thinking block replay", () => {
 		/** Shape of a host thinking part carried in assistant history. */
 		function thinkingPart(value: string, metadata: unknown): unknown {
@@ -784,6 +974,44 @@ suite("shared/messages", () => {
 			]) as Array<{ thinking_blocks?: unknown }>;
 			assert.deepStrictEqual(expectDefined(out[0]).thinking_blocks, [
 				{ type: "thinking", thinking: "text", signature: "sig-m" },
+			]);
+		});
+
+		test("a signed thinking part whose value is not a string replays with empty thinking text", () => {
+			const out = convertMessages([
+				assistantMessage([
+					{ value: 42, id: "think_1", metadata: { type: "thinking", signature: "sig-n" } },
+					new vscode.LanguageModelTextPart("Answer."),
+				]),
+			]) as Array<{ thinking_blocks?: unknown }>;
+			// Replaying a non-string value verbatim would produce an invalid
+			// thinking_blocks entry the provider rejects, failing the follow-up.
+			assert.deepStrictEqual(expectDefined(out[0]).thinking_blocks, [
+				{ type: "thinking", thinking: "", signature: "sig-n" },
+			]);
+		});
+
+		test("a redacted block resets accumulated unsigned text and trailing unsigned text is dropped", function () {
+			const cls = hostThinkingPartClass();
+			if (!cls) {
+				this.skip();
+				return;
+			}
+			const out = convertMessages([
+				assistantMessage([
+					new cls("unsigned before redaction"),
+					thinkingPart("", { type: "redacted_thinking", data: "opaque" }),
+					thinkingPart("late signed", { type: "thinking", signature: "sig-late" }),
+					new cls("trailing unsigned"),
+					new vscode.LanguageModelTextPart("Answer."),
+				]),
+			]) as Array<{ thinking_blocks?: unknown }>;
+			// Text accumulated before the redaction must not attach to the later
+			// signature (providers reject the mismatch), and trailing unsigned
+			// text has no replay value.
+			assert.deepStrictEqual(expectDefined(out[0]).thinking_blocks, [
+				{ type: "redacted_thinking", data: "opaque" },
+				{ type: "thinking", thinking: "late signed", signature: "sig-late" },
 			]);
 		});
 	});
