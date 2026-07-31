@@ -34,12 +34,13 @@ const STYLES = `
 	}
 	main { max-width: 960px; margin: 0 auto; }
 	h1 { font-size: 1.35em; font-weight: 600; margin: 24px 0 4px; }
+	/* Section h2s under the tab bar stay for structure (headings anchor the
+	   help glyphs and assistive navigation) but carry no rule of their own:
+	   the tab bar above already draws the divider. */
 	h2 {
 		font-size: 1.05em;
 		font-weight: 600;
 		margin: 0 0 8px;
-		padding-bottom: 4px;
-		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 		display: flex;
 		align-items: center;
 		gap: 8px;
@@ -119,7 +120,12 @@ const STYLES = `
 	/* Long model lists render windowed inside their own scrollport; the fixed
 	   row height is what makes the scroll arithmetic exact, and the sticky
 	   header keeps the sort controls reachable mid-list. */
-	.table-scroll.windowed { max-height: 480px; overflow-y: auto; }
+	.table-scroll.windowed {
+		max-height: max(280px, calc(100vh - 260px));
+		overflow-y: auto;
+		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+	}
+	.table-scroll.windowed:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 	.table-scroll.windowed thead th {
 		position: sticky;
 		top: 0;
@@ -144,6 +150,11 @@ const STYLES = `
 	th button.sort:hover { background: transparent; color: var(--vscode-foreground); }
 	.sort-arrow { display: inline-flex; }
 	.sort-arrow.desc { transform: rotate(180deg); }
+	/* Inactive columns keep a resting affordance: a dim arrow surfaces on the
+	   header's hover or focus, so sortability is discoverable before the
+	   first click. */
+	.sort-arrow.idle { opacity: 0; }
+	th:hover .sort-arrow.idle, button.sort:focus-visible .sort-arrow.idle { opacity: 0.45; }
 	/* Per-row icon actions surface on the row's hover or when focus is inside
 	   it; opacity (not visibility) keeps them in the Tab order throughout. */
 	button.icon-action { opacity: 0; transition: opacity 120ms ease-out; }
@@ -282,7 +293,8 @@ const STYLES = `
 	   the same tip element, revealed by hovering the wrapper. Extra detail
 	   only; anything load-bearing also renders as visible text. */
 	.tip-wrap { position: relative; display: inline-flex; }
-	.tip-wrap:hover .help-tip { display: block; }
+	.tip-wrap:hover .help-tip, .tip-wrap:focus-visible .help-tip, .tip-wrap:focus-within .help-tip { display: block; }
+	.tip-wrap[tabindex]:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 	.tip-wrap + .tip-wrap { margin-left: 4px; }
 	/* Triggers in the page's top band (the first section heading) flip the
 	   tip below them; above would clip against the top of the document. */
@@ -291,21 +303,6 @@ const STYLES = `
 	   tip's right edge there grows it leftward instead of forcing a
 	   horizontal scrollbar while it is shown. */
 	.row .cell.value .help-tip { left: auto; right: -8px; }
-
-	/* A section heading with an action on its baseline: the rule moves to the
-	   wrapper so the button sits inside the underlined band instead of
-	   crowding (and clipping against) whatever follows the heading. */
-	.section-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		flex-wrap: wrap;
-		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-		padding-bottom: 4px;
-		margin-bottom: 8px;
-	}
-	.section-head h2 { border-bottom: none; margin: 0; padding-bottom: 0; }
 
 	/* The settings form follows the native Settings editor's row anatomy:
 	   semibold title, muted description, control below. Titles, descriptions,
@@ -391,7 +388,8 @@ const STYLES = `
 	.badge + .badge { margin-left: 4px; }
 	.count { font-weight: 400; }
 	.caps { color: var(--vscode-descriptionForeground); }
-	.state-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }	.state-error { color: var(--vscode-errorForeground); }
+	.state-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+	.state-error { color: var(--vscode-errorForeground); }
 	.state-warn { color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow)); }
 	.state-muted { color: var(--vscode-descriptionForeground); }
 
@@ -435,7 +433,18 @@ const STYLES = `
 	   panel on the right edge. Elevation is the shadow alone; the one motion
 	   is the panel's 200ms entrance, and it stands down for users who asked
 	   the OS for reduced motion. */
-	.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.3); border: none; border-radius: 0; padding: 0; cursor: default; }
+	/* The scrim dims per theme: widget-shadow is the host's own layering
+	   color (heavier in dark themes, lighter in light ones). */
+	.scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		background: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
+		border: none;
+		border-radius: 0;
+		padding: 0;
+		cursor: default;
+	}
 	.slide-over {
 		position: fixed;
 		top: 0;
@@ -463,13 +472,24 @@ const STYLES = `
 	.slide-over .form-card { border: none; border-radius: 0; padding: 0; margin: 0; max-width: none; background: transparent; }
 	.slide-over .form-card h3 { font-size: 1.05em; margin: 4px 24px 12px 0; }
 	.slide-over .field { grid-template-columns: 1fr; }
-	.slide-over .field .hint, .slide-over .field .error, .slide-over .field .secret-where { grid-column: 1; }
+	.slide-over .field .hint, .slide-over .field .error, .slide-over .field .secret-where, .slide-over .field .secret-remove { grid-column: 1; }
 	.slide-over .field .hint { width: auto; max-width: none; }
 	.slide-over .secret-where { flex-wrap: wrap; white-space: normal; }
+	/* The form's Save/Cancel row pins to the panel's bottom edge, so the
+	   commit action never scrolls out of a long form. */
+	.slide-over .form-card > .toolbar {
+		position: sticky;
+		bottom: -20px;
+		margin: 16px -20px -20px;
+		padding: 12px 20px;
+		background: var(--vscode-editor-background, var(--vscode-panel-background));
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+	}
 	/* The discard confirm pins to the panel's bottom edge so it is in view
 	   wherever the Esc that raised it was pressed. */
 	.discard-confirm {
 		position: sticky;
+		z-index: 2;
 		bottom: -20px;
 		display: flex;
 		gap: 8px;
@@ -481,6 +501,16 @@ const STYLES = `
 		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
 	}
 	.discard-confirm span { font-weight: 600; }
+	.slide-notice {
+		position: sticky;
+		z-index: 2;
+		bottom: -20px;
+		margin: 8px -20px -20px;
+		padding: 12px 20px;
+		background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+		color: var(--vscode-descriptionForeground);
+	}
 
 	.icon { display: inline-block; vertical-align: text-bottom; flex: none; }
 
@@ -523,6 +553,10 @@ const STYLES = `
 		border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
 		background: var(--vscode-inputValidation-errorBackground, transparent);
 	}
+	.banner-warn {
+		border-color: var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground));
+		background: var(--vscode-inputValidation-warningBackground, transparent);
+	}
 
 	/* Success toasts: bottom-right like the host's own notifications,
 	   transient, always manually dismissible. */
@@ -551,6 +585,9 @@ const STYLES = `
 	details { margin: 8px 0; }
 	summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
 	details[open] summary { margin-bottom: 4px; }
+	details.fine-print { margin: 4px 0 8px; }
+	details.fine-print summary { font-size: 0.9em; }
+	details.fine-print p { margin: 4px 0 0; font-size: 0.9em; }
 	.secret-where {
 		display: flex;
 		gap: 12px;
@@ -561,10 +598,26 @@ const STYLES = `
 	}
 	.secret-where label { display: flex; gap: 4px; align-items: center; }
 	.secret-where .where-label { color: var(--vscode-foreground); }
-	/* A secret input with its Show/Hide toggle: the pair fills the control
-	   column, the input keeps as much of it as the toggle leaves. */
-	.secret-input { display: flex; gap: 4px; align-items: center; }
-	.secret-input input { flex: 1; min-width: 0; }
+	/* A secret input with its Show/Hide toggle riding inside the field's
+	   right edge, so the input's border lines up flush with every other
+	   field in the form. */
+	.secret-input { position: relative; display: flex; }
+	.secret-input input { flex: 1; min-width: 0; padding-right: 52px; }
+	.secret-input button { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); }
+	/* The remove choice is destructive, not a third storage location: its own
+	   line under the storage radios, reading in the error tone once armed. */
+	.secret-remove {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+		font-size: 0.9em;
+		color: var(--vscode-descriptionForeground);
+		grid-column: 2;
+		cursor: pointer;
+		width: max-content;
+	}
+	.secret-remove input[type="checkbox"] { flex: none; margin: 0; cursor: pointer; }
+	.secret-remove.armed { color: var(--vscode-errorForeground); }
 
 	.filterbar { display: flex; gap: 12px; align-items: baseline; margin: 8px 0; flex-wrap: wrap; }
 	.filterbar input { min-width: 260px; }
@@ -606,7 +659,7 @@ const STYLES = `
 
 	@media (max-width: 500px) {
 		.field { grid-template-columns: 1fr; }
-		.field .hint, .field .error, .field .secret-where { grid-column: 1; }
+		.field .hint, .field .error, .field .secret-where, .field .secret-remove { grid-column: 1; }
 		.field .hint { width: auto; max-width: none; }
 		.secret-where { flex-wrap: wrap; white-space: normal; }
 		.row { grid-template-columns: 1fr; }
