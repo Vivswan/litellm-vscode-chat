@@ -6,6 +6,7 @@
 import { normalizeModelParameters } from "../../../shared/config/settings";
 import type { OptionalEntryFieldId, OptionalEntryFields } from "../../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS } from "../../../shared/serverEntry";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 
 /** An entry's per-entry modelParameters: model-ID prefix to request parameters, like the global setting. */
@@ -120,4 +121,28 @@ export function acceptedEntry(raw: unknown, label: string): { index: number; ent
 	}
 	const wanted = label.trim();
 	return acceptEntries(raw).find(({ entry }) => entry.label === wanted);
+}
+
+/**
+ * The request path's resolution of one declared entry's per-entry
+ * modelParameters: the entry acceptedEntry resolves for `label`, and only
+ * when that entry also declares the server the request is routed to (base
+ * URLs compared under the shared normalization). The match is label plus
+ * URL - credentials deliberately play no part - so any group carrying the
+ * entry's label at the entry's URL resolves, a hand-labeled native group
+ * included. What the URL check excludes is a label that proves nothing
+ * about the connection: a same-label group at another URL (a stale group
+ * outliving a label reuse or a baseUrl edit) resolves to nothing here and
+ * gets only the global modelParameters setting.
+ */
+export function entryModelParametersFor(
+	raw: unknown,
+	label: string,
+	baseUrl: string
+): EntryModelParameters | undefined {
+	const match = acceptedEntry(raw, label);
+	if (match === undefined || normalizeBaseUrl(match.entry.baseUrl) !== normalizeBaseUrl(baseUrl)) {
+		return undefined;
+	}
+	return match.entry.modelParameters;
 }

@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { entryModelParametersFor } from "../../../extension/servers/serverSync";
 import { attachGroupServer } from "../../../provider/catalog/groupModels";
 import { findLongestPrefixMatch, getModelParameters } from "../../../provider/transport/request";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
@@ -374,13 +375,20 @@ suite("provider/request contract", () => {
 
 		test("two entries sharing a base URL and key each send their own entry parameters", async () => {
 			// The headline scenario: base-URL scoping cannot tell these apart, the
-			// entry label can. The provider resolves each label to its own record.
-			const entryParams: Record<string, Record<string, Record<string, unknown>>> = {
-				"team-a": { "test-model": { temperature: 0.1, top_p: 0.9 } },
-				"team-b": { "test-model": { temperature: 0.6 } },
-			};
+			// entry label can. The resolver is the real extension-side contract
+			// (entryModelParametersFor) over a declared setting, wired exactly as
+			// activation wires it, so this also pins that the label-and-URL check
+			// still resolves entries whose group sits at the declared URL.
+			const setting = [
+				{
+					label: "team-a",
+					baseUrl: TEST_BASE_URL,
+					modelParameters: { "test-model": { temperature: 0.1, top_p: 0.9 } },
+				},
+				{ label: "team-b", baseUrl: TEST_BASE_URL, modelParameters: { "test-model": { temperature: 0.6 } } },
+			];
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
-				getEntryModelParameters: (label) => entryParams[label],
+				getEntryModelParameters: (label, baseUrl) => entryModelParametersFor(setting, label, baseUrl),
 			});
 			const globalConfig = { modelParameters: { "test-model": { temperature: 0.8, seed: 7 } } };
 
@@ -396,6 +404,36 @@ suite("provider/request contract", () => {
 			);
 			assert.strictEqual(bodyB.temperature, 0.6);
 			assert.strictEqual(bodyB.seed, 7);
+		});
+
+		test("a label match at a different base URL yields only the global setting", async () => {
+			// A stale group can outlive a baseUrl edit, and an external group can
+			// carry any label; neither may inherit a declared entry's parameters.
+			// The declared entry lives at another URL, so the resolver refuses the
+			// pair even though the label matches.
+			const setting = [
+				{ label: "team-a", baseUrl: "http://elsewhere.test", modelParameters: { "test-model": { temperature: 0.1 } } },
+			];
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryModelParameters: (label, baseUrl) => entryModelParametersFor(setting, label, baseUrl),
+			});
+			const body = await withConfig({ modelParameters: { "test-model": { temperature: 0.8 } } }, () =>
+				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(body.temperature, 0.8, "only the global setting applies");
+		});
+
+		test("a base URL match under a different label yields only the global setting", async () => {
+			const setting = [
+				{ label: "team-a", baseUrl: TEST_BASE_URL, modelParameters: { "test-model": { temperature: 0.1 } } },
+			];
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryModelParameters: (label, baseUrl) => entryModelParametersFor(setting, label, baseUrl),
+			});
+			const body = await withConfig({ modelParameters: { "test-model": { temperature: 0.8 } } }, () =>
+				captureRequestBody(provider, labeledModel("team-b"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(body.temperature, 0.8, "only the global setting applies");
 		});
 
 		test("runtime options and the picker configuration still outrank entry parameters", async () => {

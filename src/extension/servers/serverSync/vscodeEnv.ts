@@ -15,7 +15,7 @@ import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import type { ServerSyncEngine, ServerSyncEnv } from "./engine";
 import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./secrets";
 import type { EntryModelParameters } from "./setting";
-import { acceptedEntry, parseServersSetting } from "./setting";
+import { entryModelParametersFor, parseServersSetting } from "./setting";
 
 /** The real environment: workspace configuration, SecretStorage, globalState, and the host command. */
 export function createServerSyncEnv(context: vscode.ExtensionContext, logger: Logger): ServerSyncEnv {
@@ -48,13 +48,14 @@ export function createServerSyncEnv(context: vscode.ExtensionContext, logger: Lo
 /**
  * The request path's read of one declared entry's per-entry modelParameters:
  * the same live settings channel the sync engine reads, resolved through
- * acceptedEntry so it lands on exactly the entry the label describes.
- * Injected into the provider at activation (the provider layer cannot import
- * this module); a label no declared entry carries yields undefined.
+ * entryModelParametersFor so it lands only on an entry whose label AND base
+ * URL both match the server the request is routed to. Injected into the
+ * provider at activation (the provider layer cannot import this module); a
+ * (label, baseUrl) pair no declared entry carries yields undefined.
  */
-export function readEntryModelParameters(label: string): EntryModelParameters | undefined {
+export function readEntryModelParameters(label: string, baseUrl: string): EntryModelParameters | undefined {
 	const raw: unknown = vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
-	return acceptedEntry(raw, label)?.entry.modelParameters;
+	return entryModelParametersFor(raw, label, baseUrl);
 }
 
 /** Palette display copy per secret field; UI strings stay out of the shared descriptor. */

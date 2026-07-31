@@ -70,14 +70,16 @@ export interface ChatClientOptions {
 	/** Resolves the legacy registry's servers; defaults to none for hosts that only serve provider groups. */
 	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
 	/**
-	 * Resolves a declared server entry's per-entry modelParameters by its label
-	 * at request time; injected by the extension layer (the setting lives on
-	 * its side of the boundary). Defaults to none: models without an attached
-	 * labeled server (external groups, registry-path models) get only the
-	 * global modelParameters.
+	 * Resolves a declared server entry's per-entry modelParameters at request
+	 * time, from the entry's label and the attached server's base URL; injected
+	 * by the extension layer (the setting lives on its side of the boundary).
+	 * The resolver returns parameters only when both identify the same declared
+	 * entry. Defaults to none: models without an attached labeled server
+	 * (external groups, registry-path models) get only the global
+	 * modelParameters.
 	 */
 	getEntryModelParameters?:
-		| ((label: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
+		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
 		| undefined;
 }
 
@@ -90,7 +92,8 @@ export class ChatClient {
 	private readonly logger?: Logger | undefined;
 	private readonly getServers: () => Promise<ServerWithKey[]>;
 	private readonly getEntryModelParameters: (
-		label: string
+		label: string,
+		baseUrl: string
 	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
 	private readonly clients = new ServerClientCache();
 	private readonly oauthTokens = new OAuthTokenSource();
@@ -308,17 +311,25 @@ export class ChatClient {
 			);
 		}
 
-		// The attached server's label names the declared settings entry this
-		// request is routed through (two entries may share a base URL; the label
-		// is what tells them apart). Its per-entry modelParameters merge over the
-		// global setting's match inside getModelParameters; unlabeled servers
-		// (external groups, pre-label groups, registry models) contribute none.
-		// The label alone is the entry identity: the base URL is deliberately
-		// not cross-checked, because the host cannot update an existing group's
-		// URL, so after a user edits an entry's baseUrl a strict check would
-		// silently drop the entry's parameters until the group is recreated.
+		// The attached server's label and base URL together name the declared
+		// settings entry this request is routed through (two entries may share a
+		// base URL, so the label tells them apart). The resolver hands back the
+		// entry's per-entry modelParameters only when both match, and they merge
+		// over the global setting's match inside getModelParameters; unlabeled
+		// servers (external groups, pre-label groups, registry models)
+		// contribute none. The match is label plus URL, deliberately not
+		// credentials: any group carrying the entry's label at the entry's URL
+		// resolves, a hand-labeled native group included. What the URL check
+		// excludes is a same-label group at another URL - a stale group
+		// outliving a label reuse or a baseUrl edit. After a baseUrl edit no
+		// second group appears (groups are named by label and the add-only host
+		// refuses the duplicate name), the entry surfaces the duplicate-name
+		// sync error, and the stale group stops receiving the entry's
+		// parameters until it is removed natively and re-synced.
 		const entryModelParameters =
-			metadata.server?.label !== undefined ? this.getEntryModelParameters(metadata.server.label) : undefined;
+			metadata.server?.label !== undefined
+				? this.getEntryModelParameters(metadata.server.label, metadata.server.baseUrl)
+				: undefined;
 		const modelParams = getModelParameters(model.id, this._modelRoutes, connection.serverScopes, entryModelParameters);
 
 		let maxTokens: number;

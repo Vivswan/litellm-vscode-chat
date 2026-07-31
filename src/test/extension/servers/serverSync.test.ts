@@ -12,6 +12,7 @@ import {
 	buildGroupArgs,
 	copyServerSecrets,
 	deleteServerSecrets,
+	entryModelParametersFor,
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
 	GROUP_UPSERT_FAILED_MESSAGE,
 	inlineSecretValues,
@@ -1063,6 +1064,28 @@ suite("extension/servers/serverSync", () => {
 		test("acceptedEntry resolves the entry with its modelParameters, for the request path's read", () => {
 			const raw = [{ label: "Prod", baseUrl: "http://prod.test", modelParameters: { "gpt-4": { top_p: 0.9 } } }];
 			assert.deepStrictEqual(acceptedEntry(raw, "Prod")?.entry.modelParameters, { "gpt-4": { top_p: 0.9 } });
+		});
+
+		test("entryModelParametersFor resolves only when the label and the normalized base URL agree", () => {
+			const raw = [
+				{ label: "Prod", baseUrl: "http://prod.test/", modelParameters: { "gpt-4": { top_p: 0.9 } } },
+				{ label: "Stage", baseUrl: "http://stage.test", modelParameters: { "gpt-4": { top_p: 0.2 } } },
+			];
+			assert.deepStrictEqual(
+				entryModelParametersFor(raw, "Prod", "http://prod.test"),
+				{ "gpt-4": { top_p: 0.9 } },
+				"trailing slashes are insignificant on both sides"
+			);
+			assert.strictEqual(
+				entryModelParametersFor(raw, "Prod", "http://stage.test"),
+				undefined,
+				"a label match at another entry's URL resolves to nothing"
+			);
+			assert.strictEqual(
+				entryModelParametersFor(raw, "Nope", "http://prod.test"),
+				undefined,
+				"a URL match under an undeclared label resolves to nothing"
+			);
 		});
 
 		test("modelParameters never enter the group args or their fingerprint", () => {
