@@ -40,8 +40,11 @@ package-lock.json
 # stack startup path regenerates it
 docker/.generated/
 
-# GitHub Copilot device-flow token seeded by `bun run copilot-login`
-docker/.copilot-token/
+# GitHub Copilot device-flow token seeded by `bun run copilot-login`; the
+# directory itself is tracked (via .gitkeep) so docker-compose always has
+# its mountpoint on a fresh checkout
+docker/.copilot-token/*
+!docker/.copilot-token/.gitkeep
 
 # Live log tees written by `bun run dev` (litellm, fake-openai, extension)
 /logs/

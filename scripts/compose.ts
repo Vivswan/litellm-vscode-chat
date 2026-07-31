@@ -8,7 +8,7 @@
 // no start can see a stale or missing docker/.generated/litellm-config.yaml;
 // other subcommands (down, logs) pass through untouched.
 
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { runCompose } from "./composeCommand";
 import { COPILOT_TOKEN_DIR, ensureGeneratedConfig, fetchCopilotModels } from "./litellmConfig";
@@ -16,10 +16,12 @@ import { COPILOT_TOKEN_DIR, ensureGeneratedConfig, fetchCopilotModels } from "./
 async function main(): Promise<number> {
 	const args = process.argv.slice(2);
 	if (args[0] === "up") {
-		// Pre-create the token dir owner-only BEFORE compose runs: a missing
-		// bind-mount source is otherwise created by the docker daemon, on
-		// Linux as root, and a later `bun run copilot-login` hits EACCES.
-		mkdirSync(path.join(process.cwd(), COPILOT_TOKEN_DIR), { recursive: true, mode: 0o700 });
+		// Keep the token dir present and owner-only BEFORE compose runs: a
+		// missing bind-mount source is otherwise created by the docker daemon,
+		// on Linux as root, and a later `bun run copilot-login` hits EACCES.
+		const tokenDir = path.join(process.cwd(), COPILOT_TOKEN_DIR);
+		mkdirSync(tokenDir, { recursive: true, mode: 0o700 });
+		chmodSync(tokenDir, 0o700);
 		const { changed } = ensureGeneratedConfig({ realProviders: true, copilotModels: await fetchCopilotModels() });
 		// A running litellm container never re-reads its config, so a content
 		// change (e.g. after KEEP_DOCKER_STACK=1 left a test-mode stack running)
