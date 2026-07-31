@@ -308,11 +308,13 @@ suite("extension/servers/serverSync", () => {
 			assert.ok(!JSON.stringify(recorded.logged).includes("host refused"), "the raw host text stays out of the log");
 			assert.deepStrictEqual(recorded.fingerprints, {});
 			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPSERT_FAILED_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncErrorClass, "upsertFailed");
 
 			recorded.failLabels.clear();
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "the retry lands");
 			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the error clears on success");
+			assert.strictEqual(engine.getDeclared()[0]?.syncErrorClass, undefined, "the class clears with it");
 		});
 
 		test("a forced pass re-upserts unchanged entries and rewrites the fingerprints", async () => {
@@ -354,6 +356,7 @@ suite("extension/servers/serverSync", () => {
 			recorded.duplicateLabels.add("A");
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+			assert.strictEqual(engine.getDeclared()[0]?.syncErrorClass, "blocked");
 			assert.ok(
 				!JSON.stringify(recorded.logged).includes("sk-2"),
 				"the classification log never carries secret material"

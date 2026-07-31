@@ -17,6 +17,17 @@ import { inlineSecretValues } from "./secrets";
 import type { DeclaredServer, EntryModelParameters } from "./setting";
 import { parseServersSetting } from "./setting";
 
+/**
+ * Which failure class produced a view's syncError. "upsertFailed" means the
+ * add failed outright (non-duplicate), so no live group was created for the
+ * entry's configuration; "blocked" means a group with the name exists and the
+ * host refused the duplicate; "secretsUnreadable" means the pass skipped the
+ * entry. The dashboard reads the distinction: a shared snapshot's models are
+ * duplicated per claiming entry EXCEPT upsertFailed claimants, whose group is
+ * the one the host provably does not have.
+ */
+type SyncErrorClass = "upsertFailed" | "blocked" | "secretsUnreadable";
+
 /** The non-secret view of a declared server the dashboard renders; secret values stay out. */
 export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly label: string;
@@ -44,6 +55,8 @@ export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly expectedConnectionId?: string | undefined;
 	/** The label's last upsert failure, cleared by the next success. */
 	readonly syncError?: string | undefined;
+	/** The failure class behind syncError; always set together with it. */
+	readonly syncErrorClass?: SyncErrorClass | undefined;
 }
 
 /** Everything the engine touches, injected; createServerSyncEnv builds the real one. */
@@ -313,6 +326,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 			// overwrites the message while the blocked fingerprint stays put, and
 			// the next healthy pass re-asserts the name-conflict text.
 			let syncError: string | undefined;
+			let syncErrorClass: SyncErrorClass | undefined;
 			try {
 				stored = await this.env.readSecrets(entry.label);
 			} catch (error) {
@@ -324,6 +338,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// and degrades the secret locations to the inline-only reading.
 				secretsUnreadable = true;
 				syncError = SECRETS_READ_FAILED_MESSAGE;
+				syncErrorClass = "secretsUnreadable";
 				this.env.log("Reading a server entry's stored secrets failed", {
 					label: entry.label,
 					error: error instanceof Error ? error.name : typeof error,
@@ -363,6 +378,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// just hammer the command. The last-known-good fingerprint is
 				// carried so a later revert of the entry can still match it.
 				syncError = GROUP_UPDATE_UNAVAILABLE_MESSAGE;
+				syncErrorClass = "blocked";
 				const lastGood = previous[entry.label];
 				if (lastGood !== undefined) {
 					next[entry.label] = lastGood;
@@ -438,6 +454,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 							}
 							this.retry.set(entry.label, { kind: "blocked", fingerprint: printed });
 							syncError = GROUP_UPDATE_UNAVAILABLE_MESSAGE;
+							syncErrorClass = "blocked";
 							this.env.log("Provider group exists and the host has no update path", { label: entry.label });
 						}
 					} else {
@@ -460,6 +477,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 						}
 						this.retry.set(entry.label, { kind: "upsertFailed", fingerprint: printed });
 						syncError = GROUP_UPSERT_FAILED_MESSAGE;
+						syncErrorClass = "upsertFailed";
 						this.env.log("Provider group upsert failed", {
 							label: entry.label,
 							error: error instanceof Error ? error.name : typeof error,
@@ -484,6 +502,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				expectedClientId,
 				expectedConnectionId,
 				syncError,
+				syncErrorClass,
 			});
 		}
 

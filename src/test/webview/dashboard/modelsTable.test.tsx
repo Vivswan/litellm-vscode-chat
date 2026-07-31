@@ -160,8 +160,28 @@ test("the row's copy action writes the model ID to the clipboard and flashes a c
 	Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
 
 	const root = mount(<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} />);
-	const copy = root.querySelector("button[aria-label='Copy model ID gpt-4o']") as HTMLButtonElement;
+	const copy = root.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']") as HTMLButtonElement;
 	expect(copy).not.toBeNull();
 	fireClick(copy);
 	expect(written).toEqual(["gpt-4o"]);
+});
+
+test("one raw model ID on two servers renders two rows with distinct accessible names, and the copy flash hits only the clicked row", () => {
+	// The same model registered through two groups is two rows; the aria-label
+	// carries the server so the two copy buttons stay distinguishable, and the
+	// check-mark feedback is keyed by server AND id, so the sibling row's
+	// button stays a copy icon.
+	const models = [
+		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Prod" }),
+		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Staging" }),
+	];
+	const root = mount(<ModelsSection models={models} serverCount={2} />);
+	const button = (server: string) =>
+		root.querySelector(`button[aria-label='Copy model ID gpt-4o from ${server}']`) as HTMLButtonElement;
+	expect(button("Prod")).not.toBeNull();
+	expect(button("Staging")).not.toBeNull();
+
+	fireClick(button("Prod"));
+	const iconPath = (server: string) => button(server).querySelector("svg path")?.getAttribute("d") ?? "";
+	expect(iconPath("Prod")).not.toBe(iconPath("Staging"));
 });
