@@ -58,6 +58,15 @@ export const PENDING_SECRET_DELETIONS_KEY = "litellm.pendingSecretDeletions";
  */
 export const MIGRATED_SERVER_LABELS_KEY = "litellm.migratedServerLabels";
 
+/**
+ * globalState: ids of registry servers that were seeded into provider groups,
+ * unioned at every finalization and never cleared. The only evidence the
+ * post-completion orphan cleanup accepts before deleting an entry: labels and
+ * base URLs recur when a user re-adds a server, ids never do. Owned by
+ * src/extension/migrations/registryToProviderGroups.ts.
+ */
+export const MIGRATED_SERVER_IDS_KEY = "litellm.migratedServerIds";
+
 /** SecretStorage: API key for one registered server. */
 export function apiKeySecret(serverId: string): string {
 	return `litellm.apiKey.${serverId}`;
