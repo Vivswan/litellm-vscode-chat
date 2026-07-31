@@ -24,6 +24,8 @@ import {
 	validateAdoptLabel,
 } from "../../extension/dashboard/serverForm";
 import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
+import { Help } from "./help";
+import { HELP_SECRET_STORAGE, HELP_SERVERS_SECTION, SERVER_FIELD_HELP } from "./helpText";
 import { postMessage } from "./vscodeApi";
 
 function formatTimestamp(iso: string | undefined): string {
@@ -144,7 +146,10 @@ function TextField({
 	const errorId = `${id}-error`;
 	return (
 		<div class="field">
-			<label for={id}>{SERVER_FORM_FIELD_LABELS[field]}</label>
+			<span class="label-row">
+				<label for={id}>{SERVER_FORM_FIELD_LABELS[field]}</label>
+				<Help text={SERVER_FIELD_HELP[field]} />
+			</span>
 			<input
 				id={id}
 				type="text"
@@ -193,7 +198,10 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
 	return (
 		<div class="field">
-			<label for={id}>{SERVER_FORM_FIELD_LABELS[field]}</label>
+			<span class="label-row">
+				<label for={id}>{SERVER_FORM_FIELD_LABELS[field]}</label>
+				<Help text={SERVER_FIELD_HELP[field]} />
+			</span>
 			<span class="secret-input">
 				<input
 					id={id}
@@ -219,6 +227,7 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 			</span>
 			<span class="secret-where" role="radiogroup" aria-label={`Where to store the ${SERVER_FORM_FIELD_LABELS[field]}`}>
 				<span class="where-label">Store in:</span>
+				<Help text={HELP_SECRET_STORAGE} />
 				<label>
 					<input
 						type="radio"
@@ -799,7 +808,7 @@ export function ServersSection({
 	return (
 		<section>
 			<h2>
-				Servers <span class="count">{servers.length}</span>
+				Servers <span class="count">{servers.length}</span> <Help text={HELP_SERVERS_SECTION} />
 			</h2>
 			<div class="toolbar">
 				<button type="button" onClick={() => openForm({ kind: "add" })}>

@@ -136,6 +136,9 @@ const STYLES = `
 
 	.field { display: grid; grid-template-columns: 220px minmax(200px, 320px); gap: 4px 12px; align-items: center; margin: 8px 0; }
 	.field label, .field .field-label { color: var(--vscode-foreground); }
+	/* A label with its help glyph as one grid cell, so the glyph sits on the
+	   label's baseline instead of taking a grid track of its own. */
+	.field .label-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 	/* A fixed, non-editable value (the adopt form's base URL): plain dimmed
 	   text, so it cannot be mistaken for an input that merely looks disabled. */
 	.field .readonly-value { color: var(--vscode-descriptionForeground); padding: 3px 0; overflow-wrap: anywhere; }
@@ -144,6 +147,32 @@ const STYLES = `
 	   same measure as the storage-choice row above them, not visibly narrower. */
 	.field .hint { width: max-content; max-width: 420px; }
 	.error { color: var(--vscode-errorForeground); }
+
+	/* The "?" help affordance next to section titles and field labels: a
+	   muted circled glyph whose native title tooltip carries the long help.
+	   A button so it is keyboard-focusable, but styled out of button chrome. */
+	button.help {
+		display: inline-flex;
+		flex: none;
+		align-items: center;
+		justify-content: center;
+		box-sizing: border-box;
+		width: 14px;
+		height: 14px;
+		padding: 0;
+		background: transparent;
+		border: 1px solid var(--vscode-descriptionForeground);
+		border-radius: 50%;
+		color: var(--vscode-descriptionForeground);
+		font-size: 10px;
+		font-weight: 600;
+		line-height: 1;
+		cursor: help;
+		user-select: none;
+		vertical-align: text-bottom;
+	}
+	button.help:hover { background: transparent; color: var(--vscode-foreground); border-color: var(--vscode-foreground); }
+	button.help:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
 	/* A section heading with an action on its baseline: the rule moves to the
 	   wrapper so the button sits inside the underlined band instead of
@@ -197,6 +226,7 @@ const STYLES = `
 	.setting-row.modified::before {
 		background: var(--vscode-settings-modifiedItemIndicator, var(--vscode-focusBorder));
 	}
+	.setting-head { display: flex; align-items: center; gap: 6px; }
 	.setting-title { display: block; font-weight: 600; }
 	.setting-desc { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin: 2px 0 0; }
 	.setting-control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
@@ -257,6 +287,12 @@ const STYLES = `
 	}
 	.row input.key { grid-column: 1; width: auto; }
 	.row input.value { grid-column: 2; width: auto; }
+	/* An input with its help glyph as one grid cell; the input keeps the
+	   width the glyph leaves, and the column assignment moves to the cell. */
+	.row .cell { display: flex; gap: 6px; align-items: center; min-width: 0; }
+	.row .cell.key { grid-column: 1; }
+	.row .cell.value { grid-column: 2; }
+	.row .cell input.key, .row .cell input.value { grid-column: auto; flex: 1; min-width: 0; }
 	.row button { grid-column: 3; justify-self: start; }
 	.row .error { grid-column: 1 / -1; font-size: 0.9em; margin: 0; }
 	.group {
@@ -327,6 +363,7 @@ const STYLES = `
 		.secret-where { flex-wrap: wrap; white-space: normal; }
 		.row { grid-template-columns: 1fr; }
 		.row input.key, .row input.value, .row button, .row .error { grid-column: 1; }
+		.row .cell.key, .row .cell.value { grid-column: 1; }
 		/* The servers table stacks into card-style blocks: rows carry actions
 		   with no other route, so they must be reachable without horizontal
 		   scrolling. */

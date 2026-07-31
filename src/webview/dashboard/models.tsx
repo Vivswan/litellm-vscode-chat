@@ -1,5 +1,7 @@
 import { useState } from "preact/hooks";
 import type { DashboardModel } from "../../extension/dashboard/protocol";
+import { Help } from "./help";
+import { HELP_MODELS_SECTION } from "./helpText";
 
 function formatTokens(count: number): string {
 	return count.toLocaleString();
@@ -92,7 +94,7 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 	return (
 		<section>
 			<h2>
-				Models <span class="count">{models.length}</span>
+				Models <span class="count">{models.length}</span> <Help text={HELP_MODELS_SECTION} />
 			</h2>
 			{models.length === 0 ? (
 				<p class="empty">No models discovered yet. Add a server above, then run Sync models.</p>
