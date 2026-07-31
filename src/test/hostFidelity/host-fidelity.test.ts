@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { MODEL_ID as CAPTURE_MODEL_ID, type CaptureServer, createCaptureServer } from "./capture-server";
+import { MODEL_ID as CAPTURE_MODEL_ID, type CaptureServer, createCaptureServer } from "../capture-server";
 import {
 	addServer,
 	clearServers,
@@ -13,9 +13,9 @@ import {
 	hostMatches,
 	type ServerConfig,
 	waitForHostModels,
-} from "./hostApiHelpers";
-import { SLOW_STREAM_CHUNK_COUNT } from "./scenarios";
-import { expectDefined } from "./testUtils";
+} from "../hostApiHelpers";
+import { SLOW_STREAM_CHUNK_COUNT } from "../scenarios";
+import { expectDefined } from "../testUtils";
 
 /**
  * Host-fidelity test suite.
