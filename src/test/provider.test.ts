@@ -727,6 +727,20 @@ suite("provider", () => {
 							},
 						},
 					},
+					{
+						id: "dust",
+						shape: {
+							kind: "deployment",
+							provider: {
+								provider: "openai",
+								status: "ok",
+								// BOTH sides are sub-unit dust: positive raw costs that slip
+								// the 0/0 undeclared check but round to 0/0.
+								input_cost_per_token: 1e-15,
+								output_cost_per_token: 1e-15,
+							},
+						},
+					},
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
@@ -748,6 +762,12 @@ suite("provider", () => {
 				"the label mirrors the numeric field's 0 instead of inventing a smaller unit"
 			);
 			assert.strictEqual(subUnit.priceCategory, "low");
+
+			const dust = expectDefined(byId.get("dust"));
+			assert.strictEqual(dust.inputCost, 0);
+			assert.strictEqual(dust.outputCost, 0);
+			assert.ok(!("pricing" in dust), "a pair that BOTH rounded to 0 must not advertise itself as free");
+			assert.ok(!("priceCategory" in dust), "nor earn a low-cost badge");
 		});
 
 		test("priceCategory is always one of the four literals the host renders", () => {
@@ -782,7 +802,14 @@ suite("provider", () => {
 						assert.ok(KNOWN.includes(info.priceCategory), `unknown category ${info.priceCategory}`);
 					}
 					if (info.inputCost !== undefined && info.outputCost !== undefined) {
-						assert.ok(info.priceCategory !== undefined, "a two-sided price always derives a category");
+						if (info.inputCost > 0 || info.outputCost > 0) {
+							assert.ok(info.priceCategory !== undefined, "a nonzero two-sided price always derives a category");
+						} else {
+							// Both sides rounded to 0: sub-unit dust that slipped the raw
+							// 0/0 undeclared check must not present the model as free.
+							assert.ok(!("priceCategory" in info), "a rounded-0/0 pair derives no category");
+							assert.ok(!("pricing" in info), "a rounded-0/0 pair derives no label");
+						}
 					} else {
 						assert.ok(!("priceCategory" in info), "no category without both base costs");
 					}
