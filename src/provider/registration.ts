@@ -42,7 +42,28 @@ type LongContextPricingKey =
 	| "longContextOutputCost"
 	| "longContextCacheCost"
 	| "longContextCacheWriteCost";
-type ModelPricing = Pick<LanguageModelChatInformation, BasePricingKey | LongContextPricingKey>;
+type ModelPricing = Pick<LanguageModelChatInformation, BasePricingKey | LongContextPricingKey | "priceCategory">;
+
+/**
+ * The picker's relative cost badge, derived from the converted base
+ * per-million costs. The blend weights input over output 3:1, a typical
+ * input-heavy chat workload. Threshold anchors (blended per-million dollars):
+ * under 1 is "low" (gpt-4o-mini 0.26, gemini-flash 0.85), under 8 is "medium"
+ * (gemini-2.5-pro 3.4, gpt-4o 4.4, sonnet 6), under 40 is "high" (opus 4.5 at
+ * 10, opus 4.1 at 30), and "very_high" is the rest (gpt-4.5 93.75, o1-pro
+ * 262.5). Only these four literals ever go out: the host renders any other
+ * string through a capitalized "<Foo> cost" fallback.
+ */
+function priceCategoryFor(inputCost: number, outputCost: number): "low" | "medium" | "high" | "very_high" {
+	const blended = (3 * inputCost + outputCost) / 4;
+	if (blended < 1) {
+		return "low";
+	}
+	if (blended < 8) {
+		return "medium";
+	}
+	return blended < 40 ? "high" : "very_high";
+}
 
 /**
  * The Reasoning Effort picker control for an entry backed by the given
@@ -68,7 +89,8 @@ function configurationSchemaFor(
  * merging already required exact per-field agreement) and per-provider
  * entries. The cheapest/fastest aggregates and the untooled base entry stay
  * without it because there the proxy's routing decides what a request
- * actually costs. Providers-array entries are lenient pass-throughs, so every
+ * actually costs; the derived priceCategory badge rides in the same return,
+ * so those entries carry no category for the same reason. Providers-array entries are lenient pass-throughs, so every
  * value is re-narrowed, and a field without a usable number is omitted
  * outright rather than set to undefined. Long-context tier costs (LiteLLM's
  * above-N-tokens keys, resolved to one tier at discovery) become the host's
@@ -137,6 +159,12 @@ function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
 		provider.cache_creation_input_token_cost,
 		provider.long_context_cache_creation_input_token_cost
 	);
+	// The relative-cost badge needs both sides of the price (one-sided pricing
+	// is an incomplete signal) and derives from the base tier only: the
+	// longContext* costs describe an opt-in regime, not the headline cost.
+	if (fields.inputCost !== undefined && fields.outputCost !== undefined) {
+		fields.priceCategory = priceCategoryFor(fields.inputCost, fields.outputCost);
+	}
 	return fields;
 }
 

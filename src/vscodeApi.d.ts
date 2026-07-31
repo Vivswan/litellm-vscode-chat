@@ -14,9 +14,14 @@
  * once a published @types/vscode declares it.
  *
  * Do not add `capabilities.editTools` here: the host throws for extensions
- * that set it without the chatProvider proposal enabled. Do not add
- * languageModelPricing's `priceCategory`/`category` either: how the host
- * renders them for third-party vendors is unverified.
+ * that set it without the chatProvider proposal enabled. `priceCategory` is
+ * verified: the host copies it with no proposal check in
+ * extHostLanguageModels.ts's $provideLanguageModelChatInfo mapping and
+ * renders it vendor-agnostically (the model picker hover's cost badge in
+ * modelPickerHover.ts, and the row's ariaDescription in
+ * modelPickerItemPrimitives.ts). languageModelPricing's `category` stays
+ * excluded deliberately: it renders fine (a hover tag), but LiteLLM's model
+ * data cannot honestly populate a capability tier, so do not add it.
  */
 declare module "vscode" {
 	/**
@@ -101,6 +106,12 @@ declare module "vscode" {
 		 * Present only when long-context pricing differs from default pricing.
 		 */
 		readonly longContextCacheWriteCost?: number;
+
+		/**
+		 * Optional relative pricing category for this model (e.g. "low", "medium", "high", "very_high").
+		 * Displayed in the model picker as a visual indicator of relative cost.
+		 */
+		readonly priceCategory?: string;
 	}
 
 	export interface PrepareLanguageModelChatModelOptions {
