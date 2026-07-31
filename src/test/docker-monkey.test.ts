@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { CONFIG_SECTION } from "../shared/settingSpec";
-import { SERVERS_SETTING_KEY } from "../shared/settings";
+import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import { SERVERS_SETTING_KEY } from "../shared/config/settings";
 import { STACK_DEFAULTS } from "./envFile";
 import { fuzzShardSalt, logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import { mulberry32 } from "./fuzzStream";

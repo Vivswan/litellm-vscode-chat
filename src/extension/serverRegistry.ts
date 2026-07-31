@@ -1,8 +1,8 @@
 import type * as vscode from "vscode";
 import { z } from "zod";
-import { normalizeBaseUrl } from "../shared/baseUrl";
+import { apiKeySecret, SERVER_REGISTRY_KEY, SKIPPED_MIGRATION_SERVERS_KEY } from "../shared/config/storageKeys";
 import type { ServerConfig, ServerWithKey } from "../shared/servers";
-import { apiKeySecret, SERVER_REGISTRY_KEY, SKIPPED_MIGRATION_SERVERS_KEY } from "../shared/storageKeys";
+import { normalizeBaseUrl } from "../shared/util/baseUrl";
 
 const serverConfigSchema = z.looseObject({
 	id: z.string(),

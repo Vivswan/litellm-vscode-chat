@@ -7,9 +7,9 @@
 
 import type { ServerModelsSnapshot } from "../../provider";
 import type { GroupServer } from "../../provider/catalog/groupModels";
-import { normalizeBaseUrl } from "../../shared/baseUrl";
-import { isUnsafeRecordKey } from "../../shared/json";
 import type { OptionalEntryFields } from "../../shared/serverEntry";
+import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { isUnsafeRecordKey } from "../../shared/util/json";
 import type { DeclaredServerView } from "../serverSync";
 import { acceptedEntry } from "../serverSync";
 import { adoptSourceHandle } from "./adoptHandle";

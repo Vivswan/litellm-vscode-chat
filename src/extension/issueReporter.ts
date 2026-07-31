@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import { GITHUB_REPO_URL } from "../shared/links";
 import { publicErrorStack, publicErrorText } from "../shared/logger";
-import { openUrl } from "../shared/openUrl";
+import { GITHUB_REPO_URL } from "../shared/util/links";
+import { openUrl } from "../shared/util/openUrl";
 
 const MAX_LOG_ENTRIES = 50;
 const MAX_URL_LENGTH = 8000;

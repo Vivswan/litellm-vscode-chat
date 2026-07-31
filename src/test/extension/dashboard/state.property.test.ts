@@ -24,8 +24,8 @@ import {
 	SECRET_FIELD_IDS,
 	type WebviewToExtensionMessage,
 } from "../../../extension/dashboard/protocol";
-import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../../shared/headers";
-import { isUnsafeRecordKey } from "../../../shared/json";
+import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../../shared/util/headers";
+import { isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;

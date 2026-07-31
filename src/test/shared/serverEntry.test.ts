@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { OPTIONAL_ENTRY_FIELDS } from "../../shared/serverEntry";
-import { CONFIG_SECTION } from "../../shared/settingSpec";
 
 /**
  * Drift guards between the server-entry field descriptor and its two

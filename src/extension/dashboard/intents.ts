@@ -6,10 +6,10 @@
  * webview or a real configuration store. panel.ts owns the vscode wiring.
  */
 
-import { CMD, INTERNAL_CMD } from "../../shared/commandIds";
-import { isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
-import { isRecord, isUnsafeRecordKey } from "../../shared/json";
-import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY } from "../../shared/settings";
+import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
+import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
+import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
+import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { EXTENSION_SETTINGS_FILTER } from "../serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../serverSync";
 import type { AdoptableGroupCredentials } from "./adopt";
@@ -112,7 +112,7 @@ export function validateNumberSetting(setting: NumberSettingId, value: number | 
 }
 
 /**
- * Header-record parity with the request path (shared/settings silently drops
+ * Header-record parity with the request path (shared/config/settings silently drops
  * offenders at request time): names must be RFC 9110 tokens and values must
  * pass the same isValidHeaderValue predicate normalizeCustomHeaders applies,
  * so an accepted write is a header that is actually sent. Also refuses

@@ -37,7 +37,7 @@ import {
 } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
-import { normalizeBaseUrl } from "../../../shared/baseUrl";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
 
 /** The intent body a clean draft parses to; fails the test if the draft has problems. */

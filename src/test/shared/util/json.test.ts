@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
-import { tryParseJSONObject } from "../../shared/json";
+import { tryParseJSONObject } from "../../../shared/util/json";
 
-suite("shared/json", () => {
+suite("shared/util/json", () => {
 	test("tryParseJSONObject handles valid and invalid JSON", () => {
 		assert.deepEqual(tryParseJSONObject('{"a":1}'), { ok: true, value: { a: 1 } });
 		assert.deepEqual(tryParseJSONObject("[1,2,3]"), { ok: false });

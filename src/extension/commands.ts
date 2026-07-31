@@ -1,12 +1,12 @@
 import * as vscode from "vscode";
-import { CMD, MANAGE_COMMAND_TITLE } from "../shared/commandIds";
-import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../shared/links";
+import { CMD, MANAGE_COMMAND_TITLE } from "../shared/config/commandIds";
 import type { Logger } from "../shared/logger";
-import { openUrl } from "../shared/openUrl";
 import type { SecretFieldId } from "../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../shared/serverEntry";
 import type { ServerConfig, ServerStatus } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
+import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../shared/util/links";
+import { openUrl } from "../shared/util/openUrl";
 import type { DashboardController } from "./dashboard/panel";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import type { IssueReporter } from "./issueReporter";
@@ -399,7 +399,7 @@ export function registerTestCommands(
 			return dashboard.injectMessageForTest(raw);
 		}),
 		// The monkey fuzzer's storage-hygiene probe: every Memento key the
-		// extension holds, checked against shared/storageKeys.ts. SecretStorage
+		// extension holds, checked against shared/config/storageKeys.ts. SecretStorage
 		// has no enumeration API, so secret keys stay out of reach here.
 		vscode.commands.registerCommand("litellm._test.getStorageKeys", () => [...context.globalState.keys()])
 	);

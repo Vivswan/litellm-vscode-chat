@@ -2,8 +2,8 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { StoredServerSecrets } from "../../extension/serverSync";
 import { acceptedEntry, buildGroupArgs, parseServersSetting } from "../../extension/serverSync";
-import { isRecord, isUnsafeRecordKey } from "../../shared/json";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { resolveFuzzSeed } from "../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;

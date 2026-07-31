@@ -10,10 +10,8 @@ import {
 	registryToProviderGroupsMigration,
 } from "../../../extension/migrations/registryToProviderGroups";
 import { ServerRegistry } from "../../../extension/serverRegistry";
-import { fingerprint } from "../../../shared/fingerprint";
-import { Logger } from "../../../shared/logger";
-import { CONFIG_SECTION } from "../../../shared/settingSpec";
-import { MODEL_PARAMETERS_SETTING_KEY } from "../../../shared/settings";
+import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
+import { MODEL_PARAMETERS_SETTING_KEY } from "../../../shared/config/settings";
 import {
 	apiKeySecret,
 	GROUP_MIGRATION_COMPLETE_KEY,
@@ -26,7 +24,9 @@ import {
 	SEEDED_PROVIDER_GROUPS_KEY,
 	SERVER_REGISTRY_KEY,
 	SKIPPED_MIGRATION_SERVERS_KEY,
-} from "../../../shared/storageKeys";
+} from "../../../shared/config/storageKeys";
+import { Logger } from "../../../shared/logger";
+import { fingerprint } from "../../../shared/util/fingerprint";
 import type { FakeExtensionStorage } from "../../testUtils";
 import { makeExtensionStorage } from "../../testUtils";
 

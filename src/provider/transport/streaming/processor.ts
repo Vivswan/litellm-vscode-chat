@@ -12,7 +12,7 @@ import {
 	logThinkingPartProbeErrorOnce,
 	thinkingPartCtor,
 } from "../../../shared/conversion/thinkingPart";
-import { tryParseJSONObject } from "../../../shared/json";
+import { tryParseJSONObject } from "../../../shared/util/json";
 import { streamErrorFrame } from "../errorMapping";
 import type { TextParseResult, TextToolCall } from "../textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "../textToolCallParser";

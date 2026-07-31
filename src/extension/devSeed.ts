@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
+import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import { SERVERS_SETTING_KEY } from "../shared/config/settings";
 import { DEV_SEED_FILENAME, type DevSeed } from "../shared/devSeed";
-import { isRecord } from "../shared/json";
 import type { Logger } from "../shared/logger";
-import { CONFIG_SECTION } from "../shared/settingSpec";
-import { SERVERS_SETTING_KEY } from "../shared/settings";
+import { isRecord } from "../shared/util/json";
 import { updateServerSecret } from "./serverSync";
 
 /**

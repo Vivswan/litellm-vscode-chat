@@ -1,7 +1,7 @@
-import { fingerprint } from "../../shared/fingerprint";
-import { isValidHeaderValue } from "../../shared/headers";
-import { isRecord } from "../../shared/json";
-import { CONFIG_SECTION } from "../../shared/settingSpec";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { fingerprint } from "../../shared/util/fingerprint";
+import { isValidHeaderValue } from "../../shared/util/headers";
+import { isRecord } from "../../shared/util/json";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
 import { RequestError } from "./errorMapping";
 

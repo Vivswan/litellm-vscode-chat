@@ -9,11 +9,11 @@ import type {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 import { CancellationError, EventEmitter } from "vscode";
+import { getDiscoveryCacheTtl, getTokenDefaults } from "../shared/config/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { Logger, LogSafeErrorText } from "../shared/logger";
 import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
-import { getDiscoveryCacheTtl, getTokenDefaults } from "../shared/settings";
 import { DiscoveryCache } from "./catalog/discoveryCache";
 import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./catalog/groupModels";
 import {

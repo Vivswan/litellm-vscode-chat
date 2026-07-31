@@ -3,7 +3,7 @@ import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { attachGroupServer } from "../../../provider/catalog/groupModels";
 import { findLongestPrefixMatch, getModelParameters } from "../../../provider/transport/request";
-import { normalizeBaseUrl } from "../../../shared/baseUrl";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,

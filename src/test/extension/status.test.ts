@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import { StatusBarManager } from "../../extension/status";
+import { LAST_CONNECTION_STATUS_KEY } from "../../shared/config/storageKeys";
 import { Logger, markLogSafe } from "../../shared/logger";
 import type { ServerStatus } from "../../shared/servers";
-import { LAST_CONNECTION_STATUS_KEY } from "../../shared/storageKeys";
 
 // Managers create real, visible status bar items in the shared test host
 // window, so every created context is tracked and its subscriptions are

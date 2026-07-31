@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import { z } from "zod";
-import type { HeaderScalar } from "./headers";
-import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "./headers";
-import { isUnsafeRecordKey } from "./json";
-import { normalizePositiveNumber } from "./numbers";
+import type { HeaderScalar } from "../util/headers";
+import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../util/headers";
+import { isUnsafeRecordKey } from "../util/json";
+import { normalizePositiveNumber } from "../util/numbers";
 import type { BooleanSettingId, NumberSettingId } from "./settingSpec";
 import { BOOLEAN_SETTING_SPECS, CONFIG_SECTION, MIN_TIMEOUT_MS, NUMBER_SETTING_SPECS } from "./settingSpec";
 

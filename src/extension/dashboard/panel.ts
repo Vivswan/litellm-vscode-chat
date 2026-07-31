@@ -13,10 +13,10 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import type { LiteLLMChatModelProvider, ServerModelsSnapshot } from "../../provider";
-import { CMD } from "../../shared/commandIds";
+import { CMD } from "../../shared/config/commandIds";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
-import { CONFIG_SECTION } from "../../shared/settingSpec";
-import { SERVERS_SETTING_KEY } from "../../shared/settings";
 import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../shared/webviewPaths";
 import type { DeclaredServerView, ServerSyncEngine } from "../serverSync";
 import { copyServerSecrets, deleteServerSecrets, readServerSecrets, updateServerSecret } from "../serverSync";

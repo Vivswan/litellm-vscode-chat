@@ -1,4 +1,4 @@
-import { isRecord } from "../../../shared/json";
+import { isRecord } from "../../../shared/util/json";
 
 /**
  * The known numeric token counts of a usage trailer. The record is

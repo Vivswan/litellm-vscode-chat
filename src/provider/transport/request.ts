@@ -1,6 +1,6 @@
+import { getModelParametersConfig } from "../../shared/config/settings";
 import type { ToolConfig } from "../../shared/conversion/tools";
 import type { OpenAIChatMessage } from "../../shared/conversion/wire";
-import { getModelParametersConfig } from "../../shared/settings";
 import type { ModelRoute } from "../catalog/modelCatalog";
 import type { ModelConfigurationRequestParams } from "../catalog/modelConfiguration";
 

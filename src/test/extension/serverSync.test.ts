@@ -17,10 +17,10 @@ import {
 	updateServerSecret,
 } from "../../extension/serverSync";
 import { groupClientId, parseGroupConfiguration } from "../../provider/catalog/groupModels";
-import { normalizeBaseUrl } from "../../shared/baseUrl";
-import { CMD } from "../../shared/commandIds";
-import { fingerprint } from "../../shared/fingerprint";
-import { serverSecretsKey } from "../../shared/storageKeys";
+import { CMD } from "../../shared/config/commandIds";
+import { serverSecretsKey } from "../../shared/config/storageKeys";
+import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { fingerprint } from "../../shared/util/fingerprint";
 import { expectDefined, withConfig } from "../testUtils";
 
 function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {

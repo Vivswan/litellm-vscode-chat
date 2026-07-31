@@ -4,14 +4,14 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { activate } from "../../extension";
 import type { LiteLLMChatModelProvider } from "../../provider";
-import { CONFIG_SECTION } from "../../shared/settingSpec";
-import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/settings";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
 import {
 	GROUP_MIGRATION_COMPLETE_KEY,
 	HAS_SHOWN_WELCOME_KEY,
 	MIGRATED_SERVER_LABELS_KEY,
 	SERVER_REGISTRY_KEY,
-} from "../../shared/storageKeys";
+} from "../../shared/config/storageKeys";
 import { expectDefined, makeExtensionStorage } from "../testUtils";
 
 /**
