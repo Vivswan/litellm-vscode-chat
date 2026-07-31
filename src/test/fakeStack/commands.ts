@@ -89,7 +89,8 @@ const ERROR_STATUSES = new Set([400, 401, 403, 404, 408, 409, 422, 429, 500, 502
  * The command sigil: the mandatory first byte of a command line. The whole
  * grammar derives from this one constant (recognition, usage strings, help,
  * diagnostics, FALLBACK_TEXT), so swapping the sigil is a one-character edit
- * here plus the prose docs (README, AGENTS.md) and the module comments.
+ * here plus the prose docs (docs/development.md, AGENTS.md) and the module
+ * comments.
  */
 export const COMMAND_SIGIL = "%";
 

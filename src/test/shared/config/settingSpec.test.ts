@@ -19,8 +19,8 @@ import { HEADER_SCALAR_TYPES } from "../../../shared/util/headers";
 
 /**
  * Drift guards between the shared setting spec and its prose mirrors:
- * package.json's contributed configuration and the README's and AGENTS.md's
- * settings numbers. The spec is the code-side truth; these tests make the
+ * package.json's contributed configuration and the settings numbers in
+ * docs/ and AGENTS.md. The spec is the code-side truth; these tests make the
  * mirrors CI-enforced. Tests run from out/test/shared/config, so the repo
  * root is four levels up.
  */
@@ -47,8 +47,12 @@ function readPackageJson(): PackageJson {
 	return JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as PackageJson;
 }
 
-function readReadme(): string {
-	return fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
+function readSettingsDoc(): string {
+	return fs.readFileSync(path.join(repoRoot, "docs", "settings.md"), "utf8");
+}
+
+function readModelParametersDoc(): string {
+	return fs.readFileSync(path.join(repoRoot, "docs", "model-parameters.md"), "utf8");
 }
 
 // AGENTS.md is the real file (CLAUDE.md is a symlink to it, which a Windows
@@ -151,41 +155,46 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 	});
 });
 
-suite("shared/config/settingSpec: README drift guard", () => {
-	test("settings-table rows show the spec's default", () => {
-		// Rows look like: | `litellm-vscode-chat.requestTimeout` | `300000` (5 minutes) | ... |
-		// Any row naming a spec'd setting must show its default in the second column.
+suite("shared/config/settingSpec: docs drift guard", () => {
+	test("the settings-reference table covers every number setting and shows the spec's default", () => {
+		// Rows look like: | `litellm-vscode-chat.requestTimeout` | `300000` | ... |
+		// Every spec'd setting must have a row, and the row must show its
+		// default in the second column; a dropped row fails the set compare.
 		const row = new RegExp(`^\\|\\s*\`${CONFIG_SECTION}\\.([\\w.]+)\`\\s*\\|\\s*\`([^\`]*)\``);
-		let checked = 0;
-		for (const line of readReadme().split("\n")) {
+		const covered: string[] = [];
+		for (const line of readSettingsDoc().split("\n")) {
 			const match = row.exec(line);
 			const id = match?.[1];
 			const shown = match?.[2];
 			if (id === undefined || shown === undefined || !Object.hasOwn(NUMBER_SETTING_SPECS, id)) {
 				continue;
 			}
-			checked += 1;
+			covered.push(id);
 			const spec = NUMBER_SETTING_SPECS[id as NumberSettingId];
-			assert.strictEqual(shown, String(spec.default), `README default column for ${id}`);
+			assert.strictEqual(shown, String(spec.default), `docs/settings.md default column for ${id}`);
 		}
-		assert.ok(checked >= 5, `the README settings tables cover the number settings (found ${checked} rows)`);
+		assert.deepStrictEqual(
+			covered.sort(),
+			Object.keys(NUMBER_SETTING_SPECS).sort(),
+			"the docs/settings.md reference table names every number setting exactly once"
+		);
 	});
 
 	test("the discoveryCacheTtl JSON example uses the spec default", () => {
-		const example = new RegExp(`"${CONFIG_SECTION}\\.discoveryCacheTtl":\\s*(\\d+)`).exec(readReadme())?.[1];
-		assert.ok(example, "the README shows a discoveryCacheTtl JSON example");
+		const example = new RegExp(`"${CONFIG_SECTION}\\.discoveryCacheTtl":\\s*(\\d+)`).exec(readSettingsDoc())?.[1];
+		assert.ok(example, "docs/settings.md shows a discoveryCacheTtl JSON example");
 		assert.strictEqual(example, String(NUMBER_SETTING_SPECS.discoveryCacheTtl.default));
 	});
 
 	test("the minimum-timeout prose quotes MIN_TIMEOUT_MS", () => {
-		const quoted = /Minimum timeout is (\d+)ms/.exec(readReadme())?.[1];
-		assert.ok(quoted, "the README states the minimum timeout");
+		const quoted = /Minimum timeout is (\d+)ms/.exec(readSettingsDoc())?.[1];
+		assert.ok(quoted, "docs/settings.md states the minimum timeout");
 		assert.strictEqual(quoted, String(MIN_TIMEOUT_MS));
 	});
 
 	test("the max_tokens fallback sentence quotes DEFAULT_MAX_TOKENS_CAP", () => {
-		const quoted = /or at most (\d+) when the server declares none/.exec(readReadme())?.[1];
-		assert.ok(quoted, "the README states the max_tokens fallback cap");
+		const quoted = /or at most (\d+) when the server declares none/.exec(readModelParametersDoc())?.[1];
+		assert.ok(quoted, "docs/model-parameters.md states the max_tokens fallback cap");
 		assert.strictEqual(quoted, String(DEFAULT_MAX_TOKENS_CAP));
 	});
 });

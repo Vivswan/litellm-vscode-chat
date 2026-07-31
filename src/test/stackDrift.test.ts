@@ -12,8 +12,9 @@ import { COPILOT_TOKEN_DIR, FAKE_BACKEND_PORT, REAL_PROVIDERS } from "./fakeStac
  * are the code-side truth (STACK_DEFAULTS in envFile.ts, FAKE_BACKEND_PORT
  * and REAL_PROVIDERS in fakeStack/proxyConfig.ts, PLAYBACK_MODEL in
  * fakeStack/models.ts, package.json's packageManager and engines fields);
- * docker/docker-compose.yml, .env.example, README.md, and the devcontainer cannot
- * import them, so these tests turn every restatement into a CI-enforced
+ * docker/docker-compose.yml, .env.example, README.md, docs/development.md,
+ * and the devcontainer cannot import them, so these tests turn every
+ * restatement into a CI-enforced
  * mirror. Captured values are compared whole, never as substrings, so a
  * stale number that happens to prefix the live one still fails. Tests run
  * from out/test, so the repo root is two levels up.
@@ -162,14 +163,19 @@ suite("stack drift guard: README", () => {
 		assert.ok(claimed, 'README.md states "VS Code <version> or higher"');
 		assert.strictEqual(claimed, minimum, "README minimum VS Code version");
 	});
+});
 
+suite("stack drift guard: docs/development.md", () => {
 	test("the fake-stack quick start names the stack defaults", () => {
-		// Accepted brittleness: README has several generic http://localhost
+		// Accepted brittleness: the doc has several generic http://localhost
 		// examples, so the fake-stack instruction is selected by the phrases
 		// "base URL" and "API key" around the backticked values (any wording
 		// between them is fine). Rewording past that means updating this regex.
-		const match = /base URL `http:\/\/localhost:(\d+)`.*?API key `([^`]+)`/.exec(read("README.md"));
-		assert.ok(match, 'README.md names the fake stack\'s "base URL `http://localhost:<port>`" and "API key `<key>`"');
+		const match = /base URL `http:\/\/localhost:(\d+)`.*?API key `([^`]+)`/.exec(read("docs/development.md"));
+		assert.ok(
+			match,
+			'docs/development.md names the fake stack\'s "base URL `http://localhost:<port>`" and "API key `<key>`"'
+		);
 		assert.strictEqual(match[1], STACK_DEFAULTS.LITELLM_PORT, "quick-start port");
 		assert.strictEqual(match[2], STACK_DEFAULTS.LITELLM_MASTER_KEY, "quick-start API key");
 	});
@@ -180,9 +186,9 @@ suite("stack drift guard: README", () => {
 		// invocation's arguments are pinned.
 		const match =
 			/LITELLM_REAL_BASE_URL=http:\/\/localhost:(\d+) LITELLM_REAL_API_KEY=(\S+) LITELLM_REAL_MODEL=(\S+)/.exec(
-				read("README.md")
+				read("docs/development.md")
 			);
-		assert.ok(match, "README.md shows the live host-fidelity invocation against the stack");
+		assert.ok(match, "docs/development.md shows the live host-fidelity invocation against the stack");
 		assert.strictEqual(match[1], STACK_DEFAULTS.LITELLM_PORT, "host-fidelity example port");
 		assert.strictEqual(match[2], STACK_DEFAULTS.LITELLM_MASTER_KEY, "host-fidelity example key");
 		assert.strictEqual(match[3], PLAYBACK_MODEL.alias, "host-fidelity example model");

@@ -774,11 +774,11 @@ suite("fakeStack commands: tool flow", () => {
 });
 
 suite("fakeStack commands: docs drift guard", () => {
-	// README and AGENTS.md cannot import COMMAND_SIGIL, so this suite turns
-	// the two prose copies of the grammar into CI-enforced mirrors: verb
-	// coverage and the sigil byte are pinned; the surrounding sentences stay
-	// free to change. Tests run from out/test/fakeStack, so the repo root is
-	// three levels up.
+	// docs/development.md and AGENTS.md cannot import COMMAND_SIGIL, so this
+	// suite turns the two prose copies of the grammar into CI-enforced
+	// mirrors: verb coverage and the sigil byte are pinned; the surrounding
+	// sentences stay free to change. Tests run from out/test/fakeStack, so
+	// the repo root is three levels up.
 	const repoRoot = path.resolve(__dirname, "..", "..", "..");
 	const sigilPattern = COMMAND_SIGIL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -790,16 +790,16 @@ suite("fakeStack commands: docs drift guard", () => {
 	 * comment lines inside the fence are tolerated as non-rows.
 	 */
 	function cheatSheetRows(): string[] {
-		const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
-		const fence = readme
+		const doc = fs.readFileSync(path.join(repoRoot, "docs", "development.md"), "utf8");
+		const fence = doc
 			.split("```")
 			.map((block) => block.split("\n").slice(1))
 			.find((lines) => lines.some((line) => line.startsWith(`${COMMAND_SIGIL}help`)));
-		assert.ok(fence, `README.md has no fenced block with a ${COMMAND_SIGIL}help row`);
+		assert.ok(fence, `docs/development.md has no fenced block with a ${COMMAND_SIGIL}help row`);
 		return fence.filter((line) => line.startsWith(COMMAND_SIGIL));
 	}
 
-	test("the README cheat sheet's command column names exactly the dispatch table's verbs", () => {
+	test("the development doc cheat sheet's command column names exactly the dispatch table's verbs", () => {
 		// Verbs are read from each row's COMMAND COLUMN (before the 2+ space
 		// gap), never from description text - a missing command row must not
 		// be masked by a mention of its verb inside another row's description.
@@ -822,7 +822,7 @@ suite("fakeStack commands: docs drift guard", () => {
 		assert.ok(agents.includes(`${COMMAND_SIGIL}play:<name>`), "AGENTS.md points at the sigil-derived play command");
 	});
 
-	test("the README model-list paragraph names exactly the catalog's aliases", () => {
+	test("the development doc model-list paragraph names exactly the catalog's aliases", () => {
 		// The paragraph hand-writes every alias in backticks, including the
 		// blocked gpt-4-turbo (whose absence from the picker is itself under
 		// test). Alias-shaped backtick tokens are compared bidirectionally
@@ -830,9 +830,9 @@ suite("fakeStack commands: docs drift guard", () => {
 		// here instead of leaving the doc naming a model the stack no longer
 		// serves. Non-alias tokens in the paragraph (file paths, commands) do
 		// not match the alias shape and stay free to change.
-		const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
-		const paragraph = readme.split("\n").find((line) => line.startsWith("The model list is deliberately small"));
-		assert.ok(paragraph, "README.md keeps the fake-stack model-list paragraph");
+		const doc = fs.readFileSync(path.join(repoRoot, "docs", "development.md"), "utf8");
+		const paragraph = doc.split("\n").find((line) => line.startsWith("The model list is deliberately small"));
+		assert.ok(paragraph, "docs/development.md keeps the fake-stack model-list paragraph");
 		// Alias-shaped: the catalog's charset PLUS at least one dash or
 		// dot-digit, so a plain backticked word in the paragraph (`bun`, a
 		// shortened `models.ts`) cannot become a phantom alias. The self-check
@@ -850,7 +850,7 @@ suite("fakeStack commands: docs drift guard", () => {
 		assert.deepStrictEqual(
 			[...new Set(mentioned)].sort(),
 			[...declared].sort(),
-			"the README paragraph mirrors the FAKE_MODELS aliases"
+			"the development doc paragraph mirrors the FAKE_MODELS aliases"
 		);
 	});
 });

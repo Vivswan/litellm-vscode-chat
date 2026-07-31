@@ -15,10 +15,10 @@
 /**
  * The docker stack's default connection settings, one per compose variable.
  * docker/docker-compose.yml restates each as a `${VAR:-default}` fallback (compose
- * cannot import TypeScript), and .env.example and the README restate them as
- * prose; src/test/stackDrift.test.ts pins all three mirrors. The scripts and
- * docker suites take their fallbacks from here, so a rotated default changes
- * every consumer at once.
+ * cannot import TypeScript), and .env.example and docs/development.md restate
+ * them as prose; src/test/stackDrift.test.ts pins all three mirrors. The
+ * scripts and docker suites take their fallbacks from here, so a rotated
+ * default changes every consumer at once.
  */
 export const STACK_DEFAULTS = {
 	LITELLM_PORT: "4000",

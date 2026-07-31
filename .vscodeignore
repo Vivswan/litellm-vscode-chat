@@ -34,6 +34,7 @@ bun.lock
 .gitignore
 
 # Repository docs and release automation (not needed at runtime)
+docs/**
 AGENTS.md
 CLAUDE.md
 ACKNOWLEDGMENTS.md

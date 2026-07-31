@@ -82,7 +82,7 @@ jobs:
           touch logs/ci-proof.log coverage/ci-proof.json
           listing="$(bunx vsce ls)"
           echo "$listing"
-          forbidden='^(out/|src/|node_modules/|scripts/|docker/|logs/|coverage/|\.github/|\.husky/|\.dev-profile/)|^(bun\.lock|biome\.json|AGENTS\.md|CLAUDE\.md|\.vscode-test\.mjs)$|\.ts$|\.map$'
+          forbidden='^(out/|src/|node_modules/|scripts/|docker/|docs/|logs/|coverage/|\.github/|\.husky/|\.dev-profile/)|^(bun\.lock|biome\.json|AGENTS\.md|CLAUDE\.md|\.vscode-test\.mjs)$|\.ts$|\.map$'
           if echo "$listing" | grep -E "$forbidden"; then
             echo "::error::vsce would package files that must stay out of the VSIX (matches above)"
             exit 1
