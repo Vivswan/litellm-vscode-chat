@@ -92,7 +92,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, provider);
 
-	// One-shot seed dropped by `bun run dev:fake`; development-mode only. It
+	// One-shot seed dropped by `bun run dev`; development-mode only. It
 	// writes the servers-setting entry and the label's stored API key; the
 	// forced server sync pass below turns the entry into the provider group.
 	let devSeed: DevSeed | undefined;

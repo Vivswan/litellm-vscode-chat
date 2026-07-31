@@ -45,7 +45,7 @@ import { BUILTIN_SCENARIOS, collapseChunks, isScenario, playScenario, readBody, 
 
 const PORT = Number(process.env.PORT || FAKE_BACKEND_PORT);
 const MAX_CUSTOM_SCENARIO_BYTES = 1024 * 1024;
-/** dev:fake sets this: every chat request and response body lands in the container log. */
+/** The dev launcher sets this: every chat request and response body lands in the container log. */
 const VERBOSE = process.env.FAKE_VERBOSE === "1";
 
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
@@ -121,10 +121,10 @@ function logChatRequest(context: CommandContext, stream: boolean, dispatched: bo
 }
 
 /**
- * Verbose exchange logging for dev:fake: the full inbound messages array and
- * the full outbound reply, one JSON line each so the ./logs/ tee stays
- * greppable. Streamed requests log the raw chunk list (what actually goes
- * out - reasoning, audio, and chunk boundaries included); non-streaming
+ * Verbose exchange logging for the dev launcher: the full inbound messages
+ * array and the full outbound reply, one JSON line each so the ./logs/ tee
+ * stays greppable. Streamed requests log the raw chunk list (what actually
+ * goes out - reasoning, audio, and chunk boundaries included); non-streaming
  * requests log the collapsed body they receive. Never enabled by the test
  * orchestrator - the fuzz suites would multiply megabytes into the log.
  */

@@ -7,7 +7,7 @@ import { SERVERS_SETTING_KEY } from "../shared/settings";
 import { updateServerSecret } from "./serverSync";
 
 /**
- * One-shot development seeding for `bun run dev:fake`: the launcher script
+ * One-shot development seeding for `bun run dev`: the launcher script
  * writes the seed file (shared/devSeed.ts owns the filename and shape) into
  * the extension development folder, and a development-mode activation
  * consumes it exactly once. The seed lands the same way a user-configured

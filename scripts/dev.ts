@@ -35,7 +35,7 @@ const port = composeSetting("LITELLM_PORT", STACK_DEFAULTS.LITELLM_PORT, envFile
 const apiKey = composeSetting("LITELLM_MASTER_KEY", STACK_DEFAULTS.LITELLM_MASTER_KEY, envFile);
 
 function run(label: string, cmd: string[], extraEnv?: Record<string, string>): void {
-	console.log(`[dev:fake] ${label}`);
+	console.log(`[dev] ${label}`);
 	const result = spawnSync(cmd[0] as string, cmd.slice(1), {
 		stdio: "inherit",
 		cwd: root,
@@ -47,16 +47,16 @@ function run(label: string, cmd: string[], extraEnv?: Record<string, string>): v
 		onSignal(result.signal);
 	}
 	if (result.error !== undefined) {
-		console.error(`[dev:fake] ${label} failed: could not run "${cmd[0]}" (${result.error.message})`);
+		console.error(`[dev] ${label} failed: could not run "${cmd[0]}" (${result.error.message})`);
 		if (cmd[0] === "code") {
 			console.error(
-				`[dev:fake] install the "code" shell command: VS Code > Command Palette > "Shell Command: Install 'code' command in PATH"`
+				`[dev] install the "code" shell command: VS Code > Command Palette > "Shell Command: Install 'code' command in PATH"`
 			);
 		}
 		process.exit(1);
 	}
 	if (result.status !== 0) {
-		console.error(`[dev:fake] ${label} failed (exit ${result.status})`);
+		console.error(`[dev] ${label} failed (exit ${result.status})`);
 		process.exit(result.status ?? 1);
 	}
 }
@@ -73,17 +73,17 @@ function composeArgv(...args: string[]): [string, string[]] {
 	return ["bun", [composeCli, ...args]];
 }
 function composeDownExitCode(): number {
-	console.log("\n[dev:fake] stopping the fake stack");
+	console.log("\n[dev] stopping the fake stack");
 	const [downCmd, downArgs] = composeArgv("down");
 	const down = spawnSync(downCmd, downArgs, { stdio: "inherit", cwd: root });
 	if (down.signal !== null) {
 		// A second Ctrl+C lands on the compose child directly while spawnSync
 		// blocks signal dispatch here; honor it as an interrupt.
-		console.error("[dev:fake] teardown interrupted; the stack may still be up - run: bun run docker:down");
+		console.error("[dev] teardown interrupted; the stack may still be up - run: bun run docker:down");
 		return 130;
 	}
 	if (down.status !== 0) {
-		console.error("[dev:fake] teardown did not finish; the stack may still be up - run: bun run docker:down");
+		console.error("[dev] teardown did not finish; the stack may still be up - run: bun run docker:down");
 		return down.status ?? 1;
 	}
 	return 0;
@@ -101,7 +101,7 @@ function onSignal(signal: NodeJS.Signals): void {
 		// deliberate later press may abort a hung teardown - without the
 		// window, the duplicate killed the teardown before it started.
 		if (now - firstSignalAt > 1000) {
-			console.error("[dev:fake] aborted during teardown; the stack may still be up - run: bun run docker:down");
+			console.error("[dev] aborted during teardown; the stack may still be up - run: bun run docker:down");
 			process.exit(signal === "SIGTERM" ? 143 : 130);
 		}
 		return;
@@ -113,42 +113,31 @@ function onSignal(signal: NodeJS.Signals): void {
 process.on("SIGINT", onSignal);
 process.on("SIGTERM", onSignal);
 
-// Verbose by default in the dev stack (and only there): the fake backend
-// logs every chat request and response body into ./logs/fake-openai.log.
-// The proxy already logs at litellm's default DEBUG level; the compose
-// LITELLM_LOG knob quiets it if wanted. Explicit env wins.
-run("starting the fake LiteLLM stack", ["bun", "scripts/compose.ts", "up", "-d", "--wait"], {
-	FAKE_VERBOSE: process.env.FAKE_VERBOSE ?? "1",
-});
-run("building the dev bundle", ["bun", "run", "bundle:dev"]);
-
 const seed: DevSeed = {
 	label: "Fake LiteLLM",
 	baseUrl: `http://localhost:${port}`,
 	apiKey,
 	openDashboard: true,
 };
-writeFileSync(join(root, DEV_SEED_FILENAME), `${JSON.stringify(seed, null, "\t")}\n`);
-console.log(`[dev:fake] seed written for ${seed.baseUrl}`);
 
-// The dev host runs on its own persistent profile. The host's provider-group
-// command is add-only, so a group left behind by an earlier run with a
-// different port, key, or label could never be brought up to date; instead,
-// a marker in the profile records the seed configuration that populated it,
-// and any change wipes the profile before launch. Wiping is safe precisely
-// because nothing but dev:fake ever uses this profile. Same config, same
-// profile: the existing group already matches what the sync engine expects.
-// DX cost: changing LITELLM_PORT or LITELLM_MASTER_KEY discards the whole
-// profile, including the Copilot Chat sign-in, so the next run signs in again.
-// F5's "Run Extension" launch shares this profile; VS Code enforces one
-// instance per user-data-dir (its code.lock), so running dev:fake while an
-// F5 host is up hands the arguments to that running instance - and a changed
-// fingerprint wipes that live session's profile out from under it, so close
-// the F5 host first.
+// Profile preflight, before anything starts or gets written: a refusal below
+// exits with no stack to tear down and no seed on disk. The dev host runs on
+// its own persistent profile. The host's provider-group command is add-only,
+// so a group left behind by an earlier run with a different port, key, or
+// label could never be brought up to date; instead, a marker in the profile
+// records the seed configuration that populated it, and any change wipes the
+// profile before launch - refusing when a host is still running on it. Same
+// config, same profile: the existing group already matches what the sync
+// engine expects. DX cost: changing LITELLM_PORT or LITELLM_MASTER_KEY
+// discards the whole profile, including the Copilot Chat sign-in, so the
+// next run signs in again. F5's "Run Extension" launch shares this profile;
+// VS Code enforces one instance per user-data-dir (its code.lock), so
+// running `bun run dev` while an F5 host is up hands the arguments to that
+// running instance.
 const profileDir = join(root, ".dev-profile");
 // rmSync below is destructive, so the root must be this repository before it
-// runs: a wrong cwd (never expected, since compose already ran here) must not
-// let it delete an unrelated .dev-profile. Structural, not incidental.
+// runs: a wrong cwd must not let it delete an unrelated .dev-profile.
+// Structural, not incidental.
 const rootPackageJson = join(root, "package.json");
 // A malformed package.json must produce the refusal below, not a raw
 // SyntaxError, so the parse failure reads as "not this repository".
@@ -162,9 +151,7 @@ try {
 }
 const rootIsThisRepo = packageMeta.name === "litellm-vscode-chat";
 if (!rootIsThisRepo) {
-	console.error(
-		`[dev:fake] refusing to manage the dev profile: ${root} is not the litellm-vscode-chat repository root`
-	);
+	console.error(`[dev] refusing to manage the dev profile: ${root} is not the litellm-vscode-chat repository root`);
 	process.exit(1);
 }
 const markerFile = join(profileDir, "seed-fingerprint");
@@ -173,21 +160,33 @@ const seedFingerprint = createHash("sha256").update(JSON.stringify(seed)).digest
 const previousFingerprint = existsSync(markerFile) ? readFileSync(markerFile, "utf8").trim() : undefined;
 if (previousFingerprint !== seedFingerprint) {
 	if (existsSync(profileDir)) {
-		// Wiping while a dev host still runs on this profile would yank state
-		// out from under it. Not a hard lock (no cross-process guarantee), just
-		// a heads-up for the common case of a second dev:fake with a changed
-		// port; the running host is found by argv (see findDevHostPid).
+		// Wiping under a live host would yank its state out from under it, so a
+		// visible host blocks the launch. Best effort, not a lock: when ps is
+		// unavailable or misses the host (see findDevHostPid), the wipe proceeds.
 		if (findDevHostPid() !== undefined) {
-			console.warn(
-				"[dev:fake] warning: the dev profile looks in use by another Extension Development Host; close it before continuing"
+			console.error(
+				"[dev] the dev profile is in use by a running Extension Development Host; close that window and re-run"
 			);
+			process.exit(1);
 		}
-		console.log("[dev:fake] seed configuration changed; resetting the dedicated dev profile");
+		console.log("[dev] seed configuration changed; resetting the dedicated dev profile");
 	}
 	rmSync(profileDir, { recursive: true, force: true });
 }
 mkdirSync(profileDir, { recursive: true });
 writeFileSync(markerFile, `${seedFingerprint}\n`);
+
+// Verbose by default in the dev stack (and only there): the fake backend
+// logs every chat request and response body into ./logs/fake-openai.log.
+// The proxy already logs at litellm's default DEBUG level; the compose
+// LITELLM_LOG knob quiets it if wanted. Explicit env wins.
+run("starting the fake LiteLLM stack", ["bun", "scripts/compose.ts", "up", "-d", "--wait"], {
+	FAKE_VERBOSE: process.env.FAKE_VERBOSE ?? "1",
+});
+run("building the dev bundle", ["bun", "run", "bundle:dev"]);
+
+writeFileSync(join(root, DEV_SEED_FILENAME), `${JSON.stringify(seed, null, "\t")}\n`);
+console.log(`[dev] seed written for ${seed.baseUrl}`);
 
 // ── Live log follow ──────────────────────────────────────────────────────────
 // The terminal stays attached: both container logs and the extension's output
@@ -268,7 +267,7 @@ function followComposeService(service: string, label: string): void {
 	child.stdout?.on("data", (chunk: Buffer) => stdoutForward.push(chunk));
 	child.stderr?.on("data", (chunk: Buffer) => stderrForward.push(chunk));
 	child.on("error", (error: Error) => {
-		console.error(`[dev:fake] could not follow ${service} logs: ${error.message}`);
+		console.error(`[dev] could not follow ${service} logs: ${error.message}`);
 	});
 	logChildrenClosed.push(
 		new Promise((resolve) => {
@@ -276,7 +275,7 @@ function followComposeService(service: string, label: string): void {
 				stdoutForward.flush();
 				stderrForward.flush();
 				if (!shuttingDown && code !== 0) {
-					console.error(`[dev:fake] the ${service} log stream ended (exit ${code}); this stream is now silent`);
+					console.error(`[dev] the ${service} log stream ended (exit ${code}); this stream is now silent`);
 				}
 				resolve();
 			});
@@ -391,7 +390,7 @@ run("opening the Extension Development Host", [
 	`--user-data-dir=${profileDir}`,
 	`--extensionDevelopmentPath=${root}`,
 ]);
-console.log("[dev:fake] window launched; the seed configures the server on activation");
+console.log("[dev] window launched; the seed configures the server on activation");
 
 const tailTimer = setInterval(tailExtensionLogsOnce, 1000);
 
@@ -435,14 +434,14 @@ function findDevHostPid(): number | undefined {
 /**
  * Close the Extension Development Host with the stack. The main process
  * hosts every window on this profile, so an F5-launched dev host sharing it
- * closes too - same trade the profile-wipe logic makes.
+ * closes too, since Ctrl+C here means the stack it depends on is going away.
  */
 function closeDevHost(): void {
 	const pid = findDevHostPid();
 	if (pid === undefined) {
 		return;
 	}
-	console.log("[dev:fake] closing the Extension Development Host");
+	console.log("[dev] closing the Extension Development Host");
 	try {
 		process.kill(pid, "SIGTERM");
 	} catch {
@@ -473,5 +472,5 @@ shutdown = (): void => {
 
 followComposeService("litellm", "litellm");
 followComposeService("fake-openai", "fake");
-console.log(`[dev:fake] streaming litellm + fake-openai + extension logs (teed into logs/)`);
-console.log("[dev:fake] Ctrl+C stops the stream and tears the stack down");
+console.log(`[dev] streaming litellm + fake-openai + extension logs (teed into logs/)`);
+console.log("[dev] Ctrl+C stops the stream and tears the stack down");

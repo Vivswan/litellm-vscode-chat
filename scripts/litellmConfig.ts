@@ -5,7 +5,7 @@
 // src/test/fakeStack/models.ts); this module adds
 // the .env-aware wildcard lookup and the atomic write to docker/.generated/
 // (gitignored). Both stack-starting paths regenerate the file first -
-// scripts/compose.ts on its `up` subcommand (docker:up, dev:fake) and
+// scripts/compose.ts on its `up` subcommand (docker:up, dev) and
 // scripts/docker-test.ts (which resolves the compose command itself) - so no
 // start can see a stale or missing config. Other compose subcommands (down,
 // logs) do not regenerate.
@@ -31,7 +31,7 @@ export { composeSetting, STACK_DEFAULTS };
  * Read and parse the stack's .env file with the compose-conformant grammar
  * in src/test/envFile.ts (which also names what is deliberately not
  * supported: multi-line quoted values and interpolation). The one shared
- * .env reader for scripts/ - docker-test.ts and dev-fake.ts import it too.
+ * .env reader for scripts/ - docker-test.ts and dev.ts import it too.
  */
 export function readEnvFile(): Record<string, string> {
 	const envPath = path.join(process.cwd(), ".env");
