@@ -124,7 +124,9 @@ suite("fakeStack proxyConfig emission", () => {
 		);
 		for (const chatOnly of ["claude-opus-5", "gpt-5.3-codex", "legacy-default"]) {
 			assert.ok(
-				!new RegExp(`model: github_copilot/${chatOnly.replace(/[.]/g, "\\.")}\\n {4}model_info:`).test(real),
+				!new RegExp(`model: github_copilot/${chatOnly.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n {4}model_info:`).test(
+					real
+				),
 				`${chatOnly} carries no mode (chat endpoint available)`
 			);
 		}
