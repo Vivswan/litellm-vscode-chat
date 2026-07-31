@@ -42,7 +42,10 @@ type LongContextPricingKey =
 	| "longContextOutputCost"
 	| "longContextCacheCost"
 	| "longContextCacheWriteCost";
-type ModelPricing = Pick<LanguageModelChatInformation, BasePricingKey | LongContextPricingKey | "priceCategory">;
+type ModelPricing = Pick<
+	LanguageModelChatInformation,
+	BasePricingKey | LongContextPricingKey | "priceCategory" | "pricing"
+>;
 
 /**
  * The picker's relative cost badge, derived from the converted base
@@ -100,10 +103,12 @@ function configurationSchemaFor(
  * empty Default cell claiming the model has no standard cost. And they are
  * omitted when they equal the converted base cost: the host declares the
  * longContext* fields as present only when long-context pricing differs from
- * default pricing. The `pricing` display-label string
- * stays unset everywhere: the host surfaces that render the numeric fields
- * treat the label as a fallback or show it in addition, so setting both would
- * duplicate the same information.
+ * default pricing. The `pricing` display label rides beside the numeric
+ * fields when both base costs are known: the model picker hover's numeric
+ * cost table is entitlement-gated (Copilot usage-based billing), so for a
+ * typical LiteLLM user the label is the only cost line that hover can show;
+ * the Manage Models markdown hover renders label and numbers together, one
+ * accepted duplicated line.
  */
 function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
 	// LiteLLM (observed on v1.93) stamps input/output_cost_per_token: 0 onto
@@ -159,11 +164,14 @@ function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
 		provider.cache_creation_input_token_cost,
 		provider.long_context_cache_creation_input_token_cost
 	);
-	// The relative-cost badge needs both sides of the price (one-sided pricing
-	// is an incomplete signal) and derives from the base tier only: the
-	// longContext* costs describe an opt-in regime, not the headline cost.
+	// The relative-cost badge and the display label need both sides of the
+	// price (one-sided pricing is an incomplete signal) and derive from the
+	// base tier only: the longContext* costs describe an opt-in regime, not
+	// the headline cost. The converted values are already rounded to six
+	// decimals, so String() renders them without float noise.
 	if (fields.inputCost !== undefined && fields.outputCost !== undefined) {
 		fields.priceCategory = priceCategoryFor(fields.inputCost, fields.outputCost);
+		fields.pricing = `$${fields.inputCost} in / $${fields.outputCost} out per 1M tokens`;
 	}
 	return fields;
 }

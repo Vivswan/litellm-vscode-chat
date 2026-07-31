@@ -437,7 +437,11 @@ suite("provider", () => {
 			assert.strictEqual(sole.outputCost, 15);
 			assert.strictEqual(sole.cacheCost, 0.3);
 			assert.strictEqual(sole.cacheWriteCost, 3.75);
-			assert.strictEqual(sole.pricing, undefined, "the display label stays unset; the numeric fields already render");
+			assert.strictEqual(
+				sole.pricing,
+				"$3 in / $15 out per 1M tokens",
+				"the compact label is the picker hover's only cost line without usage-based billing"
+			);
 			assert.strictEqual(sole.priceCategory, "medium", "blended (3*3+15)/4 = 6 lands in the medium band");
 			assert.deepStrictEqual(
 				Object.keys(sole).sort(),
@@ -457,6 +461,7 @@ suite("provider", () => {
 					"name",
 					"outputCost",
 					"priceCategory",
+					"pricing",
 					"tooltip",
 					"version",
 				],
@@ -482,6 +487,7 @@ suite("provider", () => {
 				"longContextCacheCost",
 				"longContextCacheWriteCost",
 				"priceCategory",
+				"pricing",
 			] as const) {
 				assert.ok(!(key in stamped), `a zero input/output pair must register with no ${key}`);
 			}
@@ -493,10 +499,18 @@ suite("provider", () => {
 				"a malformed string cost on a providers-array entry degrades to absent"
 			);
 			assert.ok(!("priceCategory" in expectDefined(byId.get("multi:groq"))), "input-only pricing derives no category");
+			assert.ok(!("pricing" in expectDefined(byId.get("multi:groq"))), "input-only pricing derives no label");
 
 			for (const id of ["bare", "multi:cheapest", "multi:fastest"]) {
 				const info = expectDefined(byId.get(id), `missing entry ${id}`);
-				for (const key of ["inputCost", "outputCost", "cacheCost", "cacheWriteCost", "priceCategory"] as const) {
+				for (const key of [
+					"inputCost",
+					"outputCost",
+					"cacheCost",
+					"cacheWriteCost",
+					"priceCategory",
+					"pricing",
+				] as const) {
 					assert.ok(!(key in info), `${id} must not advertise a ${key} its routing does not pin`);
 				}
 			}
@@ -594,6 +608,7 @@ suite("provider", () => {
 					"name",
 					"outputCost",
 					"priceCategory",
+					"pricing",
 					"tooltip",
 					"version",
 				],
