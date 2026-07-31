@@ -2,7 +2,7 @@
 	"name": "litellm-vscode-chat",
 	"displayName": "LiteLLM Provider for GitHub Copilot Chat",
 	"description": "An extension that integrates LiteLLM into GitHub Copilot Chat",
-	"version": "0.3.1",
+	"version": "0.4.0",
 	"publisher": "vivswan",
 	"license": "MIT",
 	"icon": "assets/logo.png",
