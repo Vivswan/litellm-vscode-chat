@@ -125,7 +125,11 @@ suite("provider groups", () => {
 		assert.strictEqual(request.headers["x-api-key"], "group-key");
 	});
 
-	test("classified chat failures surface as stable LanguageModelError codes for vscode.lm consumers", async () => {
+	test("classified chat failures are thrown as LanguageModelError with the documented codes", async () => {
+		// Direct provider invocation: what a vscode.lm consumer receives after
+		// the host round trip is the reconstructed LanguageModelError with its
+		// code and message - the cause below is an in-process detail the host
+		// serialization drops, so only code and message are contract.
 		const provider = makeProvider();
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 		const infos = await provider.provideLanguageModelChatInformation(
@@ -157,7 +161,8 @@ suite("provider groups", () => {
 					`expected a LanguageModelError for ${status}, got ${String(e)}`
 				);
 				assert.strictEqual(e.code, code, `status ${status} maps to the ${code} code`);
-				assert.ok(e.cause instanceof RequestError, "the classified original rides as the cause");
+				assert.ok(e.message.length > 0, "the user-facing message is preserved on the wrapped error");
+				assert.ok(e.cause instanceof RequestError, "in-process, the classified original rides as the cause");
 				return true;
 			});
 		}
@@ -624,6 +629,49 @@ suite("provider groups", () => {
 			assert.strictEqual(recovered.length, 1);
 			assert.ok(!("statusIcon" in expectDefined(recovered[0])), "recovery clears the decoration by construction");
 			assert.ok(!("warningText" in expectDefined(recovered[0])), "recovery clears the banner by construction");
+		});
+	});
+
+	test("stale serving is bounded by the last successful discovery, not by the failure reports", async () => {
+		// Clock-injected like the discovery-cache tests: each failed refresh
+		// re-records the entry (refreshing its report timestamp), so only the
+		// success anchor can age the stale window out.
+		let nowMs = 1_000_000;
+		const provider = makeProvider(undefined, "test-key", undefined, { now: () => nowMs });
+		let fail = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+
+		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+
+			fail = true;
+			nowMs += 5 * 60_000;
+			const withinWindow = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.strictEqual(withinWindow.length, 1, "five minutes after the last success the stale set still serves");
+
+			nowMs += 6 * 60_000;
+			const pastWindow = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.deepStrictEqual(
+				pastWindow,
+				[],
+				"eleven minutes without a success stops stale serving despite the fresh failure reports"
+			);
+
+			nowMs += 60_000;
+			const stillGone = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.deepStrictEqual(stillGone, [], "the emptied window cannot resurrect the stale set");
 		});
 	});
 
