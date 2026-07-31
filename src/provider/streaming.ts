@@ -450,7 +450,7 @@ export class StreamProcessor {
 					const data = line.slice(6);
 					if (data === "[DONE]") {
 						sawDone = true;
-						this.finishStream(progress, !token.isCancellationRequested, true);
+						this.finishStream(progress, !token.isCancellationRequested);
 						continue;
 					}
 
@@ -892,15 +892,16 @@ export class StreamProcessor {
 	 * Single end-of-stream path shared by finish_reason, [DONE], and EOF.
 	 * finishedNormally is false only when the request was cancelled; a
 	 * cancelled stream downgrades unparseable leftovers to logged drops and
-	 * discards accumulated media instead of emitting it. `settled` is true
-	 * only for the [DONE] and EOF runs: the finish_reason run can still be
-	 * followed by more chunks (the standard OpenAI usage trailer arrives
-	 * after it), so settlement-only effects must not fire there.
+	 * discards accumulated media instead of emitting it. `isFinal` is true
+	 * only for the post-loop EOF run - [DONE] is handled with `continue`, so
+	 * that run always happens last and is the one place last-wins effects
+	 * (the usage DataPart) may fire; both the finish_reason and [DONE] runs
+	 * can still be followed by more chunks.
 	 */
 	private finishStream(
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		finishedNormally: boolean,
-		settled = false
+		isFinal = false
 	): void {
 		let invalidCount = this.flushToolCallBuffers(progress);
 
@@ -963,17 +964,18 @@ export class StreamProcessor {
 		// The retained usage trailer rides out as one DataPart with the bare
 		// mimeType "usage", the convention the host-side consumer decodes into
 		// its token accounting (context-window widget, cache and reasoning
-		// stats). Emission waits for a settled run ([DONE] or EOF): at
-		// finish_reason the final trailer may still be in flight, and emitting
-		// an interim usage object there would pin stale counts - the last
-		// trailer must win. The flag is set before any outcome is known so the
-		// [DONE]-then-EOF repetition decides once. Reported directly, not
-		// through reportPart: usage is bookkeeping, so a usage-only stream must
-		// still count as empty for the reasoning-only error below. A host
-		// without the DataPart class drops it silently - the pre-feature
-		// behavior, and logMissingDataPartSupportOnce's message is about
-		// generated media, which this is not.
-		if (settled && finishedNormally && this._req.usage !== undefined && !this._req.emittedUsage) {
+		// stats). Emission happens only on the final post-loop run: at
+		// finish_reason (and even at [DONE], which `continue`s back into the
+		// loop) more chunks may follow, and emitting an interim usage object
+		// early would pin stale counts - the last trailer must win. A stream
+		// that throws before EOF (reasoning-only, invalid tool JSON) forfeits
+		// its usage; a failed request has no successful usage to account.
+		// Reported directly, not through reportPart: usage is bookkeeping, so
+		// a usage-only stream must still count as empty for the reasoning-only
+		// error below. A host without the DataPart class drops it silently -
+		// the pre-feature behavior, and logMissingDataPartSupportOnce's
+		// message is about generated media, which this is not.
+		if (isFinal && finishedNormally && this._req.usage !== undefined && !this._req.emittedUsage) {
 			this._req.emittedUsage = true;
 			const payload = usageDataPartPayload(this._req.usage);
 			if (payload !== undefined && this._dataPartCtor) {
