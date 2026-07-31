@@ -76,7 +76,18 @@ export function serverSecretsKey(label: string): string {
 
 /**
  * SecretStorage: the pre-registry single-server configuration.
- * Read and deleted only by ServerRegistry.migrateLegacy().
+ * Read and deleted only by src/extension/migrations/legacySingleServer.ts.
  */
 export const LEGACY_BASE_URL_SECRET = "litellm.baseUrl";
 export const LEGACY_API_KEY_SECRET = "litellm.apiKey";
+
+/**
+ * globalState: set after the legacy single-server config became a registry
+ * entry but before its secrets are deleted, cleared once they are. While set,
+ * the deletions are retried on every activation, even after the group
+ * migration has emptied the registry, so lingering legacy secrets can never
+ * re-import stale config. `true` for a plain interrupted run; an import that
+ * lost a cross-window race carries the orphaned per-server secret ids still
+ * to delete. Owned by src/extension/migrations/legacySingleServer.ts.
+ */
+export const LEGACY_CLEANUP_PENDING_KEY = "litellm.legacyCleanupPending";

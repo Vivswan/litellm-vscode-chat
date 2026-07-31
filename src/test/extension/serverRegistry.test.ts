@@ -1,13 +1,8 @@
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import { ServerRegistry } from "../../extension/serverRegistry";
-import {
-	apiKeySecret,
-	LEGACY_API_KEY_SECRET,
-	LEGACY_BASE_URL_SECRET,
-	SERVER_REGISTRY_KEY,
-} from "../../shared/storageKeys";
-import { expectDefined, makeExtensionStorage } from "../testUtils";
+import { apiKeySecret, SERVER_REGISTRY_KEY } from "../../shared/storageKeys";
+import { makeExtensionStorage } from "../testUtils";
 
 interface Fakes {
 	registry: ServerRegistry;
@@ -27,52 +22,6 @@ function createRegistry(initialRegistryValue?: unknown): Fakes {
 }
 
 suite("extension/serverRegistry", () => {
-	suite("migrateLegacy", () => {
-		test("migrates legacy secrets into a Default server and deletes them", async () => {
-			const { registry, secretStore } = createRegistry();
-			secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
-			secretStore.set(LEGACY_API_KEY_SECRET, "legacy-key");
-
-			const migrated = await registry.migrateLegacy();
-
-			assert.strictEqual(migrated, true);
-			const servers = registry.getServers();
-			assert.strictEqual(servers.length, 1);
-			const server = expectDefined(servers[0]);
-			assert.strictEqual(server.label, "Default");
-			assert.strictEqual(server.baseUrl, "http://legacy:4000");
-			assert.strictEqual(secretStore.get(apiKeySecret(server.id)), "legacy-key");
-			assert.strictEqual(secretStore.has(LEGACY_BASE_URL_SECRET), false);
-			assert.strictEqual(secretStore.has(LEGACY_API_KEY_SECRET), false);
-		});
-
-		test("is a no-op when the registry already has a server", async () => {
-			const { registry, secretStore } = createRegistry();
-			await registry.addServer("Existing", "http://existing:4000", "existing-key");
-			secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
-			secretStore.set(LEGACY_API_KEY_SECRET, "legacy-key");
-
-			const migrated = await registry.migrateLegacy();
-
-			assert.strictEqual(migrated, false);
-			assert.strictEqual(registry.getServers().length, 1);
-			assert.strictEqual(expectDefined(registry.getServers()[0]).label, "Existing");
-			assert.strictEqual(secretStore.get(LEGACY_BASE_URL_SECRET), "http://legacy:4000");
-			assert.strictEqual(secretStore.get(LEGACY_API_KEY_SECRET), "legacy-key");
-		});
-
-		test("is a no-op when no legacy baseUrl secret exists", async () => {
-			const { registry, secretStore } = createRegistry();
-			secretStore.set(LEGACY_API_KEY_SECRET, "orphan-key");
-
-			const migrated = await registry.migrateLegacy();
-
-			assert.strictEqual(migrated, false);
-			assert.strictEqual(registry.getServers().length, 0);
-			assert.strictEqual(secretStore.get(LEGACY_API_KEY_SECRET), "orphan-key");
-		});
-	});
-
 	suite("server CRUD", () => {
 		test("addServer strips trailing slashes and stores the api key", async () => {
 			const { registry, secretStore } = createRegistry();
@@ -184,39 +133,6 @@ suite("extension/serverRegistry", () => {
 			);
 			assert.strictEqual(registry.getServers().length, 0);
 			assert.strictEqual(secretStore.size, 0, "The stored secret must be rolled back");
-		});
-
-		test("addServer failure during migration keeps legacy secrets for a retry", async () => {
-			const { registry, secretStore } = createRegistry();
-			secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
-			secretStore.set(LEGACY_API_KEY_SECRET, "legacy-key");
-			const failingSecrets = {
-				get: async (key: string) => secretStore.get(key),
-				store: async () => {
-					throw new Error("secret store failed");
-				},
-				delete: async (key: string) => {
-					secretStore.delete(key);
-				},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
-			} as unknown as vscode.SecretStorage;
-			const mementoStore = new Map<string, unknown>();
-			const memento = {
-				get: (key: string, defaultValue?: unknown) => (mementoStore.has(key) ? mementoStore.get(key) : defaultValue),
-				update: async (key: string, value: unknown) => {
-					mementoStore.set(key, value);
-				},
-			} as unknown as vscode.Memento;
-			const failingRegistry = new ServerRegistry(memento, failingSecrets);
-
-			await assert.rejects(failingRegistry.migrateLegacy(), /secret store failed/);
-
-			assert.strictEqual(failingRegistry.getServers().length, 0, "No half-migrated registry entry may remain");
-			assert.strictEqual(secretStore.get(LEGACY_BASE_URL_SECRET), "http://legacy:4000");
-			assert.strictEqual(secretStore.get(LEGACY_API_KEY_SECRET), "legacy-key");
-
-			const retried = await registry.migrateLegacy();
-			assert.strictEqual(retried, true, "Migration must succeed on retry once secret storage works");
 		});
 	});
 
