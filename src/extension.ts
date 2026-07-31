@@ -9,6 +9,7 @@ import {
 import { registerDashboardCommand } from "./extension/dashboard/panel";
 import { consumeDevSeed, createDevSeedEnv } from "./extension/devSeed";
 import { registerDiagnosticsCommand } from "./extension/diagnostics";
+import { createIssueReporterEnv, IssueReporter } from "./extension/issueReporter";
 import type { MigrationContext } from "./extension/migrations";
 import { runMigrations } from "./extension/migrations";
 import { getMigratedServerLabels, isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
@@ -28,7 +29,6 @@ import {
 	ServerSyncEngine,
 } from "./extension/serverSync";
 import { StatusBarManager } from "./extension/status";
-import { createIssueReporterEnv, IssueReporter } from "./issueReporter";
 import { LiteLLMChatModelProvider } from "./provider";
 import { CMD, VENDOR_ID } from "./shared/commandIds";
 import type { DevSeed } from "./shared/devSeed";

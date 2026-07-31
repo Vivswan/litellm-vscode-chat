@@ -2,12 +2,12 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { LiteLLMChatModelProvider } from "../provider";
-import { RequestError } from "../provider/errorMapping";
-import { buildModelInfos } from "../provider/registration";
-import { resolveFuzzSeed } from "./fuzzStream";
-import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "./mocks/handlers";
-import { expectDefined, makeModelInfo, makeProvider, userMessage, withFetch } from "./testUtils";
+import { LiteLLMChatModelProvider } from "../../provider";
+import { RequestError } from "../../provider/errorMapping";
+import { buildModelInfos } from "../../provider/registration";
+import { resolveFuzzSeed } from "../fuzzStream";
+import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
+import { expectDefined, makeModelInfo, makeProvider, userMessage, withFetch } from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();

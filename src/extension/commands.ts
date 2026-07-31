@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import type { IssueReporter } from "../issueReporter";
 import { CMD, MANAGE_COMMAND_TITLE } from "../shared/commandIds";
 import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../shared/links";
 import type { Logger } from "../shared/logger";
@@ -10,6 +9,7 @@ import type { ServerConfig } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
 import type { DashboardController } from "./dashboard/panel";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
+import type { IssueReporter } from "./issueReporter";
 import {
 	CONFIGURE_NOW_LABEL,
 	openChatAction,

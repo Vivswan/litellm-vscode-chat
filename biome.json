@@ -66,7 +66,6 @@
 		},
 		{
 			"includes": [
-				"src/provider.ts",
 				"src/provider/**"
 			],
 			"linter": {
@@ -81,6 +80,31 @@
 											"**/extension/**"
 										],
 										"message": "The provider layer must not import from src/extension; move shared code to src/shared."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"src/shared/**"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"**/provider/**",
+											"**/extension/**"
+										],
+										"message": "The shared layer imports neither the provider nor the extension layer; it is the bottom of the dependency graph."
 									}
 								]
 							}

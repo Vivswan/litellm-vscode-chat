@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import type { DiagnosticsSnapshot, IssueReporter } from "../issueReporter";
 import type { ServerModelsSnapshot } from "../provider";
 import { isGroupClientId } from "../provider/groupModels";
 import { normalizeBaseUrl } from "../shared/baseUrl";
@@ -12,6 +11,7 @@ import { SERVERS_SETTING_KEY } from "../shared/settings";
 import type { DashboardServer } from "./dashboard/protocol";
 import { classifyOverall } from "./dashboard/protocol";
 import { buildDashboardState } from "./dashboard/state";
+import type { DiagnosticsSnapshot, IssueReporter } from "./issueReporter";
 import type { ServerRegistry } from "./serverRegistry";
 import type { DeclaredServerView } from "./serverSync";
 import { inlineSecretValues, parseServersSetting } from "./serverSync";
