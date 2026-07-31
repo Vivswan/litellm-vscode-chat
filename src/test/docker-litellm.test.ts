@@ -98,6 +98,38 @@ suite("Docker LiteLLM stack", () => {
 		return (await response.json()) as ChatBody;
 	}
 
+	/**
+	 * DataParts of one mime class from collected stream parts. Counting by
+	 * mime matters: every successful response also carries the end-of-stream
+	 * "usage" DataPart, so a total-count assertion would conflate media with
+	 * bookkeeping.
+	 */
+	function dataPartsOf(parts: unknown[], mimePrefix: string): vscode.LanguageModelDataPart[] {
+		return parts.filter(
+			(p): p is vscode.LanguageModelDataPart =>
+				p instanceof vscode.LanguageModelDataPart && p.mimeType.startsWith(mimePrefix)
+		);
+	}
+
+	/**
+	 * The decoded end-of-stream "usage" DataPart, asserted to appear exactly
+	 * once. The extension always requests stream_options.include_usage, so the
+	 * proxy appends a trailer even when the backend scenario carries none.
+	 * LiteLLM may recount tokens in transit, so the three counts are pinned as
+	 * numbers, not as exact values.
+	 */
+	function expectUsagePart(parts: unknown[]): Record<string, unknown> {
+		const usageParts = dataPartsOf(parts, "usage").map(
+			(p) => JSON.parse(new TextDecoder().decode(p.data)) as Record<string, unknown>
+		);
+		assert.strictEqual(usageParts.length, 1, "exactly one usage DataPart per response");
+		const usage = expectDefined(usageParts[0]);
+		for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"]) {
+			assert.strictEqual(typeof usage[key], "number", `usage.${key} must be a numeric count`);
+		}
+		return usage;
+	}
+
 	suiteSetup(async function () {
 		this.timeout(90000);
 
@@ -281,14 +313,22 @@ suite("Docker LiteLLM stack", () => {
 		test("audio-output surfaces a DataPart and streams its transcript as text", async () => {
 			const parts = await play("audio-output");
 			assert.strictEqual(extractText(parts), "Spoken wordsText alongside audio.");
-			const dataParts = parts.filter((p) => p instanceof vscode.LanguageModelDataPart);
-			assert.strictEqual(dataParts.length, 1, "the audio delta now surfaces as one DataPart");
+			const audioParts = dataPartsOf(parts, "audio/");
+			assert.strictEqual(audioParts.length, 1, "the audio delta surfaces as one audio DataPart");
+			expectUsagePart(parts);
 		});
 
-		test("usage trailers do not disturb the text", async () => {
-			assert.strictEqual(extractText(await play("usage-only-final")), "Response with usage");
-			assert.strictEqual(extractText(await play("usage-with-cache-tokens")), "Cached response");
-			assert.strictEqual(extractText(await play("usage-token-details")), "Detailed usage");
+		test("usage trailers surface as one decodable usage DataPart and do not disturb the text", async () => {
+			const expectations: Array<[scenario: string, text: string]> = [
+				["usage-only-final", "Response with usage"],
+				["usage-with-cache-tokens", "Cached response"],
+				["usage-token-details", "Detailed usage"],
+			];
+			for (const [scenario, text] of expectations) {
+				const parts = await play(scenario);
+				assert.strictEqual(extractText(parts), text);
+				expectUsagePart(parts);
+			}
 		});
 	});
 
@@ -797,22 +837,18 @@ suite("Docker LiteLLM stack", () => {
 	});
 
 	suite("generated media", () => {
-		/** DataParts from collected stream parts; media surfaces through the host as LanguageModelDataPart. */
-		function extractDataParts(parts: unknown[]): vscode.LanguageModelDataPart[] {
-			return parts.filter((p) => p instanceof vscode.LanguageModelDataPart) as vscode.LanguageModelDataPart[];
-		}
-
 		test(`${COMMAND_SIGIL}image surfaces one DataPart with lossless bytes and keeps the hash line verbatim`, async () => {
 			// The hashes are the pinned literals next to the byte constants in
 			// fakeStack/commands.ts; matching them here proves the payload
 			// survived backend -> proxy -> extension -> host round-trip intact.
 			const parts = await say("gpt-5.2-mini", `${COMMAND_SIGIL}image`);
 			assert.strictEqual(extractText(parts), `Generated a PNG image, 69 bytes, sha256=${PNG_SHA256}.`);
-			const dataParts = extractDataParts(parts);
-			assert.strictEqual(dataParts.length, 1, "exactly one image DataPart");
-			const image = expectDefined(dataParts[0]);
+			const imageParts = dataPartsOf(parts, "image/");
+			assert.strictEqual(imageParts.length, 1, "exactly one image DataPart");
+			const image = expectDefined(imageParts[0]);
 			assert.strictEqual(image.mimeType, "image/png", "mime comes from the data URL header");
 			assert.strictEqual(sha256Hex(image.data), PNG_SHA256, "DataPart bytes are lossless");
+			expectUsagePart(parts);
 		});
 
 		test(`${COMMAND_SIGIL}audio surfaces one DataPart with lossless bytes; transcript then hash line stream as text`, async () => {
@@ -820,11 +856,12 @@ suite("Docker LiteLLM stack", () => {
 			// The transcript streams as ordinary text ahead of the reply text,
 			// and the hash line itself stays byte-verbatim.
 			assert.strictEqual(extractText(parts), `fake audio clipGenerated a WAV clip, 52 bytes, sha256=${WAV_SHA256}.`);
-			const dataParts = extractDataParts(parts);
-			assert.strictEqual(dataParts.length, 1, "exactly one audio DataPart");
-			const audio = expectDefined(dataParts[0]);
+			const audioParts = dataPartsOf(parts, "audio/");
+			assert.strictEqual(audioParts.length, 1, "exactly one audio DataPart");
+			const audio = expectDefined(audioParts[0]);
 			assert.strictEqual(audio.mimeType, "audio/wav");
 			assert.strictEqual(sha256Hex(audio.data), WAV_SHA256, "DataPart bytes are lossless");
+			expectUsagePart(parts);
 		});
 
 		/** Raw SSE through the LiteLLM proxy; media byte integrity is only observable beneath the LM API. */
