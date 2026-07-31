@@ -44,13 +44,14 @@ export interface ExtensionMigration {
 
 /**
  * Chronological by the release whose state each one migrates away from (the
- * per-file headers name it); registration order is execution order within
- * each phase.
+ * per-file headers carry the full story); registration order is execution
+ * order within each phase, and labelScopedModelParameters must stay after
+ * registryToProviderGroups: it reads the label map that migration writes.
  */
 const MIGRATIONS: readonly ExtensionMigration[] = [
-	legacySingleServerMigration,
-	registryToProviderGroupsMigration,
-	labelScopedModelParametersMigration,
+	legacySingleServerMigration, // away from <= v0.2.2 (pre-registry single-server secrets)
+	registryToProviderGroupsMigration, // away from v0.2.3..v0.3.1 (registry-stored servers)
+	labelScopedModelParametersMigration, // away from <= v0.3.1 (label-scoped modelParameters keys)
 ];
 
 /** Best-effort: a failing migration logs once and the rest still run; never rejects. */
