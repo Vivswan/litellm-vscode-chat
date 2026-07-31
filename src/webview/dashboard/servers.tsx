@@ -26,7 +26,8 @@ import {
 	validateAdoptLabel,
 } from "../../extension/dashboard/serverForm";
 import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
-import { Help, HoverTip } from "./help";
+import { DOCS_LINK_PARAMS_INACTIVE, DOCS_LINK_SERVER_FORM, DOCS_LINK_SERVERS } from "./docsLinks";
+import { DocsLink, Help, HoverTip } from "./help";
 import {
 	HELP_ENTRY_MODEL_PARAMETER_PREFIX,
 	HELP_SECRET_STORAGE,
@@ -520,7 +521,12 @@ function ServerForm({
 
 	return (
 		<div class="form-card">
-			<h3 id="server-form-title">{target.kind === "add" ? "Add server" : `Edit ${target.original.label}`}</h3>
+			{/* The dialog's accessible name is the title span alone, so the
+			    docs anchor's own label never leaks into it. */}
+			<h3>
+				<span id="server-form-title">{target.kind === "add" ? "Add server" : `Edit ${target.original.label}`}</span>{" "}
+				<DocsLink href={DOCS_LINK_SERVER_FORM} label="Open the server fields guide" />
+			</h3>
 			<TextField field="label" placeholder="e.g. Production" props={props} />
 			{renaming && (parse.ok || parse.problems.label === undefined) ? (
 				<p class="hint">
@@ -1023,6 +1029,7 @@ export function ServersSection({
 		<section>
 			<h2>
 				Servers <Help text={HELP_SERVERS_SECTION} below />
+				<DocsLink href={DOCS_LINK_SERVERS} label="Open the servers guide" />
 			</h2>
 			{/* First run shows the guided card alone; a strip of mostly disabled
 			    controls above it would put dead buttons before the guidance. */}
@@ -1235,7 +1242,10 @@ export function ServersSection({
 							.join(", ")}
 						: per-server model parameters are not applied because the provider group does not carry the entry's labeled
 						identity (it predates entry labels or a rename). Remove the group in the native Manage Language Models
-						editor and run Sync Models Now, or save the entry under a new label, to activate them.
+						editor and run Sync Models Now, or save the entry under a new label, to activate them.{" "}
+						<DocsLink href={DOCS_LINK_PARAMS_INACTIVE} label="Learn more in the troubleshooting guide">
+							Learn more
+						</DocsLink>
 					</p>
 				</div>
 			) : null}

@@ -304,6 +304,18 @@ const STYLES = `
 		pointer-events: none;
 	}
 	.help-wrap:hover .help-tip, button.help:focus-visible + .help-tip { display: block; }
+	/* The "learn more" anchor beside section titles and in notices: opens the
+	   matching docs page on GitHub (the webview host opens plain anchors
+	   externally, so no CSP grant is involved). Quiet, on the textLink tokens;
+	   the external-link glyph is the affordance. */
+	a.docs-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		color: var(--vscode-textLink-foreground);
+		text-decoration: none;
+	}
+	a.docs-link:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
 	/* Hover tips over non-interactive inline content (badges, status pills):
 	   the same tip element, revealed by hovering the wrapper. Extra detail
 	   only; anything load-bearing also renders as visible text. */

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { DashboardModel } from "../../extension/dashboard/protocol";
-import { Help, HoverTip } from "./help";
+import { DOCS_LINK_MODELS } from "./docsLinks";
+import { DocsLink, Help, HoverTip } from "./help";
 import { HELP_MODELS_SECTION } from "./helpText";
 import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
 
@@ -254,6 +255,7 @@ export function ModelsSection({
 		<section id="models-section" tabIndex={-1}>
 			<h2>
 				Models <Help text={HELP_MODELS_SECTION} />
+				<DocsLink href={DOCS_LINK_MODELS} label="Open the models guide" />
 			</h2>
 			{models.length === 0 ? (
 				<div class="empty-block">

@@ -8,7 +8,7 @@
  *
  * Style: one or two short sentences, leading with an example where one helps.
  * Say what the field is for and the one thing that would surprise; the
- * setting descriptions and README carry the full story.
+ * setting descriptions and the docs/ pages carry the full story.
  */
 
 import type { BooleanSettingId, NumberSettingId } from "../../extension/dashboard/protocol";
