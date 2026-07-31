@@ -2092,6 +2092,75 @@ suite("provider/streaming usage DataPart", () => {
 		assert.deepStrictEqual(usages[0], { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 });
 	});
 
+	test("an interim usage object does not pin stale counts: the final trailer wins", async () => {
+		// Some providers stamp running usage onto ordinary chunks. The
+		// finish_reason run is not settled, so it must not emit the interim
+		// counts; the real trailer arrives after it and is the one that ships.
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"hi"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			TRAILER,
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		const usages = usagePartsOf(parts);
+		assert.strictEqual(usages.length, 1, "exactly one usage part despite interim usage objects");
+		assert.deepStrictEqual(
+			usages[0],
+			{ prompt_tokens: 120, completion_tokens: 80, total_tokens: 200 },
+			"the final trailer's counts win over the interim ones"
+		);
+	});
+
+	test("non-finite counts are rejected: JSON.stringify would null them and the consumer drops the payload", async () => {
+		// A wire literal like 1e999 parses to Infinity. As a required count it
+		// kills the emission outright; as an optional detail it is omitted
+		// while the finite trio still ships.
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":1e999}}\n',
+			'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"prompt_tokens_details":{"cached_tokens":1e999}}}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.deepStrictEqual(
+			usagePartsOf(parts),
+			[{ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }],
+			"the Infinity detail is omitted; an Infinity required count would have emitted nothing"
+		);
+	});
+
+	test("NaN counts injected through processDelta neither emit nor reach the usage log", () => {
+		const logged: { message: string; data?: unknown }[] = [];
+		const stream = new StreamProcessor(
+			idSource(),
+			(message, data) => logged.push({ message, data }),
+			null,
+			fakeDataCtor
+		);
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			{
+				choices: [],
+				usage: { prompt_tokens: Number.NaN, completion_tokens: 2, total_tokens: Number.POSITIVE_INFINITY },
+			},
+			progress
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+
+		assert.strictEqual(usagePartsOf(parts).length, 0, "a payload missing finite required counts must not emit");
+		const usageLog = logged.find((l) => l.message === "Token usage");
+		assert.deepStrictEqual(expectDefined(usageLog?.data), { completion_tokens: 2 }, "only finite counts are logged");
+	});
+
 	test("OpenAI-style detail groups round-trip into the payload", async () => {
 		const stream = usageProcessor();
 		const { parts, progress } = collector();
@@ -2226,9 +2295,33 @@ suite("provider/streaming usage DataPart", () => {
 		assert.ok(!logs.some((l) => l.includes("generated media")), "the missing-support notice is about media, not usage");
 	});
 
-	test("the usage part is bookkeeping: a reasoning-only stream still fails loudly, usage or not", async () => {
-		// The usage part reports directly instead of through reportPart, so it
-		// must not count as visible output for the empty-response check.
+	test("the usage part is bookkeeping: it emits AND the reasoning-only error still throws", async () => {
+		// No finish_reason chunk, so the first end-of-stream run is the settled
+		// [DONE] one: it emits the usage part (direct report, so reportedAnyPart
+		// stays false) and must still throw the reasoning-only error - the
+		// usage part is not visible output and cannot satisfy the empty check.
+		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}]}\n',
+			TRAILER,
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output"),
+			"the usage part must not suppress the reasoning-only error"
+		);
+		assert.strictEqual(usagePartsOf(parts).length, 1, "the settled run emits the usage before the error fires");
+		assert.strictEqual(visibleTextOf(parts), "", "no visible output");
+	});
+
+	test("a reasoning-only stream that fails at its finish_reason chunk forfeits the later trailer", async () => {
+		// The reasoning-only error fires at the finish_reason run, which is not
+		// settled; the throw aborts the request before the trailer is even
+		// parsed, so no usage part can exist. Pinned so the forfeit is a
+		// documented consequence, not an accident.
 		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
 		const { parts, progress } = collector();
 		const body = sseStream([
@@ -2240,10 +2333,9 @@ suite("provider/streaming usage DataPart", () => {
 
 		await assert.rejects(
 			() => stream.processStreamingResponse(body, progress, token()),
-			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output"),
-			"the usage part must not suppress the reasoning-only error"
+			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output")
 		);
-		assert.strictEqual(visibleTextOf(parts), "", "no visible output");
+		assert.strictEqual(parts.length, 0, "the failed request emits nothing, usage included");
 	});
 
 	test("the usage log line carries the top-level cache fields as numbers only", () => {

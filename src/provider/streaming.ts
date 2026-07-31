@@ -248,6 +248,8 @@ const REASONING_ONLY_RESPONSE_MESSAGE =
 function knownUsageCounts(usage: object): Record<string, number> {
 	const record = usage as Record<string, unknown>;
 	const counts: Record<string, number> = {};
+	// Number.isFinite, not typeof: a server literal like 1e999 parses to
+	// Infinity, which is useless as a diagnostic count.
 	for (const key of [
 		"prompt_tokens",
 		"completion_tokens",
@@ -256,8 +258,8 @@ function knownUsageCounts(usage: object): Record<string, number> {
 		"cache_read_input_tokens",
 	]) {
 		const value = record[key];
-		if (typeof value === "number") {
-			counts[key] = value;
+		if (Number.isFinite(value)) {
+			counts[key] = value as number;
 		}
 	}
 	const detailGroups: ReadonlyArray<readonly [string, readonly string[]]> = [
@@ -271,8 +273,8 @@ function knownUsageCounts(usage: object): Record<string, number> {
 		}
 		for (const key of keys) {
 			const value = (nested as Record<string, unknown>)[key];
-			if (typeof value === "number") {
-				counts[`${group}.${key}`] = value;
+			if (Number.isFinite(value)) {
+				counts[`${group}.${key}`] = value as number;
 			}
 		}
 	}
@@ -289,10 +291,12 @@ function knownUsageCounts(usage: object): Record<string, number> {
  * prompt_tokens_details keys first and falls back to the top-level
  * cache_read_input_tokens/cache_creation_input_tokens fields LiteLLM emits on
  * Anthropic routes, mapping both shapes onto the prompt_tokens_details keys
- * the consumer reads.
+ * the consumer reads. Number.isFinite guards every count: a server literal
+ * like 1e999 parses to Infinity, JSON.stringify would serialize it as null,
+ * and the consumer's shape check would then reject the whole payload.
  */
 function usageDataPartPayload(usage: Record<string, unknown>): Record<string, unknown> | undefined {
-	const num = (value: unknown): number | undefined => (typeof value === "number" ? value : undefined);
+	const num = (value: unknown): number | undefined => (Number.isFinite(value) ? (value as number) : undefined);
 	const promptTokens = num(usage.prompt_tokens);
 	const completionTokens = num(usage.completion_tokens);
 	const totalTokens = num(usage.total_tokens);
@@ -446,7 +450,7 @@ export class StreamProcessor {
 					const data = line.slice(6);
 					if (data === "[DONE]") {
 						sawDone = true;
-						this.finishStream(progress, !token.isCancellationRequested);
+						this.finishStream(progress, !token.isCancellationRequested, true);
 						continue;
 					}
 
@@ -480,7 +484,7 @@ export class StreamProcessor {
 					this.processDelta(chunk, progress, token);
 				}
 			}
-			this.finishStream(progress, !token.isCancellationRequested);
+			this.finishStream(progress, !token.isCancellationRequested, true);
 		} finally {
 			try {
 				reader.releaseLock();
@@ -888,9 +892,16 @@ export class StreamProcessor {
 	 * Single end-of-stream path shared by finish_reason, [DONE], and EOF.
 	 * finishedNormally is false only when the request was cancelled; a
 	 * cancelled stream downgrades unparseable leftovers to logged drops and
-	 * discards accumulated media instead of emitting it.
+	 * discards accumulated media instead of emitting it. `settled` is true
+	 * only for the [DONE] and EOF runs: the finish_reason run can still be
+	 * followed by more chunks (the standard OpenAI usage trailer arrives
+	 * after it), so settlement-only effects must not fire there.
 	 */
-	private finishStream(progress: vscode.Progress<vscode.LanguageModelResponsePart>, finishedNormally: boolean): void {
+	private finishStream(
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		finishedNormally: boolean,
+		settled = false
+	): void {
 		let invalidCount = this.flushToolCallBuffers(progress);
 
 		const rest = this._req.textParser.flush();
@@ -952,14 +963,17 @@ export class StreamProcessor {
 		// The retained usage trailer rides out as one DataPart with the bare
 		// mimeType "usage", the convention the host-side consumer decodes into
 		// its token accounting (context-window widget, cache and reasoning
-		// stats). The flag is set before any outcome is known so the repeated
-		// finishStream runs (finish_reason, then [DONE], then EOF) decide once.
-		// Reported directly, not through reportPart: usage is bookkeeping, so a
-		// usage-only stream must still count as empty for the reasoning-only
-		// error below. A host without the DataPart class drops it silently -
-		// the pre-feature behavior, and logMissingDataPartSupportOnce's message
-		// is about generated media, which this is not.
-		if (finishedNormally && this._req.usage !== undefined && !this._req.emittedUsage) {
+		// stats). Emission waits for a settled run ([DONE] or EOF): at
+		// finish_reason the final trailer may still be in flight, and emitting
+		// an interim usage object there would pin stale counts - the last
+		// trailer must win. The flag is set before any outcome is known so the
+		// [DONE]-then-EOF repetition decides once. Reported directly, not
+		// through reportPart: usage is bookkeeping, so a usage-only stream must
+		// still count as empty for the reasoning-only error below. A host
+		// without the DataPart class drops it silently - the pre-feature
+		// behavior, and logMissingDataPartSupportOnce's message is about
+		// generated media, which this is not.
+		if (settled && finishedNormally && this._req.usage !== undefined && !this._req.emittedUsage) {
 			this._req.emittedUsage = true;
 			const payload = usageDataPartPayload(this._req.usage);
 			if (payload !== undefined && this._dataPartCtor) {
