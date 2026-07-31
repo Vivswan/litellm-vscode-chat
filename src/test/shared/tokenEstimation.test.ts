@@ -61,6 +61,22 @@ suite("shared/tokenEstimation", () => {
 		assert.strictEqual(estimatePartTokens(part, textOnly), textTokens, "the multimodal switch applies inside too");
 	});
 
+	test("prompt-tsx parts count what conversion transmits, object values included", () => {
+		const objectValue = { node: { text: "rendered prompt fragment" } };
+		const tsx = new vscode.LanguageModelPromptTsxPart(objectValue);
+		const expected = Math.ceil(JSON.stringify(objectValue).length / CHARS_PER_TOKEN);
+		assert.strictEqual(estimatePartTokens(tsx, withMultimodal), expected);
+
+		const inToolResult = new vscode.LanguageModelToolResultPart("call-1", [tsx]);
+		assert.strictEqual(estimatePartTokens(inToolResult, withMultimodal), expected, "and inside tool results");
+
+		const stringValue = new vscode.LanguageModelPromptTsxPart("plain text value");
+		assert.strictEqual(
+			estimatePartTokens(stringValue, withMultimodal),
+			Math.ceil("plain text value".length / CHARS_PER_TOKEN)
+		);
+	});
+
 	test("an empty or malformed tool result content still counts as zero without throwing", () => {
 		assert.strictEqual(estimatePartTokens(new vscode.LanguageModelToolResultPart("call-1", []), withMultimodal), 0);
 		const noContent = new vscode.LanguageModelToolResultPart("call-1", []);

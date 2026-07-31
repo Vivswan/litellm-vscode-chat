@@ -685,6 +685,71 @@ suite("provider", () => {
 			}
 		});
 
+		test("the blend weights input 3:1 over output, and sub-unit costs render as the numeric field's 0", () => {
+			const { infos } = buildModelInfos(
+				[
+					// Asymmetric pairs pin the 3:1 weighting: equal-cost boundary
+					// tests cannot tell (3x + y) / 4 from any other mix.
+					{
+						id: "output-heavy",
+						shape: {
+							kind: "deployment",
+							provider: {
+								provider: "openai",
+								status: "ok",
+								input_cost_per_token: 0,
+								output_cost_per_token: 3.9 / 1_000_000,
+							},
+						},
+					},
+					{
+						id: "input-heavy",
+						shape: {
+							kind: "deployment",
+							provider: {
+								provider: "openai",
+								status: "ok",
+								input_cost_per_token: 3.9 / 1_000_000,
+								output_cost_per_token: 0,
+							},
+						},
+					},
+					{
+						id: "sub-unit",
+						shape: {
+							kind: "deployment",
+							provider: {
+								provider: "openai",
+								status: "ok",
+								// Rounds to 0 in the six-decimal per-million unit.
+								input_cost_per_token: 1e-13,
+								output_cost_per_token: 0.000003,
+							},
+						},
+					},
+				],
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				1,
+				() => {},
+				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+			);
+			const byId = new Map(infos.map((i) => [i.id, i]));
+
+			const outputHeavy = expectDefined(byId.get("output-heavy"));
+			assert.strictEqual(outputHeavy.priceCategory, "low", "blended (3*0 + 3.9)/4 = 0.975 stays low");
+			const inputHeavy = expectDefined(byId.get("input-heavy"));
+			assert.strictEqual(inputHeavy.priceCategory, "medium", "blended (3*3.9 + 0)/4 = 2.925 is medium");
+
+			const subUnit = expectDefined(byId.get("sub-unit"));
+			assert.strictEqual(subUnit.inputCost, 0, "a positive per-token cost below the unit rounds to 0");
+			assert.strictEqual(
+				subUnit.pricing,
+				"$0 in / $3 out per 1M tokens",
+				"the label mirrors the numeric field's 0 instead of inventing a smaller unit"
+			);
+			assert.strictEqual(subUnit.priceCategory, "low");
+		});
+
 		test("priceCategory is always one of the four literals the host renders", () => {
 			// The host renders any other string through a capitalized "<Foo> cost"
 			// fallback, so the derivation may only ever emit the known four.
