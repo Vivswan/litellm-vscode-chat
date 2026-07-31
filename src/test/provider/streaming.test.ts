@@ -1989,17 +1989,19 @@ suite("provider/streaming reasoning-only empty responses", () => {
 });
 
 suite("provider/streaming progress funnel", () => {
-	test("every emission goes through reportPart: progress.report appears exactly once in the source", () => {
+	test("every emission goes through reportPart: progress.report appears exactly twice in the source", () => {
 		// The empty-response check counts emissions via reportPart; a direct
 		// progress.report call anywhere else would bypass it silently and only
 		// surface as a spurious reasoning-only error, so the funnel is pinned
-		// structurally.
+		// structurally. Exactly two sites are sanctioned: reportPart itself, and
+		// the end-of-stream usage DataPart, which is bookkeeping and must NOT
+		// count as visible output (a usage-only stream stays an empty response).
 		const source = fs.readFileSync(
 			path.resolve(__dirname, "..", "..", "..", "src", "provider", "streaming.ts"),
 			"utf8"
 		);
 		const calls = source.match(/progress\.report\(/g) ?? [];
-		assert.strictEqual(calls.length, 1, "all part emission must go through reportPart");
+		assert.strictEqual(calls.length, 2, "part emission goes through reportPart, plus the one usage DataPart site");
 	});
 });
 
@@ -2024,5 +2026,253 @@ suite("provider/streaming SSE transport", () => {
 		// Classifications only: raw line content (and V8's JSON error message,
 		// which quotes the input) must never reach the issue-report buffer.
 		assert.deepEqual(expectDefined(skipped[0]).data, { length: "{oops".length, errorClass: "SyntaxError" });
+	});
+});
+
+suite("provider/streaming usage DataPart", () => {
+	class FakeDataPart {
+		constructor(
+			public data: Uint8Array,
+			public mimeType: string
+		) {}
+	}
+	const fakeDataCtor = FakeDataPart as unknown as DataPartCtor;
+
+	setup(() => resetDataPartLogOnce());
+	teardown(() => resetDataPartLogOnce());
+
+	function token(): vscode.CancellationToken {
+		return new vscode.CancellationTokenSource().token;
+	}
+
+	function usageProcessor(log: (message: string, data?: unknown) => void = () => {}): StreamProcessor {
+		return new StreamProcessor(idSource(), log, null, fakeDataCtor);
+	}
+
+	function usagePartsOf(parts: vscode.LanguageModelResponsePart[]): Record<string, unknown>[] {
+		return parts
+			.filter((p): p is FakeDataPart => p instanceof FakeDataPart && p.mimeType === "usage")
+			.map((p) => JSON.parse(new TextDecoder().decode(p.data)) as Record<string, unknown>);
+	}
+
+	const TRAILER = 'data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":80,"total_tokens":200}}\n';
+
+	test("the empty-choices trailer emits exactly one usage DataPart despite the repeated end-of-stream runs", async () => {
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		// finish_reason, [DONE], and EOF each run finishStream; the trailer
+		// arrives between the first two, the standard OpenAI stream shape.
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"answer"}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			TRAILER,
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.strictEqual(visibleTextOf(parts), "answer");
+		const usages = usagePartsOf(parts);
+		assert.strictEqual(usages.length, 1, "one usage part per stream, however many times finishStream runs");
+		assert.deepStrictEqual(usages[0], { prompt_tokens: 120, completion_tokens: 80, total_tokens: 200 });
+	});
+
+	test("usage riding the finish_reason chunk itself is captured", async () => {
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}\n',
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		const usages = usagePartsOf(parts);
+		assert.strictEqual(usages.length, 1);
+		assert.deepStrictEqual(usages[0], { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 });
+	});
+
+	test("OpenAI-style detail groups round-trip into the payload", async () => {
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const usage = {
+			prompt_tokens: 100,
+			completion_tokens: 50,
+			total_tokens: 150,
+			prompt_tokens_details: { cached_tokens: 90, cache_creation_input_tokens: 10 },
+			completion_tokens_details: { reasoning_tokens: 40 },
+		};
+		const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.deepStrictEqual(usagePartsOf(parts), [
+			{
+				prompt_tokens: 100,
+				completion_tokens: 50,
+				total_tokens: 150,
+				prompt_tokens_details: { cached_tokens: 90, cache_creation_input_tokens: 10 },
+				completion_tokens_details: { reasoning_tokens: 40 },
+			},
+		]);
+	});
+
+	test("Anthropic-style top-level cache fields map into prompt_tokens_details", async () => {
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const usage = {
+			prompt_tokens: 100,
+			completion_tokens: 50,
+			total_tokens: 150,
+			cache_read_input_tokens: 70,
+			cache_creation_input_tokens: 30,
+		};
+		const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.deepStrictEqual(usagePartsOf(parts), [
+			{
+				prompt_tokens: 100,
+				completion_tokens: 50,
+				total_tokens: 150,
+				prompt_tokens_details: { cached_tokens: 70, cache_creation_input_tokens: 30 },
+			},
+		]);
+	});
+
+	test("the OpenAI-style detail keys outrank the top-level cache fields when both are present", async () => {
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const usage = {
+			prompt_tokens: 100,
+			completion_tokens: 50,
+			total_tokens: 150,
+			cache_read_input_tokens: 1,
+			prompt_tokens_details: { cached_tokens: 90 },
+		};
+		const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		const usages = usagePartsOf(parts);
+		assert.deepStrictEqual(expectDefined(usages[0]).prompt_tokens_details, { cached_tokens: 90 });
+	});
+
+	test("arbitrary server keys never reach the emitted payload", async () => {
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const usage = {
+			prompt_tokens: 1,
+			completion_tokens: 2,
+			total_tokens: 3,
+			gateway_debug: "internal-usage-MARKER",
+			prompt_tokens_details: { cached_tokens: 0, gateway_note: "internal-usage-MARKER" },
+		};
+		const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		const usages = usagePartsOf(parts);
+		assert.strictEqual(usages.length, 1);
+		assert.ok(
+			!JSON.stringify(usages[0]).includes("internal-usage-MARKER"),
+			"the trailer is response-owned; only the sanitized numeric counts pass"
+		);
+		assert.deepStrictEqual(expectDefined(usages[0]).prompt_tokens_details, { cached_tokens: 0 });
+	});
+
+	test("a trailer missing a required count emits nothing", async () => {
+		for (const usage of [
+			{ prompt_tokens: 1, completion_tokens: 2 },
+			{ prompt_tokens: 1, completion_tokens: 2, total_tokens: "3" },
+			{ total_tokens: 3 },
+		]) {
+			const stream = usageProcessor();
+			const { parts, progress } = collector();
+			const body = sseStream([`data: {"choices":[],"usage":${JSON.stringify(usage)}}\n`, "data: [DONE]\n"]);
+
+			await stream.processStreamingResponse(body, progress, token());
+
+			assert.strictEqual(
+				usagePartsOf(parts).length,
+				0,
+				`usage ${JSON.stringify(usage)} fails the consumer's shape check and must not emit`
+			);
+		}
+	});
+
+	test("a cancelled stream emits no usage part", async () => {
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const source = new vscode.CancellationTokenSource();
+		const body = sseStream([TRAILER], () => source.cancel());
+
+		await stream.processStreamingResponse(body, progress, source.token);
+
+		assert.strictEqual(usagePartsOf(parts).length, 0);
+	});
+
+	test("a host without the DataPart class drops the usage silently, without the generated-media notice", async () => {
+		const logs: string[] = [];
+		const stream = new StreamProcessor(idSource(), (msg) => logs.push(msg), null, null);
+		const { parts, progress } = collector();
+		const body = sseStream(['data: {"choices":[{"delta":{"content":"text"}}]}\n', TRAILER, "data: [DONE]\n"]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.strictEqual(visibleTextOf(parts), "text");
+		assert.strictEqual(parts.length, 1, "no usage part without the class");
+		assert.ok(!logs.some((l) => l.includes("generated media")), "the missing-support notice is about media, not usage");
+	});
+
+	test("the usage part is bookkeeping: a reasoning-only stream still fails loudly, usage or not", async () => {
+		// The usage part reports directly instead of through reportPart, so it
+		// must not count as visible output for the empty-response check.
+		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			TRAILER,
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output"),
+			"the usage part must not suppress the reasoning-only error"
+		);
+		assert.strictEqual(visibleTextOf(parts), "", "no visible output");
+	});
+
+	test("the usage log line carries the top-level cache fields as numbers only", () => {
+		const logged: { message: string; data?: unknown }[] = [];
+		const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }));
+		const { progress } = collector();
+
+		stream.processDelta(
+			{
+				choices: [],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+					cache_read_input_tokens: 7,
+					cache_creation_input_tokens: 3,
+					prompt_tokens_details: { cache_creation_input_tokens: "not-a-number" },
+				},
+			},
+			progress
+		);
+
+		const usageLog = logged.find((l) => l.message === "Token usage");
+		assert.deepStrictEqual(expectDefined(usageLog?.data), {
+			prompt_tokens: 10,
+			completion_tokens: 5,
+			total_tokens: 15,
+			cache_read_input_tokens: 7,
+			cache_creation_input_tokens: 3,
+		});
 	});
 });

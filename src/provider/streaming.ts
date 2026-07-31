@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { DataPartCtor } from "../shared/dataPart";
 import { dataPartCtor, logDataPartProbeErrorOnce, logMissingDataPartSupportOnce } from "../shared/dataPart";
-import { tryParseJSONObject } from "../shared/json";
+import { isRecord, tryParseJSONObject } from "../shared/json";
 import { isImageMimeType, isSafeMimeType } from "../shared/mime";
 import type { ThinkingPartCtor } from "../shared/thinkingPart";
 import {
@@ -205,6 +205,10 @@ interface RequestState {
 	citations: Map<string, string>;
 	/** Set once the citations trailer has been emitted; finishStream runs more than once per stream. */
 	emittedCitations: boolean;
+	/** The latest usage trailer observed on any chunk (the last one wins), emitted at end of stream. */
+	usage: Record<string, unknown> | undefined;
+	/** Set once the usage DataPart emission was decided; finishStream runs more than once per stream. */
+	emittedUsage: boolean;
 	/** The generated audio being accumulated, or undefined when none is in flight (also after each flush). */
 	audioBuffer: AudioBuffer | undefined;
 	/** Set by every part handed to progress; the end-of-stream empty-response check reads it. */
@@ -244,14 +248,20 @@ const REASONING_ONLY_RESPONSE_MESSAGE =
 function knownUsageCounts(usage: object): Record<string, number> {
 	const record = usage as Record<string, unknown>;
 	const counts: Record<string, number> = {};
-	for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"]) {
+	for (const key of [
+		"prompt_tokens",
+		"completion_tokens",
+		"total_tokens",
+		"cache_creation_input_tokens",
+		"cache_read_input_tokens",
+	]) {
 		const value = record[key];
 		if (typeof value === "number") {
 			counts[key] = value;
 		}
 	}
 	const detailGroups: ReadonlyArray<readonly [string, readonly string[]]> = [
-		["prompt_tokens_details", ["cached_tokens", "audio_tokens"]],
+		["prompt_tokens_details", ["cached_tokens", "cache_creation_input_tokens", "audio_tokens"]],
 		["completion_tokens_details", ["reasoning_tokens", "audio_tokens"]],
 	];
 	for (const [group, keys] of detailGroups) {
@@ -267,6 +277,49 @@ function knownUsageCounts(usage: object): Record<string, number> {
 		}
 	}
 	return counts;
+}
+
+/**
+ * The sanitized payload of the end-of-stream "usage" DataPart, or undefined
+ * when the trailer lacks any of the three required counts (the consumer's
+ * shape check rejects such a payload outright, so emitting it would be
+ * noise). The trailer is response-owned, so it is never forwarded verbatim:
+ * only these known numeric counts pass, the same discipline as
+ * knownUsageCounts. Cache accounting reads the OpenAI-style
+ * prompt_tokens_details keys first and falls back to the top-level
+ * cache_read_input_tokens/cache_creation_input_tokens fields LiteLLM emits on
+ * Anthropic routes, mapping both shapes onto the prompt_tokens_details keys
+ * the consumer reads.
+ */
+function usageDataPartPayload(usage: Record<string, unknown>): Record<string, unknown> | undefined {
+	const num = (value: unknown): number | undefined => (typeof value === "number" ? value : undefined);
+	const promptTokens = num(usage.prompt_tokens);
+	const completionTokens = num(usage.completion_tokens);
+	const totalTokens = num(usage.total_tokens);
+	if (promptTokens === undefined || completionTokens === undefined || totalTokens === undefined) {
+		return undefined;
+	}
+	const promptDetails = isRecord(usage.prompt_tokens_details) ? usage.prompt_tokens_details : undefined;
+	const completionDetails = isRecord(usage.completion_tokens_details) ? usage.completion_tokens_details : undefined;
+	const cachedTokens = num(promptDetails?.cached_tokens) ?? num(usage.cache_read_input_tokens);
+	const cacheCreationTokens = num(promptDetails?.cache_creation_input_tokens) ?? num(usage.cache_creation_input_tokens);
+	const reasoningTokens = num(completionDetails?.reasoning_tokens);
+	const payload: Record<string, unknown> = {
+		prompt_tokens: promptTokens,
+		completion_tokens: completionTokens,
+		total_tokens: totalTokens,
+	};
+	const details: Record<string, number> = {
+		...(cachedTokens !== undefined ? { cached_tokens: cachedTokens } : {}),
+		...(cacheCreationTokens !== undefined ? { cache_creation_input_tokens: cacheCreationTokens } : {}),
+	};
+	if (Object.keys(details).length > 0) {
+		payload.prompt_tokens_details = details;
+	}
+	if (reasoningTokens !== undefined) {
+		payload.completion_tokens_details = { reasoning_tokens: reasoningTokens };
+	}
+	return payload;
 }
 
 function freshRequestState(): RequestState {
@@ -285,6 +338,8 @@ function freshRequestState(): RequestState {
 		loggedImageSkip: false,
 		citations: new Map(),
 		emittedCitations: false,
+		usage: undefined,
+		emittedUsage: false,
 		audioBuffer: undefined,
 		reportedAnyPart: false,
 		droppedReasoningParts: 0,
@@ -449,6 +504,10 @@ export class StreamProcessor {
 
 		if (chunk.usage) {
 			this._log("Token usage", knownUsageCounts(chunk.usage));
+			// Retained for the end-of-stream usage DataPart; runs before the
+			// empty-choices early return below, so the standard trailer chunk
+			// (choices: []) is captured. The last trailer wins.
+			this._req.usage = chunk.usage;
 		}
 
 		const choice = chunk.choices?.[0];
@@ -888,6 +947,27 @@ export class StreamProcessor {
 				([url, title]) => `- [${escapeTitle(title)}](${escapeUrl(url)})`
 			);
 			this.reportPart(progress, new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
+		}
+
+		// The retained usage trailer rides out as one DataPart with the bare
+		// mimeType "usage", the convention the host-side consumer decodes into
+		// its token accounting (context-window widget, cache and reasoning
+		// stats). The flag is set before any outcome is known so the repeated
+		// finishStream runs (finish_reason, then [DONE], then EOF) decide once.
+		// Reported directly, not through reportPart: usage is bookkeeping, so a
+		// usage-only stream must still count as empty for the reasoning-only
+		// error below. A host without the DataPart class drops it silently -
+		// the pre-feature behavior, and logMissingDataPartSupportOnce's message
+		// is about generated media, which this is not.
+		if (finishedNormally && this._req.usage !== undefined && !this._req.emittedUsage) {
+			this._req.emittedUsage = true;
+			const payload = usageDataPartPayload(this._req.usage);
+			if (payload !== undefined && this._dataPartCtor) {
+				const part = this.constructDataPart(new TextEncoder().encode(JSON.stringify(payload)), "usage");
+				if (part !== undefined) {
+					progress.report(part);
+				}
+			}
 		}
 
 		this.logDroppedReasoningAggregate();
