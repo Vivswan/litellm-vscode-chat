@@ -7,6 +7,12 @@ name: Docker Stack
 
 on:
   workflow_dispatch:
+    inputs:
+      docker-only:
+        description: 'Comma-separated docker-test labels to run (empty runs the full set)'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -17,3 +23,4 @@ jobs:
     with:
       os: 'ubuntu-latest'
       suite: 'docker'
+      docker-only: ${{ inputs.docker-only }}
