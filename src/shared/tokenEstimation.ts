@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isToolResultPart } from "./messages";
 import { isImageMimeType, isPdfMimeType, isTextMimeType } from "./mime";
 import type { OpenAIFunctionToolDef } from "./wire";
 
@@ -30,6 +31,17 @@ export function estimatePartTokens(part: unknown, options: TokenEstimationOption
 		if (isTextMimeType(part.mimeType)) {
 			return Math.ceil(part.data.length / CHARS_PER_TOKEN);
 		}
+	}
+	// Tool results wrap their output in a content array (no string value), so
+	// each entry recurses through the same per-part estimates. In agent
+	// sessions tool output dominates the prompt; counting it as 0 made the
+	// host's budget skip trimming until the request overflowed server-side.
+	if (isToolResultPart(part)) {
+		let total = 0;
+		for (const inner of part.content ?? []) {
+			total += estimatePartTokens(inner, options);
+		}
+		return total;
 	}
 	// Thinking parts (a proposed API class) reach here as unrecognized objects
 	// carrying a string value; their text plus any replayed signature or

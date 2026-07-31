@@ -50,6 +50,24 @@ suite("shared/tokenEstimation", () => {
 		assert.strictEqual(estimatePartTokens({ some: "object" }, withMultimodal), 0);
 	});
 
+	test("tool result parts recurse over their content with the same per-part estimates", () => {
+		const text = "terminal output ".repeat(20);
+		const part = new vscode.LanguageModelToolResultPart("call-1", [
+			new vscode.LanguageModelTextPart(text),
+			new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png"),
+		]);
+		const textTokens = Math.ceil(text.length / CHARS_PER_TOKEN);
+		assert.strictEqual(estimatePartTokens(part, withMultimodal), textTokens + IMAGE_TOKEN_ESTIMATE);
+		assert.strictEqual(estimatePartTokens(part, textOnly), textTokens, "the multimodal switch applies inside too");
+	});
+
+	test("an empty or malformed tool result content still counts as zero without throwing", () => {
+		assert.strictEqual(estimatePartTokens(new vscode.LanguageModelToolResultPart("call-1", []), withMultimodal), 0);
+		const noContent = new vscode.LanguageModelToolResultPart("call-1", []);
+		(noContent as unknown as { content: undefined }).content = undefined;
+		assert.strictEqual(estimatePartTokens(noContent, withMultimodal), 0);
+	});
+
 	test("thinking parts count their text plus replayed signature and redacted data", () => {
 		const signed = { value: "x".repeat(8), metadata: { type: "thinking", signature: "s".repeat(4) } };
 		assert.strictEqual(estimatePartTokens(signed, withMultimodal), Math.ceil(12 / CHARS_PER_TOKEN));
