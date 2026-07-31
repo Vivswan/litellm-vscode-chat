@@ -26,7 +26,7 @@ import {
 	validateAdoptLabel,
 } from "../../extension/dashboard/serverForm";
 import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
-import { Help } from "./help";
+import { Help, HoverTip } from "./help";
 import {
 	HELP_ENTRY_MODEL_PARAMETER_PREFIX,
 	HELP_SECRET_STORAGE,
@@ -34,15 +34,8 @@ import {
 	SERVER_FIELD_HELP,
 } from "./helpText";
 import { ParamGroupsFields } from "./recordEditors";
+import { relativeTime, useNow } from "./time";
 import { postMessage } from "./vscodeApi";
-
-function formatTimestamp(iso: string | undefined): string {
-	if (iso === undefined) {
-		return "-";
-	}
-	const date = new Date(iso);
-	return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
-}
 
 /** A correlation ID for one posted intent; matched against intentSucceeded/intentFailed notices. */
 function newRequestId(): string {
@@ -53,21 +46,51 @@ function newRequestId(): string {
 	return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function StateCell({ server }: { server: DashboardServer }) {
+/**
+ * The row's status pill: tone dot, plain-language verdict, and how long ago
+ * discovery last looked. An "ok" row that still carries an error (a live
+ * group kept serving while its sync failed) shows the warn tone; the error
+ * text itself renders in the section's banner, where it is selectable.
+ */
+function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
+	const checked = server.lastChecked === undefined ? undefined : relativeTime(server.lastChecked, now);
+	const time = checked === undefined ? null : <span class="pill-time">{checked}</span>;
 	if (server.state === "ok") {
-		return <span class="state-ok">reachable</span>;
+		if (server.error !== undefined) {
+			return (
+				<HoverTip tip="The server answered, but its last settings sync reported a problem; details below.">
+					<span class="pill tone-warn">
+						<span class="dot" />
+						Sync issue
+						{time}
+					</span>
+				</HoverTip>
+			);
+		}
+		return (
+			<span class="pill tone-ok">
+				<span class="dot" />
+				Connected
+				{time}
+			</span>
+		);
 	}
 	if (server.state === "error") {
 		return (
-			<span class="state-error" title={server.error}>
-				error
+			<span class="pill tone-error">
+				<span class="dot" />
+				Error
+				{time}
 			</span>
 		);
 	}
 	return (
-		<span class="state-muted" title="Declared in settings; no discovery pass has seen it yet">
-			not checked
-		</span>
+		<HoverTip tip="Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now.">
+			<span class="pill tone-muted">
+				<span class="dot" />
+				Not checked
+			</span>
+		</HoverTip>
 	);
 }
 
@@ -744,11 +767,13 @@ function AdoptForm({
 
 function ServerRow({
 	server,
+	now,
 	armed,
 	onEdit,
 	onArmRemove,
 }: {
 	server: DashboardServer;
+	now: number;
 	armed: boolean;
 	onEdit: () => void;
 	onArmRemove: (armed: boolean) => void;
@@ -760,44 +785,35 @@ function ServerRow({
 	return (
 		<tr>
 			<td>{server.label}</td>
-			<td>{server.baseUrl}</td>
+			<td class="url">{server.baseUrl}</td>
 			<td data-label="Status">
-				<StateCell server={server} />
+				<StatusPill server={server} now={now} />
 			</td>
 			<td class="num" data-label="Models">
 				{server.modelCount}
 			</td>
-			<td data-label="Last checked">{formatTimestamp(server.lastChecked)}</td>
 			<td>
 				{server.hasApiKey || server.hasOAuth ? (
-					<span class="badge" title={server.hasOAuth ? "OAuth configured" : "API key configured"}>
-						auth
-					</span>
+					<HoverTip tip={server.hasOAuth ? "OAuth configured" : "API key configured"}>
+						<span class="badge">auth</span>
+					</HoverTip>
 				) : null}
 				{server.origin === "external" ? (
-					<span class="badge" title="No entry in the servers setting; managed in the native editor">
-						external
-					</span>
+					<HoverTip tip="No entry in the servers setting; managed in the native editor">
+						<span class="badge">external</span>
+					</HoverTip>
 				) : null}
 				{server.notice === "entry-params-inactive" ? (
-					<span
-						class="badge state-warn"
-						title="This entry's per-server model parameters are not applied: the provider group serving it does not carry this entry's labeled identity (it predates entry labels or a rename). Remove the group in the native Manage Language Models editor and run Sync Models Now, or save the entry under a new label, to activate them."
-					>
-						params inactive
-					</span>
+					<HoverTip tip="This entry's per-server model parameters are not applied: the provider group serving it does not carry this entry's labeled identity (it predates entry labels or a rename). Remove the group in the native Manage Language Models editor and run Sync Models Now, or save the entry under a new label, to activate them.">
+						<span class="badge state-warn">params inactive</span>
+					</HoverTip>
 				) : null}
 			</td>
-			<td class="actions">
+			<td class={armed ? "actions armed" : "actions"}>
 				{server.origin === "declared" ? (
 					armed ? (
 						<>
-							<button
-								type="button"
-								class="quiet state-error"
-								title="Removes the settings entry; the VS Code group itself is removed in the native editor"
-								onClick={confirmRemove}
-							>
+							<button type="button" class="quiet state-error" onClick={confirmRemove}>
 								Confirm remove?
 							</button>
 							<button type="button" class="quiet" onClick={() => onArmRemove(false)}>
@@ -809,23 +825,13 @@ function ServerRow({
 							<button type="button" class="quiet" onClick={onEdit}>
 								Edit
 							</button>
-							<button
-								type="button"
-								class="quiet"
-								title="Removes the settings entry; inline secrets in it are removed with it"
-								onClick={() => onArmRemove(true)}
-							>
+							<button type="button" class="quiet" onClick={() => onArmRemove(true)}>
 								Remove
 							</button>
 						</>
 					)
 				) : (
-					<button
-						type="button"
-						class="quiet"
-						title="Managed outside settings; Edit opens the form to adopt it into the servers setting"
-						onClick={onEdit}
-					>
+					<button type="button" class="quiet" onClick={onEdit}>
 						Edit
 					</button>
 				)}
@@ -877,6 +883,7 @@ export function ServersSection({
 	};
 
 	const declaredLabels = servers.filter((server) => server.origin === "declared").map((server) => server.label);
+	const now = useNow();
 
 	return (
 		<section>
@@ -1012,7 +1019,6 @@ export function ServersSection({
 								<th>Base URL</th>
 								<th>Status</th>
 								<th class="num">Models</th>
-								<th>Last checked</th>
 								<th>{/* badges */}</th>
 								<th>{/* actions */}</th>
 							</tr>
@@ -1025,6 +1031,7 @@ export function ServersSection({
 								<ServerRow
 									key={index}
 									server={server}
+									now={now}
 									armed={armedRemove === server.label}
 									onEdit={() =>
 										// The one place the form's purpose is decided: a declared

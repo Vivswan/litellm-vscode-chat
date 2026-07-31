@@ -10,6 +10,7 @@ import { ModelsSection } from "./models";
 import type { IntentFailure } from "./recordEditors";
 import { ServersSection } from "./servers";
 import { SettingsSection } from "./settings";
+import { relativeTime, useNow } from "./time";
 import { postMessage } from "./vscodeApi";
 
 /**
@@ -66,23 +67,23 @@ function overallState(servers: readonly DashboardServer[]): Overall {
 	}
 }
 
-function lastSync(servers: readonly DashboardServer[]): string | undefined {
+function lastSync(servers: readonly DashboardServer[], now: number): string | undefined {
 	const times = servers
 		.map((server) => (server.lastChecked === undefined ? Number.NaN : new Date(server.lastChecked).getTime()))
 		.filter((time) => !Number.isNaN(time));
 	if (times.length === 0) {
 		return undefined;
 	}
-	return new Date(Math.max(...times)).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+	return relativeTime(new Date(Math.max(...times)).toISOString(), now);
 }
 
 /** The at-a-glance strip the status bar click promises: overall state, counts, last sync, and Sync. */
 function StatusHero({ state }: { state: DashboardState }) {
 	const overall = overallState(state.servers);
-	const synced = lastSync(state.servers);
+	const synced = lastSync(state.servers, useNow());
 	return (
 		<div class="hero">
-			<span class={`overall tone-${overall.tone}`}>
+			<span class={`pill overall tone-${overall.tone}`}>
 				<span class="dot" />
 				{overall.word}
 			</span>

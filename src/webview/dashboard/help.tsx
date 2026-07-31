@@ -12,7 +12,25 @@
  * page, where the default above placement would clip.
  */
 
+import type { ComponentChildren } from "preact";
 import { useId } from "preact/hooks";
+
+/**
+ * A hover tip over non-interactive inline content (badges, table cells),
+ * drawn with the same .help-tip element the "?" affordance uses. For extra
+ * detail only: anything load-bearing must also render as visible text
+ * somewhere, because this tip needs a pointer to appear.
+ */
+export function HoverTip({ tip, children }: { tip: string; children: ComponentChildren }) {
+	return (
+		<span class="tip-wrap">
+			{children}
+			<span class="help-tip" role="tooltip">
+				{tip}
+			</span>
+		</span>
+	);
+}
 
 export function Help({ text, below }: { text: string; below?: boolean }) {
 	const id = useId();

@@ -70,7 +70,10 @@ test("a noticed entry renders the params-inactive badge and the remedy paragraph
 		(el) => el.textContent?.trim() === "params inactive"
 	);
 	expect(badge).toBeDefined();
-	expect(badge?.getAttribute("title")).toContain("run Sync Models Now");
+	// Native title attributes do not render in the webview host; the detail
+	// rides the CSS hover tip next to the badge instead.
+	const tip = badge?.closest(".tip-wrap")?.querySelector(".help-tip");
+	expect(tip?.textContent).toContain("run Sync Models Now");
 
 	const paragraph = root.querySelector("p.state-warn");
 	expect(paragraph?.textContent).toContain("Prod");
