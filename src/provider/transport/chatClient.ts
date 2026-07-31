@@ -1,6 +1,5 @@
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
-import type { NormalizedBaseUrl } from "../../shared/baseUrl";
 import { normalizeBaseUrl } from "../../shared/baseUrl";
 import { convertMessages } from "../../shared/conversion/messages";
 import { applyPromptCacheBreakpoints } from "../../shared/conversion/promptCache";
@@ -59,7 +58,7 @@ interface ResolvedConnection {
 	baseUrl: string;
 	apiKey: string;
 	rawModelId: string;
-	/** Scopes for modelParameters matching: the group's base URL and its unambiguous pre-migration label. */
+	/** Scopes for modelParameters matching: the server's normalized base URL. */
 	serverScopes: readonly string[];
 	oauth: OAuthConfig | undefined;
 	virtualKey: VirtualKeyConfig | undefined;
@@ -70,8 +69,6 @@ export interface ChatClientOptions {
 	logger?: Logger | undefined;
 	/** Resolves the legacy registry's servers; defaults to none for hosts that only serve provider groups. */
 	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
-	/** Pre-migration labels by base URL, for modelParameters scoping; defaults to none. */
-	getMigratedServerLabels?: (() => Record<string, string[]>) | undefined;
 }
 
 /**
@@ -82,8 +79,6 @@ export class ChatClient {
 	private readonly userAgent: string;
 	private readonly logger?: Logger | undefined;
 	private readonly getServers: () => Promise<ServerWithKey[]>;
-	private readonly getMigratedServerLabels: () => Record<string, string[]>;
-	private readonly ambiguousLabelBaseUrls = new Set<string>();
 	private readonly clients = new ServerClientCache();
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly _modelRoutes = new Map<string, ModelRoute>();
@@ -101,28 +96,6 @@ export class ChatClient {
 		this.userAgent = options.userAgent;
 		this.logger = options.logger;
 		this.getServers = options.getServers ?? (() => Promise.resolve([]));
-		this.getMigratedServerLabels = options.getMigratedServerLabels ?? (() => ({}));
-	}
-
-	/**
-	 * The pre-migration label that pointed at this base URL, so label-scoped
-	 * modelParameters keep matching. Only an unambiguous mapping applies: when
-	 * several labels shared one base URL, their scoped entries would all hit
-	 * every group at that URL, so label scoping is skipped (logged once per URL).
-	 */
-	private migratedLabelsFor(baseUrl: NormalizedBaseUrl): string[] {
-		const map = this.getMigratedServerLabels();
-		const labels = Object.entries(map).find(([url]) => normalizeBaseUrl(url) === baseUrl)?.[1] ?? [];
-		if (labels.length > 1) {
-			if (!this.ambiguousLabelBaseUrls.has(baseUrl)) {
-				this.ambiguousLabelBaseUrls.add(baseUrl);
-				this.log(
-					`Skipping label-scoped modelParameters for ${baseUrl}: multiple pre-migration labels (${labels.join(", ")}) pointed at it; scope by base URL instead`
-				);
-			}
-			return [];
-		}
-		return [...labels];
 	}
 
 	applyRegistration(routes: Map<string, ModelRoute>, clearFirst: boolean): void {
@@ -241,7 +214,7 @@ export class ChatClient {
 				baseUrl: groupServer.baseUrl,
 				apiKey: groupServer.apiKey,
 				rawModelId: model.id,
-				serverScopes: [groupServer.baseUrl, ...this.migratedLabelsFor(groupServer.baseUrl)],
+				serverScopes: [groupServer.baseUrl],
 				oauth: groupServer.oauth,
 				virtualKey: groupServer.virtualKey,
 			};
@@ -257,7 +230,7 @@ export class ChatClient {
 				baseUrl: server.baseUrl,
 				apiKey: server.apiKey,
 				rawModelId: route.rawModelId,
-				serverScopes: [],
+				serverScopes: [normalizeBaseUrl(server.baseUrl)],
 				oauth: undefined,
 				virtualKey: undefined,
 			};
@@ -270,7 +243,7 @@ export class ChatClient {
 				baseUrl: soleServer.baseUrl,
 				apiKey: soleServer.apiKey,
 				rawModelId: model.id,
-				serverScopes: [],
+				serverScopes: [normalizeBaseUrl(soleServer.baseUrl)],
 				oauth: undefined,
 				virtualKey: undefined,
 			};

@@ -54,7 +54,9 @@ export const PENDING_SECRET_DELETIONS_KEY = "litellm.pendingSecretDeletions";
 
 /**
  * globalState: baseUrl -> labels for servers that were migrated to provider
- * groups, so label-scoped modelParameters entries keep matching.
+ * groups. The label-scoped-modelParameters migration reads it forever to add
+ * base-URL-scoped copies of label-scoped keys; the runtime no longer matches
+ * labels itself.
  */
 export const MIGRATED_SERVER_LABELS_KEY = "litellm.migratedServerLabels";
 
