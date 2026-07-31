@@ -1,13 +1,16 @@
 import * as vscode from "vscode";
-import { CMD, MANAGE_COMMAND_TITLE } from "../shared/config/commandIds";
-import type { Logger } from "../shared/logger";
-import type { SecretFieldId } from "../shared/serverEntry";
-import { SECRET_FIELD_IDS } from "../shared/serverEntry";
-import type { ServerConfig, ServerStatus } from "../shared/servers";
-import { isErrorServerStatus } from "../shared/servers";
-import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../shared/util/links";
-import { openUrl } from "../shared/util/openUrl";
-import type { DashboardController } from "./dashboard/panel";
+import { CMD, MANAGE_COMMAND_TITLE } from "../../shared/config/commandIds";
+import type { Logger } from "../../shared/logger";
+import type { SecretFieldId } from "../../shared/serverEntry";
+import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import type { ServerConfig, ServerStatus } from "../../shared/servers";
+import { isErrorServerStatus } from "../../shared/servers";
+import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../../shared/util/links";
+import { openUrl } from "../../shared/util/openUrl";
+import type { DashboardController } from "../dashboard/panel";
+import type { ServerRegistry } from "../servers/serverRegistry";
+import type { ServerSyncEngine } from "../servers/serverSync";
+import { updateServerSecret } from "../servers/serverSync";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import type { IssueReporter } from "./issueReporter";
 import {
@@ -18,9 +21,6 @@ import {
 	showActionableMessage,
 	viewOutputAction,
 } from "./notifier";
-import type { ServerRegistry } from "./serverRegistry";
-import type { ServerSyncEngine } from "./serverSync";
-import { updateServerSecret } from "./serverSync";
 import type { ConnectionStatus } from "./status";
 
 const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO_URL}/issues/new?labels=enhancement&title=%5BFeature%5D+`;

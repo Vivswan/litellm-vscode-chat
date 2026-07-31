@@ -1,17 +1,21 @@
 import * as vscode from "vscode";
-import type { CommandId } from "../shared/config/commandIds";
-import { CMD, INTERNAL_CMD, MANAGE_COMMAND_TITLE } from "../shared/config/commandIds";
-import { CONFIG_SECTION } from "../shared/config/settingSpec";
-import { getMaskApiKeyInput, getModelParametersConfig, MODEL_PARAMETERS_SETTING_KEY } from "../shared/config/settings";
-import type { Logger } from "../shared/logger";
-import { isGroupMigrationRunning } from "./migrations/registryToProviderGroups";
+import type { CommandId } from "../../shared/config/commandIds";
+import { CMD, INTERNAL_CMD, MANAGE_COMMAND_TITLE } from "../../shared/config/commandIds";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import {
+	getMaskApiKeyInput,
+	getModelParametersConfig,
+	MODEL_PARAMETERS_SETTING_KEY,
+} from "../../shared/config/settings";
+import type { Logger } from "../../shared/logger";
+import { isGroupMigrationRunning } from "../migrations/registryToProviderGroups";
 import {
 	dismissAction,
 	openChatAction,
 	openSettingsAction,
 	showActionableMessage,
 	testConnectionAction,
-} from "./notifier";
+} from "../ui/notifier";
 import type { ServerRegistry } from "./serverRegistry";
 
 /**

@@ -4,7 +4,7 @@ import { SERVERS_SETTING_KEY } from "../shared/config/settings";
 import { DEV_SEED_FILENAME, type DevSeed } from "../shared/devSeed";
 import type { Logger } from "../shared/logger";
 import { isRecord } from "../shared/util/json";
-import { updateServerSecret } from "./serverSync";
+import { updateServerSecret } from "./servers/serverSync";
 
 /**
  * One-shot development seeding for `bun run dev`: the launcher script

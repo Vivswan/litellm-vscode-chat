@@ -5,13 +5,13 @@
  */
 
 import * as vscode from "vscode";
-import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
-import { CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
-import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../shared/config/storageKeys";
-import type { Logger } from "../../shared/logger";
-import type { SecretFieldId } from "../../shared/serverEntry";
-import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
+import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
+import { SERVERS_SETTING_KEY } from "../../../shared/config/settings";
+import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../../shared/config/storageKeys";
+import type { Logger } from "../../../shared/logger";
+import type { SecretFieldId } from "../../../shared/serverEntry";
+import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import type { ServerSyncEngine, ServerSyncEnv } from "./engine";
 import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./secrets";
 import type { EntryModelParameters } from "./setting";

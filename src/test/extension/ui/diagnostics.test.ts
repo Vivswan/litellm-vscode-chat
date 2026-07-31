@@ -1,13 +1,13 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { buildDiagnosticsSnapshot, registerDiagnosticsCommand } from "../../extension/diagnostics";
-import { IssueReporter } from "../../extension/issueReporter";
-import { ServerRegistry } from "../../extension/serverRegistry";
-import type { DeclaredServerView } from "../../extension/serverSync";
-import type { ConnectionStatus } from "../../extension/status";
-import type { ServerModelsSnapshot } from "../../provider";
-import { markLogSafe } from "../../shared/logger";
-import { expectDefined, makeExtensionStorage, makeModelInfo, makeServerStatus } from "../testUtils";
+import { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import { buildDiagnosticsSnapshot, registerDiagnosticsCommand } from "../../../extension/ui/diagnostics";
+import { IssueReporter } from "../../../extension/ui/issueReporter";
+import type { ConnectionStatus } from "../../../extension/ui/status";
+import type { ServerModelsSnapshot } from "../../../provider";
+import { markLogSafe } from "../../../shared/logger";
+import { expectDefined, makeExtensionStorage, makeModelInfo, makeServerStatus } from "../../testUtils";
 
 function createRegistry(): ServerRegistry {
 	const storage = makeExtensionStorage();
@@ -36,7 +36,7 @@ function makeDeclared(overrides: Partial<DeclaredServerView> = {}): DeclaredServ
 	};
 }
 
-suite("extension/diagnostics", () => {
+suite("extension/ui/diagnostics", () => {
 	suite("buildDiagnosticsSnapshot", () => {
 		test("collects environment, connection, and reporter data", async () => {
 			const reporter = new IssueReporter();

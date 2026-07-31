@@ -7,11 +7,11 @@
  */
 
 import type * as vscode from "vscode";
-import { groupClientId, parseGroupConfiguration } from "../../provider/catalog/groupModels";
-import { VENDOR_ID } from "../../shared/config/commandIds";
-import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { fingerprint } from "../../shared/util/fingerprint";
+import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
+import { VENDOR_ID } from "../../../shared/config/commandIds";
+import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { fingerprint } from "../../../shared/util/fingerprint";
 import type { StoredServerSecrets } from "./secrets";
 import { inlineSecretValues } from "./secrets";
 import type { DeclaredServer, EntryModelParameters } from "./setting";

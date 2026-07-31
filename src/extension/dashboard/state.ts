@@ -23,7 +23,7 @@ import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isHeaderScalar } from "../../shared/util/headers";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
-import type { DeclaredServerView } from "../serverSync";
+import type { DeclaredServerView } from "../servers/serverSync";
 import { adoptSourceHandle } from "./adoptHandle";
 import type {
 	BooleanSettingId,

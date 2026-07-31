@@ -5,8 +5,8 @@
  */
 
 import { recordFromKeys } from "../../shared/util/json";
-import type { DeclaredServer } from "../serverSync";
-import { acceptedEntry, inlineSecretValues } from "../serverSync";
+import type { DeclaredServer } from "../servers/serverSync";
+import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";

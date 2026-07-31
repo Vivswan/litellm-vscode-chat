@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import * as vscode from "vscode";
 import type { DevSeedEnv } from "../../extension/devSeed";
 import { consumeDevSeed, parseDevSeed } from "../../extension/devSeed";
-import { updateServerSecret } from "../../extension/serverSync";
+import { updateServerSecret } from "../../extension/servers/serverSync";
 import { serverSecretsKey } from "../../shared/config/storageKeys";
 import { DEV_SEED_FILENAME } from "../../shared/devSeed";
 import { Logger } from "../../shared/logger";

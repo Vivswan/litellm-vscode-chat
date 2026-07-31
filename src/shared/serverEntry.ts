@@ -7,9 +7,10 @@
  * means extending OPTIONAL_ENTRY_FIELDS and following the compile errors.
  * One deliberate exception: an entry's `modelParameters` record stays out of
  * the descriptor because it must never reach the provider-group args or their
- * fingerprint (see serverSync/setting.ts and engine.ts; serverEntry.test.ts
- * pins the schema split). Pure constants: no vscode, no DOM, no Node (the
- * dashboard protocol pulls this module into the webview bundle).
+ * fingerprint (see extension/servers/serverSync/setting.ts and engine.ts;
+ * serverEntry.test.ts pins the schema split). Pure constants: no vscode,
+ * no DOM, no Node (the dashboard protocol pulls this module into the
+ * webview bundle).
  */
 
 /**

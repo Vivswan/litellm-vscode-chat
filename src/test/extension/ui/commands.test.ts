@@ -1,14 +1,14 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { registerTestCommands, runConnectionTest, runModelSync } from "../../extension/commands";
-import type { ServerRegistry } from "../../extension/serverRegistry";
-import type { ConnectionStatus } from "../../extension/status";
-import { RequestError } from "../../provider/transport/errorMapping";
-import { Logger, markLogSafe } from "../../shared/logger";
-import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { expectDefined, makeServerStatus } from "../testUtils";
+import type { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import { registerTestCommands, runConnectionTest, runModelSync } from "../../../extension/ui/commands";
+import type { ConnectionStatus } from "../../../extension/ui/status";
+import { RequestError } from "../../../provider/transport/errorMapping";
+import { Logger, markLogSafe } from "../../../shared/logger";
+import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { expectDefined, makeServerStatus } from "../../testUtils";
 
-suite("extension/commands", () => {
+suite("extension/ui/commands", () => {
 	interface QuickPickItem {
 		label: string;
 	}

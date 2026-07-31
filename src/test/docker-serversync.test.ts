@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { DeclaredServerView } from "../extension/serverSync";
-import { GROUP_UPDATE_UNAVAILABLE_MESSAGE } from "../extension/serverSync";
+import type { DeclaredServerView } from "../extension/servers/serverSync";
+import { GROUP_UPDATE_UNAVAILABLE_MESSAGE } from "../extension/servers/serverSync";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { SERVERS_SETTING_KEY } from "../shared/config/settings";

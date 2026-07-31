@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
-import { ServerRegistry } from "../../extension/serverRegistry";
-import { apiKeySecret, SERVER_REGISTRY_KEY } from "../../shared/config/storageKeys";
-import { makeExtensionStorage } from "../testUtils";
+import { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import { apiKeySecret, SERVER_REGISTRY_KEY } from "../../../shared/config/storageKeys";
+import { makeExtensionStorage } from "../../testUtils";
 
 interface Fakes {
 	registry: ServerRegistry;
@@ -21,7 +21,7 @@ function createRegistry(initialRegistryValue?: unknown): Fakes {
 	};
 }
 
-suite("extension/serverRegistry", () => {
+suite("extension/servers/serverRegistry", () => {
 	suite("server CRUD", () => {
 		test("addServer strips trailing slashes and stores the api key", async () => {
 			const { registry, secretStore } = createRegistry();

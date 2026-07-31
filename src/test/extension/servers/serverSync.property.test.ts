@@ -1,10 +1,10 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import type { StoredServerSecrets } from "../../extension/serverSync";
-import { acceptedEntry, buildGroupArgs, parseServersSetting } from "../../extension/serverSync";
-import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
-import { resolveFuzzSeed } from "../fuzzStream";
+import type { StoredServerSecrets } from "../../../extension/servers/serverSync";
+import { acceptedEntry, buildGroupArgs, parseServersSetting } from "../../../extension/servers/serverSync";
+import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
+import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
@@ -80,7 +80,7 @@ function isAcceptableAt(raw: readonly unknown[], index: number, seen: ReadonlySe
 	return label;
 }
 
-suite("extension/serverSync parsing properties", () => {
+suite("extension/servers/serverSync parsing properties", () => {
 	test("parseServersSetting is total; non-arrays yield no entries and one problem", () => {
 		fc.assert(
 			fc.property(fc.oneof(fc.jsonValue(), fc.anything()), (raw) => {
@@ -170,7 +170,7 @@ suite("extension/serverSync parsing properties", () => {
 	});
 });
 
-suite("extension/serverSync buildGroupArgs properties", () => {
+suite("extension/servers/serverSync buildGroupArgs properties", () => {
 	const entryRecordArb = fc
 		.tuple(fc.constantFrom(...labelPool), optionalFieldsArb)
 		.map(([label, fields]) => ({ ...fields, label, baseUrl: "http://args.test" }));

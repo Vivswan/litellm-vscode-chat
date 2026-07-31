@@ -32,8 +32,8 @@
 
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { DeclaredServerView } from "../extension/serverSync";
-import { buildGroupArgs, GROUP_UPDATE_UNAVAILABLE_MESSAGE, parseServersSetting } from "../extension/serverSync";
+import type { DeclaredServerView } from "../extension/servers/serverSync";
+import { buildGroupArgs, GROUP_UPDATE_UNAVAILABLE_MESSAGE, parseServersSetting } from "../extension/servers/serverSync";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, SERVERS_SETTING_KEY } from "../shared/config/settings";

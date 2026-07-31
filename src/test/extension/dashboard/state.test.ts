@@ -35,7 +35,7 @@ import {
 	resolveConfiguredScope,
 	resolveUpdateScope,
 } from "../../../extension/dashboard/state";
-import type { DeclaredServerView } from "../../../extension/serverSync";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";

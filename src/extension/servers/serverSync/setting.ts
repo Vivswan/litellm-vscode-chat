@@ -3,10 +3,10 @@
  * declared entries live here and nowhere else.
  */
 
-import { normalizeModelParameters } from "../../shared/config/settings";
-import type { OptionalEntryFieldId, OptionalEntryFields } from "../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS } from "../../shared/serverEntry";
-import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
+import { normalizeModelParameters } from "../../../shared/config/settings";
+import type { OptionalEntryFieldId, OptionalEntryFields } from "../../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS } from "../../../shared/serverEntry";
+import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 
 /** An entry's per-entry modelParameters: model-ID prefix to request parameters, like the global setting. */
 export type EntryModelParameters = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
