@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import {
+	AUDIO_TOKEN_ESTIMATE,
 	CHARS_PER_TOKEN,
 	estimateMessagesTokens,
 	estimatePartTokens,
@@ -32,6 +33,20 @@ suite("shared/tokenEstimation", () => {
 		assert.strictEqual(estimatePartTokens(part, textOnly), 0);
 	});
 
+	test("audio parts use the fixed estimate only with multimodal enabled, over the wire's mime vocabulary", () => {
+		for (const mime of ["audio/wav", "audio/mpeg"]) {
+			const part = new vscode.LanguageModelDataPart(new Uint8Array([0x52, 0x49, 0x46, 0x46]), mime);
+			assert.strictEqual(estimatePartTokens(part, withMultimodal), AUDIO_TOKEN_ESTIMATE, mime);
+			assert.strictEqual(estimatePartTokens(part, textOnly), 0, mime);
+		}
+		const unmapped = new vscode.LanguageModelDataPart(new Uint8Array(4), "audio/ogg");
+		assert.strictEqual(
+			estimatePartTokens(unmapped, withMultimodal),
+			0,
+			"audio the wire cannot carry never reaches the server and must not inflate the estimate"
+		);
+	});
+
 	test("JSON data parts count byte length divided by CHARS_PER_TOKEN in both modes", () => {
 		const payload = new TextEncoder().encode(JSON.stringify({ answer: 42 }));
 		const part = new vscode.LanguageModelDataPart(payload, "application/json");
@@ -59,6 +74,21 @@ suite("shared/tokenEstimation", () => {
 		const textTokens = Math.ceil(text.length / CHARS_PER_TOKEN);
 		assert.strictEqual(estimatePartTokens(part, withMultimodal), textTokens + IMAGE_TOKEN_ESTIMATE);
 		assert.strictEqual(estimatePartTokens(part, textOnly), textTokens, "the multimodal switch applies inside too");
+	});
+
+	test("audio and PDF inside a tool result count zero: conversion never forwards them from that path", () => {
+		const text = "recording saved";
+		const part = new vscode.LanguageModelToolResultPart("call-1", [
+			new vscode.LanguageModelTextPart(text),
+			new vscode.LanguageModelDataPart(new Uint8Array([0x52, 0x49, 0x46, 0x46]), "audio/wav"),
+			new vscode.LanguageModelDataPart(new Uint8Array([0x25, 0x50, 0x44, 0x46]), "application/pdf"),
+		]);
+		const textTokens = Math.ceil(text.length / CHARS_PER_TOKEN);
+		assert.strictEqual(
+			estimatePartTokens(part, withMultimodal),
+			textTokens,
+			"collectToolResultContent drops tool-result audio and PDF unconditionally, so they must not inflate the budget"
+		);
 	});
 
 	test("prompt-tsx parts count what conversion transmits, object values included", () => {

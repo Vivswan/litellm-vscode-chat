@@ -593,6 +593,34 @@ suite("shared/messages", () => {
 			);
 			assert.strictEqual(expectDefined(out[1]).content, "plain");
 		});
+
+		test("non-image media inside a tool result drops with its own classification log", () => {
+			// PDF and audio blocks exist only on user messages; inside a tool
+			// result they cannot ride the wire even for a fully capable model,
+			// and the drop must stay observable like the non-vision image case.
+			const logged: { message: string; data?: unknown }[] = [];
+			const pdf = new vscode.LanguageModelDataPart(new Uint8Array([0x25, 0x50, 0x44, 0x46]), "application/pdf");
+			const clip = new vscode.LanguageModelDataPart(new Uint8Array([0x52, 0x49, 0x46, 0x46]), "audio/wav");
+			const out = convertMessages(
+				[
+					assistantToolCalls("call_media"),
+					toolResultMessage("call_media", [new vscode.LanguageModelTextPart("report"), pdf, clip]),
+				],
+				{ imageInput: true, audioInput: true, log: (message, data) => logged.push({ message, data }) }
+			) as unknown as Array<Record<string, unknown>>;
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "tool"],
+				"no message may be synthesized for undeliverable media"
+			);
+			assert.strictEqual(expectDefined(out[1]).content, "report", "the text survives, the media drops");
+			const drops = logged.filter((l) => l.message === "Tool returned media with no tool-result wire mapping");
+			assert.deepEqual(
+				drops.map((l) => l.data),
+				[{ mimeType: "application/pdf" }, { mimeType: "audio/wav" }],
+				"each dropped part logs its classification"
+			);
+		});
 	});
 
 	suite("audio input", () => {
@@ -737,7 +765,7 @@ suite("shared/messages", () => {
 			assert.strictEqual(expectDefined(out[0]).content, "before after");
 		});
 
-		test("non-vision tool result DataParts: text mimes decode, image mimes log the cannot-forward message, other binaries drop silently", () => {
+		test("non-vision tool result DataParts: text mimes decode, image and other binary mimes each log their drop", () => {
 			const logged: string[] = [];
 			const result = new vscode.LanguageModelToolResultPart("call_1", [
 				new vscode.LanguageModelDataPart(new TextEncoder().encode('{"rows":3}'), "application/json"),
@@ -758,8 +786,9 @@ suite("shared/messages", () => {
 			// The vision arm (imageInput: true synthesizing an image message) is
 			// pinned by the tool-result images suite above; this is the gate's
 			// other side, with no imageInput capability.
-			assert.strictEqual(logged.length, 1, "only the image warrants a log; the opaque binary drops silently");
+			assert.strictEqual(logged.length, 2, "the image and the opaque binary each log their drop");
 			assert.ok(expectDefined(logged[0]).includes("cannot be forwarded"), expectDefined(logged[0]));
+			assert.ok(expectDefined(logged[1]).includes("no tool-result wire mapping"), expectDefined(logged[1]));
 		});
 
 		test("an empty tool result still emits a tool message with empty-string content", () => {
