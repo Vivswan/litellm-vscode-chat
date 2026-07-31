@@ -13,8 +13,18 @@ import type { LiteLLMProvider } from "./schemas";
  * both sides live in this one module.
  */
 
-/** The reasoning effort levels the picker can put on the wire, in menu order. */
-export const REASONING_EFFORT_LEVELS = ["low", "medium", "high"] as const;
+/**
+ * The reasoning effort levels the picker can put on the wire, in menu order.
+ * The one menu serves every reasoning model: LiteLLM's capability data names
+ * the reasoning_effort parameter but never its accepted values, so per-model
+ * menus cannot be derived from /v1/model/info. A level a given model rejects
+ * (e.g. xhigh where only low/medium/high exist) surfaces the server's own
+ * invalid-parameter error through the chat error path, where the user can
+ * re-pick; LiteLLM's provider translations clamp several such cases first.
+ * "none" is a real wire value (thinking off, where supported), distinct from
+ * the sentinel below, which sends nothing at all.
+ */
+export const REASONING_EFFORT_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
 
 type ReasoningEffort = (typeof REASONING_EFFORT_LEVELS)[number];
 
@@ -36,16 +46,22 @@ type PickerValue = (typeof PICKER_VALUES)[number];
 
 const PICKER_LABELS: Readonly<Record<PickerValue, string>> = {
 	default: "Provider default",
+	none: "Off",
+	minimal: "Minimal",
 	low: "Low",
 	medium: "Medium",
 	high: "High",
+	xhigh: "Extra High",
 };
 
 const PICKER_DESCRIPTIONS: Readonly<Record<PickerValue, string>> = {
 	default: "Send no reasoning effort; the provider's own default applies",
+	none: "Ask the model to skip reasoning entirely, on models that can turn thinking off",
+	minimal: "The fastest reasoning tier, on models that offer one below Low",
 	low: "Favor speed and cost over reasoning depth",
 	medium: "Balance reasoning depth against latency",
 	high: "Spend more reasoning on harder problems",
+	xhigh: "The deepest reasoning tier, on models that offer one above High",
 };
 
 /**
