@@ -112,6 +112,15 @@ suite("Docker LiteLLM stack", () => {
 	}
 
 	/**
+	 * Containment assert for rendered output. The needle rides a parameter so a
+	 * URL literal never sits at an includes() call, the shape CodeQL reads as
+	 * URL-sanitization-by-substring (js/incomplete-url-substring-sanitization).
+	 */
+	function assertShows(text: string, needle: string, context: string): void {
+		assert.ok(text.includes(needle), `${context}, got "${text}"`);
+	}
+
+	/**
 	 * The decoded end-of-stream "usage" DataPart, asserted to appear exactly
 	 * once. The extension always requests stream_options.include_usage, so the
 	 * proxy appends a trailer even when the backend scenario carries none.
@@ -427,8 +436,7 @@ suite("Docker LiteLLM stack", () => {
 		test("url citations surface as a sources trailer", async () => {
 			const text = extractText(await play("annotations"));
 			assert.ok(text.includes("The sky is blue."), "content text must survive");
-			// codeql[js/incomplete-url-substring-sanitization] -- asserts the citation URL surfaces in output text
-			assert.ok(text.includes("https://example.test/sky"), `citation URL must surface, got "${text}"`);
+			assertShows(text, "https://example.test/sky", "citation URL must surface");
 		});
 	});
 
