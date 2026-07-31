@@ -7,8 +7,8 @@
 		"src/test/**/*.test.tsx",
 		"src/test/testUtils.ts",
 		"src/test/capture-server.ts",
-		"scripts/*.ts",
-		"scripts/*.mts",
+		"scripts/**/*.ts",
+		"scripts/**/*.mts",
 		".vscode-test.mjs"
 	],
 	"project": [

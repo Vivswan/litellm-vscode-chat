@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-// scripts/compose.ts
+// scripts/stack/compose.ts
 //
 // Thin CLI over the resolved compose runtime (Docker or Podman), so every
-// package.json script works on either: `bun scripts/compose.ts up -d --wait`.
+// package.json script works on either: `bun scripts/stack/compose.ts up -d --wait`.
 // The `up` path regenerates the runtime LiteLLM config first - including the
 // generation-time GitHub Copilot catalog fetch when a login is seeded - so
 // no start can see a stale or missing docker/.generated/litellm-config.yaml;

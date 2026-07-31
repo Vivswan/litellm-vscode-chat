@@ -22,8 +22,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { DEV_SEED_FILENAME, type DevSeed } from "../src/shared/devSeed";
-import { composeSetting, readEnvFile, STACK_DEFAULTS } from "./litellmConfig";
+import { DEV_SEED_FILENAME, type DevSeed } from "../../src/shared/devSeed";
+import { composeSetting, readEnvFile, STACK_DEFAULTS } from "../stack/litellmConfig";
 
 const root = process.cwd();
 
@@ -180,7 +180,7 @@ writeFileSync(markerFile, `${seedFingerprint}\n`);
 // logs every chat request and response body into ./logs/fake-openai.log.
 // The proxy already logs at litellm's default DEBUG level; the compose
 // LITELLM_LOG knob quiets it if wanted. Explicit env wins.
-run("starting the fake LiteLLM stack", ["bun", "scripts/compose.ts", "up", "-d", "--wait"], {
+run("starting the fake LiteLLM stack", ["bun", "scripts/stack/compose.ts", "up", "-d", "--wait"], {
 	FAKE_VERBOSE: process.env.FAKE_VERBOSE ?? "1",
 });
 run("building the dev bundle", ["bun", "run", "bundle:dev"]);

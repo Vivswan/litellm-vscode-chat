@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Windows parity of scripts/setup-env.sh: initialize a freshly-created checkout or
+# Windows parity of scripts/env/setup-env.sh: initialize a freshly-created checkout or
 # worktree by installing pinned project dependencies. Idempotent.
 param(
 	[switch]$Verify,
@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 
 if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
-	throw 'bun is required but not found. Install it from https://bun.sh, then re-run scripts/setup-env.ps1.'
+	throw 'bun is required but not found. Install it from https://bun.sh, then re-run scripts/env/setup-env.ps1.'
 }
 
 if ($env:CI -eq 'true' -or $NoHooks) {

@@ -1,7 +1,7 @@
 /**
  * Where the dashboard webview bundle lives, relative to the extension root.
  * Producer and consumer both derive the path from these segments -
- * scripts/esbuild.mts writes the bundle there and the dashboard panel loads
+ * scripts/dev/esbuild.mts writes the bundle there and the dashboard panel loads
  * it from there - so the two cannot drift. Pure constants: no vscode, no
  * Node (the esbuild script imports this file outside the extension host).
  */

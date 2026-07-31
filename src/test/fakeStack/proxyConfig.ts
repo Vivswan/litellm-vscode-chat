@@ -5,7 +5,7 @@
  * feeds the config - its shapes are addressed per request via the %play
  * command. No filesystem or environment access here: real-provider decisions
  * arrive through an injected env lookup, so the unit suite pins the emission
- * on every CI OS without docker. scripts/litellmConfig.ts wraps this with
+ * on every CI OS without docker. scripts/stack/litellmConfig.ts wraps this with
  * the .env-aware lookup and the atomic write to docker/.generated/.
  */
 
@@ -15,7 +15,7 @@ import { FAKE_MODELS } from "./models";
 
 /**
  * The container-internal port the fake OpenAI backend binds.
- * scripts/fake-openai-server.ts defaults its PORT env to this number, and
+ * scripts/stack/fake-openai-server.ts defaults its PORT env to this number, and
  * docker-compose.yml restates it three times (the service's PORT env, the
  * host mapping's container side, the healthcheck URL); stackDrift.test.ts
  * pins those compose copies.
@@ -358,7 +358,7 @@ export function generateConfig(options: GenerateOptions, envValue: EnvLookup = (
 	const copilotModels = options.realProviders ? options.copilotModels : [];
 
 	return [
-		"# Generated at stack startup by scripts/litellmConfig.ts; do not edit.",
+		"# Generated at stack startup by scripts/stack/litellmConfig.ts; do not edit.",
 		"# The source of truth is src/test/fakeStack/models.ts. Inspect the",
 		"# output with:",
 		"#   bun run generate-config",

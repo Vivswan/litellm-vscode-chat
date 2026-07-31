@@ -12,7 +12,7 @@
 		},
 		"ghcr.io/devcontainers/features/docker-in-docker:4.0.0": {}
 	},
-	"onCreateCommand": "bash .devcontainer/install-test-deps.sh && bash scripts/setup-env.sh",
+	"onCreateCommand": "bash .devcontainer/install-test-deps.sh && bash scripts/env/setup-env.sh",
 	// Best-effort prefetch of the test stack's images; pulls are incremental,
 	// so this is a no-op when they are already present. The `|| true` keeps a
 	// start without docker or network from failing.
