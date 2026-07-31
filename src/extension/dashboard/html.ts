@@ -64,8 +64,13 @@ const STYLES = `
 	.hero .stat { color: var(--vscode-descriptionForeground); white-space: nowrap; }
 	.hero .stat strong { color: var(--vscode-foreground); font-weight: 600; }
 	.hero .spacer { flex: 1; }
-	.overall { font-weight: 600; white-space: nowrap; }
-	.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: currentColor; }
+
+	/* Status pills: tone dot, plain-language verdict, relative time. One
+	   vocabulary for the hero's overall verdict and every server row, so the
+	   page's state indicators cannot drift apart visually. */
+	.pill { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-weight: 600; }
+	.pill .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+	.pill .pill-time { color: var(--vscode-descriptionForeground); font-weight: 400; }
 	.tone-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
 	.tone-error { color: var(--vscode-errorForeground); }
 	.tone-warn { color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow)); }
@@ -203,6 +208,12 @@ const STYLES = `
 		pointer-events: none;
 	}
 	.help-wrap:hover .help-tip, button.help:focus-visible + .help-tip { display: block; }
+	/* Hover tips over non-interactive inline content (badges, status pills):
+	   the same tip element, revealed by hovering the wrapper. Extra detail
+	   only; anything load-bearing also renders as visible text. */
+	.tip-wrap { position: relative; display: inline-flex; }
+	.tip-wrap:hover .help-tip { display: block; }
+	.tip-wrap + .tip-wrap { margin-left: 4px; }
 	/* Triggers in the page's top band (the first section heading) flip the
 	   tip below them; above would clip against the top of the document. */
 	.help-wrap.below .help-tip { bottom: auto; top: calc(100% + 6px); }
@@ -310,8 +321,7 @@ const STYLES = `
 	.badge + .badge { margin-left: 4px; }
 	.count { font-weight: 400; }
 	.caps { color: var(--vscode-descriptionForeground); }
-	.state-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
-	.state-error { color: var(--vscode-errorForeground); }
+	.state-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }	.state-error { color: var(--vscode-errorForeground); }
 	.state-warn { color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow)); }
 	.state-muted { color: var(--vscode-descriptionForeground); }
 
@@ -380,10 +390,9 @@ const STYLES = `
 	}
 	.empty-block p { margin: 8px 0; }
 	/* One-time informational callout (e.g. the post-adoption duplicate-group
-	   note): quiet card with an accent edge, no alarm colors. */
+	   note): quiet card, no alarm colors. */
 	.notice {
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
-		border-left: 3px solid var(--vscode-focusBorder, rgba(128, 128, 128, 0.6));
 		border-radius: 4px;
 		padding: 8px 16px;
 		margin: 8px 0;
