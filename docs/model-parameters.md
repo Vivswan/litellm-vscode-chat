@@ -1,10 +1,15 @@
 # Model parameters
 
-The extension never decides request parameters for you: beyond the fields it owns (model, messages, streaming plumbing, `max_tokens`, and tool wiring), only parameters you set somewhere reach LiteLLM, and they reach it unchanged. This page covers the places you can set them, the global `modelParameters` setting, per-entry parameters on a server, the model picker's per-model configuration, and how they combine when several match the same request.
+The extension never decides request parameters for you: beyond the fields it owns (model, messages, streaming plumbing, `max_tokens`, and tool wiring), only parameters you set somewhere reach LiteLLM, and they reach it unchanged. This page covers the places you can set them and how they combine when several match the same request.
 
 ## The pass-through contract
 
-When you configure nothing, your model provider's own defaults apply: the extension injects no default temperature, no allow-list, nothing. All non-reserved parameter keys are passed through: the extension does not restrict which parameters you can set. Provider-owned fields (`model`, `messages`, `stream`, and friends) cannot be overridden, and keys starting with `_` are reserved for extension metadata and never forwarded.
+When you configure nothing, your model provider's own defaults apply:
+
+- The extension injects no default temperature, no allow-list, nothing.
+- All non-reserved parameter keys are passed through; the extension does not restrict which parameters you can set.
+- Provider-owned fields (`model`, `messages`, `stream`, and friends) cannot be overridden.
+- Keys starting with `_` are reserved for extension metadata and never forwarded.
 
 The one documented exception is `max_tokens`: when nothing sets it, the extension sends the output limit your server declares in model info, or at most 4096 when the server declares none.
 
@@ -84,22 +89,35 @@ When two `litellm-vscode-chat.servers` entries point at the same base URL (for e
 ]
 ```
 
-Entry keys are plain model-ID prefixes (longest match wins; no base-URL scoping, since the entry already names its server). Where an entry parameter and a global one match the same model, the entry's value wins for that key and the global setting still supplies the rest.
+How entry keys work:
 
-A request picks up an entry's parameters only when the provider group it runs through matches the entry on both label and base URL. External groups managed only in the native editor, and stale groups left behind by a label or `baseUrl` edit, get only the global setting; the dashboard flags this as a ["params inactive" notice](troubleshooting.md#per-server-model-parameters-are-inactive).
+- Entry keys are plain model-ID prefixes (longest match wins; no base-URL scoping, since the entry already names its server).
+- Where an entry parameter and a global one match the same model, the entry's value wins for that key and the global setting still supplies the rest.
+- A request picks up an entry's parameters only when the provider group it runs through matches the entry on both label and base URL. External groups managed only in the native editor, and stale groups left behind by a label or `baseUrl` edit, get only the global setting; the dashboard flags this as a ["params inactive" notice](troubleshooting.md#per-server-model-parameters-are-inactive).
 
 ## Reasoning effort in the model picker
 
-Models that advertise reasoning support (`supports_reasoning`, or `reasoning_effort` among their supported params) get an effort control in Copilot's model picker: select the model, then click the "Thinking Effort" label next to the model name in the chat input. (The Manage Language Models editor shows the same control as "Reasoning Effort".) Pick a level from Off through Extra High and VS Code remembers the choice for that model; every request then carries `reasoning_effort` accordingly ("Off" goes out as `reasoning_effort: "none"`, which turns thinking off on models that support that). Pick "Provider default" (the initial state) to send nothing and let your provider decide.
+Models that advertise reasoning support (`supports_reasoning`, or `reasoning_effort` among their supported params) get an effort control in Copilot's model picker:
 
-The menu is the same for every reasoning model because LiteLLM reports which models take `reasoning_effort` but not which values each one accepts. If you pick a level your model rejects (say, Extra High on a model that stops at High), the request fails with the server's own error message; pick a different level and retry.
+1. Select the model in the picker.
+2. Click the "Thinking Effort" label next to the model name in the chat input. (The Manage Language Models editor shows the same control as "Reasoning Effort".)
+3. Pick a level from Off through Extra High; VS Code remembers the choice for that model.
+
+What each choice sends:
+
+- Every request then carries `reasoning_effort` accordingly; "Off" goes out as `reasoning_effort: "none"`, which turns thinking off on models that support that.
+- "Provider default" (the initial state) sends nothing and lets your provider decide.
+- The menu is the same for every reasoning model, because LiteLLM reports which models take `reasoning_effort` but not which values each one accepts. If you pick a level your model rejects (say, Extra High on a model that stops at High), the request fails with the server's own error message; pick a different level and retry.
 
 Temperature stays free-form in `modelParameters` on purpose: the picker's Configure Model menu can only render fixed choices, so the extension does not add temperature presets there.
 
 ## Precedence
 
-When several sources set the same parameter for one request:
+When several sources set the same parameter for one request, the higher one wins:
 
-Runtime options > model picker choices > entry `modelParameters` > global `modelParameters`.
+1. Runtime options - what the chat client (Copilot, or another extension calling the model) sets on the request itself
+2. Model picker choices
+3. Entry `modelParameters`
+4. Global `modelParameters`
 
-Runtime options are what the chat client (Copilot, or another extension calling the model) sets on the request itself. Any parameter left unset by all four falls through to your model provider's defaults, with the `max_tokens` exception described above.
+Any parameter left unset by all four falls through to your model provider's defaults, with the `max_tokens` exception described above.

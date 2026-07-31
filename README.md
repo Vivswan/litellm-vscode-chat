@@ -28,6 +28,14 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 5. Select models to add
 6. Back in chat, pick one of the new models in the model picker and send a message
 
+You can equally declare the server as a setting (user settings.json); the dashboard's Add server form ("LiteLLM: Open Dashboard") writes the same entry:
+
+```jsonc
+"litellm-vscode-chat.servers": [
+	{ "label": "Local", "baseUrl": "http://localhost:4000", "apiKey": "sk-..." }
+]
+```
+
 The extension also ships a walkthrough covering these steps: run "Welcome: Open Walkthrough..." from the Command Palette and pick "Get started with LiteLLM for Copilot Chat".
 
 ## Documentation

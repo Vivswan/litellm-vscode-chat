@@ -1,6 +1,6 @@
 # Troubleshooting
 
-The extension puts its state where you can see it: a status bar item for the connection at a glance, a diagnostics view for the details, and an output channel for the full log. This page covers those tools, how requests time out and retry, the issue reporter and what it does (and does not) include, where your data goes, the common failure cases, cleanup when uninstalling, and notes on migrations from older versions.
+The extension puts its state where you can see it: a status bar item for the connection at a glance, a diagnostics view for the details, and an output channel for the full log. This page covers those tools, issue reporting and privacy, timeout and retry semantics, the common failure cases, cleanup when uninstalling, and notes on migrations from older versions.
 
 ## Status bar
 
@@ -18,29 +18,41 @@ Click it at any time to view detailed diagnostics.
 
 ## Diagnostic tools
 
-"LiteLLM: Test Connection" (Command Palette) verifies a server end to end: it connects, reports the number of models found, shows detailed error messages on failure, and updates the status bar.
-
-"LiteLLM: Show Diagnostics" (or clicking the status bar item) shows the configured servers with labels and URLs, per-server connection state, model counts and errors, the overall status, the last check timestamp, and a shortcut to the output channel.
-
-The output channel has the full log: open the Output panel (`Ctrl+Shift+U` / `Cmd+Shift+U`) and select "LiteLLM" from the dropdown. It logs configuration changes, model fetch attempts and results, and errors with full details.
-
-"LiteLLM: Help & Feedback" (also reachable from the diagnostics dialog) is the shortcut for reporting bugs, requesting features, or opening the documentation.
+| Tool | What it gives you |
+|------|-------------------|
+| "LiteLLM: Test Connection" (Command Palette) | Verifies a server end to end: connects, reports the number of models found, shows detailed error messages on failure, and updates the status bar |
+| "LiteLLM: Show Diagnostics" (or clicking the status bar item) | The configured servers with labels and URLs, per-server connection state, model counts and errors, the overall status, the last check timestamp, and a shortcut to the output channel |
+| The "LiteLLM" output channel | The full log: configuration changes, model fetch attempts and results, and errors with full details. Open the Output panel (`Ctrl+Shift+U` / `Cmd+Shift+U`) and select "LiteLLM" from the dropdown |
+| "LiteLLM: Help & Feedback" (also reachable from the diagnostics dialog) | The shortcut for reporting bugs, requesting features, or opening the documentation |
 
 ## Reporting an issue
 
-The Report Issue action opens a GitHub issue prefilled with diagnostics: extension and VS Code versions, platform, connection state, whether an API key and base URL are configured (yes, no, or unknown when VS Code manages the credentials; never the values themselves), the most recent error, and recent log lines. The extension's logs record classifications of what happened, never text derived from server responses, so the prefilled body cannot leak your prompts, completions, or credentials; still, the issue opens in your browser for review before you submit anything. When the diagnostics are too large for a URL, the full text goes to your clipboard (and a local file, when possible) instead, and the issue body says what was omitted.
+The Report Issue action opens a GitHub issue prefilled with diagnostics:
+
+- extension and VS Code versions, platform, and connection state
+- whether an API key and base URL are configured: yes, no, or unknown when VS Code manages the credentials; never the values themselves
+- the most recent error, and recent log lines
+
+The extension's logs record classifications of what happened, never text derived from server responses, so the prefilled body cannot leak your prompts, completions, or credentials; still, the issue opens in your browser for review before you submit anything. When the diagnostics are too large for a URL, the full text goes to your clipboard (and a local file, when possible) instead, and the issue body says what was omitted.
 
 ## Privacy and data
 
-Your prompts, attachments, and completions travel only between VS Code and the endpoints you configure: chat and model-discovery requests go to your LiteLLM servers' base URLs, and OAuth credentials go only to the token endpoint set on the server entry. The extension has no telemetry and no backend of its own; nothing is sent to the publisher. The one other outbound surface is the [issue reporter](#reporting-an-issue), which prepares everything locally, carries environment details and the extension's own logs (versions, platform, connection state, error classifications and stacks - never prompt or response text, never key values), and opens in your browser for review before anything is submitted. Where credentials are stored, and what syncs between machines, is covered in [Servers](servers.md#secrets-and-secret-storage).
+Your prompts, attachments, and completions travel only between VS Code and the endpoints you configure:
+
+- Chat and model-discovery requests go to your LiteLLM servers' base URLs.
+- OAuth credentials go only to the token endpoint set on the server entry.
+- The extension has no telemetry and no backend of its own; nothing is sent to the publisher.
+- The one other outbound surface is the [issue reporter](#reporting-an-issue), which prepares everything locally, carries environment details and the extension's own logs (versions, platform, connection state, error classifications and stacks - never prompt or response text, never key values), and opens in your browser for review before anything is submitted.
+
+Where credentials are stored, and what syncs between machines, is covered in [Servers](servers.md#secrets-and-secret-storage).
 
 ## Timeouts and retries
 
 The two timeout settings are hard bounds on the whole call, streaming and any retries included; see [Settings](settings.md#request-timeouts) for their defaults.
 
-Model discovery requests are idempotent GETs, so a failed one is retried (up to twice, with the whole call still bounded by `discoveryTimeout`). Chat completions are never retried: a completion may have side effects (spend, tool calls), so the extension surfaces the failure instead of silently paying for a second attempt. If long requests get cut off, raise `requestTimeout`.
-
-When a background model refresh fails but the last successful discovery is recent (under ten minutes old), the extension keeps serving the last known model list, flagged stale with a warning icon, instead of dropping your models mid-session.
+- Model discovery requests are idempotent GETs, so a failed one is retried (up to twice, with the whole call still bounded by `discoveryTimeout`).
+- Chat completions are never retried: a completion may have side effects (spend, tool calls), so the extension surfaces the failure instead of silently paying for a second attempt. If long requests get cut off, raise `requestTimeout`.
+- When a background model refresh fails but the last successful discovery is recent (under ten minutes old), the extension keeps serving the last known model list, flagged stale with a warning icon, instead of dropping your models mid-session.
 
 ## Common issues
 
@@ -61,10 +73,14 @@ When a background model refresh fails but the last successful discovery is recen
 - Run `litellm --config your_config.yaml` to start the proxy with models
 
 **"My embedding or image-generation model is missing from the picker"**
-- Models whose LiteLLM `model_info.mode` names a non-chat endpoint (`embedding`, `image_generation`, `audio_speech`, `audio_transcription`, `rerank`, `moderation`) are left out of the chat picker on purpose, since a chat request to them can only fail; models with no declared mode always register. Deployments the proxy has paused (`model_info.blocked`) are skipped too. See [Models and capabilities](models.md#what-registers).
+- Models whose LiteLLM `model_info.mode` names a non-chat endpoint (`embedding`, `image_generation`, `audio_speech`, `audio_transcription`, `rerank`, `moderation`) are left out of the chat picker on purpose, since a chat request to them can only fail; models with no declared mode always register
+- Deployments the proxy has paused (`model_info.blocked`) are skipped too
+- See [Models and capabilities](models.md#what-registers)
 
 **"Attached images never reach the model"**
-- Images (attachments, and images replayed from earlier turns) are sent only to models that declare vision support (`supports_vision`) in LiteLLM's model info; on other models the text goes through and the images are dropped, with a note in the "LiteLLM" output channel. See [Models and capabilities](models.md#multimodal-input).
+- Images (attachments, and images replayed from earlier turns) are sent only to models that declare vision support (`supports_vision`) in LiteLLM's model info
+- On other models the text goes through and the images are dropped, with a note in the "LiteLLM" output channel
+- See [Models and capabilities](models.md#multimodal-input)
 
 **"Authentication failed"**
 - The two 401 messages name different credentials. Plain "Authentication failed: Your LiteLLM server requires an API key" means the proxy rejected the extension's key: run "Manage LiteLLM Provider" and edit the server to update it, and verify the key against your LiteLLM proxy configuration
