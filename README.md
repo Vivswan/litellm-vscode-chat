@@ -417,7 +417,9 @@ bun install
 bun run compile
 ```
 
-Press `F5` to launch the Extension Development Host.
+Press `F5` to launch the Extension Development Host. In the dev container (or
+any other headless Linux machine), run the test suite under a virtual display:
+`xvfb-run -a bun run test`.
 
 | Command | Description |
 |---------|-------------|
