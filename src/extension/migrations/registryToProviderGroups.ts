@@ -13,7 +13,8 @@ import {
 } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { ServerWithKey } from "../../shared/servers";
-import { fingerprint, fingerprintSchema } from "../../shared/util/fingerprint";
+import { fingerprint, fingerprintSchema, legacyUnsaltedFingerprint } from "../../shared/util/fingerprint";
+import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 import { getMigratedServerLabels, labelScopedModelParametersMigration } from "./labelScopedModelParameters";
@@ -162,11 +163,22 @@ function mergeLabelMap(existing: Record<string, string[]>, seeded: readonly Seed
 	return labelMap;
 }
 
+/**
+ * Whether a stored key fingerprint describes this API key. Records written by
+ * pre-salt extension versions hold the unsalted rendering, and an interrupted
+ * migration can span the upgrade, so both are accepted; new records are
+ * always written salted, and these records live only until the migration
+ * completes and clears them.
+ */
+function keyFingerprintMatches(apiKey: string, stored: string): boolean {
+	return fingerprint(apiKey) === stored || legacyUnsaltedFingerprint(apiKey) === stored;
+}
+
 function matchesSeededConfig(server: ServerWithKey, record: SeededGroup): boolean {
 	return (
 		server.label === record.label &&
 		server.baseUrl === record.baseUrl &&
-		fingerprint(server.apiKey) === record.keyFingerprint
+		keyFingerprintMatches(server.apiKey, record.keyFingerprint)
 	);
 }
 
@@ -249,7 +261,9 @@ async function submitGroupSeed(
 		pending.id === record.id &&
 		pending.name === record.name &&
 		pending.baseUrl === record.baseUrl &&
-		pending.keyFingerprint === record.keyFingerprint;
+		// The record's fingerprint is freshly salted, but a marker left by a
+		// pre-salt session's crash holds the unsalted rendering of the same key.
+		keyFingerprintMatches(current.apiKey, pending.keyFingerprint);
 	await globalState.update(PENDING_GROUP_SUBMISSION_KEY, {
 		id: record.id,
 		name: record.name,
@@ -331,6 +345,9 @@ export async function migrateServersToProviderGroups(
 	globalState: vscode.Memento,
 	secrets: vscode.SecretStorage,
 	logger: Logger,
+	// Required on purpose: a defaulted "durable" would let a future caller
+	// silently seed unmatchable records under a session-only salt.
+	fingerprintSalt: FingerprintSaltSession,
 	executeCommand: ExecuteCommand = (command, ...args) => vscode.commands.executeCommand(command, ...args)
 ): Promise<boolean> {
 	if (migrationState.running) {
@@ -369,6 +386,19 @@ export async function migrateServersToProviderGroups(
 		if (snapshot.length === 0) {
 			return false;
 		}
+		// The seeding pass below persists key fingerprints (seeded records, the
+		// pending marker) that a LATER session must recognize, and its recovery
+		// path compares stored records against freshly computed fingerprints.
+		// Under a salt not confirmed durable neither works: fresh records would
+		// be unmatchable next session, and a durable record would misread as
+		// "the server changed" and strand it as skipped. Confirmed at decision
+		// time (another window's salt store can supersede this session's salt
+		// after load); the registry keeps serving until the migration
+		// completes, so deferring costs nothing.
+		if ((await fingerprintSalt.confirmDurable()) !== "durable") {
+			logger.log("Deferring the provider-group migration: the fingerprint salt is session-only");
+			return false;
+		}
 
 		let seeded = getSeededGroups(globalState);
 		const skipped = new Set(getSkippedServers(globalState));
@@ -384,6 +414,14 @@ export async function migrateServersToProviderGroups(
 		};
 
 		for (const server of snapshot) {
+			// Re-confirmed per server, not only before the loop: each iteration
+			// persists a record or compares stored fingerprints against freshly
+			// computed ones, and a salt mutation detected mid-loop must stop the
+			// remaining writes; whatever was not seeded retries next activation.
+			if ((await fingerprintSalt.confirmDurable()) !== "durable") {
+				logger.log("Stopping the provider-group migration mid-pass: the fingerprint salt is no longer confirmed");
+				break;
+			}
 			if (skipped.has(server.id)) {
 				continue;
 			}
@@ -686,7 +724,13 @@ export const registryToProviderGroupsMigration: ExtensionMigration = {
 	phase: "post-registration",
 	async run(ctx: MigrationContext): Promise<MigrationOutcome> {
 		const labelsBefore = getMigratedServerLabels(ctx.globalState);
-		const completed = await migrateServersToProviderGroups(ctx.registry, ctx.globalState, ctx.secrets, ctx.logger);
+		const completed = await migrateServersToProviderGroups(
+			ctx.registry,
+			ctx.globalState,
+			ctx.secrets,
+			ctx.logger,
+			ctx.fingerprintSalt
+		);
 		await rerunLabelCopyForNewEntries(ctx, labelsBefore);
 		if (completed) {
 			return "migrated";

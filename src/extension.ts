@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { registerDashboardCommand } from "./extension/dashboard/panel";
 import { consumeDevSeed, createDevSeedEnv } from "./extension/devSeed";
+import { loadFingerprintSalt } from "./extension/fingerprintSalt";
 import type { MigrationContext } from "./extension/migrations";
 import { runMigrations } from "./extension/migrations";
 import { isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
@@ -55,6 +56,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri));
 	const logger = new Logger(outputChannel, issueReporter);
 	logger.log(`LiteLLM Extension activated (v${extVersion})`);
+	// Before anything else: every credential identity in the process (group
+	// client IDs, cached clients, the sync engine's fingerprint map) is keyed
+	// by this salt, so it must be installed before migrations or the provider
+	// can compute a fingerprint.
+	const fingerprintSalt = await loadFingerprintSalt(context.secrets, context.globalStorageUri, logger);
 	const registry = new ServerRegistry(context.globalState, context.secrets);
 	// Test mode keeps the registry live for the group-agnostic refresh even
 	// after migration: there is no programmatic way to remove provider groups,
@@ -105,6 +111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		secrets: context.secrets,
 		registry,
 		logger,
+		fingerprintSalt,
 	};
 	await runMigrations("pre-registration", migrationContext);
 
@@ -130,7 +137,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// The declarative server sync: litellm-vscode-chat.servers entries become
 	// provider groups. Created before the dashboard, which edits the setting
 	// and reads the engine's declared-server view.
-	const syncEngine = new ServerSyncEngine(createServerSyncEnv(context, logger));
+	const syncEngine = new ServerSyncEngine(createServerSyncEnv(context, logger, fingerprintSalt));
 	context.subscriptions.push(
 		// Disposal withdraws an armed no-servers claim, so its deferred toast
 		// cannot fire from a deactivated extension.

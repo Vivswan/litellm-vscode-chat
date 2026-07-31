@@ -1,11 +1,17 @@
 import * as assert from "node:assert";
 import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
+import type { FingerprintSaltSession, FingerprintSaltState } from "../extension/fingerprintSalt";
 import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";
 import type { LiteLLMModelInfo, PreAttachModelInfo } from "../provider/catalog/groupModels";
 import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
+
+/** A fixed-state fingerprint-salt session for MigrationContext and sync-env construction in tests. */
+export function fakeFingerprintSaltSession(state: FingerprintSaltState = "durable"): FingerprintSaltSession {
+	return { state: () => state, confirmDurable: async () => state };
+}
 
 /** Assert that an indexed read produced a value and return it narrowed. */
 export function expectDefined<T>(value: T | undefined, message = "expected value to be defined"): T {

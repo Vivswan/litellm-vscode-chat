@@ -53,6 +53,8 @@ The secret fields (`apiKey`, `oauthClientSecret`, `virtualKeyValue`) are per-ent
 
 Values in secret storage never render back into the dashboard; the form shows where a value lives, not what it is. Inline values do prefill the edit form (masked behind a Show toggle), since they already sit in plain text in your settings.json.
 
+Where the extension keeps a non-secret identity for a credential (for example the change detectors that keep the sync state in step), it stores a fingerprint keyed by a random per-install secret rather than a plain hash, so those records reveal nothing about the credential - even a short, guessable API key - to anything that can read extension state but not secret storage.
+
 When editing a saved entry, an emptied secret field keeps whatever is stored; it does not clear the secret. Deleting one is an explicit choice: the edit form shows a "Remove the stored ..." checkbox under each secret field that has a value. Removing secrets before uninstalling the extension is covered in [Troubleshooting](troubleshooting.md#uninstalling-and-cleanup).
 
 ## Virtual keys

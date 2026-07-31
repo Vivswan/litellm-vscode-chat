@@ -3,7 +3,7 @@ import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "../
 import { MIGRATIONS, runMigrations } from "../../../extension/migrations";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { Logger } from "../../../shared/logger";
-import { expectDefined, makeExtensionStorage } from "../../testUtils";
+import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
 function makeContext(): { ctx: MigrationContext; lines: string[] } {
 	const storage = makeExtensionStorage();
@@ -18,6 +18,7 @@ function makeContext(): { ctx: MigrationContext; lines: string[] } {
 			secrets: storage.secrets,
 			registry: new ServerRegistry(storage.memento, storage.secrets),
 			logger,
+			fingerprintSalt: fakeFingerprintSaltSession(),
 		},
 		lines,
 	};

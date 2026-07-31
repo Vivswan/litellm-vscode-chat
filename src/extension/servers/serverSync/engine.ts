@@ -11,7 +11,7 @@ import { groupClientId, parseGroupConfiguration } from "../../../provider/catalo
 import { VENDOR_ID } from "../../../shared/config/commandIds";
 import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
-import { fingerprint } from "../../../shared/util/fingerprint";
+import { fingerprint, legacyUnsaltedFingerprint } from "../../../shared/util/fingerprint";
 import type { StoredServerSecrets } from "./secrets";
 import { inlineSecretValues } from "./secrets";
 import type { DeclaredServer, EntryModelParameters } from "./setting";
@@ -22,9 +22,12 @@ import { parseServersSetting } from "./setting";
  * add failed outright (non-duplicate), so no live group was created for the
  * entry's configuration; "blocked" means a group with the name exists and the
  * host refused the duplicate; "secretsUnreadable" means the pass skipped the
- * entry. The dashboard reads the distinction: a shared snapshot's models are
- * duplicated per claiming entry EXCEPT upsertFailed claimants, whose group is
- * the one the host provably does not have.
+ * entry - because its stored secrets could not be read, or because the
+ * fingerprint salt could not be confirmed durable (SALT_UNAVAILABLE_MESSAGE
+ * tells the two apart in the view). The dashboard reads the distinction: a
+ * shared snapshot's models are duplicated per claiming entry EXCEPT
+ * upsertFailed claimants, whose group is the one the host provably does not
+ * have.
  */
 type SyncErrorClass = "upsertFailed" | "blocked" | "secretsUnreadable";
 
@@ -66,6 +69,15 @@ export interface ServerSyncEnv {
 	readSecrets(label: string): Promise<StoredServerSecrets>;
 	/** The host's provider-group upsert; args are the group configuration with the name and vendor. */
 	addProviderGroup(args: Readonly<Record<string, string>>): Thenable<unknown>;
+	/**
+	 * Whether fingerprints computed this pass will be recognizable by later
+	 * sessions (the per-install salt is confirmed to be the stored one; see
+	 * extension/fingerprintSalt.ts). Checked once per pass, at decision time:
+	 * when false the pass must neither add groups (an add-only host could
+	 * never confirm them again) nor record fingerprints beyond carrying
+	 * last-known-good. Must not throw; an unknowable state reads as false.
+	 */
+	confirmFingerprintsDurable(): Promise<boolean>;
 	/**
 	 * The persisted fingerprint map: read to seed the engine's in-memory
 	 * session map (see ServerSyncEngine.fingerprints), and re-read on the
@@ -110,20 +122,31 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
 }
 
 /**
- * The fingerprint of the same args as pre-label extension versions built
- * them. Adding `label` to buildGroupArgs changed every entry's fingerprint
- * at once, and the host cannot update an existing group, so without this
- * rendering every healthy pre-label entry would wedge: its forced re-add
- * comes back as a duplicate, the stored (pre-label) fingerprint would not
- * confirm it, and the entry would surface the name-conflict error forever.
- * A stored fingerprint matching this rendering is the same proof of "the
- * live group holds this entry's content" - minus the label, which an
- * add-only host can never receive retroactively - and the matching paths
- * upgrade the record to the current shape, so the shim runs once per entry.
+ * The fingerprint of one entry's group args as this version persists it:
+ * salted, over the frozen JSON rendering buildGroupArgs documents. The
+ * unsalted-fingerprint migration recomputes stored records through this same
+ * function, so the two can never drift.
  */
-function legacyGroupArgsFingerprint(args: Record<string, string>): string {
+export function groupArgsFingerprint(args: Record<string, string>): string {
+	return fingerprint(JSON.stringify(args));
+}
+
+/**
+ * The renderings pre-salt extension versions persisted for the same args,
+ * newest first: unsalted with the label (v0.3.x), and unsalted without it
+ * (versions before `label` joined buildGroupArgs - adding it changed every
+ * fingerprint at once, and the host cannot update an existing group, so
+ * without acceptance every healthy pre-label entry would wedge on a
+ * permanent name-conflict error). A stored fingerprint matching either is
+ * the same proof of "the live group holds this entry's content" - minus, for
+ * the label-less form, the label an add-only host can never receive
+ * retroactively - and the matching paths upgrade the record to
+ * groupArgsFingerprint on the spot, so each shim runs once per entry.
+ * Comparison-only; nothing may persist these renderings.
+ */
+export function legacyGroupArgsFingerprints(args: Record<string, string>): readonly string[] {
 	const { label: _label, ...legacyArgs } = args;
-	return fingerprint(JSON.stringify(legacyArgs));
+	return [legacyUnsaltedFingerprint(JSON.stringify(args)), legacyUnsaltedFingerprint(JSON.stringify(legacyArgs))];
 }
 
 function secretLocations(entry: DeclaredServer, stored: StoredServerSecrets): Record<SecretFieldId, SecretLocation> {
@@ -161,6 +184,15 @@ export const GROUP_UPDATE_UNAVAILABLE_MESSAGE =
  */
 export const SECRETS_READ_FAILED_MESSAGE =
 	"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry.";
+
+/**
+ * The classified text for a pass skipped because the fingerprint salt could
+ * not be confirmed durable (see ServerSyncEnv.confirmFingerprintsDurable).
+ * Entries are skipped, not failed: the live groups keep serving, and the
+ * next session (with the stored salt back) syncs normally.
+ */
+export const SALT_UNAVAILABLE_MESSAGE =
+	"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session.";
 
 /**
  * Whether the host refused the add because a group with that name already
@@ -303,11 +335,26 @@ export class ServerSyncEngine implements vscode.Disposable {
 		}
 	}
 
+	/** The engine-side wrap of ServerSyncEnv.confirmFingerprintsDurable; the contract says it never throws, but a throw must read as "not confirmed", never abort the pass. */
+	private async confirmSaltDurable(): Promise<boolean> {
+		try {
+			return await this.env.confirmFingerprintsDurable();
+		} catch {
+			return false;
+		}
+	}
+
 	private async syncPass(force: boolean): Promise<void> {
 		const { entries, problems } = parseServersSetting(this.env.readServersSetting());
 		for (const problem of problems) {
 			this.env.log(`Servers setting: ${problem}`);
 		}
+
+		// Checked once per pass, at decision time rather than activation time:
+		// a first-activation salt race in another window can invalidate the
+		// session's salt after this engine was built, and everything below
+		// that adds a group or records a fingerprint depends on the answer.
+		const saltDurable = await this.confirmSaltDurable();
 
 		// Seed once, then the in-memory map is the truth for every comparison
 		// below; `previous` keeps pass-start snapshot semantics because the
@@ -345,11 +392,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 				});
 			}
 			const args = buildGroupArgs(entry, stored);
-			const printed = fingerprint(JSON.stringify(args));
-			// The rendering pre-label sessions persisted for this same content;
-			// accepted wherever a stored fingerprint proves the live group's
-			// content, and upgraded to `printed` on the spot.
-			const legacyPrinted = legacyGroupArgsFingerprint(args);
+			const printed = groupArgsFingerprint(args);
+			// The renderings pre-salt and pre-label sessions persisted for this
+			// same content; accepted wherever a stored fingerprint proves the live
+			// group's content, and upgraded to `printed` on the spot.
+			const legacyPrinted = legacyGroupArgsFingerprints(args);
 			const retryState = this.retry.get(entry.label);
 			if (secretsUnreadable) {
 				// Without the real secrets the fingerprint is not meaningful, so no
@@ -359,9 +406,22 @@ export class ServerSyncEngine implements vscode.Disposable {
 				if (lastGood !== undefined) {
 					next[entry.label] = lastGood;
 				}
+			} else if (!saltDurable) {
+				// The same skip for a different unreadable secret: fingerprints
+				// computed under an unconfirmed salt cannot be recognized by any
+				// later session, so no group may be added on their account (an
+				// add-only host could never confirm it again) and no record may
+				// change; last-known-good carries and the next session, keyed by
+				// the stored salt, syncs normally.
+				syncError = SALT_UNAVAILABLE_MESSAGE;
+				syncErrorClass = "secretsUnreadable";
+				const lastGood = previous[entry.label];
+				if (lastGood !== undefined) {
+					next[entry.label] = lastGood;
+				}
 			} else if (
 				!force &&
-				(previous[entry.label] === printed || previous[entry.label] === legacyPrinted) &&
+				(previous[entry.label] === printed || legacyPrinted.includes(previous[entry.label] ?? "")) &&
 				!(retryState?.kind === "upsertFailed" && retryState.fingerprint === printed)
 			) {
 				next[entry.label] = printed;
@@ -379,6 +439,18 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// carried so a later revert of the entry can still match it.
 				syncError = GROUP_UPDATE_UNAVAILABLE_MESSAGE;
 				syncErrorClass = "blocked";
+				const lastGood = previous[entry.label];
+				if (lastGood !== undefined) {
+					next[entry.label] = lastGood;
+				}
+			} else if (!(await this.confirmSaltDurable())) {
+				// Re-confirmed immediately before the irreversible host call, not
+				// just at pass start: a store mutation mid-pass must stop further
+				// adds, because a group created now could only ever be proven by
+				// a fingerprint no later session can recompute. Same skip as the
+				// pass-level pause above.
+				syncError = SALT_UNAVAILABLE_MESSAGE;
+				syncErrorClass = "secretsUnreadable";
 				const lastGood = previous[entry.label];
 				if (lastGood !== undefined) {
 					next[entry.label] = lastGood;
@@ -416,14 +488,15 @@ export class ServerSyncEngine implements vscode.Disposable {
 						// the in-memory map guards against can only UNDER-report (an
 						// older map), never invent a matching fingerprint, so a match
 						// proves the live group holds exactly these args while an
-						// absence proves nothing. The legacy rendering confirms too:
-						// a pre-label session's record describes the same content.
+						// absence proves nothing. The legacy renderings confirm too: a
+						// pre-salt or pre-label session's record describes the same
+						// content.
 						const storeRecord = this.env.getFingerprints()[entry.label];
 						const confirmed =
 							previous[entry.label] === printed ||
 							storeRecord === printed ||
-							previous[entry.label] === legacyPrinted ||
-							storeRecord === legacyPrinted;
+							legacyPrinted.includes(previous[entry.label] ?? "") ||
+							legacyPrinted.includes(storeRecord ?? "");
 						if (confirmed) {
 							// Under an add-only host (no upsert), "the group already
 							// exists" for a confirmed configuration IS the synced steady

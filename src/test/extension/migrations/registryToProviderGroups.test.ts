@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import type { FingerprintSaltSession } from "../../../extension/fingerprintSalt";
 import type { MigrationContext } from "../../../extension/migrations";
 import { getMigratedServerLabels } from "../../../extension/migrations/labelScopedModelParameters";
 import { legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
@@ -26,9 +27,9 @@ import {
 	SKIPPED_MIGRATION_SERVERS_KEY,
 } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
-import { fingerprint } from "../../../shared/util/fingerprint";
+import { fingerprint, legacyUnsaltedFingerprint } from "../../../shared/util/fingerprint";
 import type { FakeExtensionStorage } from "../../testUtils";
-import { makeExtensionStorage } from "../../testUtils";
+import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
 function makeLogger(): { logger: Logger; lines: string[] } {
 	const lines: string[] = [];
@@ -76,7 +77,14 @@ function migrate(
 	logger: Logger,
 	exec: (command: string, ...args: unknown[]) => Promise<unknown>
 ): Promise<boolean> {
-	return migrateServersToProviderGroups(registry, storage.memento, storage.secrets, logger, exec);
+	return migrateServersToProviderGroups(
+		registry,
+		storage.memento,
+		storage.secrets,
+		logger,
+		fakeFingerprintSaltSession(),
+		exec
+	);
 }
 
 /** Capture skip notices; migration warns once per skipped server. */
@@ -220,6 +228,98 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
 	});
 
+	test("the seeding pass defers entirely under a session-only fingerprint salt", async () => {
+		// Seeded records and the pending marker persist key fingerprints a
+		// LATER session must recognize, and the recovery path compares stored
+		// records against freshly computed ones. Under a session-only salt
+		// both would misfire, so nothing may be seeded, recorded, or skipped.
+		const storage = makeExtensionStorage();
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		await registry.addServer("Production", "http://prod.test", "prod-key");
+		const { logger, lines } = makeLogger();
+		const host = makeFakeHost();
+
+		const completed = await migrateServersToProviderGroups(
+			registry,
+			storage.memento,
+			storage.secrets,
+			logger,
+			fakeFingerprintSaltSession("session-only"),
+			host.exec
+		);
+
+		assert.strictEqual(completed, false);
+		assert.deepStrictEqual(host.submissions, [], "no group may be submitted under a session-only salt");
+		assert.strictEqual(registry.getServers().length, 1, "the registry keeps serving the deferred server");
+		assert.strictEqual(storage.mementoStore.get(SEEDED_PROVIDER_GROUPS_KEY), undefined);
+		assert.strictEqual(storage.mementoStore.get(PENDING_GROUP_SUBMISSION_KEY), undefined);
+		assert.strictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), undefined);
+		assert.ok(
+			lines.some((line) => line.includes("session-only")),
+			"the deferral is logged as a classification"
+		);
+	});
+
+	test("a salt mutation detected mid-loop stops the remaining seeding", async () => {
+		// The salt is re-confirmed per server: each iteration persists a record
+		// or compares stored fingerprints, so a mutation landing mid-loop must
+		// stop the remaining writes; the rest retries next activation.
+		const storage = makeExtensionStorage();
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		await registry.addServer("First", "http://first.test", "key-1");
+		await registry.addServer("Second", "http://second.test", "key-2");
+		const { logger } = makeLogger();
+		const host = makeFakeHost();
+		// Pre-loop gate, First's iteration, then the mutation lands.
+		const answers: ("durable" | "session-only")[] = ["durable", "durable", "session-only"];
+		const mutatingSession: FingerprintSaltSession = {
+			state: () => "durable",
+			confirmDurable: async () => answers.shift() ?? "session-only",
+		};
+
+		const completed = await migrateServersToProviderGroups(
+			registry,
+			storage.memento,
+			storage.secrets,
+			logger,
+			mutatingSession,
+			host.exec
+		);
+
+		assert.strictEqual(completed, false);
+		assert.strictEqual(host.submissions.length, 1, "only the server seeded before the mutation lands");
+		assert.strictEqual(host.submissions[0]?.group.name, "First");
+		assert.strictEqual(registry.getServers().length, 1, "the second server stays for the next activation");
+	});
+
+	test("a seeded record written by a pre-salt version still matches its unchanged server", async () => {
+		// An interrupted migration can span the release that gave fingerprint()
+		// its salt: the record holds the unsalted rendering of the same key,
+		// and rejecting it would strand a correctly migrated server as skipped.
+		const storage = makeExtensionStorage();
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		const server = await registry.addServer("Production", "http://prod.test", "prod-key");
+		storage.mementoStore.set(SEEDED_PROVIDER_GROUPS_KEY, [
+			{
+				id: server.id,
+				name: "Production",
+				label: "Production",
+				baseUrl: "http://prod.test",
+				keyFingerprint: legacyUnsaltedFingerprint("prod-key"),
+			},
+		]);
+		const { logger } = makeLogger();
+		const host = makeFakeHost();
+		host.groups.add("Production");
+
+		const completed = await migrate(registry, storage, logger, host.exec);
+
+		assert.strictEqual(completed, true);
+		assert.deepStrictEqual(host.submissions, [], "the pre-salt record still proves the seeding");
+		assert.deepStrictEqual(registry.getServers(), []);
+		assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
+	});
+
 	test("a recorded entry that no longer matches its record is kept, marked skipped, and announced once", async () => {
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
@@ -323,6 +423,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 				storage.memento,
 				storage.secrets,
 				logger,
+				fakeFingerprintSaltSession(),
 				async () => {
 					throw new Error("a chat session with this identifier already exists");
 				}
@@ -347,6 +448,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 				storage.memento,
 				storage.secrets,
 				logger,
+				fakeFingerprintSaltSession(),
 				async () => {
 					throw new Error("Language model group with name Production already exists for vendor openai");
 				}
@@ -382,6 +484,32 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.deepStrictEqual(registry.getServers(), []);
 		assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
 		assert.deepStrictEqual(warnings, [], "our own interrupted submission is not a collision to announce");
+	});
+
+	test("a pending marker written by a pre-salt version still names our own submission", async () => {
+		// The crash-then-upgrade case: the marker holds the unsalted rendering
+		// of the same key, and misreading it as a foreign collision would
+		// strand the server as skipped with a spurious warning.
+		const storage = makeExtensionStorage();
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		const server = await registry.addServer("Production", "http://prod.test", "prod-key");
+		storage.mementoStore.set(PENDING_GROUP_SUBMISSION_KEY, {
+			id: server.id,
+			name: "Production",
+			baseUrl: "http://prod.test",
+			keyFingerprint: legacyUnsaltedFingerprint("prod-key"),
+		});
+		const { logger } = makeLogger();
+		const host = makeFakeHost();
+		host.groups.add("Production");
+
+		const warnings = await withWarnings(async () => {
+			assert.strictEqual(await migrate(registry, storage, logger, host.exec), true);
+		});
+
+		assert.deepStrictEqual(registry.getServers(), []);
+		assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
+		assert.deepStrictEqual(warnings, [], "the pre-salt marker is still our own submission");
 	});
 
 	test("a marker whose recorded identity no longer matches the server is a foreign collision", async () => {
@@ -420,6 +548,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 			storage.memento,
 			storage.secrets,
 			logger,
+			fakeFingerprintSaltSession(),
 			async () => {
 				throw new Error("host rejected the group");
 			}
@@ -713,6 +842,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 			storage.memento,
 			storage.secrets,
 			logger,
+			fakeFingerprintSaltSession(),
 			async () => {
 				runningDuringSeed.push(isGroupMigrationRunning());
 				await registry.addServer("Added Mid-Flight", "http://new.test", "");
@@ -855,6 +985,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 			secrets: storage.secrets,
 			registry: new ServerRegistry(storage.memento, storage.secrets),
 			logger: makeLogger().logger,
+			fingerprintSalt: fakeFingerprintSaltSession(),
 		};
 
 		const outcome = await registryToProviderGroupsMigration.run(ctx);
@@ -875,6 +1006,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 			secrets: shared.secrets,
 			registry: new ServerRegistry(shared.memento, shared.secrets),
 			logger: makeLogger().logger,
+			fingerprintSalt: fakeFingerprintSaltSession(),
 		};
 		assert.strictEqual(await legacySingleServerMigration.run(bCtx), "migrated");
 
@@ -891,6 +1023,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 			secrets: shared.secrets,
 			registry: new ServerRegistry(staleMemento, shared.secrets),
 			logger: makeLogger().logger,
+			fingerprintSalt: fakeFingerprintSaltSession(),
 		};
 		await registryToProviderGroupsMigration.run(aCtx);
 		assert.strictEqual(isGroupMigrationComplete(shared.memento), true, "the race must really have happened");
@@ -969,6 +1102,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 				secrets: storage.secrets,
 				registry: new ServerRegistry(storage.memento, storage.secrets),
 				logger: makeLogger().logger,
+				fingerprintSalt: fakeFingerprintSaltSession(),
 			};
 		}
 
@@ -1037,6 +1171,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 				secrets: storage.secrets,
 				registry: new ServerRegistry(storage.memento, storage.secrets),
 				logger: makeLogger().logger,
+				fingerprintSalt: fakeFingerprintSaltSession(),
 			};
 		}
 

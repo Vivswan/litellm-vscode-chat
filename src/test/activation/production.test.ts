@@ -7,6 +7,7 @@ import type { LiteLLMChatModelProvider } from "../../provider";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
 import {
+	FINGERPRINT_SALT_SECRET,
 	GROUP_MIGRATION_COMPLETE_KEY,
 	HAS_SHOWN_WELCOME_KEY,
 	MIGRATED_SERVER_LABELS_KEY,
@@ -145,6 +146,13 @@ suite("production activation", () => {
 		// The _test.* commands mutate storage and inject dashboard messages; in a
 		// production build they would be callable by any extension.
 		assert.deepStrictEqual(testOnly, []);
+	});
+
+	test("activation installs a durable per-install fingerprint salt", () => {
+		// Every credential identity in the process is keyed by this salt, so
+		// activation must have generated and stored it (this context started
+		// with empty SecretStorage) before anything computed a fingerprint.
+		assert.match(storage.secretStore.get(FINGERPRINT_SALT_SECRET) ?? "", /^[0-9a-f]{64}$/);
 	});
 
 	test("activation with hasShownWelcome pre-seeded skips the globalState re-write", () => {

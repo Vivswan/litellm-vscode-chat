@@ -103,6 +103,14 @@ export function serverSecretsKey(label: string): string {
 }
 
 /**
+ * SecretStorage: the per-install fingerprint salt, 32 random bytes as hex,
+ * generated on the first activation that finds none. Owned by
+ * src/extension/fingerprintSalt.ts, which is also where the lifecycle rules
+ * live (never regenerate while one exists; never store over a failed read).
+ */
+export const FINGERPRINT_SALT_SECRET = "litellm.fingerprintSalt";
+
+/**
  * SecretStorage: the pre-registry single-server configuration.
  * Read and deleted only by src/extension/migrations/legacySingleServer.ts.
  */

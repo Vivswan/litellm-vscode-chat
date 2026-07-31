@@ -12,19 +12,39 @@ import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../../shared/config/storageKeys
 import type { Logger } from "../../../shared/logger";
 import type { SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import type { ServerSyncEngine, ServerSyncEnv } from "./engine";
 import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./secrets";
 import type { EntryModelParameters } from "./setting";
 import { entryModelParametersFor, parseServersSetting } from "./setting";
 
 /** The real environment: workspace configuration, SecretStorage, globalState, and the host command. */
-export function createServerSyncEnv(context: vscode.ExtensionContext, logger: Logger): ServerSyncEnv {
+export function createServerSyncEnv(
+	context: vscode.ExtensionContext,
+	logger: Logger,
+	fingerprintSalt: FingerprintSaltSession
+): ServerSyncEnv {
+	if (fingerprintSalt.state() !== "durable") {
+		logger.log(
+			"Server sync will not persist fingerprints this session: the fingerprint salt is session-only, so no later session could recognize them"
+		);
+	}
 	return {
 		readServersSetting: () => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
 		readSecrets: (label) => readServerSecrets(context.secrets, label),
 		addProviderGroup: (args) => vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", args),
+		confirmFingerprintsDurable: async () => (await fingerprintSalt.confirmDurable()) === "durable",
 		getFingerprints: () => context.globalState.get<Record<string, string>>(SERVER_SYNC_FINGERPRINTS_KEY) ?? {},
 		setFingerprints: async (map) => {
+			// Re-confirmed at write time, per batch, not once per pass: a store
+			// mutation detected mid-pass must stop this write too. A map built
+			// under an unconfirmed salt holds renderings no later session can
+			// recognize, and persisting it would overwrite the durable records
+			// that let a healthy group read as in-sync once the real salt is
+			// back. confirmDurable never throws.
+			if ((await fingerprintSalt.confirmDurable()) !== "durable") {
+				return;
+			}
 			await context.globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, map);
 		},
 		notifyRemoved: (labels) => {

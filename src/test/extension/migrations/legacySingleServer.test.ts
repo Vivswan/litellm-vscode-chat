@@ -12,7 +12,7 @@ import {
 } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
 import type { FakeExtensionStorage } from "../../testUtils";
-import { expectDefined, makeExtensionStorage } from "../../testUtils";
+import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
 function makeContext(storage: FakeExtensionStorage = makeExtensionStorage()): {
 	ctx: MigrationContext;
@@ -25,6 +25,7 @@ function makeContext(storage: FakeExtensionStorage = makeExtensionStorage()): {
 			secrets: storage.secrets,
 			registry: new ServerRegistry(storage.memento, storage.secrets),
 			logger,
+			fingerprintSalt: fakeFingerprintSaltSession(),
 		},
 		storage,
 	};
@@ -105,6 +106,7 @@ suite("extension/migrations/legacySingleServer", () => {
 			secrets: failingSecrets,
 			registry: new ServerRegistry(storage.memento, failingSecrets),
 			logger: new Logger({ info: () => {}, error: () => {} }),
+			fingerprintSalt: fakeFingerprintSaltSession(),
 		};
 
 		await assert.rejects(legacySingleServerMigration.run(failingCtx), /secret store failed/);
@@ -256,6 +258,7 @@ suite("extension/migrations/legacySingleServer", () => {
 				secrets: shared.secrets,
 				registry: new ServerRegistry(staleMemento, shared.secrets),
 				logger: new Logger({ info: () => {}, error: () => {} }),
+				fingerprintSalt: fakeFingerprintSaltSession(),
 			};
 
 			// Window A's registry persist triggers B's whole run before A's
@@ -318,6 +321,7 @@ suite("extension/migrations/legacySingleServer", () => {
 				secrets: bSecrets,
 				registry: new ServerRegistry(shared.memento, bSecrets),
 				logger: new Logger({ info: () => {}, error: () => {} }),
+				fingerprintSalt: fakeFingerprintSaltSession(),
 			};
 
 			assert.strictEqual(await legacySingleServerMigration.run(bCtx), "migrated");

@@ -11,7 +11,7 @@ import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { MODEL_PARAMETERS_SETTING_KEY } from "../../../shared/config/settings";
 import { Logger } from "../../../shared/logger";
-import { makeExtensionStorage } from "../../testUtils";
+import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
 interface Layers {
 	globalValue?: Record<string, unknown>;
@@ -674,6 +674,7 @@ suite("extension/migrations/labelScopedModelParameters: migration wiring", () =>
 			secrets: storage.secrets,
 			registry,
 			logger: new Logger({ info: () => {}, error: () => {} }),
+			fingerprintSalt: fakeFingerprintSaltSession(),
 		};
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 		const original = config.inspect<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY)?.globalValue;
