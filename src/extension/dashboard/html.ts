@@ -483,6 +483,71 @@ const STYLES = `
 	.discard-confirm span { font-weight: 600; }
 
 	.icon { display: inline-block; vertical-align: text-bottom; flex: none; }
+
+	/* The busy marker inside an in-flight Save/Adopt button; motion here is
+	   state, not decoration, so it survives reduced-motion (slowed). */
+	.spinner {
+		display: inline-block;
+		box-sizing: border-box;
+		width: 12px;
+		height: 12px;
+		flex: none;
+		border: 2px solid currentColor;
+		border-top-color: transparent;
+		border-radius: 50%;
+		vertical-align: text-bottom;
+		animation: spinner-turn 800ms linear infinite;
+	}
+	@keyframes spinner-turn {
+		to { transform: rotate(360deg); }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.spinner { animation-duration: 2.4s; }
+	}
+
+	/* Outcome banners: a failure stays until dismissed or resolved, laid out
+	   as message plus its Dismiss on one line. */
+	.banner {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 8px;
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+		border-radius: 4px;
+		padding: 4px 12px;
+		margin: 8px 0;
+		max-width: 640px;
+	}
+	.banner p { margin: 4px 0; }
+	.banner-error {
+		border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+		background: var(--vscode-inputValidation-errorBackground, transparent);
+	}
+
+	/* Success toasts: bottom-right like the host's own notifications,
+	   transient, always manually dismissible. */
+	.toasts {
+		position: fixed;
+		right: 16px;
+		bottom: 16px;
+		z-index: 60;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		max-width: min(360px, calc(100vw - 32px));
+	}
+	.toast {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 6px 6px 6px 12px;
+		border: 1px solid var(--vscode-notifications-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+		border-radius: 4px;
+		background: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
+		color: var(--vscode-notifications-foreground, var(--vscode-foreground));
+		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+	}
 	details { margin: 8px 0; }
 	summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
 	details[open] summary { margin-bottom: 4px; }

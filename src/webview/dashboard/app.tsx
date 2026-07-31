@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useState } from "preact/hooks";
 import type {
 	DashboardIntentType,
 	DashboardServer,
@@ -7,6 +7,7 @@ import type {
 	ExtensionToWebviewMessage,
 } from "../../extension/dashboard/protocol";
 import { classifyOverall, failuresAfterStatePush, isExtensionMessageType } from "../../extension/dashboard/protocol";
+import { IconClose } from "./icons";
 import { ModelsSection } from "./models";
 import type { IntentFailure } from "./recordEditors";
 import { ServersSection } from "./servers";
@@ -54,6 +55,73 @@ export interface IntentAck {
 	readonly requestId: string;
 	/** The extension's optional caveat about the success (see intentSucceeded). */
 	readonly message?: string | undefined;
+}
+
+/**
+ * The server intents whose success gets a transient toast, with static base
+ * copy (never text from the payload). Scalar and record edits stay silent:
+ * their success is the value visibly updating in place. The adopt toast
+ * carries no caveat text because the post-adoption notice already renders
+ * the extension's message in full.
+ */
+const TOAST_TEXT: Partial<Record<DashboardIntentType, string>> = {
+	saveServerSetting: "Server saved",
+	removeServerSetting: "Server removed",
+	adoptServer: "Server adopted",
+};
+
+interface ToastItem {
+	readonly id: number;
+	readonly text: string;
+}
+
+/** How long a toast lingers; App takes it as a prop only so tests need not wait out the real value. */
+const TOAST_DURATION_MS = 6000;
+
+function Toast({
+	toast,
+	durationMs,
+	onDismiss,
+}: {
+	toast: ToastItem;
+	durationMs: number;
+	onDismiss: (id: number) => void;
+}) {
+	useEffect(() => {
+		const timer = setTimeout(() => onDismiss(toast.id), durationMs);
+		return () => clearTimeout(timer);
+	}, [toast.id, durationMs, onDismiss]);
+	return (
+		<div class="toast">
+			<span>{toast.text}</span>
+			<button type="button" class="quiet" aria-label="Dismiss notification" onClick={() => onDismiss(toast.id)}>
+				<IconClose />
+			</button>
+		</div>
+	);
+}
+
+/**
+ * The toast stack, bottom-right like the host's own notifications. The
+ * container is a polite live region so a save's outcome is announced without
+ * stealing focus from wherever the user is typing.
+ */
+function ToastHost({
+	toasts,
+	durationMs,
+	onDismiss,
+}: {
+	toasts: readonly ToastItem[];
+	durationMs: number;
+	onDismiss: (id: number) => void;
+}) {
+	return (
+		<div class="toasts" role="status" aria-live="polite">
+			{toasts.map((toast) => (
+				<Toast key={toast.id} toast={toast} durationMs={durationMs} onDismiss={onDismiss} />
+			))}
+		</div>
+	);
 }
 
 type Overall = { tone: "ok" | "error" | "warn" | "muted"; word: string };
@@ -219,12 +287,16 @@ function SectionPanel({
  * sync a partially applied save triggers pushes state moments later and must
  * not erase the warning that save raised.
  */
-export function App() {
+export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?: number } = {}) {
 	const [state, setState] = useState<DashboardState | undefined>(undefined);
 	const [section, setSection] = useState<SectionId>("servers");
 	const [ack, setAck] = useState<IntentAck | undefined>(undefined);
 	const [failures, setFailures] = useState<FailuresByIntent>({});
+	const [toasts, setToasts] = useState<readonly ToastItem[]>([]);
 	const [inlineSecrets, setInlineSecrets] = useState<InlineSecretsResponse | undefined>(undefined);
+	const dismissToast = useCallback((id: number) => {
+		setToasts((current) => current.filter((toast) => toast.id !== id));
+	}, []);
 
 	useEffect(() => {
 		let seq = 0;
@@ -252,6 +324,12 @@ export function App() {
 					const { [message.intentType]: _dropped, ...rest } = current;
 					return rest;
 				});
+				const base = TOAST_TEXT[message.intentType];
+				if (base !== undefined) {
+					const caveat = message.intentType !== "adoptServer" ? message.message : undefined;
+					const text = caveat !== undefined ? `${base}. ${caveat}` : base;
+					setToasts((current) => [...current, { id: seq, text }]);
+				}
 				return;
 			}
 			const failure: IntentFailure = {
@@ -307,6 +385,7 @@ export function App() {
 			<SectionPanel section="settings" active={section}>
 				<SettingsSection settings={state.settings} failures={failures} />
 			</SectionPanel>
+			<ToastHost toasts={toasts} durationMs={toastDurationMs} onDismiss={dismissToast} />
 		</main>
 	);
 }
