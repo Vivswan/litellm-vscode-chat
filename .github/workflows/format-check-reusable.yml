@@ -98,7 +98,7 @@ jobs:
           # The webview suite renders source .tsx, never the esbuild output, so
           # a bundler regression could ship a blank dashboard with every test
           # green. The floor must separate broken from healthy: a blank Preact
-          # render still weighs ~12,355 bytes, the real dashboard ~67,816
+          # render still weighs ~12,355 bytes, the real dashboard ~68,649
           # (re-measured after the tabs/slide-over/windowed-table redesign), so
           # 40000 fails the blank build with headroom on both sides. The grep
           # is the content half: these strings only survive if the real
