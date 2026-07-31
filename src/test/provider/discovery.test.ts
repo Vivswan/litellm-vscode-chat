@@ -397,6 +397,103 @@ suite("provider/discovery", () => {
 			);
 		});
 
+		test("provably non-chat model_info modes are dropped while chat and unknown modes register", async () => {
+			let modelsEndpointCalled = false;
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () =>
+					HttpResponse.json({
+						data: [
+							{ model_name: "text-embedding-4", model_info: { mode: "embedding" } },
+							{ model_name: "dall-e-5", model_info: { mode: "image_generation" } },
+							{ model_name: "tts-2", model_info: { mode: "audio_speech" } },
+							{ model_name: "whisper-3", model_info: { mode: "audio_transcription" } },
+							{ model_name: "rerank-4", model_info: { mode: "rerank" } },
+							{ model_name: "guard-2", model_info: { mode: "moderation" } },
+							{ model_name: "chat-model", model_info: { mode: "chat" } },
+							{ model_name: "responses-model", model_info: { mode: "responses" } },
+							{ model_name: "unlabeled-model", model_info: {} },
+							{ model_name: "future-model", model_info: { mode: "holographic_chat" } },
+						],
+					})
+				),
+				http.get(MODELS_URL, () => {
+					modelsEndpointCalled = true;
+					return HttpResponse.json({ object: "list", data: [] });
+				})
+			);
+
+			const logged: { message: string; data?: unknown }[] = [];
+			const { models } = await fetchModels(request((message, data) => logged.push({ message, data })));
+
+			assert.deepStrictEqual(
+				models.map((m) => m.id),
+				["chat-model", "responses-model", "unlabeled-model", "future-model"],
+				"only the provably non-chat modes drop; absent and unrecognized modes must keep registering"
+			);
+			assert.strictEqual(modelsEndpointCalled, false, "surviving entries must not trigger the /v1/models fallback");
+			const skips = logged.filter((l) => l.message.includes("Skipping non-chat model/info entry"));
+			assert.deepStrictEqual(
+				skips.map((l) => l.data),
+				["embedding", "image_generation", "audio_speech", "audio_transcription", "rerank", "moderation"].map(
+					(mode) => ({ mode })
+				),
+				"one skip line per dropped entry, carrying only the known mode constant"
+			);
+			for (const droppedId of ["text-embedding-4", "dall-e-5", "tts-2", "whisper-3", "rerank-4", "guard-2"]) {
+				assert.ok(
+					!JSON.stringify(logged).includes(droppedId),
+					`the server-provided model id ${droppedId} must stay out of the log (it feeds the issue-report buffer)`
+				);
+			}
+		});
+
+		test("an all-non-chat model/info payload yields no models and never falls back to /v1/models", async () => {
+			// Mirrors the all-blocked pin: a mode-skipped entry still counts as
+			// usable, so the fallback (which would re-list the skipped models via
+			// /v1/models) must not fire.
+			let modelsEndpointCalled = false;
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () =>
+					HttpResponse.json({
+						data: [
+							{ model_name: "embed-a", model_info: { mode: "embedding" } },
+							{ model_name: "embed-b", model_info: { mode: "embedding" } },
+						],
+					})
+				),
+				http.get(MODELS_URL, () => {
+					modelsEndpointCalled = true;
+					return HttpResponse.json({ object: "list", data: [{ id: "embed-a" }, { id: "embed-b" }] });
+				})
+			);
+
+			const { models } = await fetchModels(request());
+
+			assert.deepStrictEqual(models, []);
+			assert.strictEqual(
+				modelsEndpointCalled,
+				false,
+				"The /v1/models fallback would re-list the non-chat models; an all-non-chat payload must stay empty"
+			);
+		});
+
+		test("a malformed mode value degrades to undefined and the entry registers", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () =>
+					HttpResponse.json({
+						data: [{ model_name: "odd-mode-model", model_info: { mode: 42 } }],
+					})
+				)
+			);
+
+			const { models } = await fetchModels(request());
+			assert.deepStrictEqual(
+				models.map((m) => m.id),
+				["odd-mode-model"],
+				"a non-string mode is lenient-parsed to undefined, which never drops the entry"
+			);
+		});
+
 		test("an all-blocked model/info payload yields no models and never falls back to /v1/models", async () => {
 			let modelsEndpointCalled = false;
 			mswServer.use(

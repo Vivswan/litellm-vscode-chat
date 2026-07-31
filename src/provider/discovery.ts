@@ -408,12 +408,28 @@ interface NarrowedModelInfoData {
 }
 
 /**
+ * model_info.mode values that provably serve a non-chat endpoint: selecting
+ * such an entry in the chat picker could only ever fail, so it must not
+ * register. Deliberately not the inverse (an allow-list of chat modes):
+ * an absent, null, or unrecognized mode keeps registering - never lose a
+ * model to a vocabulary this extension has not learned yet.
+ */
+const NON_CHAT_MODES: readonly string[] = [
+	"embedding",
+	"image_generation",
+	"audio_speech",
+	"audio_transcription",
+	"rerank",
+	"moderation",
+];
+
+/**
  * Narrow a /v1/model/info payload element-wise. Entries with a model-info
  * identifier take the documented mapping (model_name first); entries shaped
  * like models-listing items pass through; anything else is skipped with a
  * log line instead of aborting the whole registration. Blocked (paused)
- * deployments are dropped, and deployments sharing one model id merge into a
- * single model in first-seen order.
+ * deployments and provably non-chat modes are dropped, and deployments
+ * sharing one model id merge into a single model in first-seen order.
  */
 function narrowModelInfoData(
 	data: unknown[],
@@ -432,6 +448,14 @@ function narrowModelInfoData(
 			usableEntryCount += 1;
 			if (parsed.model_info?.blocked === true) {
 				log("Skipping blocked model/info entry", { modelId: parsed.modelId });
+				continue;
+			}
+			const mode = parsed.model_info?.mode;
+			if (mode !== undefined && NON_CHAT_MODES.includes(mode)) {
+				// Classification only: the logged mode is always one of the
+				// NON_CHAT_MODES constants; the server-provided model id stays out
+				// of the issue-report buffer.
+				log("Skipping non-chat model/info entry", { mode });
 				continue;
 			}
 			const mapped = mapModelInfoEntry(parsed);
