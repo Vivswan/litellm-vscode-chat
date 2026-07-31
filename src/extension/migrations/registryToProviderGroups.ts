@@ -7,6 +7,7 @@ import type { ServerWithKey } from "../../shared/servers";
 import {
 	apiKeySecret,
 	GROUP_MIGRATION_COMPLETE_KEY,
+	MIGRATED_SERVER_IDS_KEY,
 	MIGRATED_SERVER_LABELS_KEY,
 	PENDING_GROUP_SUBMISSION_KEY,
 	PENDING_SECRET_DELETIONS_KEY,
@@ -42,6 +43,8 @@ type SeededGroup = z.infer<typeof seededGroupSchema>;
 const seededGroupsSchema = z.array(seededGroupSchema);
 
 const skippedServersSchema = z.array(z.string());
+
+const migratedServerIdsSchema = z.array(z.string());
 
 const pendingSecretDeletionsSchema = z.array(z.string());
 
@@ -93,6 +96,11 @@ function getSeededGroups(globalState: vscode.Memento): SeededGroup[] {
 
 function getSkippedServers(globalState: vscode.Memento): string[] {
 	const parsed = skippedServersSchema.safeParse(globalState.get<unknown>(SKIPPED_MIGRATION_SERVERS_KEY));
+	return parsed.success ? parsed.data : [];
+}
+
+function getMigratedServerIds(globalState: vscode.Memento): string[] {
+	const parsed = migratedServerIdsSchema.safeParse(globalState.get<unknown>(MIGRATED_SERVER_IDS_KEY));
 	return parsed.success ? parsed.data : [];
 }
 
@@ -264,10 +272,10 @@ async function submitGroupSeed(
 	} catch (error) {
 		if (!isDuplicateGroupError(error, record.name)) {
 			await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
-			const message = error instanceof Error ? error.message : String(error);
-			logger.log(
-				`Provider-group migration deferred server "${current.label}": not accepted (${message}); retrying on next activation`
-			);
+			// Classification only: host errors can embed the group name, which
+			// is the user's server label, and log lines feed the public
+			// issue-report buffer.
+			logger.log("Provider-group migration deferred a server: the host did not accept it; retrying on next activation");
 			return "deferred";
 		}
 		if (!wasOurSubmission) {
@@ -280,9 +288,7 @@ async function submitGroupSeed(
 			);
 			return "skipped";
 		}
-		logger.log(
-			`Provider group "${record.name}" was created by an interrupted earlier submission; treating it as seeded`
-		);
+		logger.log("The colliding provider group was created by an interrupted earlier submission; treating it as seeded");
 	}
 
 	const records = await persistSeededRecord(globalState, record);
@@ -299,9 +305,7 @@ async function submitGroupSeed(
 		await persistSeededRecord(globalState, record);
 	}
 	if (!recordSurvives()) {
-		logger.log(
-			`Provider-group migration stopped at server "${current.label}": its progress record did not persist; retrying on next activation`
-		);
+		logger.log("Provider-group migration stopped: a progress record did not persist; retrying on next activation");
 		return "halt-pass";
 	}
 	await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
@@ -337,9 +341,14 @@ export async function migrateServersToProviderGroups(
 		if (isGroupMigrationComplete(globalState)) {
 			await retryPendingSecretDeletions(globalState, secrets, logger);
 			await cleanUpOrphanedServers(registry, globalState, logger);
-			return false;
-		}
-		if (await finalizeIfDone(registry, globalState, secrets, logger)) {
+			if (registry.getServers().length === 0) {
+				return false;
+			}
+			// Entries the cleanup had no record for (e.g. a legacy import that
+			// raced a fresh-install completion in another window) still deserve
+			// groups, so completion does not close the seeding path: fall
+			// through and run the normal state-driven pass for them.
+		} else if (await finalizeIfDone(registry, globalState, secrets, logger)) {
 			return true;
 		}
 		const snapshot = await registry.getServersWithKeys();
@@ -368,7 +377,9 @@ export async function migrateServersToProviderGroups(
 		const markSkipped = async (serverId: string, notice: string): Promise<void> => {
 			skipped.add(serverId);
 			await persistSkippedServer(globalState, serverId);
-			logger.log(notice);
+			// The toast names the server so the user can act; the log line stays
+			// classification-only because it feeds the public issue-report buffer.
+			logger.log("Provider-group migration skipped a server; it stays in the registry for manual review");
 			void vscode.window.showWarningMessage(`LiteLLM: ${notice}`);
 		};
 
@@ -462,6 +473,15 @@ async function finalizeIfDone(
 		return false;
 	}
 
+	// The durable id list must outlive the seeded records cleared below: it is
+	// the only evidence the post-completion orphan cleanup accepts. Written
+	// first so a failure here retries the whole finalization.
+	const migratedIds = new Set(getMigratedServerIds(globalState));
+	for (const group of seeded) {
+		migratedIds.add(group.id);
+	}
+	await globalState.update(MIGRATED_SERVER_IDS_KEY, [...migratedIds]);
+
 	await globalState.update(MIGRATED_SERVER_LABELS_KEY, mergeLabelMap(getMigratedServerLabels(globalState), seeded));
 	const failedSecretIds: string[] = [];
 	for (const group of seeded) {
@@ -469,19 +489,23 @@ async function finalizeIfDone(
 			await secrets.delete(apiKeySecret(group.id));
 		} catch (error) {
 			failedSecretIds.push(group.id);
-			logger.error(
-				`Failed to delete the migrated secret for server "${group.label}"; retrying on next activation`,
-				error
-			);
+			logger.error("Failed to delete a migrated server secret; retrying on next activation", error);
 		}
 	}
 	if (failedSecretIds.length > 0) {
 		await persistPendingSecretDeletions(globalState, failedSecretIds);
 	}
-	await globalState.update(GROUP_MIGRATION_COMPLETE_KEY, true);
-	await globalState.update(SEEDED_PROVIDER_GROUPS_KEY, undefined);
+	// The seeded records go second-to-last and the flag goes LAST: every step
+	// is idempotent, so as long as the records survive, a failure anywhere
+	// above reruns the whole finalization on the next activation, and a
+	// failure on the flag write alone converges through the fresh-install
+	// completion (everything else is already clean by then). The flag written
+	// any earlier would let the completed fast path skip the unfinished rest
+	// forever.
 	await globalState.update(SKIPPED_MIGRATION_SERVERS_KEY, undefined);
 	await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
+	await globalState.update(SEEDED_PROVIDER_GROUPS_KEY, undefined);
+	await globalState.update(GROUP_MIGRATION_COMPLETE_KEY, true);
 
 	logger.log(`Migrated ${seeded.length} server(s) to VS Code provider groups`);
 	return true;
@@ -515,7 +539,7 @@ async function removeMigratedServer(registry: ServerRegistry, server: ServerWith
 	try {
 		await registry.removeServer(server.id);
 	} catch (error) {
-		logger.error(`Failed to remove migrated server "${server.label}" from the registry`, error);
+		logger.error("Failed to remove a migrated server from the registry", error);
 	}
 }
 
@@ -526,13 +550,14 @@ async function removeMigratedServer(registry: ServerRegistry, server: ServerWith
  * cleared the entry but failed on its secret would lose the secret's id, so
  * the failure lands on the pending-deletions list.
  *
- * Deletion requires POSITIVE evidence the server was migrated: its id in a
- * surviving seeded record, or its label recorded under its base URL in the
- * persisted label map. The completion flag alone is not evidence: another
- * window can set it concurrently with this window's legacy import (the
- * fresh-install race), and deleting on the flag alone would destroy a server
- * that was never migrated. Unrecognized entries stay and are counted in a log
- * line.
+ * Deletion requires POSITIVE evidence the server was migrated: its id in the
+ * durable migrated-ids list or in a surviving seeded record. Ids are the only
+ * acceptable evidence: the completion flag is not (another window can set it
+ * concurrently with this window's legacy import), and neither is the label
+ * map, because a user who re-adds a server with a previously migrated label
+ * and base URL mints a new id but repeats the pair, and matching on it would
+ * delete the new server. Unrecognized entries stay, are counted in a log
+ * line, and the caller reopens the seeding pass for them.
  */
 async function cleanUpOrphanedServers(
 	registry: ServerRegistry,
@@ -544,10 +569,9 @@ async function cleanUpOrphanedServers(
 		return;
 	}
 	const seeded = getSeededGroups(globalState);
-	const labelMap = getMigratedServerLabels(globalState);
+	const migratedIds = new Set(getMigratedServerIds(globalState));
 	const orphans = candidates.filter(
-		(server) =>
-			seeded.some((group) => group.id === server.id) || (labelMap[server.baseUrl] ?? []).includes(server.label)
+		(server) => migratedIds.has(server.id) || seeded.some((group) => group.id === server.id)
 	);
 	const unrecognized = candidates.length - orphans.length;
 	if (unrecognized > 0) {
@@ -564,7 +588,7 @@ async function cleanUpOrphanedServers(
 			await registry.removeServer(orphan.id);
 		} catch (error) {
 			await persistPendingSecretDeletions(globalState, [orphan.id]);
-			logger.error(`Failed to remove orphaned server "${orphan.label}" from the registry`, error);
+			logger.error("Failed to remove an orphaned server from the registry", error);
 		}
 	}
 }
@@ -572,18 +596,20 @@ async function cleanUpOrphanedServers(
 /**
  * A fresh install has nothing to migrate, so it can be marked complete right
  * away, which routes server management to the native provider-group UI. Every
- * trace of an unfinished migration blocks this, and the hasLegacyConfig guard
- * is load-bearing: the legacy migration is best-effort, so on its failure the
- * registry looks fresh here, and completing now would strand the server that
- * migration creates on a later activation (once the flag is set, the engine
- * only ever does maintenance and would never seed it into a group). Deleting
- * it is off the table regardless: cleanUpOrphanedServers requires a migration
- * record before it removes anything.
+ * trace of an unfinished migration blocks this. The hasLegacyConfig guard
+ * keeps the flag honest: the legacy migration is best-effort, so on its
+ * failure the registry looks fresh here while an import is still due, and
+ * completing now would flip the manage command to nativeRequired a release
+ * early and force the next activation through the reopened-seeding path.
+ * Nothing destructive rides on the guard: cleanup deletes only on id
+ * evidence, and the engine seeds recordless entries even after completion.
  *
  * Deliberately not gated on extension mode: test mode forces the legacy
  * manage path and the groupless refresh regardless of the flag, servers the
- * litellm._test.* commands create have no migration record and so cannot be
- * swept, and gating would leave the production fresh-install path untested.
+ * litellm._test.* commands create have no migration record so they are never
+ * swept (a later activation in the same profile seeds them into groups, which
+ * throwaway test profiles tolerate), and gating would leave the production
+ * fresh-install path untested.
  */
 async function completeFreshInstall(ctx: MigrationContext): Promise<boolean> {
 	if (
@@ -622,11 +648,11 @@ export const registryToProviderGroupsMigration: ExtensionMigration = {
 		if (completed) {
 			return "migrated";
 		}
-		if (isGroupMigrationComplete(ctx.globalState)) {
-			return "nothing-to-do";
-		}
 		if (ctx.registry.getServers().length > 0) {
 			return "in-progress";
+		}
+		if (isGroupMigrationComplete(ctx.globalState)) {
+			return "nothing-to-do";
 		}
 		if (await completeFreshInstall(ctx)) {
 			ctx.logger.log("No legacy servers to migrate; marked the provider-group migration complete");

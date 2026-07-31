@@ -17,6 +17,7 @@ import {
 	GROUP_MIGRATION_COMPLETE_KEY,
 	LEGACY_API_KEY_SECRET,
 	LEGACY_BASE_URL_SECRET,
+	MIGRATED_SERVER_IDS_KEY,
 	MIGRATED_SERVER_LABELS_KEY,
 	PENDING_GROUP_SUBMISSION_KEY,
 	PENDING_SECRET_DELETIONS_KEY,
@@ -25,7 +26,7 @@ import {
 	SKIPPED_MIGRATION_SERVERS_KEY,
 } from "../../../shared/storageKeys";
 import type { FakeExtensionStorage } from "../../testUtils";
-import { expectDefined, makeExtensionStorage } from "../../testUtils";
+import { makeExtensionStorage } from "../../testUtils";
 
 function makeLogger(): { logger: Logger; lines: string[] } {
 	const lines: string[] = [];
@@ -156,7 +157,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 			["Production"]
 		);
 		assert.ok(
-			lines.some((l) => l.includes("deferred server")),
+			lines.some((l) => l.includes("deferred a server")),
 			`Expected a deferred-server log line. Lines: ${lines.join(" | ")}`
 		);
 	});
@@ -238,6 +239,44 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.strictEqual(warnings.length, 1, "the skip must be announced exactly once across runs");
 		const skipWarning = expectMessage(warnings[0]);
 		assert.ok(skipWarning.includes("changed after it was migrated"), skipWarning);
+	});
+
+	test("a finalization that fails after the durable-id write retries and completes", async () => {
+		// The completion flag is written LAST: were it written before the
+		// record clears, a failed clear would leave the completed fast path
+		// returning early forever with the finalization half done.
+		const storage = makeExtensionStorage();
+		storage.mementoStore.set(SEEDED_PROVIDER_GROUPS_KEY, [
+			{ id: "aaaa1111", name: "Production", label: "Production", baseUrl: "http://prod.test", keyFingerprint: "0" },
+		]);
+		const { logger } = makeLogger();
+		const host = makeFakeHost();
+		const originalUpdate = storage.memento.update.bind(storage.memento);
+		let broken = true;
+		(storage.memento as { update(key: string, value: unknown): Thenable<void> }).update = async (key, value) => {
+			if (key === SEEDED_PROVIDER_GROUPS_KEY && value === undefined && broken) {
+				throw new Error("memento write failed");
+			}
+			await originalUpdate(key, value);
+		};
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+
+		await assert.rejects(migrate(registry, storage, logger, host.exec), /memento write failed/);
+
+		assert.deepStrictEqual(storage.mementoStore.get(MIGRATED_SERVER_IDS_KEY), ["aaaa1111"]);
+		assert.strictEqual(
+			isGroupMigrationComplete(storage.memento),
+			false,
+			"the flag must not be set while the finalization is unfinished"
+		);
+
+		broken = false;
+		const completed = await migrate(registry, storage, logger, host.exec);
+
+		assert.strictEqual(completed, true, "the state-derived finalization must retry and finish");
+		assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
+		assert.strictEqual(storage.mementoStore.get(SEEDED_PROVIDER_GROUPS_KEY), undefined);
+		assert.deepStrictEqual(storage.mementoStore.get(MIGRATED_SERVER_IDS_KEY), ["aaaa1111"]);
 	});
 
 	test("crash before the flag: finalization is state-derived on the next activation", async () => {
@@ -527,20 +566,18 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.deepStrictEqual(registry.getServers(), []);
 		assert.deepStrictEqual([...host.groups].sort(), ["Backup", "Production"], "Both servers end up seeded");
 		assert.ok(
-			!lines.some((l) => l.includes("was not migrated")),
+			!lines.some((l) => l.includes("skipped a server")),
 			`Recovery must not degrade to a foreign-collision skip. Lines: ${lines.join(" | ")}`
 		);
 	});
 
 	test("an orphan whose secret deletion fails lands on the pending list and clears later", async () => {
-		const storage = makeExtensionStorage({
-			[GROUP_MIGRATION_COMPLETE_KEY]: true,
-			// The label map is the orphan's migration record; without it the
-			// cleanup would (correctly) refuse to touch the entry.
-			[MIGRATED_SERVER_LABELS_KEY]: { "http://orphan.test": ["Orphan"] },
-		});
+		const storage = makeExtensionStorage({ [GROUP_MIGRATION_COMPLETE_KEY]: true });
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const server = await registry.addServer("Orphan", "http://orphan.test", "orphan-key");
+		// The durable id list is the orphan's migration record; without it the
+		// cleanup would (correctly) refuse to touch the entry.
+		storage.mementoStore.set(MIGRATED_SERVER_IDS_KEY, [server.id]);
 		const { logger } = makeLogger();
 		const host = makeFakeHost();
 		const failingKey = apiKeySecret(server.id);
@@ -729,12 +766,10 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	test("registry entries surviving past a completed migration are cleaned up on activation", async () => {
-		const storage = makeExtensionStorage({
-			[GROUP_MIGRATION_COMPLETE_KEY]: true,
-			[MIGRATED_SERVER_LABELS_KEY]: { "http://orphan.test": ["Orphan"] },
-		});
+		const storage = makeExtensionStorage({ [GROUP_MIGRATION_COMPLETE_KEY]: true });
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
-		await registry.addServer("Orphan", "http://orphan.test", "orphan-key");
+		const server = await registry.addServer("Orphan", "http://orphan.test", "orphan-key");
+		storage.mementoStore.set(MIGRATED_SERVER_IDS_KEY, [server.id]);
 		const { logger, lines } = makeLogger();
 		const host = makeFakeHost();
 
@@ -750,10 +785,12 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		);
 	});
 
-	test("a surviving entry with no migration record is never deleted after completion", async () => {
+	test("a surviving entry with no migration record is re-seeded, never swept", async () => {
 		// The completion flag alone must not authorize deletion: another window
 		// can set it while this window imports a server (the fresh-install
-		// race), and that server has no seeded record and no label mapping.
+		// race), and that server has no migration record. Completion also must
+		// not close the seeding path, or the entry would sit in a registry
+		// nothing serves in production.
 		const storage = makeExtensionStorage({ [GROUP_MIGRATION_COMPLETE_KEY]: true });
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const server = await registry.addServer("Default", "http://legacy:4000", "legacy-key");
@@ -762,16 +799,43 @@ suite("extension/migrations/registryToProviderGroups", () => {
 
 		const completed = await migrate(registry, storage, logger, host.exec);
 
-		assert.strictEqual(completed, false);
-		assert.deepStrictEqual(
-			registry.getServers().map((s) => s.id),
-			[server.id],
-			"the unrecognized entry must survive"
+		assert.strictEqual(completed, true, "the recordless entry must go through the normal seeding pass");
+		assert.ok(host.groups.has("Default"), "the entry must become a provider group, not be swept");
+		assert.deepStrictEqual(registry.getServers(), []);
+		assert.strictEqual(storage.secretStore.size, 0, "the secret is cleaned up by finalization, after seeding");
+		assert.ok(
+			(storage.mementoStore.get(MIGRATED_SERVER_IDS_KEY) as string[]).includes(server.id),
+			"the re-seeded entry joins the durable migration record"
 		);
-		assert.strictEqual(storage.secretStore.get(apiKeySecret(server.id)), "legacy-key");
 		const notice = lines.find((l) => l.includes("no migration record"));
 		assert.ok(notice !== undefined, `expected a count-only notice. Lines: ${lines.join(" | ")}`);
 		assert.ok(!notice.includes("Default") && !notice.includes("legacy"), "the notice must not name the server");
+	});
+
+	test("a re-added server reusing a migrated label and base URL is never swept as an orphan", async () => {
+		// Labels and base URLs recur when a user re-adds a server; only ids
+		// are unique. Matching on the historical (label, baseUrl) pair would
+		// delete the new server and its secret without any submission.
+		const storage = makeExtensionStorage({
+			[GROUP_MIGRATION_COMPLETE_KEY]: true,
+			[MIGRATED_SERVER_IDS_KEY]: ["oldid111"],
+			[MIGRATED_SERVER_LABELS_KEY]: { "http://prod.test": ["Production"] },
+		});
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		const readded = await registry.addServer("Production", "http://prod.test", "new-key");
+		const { logger } = makeLogger();
+		const host = makeFakeHost();
+
+		const completed = await migrate(registry, storage, logger, host.exec);
+
+		assert.strictEqual(
+			host.submissions.filter((s) => s.group.name === "Production").length,
+			1,
+			"the re-added server must be seeded, not silently deleted"
+		);
+		assert.strictEqual(completed, true);
+		assert.ok(host.groups.has("Production"));
+		assert.notStrictEqual(readded.id, "oldid111");
 	});
 
 	test("a skip marker for a server no longer in the registry lifts, unblocking completion", async () => {
@@ -825,20 +889,19 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.strictEqual(isGroupMigrationComplete(shared.memento), true, "the race must really have happened");
 
 		// Window B's next engine pass sees the flag; without a migration
-		// record for the imported server, cleanup must leave it alone.
+		// record for the imported server, cleanup must leave it alone, and the
+		// reopened seeding pass must migrate it instead of stranding it.
 		const { logger, lines } = makeLogger();
 		const host = makeFakeHost();
-		await migrate(bCtx.registry, shared, logger, host.exec);
+		const completed = await migrate(bCtx.registry, shared, logger, host.exec);
 
-		const survivors = bCtx.registry.getServers();
-		assert.strictEqual(survivors.length, 1, "the just-imported server must survive the racing completion");
-		const survivor = expectDefined(survivors[0]);
-		assert.strictEqual(survivor.label, "Default");
-		assert.strictEqual(shared.secretStore.get(apiKeySecret(survivor.id)), "legacy-key", "its secret must survive too");
 		assert.ok(
 			lines.some((l) => l.includes("no migration record")),
 			`expected the unrecognized-entry notice. Lines: ${lines.join(" | ")}`
 		);
+		assert.strictEqual(completed, true, "the raced import is migrated on the next activation, never swept");
+		assert.ok(host.groups.has("Default"), "the imported server must end up as a provider group");
+		assert.deepStrictEqual(bCtx.registry.getServers(), []);
 	});
 
 	test("duplicate labels get disambiguated group names and no label mapping", async () => {
