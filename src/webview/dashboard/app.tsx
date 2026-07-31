@@ -186,13 +186,14 @@ function StatusHero({ state }: { state: DashboardState }) {
 	);
 }
 
-/** Grey stand-ins shaped like the page (title, hero strip, a table); no spinner, no motion. */
+/** Grey stand-ins shaped like the page (title, hero strip, tab bar, a table); no spinner, no motion. */
 function LoadingSkeleton() {
 	return (
 		<main aria-label="Loading">
 			<div class="skeleton" style={{ height: "20px", width: "220px", margin: "24px 0 4px" }} />
 			<div class="skeleton" style={{ height: "13px", width: "420px", margin: "8px 0 16px" }} />
-			<div class="skeleton" style={{ height: "38px", margin: "16px 0 32px" }} />
+			<div class="skeleton" style={{ height: "38px", margin: "16px 0 24px" }} />
+			<div class="skeleton" style={{ height: "26px", width: "260px", margin: "0 0 24px" }} />
 			<div class="skeleton" style={{ height: "14px", width: "120px", margin: "0 0 12px" }} />
 			<div class="skeleton" style={{ height: "24px", margin: "8px 0" }} />
 			<div class="skeleton" style={{ height: "24px", margin: "8px 0" }} />

@@ -35,3 +35,13 @@ export function IconCopy() {
 export function IconCheck() {
 	return <Svg path="M6.27 12.3L2.5 8.53l.94-.94 2.83 2.83 6.29-6.29.94.94-7.23 7.23z" />;
 }
+
+export function IconAdd() {
+	return <Svg path="M8.5 3v4.5H13v1H8.5V13h-1V8.5H3v-1h4.5V3h1z" />;
+}
+
+export function IconTrash() {
+	return (
+		<Svg path="M6 2h4v1h4v1h-1v9.5L11.5 15h-7L3 13.5V4H2V3h4V2zm-2 2v9.09l.91.91h6.18l.91-.91V4H4zm2 2h1v6H6V6zm3 0h1v6H9V6z" />
+	);
+}

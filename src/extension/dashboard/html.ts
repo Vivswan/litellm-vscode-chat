@@ -577,6 +577,19 @@ const STYLES = `
 		margin: 8px 0;
 	}
 	.empty-block p { margin: 8px 0; }
+	/* The guided start when no server is configured yet: a welcome, the three
+	   steps in plain words, and the primary action - not a bare table. */
+	.empty-start {
+		max-width: 560px;
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		border-radius: 4px;
+		padding: 16px 24px 20px;
+		margin: 16px 0;
+		background: var(--vscode-editorWidget-background, transparent);
+	}
+	.empty-start h3 { margin: 0 0 4px; }
+	.empty-start ol { margin: 8px 0 16px; padding-left: 20px; }
+	.empty-start li { margin: 6px 0; }
 	/* One-time informational callout (e.g. the post-adoption duplicate-group
 	   note): quiet card, no alarm colors. */
 	.notice {

@@ -11,6 +11,7 @@ import {
 	HELP_MODEL_PARAMETER_VALUE,
 	HELP_MODEL_PARAMETERS_SECTION,
 } from "./helpText";
+import { IconAdd, IconTrash } from "./icons";
 import { postMessage } from "./vscodeApi";
 
 /**
@@ -132,7 +133,7 @@ export function ParamGroupsFields({
 							disabled={disabled}
 							onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
 						>
-							Remove prefix
+							<IconTrash /> Remove prefix
 						</button>
 						{problems[groupIndex]?.prefix !== undefined ? (
 							<span class="error">{problems[groupIndex]?.prefix}</span>
@@ -181,7 +182,7 @@ export function ParamGroupsFields({
 									disabled={disabled}
 									onClick={() => patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })}
 								>
-									Remove
+									<IconTrash /> Remove
 								</button>
 								{problems[groupIndex]?.params[paramIndex] !== undefined ? (
 									<span class="error">{problems[groupIndex]?.params[paramIndex]}</span>
@@ -195,7 +196,7 @@ export function ParamGroupsFields({
 						disabled={disabled}
 						onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
 					>
-						Add parameter
+						<IconAdd /> Add parameter
 					</button>
 				</div>
 			))}
@@ -256,7 +257,7 @@ export function ModelParametersEditor({
 					class="secondary"
 					onClick={() => draft.update([...groups, { prefix: "", params: [{ key: "", valueText: "" }] }])}
 				>
-					Add model prefix
+					<IconAdd /> Add model prefix
 				</button>
 				<button type="button" disabled={!draft.dirty || !parse.ok} onClick={apply}>
 					Apply
@@ -338,7 +339,7 @@ export function HeadersEditor({
 							onInput={(event) => patchRow(index, { valueText: event.currentTarget.value })}
 						/>
 						<button type="button" class="quiet" onClick={() => draft.update(rows.filter((_, i) => i !== index))}>
-							Remove
+							<IconTrash /> Remove
 						</button>
 						{problems[index] !== undefined ? <span class="error">{problems[index]}</span> : null}
 					</div>
@@ -347,7 +348,7 @@ export function HeadersEditor({
 			<FailureNote failure={failure} dirty={draft.dirty} />
 			<div class="toolbar">
 				<button type="button" class="secondary" onClick={() => draft.update([...rows, { name: "", valueText: "" }])}>
-					Add header
+					<IconAdd /> Add header
 				</button>
 				<button type="button" disabled={!draft.dirty || !parse.ok} onClick={apply}>
 					Apply
