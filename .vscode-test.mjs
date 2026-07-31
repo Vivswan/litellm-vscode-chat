@@ -56,6 +56,10 @@ export default defineConfig({
 			env: {
 				FUZZ_RUNS: process.env.FUZZ_RUNS || "",
 				FUZZ_SEED: process.env.FUZZ_SEED || "",
+				// The fingerprint module's test seam: unit files import compiled
+				// modules directly with no shared bootstrap, so the fixed salt
+				// arrives by environment (see shared/util/fingerprint.ts).
+				LITELLM_TEST_FINGERPRINT_SALT: "litellm-vscode-chat unit-test fingerprint salt (fixed, not a secret)",
 			},
 			launchArgs: launchArgsFor("unit"),
 		},

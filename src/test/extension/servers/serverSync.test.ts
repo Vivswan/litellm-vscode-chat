@@ -11,6 +11,7 @@ import {
 	acceptedEntry,
 	buildGroupArgs,
 	copyServerSecrets,
+	createServerSyncEnv,
 	deleteServerSecrets,
 	entryModelParametersFor,
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
@@ -18,16 +19,18 @@ import {
 	inlineSecretValues,
 	parseServersSetting,
 	readServerSecrets,
+	SALT_UNAVAILABLE_MESSAGE,
 	SECRETS_READ_FAILED_MESSAGE,
 	ServerSyncEngine,
 	updateServerSecret,
 } from "../../../extension/servers/serverSync";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { CMD } from "../../../shared/config/commandIds";
-import { serverSecretsKey } from "../../../shared/config/storageKeys";
+import { SERVER_SYNC_FINGERPRINTS_KEY, serverSecretsKey } from "../../../shared/config/storageKeys";
+import { Logger } from "../../../shared/logger";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { fingerprint } from "../../../shared/util/fingerprint";
-import { expectDefined, withConfig } from "../../testUtils";
+import { fingerprint, legacyUnsaltedFingerprint } from "../../../shared/util/fingerprint";
+import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage, withConfig } from "../../testUtils";
 
 function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {
 	const values = new Map(Object.entries(initial));
@@ -56,6 +59,8 @@ interface Recorded {
 	failLabels: Set<string>;
 	/** When set, addProviderGroup rejects these labels the way an add-only host refuses an existing name. */
 	duplicateLabels: Set<string>;
+	/** What confirmFingerprintsDurable reports; false models a session-only salt. */
+	saltDurable: boolean;
 }
 
 function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServerSecrets> = {}): Recorded {
@@ -69,9 +74,11 @@ function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServer
 		secrets,
 		failLabels: new Set(),
 		duplicateLabels: new Set(),
+		saltDurable: true,
 		env: {
 			readServersSetting: () => recorded.setting,
 			readSecrets: async (label) => recorded.secrets[label] ?? {},
+			confirmFingerprintsDurable: async () => recorded.saltDurable,
 			addProviderGroup: async (args) => {
 				if (recorded.failLabels.has(args.name ?? "")) {
 					throw new Error("host refused the group");
@@ -657,15 +664,16 @@ suite("extension/servers/serverSync", () => {
 			// Adding `label` to buildGroupArgs changed every entry's fingerprint
 			// at once, so the first activation after the update re-adds every
 			// healthy group and gets the add-only host's duplicate rejection. The
-			// stored pre-label rendering must confirm it - without that, every
-			// existing entry would wedge on the name-conflict error - and the
-			// record upgrades to the current shape so the shim runs once.
+			// stored pre-label rendering (unsalted: those versions predate the
+			// salt too) must confirm it - without that, every existing entry
+			// would wedge on the name-conflict error - and the record upgrades
+			// to the current shape so the shim runs once.
 			const setting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
 			const recorded = makeSyncEnv(setting);
 			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
 			const args = buildGroupArgs(parsed, {});
 			const { label: _label, ...legacyArgs } = args;
-			recorded.fingerprints = { A: fingerprint(JSON.stringify(legacyArgs)) };
+			recorded.fingerprints = { A: legacyUnsaltedFingerprint(JSON.stringify(legacyArgs)) };
 			recorded.duplicateLabels.add("A");
 
 			const engine = new ServerSyncEngine(recorded.env);
@@ -675,7 +683,31 @@ suite("extension/servers/serverSync", () => {
 			assert.deepStrictEqual(
 				recorded.fingerprints,
 				{ A: fingerprint(JSON.stringify(args)) },
-				"the record upgrades to the labeled rendering"
+				"the record upgrades to the salted labeled rendering"
+			);
+		});
+
+		test("a pre-salt fingerprint's forced re-add reads as in-sync and upgrades the record", async () => {
+			// v0.3.x persisted the labeled rendering unsalted. The first
+			// activation after fingerprint() gained its salt re-adds every
+			// healthy group; the stored unsalted rendering must confirm the
+			// duplicate rejection and upgrade to the salted form, or every
+			// pre-salt entry the rewrite migration could not reach would wedge.
+			const setting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
+			const recorded = makeSyncEnv(setting);
+			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
+			const args = buildGroupArgs(parsed, {});
+			recorded.fingerprints = { A: legacyUnsaltedFingerprint(JSON.stringify(args)) };
+			recorded.duplicateLabels.add("A");
+
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the pre-salt group reads as in-sync");
+			assert.deepStrictEqual(
+				recorded.fingerprints,
+				{ A: fingerprint(JSON.stringify(args)) },
+				"the record upgrades to the salted rendering"
 			);
 		});
 
@@ -685,7 +717,26 @@ suite("extension/servers/serverSync", () => {
 			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
 			const args = buildGroupArgs(parsed, {});
 			const { label: _label, ...legacyArgs } = args;
-			recorded.fingerprints = { A: fingerprint(JSON.stringify(legacyArgs)) };
+			recorded.fingerprints = { A: legacyUnsaltedFingerprint(JSON.stringify(legacyArgs)) };
+
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			assert.strictEqual(recorded.upserts.length, 0, "no host call for content the live group already holds");
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined);
+			assert.deepStrictEqual(
+				recorded.fingerprints,
+				{ A: fingerprint(JSON.stringify(args)) },
+				"the pass-end persist upgrades the record in place"
+			);
+		});
+
+		test("an unchanged entry with a pre-salt fingerprint stays silent on unforced passes too", async () => {
+			const setting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
+			const recorded = makeSyncEnv(setting);
+			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
+			const args = buildGroupArgs(parsed, {});
+			recorded.fingerprints = { A: legacyUnsaltedFingerprint(JSON.stringify(args)) };
 
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
@@ -700,20 +751,105 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("a pre-label fingerprint never confirms a CHANGED entry; the conflict still surfaces", async () => {
-			// The legacy rendering is accepted only for byte-identical content:
-			// a fingerprint of the OLD configuration (in either shape) must not
+			// The legacy renderings are accepted only for byte-identical content:
+			// a fingerprint of the OLD configuration (in any shape) must not
 			// wave a changed entry through as in-sync.
 			const oldSetting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
 			const parsedOld = expectDefined(parseServersSetting(oldSetting).entries[0]);
 			const { label: _label, ...legacyOldArgs } = buildGroupArgs(parsedOld, {});
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test", apiKey: "sk-2" }]);
-			recorded.fingerprints = { A: fingerprint(JSON.stringify(legacyOldArgs)) };
+			recorded.fingerprints = { A: legacyUnsaltedFingerprint(JSON.stringify(legacyOldArgs)) };
 			recorded.duplicateLabels.add("A");
 
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow(true);
 
 			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+		});
+
+		test("a salted pre-label rendering is never accepted: no version ever persisted it", async () => {
+			// The legacy set is exactly the two renderings pre-salt versions
+			// wrote: unsalted with the label and unsalted without it. Pre-label
+			// versions were also pre-salt, so a salted label-less record can
+			// only be corruption or forgery and must not confirm anything.
+			const setting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
+			const recorded = makeSyncEnv(setting);
+			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
+			const { label: _label, ...legacyArgs } = buildGroupArgs(parsed, {});
+			recorded.fingerprints = { A: fingerprint(JSON.stringify(legacyArgs)) };
+			recorded.duplicateLabels.add("A");
+
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+		});
+
+		test("an unconfirmed salt pauses the pass: no adds, classified skip, last-known-good carried", async () => {
+			// Under a salt no later session will see, an added group could never
+			// be confirmed again (add-only host) and a recorded fingerprint
+			// would match nothing, so the pass skips every entry the way it
+			// skips unreadable secrets: classified error, stored records carried.
+			const setting = [
+				{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" },
+				{ label: "New", baseUrl: "http://new.test", apiKey: "sk-2" },
+			];
+			const recorded = makeSyncEnv(setting);
+			recorded.fingerprints = { A: "durable-record" };
+			recorded.saltDurable = false;
+
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+
+			assert.deepStrictEqual(recorded.upserts, [], "no group may be created under an unconfirmed salt");
+			assert.deepStrictEqual(
+				recorded.fingerprints,
+				{ A: "durable-record" },
+				"last-known-good carries; the new entry records nothing"
+			);
+			for (const view of engine.getDeclared()) {
+				assert.strictEqual(view.syncError, SALT_UNAVAILABLE_MESSAGE);
+				assert.strictEqual(view.syncErrorClass, "secretsUnreadable");
+			}
+		});
+
+		test("the pause lifts once the salt confirms durable again", async () => {
+			const setting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
+			const recorded = makeSyncEnv(setting);
+			recorded.saltDurable = false;
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+			assert.deepStrictEqual(recorded.upserts, []);
+
+			recorded.saltDurable = true;
+			await engine.syncNow(true);
+			assert.strictEqual(recorded.upserts.length, 1, "the next confirmed pass syncs normally");
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
+		});
+
+		test("a salt mutation detected mid-pass stops further adds", async () => {
+			// The salt is re-confirmed immediately before EACH host add, not only
+			// at pass start: a group created after the store mutated could only
+			// ever be proven by a fingerprint no later session can recompute.
+			const setting = [
+				{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" },
+				{ label: "B", baseUrl: "http://b.test", apiKey: "sk-2" },
+			];
+			const recorded = makeSyncEnv(setting);
+			// Pass-start confirm, A's pre-add confirm, then the mutation lands.
+			const answers = [true, true, false];
+			recorded.env.confirmFingerprintsDurable = async () => answers.shift() ?? false;
+
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+
+			assert.strictEqual(recorded.upserts.length, 1, "only the add confirmed before the mutation lands");
+			assert.strictEqual(recorded.upserts[0]?.label, "A");
+			const views = engine.getDeclared();
+			assert.strictEqual(views[0]?.syncError, undefined, "A synced normally");
+			assert.strictEqual(views[1]?.syncError, SALT_UNAVAILABLE_MESSAGE, "B is skipped, not added");
+			assert.strictEqual(views[1]?.syncErrorClass, "secretsUnreadable");
 		});
 
 		test("a duplicate for a configuration another window already synced confirms against the store", async () => {
@@ -1241,5 +1377,71 @@ suite("extension/servers/serverSync", () => {
 				(vscode.window as Record<string, unknown>).showWarningMessage = original.showWarningMessage;
 			}
 		});
+	});
+});
+
+suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence", () => {
+	function makeEnv(salt: "durable" | "session-only") {
+		const storage = makeExtensionStorage({ [SERVER_SYNC_FINGERPRINTS_KEY]: { A: "before" } });
+		const lines: string[] = [];
+		const logger = new Logger({
+			info: (message: string) => lines.push(message),
+			error: (message: string) => lines.push(`ERROR: ${message}`),
+		});
+		const context = {
+			globalState: storage.memento,
+			secrets: storage.secrets,
+		} as unknown as vscode.ExtensionContext;
+		return { env: createServerSyncEnv(context, logger, fakeFingerprintSaltSession(salt)), storage, lines };
+	}
+
+	test("a durable salt persists the map as before", async () => {
+		const { env, storage } = makeEnv("durable");
+		await env.setFingerprints({ A: "after" });
+		assert.deepStrictEqual(storage.mementoStore.get(SERVER_SYNC_FINGERPRINTS_KEY), { A: "after" });
+		assert.deepStrictEqual(env.getFingerprints(), { A: "after" });
+	});
+
+	test("a session-only salt never touches the stored map", async () => {
+		// Session-only renderings match nothing next session; persisting them
+		// would overwrite the durable records (or upgrade a legacy record into
+		// an unmatchable one) that let a healthy group read as in-sync once
+		// the real salt is back. The engine's in-memory map still carries the
+		// session's state, so within the session nothing changes.
+		const { env, storage, lines } = makeEnv("session-only");
+		await env.setFingerprints({ A: "ephemeral" });
+		assert.deepStrictEqual(
+			storage.mementoStore.get(SERVER_SYNC_FINGERPRINTS_KEY),
+			{ A: "before" },
+			"the stored records survive untouched"
+		);
+		assert.ok(
+			lines.some((line) => line.includes("will not persist fingerprints")),
+			"the disabled persistence announces itself once"
+		);
+	});
+
+	test("a salt mutation detected at write time stops that persist", async () => {
+		// setFingerprints re-confirms per write, not per pass: a store mutation
+		// landing between two writes must stop the second one.
+		const storage = makeExtensionStorage({ [SERVER_SYNC_FINGERPRINTS_KEY]: { A: "before" } });
+		const context = {
+			globalState: storage.memento,
+			secrets: storage.secrets,
+		} as unknown as vscode.ExtensionContext;
+		const answers: ("durable" | "session-only")[] = ["durable", "session-only"];
+		const env = createServerSyncEnv(context, new Logger({ info: () => {}, error: () => {} }), {
+			state: () => "durable",
+			confirmDurable: async () => answers.shift() ?? "session-only",
+		});
+
+		await env.setFingerprints({ A: "first" });
+		assert.deepStrictEqual(storage.mementoStore.get(SERVER_SYNC_FINGERPRINTS_KEY), { A: "first" });
+		await env.setFingerprints({ A: "second" });
+		assert.deepStrictEqual(
+			storage.mementoStore.get(SERVER_SYNC_FINGERPRINTS_KEY),
+			{ A: "first" },
+			"the write after the mutation is refused"
+		);
 	});
 });

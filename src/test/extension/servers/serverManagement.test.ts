@@ -11,7 +11,7 @@ import {
 } from "../../../extension/servers/serverManagement";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { Logger } from "../../../shared/logger";
-import { expectDefined, makeExtensionStorage, withConfig } from "../../testUtils";
+import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage, withConfig } from "../../testUtils";
 
 suite("extension/servers/serverManagement", () => {
 	// The activated extension already owns the litellm.manage command IDs, so
@@ -805,6 +805,7 @@ suite("extension/servers/serverManagement", () => {
 					storage.memento,
 					storage.secrets,
 					logger,
+					fakeFingerprintSaltSession(),
 					() => seeding
 				);
 				// A macrotask lets the migration reach the blocked host command.
