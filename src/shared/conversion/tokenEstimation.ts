@@ -57,15 +57,38 @@ export function estimatePartTokens(
 		}
 	}
 	// Tool results wrap their output in a content array (no string value), so
-	// each entry recurses through the same per-part estimates at the
-	// "toolResult" position, whose wire forms drop PDF and audio and gate
-	// images just like collectToolResultContent. In agent sessions tool output
-	// dominates the prompt; counting it as 0 made the host's budget skip
-	// trimming until the request overflowed server-side.
+	// each entry prices what collectToolResultContent transmits for it:
+	// recognized part classes recurse through the same per-part estimates at
+	// the "toolResult" position (whose wire forms drop PDF and audio and gate
+	// images just like conversion), a bare string is transmitted verbatim and
+	// prices by the same chars/4 rule as other text, and anything else is
+	// JSON-stringified onto the wire, so that serialization's length is what
+	// counts - conversion's `+=` coerces a missing rendering (functions,
+	// symbols) to the literal "undefined", and only a THROWING serialization
+	// transmits nothing. In agent sessions tool output dominates the prompt;
+	// counting entries as 0 made the host's budget skip trimming until the
+	// request overflowed server-side.
 	if (isToolResultPart(part)) {
 		let total = 0;
 		for (const inner of part.content ?? []) {
-			total += estimatePartTokens(inner, options, "toolResult");
+			if (
+				inner instanceof vscode.LanguageModelTextPart ||
+				inner instanceof vscode.LanguageModelDataPart ||
+				inner instanceof vscode.LanguageModelPromptTsxPart
+			) {
+				total += estimatePartTokens(inner, options, "toolResult");
+			} else if (typeof inner === "string") {
+				total += Math.ceil(inner.length / CHARS_PER_TOKEN);
+			} else {
+				try {
+					// Conversion appends JSON.stringify's result with `+=`, which
+					// coerces a missing rendering to the literal "undefined"; the
+					// estimate prices exactly that transmitted text.
+					total += Math.ceil((JSON.stringify(inner) ?? "undefined").length / CHARS_PER_TOKEN);
+				} catch {
+					// A throwing serialization transmits nothing and prices zero.
+				}
+			}
 		}
 		return total;
 	}
