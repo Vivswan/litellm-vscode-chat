@@ -817,7 +817,7 @@ suite("Docker LiteLLM stack", () => {
 				// loudly and upgrades it to the four-anchor branch. Until then the
 				// docker suite pins three anchors (the plain-sendRequest test) and
 				// the four-anchor invariant stays covered by
-				// src/test/shared/promptCache.test.ts.
+				// src/test/shared/conversion/promptCache.test.ts.
 				assert.match(
 					String(outcome.error),
 					/languageModelSystem/,
@@ -935,7 +935,7 @@ suite("Docker LiteLLM stack", () => {
 				new vscode.LanguageModelTextPart(`${COMMAND_SIGIL}attachments`),
 			]);
 			const text = extractText(await send("gpt-5.2", [message]));
-			// Pinned from the capability gate in shared/messages.ts: image
+			// Pinned from the capability gate in shared/conversion/messages.ts: image
 			// DataParts convert only for models whose registration carries
 			// imageInput, so on a non-vision model the image drops before the
 			// wire (with a classification log) and the surviving text rides as

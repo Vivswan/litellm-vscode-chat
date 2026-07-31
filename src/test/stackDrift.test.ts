@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { DOCKER_TEST_LABELS } from "./dockerTestLabels";
 import { parseEnvFile, STACK_DEFAULTS } from "./envFile";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
@@ -264,5 +265,55 @@ suite("stack drift guard: checks.yml docker shards", () => {
 		// the gate while every other guard stays green.
 		const sharded = shardLabels("fuzz-docker").flat().sort();
 		assert.deepStrictEqual(sharded, ["docker-conversation", "docker-fuzz", "docker-monkey"], "fuzz-docker shard union");
+	});
+});
+
+suite("stack drift guard: test label coverage", () => {
+	/**
+	 * The installed @vscode/test-cli silently ignores "!" negations in files
+	 * globs, so .vscode-test.mjs holds only positive per-directory globs and
+	 * literal filenames. That layout has two failure modes a green run would
+	 * hide: a moved test file that no label matches (it just stops running)
+	 * and one that two labels match (it runs twice, as host-fidelity's
+	 * capture suite once did under the unit label). This walks every
+	 * compiled test file and pins the count of matching labels to one.
+	 */
+	test("every compiled test file is matched by exactly one label's files list", async () => {
+		const configUrl = pathToFileURL(path.join(repoRoot, ".vscode-test.mjs")).href;
+		const { default: config } = (await import(configUrl)) as {
+			default: { tests: { label: string; files: string | string[] }[] };
+		};
+		const escapeLiteral = (part: string): string => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const matchers = config.tests.flatMap(({ label, files }) =>
+			(Array.isArray(files) ? files : [files]).map((glob) => ({
+				label,
+				glob,
+				// "*" spans within one path segment; everything else is literal.
+				regex: new RegExp(`^${glob.split("*").map(escapeLiteral).join("[^/]*")}$`),
+			}))
+		);
+		const testFiles: string[] = [];
+		const walk = (dir: string): void => {
+			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+				const full = path.join(dir, entry.name);
+				if (entry.isDirectory()) {
+					walk(full);
+				} else if (entry.name.endsWith(".test.js")) {
+					testFiles.push(path.relative(repoRoot, full).split(path.sep).join("/"));
+				}
+			}
+		};
+		walk(path.join(repoRoot, "out", "test"));
+		assert.ok(testFiles.length > 20, `walking out/test found a real test tree (got ${testFiles.length} files)`);
+		for (const file of testFiles) {
+			const hits = matchers.filter((matcher) => matcher.regex.test(file));
+			assert.strictEqual(
+				hits.length,
+				1,
+				`${file} must run under exactly one label; matched ${
+					hits.length === 0 ? "none" : hits.map((hit) => `${hit.label} (${hit.glob})`).join(", ")
+				}`
+			);
+		}
 	});
 });

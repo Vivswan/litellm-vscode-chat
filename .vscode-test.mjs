@@ -20,8 +20,20 @@ export default defineConfig({
 	tests: [
 		{
 			label: "unit",
+			// Positive globs and literals only: the installed @vscode/test-cli
+			// ignores "!" negations in files globs, so exclusion works by
+			// directory layout instead. Suites that need their own host
+			// (activation-production, host-fidelity) or a running stack (the
+			// docker suites at the out/test root, listed by literal name in
+			// their own labels) are simply never matched here. stackDrift's
+			// label-coverage guard walks out/test and fails the suite when a
+			// compiled test file is matched by zero labels or by more than one.
 			files: [
-				"out/test/*.test.js",
+				"out/test/dockerTestLabels.test.js",
+				"out/test/envFile.test.js",
+				"out/test/fuzzSeed.test.js",
+				"out/test/scenarios.test.js",
+				"out/test/stackDrift.test.js",
 				"out/test/fakeStack/*.test.js",
 				"out/test/shared/*.test.js",
 				"out/test/shared/conversion/*.test.js",
@@ -31,13 +43,6 @@ export default defineConfig({
 				"out/test/extension/*.test.js",
 				"out/test/extension/dashboard/*.test.js",
 				"out/test/extension/migrations/*.test.js",
-				"!out/test/host-fidelity.test.js",
-				"!out/test/docker-litellm.test.js",
-				"!out/test/docker-fuzz.test.js",
-				"!out/test/docker-conversation.test.js",
-				"!out/test/docker-transport.test.js",
-				"!out/test/docker-serversync.test.js",
-				"!out/test/docker-monkey.test.js",
 			],
 			mocha: {
 				ui: "tdd",
@@ -54,12 +59,6 @@ export default defineConfig({
 			// Its own label and host: the file calls the compiled activate() with a
 			// fake Production-mode context, which registers the real litellm.*
 			// command IDs - it can never share a host with the activated extension.
-			// It lives in its own directory because the installed @vscode/test-cli
-			// ignores "!" negations in files globs. The unit label's negations
-			// above are therefore dead: the docker suites self-skip without their
-			// env, but host-fidelity's CAPTURE suite actually runs under the unit
-			// label too (only the live suite skips), duplicating its execution -
-			// a follow-up cleanup should restructure those files like this one.
 			label: "activation-production",
 			files: "out/test/activation/production.test.js",
 			mocha: {
@@ -71,7 +70,7 @@ export default defineConfig({
 		},
 		{
 			label: "host-fidelity",
-			files: "out/test/host-fidelity.test.js",
+			files: "out/test/hostFidelity/host-fidelity.test.js",
 			mocha: {
 				ui: "tdd",
 				timeout: 30000,
