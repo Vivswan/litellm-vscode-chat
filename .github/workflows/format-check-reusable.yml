@@ -95,6 +95,14 @@ jobs:
             echo "::error::dist/webview/dashboard.js is missing from the packaged file list"
             exit 1
           fi
+          # The webview suite renders source .tsx, never the esbuild output, so
+          # a bundler regression could ship a blank dashboard with every test
+          # green; a size floor catches an empty or stub bundle cheaply.
+          webview_size="$(wc -c < dist/webview/dashboard.js | tr -d ' ')"
+          if [ "$webview_size" -lt 10000 ]; then
+            echo "::error::dist/webview/dashboard.js is only ${webview_size} bytes; the dashboard bundle looks broken"
+            exit 1
+          fi
           if ! echo "$listing" | grep -qx 'ThirdPartyNotices.txt'; then
             echo "::error::ThirdPartyNotices.txt is missing from the packaged file list"
             exit 1

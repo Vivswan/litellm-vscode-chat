@@ -15,5 +15,5 @@
 		"types": ["node", "mocha"]
 	},
 	"include": ["src"],
-	"exclude": ["src/webview"]
+	"exclude": ["src/webview", "src/test/webview"]
 }
