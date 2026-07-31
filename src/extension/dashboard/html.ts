@@ -149,8 +149,12 @@ const STYLES = `
 	.error { color: var(--vscode-errorForeground); }
 
 	/* The "?" help affordance next to section titles and field labels: a
-	   muted circled glyph whose native title tooltip carries the long help.
+	   muted circled glyph revealing a tooltip this document draws itself,
+	   because native title tooltips do not reliably render in the webview
+	   host and never show on keyboard focus. The wrapper anchors the tip;
+	   hovering the wrapper or keyboard-focusing the button shows it.
 	   A button so it is keyboard-focusable, but styled out of button chrome. */
+	.help-wrap { position: relative; display: inline-flex; flex: none; }
 	button.help {
 		display: inline-flex;
 		flex: none;
@@ -173,6 +177,39 @@ const STYLES = `
 	}
 	button.help:hover { background: transparent; color: var(--vscode-foreground); border-color: var(--vscode-foreground); }
 	button.help:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+	/* The tip mirrors the editor's hover widget (same theme tokens) and sits
+	   above the trigger. The font resets so heading styles cannot leak in,
+	   and pointer-events stays off so the tip never traps the mouse. */
+	.help-tip {
+		display: none;
+		position: absolute;
+		bottom: calc(100% + 6px);
+		left: -8px;
+		z-index: 100;
+		width: max-content;
+		max-width: min(320px, calc(100vw - 48px));
+		padding: 6px 10px;
+		background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+		color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+		border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+		border-radius: 3px;
+		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+		font-size: var(--vscode-font-size);
+		font-weight: 400;
+		line-height: 1.5;
+		text-align: left;
+		white-space: normal;
+		overflow-wrap: break-word;
+		pointer-events: none;
+	}
+	.help-wrap:hover .help-tip, button.help:focus-visible + .help-tip { display: block; }
+	/* Triggers in the page's top band (the first section heading) flip the
+	   tip below them; above would clip against the top of the document. */
+	.help-wrap.below .help-tip { bottom: auto; top: calc(100% + 6px); }
+	/* Value-column glyphs sit near the content's right edge; anchoring the
+	   tip's right edge there grows it leftward instead of forcing a
+	   horizontal scrollbar while it is shown. */
+	.row .cell.value .help-tip { left: auto; right: -8px; }
 
 	/* A section heading with an action on its baseline: the rule moves to the
 	   wrapper so the button sits inside the underlined band instead of
