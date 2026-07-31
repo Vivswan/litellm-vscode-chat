@@ -44,4 +44,95 @@ export interface CorpusEntry {
 	events: FuzzEvent[];
 }
 
-export const FUZZ_CORPUS: CorpusEntry[] = [];
+/** One full chunk envelope in the shape the generator's chunkOf produces. */
+function chunk(delta: Record<string, unknown>): unknown {
+	return { id: "chatcmpl-fuzz", object: "chat.completion.chunk", choices: [{ index: 0, delta }] };
+}
+
+export const FUZZ_CORPUS: CorpusEntry[] = [
+	{
+		// The #215 guard's false-positive direction, end to end: a stream that is
+		// nothing but reasoning must resolve cleanly (the pinned host displays
+		// thinking parts), never trip the reasoning-only error, and never leak
+		// reasoning into visible text. All three delta shapes ride along.
+		name: "issue-215-reasoning-only",
+		mode: "both",
+		events: [
+			{ label: "reasoning", chunks: [chunk({ reasoning_content: "step one " })] },
+			{ label: "reasoning-field", chunks: [chunk({ reasoning: "step two " })] },
+			{
+				label: "thinking-blocks",
+				chunks: [
+					chunk({
+						reasoning_content: "step three",
+						thinking_blocks: [{ type: "thinking", thinking: "step three", signature: "sig-215" }],
+					}),
+				],
+			},
+		],
+	},
+	{
+		// The exact wire shape the #215 report used: reasoning deltas with no
+		// top-level id/object and no choice index. parseChunk's leniency on this
+		// shape is pinned as unit examples; this replays it over a real socket.
+		// Direct only: the proxy normalizes chunk envelopes, so an id-less repro
+		// must never replay through it.
+		name: "issue-215-reasoning-no-chunk-id",
+		mode: "direct",
+		events: [
+			{
+				label: "bare-reasoning",
+				chunks: [
+					{ choices: [{ delta: { reasoning_content: "step one " } }] },
+					{ choices: [{ delta: { reasoning_content: "step two" } }] },
+				],
+			},
+		],
+	},
+	{
+		// Emission accounting: a stream whose only reportable output is a tool
+		// call (after reasoning) must resolve with the call, not trip the
+		// reasoning-only error. assemble() appends finish_reason "tool_calls".
+		name: "issue-215-reasoning-then-tool-call-only",
+		mode: "both",
+		events: [
+			{ label: "reasoning", chunks: [chunk({ reasoning_content: "deciding which tool " })] },
+			{
+				label: "delta-tool",
+				deltaToolChannel: true,
+				tools: [{ name: "get_weather", args: { seq: 0 } }],
+				chunks: [
+					chunk({
+						tool_calls: [
+							{
+								index: 0,
+								id: "call_fuzz_0",
+								type: "function",
+								function: { name: "get_weather", arguments: '{"seq":0}' },
+							},
+						],
+					}),
+				],
+			},
+		],
+	},
+	{
+		// The common real-model shape behind #215: reasoning first, then the
+		// answer. Visible text must be exactly the content deltas, with no
+		// reasoning prepended, interleaved, or duplicated.
+		name: "issue-215-reasoning-then-text",
+		mode: "both",
+		events: [
+			{ label: "reasoning", chunks: [chunk({ reasoning_content: "silent planning " })] },
+			{ label: "reasoning-field", chunks: [chunk({ reasoning: "more planning " })] },
+			{ label: "text", text: "the visible answer", chunks: [chunk({ content: "the visible answer" })] },
+		],
+	},
+	{
+		// A genuinely empty stream (role chunk + stop finish only) resolves
+		// silently; the #215 guard must not fire through the real host.
+		name: "issue-215-empty-stream",
+		mode: "both",
+		events: [{ label: "empty", chunks: [] }],
+	},
+];
