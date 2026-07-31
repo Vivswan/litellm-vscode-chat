@@ -173,7 +173,7 @@ All non-reserved `modelParameters` keys are passed through to LiteLLM: the exten
 }
 ```
 
-Server scoping matches by base URL for every server - the `servers` setting, the native editor, and the legacy server list all identify a server by where it points. Keys scoped by a pre-migration server label (for example `Production/gpt-4`) no longer match; the extension rewrote user-settings keys automatically during the provider-group migration (adding a base-URL-scoped copy beside each label-scoped key), but label-scoped keys in workspace or folder settings must be rewritten by hand to the `<baseUrl>/<model prefix>` form.
+Server scoping matches by base URL for every server - the `servers` setting, the native editor, and the legacy server list all identify a server by where it points. Keys scoped by a pre-migration server label (for example `Production/gpt-4`) no longer match; per-entry `modelParameters` on the matching `servers` entry is the replacement for label scoping, and the extension rewrote user-settings keys automatically during the provider-group migration (into the declared entry carrying that label when one exists, otherwise adding a base-URL-scoped copy beside each label-scoped key). Label-scoped keys in workspace or folder settings must be moved by hand, either into the entry's `modelParameters` or to the `<baseUrl>/<model prefix>` form.
 
 **Per-entry parameters**: When two `litellm-vscode-chat.servers` entries point at the same base URL (for example one per virtual key), base-URL scoping applies to both alike. To target exactly one of them, put `modelParameters` on that entry instead:
 

@@ -1,10 +1,12 @@
 import * as vscode from "vscode";
 import { z } from "zod";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
-import { MIGRATED_SERVER_LABELS_KEY } from "../../shared/config/storageKeys";
+import { MODEL_PARAMETERS_SETTING_KEY, SERVERS_SETTING_KEY } from "../../shared/config/settings";
+import { MIGRATED_ENTRY_PARAMETER_COPIES_KEY, MIGRATED_SERVER_LABELS_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { isUnsafeRecordKey } from "../../shared/util/json";
+import { acceptedEntry } from "../servers/serverSync";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 const labelMapSchema = z.record(z.string(), z.array(z.string()));
@@ -67,7 +69,7 @@ export function unionLabelSources(
 	return union;
 }
 
-/** The slice of WorkspaceConfiguration the rewrite needs; tests fake it. */
+/** The slice of WorkspaceConfiguration the rewrite needs (the modelParameters and servers sections); tests fake it. */
 export interface ModelParametersSetting {
 	inspect(
 		section: string
@@ -99,28 +101,31 @@ function invertLabelMap(labelsByBaseUrl: Record<string, string[]>): Map<string, 
 }
 
 /**
- * Every base-URL-scoped key this key would resolve to under label scoping.
- * Under the (now removed) label-matching path each server's requests
- * consulted only that server's own pre-migration label, so when several
- * mapped labels prefix one key, each label was a live reading for its server
- * and each gets a copy.
+ * Every live label reading of this key: the label, its mapped base URL, and
+ * the model prefix left when the label scope is stripped. Under the (now
+ * removed) label-matching path each server's requests consulted only that
+ * server's own pre-migration label, so when several mapped labels prefix one
+ * key, each label was a live reading for its server and each is returned.
  *
- * The guard is per label: label L produces no target for a key already under
- * L's OWN base URL (or equal to it), because such a key needs no copy from L,
+ * The guard is per label: label L produces no reading for a key already under
+ * L's OWN base URL (or equal to it), because such a key needs nothing from L,
  * and when L is a URL-prefix of its own base URL (label "https://llm.corp"
  * for base URL "https://llm.corp/v1") the copies added on earlier activations
  * would otherwise re-match L and grow a new "/v1" segment every run. A key
- * under some OTHER server's base URL still gets L's copy: that reading was
- * live for L's server when the key was written.
+ * under some OTHER server's base URL still gets L's reading: it was live for
+ * L's server when the key was written.
  *
  * Known corner, accepted: when L prefixes its own base URL, a key under that
  * base URL can itself be a genuine label reading (a model prefix that starts
  * with the URL's tail, "v1/..." above), but it is indistinguishable from a
- * copy this migration added earlier, so no copy is made and that residual
- * label reading is lost with the label-matching path.
+ * copy this migration added earlier, so no reading is reported and that
+ * residual label reading is lost with the label-matching path.
  */
-function scopedTargets(key: string, urlByLabel: ReadonlyMap<string, string>): string[] {
-	const targets: string[] = [];
+function labelReadings(
+	key: string,
+	urlByLabel: ReadonlyMap<string, string>
+): { label: string; baseUrl: string; prefix: string }[] {
+	const readings: { label: string; baseUrl: string; prefix: string }[] = [];
 	for (const [label, baseUrl] of urlByLabel) {
 		if (!key.startsWith(`${label}/`)) {
 			continue;
@@ -128,12 +133,12 @@ function scopedTargets(key: string, urlByLabel: ReadonlyMap<string, string>): st
 		if (key === baseUrl || key.startsWith(`${baseUrl}/`)) {
 			continue;
 		}
-		const target = `${baseUrl}/${key.slice(label.length + 1)}`;
-		if (target !== key) {
-			targets.push(target);
+		const prefix = key.slice(label.length + 1);
+		if (`${baseUrl}/${prefix}` !== key) {
+			readings.push({ label, baseUrl, prefix });
 		}
 	}
-	return targets;
+	return readings;
 }
 
 function countLabelScopedKeys(layer: unknown, urlByLabel: ReadonlyMap<string, string>): number {
@@ -141,30 +146,90 @@ function countLabelScopedKeys(layer: unknown, urlByLabel: ReadonlyMap<string, st
 	if (record === undefined) {
 		return 0;
 	}
-	return Object.keys(record).filter((key) => scopedTargets(key, urlByLabel).length > 0).length;
+	return Object.keys(record).filter((key) => labelReadings(key, urlByLabel).length > 0).length;
 }
 
 /**
- * Add base-URL-scoped copies of label-scoped modelParameters keys: each
- * "<label>/<model prefix>" key gains a "<baseUrl>/<model prefix>" sibling
- * built from the persisted migrated-labels map. The original keys are KEPT: a
- * key like "openai/gpt-4o" may be a bare model-prefix entry rather than a
- * label scope, the two readings are structurally indistinguishable, and both
- * were simultaneously live at runtime when the keys were written, so copying
- * preserves behavior exactly under either reading while moving would corrupt
- * real config. With the label-matching path gone, the originals simply
- * remain valid bare-prefix keys.
+ * The declared servers-setting entry a label reading lands in, when one
+ * exists on this machine: the entry acceptedEntry resolves for the label,
+ * and only when its normalized base URL is the label's mapped URL. A
+ * same-label entry pointing elsewhere is a label reuse - the params were
+ * scoped to the old server - so it gets nothing and the reading falls back
+ * to the global base-URL rewrite.
+ */
+function declaredDestination(rawServers: unknown, label: string, mappedBaseUrl: string): { index: number } | undefined {
+	const match = acceptedEntry(rawServers, label);
+	if (match === undefined || normalizeBaseUrl(match.entry.baseUrl) !== mappedBaseUrl) {
+		return undefined;
+	}
+	return { index: match.index };
+}
+
+/** The Memento slice the entry-copy ledger lives in; MigrationContext.globalState satisfies it. */
+export interface LedgerStore {
+	get<T>(key: string): T | undefined;
+	update(key: string, value: unknown): Thenable<void>;
+}
+
+const ledgerSchema = z.array(z.string());
+
+function readEntryCopyLedger(store: LedgerStore): Set<string> {
+	const parsed = ledgerSchema.safeParse(store.get<unknown>(MIGRATED_ENTRY_PARAMETER_COPIES_KEY));
+	return new Set(parsed.success ? parsed.data : []);
+}
+
+/** One resolved source key as a ledger member; JSON keeps a label containing "/" unambiguous. */
+function ledgerMember(label: string, prefix: string): string {
+	return JSON.stringify([label, prefix]);
+}
+
+/**
+ * Rewrite label-scoped modelParameters keys ("<label>/<model prefix>") to
+ * their post-label destinations. The exact-semantics destination is the
+ * declared servers-setting entry carrying the label: the key's parameters
+ * land in that entry's own modelParameters record under the bare
+ * "<model prefix>" key, which the request path applies to exactly that
+ * entry's requests - two same-URL labels with different parameters each keep
+ * their own values instead of collapsing into one base-URL key. Existing
+ * entry keys win the merge and migrated keys only fill gaps: a record the
+ * user already wrote in the entry is deliberate current configuration, while
+ * the label-scoped key is a legacy leftover. Only when no declared entry
+ * carries the label (at the label's own URL), or when the stripped prefix is
+ * an unsafe record key ("__proto__" and friends - it could never become an
+ * own key of the entry record, so writing it would re-queue forever), does
+ * the key fall back to a "<baseUrl>/<model prefix>" copy in the global
+ * setting, whose full string key is always a safe own property.
+ *
+ * The original keys are KEPT in both paths: a key like "openai/gpt-4o" may be
+ * a bare model-prefix entry rather than a label scope, the two readings are
+ * structurally indistinguishable, and both were simultaneously live at
+ * runtime when the keys were written, so copying preserves behavior exactly
+ * under either reading while moving would corrupt real config. With the
+ * label-matching path gone, the originals simply remain valid bare-prefix
+ * keys. Because the sources survive, entry destinations carry a persisted
+ * ledger (MIGRATED_ENTRY_PARAMETER_COPIES_KEY): each source key migrates
+ * into an entry AT MOST ONCE - written, or found already present - so a user
+ * deleting the migrated key from the entry record does not see it
+ * resurrected on the next activation, while a rerun after a partial write
+ * still completes the unrecorded remainder. (The narrow crash window between
+ * the settings write and the ledger persist can re-add a key deleted inside
+ * it; the next completed pass closes the ledger.)
  *
  * Only the user (Global) settings layer is edited: workspace and folder
  * settings are shared files this machine's map has no business rewriting, so
  * label-scoped keys found there are counted in a log line (once per
- * activation, until the user rewrites them) instead. Idempotent: a copy whose
- * key already exists is never added, so a rerun finds nothing to do.
+ * activation, until the user rewrites them) instead. The servers setting is
+ * machine-scoped, so the entry destination exists only where the entry is
+ * declared; on a machine without it the fallback applies, and the migration
+ * reruns per machine either way. Idempotent: a ledgered source, an entry key,
+ * or a global copy that already exists is never added, so a rerun finds
+ * nothing to do.
  */
 export async function rewriteLabelScopedModelParameters(
 	setting: ModelParametersSetting,
 	labelsByBaseUrl: Record<string, string[]>,
-	logger: Logger
+	logger: Logger,
+	ledgerStore: LedgerStore
 ): Promise<MigrationOutcome> {
 	const urlByLabel = invertLabelMap(labelsByBaseUrl);
 	if (urlByLabel.size === 0) {
@@ -182,7 +247,7 @@ export async function rewriteLabelScopedModelParameters(
 		countLabelScopedKeys(inspected.workspaceFolderValue, urlByLabel);
 	if (workspaceKeyCount > 0) {
 		logger.log(
-			`${workspaceKeyCount} workspace-layer modelParameters key(s) are scoped by a pre-migration server label and were not rewritten; scope them by base URL ("<baseUrl>/<model prefix>") in the workspace settings instead`
+			`${workspaceKeyCount} workspace-layer modelParameters key(s) are scoped by a pre-migration server label and were not rewritten; put them in the matching entry's modelParameters in the servers setting, or scope them by base URL ("<baseUrl>/<model prefix>") in the workspace settings instead`
 		);
 	}
 
@@ -190,33 +255,94 @@ export async function rewriteLabelScopedModelParameters(
 	if (globalRecord === undefined) {
 		return "nothing-to-do";
 	}
+	const rawServers: unknown = setting.inspect(SERVERS_SETTING_KEY)?.globalValue;
+	const ledger = readEntryCopyLedger(ledgerStore);
 	const existingKeys = new Set(Object.keys(globalRecord));
-	const additions = new Map<string, unknown>();
+	const globalAdditions = new Map<string, unknown>();
+	const entryAdditions = new Map<number, Map<string, unknown>>();
+	const resolvedMembers = new Set<string>();
 	for (const [key, value] of Object.entries(globalRecord)) {
-		for (const target of scopedTargets(key, urlByLabel)) {
-			if (!existingKeys.has(target) && !additions.has(target)) {
-				additions.set(target, value);
+		for (const reading of labelReadings(key, urlByLabel)) {
+			const destination = isUnsafeRecordKey(reading.prefix)
+				? undefined
+				: declaredDestination(rawServers, reading.label, reading.baseUrl);
+			if (destination !== undefined) {
+				const member = ledgerMember(reading.label, reading.prefix);
+				if (ledger.has(member)) {
+					// Already migrated into the entry once; a deletion since then
+					// is the user's decision and stays deleted.
+					continue;
+				}
+				const rawEntry = asRecord(Array.isArray(rawServers) ? rawServers[destination.index] : undefined);
+				const rawParams = asRecord(rawEntry?.modelParameters);
+				// Existing entry keys win; the raw record is the reference so a
+				// value the entry parser reads as malformed still counts as the
+				// user's own key and is never overwritten. Either way the source
+				// counts as resolved into this entry.
+				if (rawParams === undefined || !Object.hasOwn(rawParams, reading.prefix)) {
+					const additions = entryAdditions.get(destination.index) ?? new Map<string, unknown>();
+					if (!additions.has(reading.prefix)) {
+						additions.set(reading.prefix, value);
+					}
+					entryAdditions.set(destination.index, additions);
+				}
+				resolvedMembers.add(member);
+				continue;
+			}
+			const target = `${reading.baseUrl}/${reading.prefix}`;
+			if (!existingKeys.has(target) && !globalAdditions.has(target)) {
+				globalAdditions.set(target, value);
 			}
 		}
 	}
-	if (additions.size === 0) {
-		return "nothing-to-do";
-	}
 
-	// Whole-object read/modify/write: another window's pass, or a user edit
-	// saved between this read and this write, can be overwritten. Lost COPIES
-	// self-heal (the next activation's pass re-adds them); a lost user edit
-	// may not. Accepted residual, the same non-transactional trade the rest
-	// of the migration family's storage writes make.
-	await setting.update(
-		MODEL_PARAMETERS_SETTING_KEY,
-		Object.fromEntries([...Object.entries(globalRecord), ...additions]),
-		vscode.ConfigurationTarget.Global
-	);
-	logger.log(
-		`Added ${additions.size} base-URL-scoped modelParameters key(s) alongside label-scoped ones in user settings`
-	);
-	return "migrated";
+	// Whole-object read/modify/write on both settings: another window's pass,
+	// or a user edit saved between this read and this write, can be
+	// overwritten. Lost COPIES self-heal (the next activation's pass re-adds
+	// them); a lost user edit may not. Accepted residual, the same
+	// non-transactional trade the rest of the migration family's storage
+	// writes make.
+	if (entryAdditions.size > 0 && Array.isArray(rawServers)) {
+		let movedKeys = 0;
+		const nextServers = rawServers.map((item: unknown, index) => {
+			const additions = entryAdditions.get(index);
+			const record = asRecord(item);
+			if (additions === undefined || record === undefined) {
+				return item;
+			}
+			const merged: Record<string, unknown> = { ...(asRecord(record.modelParameters) ?? {}) };
+			for (const [prefix, value] of additions) {
+				if (!Object.hasOwn(merged, prefix)) {
+					merged[prefix] = value;
+					movedKeys += 1;
+				}
+			}
+			return { ...record, modelParameters: merged };
+		});
+		await setting.update(SERVERS_SETTING_KEY, nextServers, vscode.ConfigurationTarget.Global);
+		logger.log(
+			`Copied ${movedKeys} label-scoped modelParameters key(s) into their declared entries' modelParameters in user settings`
+		);
+	}
+	// The ledger persists only after the settings write succeeded (a failed
+	// write must be retried, not recorded), and also when nothing needed
+	// writing because the entry already held the key - that source is
+	// resolved too, and without the record a later deletion would resurrect
+	// it.
+	if (resolvedMembers.size > 0) {
+		await ledgerStore.update(MIGRATED_ENTRY_PARAMETER_COPIES_KEY, [...ledger, ...resolvedMembers]);
+	}
+	if (globalAdditions.size > 0) {
+		await setting.update(
+			MODEL_PARAMETERS_SETTING_KEY,
+			Object.fromEntries([...Object.entries(globalRecord), ...globalAdditions]),
+			vscode.ConfigurationTarget.Global
+		);
+		logger.log(
+			`Added ${globalAdditions.size} base-URL-scoped modelParameters key(s) alongside label-scoped ones in user settings`
+		);
+	}
+	return globalAdditions.size === 0 && entryAdditions.size === 0 ? "nothing-to-do" : "migrated";
 }
 
 /**
@@ -236,14 +362,15 @@ export async function rewriteLabelScopedModelParameters(
  */
 export const labelScopedModelParametersMigration: ExtensionMigration = {
 	state: "label-scoped-model-parameters",
-	description: "Added base-URL-scoped copies of label-scoped modelParameters keys",
+	description: "Rewrote label-scoped modelParameters keys to their declared entries or base-URL-scoped copies",
 	sourceRelease: "0.3.1",
 	phase: "pre-registration",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
 		return rewriteLabelScopedModelParameters(
 			vscode.workspace.getConfiguration(CONFIG_SECTION),
 			unionLabelSources(getMigratedServerLabels(ctx.globalState), ctx.registry.getServers()),
-			ctx.logger
+			ctx.logger,
+			ctx.globalState
 		);
 	},
 };
