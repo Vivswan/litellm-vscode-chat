@@ -42,7 +42,11 @@ export interface ExtensionMigration {
 	run(ctx: MigrationContext): Promise<MigrationOutcome>;
 }
 
-/** Registration order is execution order within each phase. */
+/**
+ * Chronological by the release whose state each one migrates away from (the
+ * per-file headers name it); registration order is execution order within
+ * each phase.
+ */
 const MIGRATIONS: readonly ExtensionMigration[] = [
 	legacySingleServerMigration,
 	registryToProviderGroupsMigration,

@@ -579,6 +579,11 @@ async function cleanUpOrphanedServers(
  * only ever does maintenance and would never seed it into a group). Deleting
  * it is off the table regardless: cleanUpOrphanedServers requires a migration
  * record before it removes anything.
+ *
+ * Deliberately not gated on extension mode: test mode forces the legacy
+ * manage path and the groupless refresh regardless of the flag, servers the
+ * litellm._test.* commands create have no migration record and so cannot be
+ * swept, and gating would leave the production fresh-install path untested.
  */
 async function completeFreshInstall(ctx: MigrationContext): Promise<boolean> {
 	if (
@@ -597,6 +602,12 @@ async function completeFreshInstall(ctx: MigrationContext): Promise<boolean> {
 }
 
 /**
+ * Migrates away from: the registry-backed server storage of v0.2.3 through
+ * v0.3.1 (host provider groups replace it in the first release after
+ * v0.3.1). Deletable once installs still carrying registry servers are
+ * judged extinct; the always-on maintenance (secret-deletion retries, orphan
+ * cleanup) has to survive as long as the completion flag does.
+ *
  * The migration engine above must keep running until every user's registry
  * has drained: it reruns across activations by design (deferred host
  * submissions, pending secret deletions, orphan cleanup), so this wrapper
