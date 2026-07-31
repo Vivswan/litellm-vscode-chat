@@ -17,6 +17,7 @@ import type {
 	ChunkAudio,
 	ChunkChoice,
 	ChunkDelta,
+	ChunkSearchResult,
 	ThinkingBlock,
 	ThinkingBlockDelta,
 	ToolCallBuffer,
@@ -201,7 +202,12 @@ interface RequestState {
 	loggedRefusal: boolean;
 	/** Whether an undecodable generated-image entry was already logged for this request (no per-entry flood). */
 	loggedImageSkip: boolean;
-	/** Citation URL to title, collected from annotation deltas and emitted once at end of stream. */
+	/**
+	 * Citation URL to title, emitted once at end of stream. Collected from
+	 * annotation deltas, chunk-root citations/search_results, and the delta's
+	 * provider_specific_fields.search_results, all through one rule (see
+	 * recordSource).
+	 */
 	citations: Map<string, string>;
 	/** Set once the citations trailer has been emitted; finishStream runs more than once per stream. */
 	emittedCitations: boolean;
@@ -499,6 +505,41 @@ export class StreamProcessor {
 		}
 	}
 
+	/**
+	 * Record one source URL into the request's citations map, which the
+	 * end-of-stream Sources trailer renders. One rule for every source shape
+	 * (annotation deltas, chunk-root citations, search results): the first
+	 * REAL title wins, a URL without one titles itself as a placeholder, and a
+	 * later real title may upgrade that placeholder - the same source
+	 * routinely arrives titled on one field and bare on another. Truthiness,
+	 * not presence: an empty-string title is no title, so it can neither
+	 * label a source nor block a later upgrade.
+	 */
+	private recordSource(url: string | undefined, title: string | undefined): void {
+		if (!url) {
+			return;
+		}
+		const existing = this._req.citations.get(url);
+		if (existing === undefined) {
+			this._req.citations.set(url, title || url);
+		} else if (existing === url && title && title !== url) {
+			this._req.citations.set(url, title);
+		}
+	}
+
+	/** Chunk-root and provider-specific sources; Perplexity repeats the list per chunk, recordSource dedupes. */
+	private collectSources(
+		citations: readonly string[] | undefined,
+		searchResults: readonly ChunkSearchResult[] | undefined
+	): void {
+		for (const url of citations ?? []) {
+			this.recordSource(url, undefined);
+		}
+		for (const result of searchResults ?? []) {
+			this.recordSource(result.url, result.title);
+		}
+	}
+
 	processDelta(
 		chunk: ChatCompletionChunk,
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
@@ -514,11 +555,18 @@ export class StreamProcessor {
 			this._req.usage = chunk.usage;
 		}
 
+		// Chunk-root sources (Perplexity via LiteLLM repeats them on every
+		// chunk, including choice-less ones) collect before the choice gate so
+		// none are lost; the delta's provider_specific_fields escape hatch
+		// feeds the same map below.
+		this.collectSources(chunk.citations, chunk.search_results);
+
 		const choice = chunk.choices?.[0];
 		if (!choice) {
 			return false;
 		}
 		const delta = choice.delta;
+		this.collectSources(undefined, delta?.search_results);
 
 		// Thinking parts pass through as-is: the host merges adjacent thinking
 		// parts itself (empty chunks and non-thinking output separate runs) and
@@ -562,10 +610,7 @@ export class StreamProcessor {
 
 		if (delta?.annotations) {
 			for (const annotation of delta.annotations) {
-				const url = annotation.url_citation?.url;
-				if (url && !this._req.citations.has(url)) {
-					this._req.citations.set(url, annotation.url_citation?.title ?? url);
-				}
+				this.recordSource(annotation.url_citation?.url, annotation.url_citation?.title);
 			}
 		}
 

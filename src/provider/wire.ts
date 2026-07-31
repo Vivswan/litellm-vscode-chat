@@ -60,6 +60,17 @@ export interface ChunkAnnotation {
 	url_citation?: { url?: string | undefined; title?: string | undefined } | undefined;
 }
 
+/**
+ * One search-backed source, as Perplexity-style models surface them through
+ * LiteLLM: at the chunk root as `search_results`, or on the delta under
+ * `provider_specific_fields.search_results`. Only url and title narrow;
+ * entries keep flowing without either (the collector skips URL-less ones).
+ */
+export interface ChunkSearchResult {
+	url?: string | undefined;
+	title?: string | undefined;
+}
+
 /** Content block inside a structured streaming delta; only text blocks are rendered. */
 interface ChunkContentBlock {
 	type?: string | undefined;
@@ -98,6 +109,11 @@ export interface ChunkDelta {
 	reasoning?: string | undefined;
 	refusal?: string | undefined;
 	annotations?: ChunkAnnotation[] | undefined;
+	/**
+	 * Narrowed from the delta's provider_specific_fields.search_results,
+	 * LiteLLM's escape hatch for provider fields with no OpenAI slot.
+	 */
+	search_results?: ChunkSearchResult[] | undefined;
 	images?: ChunkImage[] | undefined;
 	audio?: ChunkAudio | undefined;
 }
@@ -118,6 +134,14 @@ export interface ChatCompletionChunk {
 	created?: number | undefined;
 	model?: string | undefined;
 	choices?: ChunkChoice[] | undefined;
+	/**
+	/**
+	 * Chunk-root citation URLs, Perplexity's legacy sources shape forwarded by
+	 * LiteLLM's streaming pass-through; typically repeated on every chunk.
+	 */
+	citations?: string[] | undefined;
+	/** Chunk-root search results, the richer successor to `citations`. */
+	search_results?: ChunkSearchResult[] | undefined;
 	/**
 	 * Token usage trailer. The parser proves only that it is a record; the
 	 * stream processor reads the known numeric counts out of it, both for the
@@ -177,6 +201,25 @@ function narrowAnnotations(raw: unknown): ChunkAnnotation[] | undefined {
 				: undefined,
 		};
 	});
+}
+
+/** A malformed list is undefined and a malformed entry keeps only its usable fields, per the leniency rules. */
+function narrowSearchResults(raw: unknown): ChunkSearchResult[] | undefined {
+	if (!Array.isArray(raw)) {
+		return undefined;
+	}
+	return raw.filter(isRecord).map((result) => ({
+		url: typeof result.url === "string" ? result.url : undefined,
+		title: typeof result.title === "string" ? result.title : undefined,
+	}));
+}
+
+/** Chunk-root citations: string URLs only; non-string members drop alone. */
+function narrowCitations(raw: unknown): string[] | undefined {
+	if (!Array.isArray(raw)) {
+		return undefined;
+	}
+	return raw.filter((entry): entry is string => typeof entry === "string");
 }
 
 function narrowImages(raw: unknown): ChunkImage[] | undefined {
@@ -248,6 +291,9 @@ function narrowDelta(raw: unknown): ChunkDelta | undefined {
 		reasoning: typeof raw.reasoning === "string" ? raw.reasoning : undefined,
 		refusal: typeof raw.refusal === "string" ? raw.refusal : undefined,
 		annotations: narrowAnnotations(raw.annotations),
+		search_results: narrowSearchResults(
+			isRecord(raw.provider_specific_fields) ? raw.provider_specific_fields.search_results : undefined
+		),
 		images: narrowImages(raw.images),
 		audio: narrowAudio(raw.audio),
 	};
@@ -278,6 +324,8 @@ export function parseChunk(raw: unknown): ChatCompletionChunk | undefined {
 		created: typeof raw.created === "number" ? raw.created : undefined,
 		model: typeof raw.model === "string" ? raw.model : undefined,
 		choices: Array.isArray(raw.choices) ? raw.choices.filter(isRecord).map(narrowChoice) : undefined,
+		citations: narrowCitations(raw.citations),
+		search_results: narrowSearchResults(raw.search_results),
 		usage: isRecord(raw.usage) ? raw.usage : undefined,
 		error: isRecord(raw.error) ? raw.error : undefined,
 	};

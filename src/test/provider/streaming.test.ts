@@ -4,10 +4,12 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { RequestError } from "../../provider/errorMapping";
 import { StreamProcessor } from "../../provider/streaming";
+import { parseChunk } from "../../provider/wire";
 import type { DataPartCtor } from "../../shared/dataPart";
 import { resetDataPartLogOnce } from "../../shared/dataPart";
 import type { ThinkingPartCtor } from "../../shared/thinkingPart";
 import { resetThinkingPartLogOnce } from "../../shared/thinkingPart";
+import { BUILTIN_SCENARIOS } from "../scenarios";
 import { expectDefined } from "../testUtils";
 
 /** A standalone tool-call ID source with an observable count, mirroring the ChatClient's. */
@@ -851,6 +853,207 @@ suite("provider/streaming refusal and annotations", () => {
 		const text = visibleTextOf(parts);
 		assert.ok(text.includes("[Line\\] break \\[x\\]]"), `title must be escaped and newline-flattened, got ${text}`);
 		assert.ok(text.includes("(https://example.test/a%20%28b%29)"), `url must be percent-encoded, got ${text}`);
+	});
+
+	test("chunk-root citations and search_results repeated per chunk dedupe into one titled sources trailer", () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		const scenario = expectDefined(BUILTIN_SCENARIOS["citations-chunk-level"]);
+		assert.ok(scenario.type === "sse");
+		for (const raw of scenario.chunks) {
+			stream.processDelta(expectDefined(parseChunk(raw)), progress);
+		}
+
+		const text = visibleTextOf(parts);
+		assert.equal(text.match(/Sources:/g)?.length, 1, "Exactly one sources trailer");
+		assert.equal(
+			text.match(/example\.test\/grass/g)?.length,
+			1,
+			`each unique URL must be listed once despite per-chunk repetition, got ${text}`
+		);
+		assert.equal(text.match(/example\.test\/sky/g)?.length, 1, `got ${text}`);
+		assert.ok(text.includes("[Grass color]"), `search_results titles must label bare citation URLs, got ${text}`);
+		assert.ok(text.includes("[Sky color]"), `got ${text}`);
+	});
+
+	test("delta-level provider_specific_fields.search_results feed the sources trailer", () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			expectDefined(
+				parseChunk({
+					choices: [
+						{
+							index: 0,
+							delta: {
+								content: "searched",
+								provider_specific_fields: {
+									search_results: [{ url: "https://example.test/psf", title: "PSF result" }],
+								},
+							},
+						},
+					],
+				})
+			),
+			progress
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+
+		const text = visibleTextOf(parts);
+		assert.ok(text.includes("[PSF result](https://example.test/psf)"), `got ${text}`);
+	});
+
+	test("malformed chunk-root source shapes are skipped without aborting the stream", () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			expectDefined(
+				parseChunk({
+					choices: [{ index: 0, delta: { content: "resilient" } }],
+					citations: [42, null, { url: "https://example.test/object" }, "https://example.test/ok"],
+					search_results: "not-an-array",
+				})
+			),
+			progress
+		);
+		stream.processDelta(
+			expectDefined(
+				parseChunk({
+					choices: [],
+					citations: { not: "an array" },
+					search_results: [17, { title: "no url" }, { url: "https://example.test/valid", title: "Valid" }],
+				})
+			),
+			progress
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+
+		const text = visibleTextOf(parts);
+		assert.ok(text.startsWith("resilient"), `the content must survive malformed sources, got ${text}`);
+		assert.equal(text.match(/Sources:/g)?.length, 1);
+		assert.ok(text.includes("(https://example.test/ok)"), `the valid string citation collects, got ${text}`);
+		assert.ok(text.includes("[Valid](https://example.test/valid)"), `the valid search result collects, got ${text}`);
+		assert.ok(!text.includes("object"), "a record inside citations is not a URL and must not surface");
+		assert.ok(!text.includes("no url"), "a URL-less search result has nothing to cite");
+	});
+
+	test("a titled search result upgrades a self-titled citation URL but never overwrites a real title", () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			expectDefined(
+				parseChunk({
+					choices: [{ index: 0, delta: { content: "x" } }],
+					citations: ["https://example.test/a", "https://example.test/b"],
+				})
+			),
+			progress
+		);
+		stream.processDelta(
+			expectDefined(
+				parseChunk({
+					choices: [],
+					search_results: [{ url: "https://example.test/a", title: "Title A" }, { url: "https://example.test/b" }],
+				})
+			),
+			progress
+		);
+		stream.processDelta(
+			expectDefined(
+				parseChunk({
+					choices: [],
+					search_results: [{ url: "https://example.test/a", title: "Title A later" }],
+				})
+			),
+			progress
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+
+		const text = visibleTextOf(parts);
+		assert.ok(text.includes("[Title A](https://example.test/a)"), `the titled result labels the bare URL, got ${text}`);
+		assert.ok(!text.includes("Title A later"), "an established title is first-seen-wins");
+		assert.ok(
+			text.includes("[https://example.test/b](https://example.test/b)"),
+			`an untitled result leaves the URL self-titled, got ${text}`
+		);
+	});
+
+	test("an empty-string title is no title: it never labels a source and never blocks an upgrade", () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			expectDefined(
+				parseChunk({
+					choices: [{ index: 0, delta: { content: "x" } }],
+					search_results: [{ url: "https://example.test/e", title: "" }],
+				})
+			),
+			progress
+		);
+		stream.processDelta(
+			expectDefined(
+				parseChunk({
+					choices: [],
+					search_results: [{ url: "https://example.test/e", title: "Real title" }],
+				})
+			),
+			progress
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+
+		const text = visibleTextOf(parts);
+		assert.ok(!text.includes("[]("), `an empty markdown label must never render, got ${text}`);
+		assert.ok(
+			text.includes("[Real title](https://example.test/e)"),
+			`the real title wins the placeholder, got ${text}`
+		);
+	});
+
+	test("a titled annotation upgrades a bare root citation under the same rule", () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		stream.processDelta(
+			expectDefined(
+				parseChunk({
+					choices: [{ index: 0, delta: { content: "x" } }],
+					citations: ["https://example.test/p"],
+				})
+			),
+			progress
+		);
+		stream.processDelta(
+			{
+				choices: [
+					{
+						delta: {
+							content: "y",
+							annotations: [
+								{ type: "url_citation", url_citation: { url: "https://example.test/p", title: "Proper title" } },
+								{ type: "url_citation", url_citation: { url: "https://example.test/q", title: "" } },
+							],
+						},
+					},
+				],
+			},
+			progress
+		);
+		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
+
+		const text = visibleTextOf(parts);
+		assert.ok(
+			text.includes("[Proper title](https://example.test/p)"),
+			`the annotation title labels the bare citation, got ${text}`
+		);
+		assert.ok(
+			text.includes("[https://example.test/q](https://example.test/q)"),
+			`an empty annotation title self-titles the URL, got ${text}`
+		);
 	});
 });
 
