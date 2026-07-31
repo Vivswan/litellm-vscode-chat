@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { validateHeadersRecord } from "../../extension/dashboard/state";
+import { validateHeadersRecord } from "../../extension/dashboard/intents";
 import type { HeaderScalar } from "../../shared/headers";
 import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../../shared/headers";
 import { isUnsafeRecordKey } from "../../shared/json";

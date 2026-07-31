@@ -1,0 +1,208 @@
+/**
+ * The adoptServer intent: resolving an external group's live credentials by
+ * the opaque handle its dashboard row carried, and writing them as a new
+ * declared entry. Values exist extension-side only; the webview names the
+ * group and the storage locations, never the values.
+ */
+
+import type { ServerModelsSnapshot } from "../../provider";
+import type { GroupServer } from "../../provider/catalog/groupModels";
+import { normalizeBaseUrl } from "../../shared/baseUrl";
+import { isUnsafeRecordKey } from "../../shared/json";
+import type { OptionalEntryFields } from "../../shared/serverEntry";
+import type { DeclaredServerView } from "../serverSync";
+import { acceptedEntry } from "../serverSync";
+import { adoptSourceHandle } from "./adoptHandle";
+import type { DashboardIntent } from "./intentSchema";
+import type { IntentEnvironment } from "./intents";
+import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
+import type { SecretFieldId } from "./protocol";
+import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "./protocol";
+import { isUsableHttpUrl, SERVER_FORM_FIELD_LABELS } from "./serverForm";
+import { joinDeclared, labeledSnapshots } from "./state";
+
+/**
+ * A live group's connection material flattened to servers-setting field names,
+ * for the adopt action. Values exist extension-side only: this shape is never
+ * logged and never enters DashboardState.
+ */
+export type AdoptableGroupCredentials = OptionalEntryFields;
+
+/**
+ * Resolve the group an adopt intent names back to its credentials, by the
+ * opaque handle its external row carried. Resolution re-derives the external
+ * set at intent time and binds the handle to the intent's base URL, so a
+ * forged or stale intent cannot copy a DECLARED group's secure credential into
+ * a settings entry, and cannot re-point a copied credential at another host.
+ * Returns undefined when no still-external group at this URL matches or the
+ * matching snapshot carries no group connection (a registry server); the
+ * caller adopts the plain entry with a caveat in that case.
+ */
+export function resolveAdoptableCredentials(
+	snapshots: readonly ServerModelsSnapshot[],
+	declared: readonly DeclaredServerView[],
+	baseUrl: string,
+	sourceHandle: string,
+	getGroupServer: (serverId: string) => GroupServer | undefined
+): AdoptableGroupCredentials | undefined {
+	const labeled = labeledSnapshots(snapshots);
+	const { unmatched } = joinDeclared(labeled, declared);
+	const source = [...unmatched].find(
+		(entry) =>
+			adoptSourceHandle(entry.snapshot.status.serverId) === sourceHandle &&
+			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl)
+	)?.snapshot;
+	if (source === undefined) {
+		return undefined;
+	}
+	const server = getGroupServer(source.status.serverId);
+	if (server === undefined) {
+		return undefined;
+	}
+	return {
+		...(server.apiKey.length > 0 ? { apiKey: server.apiKey } : {}),
+		...(server.oauth !== undefined
+			? {
+					oauthTokenUrl: server.oauth.tokenUrl,
+					oauthClientId: server.oauth.clientId,
+					...(server.oauth.clientSecret.length > 0 ? { oauthClientSecret: server.oauth.clientSecret } : {}),
+					...(server.oauth.scopes !== undefined ? { oauthScopes: server.oauth.scopes } : {}),
+				}
+			: {}),
+		...(server.virtualKey !== undefined
+			? { virtualKeyHeader: server.virtualKey.header, virtualKeyValue: server.virtualKey.value }
+			: {}),
+	};
+}
+
+/**
+ * Apply one adoptServer intent: write the external group's configuration as a
+ * new declared entry, with each resolved secret stored where the user chose.
+ * The webview only ever names the group (by the opaque handle its row carried)
+ * and the storage locations; the values come from the provider's in-memory
+ * lookup here, extension-side, and only for a group that is still external. A
+ * missing lookup (the group refreshed away, became declared, or the row was a
+ * registry server) still writes the plain entry and reports the caveat through
+ * the returned notice, because the user asked for the entry either way.
+ *
+ * Failure ordering mirrors applySaveServerSetting's guarded unit: additive
+ * secure writes first, then the settings write; if the write fails, secure
+ * values overwritten under this label are restored so the (absent) entry
+ * resolves nothing new.
+ */
+export async function applyAdoptServer(
+	intent: Extract<DashboardIntent, { type: "adoptServer" }>,
+	env: IntentEnvironment
+): Promise<string | undefined> {
+	const label = intent.label.trim();
+	if (label.length === 0) {
+		throw new DashboardValidationError("label: enter a label");
+	}
+	if (isUnsafeRecordKey(label)) {
+		throw new DashboardValidationError("label: reserved name");
+	}
+	const baseUrl = intent.baseUrl.trim();
+	if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
+		throw new DashboardValidationError("baseUrl: not a usable http(s) URL");
+	}
+	const entries = rawServerEntries(env.readServersSetting());
+	if (acceptedEntry(entries, label) !== undefined) {
+		throw new DashboardValidationError("label: an entry with this label already exists");
+	}
+
+	const credentials = env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
+	const newEntry: Record<string, string> = { label, baseUrl };
+	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
+		const value = credentials?.[field];
+		if (value !== undefined) {
+			newEntry[field] = value;
+		}
+	}
+
+	const storedBefore = await env.readServerSecrets(label);
+	const overwritten = new Map<SecretFieldId, string | undefined>();
+	try {
+		for (const field of SECRET_FIELD_IDS) {
+			const value = credentials?.[field];
+			if (value === undefined) {
+				continue;
+			}
+			if (intent.secrets[field] === "secure") {
+				overwritten.set(field, storedBefore[field]);
+				await env.storeServerSecret(label, field, value);
+			} else {
+				newEntry[field] = value;
+			}
+		}
+		await env.writeServersSetting([...entries, newEntry]);
+	} catch (error) {
+		let restoreFailed = false;
+		for (const [field, previous] of overwritten) {
+			try {
+				await env.storeServerSecret(label, field, previous);
+			} catch {
+				restoreFailed = true;
+				env.log("Restoring a secure value after a failed adoption also failed", { field });
+			}
+		}
+		if (restoreFailed) {
+			// A copied secret survived the rollback under this label; see the
+			// save path's matching case for why this must not read as "nothing
+			// landed".
+			env.log("A failed adoption left a secure value unrestored", {
+				error: error instanceof Error ? error.name : typeof error,
+			});
+			env.requestServerSync();
+			throw new DashboardOperationError(
+				// Not "Set Server Secret": that command lists declared entries
+				// only, and this label's entry never landed. Re-adding the label
+				// makes the entry editable, and the edit form's remove checkbox
+				// is what clears the leftover blob field.
+				"The adoption failed, and removing a copied secret again also failed. Re-add a server under this label with the dashboard form, then edit the entry to remove the leftover secret."
+			);
+		}
+		throw error;
+	}
+	// The label is new to the setting, but a secure blob can survive under it
+	// (removals keep blobs so re-adding a label picks its secrets back up).
+	// For adoption that inheritance is wrong - the entry must resolve exactly
+	// what was copied from the group - so stale fields the adoption did not
+	// itself write secure-side are removed now that the write landed, and the
+	// removal is verified by re-reading: a stale secret that survives would
+	// silently take effect wherever the entry carries no inline copy, so a
+	// failure has to reach the user through the success notice, not just the
+	// log.
+	const staleFields = SECRET_FIELD_IDS.filter((field) => storedBefore[field] !== undefined && !overwritten.has(field));
+	let staleRemaining: SecretFieldId[] = [];
+	if (staleFields.length > 0) {
+		for (const field of staleFields) {
+			try {
+				await env.storeServerSecret(label, field, undefined);
+			} catch {
+				// Counted by the verification below.
+			}
+		}
+		try {
+			const after = await env.readServerSecrets(label);
+			staleRemaining = staleFields.filter((field) => after[field] !== undefined);
+		} catch {
+			// Unverifiable counts as failed: the caveat must err toward warning.
+			staleRemaining = staleFields;
+		}
+		if (staleRemaining.length > 0) {
+			env.log("Post-adoption cleanup of stale stored secrets failed", { fields: staleRemaining });
+		}
+	}
+	env.requestServerSync();
+	const caveats: string[] = [];
+	if (credentials === undefined) {
+		caveats.push("The live group's credentials could not be read, so none were copied; edit the server to set them.");
+	}
+	if (staleRemaining.length > 0) {
+		const names = staleRemaining.map((field) => SERVER_FORM_FIELD_LABELS[field]).join(", ");
+		caveats.push(
+			`A previously stored secret under this label (${names}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.`
+		);
+	}
+	return caveats.length > 0 ? caveats.join(" ") : undefined;
+}

@@ -14,6 +14,15 @@ export function isUnsafeRecordKey(key: string): boolean {
 }
 
 /**
+ * A fully populated record over a closed key list: the one place the
+ * fill-every-key pattern asserts totality, so schema shapes and settings
+ * builders stop casting empty objects into total records themselves.
+ */
+export function recordFromKeys<K extends string, V>(keys: readonly K[], value: (key: K) => V): Record<K, V> {
+	return Object.fromEntries(keys.map((key) => [key, value(key)])) as Record<K, V>;
+}
+
+/**
  * Try to parse a JSON object from a string.
  * @param text The input string.
  * @returns Parsed object or ok:false.

@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { readInlineSecretValues } from "../../extension/dashboard/state";
+import { readInlineSecretValues } from "../../extension/dashboard/intents";
 import type { DeclaredServer, SecretStore, ServerSyncEnv, StoredServerSecrets } from "../../extension/serverSync";
 import {
 	acceptedEntry,
