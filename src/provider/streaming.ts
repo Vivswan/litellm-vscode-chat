@@ -209,12 +209,8 @@ interface RequestState {
 	 * recordSource).
 	 */
 	citations: Map<string, string>;
-	/** Set once the citations trailer has been emitted; finishStream runs more than once per stream. */
-	emittedCitations: boolean;
 	/** The latest usage trailer observed on any chunk (the last one wins), emitted at end of stream. */
 	usage: Record<string, unknown> | undefined;
-	/** Set once the usage DataPart emission was decided; finishStream runs more than once per stream. */
-	emittedUsage: boolean;
 	/** The generated audio being accumulated, or undefined when none is in flight (also after each flush). */
 	audioBuffer: AudioBuffer | undefined;
 	/** Set by every part handed to progress; the end-of-stream empty-response check reads it. */
@@ -347,9 +343,7 @@ function freshRequestState(): RequestState {
 		loggedRefusal: false,
 		loggedImageSkip: false,
 		citations: new Map(),
-		emittedCitations: false,
 		usage: undefined,
-		emittedUsage: false,
 		audioBuffer: undefined,
 		reportedAnyPart: false,
 		droppedReasoningParts: 0,
@@ -490,7 +484,7 @@ export class StreamProcessor {
 					this.processDelta(chunk, progress, token);
 				}
 			}
-			this.finishStream(progress, !token.isCancellationRequested, true);
+			this.endOfStream(progress, !token.isCancellationRequested);
 		} finally {
 			try {
 				reader.releaseLock();
@@ -503,6 +497,15 @@ export class StreamProcessor {
 			this.logDroppedReasoningAggregate();
 			this._req = freshRequestState();
 		}
+	}
+
+	/**
+	 * The post-loop end-of-stream run, the only run where the trailers may
+	 * emit. The transport loop calls this once its reader drains; a harness
+	 * that feeds processDelta directly calls it to mirror that loop.
+	 */
+	endOfStream(progress: vscode.Progress<vscode.LanguageModelResponsePart>, finishedNormally = true): void {
+		this.finishStream(progress, finishedNormally, true);
 	}
 
 	/**
@@ -939,9 +942,10 @@ export class StreamProcessor {
 	 * cancelled stream downgrades unparseable leftovers to logged drops and
 	 * discards accumulated media instead of emitting it. `isFinal` is true
 	 * only for the post-loop EOF run - [DONE] is handled with `continue`, so
-	 * that run always happens last and is the one place last-wins effects
-	 * (the usage DataPart) may fire; both the finish_reason and [DONE] runs
-	 * can still be followed by more chunks.
+	 * that run always happens last and is the only place the end-of-stream
+	 * trailers (the Sources list and the usage DataPart) may emit, after the
+	 * terminal validations pass; both the finish_reason and [DONE] runs can
+	 * still be followed by more chunks.
 	 */
 	private finishStream(
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
@@ -993,44 +997,6 @@ export class StreamProcessor {
 			this._req.audioBuffer = undefined;
 		}
 
-		if (this._req.citations.size > 0 && !this._req.emittedCitations) {
-			this._req.emittedCitations = true;
-			const escapeTitle = (title: string) => title.replace(/[\r\n]+/g, " ").replace(/[[\]\\]/g, "\\$&");
-			// encodeURIComponent leaves "(" and ")" alone, and those break
-			// markdown link targets; everything else needs UTF-8-safe encoding.
-			const escapeUrl = (url: string) =>
-				url.replace(/[\s()]/g, (c) => (c === "(" ? "%28" : c === ")" ? "%29" : encodeURIComponent(c)));
-			const lines = Array.from(this._req.citations.entries()).map(
-				([url, title]) => `- [${escapeTitle(title)}](${escapeUrl(url)})`
-			);
-			this.reportPart(progress, new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
-		}
-
-		// The retained usage trailer rides out as one DataPart with the bare
-		// mimeType "usage", the convention the host-side consumer decodes into
-		// its token accounting (context-window widget, cache and reasoning
-		// stats). Emission happens only on the final post-loop run: at
-		// finish_reason (and even at [DONE], which `continue`s back into the
-		// loop) more chunks may follow, and emitting an interim usage object
-		// early would pin stale counts - the last trailer must win. A stream
-		// that throws before EOF (reasoning-only, invalid tool JSON) forfeits
-		// its usage; a failed request has no successful usage to account.
-		// Reported directly, not through reportPart: usage is bookkeeping, so
-		// a usage-only stream must still count as empty for the reasoning-only
-		// error below. A host without the DataPart class drops it silently -
-		// the pre-feature behavior, and logMissingDataPartSupportOnce's
-		// message is about generated media, which this is not.
-		if (isFinal && finishedNormally && this._req.usage !== undefined && !this._req.emittedUsage) {
-			this._req.emittedUsage = true;
-			const payload = usageDataPartPayload(this._req.usage);
-			if (payload !== undefined && this._dataPartCtor) {
-				const part = this.constructDataPart(new TextEncoder().encode(JSON.stringify(payload)), "usage");
-				if (part !== undefined) {
-					progress.report(part);
-				}
-			}
-		}
-
 		this.logDroppedReasoningAggregate();
 
 		if (invalidCount > 0 && finishedNormally) {
@@ -1050,6 +1016,55 @@ export class StreamProcessor {
 		) {
 			this._req.threwReasoningOnly = true;
 			throw new Error(REASONING_ONLY_RESPONSE_MESSAGE);
+		}
+
+		// One rule for the end-of-stream trailers (the Sources list, then the
+		// usage DataPart): they emit only here, on the single post-loop EOF run
+		// of a stream that finished normally and passed the terminal checks
+		// above. Earlier runs are premature - after finish_reason (and even
+		// after [DONE], which `continue`s back into the loop) more chunks may
+		// still deliver sources, title upgrades, or a later usage trailer, and
+		// last-wins must hold - and a cancelled or failed stream has no
+		// successful response to trail, so it ships neither the sources nor
+		// the accounting.
+		if (!isFinal || !finishedNormally) {
+			return;
+		}
+
+		if (this._req.citations.size > 0) {
+			const escapeTitle = (title: string) => title.replace(/[\r\n]+/g, " ").replace(/[[\]\\]/g, "\\$&");
+			// encodeURIComponent leaves "(" and ")" alone, and those break
+			// markdown link targets; everything else needs UTF-8-safe encoding.
+			const escapeUrl = (url: string) =>
+				url.replace(/[\s()]/g, (c) => (c === "(" ? "%28" : c === ")" ? "%29" : encodeURIComponent(c)));
+			const lines = Array.from(this._req.citations.entries()).map(
+				([url, title]) => `- [${escapeTitle(title)}](${escapeUrl(url)})`
+			);
+			// Reported directly, not through reportPart: the trailer decorates a
+			// response, it is not the response, so it must not satisfy the
+			// reasoning-only check above - a stream whose only visible output
+			// would be its sources still failed to deliver the reasoning it
+			// dropped.
+			progress.report(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
+		}
+
+		// The retained usage trailer rides out as one DataPart with the bare
+		// mimeType "usage", the convention the host-side consumer decodes into
+		// its token accounting (context-window widget, cache and reasoning
+		// stats). Reported directly, not through reportPart: usage is
+		// bookkeeping, so a usage-only stream must still count as empty for the
+		// reasoning-only check above. A host without the DataPart class drops
+		// it silently - the pre-feature behavior, and
+		// logMissingDataPartSupportOnce's message is about generated media,
+		// which this is not.
+		if (this._req.usage !== undefined) {
+			const payload = usageDataPartPayload(this._req.usage);
+			if (payload !== undefined && this._dataPartCtor) {
+				const part = this.constructDataPart(new TextEncoder().encode(JSON.stringify(payload)), "usage");
+				if (part !== undefined) {
+					progress.report(part);
+				}
+			}
 		}
 	}
 }
