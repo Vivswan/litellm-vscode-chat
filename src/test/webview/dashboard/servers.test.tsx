@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
+import { HELP_ENTRY_MODEL_PARAMETER_PREFIX } from "../../../webview/dashboard/helpText";
 import { ServersSection } from "../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
 import {
@@ -57,6 +58,54 @@ test("Test connection and Show diagnostics disable with zero servers and post th
 		{ type: "executeCommand", command: "showDiagnostics" },
 		{ type: "executeCommand", command: "manageServers" },
 	]);
+});
+
+test("the edit form round-trips per-entry model parameters into the save intent", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelParameters: { "gpt-4": { temperature: 0.2 } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+
+	// The entry already carries parameters, so the disclosure opens prefilled.
+	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model prefix"]');
+	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Parameter"]');
+	const valueInput = root.querySelector<HTMLInputElement>('input[placeholder^="JSON value"]');
+	if (prefixInput === null || keyInput === null || valueInput === null) {
+		throw new Error("the per-entry model parameters rows did not render");
+	}
+	expect(prefixInput.value).toBe("gpt-4");
+	expect(keyInput.value).toBe("temperature");
+	expect(valueInput.value).toBe("0.2");
+
+	// The entry editor's prefix copy must not advertise URL scoping: entry
+	// keys match model IDs only (the entry is already scoped to its server),
+	// while the global editor keeps the URL-example placeholder and help
+	// (pinned in recordEditors.test.tsx). One shared component, two registers.
+	expect(prefixInput.placeholder).toBe("Model prefix, e.g. gpt-4");
+	const glyph = prefixInput.closest(".cell")?.querySelector("button.help");
+	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
+	expect(tip?.textContent).toBe(HELP_ENTRY_MODEL_PARAMETER_PREFIX);
+
+	// An invalid JSON value blocks Save without posting anything.
+	fireInput(valueInput, "not json");
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages).toEqual([]);
+	expect(root.textContent).toContain("Cannot save: fix Model parameters");
+
+	// Fixed, the save intent carries the edited record.
+	fireInput(valueInput, "0.9");
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages.length).toBe(1);
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.type).toBe("saveServerSetting");
+	expect(saved.replaceLabel).toBe("Prod");
+	expect(saved.server.modelParameters).toEqual({ "gpt-4": { temperature: 0.9 } });
 });
 
 test("remove is two-step: Remove arms the row, Confirm posts removeServerSetting with a fresh requestId, Cancel disarms", () => {

@@ -25,6 +25,7 @@ import { ServerRegistry } from "./extension/serverRegistry";
 import {
 	createServerSyncEnv,
 	parseServersSetting,
+	readEntryModelParameters,
 	registerSetServerSecretCommand,
 	ServerSyncEngine,
 } from "./extension/serverSync";
@@ -74,6 +75,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		userAgent: ua,
 		logger,
 		getServers: () => registry.getServersWithKeys(),
+		getEntryModelParameters: readEntryModelParameters,
 		grouplessRegistryEnabled: () => REGISTRY_SERVED_IN_MODE[getManagementUiMode()],
 	});
 

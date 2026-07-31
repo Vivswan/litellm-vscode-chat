@@ -6,6 +6,8 @@ import type {
 	SecretLocation,
 } from "../../extension/dashboard/protocol";
 import { SECRET_FIELD_IDS } from "../../extension/dashboard/protocol";
+import type { GroupProblems } from "../../extension/dashboard/recordDraft";
+import { toGroups } from "../../extension/dashboard/recordDraft";
 import type {
 	SecretFieldDraft,
 	ServerFormDraft,
@@ -25,7 +27,13 @@ import {
 } from "../../extension/dashboard/serverForm";
 import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
 import { Help } from "./help";
-import { HELP_SECRET_STORAGE, HELP_SERVERS_SECTION, SERVER_FIELD_HELP } from "./helpText";
+import {
+	HELP_ENTRY_MODEL_PARAMETER_PREFIX,
+	HELP_SECRET_STORAGE,
+	HELP_SERVERS_SECTION,
+	SERVER_FIELD_HELP,
+} from "./helpText";
+import { ParamGroupsFields } from "./recordEditors";
 import { postMessage } from "./vscodeApi";
 
 function formatTimestamp(iso: string | undefined): string {
@@ -109,6 +117,7 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 		apiKey: secretDraft(original.config.secrets.apiKey),
 		oauthClientSecret: secretDraft(original.config.secrets.oauthClientSecret),
 		virtualKeyValue: secretDraft(original.config.secrets.virtualKeyValue),
+		modelParameters: toGroups(original.config.modelParameters ?? {}),
 	};
 }
 
@@ -136,7 +145,7 @@ function TextField({
 	placeholder,
 	props,
 }: {
-	field: Exclude<ServerFormField, SecretFieldId>;
+	field: Exclude<ServerFormField, SecretFieldId | "modelParameters">;
 	placeholder?: string;
 	props: FieldRenderProps;
 }) {
@@ -282,6 +291,19 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 }
 
 /**
+ * Whether a field "holds content" for problem visibility. Model-parameter
+ * problems only exist on rows the user (or the prefill) put there, so any
+ * rows count as content; text and secret fields count their text.
+ */
+function fieldHasContent(draft: ServerFormDraft, field: ServerFormField): boolean {
+	if (field === "modelParameters") {
+		return draft.modelParameters.length > 0;
+	}
+	const value = draft[field];
+	return typeof value === "string" ? value.length > 0 : value.value.length > 0;
+}
+
+/**
  * The inline Add/Edit form. Saving posts one saveServerSetting intent tagged
  * with a requestId and waits for its own ack: intentSucceeded closes the form
  * (discarding the draft, typed secrets included); a validation-kind
@@ -312,6 +334,11 @@ function ServerForm({
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [oauthOpen, setOauthOpen] = useState(false);
+	// The per-entry parameters disclosure opens by itself only for an entry
+	// that already carries some; adding rows to a bare entry is opt-in.
+	const [paramsOpen, setParamsOpen] = useState(
+		() => target.kind === "edit" && Object.keys(target.original.config.modelParameters ?? {}).length > 0
+	);
 	const saving = phase.phase === "saving";
 	// Save holds until the prefill response lands (phase "prefill"): saving
 	// before it arrives would assemble the still-empty fields as "keep",
@@ -385,9 +412,10 @@ function ServerForm({
 	const renaming = target.kind === "edit" && label !== target.original.label;
 	const collides = target.kind === "add" && declaredLabels.includes(label);
 
-	// A problem is visible once its field was touched or holds content;
-	// computed once here and passed through the render props, so the fields,
-	// the OAuth disclosure, and the save summary all show the same problems.
+	// A problem is visible once its field was touched or holds content
+	// (fieldHasContent); computed once here and passed through the render
+	// props, so the fields, the disclosures, and the save summary all show the
+	// same problems.
 	const visibleProblems: ServerFormProblems = {};
 	if (!parse.ok) {
 		for (const field of SERVER_FORM_FIELD_ORDER) {
@@ -395,15 +423,15 @@ function ServerForm({
 			if (problem === undefined) {
 				continue;
 			}
-			const value = draft[field];
-			const hasContent = typeof value === "string" ? value.length > 0 : value.value.length > 0;
-			if (touched.has(field) || hasContent) {
+			if (touched.has(field) || fieldHasContent(draft, field)) {
 				visibleProblems[field] = problem;
 			}
 		}
 	}
+	const modelParameterProblems: readonly GroupProblems[] = parse.ok ? [] : parse.modelParameterProblems;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
 	const oauthProblemVisible = OAUTH_SECTION_FIELDS.some((field) => visibleProblems[field] !== undefined);
+	const paramsProblemVisible = visibleProblems.modelParameters !== undefined;
 	// A problem surfacing inside a collapsed disclosure opens it once
 	// (otherwise Save would refuse over an error the user cannot see); beyond
 	// that the element is the user's: closing it again sticks, and it does not
@@ -413,6 +441,11 @@ function ServerForm({
 			setOauthOpen(true);
 		}
 	}, [oauthProblemVisible]);
+	useEffect(() => {
+		if (paramsProblemVisible) {
+			setParamsOpen(true);
+		}
+	}, [paramsProblemVisible]);
 
 	const save = () => {
 		if (phase.phase !== "editing") {
@@ -426,6 +459,9 @@ function ServerForm({
 			setTouched(new Set(SERVER_FORM_FIELD_ORDER));
 			if (OAUTH_SECTION_FIELDS.some((field) => parse.problems[field] !== undefined)) {
 				setOauthOpen(true);
+			}
+			if (parse.problems.modelParameters !== undefined) {
+				setParamsOpen(true);
 			}
 			return;
 		}
@@ -469,6 +505,35 @@ function ServerForm({
 				<TextField field="oauthScopes" placeholder="e.g. litellm.read litellm.write" props={props} />
 				<TextField field="virtualKeyHeader" placeholder="e.g. x-litellm-api-key" props={props} />
 				<SecretField field="virtualKeyValue" props={props} />
+			</details>
+			<details open={paramsOpen} onToggle={(event) => setParamsOpen(event.currentTarget.open)}>
+				<summary>
+					Model parameters for this server (optional) <Help text={SERVER_FIELD_HELP.modelParameters} />
+				</summary>
+				<p class="hint">
+					Sent only with requests routed through this entry; overrides the global Model parameters setting for the same
+					keys. Matching is by model ID prefix, longest prefix wins.
+				</p>
+				<ParamGroupsFields
+					groups={draft.modelParameters}
+					problems={modelParameterProblems}
+					disabled={saving}
+					prefixPlaceholder="Model prefix, e.g. gpt-4"
+					prefixHelp={HELP_ENTRY_MODEL_PARAMETER_PREFIX}
+					onChange={(next) => props.patch({ modelParameters: next })}
+				/>
+				<button
+					type="button"
+					class="secondary"
+					disabled={saving}
+					onClick={() =>
+						props.patch({
+							modelParameters: [...draft.modelParameters, { prefix: "", params: [{ key: "", valueText: "" }] }],
+						})
+					}
+				>
+					Add model prefix
+				</button>
 			</details>
 			<p class="hint">
 				Saved to the litellm-vscode-chat.servers user setting and synced to VS Code automatically. Secrets left empty or

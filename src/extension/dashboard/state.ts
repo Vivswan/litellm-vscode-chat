@@ -235,6 +235,7 @@ function buildServers(
 			config: {
 				...pickNonSecretOptionalFields(view),
 				secrets: view.secrets,
+				...(view.modelParameters !== undefined ? { modelParameters: view.modelParameters } : {}),
 			},
 			...declaredOutcome(matched?.snapshot.status, view.syncError),
 		});

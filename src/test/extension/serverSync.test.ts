@@ -1031,6 +1031,72 @@ suite("extension/serverSync", () => {
 		});
 	});
 
+	suite("per-entry modelParameters", () => {
+		test("parseServersSetting keeps a usable record and drops malformed shapes silently", () => {
+			const { entries, problems } = parseServersSetting([
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					// JSON.parse so __proto__ is an own key (an object literal would
+					// set the prototype instead of a property).
+					modelParameters: JSON.parse(
+						'{"gpt-4": {"temperature": 0.2, "stop": ["END"]}, "claude": "not a record", "__proto__": {"polluted": true}}'
+					) as unknown,
+				},
+				{ label: "Junk", baseUrl: "http://junk.test", modelParameters: "junk" },
+				{ label: "Empty", baseUrl: "http://empty.test", modelParameters: {} },
+				{ label: "Bare", baseUrl: "http://bare.test" },
+			]);
+
+			assert.deepStrictEqual(problems, [], "a malformed modelParameters shape never rejects the entry");
+			assert.deepStrictEqual(entries[0]?.modelParameters, { "gpt-4": { temperature: 0.2, stop: ["END"] } });
+			for (const entry of entries.slice(1)) {
+				assert.ok(!("modelParameters" in entry), `"${entry.label}" must read as carrying no entry parameters`);
+			}
+		});
+
+		test("acceptedEntry resolves the entry with its modelParameters, for the request path's read", () => {
+			const raw = [{ label: "Prod", baseUrl: "http://prod.test", modelParameters: { "gpt-4": { top_p: 0.9 } } }];
+			assert.deepStrictEqual(acceptedEntry(raw, "Prod")?.entry.modelParameters, { "gpt-4": { top_p: 0.9 } });
+		});
+
+		test("modelParameters never enter the group args or their fingerprint", () => {
+			const bare: DeclaredServer = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1" };
+			const withParams: DeclaredServer = { ...bare, modelParameters: { "gpt-4": { temperature: 0.2 } } };
+			const stored: StoredServerSecrets = { virtualKeyValue: "vk-1" };
+
+			assert.deepStrictEqual(buildGroupArgs(withParams, stored), buildGroupArgs(bare, stored));
+			assert.strictEqual(
+				fingerprint(JSON.stringify(buildGroupArgs(withParams, stored))),
+				fingerprint(JSON.stringify(buildGroupArgs(bare, stored)))
+			);
+		});
+
+		test("editing an entry's modelParameters neither re-pushes its group nor changes its fingerprint", async () => {
+			const recorded = makeSyncEnv([
+				{ label: "A", baseUrl: "http://a.test", modelParameters: { "gpt-4": { temperature: 0.2 } } },
+			]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1);
+			assert.ok(!("modelParameters" in (recorded.upserts[0] ?? {})), "params stay out of the host configuration");
+			const printed = recorded.fingerprints.A;
+			assert.ok(printed !== undefined);
+			assert.deepStrictEqual(engine.getDeclared()[0]?.modelParameters, { "gpt-4": { temperature: 0.2 } });
+
+			recorded.setting = [{ label: "A", baseUrl: "http://a.test", modelParameters: { "gpt-4": { temperature: 0.9 } } }];
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1, "an unforced pass reads the entry as unchanged");
+			assert.strictEqual(recorded.fingerprints.A, printed);
+			assert.deepStrictEqual(
+				engine.getDeclared()[0]?.modelParameters,
+				{ "gpt-4": { temperature: 0.9 } },
+				"the dashboard view still tracks the live setting"
+			);
+			engine.dispose();
+		});
+	});
+
 	suite("inlineSecretValues", () => {
 		test("reports exactly the secret fields the entry carries inline", () => {
 			const entry: DeclaredServer = {

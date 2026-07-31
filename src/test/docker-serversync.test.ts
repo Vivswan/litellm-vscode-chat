@@ -44,13 +44,15 @@ const LABEL_PRECEDENCE = "SyncSuite Precedence";
 const LABEL_VIRTUAL = "SyncSuite Virtual";
 const LABEL_OAUTH_BAD = "SyncSuite OAuth Bad";
 const LABEL_OAUTH = "SyncSuite OAuth";
+const LABEL_PARAMS_A = "SyncSuite Params A";
+const LABEL_PARAMS_B = "SyncSuite Params B";
 
 /** Scenario 3's dormant stored value; scenario 5d scans the log buffer for it. */
 const GARBAGE_KEY = "sk-garbage-MARKER";
 /** Scenario 5a's rejected client secret; scenario 5d scans the log buffer for it. */
 const WRONG_OAUTH_SECRET = "not-the-secret";
 
-type ServersSettingEntry = Record<string, string>;
+type ServersSettingEntry = Record<string, string | Readonly<Record<string, Readonly<Record<string, unknown>>>>>;
 
 interface OAuthStats {
 	issued: number;
@@ -382,5 +384,41 @@ suite("Docker server sync", () => {
 		// removed entry's models; proxyGroups still counts its group.
 		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
 		assert.ok(countModels(models, ALIAS) >= proxyGroups, "provider groups survive their setting entry's removal");
+	});
+
+	test("scenario 8: two same-URL entries each send their own per-entry model parameters", async function () {
+		this.timeout(180000);
+		// Same base URL, same key: only the labels tell these entries apart, so
+		// the temperatures below can only reach the wire through the label-keyed
+		// entry lookup at request time.
+		await declareServer({
+			label: LABEL_PARAMS_A,
+			baseUrl: BASE_URL,
+			apiKey: API_KEY,
+			modelParameters: { [ALIAS]: { temperature: 0.31 } },
+		});
+		await declareServer({
+			label: LABEL_PARAMS_B,
+			baseUrl: BASE_URL,
+			apiKey: API_KEY,
+			modelParameters: { [ALIAS]: { temperature: 0.62 } },
+		});
+		proxyGroups += 2;
+		const models = await waitForProxyGroupCount(proxyGroups);
+		// The host does not expose group identity on the model object (see
+		// scenario 4), so the chat runs through EVERY alias model and collects
+		// the temperature each request carried to the fake backend. Exactly the
+		// two new entries' values must appear, once each: the earlier groups'
+		// entries declare no parameters, so their requests carry no temperature.
+		const aliasModels = models.filter((candidate) => candidate.id === ALIAS);
+		const temperatures: string[] = [];
+		for (const model of aliasModels) {
+			const reply = await chat(model, `${COMMAND_SIGIL}params`);
+			const match = /temperature: `([^`]+)`/.exec(reply);
+			if (match?.[1] !== undefined) {
+				temperatures.push(match[1]);
+			}
+		}
+		assert.deepStrictEqual(temperatures.sort(), ["0.31", "0.62"]);
 	});
 });

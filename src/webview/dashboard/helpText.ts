@@ -55,6 +55,9 @@ export const SERVER_FIELD_HELP: Record<ServerFormField, string> = {
 		"The header that carries a gateway virtual key, e.g. x-litellm-api-key; set the value below with it. " +
 		"Naming Authorization hands it that whole header and no OAuth token is fetched.",
 	virtualKeyValue: "The key sent in that header on every request to this server.",
+	modelParameters:
+		"Parameters sent only to this server's models, e.g. temperature 0.2. Runtime options and per-model picker " +
+		"config win; these win over the global Model parameters setting.",
 };
 
 export const HELP_SECRET_STORAGE =
@@ -64,6 +67,10 @@ export const HELP_SECRET_STORAGE =
 export const HELP_MODEL_PARAMETER_PREFIX =
 	"Matches model IDs by prefix, longest winning: gpt-4 covers gpt-4-turbo. Lead with a base URL, e.g. " +
 	"https://myproxy.example/v1/gpt-4, to scope to one server; scoped entries beat unscoped ones.";
+
+export const HELP_ENTRY_MODEL_PARAMETER_PREFIX =
+	"Matches model IDs by prefix, longest winning: gpt-4 covers gpt-4-turbo. Already scoped to this server, so " +
+	"use plain model IDs; a base URL prefix here never matches.";
 
 export const HELP_MODEL_PARAMETER_NAME =
 	"The request body key, e.g. temperature, top_p, or stop. Provider-owned fields like model and messages " +

@@ -248,6 +248,13 @@
 							"virtualKeyValue": {
 								"type": "string",
 								"description": "The virtual key sent in the header named above, inline. Omit to keep it in secret storage instead."
+							},
+							"modelParameters": {
+								"type": "object",
+								"additionalProperties": {
+									"type": "object"
+								},
+								"description": "Request parameters for models served through this entry, keyed by model ID prefix with the longest prefix winning - the same shape as the global litellm-vscode-chat.modelParameters, scoped to this one entry. This is how to target one of two entries sharing a base URL. Where both settings match a model, the entry's parameters win key by key; runtime options and the model picker's per-model configuration override both."
 							}
 						}
 					}
@@ -281,7 +288,7 @@
 				"litellm-vscode-chat.modelParameters": {
 					"type": "object",
 					"default": {},
-					"description": "Model-specific request parameters to customize API behavior. Supports max_tokens, temperature, top_p, frequency_penalty, presence_penalty, stop, etc. Uses longest prefix matching (e.g., 'gpt-4' matches 'gpt-4-turbo:openai'). To scope parameters to a specific server, prefix with the server's base URL (e.g., 'http://localhost:4000/gpt-4'). Server-scoped entries take priority over unscoped ones. Only parameters you set are sent; the extension never injects defaults.",
+					"description": "Model-specific request parameters to customize API behavior. Supports max_tokens, temperature, top_p, frequency_penalty, presence_penalty, stop, etc. Uses longest prefix matching (e.g., 'gpt-4' matches 'gpt-4-turbo:openai'). To scope parameters to a specific server, prefix with the server's base URL (e.g., 'http://localhost:4000/gpt-4'). Server-scoped entries take priority over unscoped ones. To target one declared entry exactly (two litellm-vscode-chat.servers entries can share a base URL), set modelParameters on that entry instead; entry parameters override this setting. Only parameters you set are sent; the extension never injects defaults.",
 					"additionalProperties": {
 						"type": "object"
 					}

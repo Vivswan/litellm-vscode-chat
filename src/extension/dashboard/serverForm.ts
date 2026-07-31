@@ -23,6 +23,8 @@ import {
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	SECRET_FIELD_IDS,
 } from "./protocol";
+import type { GroupProblems, PrefixGroup } from "./recordDraft";
+import { parseGroups } from "./recordDraft";
 
 /**
  * One secret field as the form edits it. `existing` is where the value lives
@@ -42,12 +44,15 @@ export interface SecretFieldDraft {
 
 /**
  * The whole draft, its field set derived from the entry descriptor: label and
- * base URL, the non-secret optional fields as plain text inputs, and one
- * SecretFieldDraft per secret field.
+ * base URL, the non-secret optional fields as plain text inputs, one
+ * SecretFieldDraft per secret field, and the entry's per-entry
+ * modelParameters as the same draft rows the global editor edits.
  */
-export type ServerFormDraft = { readonly label: string; readonly baseUrl: string } & Readonly<
-	Record<NonSecretOptionalFieldId, string>
-> &
+export type ServerFormDraft = {
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly modelParameters: readonly PrefixGroup[];
+} & Readonly<Record<NonSecretOptionalFieldId, string>> &
 	Readonly<Record<SecretFieldId, SecretFieldDraft>>;
 
 const EMPTY_SECRET: SecretFieldDraft = { value: "", location: "secure", clear: false, existing: "none" };
@@ -62,6 +67,7 @@ export const EMPTY_SERVER_FORM: ServerFormDraft = {
 	apiKey: EMPTY_SECRET,
 	oauthClientSecret: EMPTY_SECRET,
 	virtualKeyValue: EMPTY_SECRET,
+	modelParameters: [],
 };
 
 export type ServerFormField = keyof ServerFormDraft;
@@ -77,6 +83,7 @@ export const SERVER_FORM_FIELD_ORDER: readonly ServerFormField[] = [
 	"oauthScopes",
 	"virtualKeyHeader",
 	"virtualKeyValue",
+	"modelParameters",
 ];
 
 /** Display names for the form's fields, shared by labels and problem summaries. */
@@ -90,6 +97,7 @@ export const SERVER_FORM_FIELD_LABELS: Record<ServerFormField, string> = {
 	oauthScopes: "OAuth scopes",
 	virtualKeyHeader: "Virtual key header",
 	virtualKeyValue: "Virtual key value",
+	modelParameters: "Model parameters",
 };
 
 /**
@@ -169,7 +177,17 @@ export interface ServerFormIntent {
 
 export type ServerFormParse =
 	| { readonly ok: true; readonly intent: ServerFormIntent }
-	| { readonly ok: false; readonly problems: ServerFormProblems };
+	| {
+			readonly ok: false;
+			readonly problems: ServerFormProblems;
+			/**
+			 * Row-aligned problems for the model-parameters rows, from the same
+			 * parseGroups pass that judged the draft; empty when those rows are
+			 * clean and some other field blocks. problems.modelParameters carries
+			 * the field-level summary for the save toolbar.
+			 */
+			readonly modelParameterProblems: readonly GroupProblems[];
+	  };
 
 /**
  * Parse a draft into the saveServerSetting intent it assembles to, or the
@@ -240,11 +258,21 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		problems.virtualKeyValue = "The value cannot be sent as an HTTP header";
 	}
 
-	if (Object.values(problems).some((problem) => problem !== undefined)) {
-		return { ok: false, problems };
+	// The per-entry model-parameter rows share the global editor's parse, so a
+	// draft that renders clean there is exactly a draft that saves here; the
+	// rows carry their own problems and the field slot holds the summary.
+	const groupsParse = parseGroups(draft.modelParameters);
+	if (!groupsParse.ok) {
+		problems.modelParameters = "Fix the model parameter rows";
 	}
 
-	const server: { label: string; baseUrl: string } & { -readonly [K in NonSecretOptionalFieldId]?: string } = {
+	if (Object.values(problems).some((problem) => problem !== undefined)) {
+		return { ok: false, problems, modelParameterProblems: groupsParse.ok ? [] : groupsParse.problems };
+	}
+
+	const server: { label: string; baseUrl: string; modelParameters?: Record<string, Record<string, unknown>> } & {
+		-readonly [K in NonSecretOptionalFieldId]?: string;
+	} = {
 		label,
 		baseUrl,
 	};
@@ -253,6 +281,11 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		if (value.length > 0) {
 			server[field] = value;
 		}
+	}
+	// groupsParse.ok always holds here (a blocked parse returned above); the
+	// guard is the narrowing.
+	if (groupsParse.ok && Object.keys(groupsParse.value).length > 0) {
+		server.modelParameters = groupsParse.value;
 	}
 	const directives: Record<SecretFieldId, SecretDirective> = {
 		apiKey: secrets.apiKey.directive,
