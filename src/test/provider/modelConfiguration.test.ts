@@ -16,13 +16,21 @@ suite("provider/modelConfiguration", () => {
 			assert.deepStrictEqual(property().enum, ["default", ...REASONING_EFFORT_LEVELS]);
 			assert.deepStrictEqual(
 				property().enumItemLabels,
-				["Provider default", "Low", "Medium", "High"],
+				["Provider default", "Off", "Minimal", "Low", "Medium", "High", "Extra High"],
 				"the host requires enumItemLabels to match the enum's length and order"
 			);
 			assert.strictEqual(
 				(property().enumDescriptions as string[]).length,
 				(property().enum as string[]).length,
 				"enumDescriptions must align with the enum too"
+			);
+		});
+
+		test("Off is a real wire value, distinct from the sentinel that sends nothing", () => {
+			assert.deepStrictEqual(
+				requestParamsFromModelConfiguration({ reasoningEffort: "none" }),
+				{ reasoning_effort: "none" },
+				"none must reach the wire so LiteLLM can translate it into thinking-off"
 			);
 		});
 

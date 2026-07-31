@@ -177,7 +177,9 @@ Servers that VS Code manages as provider groups - everything the `servers` setti
 
 ### Reasoning Effort (Model Picker)
 
-Models that advertise reasoning support (`supports_reasoning`, or `reasoning_effort` among their supported params) get an effort control in Copilot's model picker: select the model, then click the "Thinking Effort" label next to the model name in the chat input. (The Manage Language Models editor shows the same control as "Reasoning Effort".) Pick Low, Medium, or High and VS Code remembers the choice for that model; every request then carries `reasoning_effort` accordingly. Pick "Provider default" (the initial state) to send nothing and let your provider decide. A `reasoning_effort` in `modelOptions` at request time still wins over the picker.
+Models that advertise reasoning support (`supports_reasoning`, or `reasoning_effort` among their supported params) get an effort control in Copilot's model picker: select the model, then click the "Thinking Effort" label next to the model name in the chat input. (The Manage Language Models editor shows the same control as "Reasoning Effort".) Pick a level from Off through Extra High and VS Code remembers the choice for that model; every request then carries `reasoning_effort` accordingly ("Off" goes out as `reasoning_effort: "none"`, which turns thinking off on models that support that). Pick "Provider default" (the initial state) to send nothing and let your provider decide. A `reasoning_effort` in `modelOptions` at request time still wins over the picker.
+
+The menu is the same for every reasoning model because LiteLLM reports which models take `reasoning_effort` but not which values each one accepts. If you pick a level your model rejects (say, Extra High on a model that stops at High), the request fails with the server's own error message; pick a different level and retry.
 
 ### Prompt Caching (Anthropic Claude)
 
