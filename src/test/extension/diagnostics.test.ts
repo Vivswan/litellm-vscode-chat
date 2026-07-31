@@ -1,10 +1,10 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { buildDiagnosticsSnapshot, registerDiagnosticsCommand } from "../../extension/diagnostics";
+import { IssueReporter } from "../../extension/issueReporter";
 import { ServerRegistry } from "../../extension/serverRegistry";
 import type { DeclaredServerView } from "../../extension/serverSync";
 import type { ConnectionStatus } from "../../extension/status";
-import { IssueReporter } from "../../issueReporter";
 import type { ServerModelsSnapshot } from "../../provider";
 import { markLogSafe } from "../../shared/logger";
 import { expectDefined, makeExtensionStorage, makeModelInfo, makeServerStatus } from "../testUtils";

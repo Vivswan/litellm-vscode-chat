@@ -9,27 +9,21 @@ import type {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 import { CancellationError, EventEmitter, LanguageModelError } from "vscode";
-import { ChatClient, type ServerConnection } from "./provider/chatClient";
-import type { ConfigurationPrompt } from "./provider/config";
-import { ensureServers } from "./provider/config";
-import { DiscoveryCache } from "./provider/discoveryCache";
-import { RequestError } from "./provider/errorMapping";
-import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./provider/groupModels";
-import {
-	attachGroupServer,
-	groupClientId,
-	groupServerLabel,
-	markStale,
-	parseGroupConfiguration,
-} from "./provider/groupModels";
-import type { ModelRoute } from "./provider/modelCatalog";
-import { buildModelInfos } from "./provider/registration";
-import type { Logger, LogSafeErrorText } from "./shared/logger";
-import { errorMessageText, markLogSafe, publicErrorText } from "./shared/logger";
-import type { AggregatedStatus, ServerStatus, ServerWithKey } from "./shared/servers";
-import { isErrorServerStatus } from "./shared/servers";
-import { getDiscoveryCacheTtl, getTokenDefaults } from "./shared/settings";
-import { CHARS_PER_TOKEN, estimateMessagesTokens } from "./shared/tokenEstimation";
+import type { Logger, LogSafeErrorText } from "../shared/logger";
+import { errorMessageText, markLogSafe, publicErrorText } from "../shared/logger";
+import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../shared/servers";
+import { isErrorServerStatus } from "../shared/servers";
+import { getDiscoveryCacheTtl, getTokenDefaults } from "../shared/settings";
+import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/tokenEstimation";
+import { ChatClient, type ServerConnection } from "./chatClient";
+import type { ConfigurationPrompt } from "./config";
+import { ensureServers } from "./config";
+import { DiscoveryCache } from "./discoveryCache";
+import { RequestError } from "./errorMapping";
+import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./groupModels";
+import { attachGroupServer, groupClientId, groupServerLabel, markStale, parseGroupConfiguration } from "./groupModels";
+import type { ModelRoute } from "./modelCatalog";
+import { buildModelInfos } from "./registration";
 
 /**
  * Rolling status entries and their cached clients are evicted when not
