@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import * as vscode from "vscode";
-import { convertTools } from "../../shared/tools";
-import type { OpenAIFunctionToolDef } from "../../shared/wire";
-import { resolveFuzzSeed } from "../fuzzStream";
+import { convertTools } from "../../../shared/conversion/tools";
+import type { OpenAIFunctionToolDef } from "../../../shared/conversion/wire";
+import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.

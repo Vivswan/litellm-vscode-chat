@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { convertTools } from "../../shared/tools";
-import { expectDefined } from "../testUtils";
+import { convertTools } from "../../../shared/conversion/tools";
+import { expectDefined } from "../../testUtils";
 
-suite("shared/tools", () => {
+suite("shared/conversion/tools", () => {
 	test("convertTools returns function tool definitions", () => {
 		const out = convertTools({
 			tools: [

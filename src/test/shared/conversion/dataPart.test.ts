@@ -6,9 +6,9 @@ import {
 	logMissingDataPartSupportOnce,
 	probeDataPartCtor,
 	resetDataPartLogOnce,
-} from "../../shared/dataPart";
+} from "../../../shared/conversion/dataPart";
 
-suite("shared/dataPart", () => {
+suite("shared/conversion/dataPart", () => {
 	setup(() => resetDataPartLogOnce());
 	teardown(() => resetDataPartLogOnce());
 

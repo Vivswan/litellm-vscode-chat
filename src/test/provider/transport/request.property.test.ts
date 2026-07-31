@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { ModelConfigurationRequestParams } from "../../../provider/catalog/modelConfiguration";
 import { buildRequestBody, findLongestPrefixMatch, getModelParameters } from "../../../provider/transport/request";
-import type { OpenAIChatMessage } from "../../../shared/wire";
+import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { withConfig } from "../../testUtils";
 

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { isToolResultPart } from "./messages";
+import { isToolResultPart } from "./conversion/messages";
 
 /**
  * Validate the request message sequence for correct tool call/result pairing.

@@ -4,10 +4,10 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { StreamProcessor } from "../../../provider/transport/streaming";
-import type { DataPartCtor } from "../../../shared/dataPart";
-import { resetDataPartLogOnce } from "../../../shared/dataPart";
-import type { ThinkingPartCtor } from "../../../shared/thinkingPart";
-import { resetThinkingPartLogOnce } from "../../../shared/thinkingPart";
+import type { DataPartCtor } from "../../../shared/conversion/dataPart";
+import { resetDataPartLogOnce } from "../../../shared/conversion/dataPart";
+import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
+import { resetThinkingPartLogOnce } from "../../../shared/conversion/thinkingPart";
 import { BUILTIN_SCENARIOS } from "../../scenarios";
 import { expectDefined } from "../../testUtils";
 

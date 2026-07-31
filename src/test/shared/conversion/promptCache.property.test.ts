@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { applyPromptCacheBreakpoints, type PromptCachedRequest } from "../../shared/promptCache";
-import type { OpenAIChatContentBlock, OpenAIChatMessage, OpenAIFunctionToolDef } from "../../shared/wire";
-import { resolveFuzzSeed } from "../fuzzStream";
+import { applyPromptCacheBreakpoints, type PromptCachedRequest } from "../../../shared/conversion/promptCache";
+import type { OpenAIChatContentBlock, OpenAIChatMessage, OpenAIFunctionToolDef } from "../../../shared/conversion/wire";
+import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.

@@ -1,10 +1,10 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import * as vscode from "vscode";
-import { convertMessages } from "../../shared/messages";
-import { validateRequest } from "../../shared/validation";
-import { resolveFuzzSeed } from "../fuzzStream";
-import { expectDefined } from "../testUtils";
+import { convertMessages } from "../../../shared/conversion/messages";
+import { validateRequest } from "../../../shared/validation";
+import { resolveFuzzSeed } from "../../fuzzStream";
+import { expectDefined } from "../../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.

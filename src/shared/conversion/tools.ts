@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { isRecord } from "./json";
+import { isRecord } from "../json";
 import type { OpenAIFunctionToolDef } from "./wire";
 
 function isIntegerLikePropertyName(propertyName: string | undefined): boolean {
