@@ -46,6 +46,11 @@
 							"description": "LiteLLM server URL, e.g. http://localhost:4000",
 							"format": "uri"
 						},
+						"label": {
+							"type": "string",
+							"title": "Label",
+							"description": "Optional label identifying the litellm-vscode-chat.servers entry this group mirrors. The extension's server sync sets it; it gives groups that share a base URL and credentials distinct identities."
+						},
 						"apiKey": {
 							"type": "string",
 							"secret": true,

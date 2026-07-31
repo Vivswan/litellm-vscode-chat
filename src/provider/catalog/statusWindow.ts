@@ -59,29 +59,57 @@ type StatusWindowEntry = {
  * boundary; that one-cycle grace is load-bearing: it keeps servers not yet
  * re-fetched in the current sweep visible, so the merged view never flickers
  * mid-sweep. Two fallbacks cover hosts that skip the group-agnostic call:
- * re-seeing a group within one cycle also starts a new cycle (the provider
- * consults seenThisCycle), and entries untouched for STATUS_TTL_MS go
+ * re-seeing a group within one unmarked cycle also starts a new cycle
+ * (beginCycleOnReSight), and entries untouched for STATUS_TTL_MS go
  * regardless.
  */
 export class StatusWindow {
 	private cycle = 0;
+	/**
+	 * Whether the current cycle was started by the group-agnostic call. A
+	 * marked cycle is host-driven, and a host that makes the group-agnostic
+	 * call makes one per sweep - so inside a marked cycle, a group reporting
+	 * under an identity already seen this cycle is two host groups resolving
+	 * to one identity (created before entry labels flowed into group
+	 * configurations), not a new sweep, and restarting the cycle on it would
+	 * evict entries the sweep has not re-reached yet. The re-see fallback
+	 * therefore only runs in unmarked cycles (hosts that skip the
+	 * group-agnostic call entirely).
+	 */
+	private cycleMarked = false;
 	private readonly entries = new Map<string, StatusWindowEntry>();
 
 	constructor(private readonly now: () => number) {}
 
+	/** The group-agnostic call's cycle boundary; marks the cycle as host-driven. */
 	beginCycle(): void {
+		this.advanceCycle();
+		this.cycleMarked = true;
+	}
+
+	/**
+	 * The re-see fallback for hosts that skip the group-agnostic call: a group
+	 * reporting again within one unmarked cycle means a new sweep started, so
+	 * a fresh (unmarked) cycle begins and true is reported so the caller can
+	 * prune alongside. Inside a marked cycle this never fires; see cycleMarked.
+	 */
+	beginCycleOnReSight(serverId: string): boolean {
+		if (this.cycleMarked || this.entries.get(serverId)?.cycle !== this.cycle) {
+			return false;
+		}
+		this.advanceCycle();
+		return true;
+	}
+
+	private advanceCycle(): void {
 		this.cycle += 1;
+		this.cycleMarked = false;
 		const now = this.now();
 		for (const [serverId, entry] of this.entries) {
 			if (entry.cycle < this.cycle - 1 || now - entry.at > STATUS_TTL_MS) {
 				this.entries.delete(serverId);
 			}
 		}
-	}
-
-	/** Whether this server already reported in the current cycle; see the class doc for why callers care. */
-	seenThisCycle(serverId: string): boolean {
-		return this.entries.get(serverId)?.cycle === this.cycle;
 	}
 
 	/**

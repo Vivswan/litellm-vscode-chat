@@ -555,7 +555,7 @@ suite("extension/commands", () => {
 			registerTestCommands(
 				context as unknown as vscode.ExtensionContext,
 				{} as unknown as ServerRegistry,
-				{ provideLanguageModelChatInformation: async () => [] },
+				{ provideLanguageModelChatInformation: async () => [], getServerSnapshots: () => [] },
 				{ getRecentLogs: () => [] },
 				{ getDeclared: () => [] },
 				{ injectMessageForTest: async () => "ok" as const }

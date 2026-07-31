@@ -5,7 +5,7 @@ import type { Logger } from "../shared/logger";
 import { openUrl } from "../shared/openUrl";
 import type { SecretFieldId } from "../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../shared/serverEntry";
-import type { ServerConfig } from "../shared/servers";
+import type { ServerConfig, ServerStatus } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
 import type { DashboardController } from "./dashboard/panel";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
@@ -30,6 +30,15 @@ interface ModelInfoProvider {
 		options: { silent: boolean },
 		token: vscode.CancellationToken
 	): Promise<vscode.LanguageModelChatInformation[]>;
+}
+
+/**
+ * The extra slice the test commands read: the live status window, so the
+ * host-fidelity and docker suites can observe what the host's per-group
+ * calls actually delivered (statuses only; see the command registration).
+ */
+interface StatusSnapshotProvider {
+	getServerSnapshots(): ReadonlyArray<{ readonly status: ServerStatus }>;
 }
 
 /**
@@ -291,7 +300,7 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 export function registerTestCommands(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
-	provider: ModelInfoProvider,
+	provider: ModelInfoProvider & StatusSnapshotProvider,
 	issueReporter: Pick<IssueReporter, "getRecentLogs">,
 	syncEngine: Pick<ServerSyncEngine, "getDeclared">,
 	dashboard: Pick<DashboardController, "injectMessageForTest">
@@ -374,6 +383,13 @@ export function registerTestCommands(
 			}
 		),
 		vscode.commands.registerCommand("litellm._test.getDeclaredServers", () => syncEngine.getDeclared()),
+		// The status window's statuses, for suites that must observe what the
+		// host's per-group calls delivered (e.g. that a group configuration's
+		// label round-tripped). Statuses only: the snapshots' model lists are
+		// credential-free by type but nothing here needs them.
+		vscode.commands.registerCommand("litellm._test.getServerStatuses", () =>
+			provider.getServerSnapshots().map((snapshot) => snapshot.status)
+		),
 		// The monkey fuzzer's intent injection: open the dashboard through its
 		// real command, then run the raw payload through the panel's actual
 		// webview-message path (webviewMessageSchema.safeParse included; the

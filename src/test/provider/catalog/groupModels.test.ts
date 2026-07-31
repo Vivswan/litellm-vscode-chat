@@ -161,6 +161,17 @@ suite("provider/catalog/groupModels", () => {
 			assert.deepStrictEqual(server, { baseUrl: "http://litellm.test", apiKey: "k" });
 		});
 
+		test("the entry label is consumed trimmed; junk or blank labels degrade to absent", () => {
+			const labeled = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: " Prod " })
+			);
+			assert.strictEqual(labeled.label, "Prod");
+			for (const label of [42, "", "   ", null]) {
+				const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label }));
+				assert.strictEqual(server.label, undefined, `expected no label for ${JSON.stringify(label)}`);
+			}
+		});
+
 		test("pre-OAuth narrowing is unchanged: trailing slashes trimmed, non-string apiKey means keyless", () => {
 			assert.deepStrictEqual(parseGroupConfiguration({ baseUrl: "http://litellm.test//", apiKey: 42 }), {
 				baseUrl: "http://litellm.test",
@@ -177,6 +188,51 @@ suite("provider/catalog/groupModels", () => {
 
 		test("servers without OAuth or a virtual key keep the pre-OAuth identity format", () => {
 			assert.strictEqual(groupClientId(plain), `group:${fingerprint("k")}:http://litellm.test`);
+		});
+
+		test("entries sharing a base URL and every credential get distinct identities from their labels", () => {
+			// The user scenario behind per-entry identity: two declared entries,
+			// one server, one key. Without the label both would collapse to one
+			// status-window entry and the second could never report.
+			const prod = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
+			);
+			const staging = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Staging" })
+			);
+			assert.notStrictEqual(groupClientId(prod), groupClientId(staging));
+			assert.notStrictEqual(groupClientId(prod), groupClientId(plain), "labeled and unlabeled identities differ");
+			const relabeled = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
+			);
+			assert.strictEqual(groupClientId(prod), groupClientId(relabeled), "equal configurations, equal identities");
+		});
+
+		test("a labeled OAuth configuration cannot encode like an unlabeled one", () => {
+			// Labeled identities live in their own group:labeled: namespace, so
+			// no unlabeled encoding - three-element JSON or bare key - can reach
+			// them.
+			const unlabeled = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
+			const labeled = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS, label: "Prod" })
+			);
+			assert.notStrictEqual(groupClientId(labeled), groupClientId(unlabeled));
+		});
+
+		test("an unlabeled API key spelling the labeled encoding never collides with a real labeled entry", () => {
+			// The unlabeled plain branch hashes the raw free-form key, so a bare
+			// key that IS the labeled form's JSON text hashes to the same
+			// fingerprint; only the labeled output namespace keeps the domains
+			// apart. Same URL on both sides on purpose: a collision here would
+			// merge status entries, reuse the wrong discovery cache and SDK
+			// client, and misidentify adoption sources.
+			const smuggled = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: '["k",null,null,"Prod"]' })
+			);
+			const labeled = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
+			);
+			assert.notStrictEqual(groupClientId(smuggled), groupClientId(labeled));
 		});
 
 		test("rotating the client secret mints a new identity", () => {
@@ -299,6 +355,15 @@ suite("provider/catalog/groupModels", () => {
 			);
 			const model = attachGroupServer(makeModelInfo(), server);
 			assert.deepStrictEqual(parseModelMetadata(model).server, server);
+		});
+
+		test("the entry label survives the attach round trip, so the request path can reach it", () => {
+			const server = expectDefined(
+				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
+			);
+			const parsed = expectDefined(parseModelMetadata(attachGroupServer(makeModelInfo(), server)).server);
+			assert.strictEqual(parsed.label, "Prod");
+			assert.strictEqual(groupClientId(parsed), groupClientId(server), "one entry, one identity, either side");
 		});
 
 		test("attachGroupServer keeps the configuration schema on the model", () => {

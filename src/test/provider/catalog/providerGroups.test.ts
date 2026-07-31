@@ -745,6 +745,82 @@ suite("provider groups", () => {
 		assert.strictEqual(last.serverStatuses.filter((s) => s.state === "error").length, 1);
 	});
 
+	test("two labeled groups sharing a base URL AND key get their own statuses under their labels", async () => {
+		// The reported user scenario: two declared entries mirroring one server
+		// with one key. Their groups' configurations differ only in the label
+		// the sync engine stamped, and that label must be enough for each to
+		// keep its own status-window entry and render under its own name.
+		const provider = makeProvider();
+		const statuses: AggregatedStatus[] = [];
+		provider.setStatusCallback((status) => statuses.push(status));
+		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
+
+		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+		await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "shared-key", label: "Prod" }),
+			cancellation()
+		);
+		await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "shared-key", label: "Staging" }),
+			cancellation()
+		);
+
+		const last = expectDefined(statuses.at(-1));
+		assert.strictEqual(last.serverStatuses.length, 2, "one status entry per declared entry, not one shared");
+		assert.deepStrictEqual(
+			last.serverStatuses.map((s) => s.label).sort(),
+			["Prod", "Staging"],
+			"each group's status renders under its configured label"
+		);
+		assert.ok(
+			last.serverStatuses.every((s) => s.state === "ok"),
+			"both entries report their own real outcome"
+		);
+		const ids = new Set(last.serverStatuses.map((s) => s.serverId));
+		assert.strictEqual(ids.size, 2, "the labels mint distinct identities");
+	});
+
+	test("identical sibling groups inside a groupless-marked sweep do not restart the status cycle", async () => {
+		// Two pre-label host groups can resolve to ONE identity (same URL, same
+		// key, no label). Within a host-driven sweep - one that begins with the
+		// group-agnostic call - the second sibling's report used to look like
+		// "re-seen within one cycle" and restarted the cycle mid-sweep, evicting
+		// entries the sweep had not re-reached yet; the other group's status
+		// would flicker out of the merged report until its own refresh landed.
+		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
+		const statuses: AggregatedStatus[] = [];
+		provider.setStatusCallback((status) => statuses.push(status));
+		mswServer.use(
+			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
+			http.get("http://litellm.test:8080/v1/model/info", () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)),
+			http.get("http://litellm.test:8080/v1/models", () => HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))
+		);
+		const groupless = () => provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+		const fetchGroup = (baseUrl: string) =>
+			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl }), cancellation());
+
+		// Each sweep: the group-agnostic call, both identical siblings, then the
+		// other group. In the buggy ordering the second sibling of sweep two
+		// restarted the cycle before the other group re-reported, evicting it.
+		await groupless();
+		await fetchGroup(TEST_BASE_URL);
+		await fetchGroup(TEST_BASE_URL);
+		await fetchGroup("http://litellm.test:8080");
+
+		await groupless();
+		await fetchGroup(TEST_BASE_URL);
+		await fetchGroup(TEST_BASE_URL);
+
+		// The other group reported last sweep: the one-cycle grace must hold it
+		// through this sweep, sibling duplicates notwithstanding.
+		const last = expectDefined(statuses.at(-1));
+		assert.strictEqual(
+			last.serverStatuses.length,
+			2,
+			"a sibling re-report inside a marked cycle must not evict the not-yet-refreshed group"
+		);
+	});
+
 	test("a group that stops reporting survives one groupless-marked cycle and disappears at the next", async () => {
 		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
 		const statuses: AggregatedStatus[] = [];

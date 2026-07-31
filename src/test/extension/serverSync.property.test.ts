@@ -192,7 +192,7 @@ suite("extension/serverSync buildGroupArgs properties", () => {
 					fc.pre(entry !== undefined);
 
 					const args = buildGroupArgs(entry, stored);
-					const canonical = ["name", "vendor", "baseUrl", ...fieldIds];
+					const canonical = ["name", "vendor", "baseUrl", "label", ...fieldIds];
 					const expectedKeys = canonical.filter((key) => key in args);
 					assert.deepStrictEqual(
 						Object.keys(args),
