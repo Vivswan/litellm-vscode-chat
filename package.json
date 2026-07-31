@@ -358,7 +358,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.5",
 		"@happy-dom/global-registrator": "^20.11.1",
-		"@types/bun": "1.3.9",
+		"@types/bun": "1.3.14",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^26.1.1",
 		"@types/vscode": "^1.125.0",
@@ -380,5 +380,5 @@
 	"lint-staged": {
 		"*.{js,mjs,cjs,ts,jsx,tsx}": "biome format --write --no-errors-on-unmatched"
 	},
-	"packageManager": "bun@1.3.9"
+	"packageManager": "bun@1.3.14"
 }
