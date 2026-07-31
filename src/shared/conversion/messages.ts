@@ -249,7 +249,7 @@ function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThi
 
 /**
  * Convert VS Code chat request messages into OpenAI-compatible message objects.
- * Prompt-cache markers are not placed here; shared/promptCache.ts owns them
+ * Prompt-cache markers are not placed here; shared/conversion/promptCache.ts owns them
  * as a pass over the converted request.
  */
 export function convertMessages(

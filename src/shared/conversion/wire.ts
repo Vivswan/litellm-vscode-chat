@@ -14,7 +14,7 @@ export interface OpenAIToolCall {
 /**
  * Anthropic prompt-cache marker. LiteLLM forwards it from OpenAI-shaped
  * requests to Anthropic-family backends; placement is owned by
- * shared/promptCache.ts.
+ * shared/conversion/promptCache.ts.
  */
 export interface EphemeralCacheControl {
 	readonly type: "ephemeral";
@@ -22,7 +22,7 @@ export interface EphemeralCacheControl {
 
 /**
  * OpenAI function tool definition used to advertise tools. Placement of the
- * tool-level `cache_control` marker is owned by shared/promptCache.ts, like
+ * tool-level `cache_control` marker is owned by shared/conversion/promptCache.ts, like
  * the message-level marker below.
  */
 export interface OpenAIFunctionToolDef {
@@ -46,7 +46,7 @@ export type OpenAIThinkingBlock =
 
 /**
  * A system or user message. Content is required; the block-array form exists
- * for multimodal user input and for shared/promptCache.ts's marker placement,
+ * for multimodal user input and for shared/conversion/promptCache.ts's marker placement,
  * which rewrites string content into a marked text block on any role.
  */
 export interface OpenAIPromptMessage {
@@ -76,7 +76,7 @@ export interface OpenAIToolMessage {
 	/**
 	 * Message-level prompt-cache marker, valid only on tool-role messages:
 	 * LiteLLM's Anthropic adapter copies it onto the top-level tool_result
-	 * block, the only cacheable position there (see shared/promptCache.ts).
+	 * block, the only cacheable position there (see shared/conversion/promptCache.ts).
 	 */
 	cache_control?: EphemeralCacheControl;
 }
