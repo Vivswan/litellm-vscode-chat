@@ -211,7 +211,7 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 	return (
 		<section>
 			<h2>
-				Models <span class="count">{models.length}</span> <Help text={HELP_MODELS_SECTION} />
+				Models <Help text={HELP_MODELS_SECTION} />
 			</h2>
 			{models.length === 0 ? (
 				<div class="empty-block">
