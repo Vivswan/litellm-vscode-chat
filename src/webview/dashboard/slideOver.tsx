@@ -17,7 +17,9 @@ const FOCUSABLE =
 
 export function SlideOver({
 	labelledBy,
+	fallbackFocusId,
 	confirming,
+	notice,
 	onRequestClose,
 	onKeepEditing,
 	onDiscard,
@@ -25,8 +27,12 @@ export function SlideOver({
 }: {
 	/** The id of the heading naming this dialog (the form's own h3). */
 	labelledBy: string;
+	/** Where focus lands on close when the opener no longer exists (e.g. the guided start's CTA after the first save). */
+	fallbackFocusId: string;
 	/** Render the discard-confirm bar; Esc got a dirty form and the owner wants a decision. */
 	confirming: boolean;
+	/** An informational bar (e.g. "still adopting"), so a refused close request answers visibly instead of doing nothing. */
+	notice?: string | undefined;
 	onRequestClose: () => void;
 	onKeepEditing: () => void;
 	onDiscard: () => void;
@@ -35,15 +41,23 @@ export function SlideOver({
 	const panelRef = useRef<HTMLDivElement>(null);
 
 	// Focus moves into the panel on open (the first field, not the X, so
-	// typing can start immediately) and returns to the opener on close.
+	// typing can start immediately) and returns to the opener on close - or,
+	// when the opener left the page with the form (the guided start's CTA
+	// unmounts once a server exists), to the stable fallback element.
 	useEffect(() => {
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 		const panel = panelRef.current;
 		const first =
 			panel?.querySelector<HTMLElement>("input, select, textarea") ?? panel?.querySelector<HTMLElement>(FOCUSABLE);
 		first?.focus();
-		return () => opener?.focus();
-	}, []);
+		return () => {
+			if (opener?.isConnected === true) {
+				opener.focus();
+				return;
+			}
+			document.getElementById(fallbackFocusId)?.focus();
+		};
+	}, [fallbackFocusId]);
 
 	const onKeyDown = (event: KeyboardEvent) => {
 		if (event.key === "Escape") {
@@ -102,6 +116,11 @@ export function SlideOver({
 						<button type="button" class="secondary" onClick={onKeepEditing}>
 							Keep editing
 						</button>
+					</div>
+				) : null}
+				{notice !== undefined ? (
+					<div class="slide-notice" role="status">
+						{notice}
 					</div>
 				) : null}
 			</div>
