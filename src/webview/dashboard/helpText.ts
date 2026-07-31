@@ -1,127 +1,96 @@
 /**
- * Every long-form help string the dashboard's "?" affordances show, in one
- * place. Plain string constants only - no runtime interpolation - so the
- * secret sweeps can trust that help text never carries server data, and a
- * single read-through reviews all of it. The claims here are sourced from the
- * setting descriptions and the transport/auth modules; when behavior changes
- * there, this file is the one to update.
+ * Every help string the dashboard's "?" affordances show, in one place. Plain
+ * string constants only - no runtime interpolation - so the secret sweeps can
+ * trust that help text never carries server data, and a single read-through
+ * reviews all of it. The claims here are sourced from the setting
+ * descriptions and the transport/auth modules; when behavior changes there,
+ * this file is the one to update.
+ *
+ * Style: one or two short sentences, leading with an example where one helps.
+ * Say what the field is for and the one thing that would surprise; the
+ * setting descriptions and README carry the full story.
  */
 
 import type { BooleanSettingId, NumberSettingId } from "../../extension/dashboard/protocol";
 import type { ServerFormField } from "../../extension/dashboard/serverForm";
 
 export const HELP_SERVERS_SECTION =
-	"The LiteLLM servers this extension asks for models. Declared rows live in the litellm-vscode-chat.servers " +
-	"entry of your user settings and sync to a VS Code language-model provider group automatically; rows marked " +
-	"external are VS Code-managed groups with no settings entry, and their Edit button adopts them into the " +
-	"setting. Removing a row removes only the settings entry - the VS Code group itself is removed in the native " +
-	"Manage Language Models editor.";
+	"The LiteLLM servers this extension fetches models from, saved in the litellm-vscode-chat.servers user " +
+	"setting. Edit on an external row adopts that VS Code-managed group into the setting.";
 
 export const HELP_MODELS_SECTION =
-	"Every model discovered across the configured servers, as it registers with Copilot Chat. Capabilities and " +
-	"token limits are what the LiteLLM server reports and describe what a model can do; what it is asked to do is " +
-	"configured separately, under Model parameters. Pricing is USD per million tokens as reported by the server. " +
-	"Discovered lists are cached; run Sync models to ask the servers again immediately.";
+	"Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask " +
+	"the servers again now.";
 
 export const HELP_SETTINGS_SECTION =
-	"The extension's litellm-vscode-chat settings, also editable in the normal Settings editor. Edits here land in " +
-	"your VS Code User settings, except that a value the workspace already sets is changed in the workspace. Reset " +
-	"removes the value from the scope that sets it, so the next scope's value or the built-in default shows " +
-	"through.";
+	"The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or " +
+	"the built-in default shows through.";
 
 export const HELP_MODEL_PARAMETERS_SECTION =
-	"Request parameters from the litellm-vscode-chat.modelParameters setting, sent with chat requests to matching " +
-	"models. Only parameters you set are sent - the extension never injects defaults - and options the chat client " +
-	"sets at runtime override what is configured here. Matching is by model ID prefix and the most specific entry " +
-	"wins; prefix an entry with a server's base URL to scope it to that one server.";
+	"Request parameters sent to matching models, e.g. temperature 0.2 for every gpt-4 model. Only parameters you " +
+	"set are sent; options the chat client sets at runtime win over these.";
 
 export const HELP_CUSTOM_HEADERS_SECTION =
-	"HTTP headers from the litellm-vscode-chat.headers setting, added to every request this extension sends to " +
-	"LiteLLM: model discovery and chat completions alike. Useful for API gateways that require headers such as " +
-	"x-litellm-api-key. If a value is a secret, keep it in User settings rather than Workspace settings so it " +
-	"cannot be committed with a project.";
+	"HTTP headers added to every request sent to LiteLLM, e.g. x-litellm-api-key for a gateway. Keep secret " +
+	"values in User settings, not Workspace settings.";
 
 /** The Add/Edit server form, one entry per field, keyed like SERVER_FORM_FIELD_LABELS. */
 export const SERVER_FIELD_HELP: Record<ServerFormField, string> = {
 	label:
-		"The entry's identity: it names the VS Code provider group and appears in the model picker. Renaming a " +
-		"saved entry creates a new group under the new name; the old group stays until you remove it in the native " +
-		"Manage Language Models editor.",
+		"Names this server in the model picker, e.g. Team proxy. Renaming a saved entry creates a new group under " +
+		"the new name.",
 	baseUrl:
-		"The root URL of the LiteLLM server, e.g. http://localhost:4000 - an http(s) URL without a path to any " +
-		"specific model. Model discovery and chat requests are sent relative to it.",
+		"The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, " +
+		"so no model-specific path.",
 	apiKey:
-		"Sent on every request to this server, as bearer auth in the Authorization header plus an X-API-Key header " +
-		"for gateway compatibility. Leave it empty for servers that need no key or that authenticate through OAuth " +
-		"below.",
+		"Sent on every request as Authorization bearer plus an X-API-Key copy; with OAuth below, the token takes " +
+		"Authorization and the key rides only X-API-Key. Leave empty if the server needs none.",
 	oauthTokenUrl:
-		"The identity provider's OAuth 2.0 token endpoint. When set together with the client ID, the extension runs " +
-		"the client-credentials flow: it exchanges the client credentials here for a short-lived bearer token, " +
-		"sends that token in the Authorization header, and refreshes it before it expires.",
-	oauthClientId:
-		"The client identifier for the client-credentials exchange. OAuth needs it and the token URL together.",
-	oauthClientSecret:
-		"The client secret for the client-credentials exchange. Leave it empty when the identity provider issues " +
-		"public clients without a secret.",
-	oauthScopes:
-		"Space-separated scopes sent with the token request, e.g. litellm.read litellm.write. Leave empty to omit " +
-		"scopes and get the provider's defaults.",
+		"The OAuth 2.0 token endpoint, e.g. https://login.example.com/oauth/token. With a client ID, the extension " +
+		"fetches short-lived bearer tokens and refreshes them itself.",
+	oauthClientId: "The OAuth client ID; works together with the token URL.",
+	oauthClientSecret: "The OAuth client secret. Leave empty for public clients issued without one.",
+	oauthScopes: "Space-separated, e.g. litellm.read litellm.write. Empty uses the provider's defaults.",
 	virtualKeyHeader:
-		"The HTTP header that carries a gateway virtual key, e.g. x-litellm-api-key; header and value work as a " +
-		"pair. Naming the Authorization header hands that header to the virtual key, and no OAuth token is fetched " +
-		"or sent.",
-	virtualKeyValue:
-		"The key sent in the virtual key header on every request to this server. Stored like the API key: in VS " +
-		"Code secret storage or inline in the settings file, whichever you choose below.",
+		"The header that carries a gateway virtual key, e.g. x-litellm-api-key; set the value below with it. " +
+		"Naming Authorization hands it that whole header and no OAuth token is fetched.",
+	virtualKeyValue: "The key sent in that header on every request to this server.",
 };
 
 export const HELP_SECRET_STORAGE =
-	"Where the saved value lives. Secret storage is VS Code's encrypted store: the value stays out of every " +
-	"settings file and never renders in this dashboard. Settings writes it in plain text into the " +
-	"litellm-vscode-chat.servers entry in settings.json, visible to anything that reads that file. When you edit " +
-	"the entry later, only inline (settings) values are loaded back into the form, since the file already shows " +
-	"them; secure values stay put, and leaving a field empty keeps whatever is stored.";
+	"Secret storage keeps the value encrypted and out of settings.json; Settings writes it there in plain text. " +
+	"When editing later, leave a secret field empty to keep what is stored.";
 
 export const HELP_MODEL_PARAMETER_PREFIX =
-	"The model IDs this group applies to, matched by prefix with the longest match winning: for a gpt-4-turbo " +
-	"model, a gpt-4-turbo entry beats a gpt-4 one. A bare prefix like gpt-4 applies on every server; to scope it " +
-	"to one server, lead with that server's base URL - https://myproxy.example/v1/gpt-4 applies only to gpt-4 " +
-	"models on https://myproxy.example/v1. A server-scoped entry beats an unscoped one.";
+	"Matches model IDs by prefix, longest winning: gpt-4 covers gpt-4-turbo. Lead with a base URL, e.g. " +
+	"https://myproxy.example/v1/gpt-4, to scope to one server; scoped entries beat unscoped ones.";
 
 export const HELP_MODEL_PARAMETER_NAME =
-	"The request body key as LiteLLM expects it, e.g. temperature, top_p, stop, or max_tokens. Only parameters " +
-	"you set are sent. Provider-owned request fields - model, messages, stream, stream_options, tools, " +
-	"tool_choice - cannot be overridden here, and keys starting with _ are skipped.";
+	"The request body key, e.g. temperature, top_p, or stop. Provider-owned fields like model and messages " +
+	"cannot be set, and keys starting with _ are skipped.";
 
 export const HELP_MODEL_PARAMETER_VALUE =
-	'Written as JSON, so the type survives the trip: 0.2 is a number, true a boolean, "text" a string (the ' +
-	'quotes are required), ["END"] an array, and {"effort": "high"} an object. Anything that does not parse ' +
-	"as JSON is flagged and blocks Apply.";
+	'JSON, so the type survives: 0.2, true, "text", ["END"], {"effort": "high"}. Values that do not parse block ' +
+	"Apply.";
 
 /**
- * Per-setting long-form help. Deliberately sparse: rows already render their
- * one-line descriptions, so a "?" appears only where a longer explanation
- * earns it.
+ * Per-setting help. Deliberately sparse: rows already render their one-line
+ * descriptions, so a "?" appears only where a longer explanation earns it.
  */
 export const SETTING_ROW_HELP: Partial<Record<NumberSettingId | BooleanSettingId, string>> = {
 	defaultMaxOutputTokens:
-		"Applies to models whose server does not declare an output-token limit. When a request sets no max_tokens " +
-		"of its own, the extension sends the model's declared maximum; if that maximum came from this default " +
-		"rather than from the server, the sent value is capped at 4096.",
+		"Used for models whose server declares no output limit; a request built from this default is capped at " +
+		"4096 tokens.",
 	defaultMaxInputTokens:
-		"Normally left empty: the input budget is then derived as context length minus max output tokens. Set it " +
-		"only to pin an explicit input limit for models whose server reports none.",
+		"Usually left empty: the input budget is then context length minus max output tokens. Setting it pins the " +
+		"input limit for every model, overriding even server-declared ones.",
 	requestTimeout:
-		"A hard bound on the whole chat completion call, streaming included. Chat requests are never retried, so " +
-		"hitting the bound surfaces as an error; increase it if long-running requests are being cut off.",
+		"A hard bound on the whole chat call, streaming included. Requests are never retried, so raise it if long " +
+		"runs get cut off.",
 	discoveryCacheTtl:
-		"Higher values avoid repeated discovery requests when VS Code re-resolves providers in bursts, but models " +
-		"added or removed on the server take up to this long to appear; 0 asks the server on every refresh " +
-		"(simultaneous refreshes still share one request). Run LiteLLM: Sync Models Now to refresh immediately " +
-		"regardless of this setting.",
+		"How long discovered model lists are reused; 0 asks the server on every refresh. Sync Models Now always " +
+		"refreshes immediately.",
 	"promptCaching.enabled":
-		"For models that advertise prompt caching support (currently Anthropic Claude), places cache breakpoints " +
-		"on the tool definitions, the system prompt, the first user message, and the last text-bearing message, so " +
-		"agent sessions reuse the cached prefix instead of re-paying for the whole history every turn. Models " +
-		"without caching support are unaffected.",
+		"On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns " +
+		"instead of re-sending the whole history at full price.",
 };

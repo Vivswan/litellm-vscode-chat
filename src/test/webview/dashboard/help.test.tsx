@@ -49,13 +49,15 @@ function allHelpStrings(): [name: string, text: string][] {
 	return entries;
 }
 
-test("every help string is substantial, printable ASCII, and free of template interpolation", () => {
+test("every help string is short, printable ASCII, and free of template interpolation", () => {
 	const entries = allHelpStrings();
 	expect(entries.length).toBeGreaterThan(0);
 	for (const [name, text] of entries) {
 		expect(typeof text, name).toBe("string");
-		// Documentation, not a placeholder: long enough to actually explain.
-		expect(text.length, name).toBeGreaterThan(60);
+		// A real explanation, not a placeholder - but a tooltip, not a manual.
+		// One or two short sentences; longer text belongs in the README.
+		expect(text.length, name).toBeGreaterThan(40);
+		expect(text.length, name).toBeLessThan(220);
 		// Printable ASCII only (no curly quotes, dashes, or control characters).
 		expect(text, name).toMatch(/^[\x20-\x7E]+$/);
 		// No interpolation anywhere near help text: these strings must be
@@ -124,7 +126,7 @@ test("every help glyph renders a tooltip element wired as its accessible descrip
 		const tip = tipFor(glyph);
 		expect(tip.getAttribute("role")).toBe("tooltip");
 		expect(tip.classList.contains("help-tip")).toBe(true);
-		expect((tip.textContent ?? "").length).toBeGreaterThan(60);
+		expect((tip.textContent ?? "").length).toBeGreaterThan(40);
 		tipIds.add(tip.id);
 
 		// The structure the stylesheet keys on: the tip is the button's next
