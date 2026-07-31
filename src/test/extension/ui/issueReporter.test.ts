@@ -54,7 +54,7 @@ suite("IssueReporter", () => {
 		const title = reporter.buildTitle(snapshot);
 		assert.ok(title.includes("[Bug]"));
 		assert.ok(title.includes("fetchModels"));
-		assert.ok(!title.includes("internal.corp.com"), "Should not leak hostname");
+		assert.ok(!title.includes("internal.corp.com"), "Should not leak hostname"); // codeql[js/incomplete-url-substring-sanitization] -- asserting redaction removed the host, not validating a URL
 		assert.ok(title.includes("[REDACTED_HOST]"));
 	});
 
@@ -416,7 +416,7 @@ suite("IssueReporter", () => {
 
 	test("redactSecrets redacts full non-localhost URLs", () => {
 		const result = redactSecrets("Fetching from: https://my-litellm.internal.corp.com:4000/v1/models");
-		assert.ok(!result.includes("my-litellm.internal.corp.com"), "Should not leak hostname");
+		assert.ok(!result.includes("my-litellm.internal.corp.com"), "Should not leak hostname"); // codeql[js/incomplete-url-substring-sanitization] -- asserting redaction removed the host, not validating a URL
 		assert.ok(result.includes("[REDACTED_HOST]"));
 		assert.ok(result.includes("/v1/models"), "Should preserve path");
 	});
