@@ -2093,9 +2093,9 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("an interim usage object does not pin stale counts: the final trailer wins", async () => {
-		// Some providers stamp running usage onto ordinary chunks. The
-		// finish_reason run is not settled, so it must not emit the interim
-		// counts; the real trailer arrives after it and is the one that ships.
+		// Some providers stamp running usage onto ordinary chunks. Emission is
+		// reserved for the post-loop run, so the interim counts never ship;
+		// the real trailer arrives later and is the one that does.
 		const stream = usageProcessor();
 		const { parts, progress } = collector();
 		const body = sseStream([
@@ -2113,6 +2113,25 @@ suite("provider/streaming usage DataPart", () => {
 			usages[0],
 			{ prompt_tokens: 120, completion_tokens: 80, total_tokens: 200 },
 			"the final trailer's counts win over the interim ones"
+		);
+	});
+
+	test("a straggler trailer behind [DONE] still wins: emission happens only at the true end", async () => {
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
+			TRAILER,
+			"data: [DONE]\n",
+			'data: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}\n',
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.deepStrictEqual(
+			usagePartsOf(parts),
+			[{ prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 }],
+			"[DONE] continues the loop, so the post-loop run sees the very last trailer"
 		);
 	});
 
@@ -2295,11 +2314,11 @@ suite("provider/streaming usage DataPart", () => {
 		assert.ok(!logs.some((l) => l.includes("generated media")), "the missing-support notice is about media, not usage");
 	});
 
-	test("the usage part is bookkeeping: it emits AND the reasoning-only error still throws", async () => {
-		// No finish_reason chunk, so the first end-of-stream run is the settled
-		// [DONE] one: it emits the usage part (direct report, so reportedAnyPart
-		// stays false) and must still throw the reasoning-only error - the
-		// usage part is not visible output and cannot satisfy the empty check.
+	test("the usage part is bookkeeping: a reasoning-only stream fails loudly and forfeits its usage", async () => {
+		// The reasoning-only error fires at the [DONE] run here; usage emission
+		// is reserved for the final post-loop run, which the throw never
+		// reaches. A failed request has no successful usage to account, and
+		// the retained trailer must not soften the failure into visible output.
 		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
 		const { parts, progress } = collector();
 		const body = sseStream([
@@ -2311,17 +2330,14 @@ suite("provider/streaming usage DataPart", () => {
 		await assert.rejects(
 			() => stream.processStreamingResponse(body, progress, token()),
 			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output"),
-			"the usage part must not suppress the reasoning-only error"
+			"the retained usage must not suppress the reasoning-only error"
 		);
-		assert.strictEqual(usagePartsOf(parts).length, 1, "the settled run emits the usage before the error fires");
-		assert.strictEqual(visibleTextOf(parts), "", "no visible output");
+		assert.strictEqual(parts.length, 0, "the failed request emits nothing, usage included");
 	});
 
-	test("a reasoning-only stream that fails at its finish_reason chunk forfeits the later trailer", async () => {
-		// The reasoning-only error fires at the finish_reason run, which is not
-		// settled; the throw aborts the request before the trailer is even
-		// parsed, so no usage part can exist. Pinned so the forfeit is a
-		// documented consequence, not an accident.
+	test("a reasoning-only stream that fails at its finish_reason chunk forfeits the later trailer too", async () => {
+		// Same forfeit through the other route: the throw at finish_reason
+		// aborts the request before the trailer is even parsed.
 		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
 		const { parts, progress } = collector();
 		const body = sseStream([
