@@ -3,6 +3,14 @@ import type { HeaderScalar, ScopedRecordSetting } from "../../extension/dashboar
 import { formatHeaderValue, formatJsonValue, SETTING_SCOPE_LABELS } from "../../extension/dashboard/protocol";
 import type { PrefixGroup } from "../../extension/dashboard/recordDraft";
 import { parseGroups, parseHeaderRows, toGroups, toHeaderRows } from "../../extension/dashboard/recordDraft";
+import { Help } from "./help";
+import {
+	HELP_CUSTOM_HEADERS_SECTION,
+	HELP_MODEL_PARAMETER_NAME,
+	HELP_MODEL_PARAMETER_PREFIX,
+	HELP_MODEL_PARAMETER_VALUE,
+	HELP_MODEL_PARAMETERS_SECTION,
+} from "./helpText";
 import { postMessage } from "./vscodeApi";
 
 /**
@@ -107,7 +115,9 @@ export function ModelParametersEditor({
 
 	return (
 		<section>
-			<h3>Model parameters</h3>
+			<h3>
+				Model parameters <Help text={HELP_MODEL_PARAMETERS_SECTION} />
+			</h3>
 			<p class="hint">
 				Request parameters sent per model prefix (longest prefix wins). Values are JSON: 0.2, true, "text", ["stop"].
 			</p>
@@ -117,13 +127,16 @@ export function ModelParametersEditor({
 				// Rows are positional while being edited; the index is the identity.
 				<div class="group" key={groupIndex}>
 					<div class="row">
-						<input
-							type="text"
-							class={`key${problems[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
-							placeholder="Model prefix, e.g. gpt-4 or http://host:4000/gpt-4"
-							value={group.prefix}
-							onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
-						/>
+						<span class="cell key">
+							<input
+								type="text"
+								class={`key${problems[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
+								placeholder="Model prefix, e.g. gpt-4 or http://host:4000/gpt-4"
+								value={group.prefix}
+								onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
+							/>
+							<Help text={HELP_MODEL_PARAMETER_PREFIX} />
+						</span>
 						<button type="button" class="quiet" onClick={() => draft.update(groups.filter((_, i) => i !== groupIndex))}>
 							Remove prefix
 						</button>
@@ -134,32 +147,38 @@ export function ModelParametersEditor({
 					<div class="rows">
 						{group.params.map((param, paramIndex) => (
 							<div class="row" key={paramIndex}>
-								<input
-									type="text"
-									class="key"
-									placeholder="Parameter, e.g. temperature"
-									value={param.key}
-									onInput={(event) =>
-										patchGroup(groupIndex, {
-											params: group.params.map((p, i) =>
-												i === paramIndex ? { ...p, key: event.currentTarget.value } : p
-											),
-										})
-									}
-								/>
-								<input
-									type="text"
-									class={`value${problems[groupIndex]?.params[paramIndex] === undefined ? "" : " invalid"}`}
-									placeholder="JSON value, e.g. 0.2"
-									value={param.valueText}
-									onInput={(event) =>
-										patchGroup(groupIndex, {
-											params: group.params.map((p, i) =>
-												i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
-											),
-										})
-									}
-								/>
+								<span class="cell key">
+									<input
+										type="text"
+										class="key"
+										placeholder="Parameter, e.g. temperature"
+										value={param.key}
+										onInput={(event) =>
+											patchGroup(groupIndex, {
+												params: group.params.map((p, i) =>
+													i === paramIndex ? { ...p, key: event.currentTarget.value } : p
+												),
+											})
+										}
+									/>
+									<Help text={HELP_MODEL_PARAMETER_NAME} />
+								</span>
+								<span class="cell value">
+									<input
+										type="text"
+										class={`value${problems[groupIndex]?.params[paramIndex] === undefined ? "" : " invalid"}`}
+										placeholder="JSON value, e.g. 0.2"
+										value={param.valueText}
+										onInput={(event) =>
+											patchGroup(groupIndex, {
+												params: group.params.map((p, i) =>
+													i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
+												),
+											})
+										}
+									/>
+									<Help text={HELP_MODEL_PARAMETER_VALUE} />
+								</span>
 								<button
 									type="button"
 									class="quiet"
@@ -247,7 +266,9 @@ export function HeadersEditor({
 
 	return (
 		<section>
-			<h3>Custom headers</h3>
+			<h3>
+				Custom headers <Help text={HELP_CUSTOM_HEADERS_SECTION} />
+			</h3>
 			<p class="hint">Sent with every LiteLLM request. Prefer User settings for values that are secrets.</p>
 			<ScopeNote scoped={scoped} />
 			{rows.length === 0 ? <p class="empty">No custom headers configured in this scope.</p> : null}

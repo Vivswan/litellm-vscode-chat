@@ -17,6 +17,8 @@ import {
 	SETTING_SCOPE_LABELS,
 } from "../../extension/dashboard/protocol";
 import type { FailuresByIntent } from "./app";
+import { Help } from "./help";
+import { HELP_SETTINGS_SECTION, SETTING_ROW_HELP } from "./helpText";
 import { HeadersEditor, ModelParametersEditor } from "./recordEditors";
 import { postMessage } from "./vscodeApi";
 
@@ -104,6 +106,7 @@ function NumberField({
 }) {
 	const spec = NUMBER_SETTINGS[id];
 	const [text, setText] = useState(value === null ? "" : String(value));
+	const help = SETTING_ROW_HELP[id];
 
 	// Keyed on draftSyncKey, not on the value alone: a successful reset of a
 	// value pinned to exactly its default changes only the configured scope,
@@ -136,9 +139,12 @@ function NumberField({
 	const equiv = parse.kind === "value" ? equivalence(id, parse.value) : undefined;
 	return (
 		<SettingRow modified={configuredScope !== null}>
-			<label class="setting-title" for={inputId}>
-				{spec.label}
-			</label>
+			<div class="setting-head">
+				<label class="setting-title" for={inputId}>
+					{spec.label}
+				</label>
+				{help !== undefined ? <Help text={help} /> : null}
+			</div>
 			<p class="setting-desc">{spec.description}</p>
 			<div class="setting-control">
 				<input
@@ -189,9 +195,13 @@ function BooleanField({
 }) {
 	const spec = BOOLEAN_SETTINGS[id];
 	const inputId = `setting-${id}`;
+	const help = SETTING_ROW_HELP[id];
 	return (
 		<SettingRow modified={configuredScope !== null}>
-			<span class="setting-title">{spec.label}</span>
+			<div class="setting-head">
+				<span class="setting-title">{spec.label}</span>
+				{help !== undefined ? <Help text={help} /> : null}
+			</div>
 			<div class="setting-control">
 				<label class="setting-check" for={inputId}>
 					<input
@@ -272,7 +282,9 @@ export function SettingsSection({ settings, failures }: { settings: DashboardSet
 	return (
 		<section>
 			<div class="section-head">
-				<h2>Settings</h2>
+				<h2>
+					Settings <Help text={HELP_SETTINGS_SECTION} />
+				</h2>
 				<button
 					type="button"
 					class="secondary"

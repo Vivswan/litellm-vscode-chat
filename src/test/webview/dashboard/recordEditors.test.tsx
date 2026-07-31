@@ -27,8 +27,9 @@ afterEach(() => {
 
 /** The <section> whose h3 heading matches; both editors render Apply/Reset, so queries must scope. */
 function sectionByHeading(root: ParentNode, heading: string): HTMLElement {
-	const section = Array.from(root.querySelectorAll("section")).find(
-		(candidate) => (candidate.querySelector("h3")?.textContent ?? "").trim() === heading
+	// startsWith, not equality: the heading also carries its help "?" glyph.
+	const section = Array.from(root.querySelectorAll("section")).find((candidate) =>
+		(candidate.querySelector("h3")?.textContent ?? "").trim().startsWith(heading)
 	);
 	if (section === undefined) {
 		throw new Error(`no section titled ${heading}`);
