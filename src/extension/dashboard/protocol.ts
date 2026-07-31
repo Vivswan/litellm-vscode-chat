@@ -11,22 +11,22 @@
  * from workspace configuration; nothing here is persisted anywhere.
  */
 
-export type { HeaderScalar } from "../../shared/headers";
-export { isValidHeaderName, isValidHeaderValue } from "../../shared/headers";
-export { isUnsafeRecordKey } from "../../shared/json";
+export type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 export type { NonSecretOptionalFieldId, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 export { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
-export type { BooleanSettingId, NumberSettingId } from "../../shared/settingSpec";
+export type { HeaderScalar } from "../../shared/util/headers";
+export { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
+export { isUnsafeRecordKey } from "../../shared/util/json";
 
-import type { HeaderScalar } from "../../shared/headers";
-import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import type {
 	BooleanSettingId,
 	BooleanSettingValueSpec,
 	NumberSettingId,
 	NumberSettingValueSpec,
-} from "../../shared/settingSpec";
-import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/settingSpec";
+} from "../../shared/config/settingSpec";
+import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
+import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
+import type { HeaderScalar } from "../../shared/util/headers";
 
 /** A per-entry modelParameters record: model-ID prefix to request parameters. Non-secret user configuration. */
 type EntryModelParametersPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;

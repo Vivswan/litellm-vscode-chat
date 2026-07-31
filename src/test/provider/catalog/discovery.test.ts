@@ -13,8 +13,8 @@ import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem, ModelShape } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
 import { RequestError } from "../../../provider/transport/errorMapping";
+import type { TokenDefaults } from "../../../shared/config/settings";
 import { publicErrorText } from "../../../shared/logger";
-import type { TokenDefaults } from "../../../shared/settings";
 import {
 	discoveryHandlers,
 	emptyErrorResponse,

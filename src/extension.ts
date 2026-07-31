@@ -31,14 +31,14 @@ import {
 } from "./extension/serverSync";
 import { StatusBarManager } from "./extension/status";
 import { LiteLLMChatModelProvider } from "./provider";
-import { CMD, VENDOR_ID } from "./shared/commandIds";
+import { CMD, VENDOR_ID } from "./shared/config/commandIds";
+import { CONFIG_SECTION } from "./shared/config/settingSpec";
+import { SERVERS_SETTING_KEY } from "./shared/config/settings";
+import { HAS_SHOWN_WELCOME_KEY } from "./shared/config/storageKeys";
 import type { DevSeed } from "./shared/devSeed";
-import { GITHUB_DOCS_URL } from "./shared/links";
 import { Logger } from "./shared/logger";
 import type { AggregatedStatus } from "./shared/servers";
-import { CONFIG_SECTION } from "./shared/settingSpec";
-import { SERVERS_SETTING_KEY } from "./shared/settings";
-import { HAS_SHOWN_WELCOME_KEY } from "./shared/storageKeys";
+import { GITHUB_DOCS_URL } from "./shared/util/links";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { fingerprint } from "../../shared/fingerprint";
+import { fingerprint } from "../../shared/util/fingerprint";
 
 /**
  * The opaque token an external row carries so the adopt intent can name its

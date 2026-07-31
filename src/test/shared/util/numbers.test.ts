@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
-import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/numbers";
+import { normalizeCostPerToken, normalizePositiveNumber } from "../../../shared/util/numbers";
 
-suite("shared/numbers", () => {
+suite("shared/util/numbers", () => {
 	test("normalizePositiveNumber accepts positive numbers and numeric strings", () => {
 		assert.equal(normalizePositiveNumber(123), 123);
 		assert.equal(normalizePositiveNumber("123"), 123);

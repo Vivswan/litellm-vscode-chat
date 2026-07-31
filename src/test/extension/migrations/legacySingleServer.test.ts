@@ -3,14 +3,14 @@ import type * as vscode from "vscode";
 import type { MigrationContext } from "../../../extension/migrations";
 import { hasLegacyConfig, legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
 import { ServerRegistry } from "../../../extension/serverRegistry";
-import { Logger } from "../../../shared/logger";
 import {
 	apiKeySecret,
 	LEGACY_API_KEY_SECRET,
 	LEGACY_BASE_URL_SECRET,
 	LEGACY_CLEANUP_PENDING_KEY,
 	SERVER_REGISTRY_KEY,
-} from "../../../shared/storageKeys";
+} from "../../../shared/config/storageKeys";
+import { Logger } from "../../../shared/logger";
 import type { FakeExtensionStorage } from "../../testUtils";
 import { expectDefined, makeExtensionStorage } from "../../testUtils";
 

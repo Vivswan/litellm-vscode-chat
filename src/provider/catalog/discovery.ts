@@ -1,8 +1,8 @@
 import type OpenAI from "openai";
-import { isRecord } from "../../shared/json";
+import type { TokenDefaults } from "../../shared/config/settings";
 import { errorMessageText } from "../../shared/logger";
-import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/numbers";
-import type { TokenDefaults } from "../../shared/settings";
+import { isRecord } from "../../shared/util/json";
+import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
 import { mapSdkError, RequestError, timeoutMessage } from "../transport/errorMapping";
 import { collapseTokenConstraints } from "./modelCatalog";

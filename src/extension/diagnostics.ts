@@ -1,13 +1,13 @@
 import * as vscode from "vscode";
 import type { ServerModelsSnapshot } from "../provider";
 import { isGroupClientId } from "../provider/catalog/groupModels";
-import { normalizeBaseUrl } from "../shared/baseUrl";
-import { CMD, INTERNAL_CMD } from "../shared/commandIds";
+import { CMD, INTERNAL_CMD } from "../shared/config/commandIds";
+import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import { SERVERS_SETTING_KEY } from "../shared/config/settings";
 import type { SecretFieldId, SecretLocation } from "../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../shared/serverEntry";
 import type { ServerConfig, ServerStatus } from "../shared/servers";
-import { CONFIG_SECTION } from "../shared/settingSpec";
-import { SERVERS_SETTING_KEY } from "../shared/settings";
+import { normalizeBaseUrl } from "../shared/util/baseUrl";
 import type { DashboardServer } from "./dashboard/protocol";
 import { classifyOverall } from "./dashboard/protocol";
 import { buildDashboardState } from "./dashboard/state";

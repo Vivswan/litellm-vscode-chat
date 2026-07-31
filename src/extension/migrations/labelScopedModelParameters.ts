@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
 import { z } from "zod";
-import { normalizeBaseUrl } from "../../shared/baseUrl";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
+import { MIGRATED_SERVER_LABELS_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
-import { CONFIG_SECTION } from "../../shared/settingSpec";
-import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/settings";
-import { MIGRATED_SERVER_LABELS_KEY } from "../../shared/storageKeys";
+import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 const labelMapSchema = z.record(z.string(), z.array(z.string()));

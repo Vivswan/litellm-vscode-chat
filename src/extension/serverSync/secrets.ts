@@ -3,9 +3,9 @@
  * inline in the setting, with the precedence rule between them.
  */
 
+import { serverSecretsKey } from "../../shared/config/storageKeys";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import { serverSecretsKey } from "../../shared/storageKeys";
 import type { DeclaredServer } from "./setting";
 
 /** The secure-side secrets of one label, as the SecretStorage blob holds them. */

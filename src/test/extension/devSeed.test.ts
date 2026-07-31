@@ -6,9 +6,9 @@ import * as vscode from "vscode";
 import type { DevSeedEnv } from "../../extension/devSeed";
 import { consumeDevSeed, parseDevSeed } from "../../extension/devSeed";
 import { updateServerSecret } from "../../extension/serverSync";
+import { serverSecretsKey } from "../../shared/config/storageKeys";
 import { DEV_SEED_FILENAME } from "../../shared/devSeed";
 import { Logger } from "../../shared/logger";
-import { serverSecretsKey } from "../../shared/storageKeys";
 import { makeExtensionStorage } from "../testUtils";
 
 function makeLogger(): Logger {

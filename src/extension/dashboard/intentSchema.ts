@@ -6,8 +6,8 @@
  */
 
 import { z } from "zod";
-import { isHeaderScalar } from "../../shared/headers";
-import { recordFromKeys } from "../../shared/json";
+import { isHeaderScalar } from "../../shared/util/headers";
+import { recordFromKeys } from "../../shared/util/json";
 import type { DashboardIntentType, HeaderScalar, SecretDirective, WebviewToExtensionMessage } from "./protocol";
 import {
 	BOOLEAN_SETTING_IDS,

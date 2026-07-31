@@ -1,20 +1,20 @@
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
-import { normalizeBaseUrl } from "../../shared/baseUrl";
-import { convertMessages } from "../../shared/conversion/messages";
-import { applyPromptCacheBreakpoints } from "../../shared/conversion/promptCache";
-import { estimateMessagesTokens, estimateToolTokens } from "../../shared/conversion/tokenEstimation";
-import { convertTools } from "../../shared/conversion/tools";
-import { isRecord } from "../../shared/json";
-import type { Logger } from "../../shared/logger";
-import type { ServerWithKey } from "../../shared/servers";
 import {
 	getCustomHeaders,
 	getDiscoveryTimeout,
 	getRequestTimeout,
 	isPromptCachingEnabled,
 	type TokenDefaults,
-} from "../../shared/settings";
+} from "../../shared/config/settings";
+import { convertMessages } from "../../shared/conversion/messages";
+import { applyPromptCacheBreakpoints } from "../../shared/conversion/promptCache";
+import { estimateMessagesTokens, estimateToolTokens } from "../../shared/conversion/tokenEstimation";
+import { convertTools } from "../../shared/conversion/tools";
+import type { Logger } from "../../shared/logger";
+import type { ServerWithKey } from "../../shared/servers";
+import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
 import type { FetchModelsResult } from "../catalog/discovery";
 import { fetchModels } from "../catalog/discovery";

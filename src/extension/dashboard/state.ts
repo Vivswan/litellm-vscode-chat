@@ -13,12 +13,16 @@ import { z } from "zod";
 import type { ServerModelsSnapshot } from "../../provider";
 import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
-import { normalizeBaseUrl } from "../../shared/baseUrl";
-import { isHeaderScalar } from "../../shared/headers";
-import { isUnsafeRecordKey, recordFromKeys } from "../../shared/json";
+import {
+	HEADERS_SETTING_KEY,
+	MODEL_PARAMETERS_SETTING_KEY,
+	normalizeModelParameters,
+} from "../../shared/config/settings";
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
-import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, normalizeModelParameters } from "../../shared/settings";
+import { normalizeBaseUrl } from "../../shared/util/baseUrl";
+import { isHeaderScalar } from "../../shared/util/headers";
+import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView } from "../serverSync";
 import { adoptSourceHandle } from "./adoptHandle";
 import type {

@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import type { ConfigurationPrompt } from "../provider/config";
-import { CMD, INTERNAL_CMD } from "../shared/commandIds";
-import { GITHUB_DOCS_URL } from "../shared/links";
+import { CMD, INTERNAL_CMD } from "../shared/config/commandIds";
 import type { AggregatedStatus } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
+import { GITHUB_DOCS_URL } from "../shared/util/links";
 
 export interface MessageAction {
 	label: string;

@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import { ServerRegistry } from "../../extension/serverRegistry";
-import { apiKeySecret, SERVER_REGISTRY_KEY } from "../../shared/storageKeys";
+import { apiKeySecret, SERVER_REGISTRY_KEY } from "../../shared/config/storageKeys";
 import { makeExtensionStorage } from "../testUtils";
 
 interface Fakes {

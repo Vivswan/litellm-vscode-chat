@@ -1,12 +1,12 @@
 import type * as vscode from "vscode";
 import { z } from "zod";
-import { normalizeBaseUrl } from "../../shared/baseUrl";
 import {
 	apiKeySecret,
 	LEGACY_API_KEY_SECRET,
 	LEGACY_BASE_URL_SECRET,
 	LEGACY_CLEANUP_PENDING_KEY,
-} from "../../shared/storageKeys";
+} from "../../shared/config/storageKeys";
+import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { ServerRegistry } from "../serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 

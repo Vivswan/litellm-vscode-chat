@@ -5,7 +5,7 @@ import { deriveTokenConstraints } from "../../../provider/catalog/modelCatalog";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMProvider, ModelInfoFields } from "../../../provider/catalog/schemas";
 import { supportsTools } from "../../../provider/catalog/schemas";
-import type { TokenDefaults } from "../../../shared/settings";
+import type { TokenDefaults } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { expectDefined } from "../../testUtils";
 

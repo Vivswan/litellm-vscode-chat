@@ -1,9 +1,6 @@
 import * as vscode from "vscode";
 import { z } from "zod";
-import { MANAGE_COMMAND_TITLE, VENDOR_ID } from "../../shared/commandIds";
-import { fingerprint, fingerprintSchema } from "../../shared/fingerprint";
-import type { Logger } from "../../shared/logger";
-import type { ServerWithKey } from "../../shared/servers";
+import { MANAGE_COMMAND_TITLE, VENDOR_ID } from "../../shared/config/commandIds";
 import {
 	apiKeySecret,
 	GROUP_MIGRATION_COMPLETE_KEY,
@@ -13,7 +10,10 @@ import {
 	PENDING_SECRET_DELETIONS_KEY,
 	SEEDED_PROVIDER_GROUPS_KEY,
 	SKIPPED_MIGRATION_SERVERS_KEY,
-} from "../../shared/storageKeys";
+} from "../../shared/config/storageKeys";
+import type { Logger } from "../../shared/logger";
+import type { ServerWithKey } from "../../shared/servers";
+import { fingerprint, fingerprintSchema } from "../../shared/util/fingerprint";
 import type { ServerRegistry } from "../serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 import { getMigratedServerLabels, labelScopedModelParametersMigration } from "./labelScopedModelParameters";

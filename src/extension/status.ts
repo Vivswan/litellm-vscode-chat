@@ -1,11 +1,11 @@
 import * as vscode from "vscode";
 import { z } from "zod";
-import { CMD } from "../shared/commandIds";
+import { CMD } from "../shared/config/commandIds";
+import { LAST_CONNECTION_STATUS_KEY } from "../shared/config/storageKeys";
 import type { Logger, LogSafeErrorText } from "../shared/logger";
 import { markLogSafe } from "../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
-import { LAST_CONNECTION_STATUS_KEY } from "../shared/storageKeys";
 
 /** Every connection state, the single source for the union type and the persisted-status schema. */
 const CONNECTION_STATES = ["not-configured", "connecting", "loading", "connected", "degraded", "error"] as const;

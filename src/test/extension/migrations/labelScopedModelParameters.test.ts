@@ -8,9 +8,9 @@ import {
 	unionLabelSources,
 } from "../../../extension/migrations/labelScopedModelParameters";
 import { ServerRegistry } from "../../../extension/serverRegistry";
+import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
+import { MODEL_PARAMETERS_SETTING_KEY } from "../../../shared/config/settings";
 import { Logger } from "../../../shared/logger";
-import { CONFIG_SECTION } from "../../../shared/settingSpec";
-import { MODEL_PARAMETERS_SETTING_KEY } from "../../../shared/settings";
 import { makeExtensionStorage } from "../../testUtils";
 
 interface Layers {

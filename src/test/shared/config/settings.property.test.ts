@@ -1,11 +1,11 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { validateHeadersRecord } from "../../extension/dashboard/intents";
-import type { HeaderScalar } from "../../shared/headers";
-import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../../shared/headers";
-import { isUnsafeRecordKey } from "../../shared/json";
-import { normalizeCustomHeaders } from "../../shared/settings";
-import { resolveFuzzSeed } from "../fuzzStream";
+import { validateHeadersRecord } from "../../../extension/dashboard/intents";
+import { normalizeCustomHeaders } from "../../../shared/config/settings";
+import type { HeaderScalar } from "../../../shared/util/headers";
+import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../../../shared/util/headers";
+import { isUnsafeRecordKey } from "../../../shared/util/json";
+import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
@@ -45,7 +45,7 @@ const headerValueArb = fc.oneof(
 
 const headersRecordArb = fc.dictionary(headerNameArb, headerValueArb, { maxKeys: 8 });
 
-suite("shared/settings normalizeCustomHeaders properties", () => {
+suite("shared/config/settings normalizeCustomHeaders properties", () => {
 	test("never throws, over JSON values and arbitrary values alike", () => {
 		fc.assert(
 			fc.property(fc.oneof(fc.jsonValue(), fc.anything()), (raw) => {

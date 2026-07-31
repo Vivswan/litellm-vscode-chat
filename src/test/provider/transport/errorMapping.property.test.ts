@@ -7,7 +7,7 @@ import {
 	RequestError,
 	timeoutMessage,
 } from "../../../provider/transport/errorMapping";
-import { MANAGE_COMMAND_TITLE } from "../../../shared/commandIds";
+import { MANAGE_COMMAND_TITLE } from "../../../shared/config/commandIds";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;

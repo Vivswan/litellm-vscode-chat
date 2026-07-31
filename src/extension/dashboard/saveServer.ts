@@ -4,7 +4,7 @@
  * intents.ts for its size; executeDashboardIntent is the only caller.
  */
 
-import { recordFromKeys } from "../../shared/json";
+import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../serverSync";
 import { acceptedEntry, inlineSecretValues } from "../serverSync";
 import type { DashboardIntent } from "./intentSchema";

@@ -4,8 +4,8 @@ import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../../provider";
 import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
 import { groupClientId, type PreAttachModelInfo } from "../../../provider/catalog/groupModels";
-import { normalizeBaseUrl } from "../../../shared/baseUrl";
 import type { AggregatedStatus } from "../../../shared/servers";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, withConfig } from "../../testUtils";
 

@@ -10,8 +10,8 @@ import {
 } from "../../../provider/catalog/discovery";
 import type { LiteLLMProvider, RawModelItem } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
-import { normalizeCostPerToken } from "../../../shared/numbers";
-import type { TokenDefaults } from "../../../shared/settings";
+import type { TokenDefaults } from "../../../shared/config/settings";
+import { normalizeCostPerToken } from "../../../shared/util/numbers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { expectDefined } from "../../testUtils";

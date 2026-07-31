@@ -1,26 +1,30 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_MAX_TOKENS_CAP } from "../../provider/transport/request";
-import type { HeaderScalar } from "../../shared/headers";
-import { HEADER_SCALAR_TYPES } from "../../shared/headers";
+import { DEFAULT_MAX_TOKENS_CAP } from "../../../provider/transport/request";
 import {
 	BOOLEAN_SETTING_SPECS,
 	CONFIG_SECTION,
 	MIN_TIMEOUT_MS,
 	NUMBER_SETTING_SPECS,
 	type NumberSettingId,
-} from "../../shared/settingSpec";
-import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, SERVERS_SETTING_KEY } from "../../shared/settings";
+} from "../../../shared/config/settingSpec";
+import {
+	HEADERS_SETTING_KEY,
+	MODEL_PARAMETERS_SETTING_KEY,
+	SERVERS_SETTING_KEY,
+} from "../../../shared/config/settings";
+import type { HeaderScalar } from "../../../shared/util/headers";
+import { HEADER_SCALAR_TYPES } from "../../../shared/util/headers";
 
 /**
  * Drift guards between the shared setting spec and its prose mirrors:
  * package.json's contributed configuration and the README's and AGENTS.md's
  * settings numbers. The spec is the code-side truth; these tests make the
- * mirrors CI-enforced. Tests run from out/test/shared, so the repo root is
- * three levels up.
+ * mirrors CI-enforced. Tests run from out/test/shared/config, so the repo
+ * root is four levels up.
  */
-const repoRoot = path.resolve(__dirname, "..", "..", "..");
+const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
 
 interface SettingSchema {
 	readonly type?: string | readonly string[];
@@ -67,7 +71,7 @@ function schemaTypes(schema: SettingSchema): readonly string[] {
 	return typeof type === "string" ? [type] : type;
 }
 
-suite("shared/settingSpec: package.json drift guard", () => {
+suite("shared/config/settingSpec: package.json drift guard", () => {
 	test("every contributed configuration property lives under the config section", () => {
 		const { properties } = readPackageJson().contributes.configuration;
 		for (const key of Object.keys(properties)) {
@@ -147,7 +151,7 @@ suite("shared/settingSpec: package.json drift guard", () => {
 	});
 });
 
-suite("shared/settingSpec: README drift guard", () => {
+suite("shared/config/settingSpec: README drift guard", () => {
 	test("settings-table rows show the spec's default", () => {
 		// Rows look like: | `litellm-vscode-chat.requestTimeout` | `300000` (5 minutes) | ... |
 		// Any row naming a spec'd setting must show its default in the second column.
@@ -186,7 +190,7 @@ suite("shared/settingSpec: README drift guard", () => {
 	});
 });
 
-suite("shared/settingSpec: AGENTS.md drift guard", () => {
+suite("shared/config/settingSpec: AGENTS.md drift guard", () => {
 	test("the request pass-through invariant quotes DEFAULT_MAX_TOKENS_CAP", () => {
 		const quoted = /min\((\d+), model max output tokens\)/.exec(readAgentsDoc())?.[1];
 		assert.ok(quoted, "AGENTS.md states the max_tokens fallback cap");
@@ -194,7 +198,7 @@ suite("shared/settingSpec: AGENTS.md drift guard", () => {
 	});
 });
 
-suite("shared/settings: object-setting contributions drift guard", () => {
+suite("shared/config/settings: object-setting contributions drift guard", () => {
 	// The scalar suites above skip object settings by design (no scalar spec);
 	// these pin the object settings' keys and value shapes instead, against
 	// the constants their readers use.

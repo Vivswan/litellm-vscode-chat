@@ -7,7 +7,7 @@ import {
 	parseHeaderValue,
 	parseJsonValue,
 } from "../../../extension/dashboard/protocol";
-import { isHeaderScalar } from "../../../shared/headers";
+import { isHeaderScalar } from "../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;

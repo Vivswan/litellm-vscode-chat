@@ -11,8 +11,8 @@ import {
 } from "../../../provider/catalog/groupModels";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { oauthCredentialFingerprint } from "../../../provider/transport/auth";
-import { normalizeBaseUrl } from "../../../shared/baseUrl";
-import { fingerprint } from "../../../shared/fingerprint";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { fingerprint } from "../../../shared/util/fingerprint";
 import { expectDefined, makeModelInfo } from "../../testUtils";
 
 const OAUTH_FIELDS = {

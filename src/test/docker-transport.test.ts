@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { CONFIG_SECTION } from "../shared/settingSpec";
+import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { addServer, clearServers, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";

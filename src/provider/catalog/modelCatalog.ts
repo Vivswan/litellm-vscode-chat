@@ -1,5 +1,5 @@
-import { normalizePositiveNumber } from "../../shared/numbers";
-import type { TokenDefaults } from "../../shared/settings";
+import type { TokenDefaults } from "../../shared/config/settings";
+import { normalizePositiveNumber } from "../../shared/util/numbers";
 import type { LiteLLMProvider, OutputLimitSource } from "./schemas";
 
 export interface ModelRoute {

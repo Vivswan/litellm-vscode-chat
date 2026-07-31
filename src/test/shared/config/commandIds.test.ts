@@ -1,15 +1,15 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CMD, INTERNAL_CMD, MANAGE_COMMAND_TITLE, VENDOR_ID } from "../../shared/commandIds";
+import { CMD, INTERNAL_CMD, MANAGE_COMMAND_TITLE, VENDOR_ID } from "../../../shared/config/commandIds";
 
 /**
  * Drift guards between the shared command-ID map and package.json: the
  * palette contributions, the vendor, and the walkthrough deep-links must all
- * use exactly the IDs the code registers. Tests run from out/test/shared, so
- * the repo root is three levels up.
+ * use exactly the IDs the code registers. Tests run from out/test/shared/config, so
+ * the repo root is four levels up.
  */
-const repoRoot = path.resolve(__dirname, "..", "..", "..");
+const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
 
 interface PackageJson {
 	readonly contributes: {
@@ -23,7 +23,7 @@ function readPackageJson(): PackageJson {
 	return JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as PackageJson;
 }
 
-suite("shared/commandIds: package.json drift guard", () => {
+suite("shared/config/commandIds: package.json drift guard", () => {
 	test("CMD names exactly the contributed command set", () => {
 		const contributed = readPackageJson().contributes.commands.map((entry) => entry.command);
 		assert.deepStrictEqual([...Object.values(CMD)].sort(), [...contributed].sort());

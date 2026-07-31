@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
-import { fingerprint } from "../../shared/fingerprint";
+import { fingerprint } from "../../../shared/util/fingerprint";
 
-suite("shared/fingerprint", () => {
+suite("shared/util/fingerprint", () => {
 	test("distinguishes inputs that collide under 32-bit FNV-1a", () => {
 		// This pair collides under the FNV-1a hash the fingerprint used to be:
 		// a collision here would share one cached client (and its credentials)

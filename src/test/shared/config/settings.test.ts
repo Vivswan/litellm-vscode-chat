@@ -8,10 +8,10 @@ import {
 	getRequestTimeout,
 	MIN_TIMEOUT_MS,
 	normalizeCustomHeaders,
-} from "../../shared/settings";
-import { expectDefined, withConfig } from "../testUtils";
+} from "../../../shared/config/settings";
+import { expectDefined, withConfig } from "../../testUtils";
 
-suite("shared/settings timeout getters", () => {
+suite("shared/config/settings timeout getters", () => {
 	test("pass valid timeouts through without logging", async () => {
 		const logged: unknown[] = [];
 		await withConfig({ discoveryTimeout: 5000 }, () => {
@@ -70,7 +70,7 @@ suite("shared/settings timeout getters", () => {
 	});
 });
 
-suite("shared/settings getDiscoveryCacheTtl", () => {
+suite("shared/config/settings getDiscoveryCacheTtl", () => {
 	test("passes valid values through without logging, including 0", async () => {
 		const logged: unknown[] = [];
 		await withConfig({ discoveryCacheTtl: 60000 }, () => {
@@ -122,7 +122,7 @@ suite("shared/settings getDiscoveryCacheTtl", () => {
 	});
 });
 
-suite("shared/settings normalizeCustomHeaders", () => {
+suite("shared/config/settings normalizeCustomHeaders", () => {
 	test("values with CR, LF, or CRLF are dropped by the shared header-value predicate", () => {
 		const logged: { msg: string; data: unknown }[] = [];
 		const headers = normalizeCustomHeaders(

@@ -1,9 +1,9 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
 import { LanguageModelError } from "vscode";
-import { MANAGE_COMMAND_TITLE } from "../../shared/commandIds";
+import { MANAGE_COMMAND_TITLE } from "../../shared/config/commandIds";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { LogSafeErrorText } from "../../shared/logger";
 import { errorMessageText, markLogSafe, publicErrorText } from "../../shared/logger";
-import { CONFIG_SECTION } from "../../shared/settingSpec";
 
 export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | "network" | "timeout" | "aborted";
 

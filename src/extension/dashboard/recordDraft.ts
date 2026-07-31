@@ -121,7 +121,7 @@ export type HeaderRowsParse =
 /**
  * Parse draft header rows into the headers record, or the row-aligned
  * problems that block it. Rows must satisfy what the request path enforces
- * (shared/settings drops offenders silently at request time): RFC 9110 token
+ * (shared/config/settings drops offenders silently at request time): RFC 9110 token
  * names and values that pass the shared isValidHeaderValue predicate.
  * Rejecting them here keeps Apply from "succeeding" on a header that would
  * never be sent.

@@ -34,10 +34,9 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { DeclaredServerView } from "../extension/serverSync";
 import { buildGroupArgs, GROUP_UPDATE_UNAVAILABLE_MESSAGE, parseServersSetting } from "../extension/serverSync";
-import { CMD, VENDOR_ID } from "../shared/commandIds";
-import type { SecretFieldId } from "../shared/serverEntry";
-import { CONFIG_SECTION } from "../shared/settingSpec";
-import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, SERVERS_SETTING_KEY } from "../shared/settings";
+import { CMD, VENDOR_ID } from "../shared/config/commandIds";
+import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, SERVERS_SETTING_KEY } from "../shared/config/settings";
 import {
 	GROUP_MIGRATION_COMPLETE_KEY,
 	HAS_SHOWN_WELCOME_KEY,
@@ -49,7 +48,8 @@ import {
 	SERVER_REGISTRY_KEY,
 	SERVER_SYNC_FINGERPRINTS_KEY,
 	SKIPPED_MIGRATION_SERVERS_KEY,
-} from "../shared/storageKeys";
+} from "../shared/config/storageKeys";
+import type { SecretFieldId } from "../shared/serverEntry";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { FAKE_MODELS, PLAYBACK_MODEL } from "./fakeStack/models";
 import { FAKE_OAUTH_CLIENT_ID, FAKE_OAUTH_CLIENT_SECRET } from "./fakeStack/oauth";
@@ -308,7 +308,7 @@ interface OracleEntry {
 /** Sentinel for "reset removed the configured value"; distinct from "never touched". */
 const UNSET = Symbol("unset");
 
-/** Every Memento key shared/storageKeys.ts declares; the storage probe admits nothing else. */
+/** Every Memento key shared/config/storageKeys.ts declares; the storage probe admits nothing else. */
 const KNOWN_MEMENTO_KEYS: readonly string[] = [
 	SERVER_REGISTRY_KEY,
 	HAS_SHOWN_WELCOME_KEY,
@@ -956,7 +956,10 @@ export class MonkeySession {
 	private async probeStorageKeys(): Promise<void> {
 		const keys = (await vscode.commands.executeCommand("litellm._test.getStorageKeys")) as string[];
 		for (const key of keys) {
-			assert.ok(KNOWN_MEMENTO_KEYS.includes(key), `globalState key ${key} is not declared in shared/storageKeys.ts`);
+			assert.ok(
+				KNOWN_MEMENTO_KEYS.includes(key),
+				`globalState key ${key} is not declared in shared/config/storageKeys.ts`
+			);
 		}
 	}
 
