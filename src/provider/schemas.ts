@@ -171,6 +171,12 @@ const modelInfoFieldsSchema = z.looseObject({
 	key: lenient(z.string()),
 	/** True when the proxy has paused this deployment; blocked deployments must not register. */
 	blocked: lenientFlag,
+	/**
+	 * LiteLLM's endpoint discriminator (chat, embedding, image_generation,
+	 * ...). Discovery skips the provably non-chat values; absent or
+	 * unrecognized modes register as always.
+	 */
+	mode: lenient(z.string()),
 	max_tokens: lenientLimit,
 	max_input_tokens: lenientLimit,
 	max_output_tokens: lenientLimit,
