@@ -571,7 +571,13 @@ function ServerForm({
 			</p>
 			<div class="toolbar">
 				<button type="button" disabled={phase.phase !== "editing"} onClick={save}>
-					{saving ? "Saving..." : "Save"}
+					{saving ? (
+						<>
+							<span class="spinner" aria-hidden="true" /> Saving...
+						</>
+					) : (
+						"Save"
+					)}
 				</button>
 				<button type="button" class="secondary" onClick={onCancel}>
 					Cancel
@@ -777,7 +783,13 @@ function AdoptForm({
 			</p>
 			<div class="toolbar">
 				<button type="button" disabled={saving} onClick={adopt}>
-					{saving ? "Adopting..." : "Adopt"}
+					{saving ? (
+						<>
+							<span class="spinner" aria-hidden="true" /> Adopting...
+						</>
+					) : (
+						"Adopt"
+					)}
 				</button>
 				{/* Disabled while the intent is in flight: cancelling would unmount
 				    this form before the ack and lose the post-adoption notice (the
@@ -1038,32 +1050,36 @@ export function ServersSection({
 				</div>
 			) : null}
 			{adoptFailure !== undefined ? (
-				<p class="error">
-					{adoptFailure.kind === "operation"
-						? adoptFailure.message
-						: sectionFailureText("Adopting the server failed:", adoptFailure.message)}{" "}
+				<div class="banner banner-error" role="alert">
+					<p>
+						{adoptFailure.kind === "operation"
+							? adoptFailure.message
+							: sectionFailureText("Adopting the server failed:", adoptFailure.message)}
+					</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("adoptServer")}>
 						Dismiss
 					</button>
-				</p>
+				</div>
 			) : null}
 			{saveFailure !== undefined ? (
-				<p class="error">
-					{saveFailure.kind === "operation"
-						? saveFailure.message
-						: sectionFailureText("Saving the server failed:", saveFailure.message)}{" "}
+				<div class="banner banner-error" role="alert">
+					<p>
+						{saveFailure.kind === "operation"
+							? saveFailure.message
+							: sectionFailureText("Saving the server failed:", saveFailure.message)}
+					</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("saveServerSetting")}>
 						Dismiss
 					</button>
-				</p>
+				</div>
 			) : null}
 			{removeFailure !== undefined ? (
-				<p class="error">
-					{sectionFailureText("Removing failed:", removeFailure.message)}{" "}
+				<div class="banner banner-error" role="alert">
+					<p>{sectionFailureText("Removing failed:", removeFailure.message)}</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("removeServerSetting")}>
 						Dismiss
 					</button>
-				</p>
+				</div>
 			) : null}
 			{noServers ? (
 				<div class="empty-block">
@@ -1114,12 +1130,14 @@ export function ServersSection({
 				</div>
 			)}
 			{servers.some((server) => server.error !== undefined) ? (
-				<p class="error">
-					{servers
-						.filter((server) => server.error !== undefined)
-						.map((server) => `${server.label}: ${server.error}`)
-						.join("; ")}
-				</p>
+				<div class="banner banner-error">
+					<p class="error">
+						{servers
+							.filter((server) => server.error !== undefined)
+							.map((server) => `${server.label}: ${server.error}`)
+							.join("; ")}
+					</p>
+				</div>
 			) : null}
 			{servers.some((server) => server.notice === "entry-params-inactive") ? (
 				<p class="state-warn">
