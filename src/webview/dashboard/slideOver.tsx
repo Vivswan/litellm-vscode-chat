@@ -77,8 +77,10 @@ export function SlideOver({
 
 	return (
 		<>
-			{/* Click intercept only; Esc is the keyboard route to the same request. */}
-			<div class="scrim" onClick={onRequestClose} />
+			{/* A pointer-only affordance, per the dialog pattern: keyboard users
+			    have Esc and the Close button, so the scrim stays out of the Tab
+			    order and out of the accessibility tree. */}
+			<button type="button" class="scrim" tabIndex={-1} aria-hidden="true" onClick={onRequestClose} />
 			<div
 				class="slide-over"
 				role="dialog"

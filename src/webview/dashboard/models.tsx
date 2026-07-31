@@ -256,7 +256,7 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 							</thead>
 							<tbody>
 								{start > 0 ? (
-									<tr class="spacer" aria-hidden="true">
+									<tr class="spacer">
 										<td colSpan={columns} style={{ height: `${start * ROW_HEIGHT}px`, padding: 0, border: "none" }} />
 									</tr>
 								) : null}
@@ -293,7 +293,7 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 									);
 								})}
 								{end < sorted.length ? (
-									<tr class="spacer" aria-hidden="true">
+									<tr class="spacer">
 										<td
 											colSpan={columns}
 											style={{ height: `${(sorted.length - end) * ROW_HEIGHT}px`, padding: 0, border: "none" }}

@@ -435,7 +435,7 @@ const STYLES = `
 	   panel on the right edge. Elevation is the shadow alone; the one motion
 	   is the panel's 200ms entrance, and it stands down for users who asked
 	   the OS for reduced motion. */
-	.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.3); }
+	.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.3); border: none; border-radius: 0; padding: 0; cursor: default; }
 	.slide-over {
 		position: fixed;
 		top: 0;
