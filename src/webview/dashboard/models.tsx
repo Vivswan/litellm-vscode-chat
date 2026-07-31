@@ -1,7 +1,8 @@
-import { useState } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 import type { DashboardModel } from "../../extension/dashboard/protocol";
-import { Help } from "./help";
+import { Help, HoverTip } from "./help";
 import { HELP_MODELS_SECTION } from "./helpText";
+import { IconArrowUp, IconCheck, IconCopy } from "./icons";
 
 function formatTokens(count: number): string {
 	return count.toLocaleString();
@@ -30,7 +31,7 @@ function formatPricing(model: DashboardModel): string {
 	return parts.join(" / ");
 }
 
-function pricingTitle(model: DashboardModel): string {
+function pricingDetail(model: DashboardModel): string {
 	const parts: string[] = ["USD per million tokens"];
 	if (model.cacheReadCost !== undefined) {
 		parts.push(`cache read ${formatCost(model.cacheReadCost)}`);
@@ -84,20 +85,141 @@ function matches(model: DashboardModel, needle: string): boolean {
 	);
 }
 
+type SortKey = "name" | "family" | "server" | "input" | "output" | "price";
+interface Sort {
+	readonly key: SortKey;
+	readonly dir: 1 | -1;
+}
+
+const SORT_VALUES: Record<SortKey, (model: DashboardModel) => string | number | undefined> = {
+	name: (model) => model.name.toLowerCase(),
+	family: (model) => model.family.toLowerCase(),
+	server: (model) => model.serverLabel.toLowerCase(),
+	input: (model) => model.maxInputTokens,
+	output: (model) => model.maxOutputTokens,
+	price: (model) => model.inputCost,
+};
+
+/** Rows without the sorted value (e.g. unpriced models) sink to the bottom in either direction. */
+function compareBy(sort: Sort): (a: DashboardModel, b: DashboardModel) => number {
+	const value = SORT_VALUES[sort.key];
+	return (a, b) => {
+		const av = value(a);
+		const bv = value(b);
+		if (av === bv) {
+			return 0;
+		}
+		if (av === undefined) {
+			return 1;
+		}
+		if (bv === undefined) {
+			return -1;
+		}
+		return (av < bv ? -1 : 1) * sort.dir;
+	};
+}
+
+function SortHeader({
+	label,
+	sortKey,
+	sort,
+	numeric,
+	onSort,
+}: {
+	label: string;
+	sortKey: SortKey;
+	sort: Sort | undefined;
+	numeric?: boolean;
+	onSort: (key: SortKey) => void;
+}) {
+	const active = sort?.key === sortKey;
+	return (
+		<th
+			class={numeric === true ? "num" : undefined}
+			aria-sort={active ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
+		>
+			<button type="button" class="sort" onClick={() => onSort(sortKey)}>
+				{label}
+				{active ? (
+					<span class={sort.dir === 1 ? "sort-arrow" : "sort-arrow desc"}>
+						<IconArrowUp />
+					</span>
+				) : null}
+			</button>
+		</th>
+	);
+}
+
+/**
+ * Windowing constants. Rows are pinned to a fixed height by the .windowed
+ * stylesheet rules, so index arithmetic against scrollTop is exact; the
+ * threshold keeps small fleets on the simple full-render path, and the
+ * overscan hides the window edges while scrolling.
+ */
+const WINDOW_THRESHOLD = 50;
+const ROW_HEIGHT = 26;
+const OVERSCAN = 10;
+const FALLBACK_VIEWPORT = 420;
+
 export function ModelsSection({ models, serverCount }: { models: readonly DashboardModel[]; serverCount: number }) {
 	const [filter, setFilter] = useState("");
+	const [sort, setSort] = useState<Sort | undefined>(undefined);
+	const [scrollTop, setScrollTop] = useState(0);
+	const [copied, setCopied] = useState<string | undefined>(undefined);
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const copySeq = useRef(0);
+
 	// Keyed to the server count, not the distinct labels: two groups can share
 	// a label, and their models must stay attributable.
 	const showServerColumn = serverCount > 1;
 	const needle = filter.trim().toLowerCase();
-	const visible = needle.length === 0 ? models : models.filter((model) => matches(model, needle));
+	const filtered = needle.length === 0 ? models : models.filter((model) => matches(model, needle));
+	const sorted = sort === undefined ? filtered : [...filtered].sort(compareBy(sort));
+
+	const toggleSort = (key: SortKey) => {
+		setSort((current) => (current?.key === key ? { key, dir: current.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
+	};
+
+	const copyId = (model: DashboardModel, rowId: string) => {
+		// Clipboard write is fire-and-forget; the check mark is the only feedback.
+		navigator.clipboard?.writeText(model.id).catch(() => {});
+		setCopied(rowId);
+		const seq = ++copySeq.current;
+		setTimeout(() => {
+			if (copySeq.current === seq) {
+				setCopied(undefined);
+			}
+		}, 1500);
+	};
+
+	// The window over the sorted rows. Start clamps against the row count so
+	// a filter that shrinks the list under a deep scroll position cannot leave
+	// the window past the end.
+	const windowed = sorted.length > WINDOW_THRESHOLD;
+	const viewport = (() => {
+		const height = scrollRef.current?.clientHeight ?? 0;
+		return height > 0 ? height : FALLBACK_VIEWPORT;
+	})();
+	const windowSize = Math.ceil(viewport / ROW_HEIGHT) + OVERSCAN * 2;
+	const start = windowed
+		? Math.max(0, Math.min(Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN, sorted.length - windowSize))
+		: 0;
+	const end = windowed ? Math.min(sorted.length, start + windowSize) : sorted.length;
+	const visible = sorted.slice(start, end);
+	const columns = 7 + (showServerColumn ? 1 : 0);
+
 	return (
 		<section>
 			<h2>
 				Models <span class="count">{models.length}</span> <Help text={HELP_MODELS_SECTION} />
 			</h2>
 			{models.length === 0 ? (
-				<p class="empty">No models discovered yet. Add a server above, then run Sync models.</p>
+				<div class="empty-block">
+					<p>No models discovered yet.</p>
+					<p class="hint">
+						Models appear here once a server is connected and synced: add one under Servers, then run Sync models.
+					</p>
+				</div>
 			) : (
 				<>
 					<div class="filterbar">
@@ -109,41 +231,79 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 							onInput={(event) => setFilter(event.currentTarget.value)}
 						/>
 						<span class="hint">
-							showing {visible.length} of {models.length}
+							showing {sorted.length} of {models.length}
 						</span>
 					</div>
-					<div class="table-scroll">
-						<table>
+					<div
+						class={windowed ? "table-scroll windowed" : "table-scroll"}
+						ref={scrollRef}
+						onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+					>
+						<table class="models">
 							<thead>
 								<tr>
-									<th>Model</th>
-									<th>Family</th>
-									{showServerColumn ? <th>Server</th> : null}
-									<th class="num">Input tokens</th>
-									<th class="num">Output tokens</th>
-									<th class="num">Pricing ($/M)</th>
+									<SortHeader label="Model" sortKey="name" sort={sort} onSort={toggleSort} />
+									<SortHeader label="Family" sortKey="family" sort={sort} onSort={toggleSort} />
+									{showServerColumn ? (
+										<SortHeader label="Server" sortKey="server" sort={sort} onSort={toggleSort} />
+									) : null}
+									<SortHeader label="Input tokens" sortKey="input" sort={sort} numeric onSort={toggleSort} />
+									<SortHeader label="Output tokens" sortKey="output" sort={sort} numeric onSort={toggleSort} />
+									<SortHeader label="Pricing ($/M)" sortKey="price" sort={sort} numeric onSort={toggleSort} />
 									<th>Capabilities</th>
+									<th>{/* row actions */}</th>
 								</tr>
 							</thead>
 							<tbody>
-								{visible.map((model, index) => (
-									// Rows rebuild wholesale on every state push; the positional index is the identity.
-									<tr key={index}>
-										<td>{model.name}</td>
-										<td>{model.family}</td>
-										{showServerColumn ? <td>{model.serverLabel}</td> : null}
-										<td class="num">{formatTokens(model.maxInputTokens)}</td>
-										<td class="num">{formatTokens(model.maxOutputTokens)}</td>
-										<td class="num" title={pricingTitle(model)}>
-											{formatPricing(model)}
-										</td>
-										<td class="caps">{capabilities(model)}</td>
+								{start > 0 ? (
+									<tr class="spacer" aria-hidden="true">
+										<td colSpan={columns} style={{ height: `${start * ROW_HEIGHT}px`, padding: 0, border: "none" }} />
 									</tr>
-								))}
+								) : null}
+								{visible.map((model, index) => {
+									// Sorted-position identity: rows rebuild wholesale on every
+									// state push, and a model appears once per server.
+									const rowId = `${model.serverLabel}/${model.id}`;
+									return (
+										<tr key={start + index}>
+											<td>{model.name}</td>
+											<td>{model.family}</td>
+											{showServerColumn ? <td>{model.serverLabel}</td> : null}
+											<td class="num">{formatTokens(model.maxInputTokens)}</td>
+											<td class="num">{formatTokens(model.maxOutputTokens)}</td>
+											<td class="num">
+												{/* Cache and long-context tiers ride a rendered hover tip;
+												    native title tooltips do not show in the webview host. */}
+												<HoverTip tip={pricingDetail(model)}>
+													<span>{formatPricing(model)}</span>
+												</HoverTip>
+											</td>
+											<td class="caps">{capabilities(model)}</td>
+											<td class="actions">
+												<button
+													type="button"
+													class="quiet icon-action"
+													aria-label={`Copy model ID ${model.id}`}
+													onClick={() => copyId(model, rowId)}
+												>
+													{copied === rowId ? <IconCheck /> : <IconCopy />}
+												</button>
+											</td>
+										</tr>
+									);
+								})}
+								{end < sorted.length ? (
+									<tr class="spacer" aria-hidden="true">
+										<td
+											colSpan={columns}
+											style={{ height: `${(sorted.length - end) * ROW_HEIGHT}px`, padding: 0, border: "none" }}
+										/>
+									</tr>
+								) : null}
 							</tbody>
 						</table>
 					</div>
-					{visible.length === 0 ? <p class="empty">No models match the filter.</p> : null}
+					{sorted.length === 0 ? <p class="empty">No models match the filter.</p> : null}
 				</>
 			)}
 		</section>
