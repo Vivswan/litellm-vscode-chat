@@ -31,7 +31,7 @@ export function createServerSyncEnv(context: vscode.ExtensionContext, logger: Lo
 			const list = labels.join(", ");
 			void vscode.window
 				.showInformationMessage(
-					`Removed from the servers setting: ${list}. VS Code keeps the provider group; remove it in the native Manage Language Models editor.`,
+					`Removed from the servers setting: ${list}. VS Code keeps the provider group and it stays active with global settings only; remove it in the native Manage Language Models editor. If this was a rename made directly in the settings file, the new label starts without the old label's stored secrets - set them again for the new entry (a dashboard rename copies them).`,
 					"Open native editor"
 				)
 				.then((choice) => {
