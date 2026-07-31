@@ -15,6 +15,7 @@ import {
 } from "../../shared/storageKeys";
 import type { ServerRegistry } from "../serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
+import { hasLegacyConfig } from "./legacySingleServer";
 
 /**
  * Internal host action that validates a { vendor, name, baseUrl, apiKey }
@@ -342,6 +343,20 @@ export async function migrateServersToProviderGroups(
 			return true;
 		}
 		const snapshot = await registry.getServersWithKeys();
+		// A skip marker guards a live entry the user must resolve manually.
+		// Once that entry is gone (deleted via the manage UI, as the notice
+		// instructs), the marker has nothing left to guard and would block the
+		// fresh-install completion forever, so stale markers lift here. This
+		// removal can race another window's marker add, which self-heals by
+		// re-skipping, the same trade the rename lift in ServerRegistry makes.
+		const storedSkipped = getSkippedServers(globalState);
+		if (storedSkipped.length > 0) {
+			const liveIds = new Set(snapshot.map((server) => server.id));
+			const liveSkipped = storedSkipped.filter((id) => liveIds.has(id));
+			if (liveSkipped.length !== storedSkipped.length) {
+				await globalState.update(SKIPPED_MIGRATION_SERVERS_KEY, liveSkipped.length > 0 ? liveSkipped : undefined);
+			}
+		}
 		if (snapshot.length === 0) {
 			return false;
 		}
@@ -510,13 +525,36 @@ async function removeMigratedServer(registry: ServerRegistry, server: ServerWith
  * retried on every activation until the registry is empty. A removal that
  * cleared the entry but failed on its secret would lose the secret's id, so
  * the failure lands on the pending-deletions list.
+ *
+ * Deletion requires POSITIVE evidence the server was migrated: its id in a
+ * surviving seeded record, or its label recorded under its base URL in the
+ * persisted label map. The completion flag alone is not evidence: another
+ * window can set it concurrently with this window's legacy import (the
+ * fresh-install race), and deleting on the flag alone would destroy a server
+ * that was never migrated. Unrecognized entries stay and are counted in a log
+ * line.
  */
 async function cleanUpOrphanedServers(
 	registry: ServerRegistry,
 	globalState: vscode.Memento,
 	logger: Logger
 ): Promise<void> {
-	const orphans = registry.getServers();
+	const candidates = registry.getServers();
+	if (candidates.length === 0) {
+		return;
+	}
+	const seeded = getSeededGroups(globalState);
+	const labelMap = getMigratedServerLabels(globalState);
+	const orphans = candidates.filter(
+		(server) =>
+			seeded.some((group) => group.id === server.id) || (labelMap[server.baseUrl] ?? []).includes(server.label)
+	);
+	const unrecognized = candidates.length - orphans.length;
+	if (unrecognized > 0) {
+		logger.log(
+			`Leaving ${unrecognized} registry server(s) in place after migration completion: no migration record matches them`
+		);
+	}
 	if (orphans.length === 0) {
 		return;
 	}
@@ -529,6 +567,33 @@ async function cleanUpOrphanedServers(
 			logger.error(`Failed to remove orphaned server "${orphan.label}" from the registry`, error);
 		}
 	}
+}
+
+/**
+ * A fresh install has nothing to migrate, so it can be marked complete right
+ * away, which routes server management to the native provider-group UI. Every
+ * trace of an unfinished migration blocks this, and the hasLegacyConfig guard
+ * is load-bearing: the legacy migration is best-effort, so on its failure the
+ * registry looks fresh here, and completing now would strand the server that
+ * migration creates on a later activation (once the flag is set, the engine
+ * only ever does maintenance and would never seed it into a group). Deleting
+ * it is off the table regardless: cleanUpOrphanedServers requires a migration
+ * record before it removes anything.
+ */
+async function completeFreshInstall(ctx: MigrationContext): Promise<boolean> {
+	if (
+		migrationState.running ||
+		isGroupMigrationComplete(ctx.globalState) ||
+		ctx.registry.getServers().length > 0 ||
+		getSeededGroups(ctx.globalState).length > 0 ||
+		getSkippedServers(ctx.globalState).length > 0 ||
+		getPendingSubmission(ctx.globalState) !== undefined ||
+		(await hasLegacyConfig(ctx.secrets))
+	) {
+		return false;
+	}
+	await ctx.globalState.update(GROUP_MIGRATION_COMPLETE_KEY, true);
+	return true;
 }
 
 /**
@@ -549,6 +614,16 @@ export const registryToProviderGroupsMigration: ExtensionMigration = {
 		if (isGroupMigrationComplete(ctx.globalState)) {
 			return "nothing-to-do";
 		}
-		return ctx.registry.getServers().length > 0 ? "in-progress" : "nothing-to-do";
+		if (ctx.registry.getServers().length > 0) {
+			return "in-progress";
+		}
+		if (await completeFreshInstall(ctx)) {
+			ctx.logger.log("No legacy servers to migrate; marked the provider-group migration complete");
+			return "nothing-to-do";
+		}
+		// Whatever refused the fresh-install completion (seeded records, a skip
+		// marker, a pending submission, or legacy config the pre-registration
+		// migration has not finished) keeps the migration open.
+		return "in-progress";
 	},
 };

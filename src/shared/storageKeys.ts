@@ -12,7 +12,11 @@ export const HAS_SHOWN_WELCOME_KEY = "litellm.hasShownWelcome";
 /** globalState: the last ConnectionStatus, restored into the status bar on activation. */
 export const LAST_CONNECTION_STATUS_KEY = "litellm.lastConnectionStatus";
 
-/** globalState: set once every registry server has been handed to VS Code as a provider group. */
+/**
+ * globalState: set once every registry server has been handed to VS Code as a
+ * provider group, or right away on a fresh install with nothing to migrate
+ * (src/extension/migrations/registryToProviderGroups.ts).
+ */
 export const GROUP_MIGRATION_COMPLETE_KEY = "litellm.groupMigrationComplete";
 
 /**
