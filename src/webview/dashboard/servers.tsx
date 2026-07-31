@@ -808,7 +808,7 @@ export function ServersSection({
 	return (
 		<section>
 			<h2>
-				Servers <span class="count">{servers.length}</span> <Help text={HELP_SERVERS_SECTION} />
+				Servers <span class="count">{servers.length}</span> <Help text={HELP_SERVERS_SECTION} below />
 			</h2>
 			<div class="toolbar">
 				<button type="button" onClick={() => openForm({ kind: "add" })}>

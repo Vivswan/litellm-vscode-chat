@@ -2,8 +2,12 @@
  * The dashboard's hover-help affordances. Two layers: a sweep over the
  * helpText module itself (plain ASCII strings, no template interpolation, so
  * help text can never carry server data and the secret sweeps stay
- * meaningful), and render assertions that every "?" glyph carries its text
- * and sits next to the control it explains.
+ * meaningful), and render assertions that every "?" glyph renders its own
+ * tooltip element (the webview draws tooltips itself; native titles are
+ * unreliable in the webview host), wires it as the trigger's accessible
+ * description, and sits next to the control it explains. Visibility toggling
+ * is pure CSS (hover/focus-visible), which happy-dom cannot compute, so the
+ * tests pin the structure and class contract the stylesheet keys on.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../webview/dashboard/app";
@@ -72,20 +76,33 @@ function fullState() {
 }
 
 function helps(root: ParentNode): HTMLElement[] {
-	return Array.from(root.querySelectorAll(".help"));
+	return Array.from(root.querySelectorAll("button.help"));
 }
 
-/** The one .help inside the container, with its title asserted. */
+/** The glyph's tooltip element, resolved through the aria-describedby wiring. */
+function tipFor(glyph: HTMLElement): HTMLElement {
+	const id = glyph.getAttribute("aria-describedby");
+	if (id === null || id === "") {
+		throw new Error("help glyph carries no aria-describedby");
+	}
+	const tip = document.getElementById(id);
+	if (tip === null) {
+		throw new Error(`aria-describedby ${id} resolves to no element`);
+	}
+	return tip;
+}
+
+/** The one help glyph inside the container, with its tooltip text asserted. */
 function helpIn(container: ParentNode | null, expected: string): void {
 	if (container === null) {
 		throw new Error("no container to look for help in");
 	}
 	const found = helps(container as ParentNode);
 	expect(found.length).toBe(1);
-	expect(found[0]?.getAttribute("title")).toBe(expected);
+	expect(tipFor(found[0] as HTMLElement).textContent).toBe(expected);
 }
 
-test("every rendered help glyph carries a non-empty title, a matching aria-label, and is focusable", () => {
+test("every help glyph renders a tooltip element wired as its accessible description", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(fullState()));
 	// Open the edit form so the server form's field help renders too.
@@ -95,13 +112,29 @@ test("every rendered help glyph carries a non-empty title, a matching aria-label
 	// Sections (Servers, Models, Settings, Model parameters, Custom headers)
 	// plus form fields; the exact count is asserted per component below.
 	expect(glyphs.length).toBeGreaterThan(15);
+	const tipIds = new Set<string>();
 	for (const glyph of glyphs) {
-		const title = glyph.getAttribute("title") ?? "";
-		expect(title.length).toBeGreaterThan(0);
-		expect(glyph.getAttribute("aria-label")).toBe(title);
+		// The trigger is named "Help"; the long text is its description, not
+		// its name, and no native title competes with the rendered tooltip.
+		expect(glyph.getAttribute("aria-label")).toBe("Help");
+		expect(glyph.hasAttribute("title")).toBe(false);
 		expect(glyph.tabIndex).toBe(0);
 		expect((glyph.textContent ?? "").trim()).toBe("?");
+
+		const tip = tipFor(glyph);
+		expect(tip.getAttribute("role")).toBe("tooltip");
+		expect(tip.classList.contains("help-tip")).toBe(true);
+		expect((tip.textContent ?? "").length).toBeGreaterThan(60);
+		tipIds.add(tip.id);
+
+		// The structure the stylesheet keys on: the tip is the button's next
+		// sibling inside a .help-wrap, so `.help-wrap:hover .help-tip` and
+		// `button.help:focus-visible + .help-tip` can reveal it.
+		expect(glyph.parentElement?.classList.contains("help-wrap")).toBe(true);
+		expect(glyph.nextElementSibling).toBe(tip);
 	}
+	// Descriptions stay unambiguous: no two triggers share a tooltip id.
+	expect(tipIds.size).toBe(glyphs.length);
 });
 
 test("each section heading carries its own help", () => {
@@ -122,6 +155,15 @@ test("each section heading carries its own help", () => {
 	helpIn(headingByTitle("Settings"), HELP_SETTINGS_SECTION);
 	helpIn(headingByTitle("Model parameters"), HELP_MODEL_PARAMETERS_SECTION);
 	helpIn(headingByTitle("Custom headers"), helpText.HELP_CUSTOM_HEADERS_SECTION);
+
+	// Placement: the Servers heading sits in the page's top band, so its tip
+	// flips below the trigger; everything further down keeps the default
+	// above placement.
+	const wrapOf = (title: string) => helps(headingByTitle(title))[0]?.parentElement as HTMLElement;
+	expect(wrapOf("Servers").classList.contains("below")).toBe(true);
+	for (const title of ["Models", "Settings", "Model parameters", "Custom headers"]) {
+		expect(wrapOf(title).classList.contains("below"), title).toBe(false);
+	}
 });
 
 test("every server form field label has its help glyph beside it, and the storage choice its own", () => {
