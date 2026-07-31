@@ -78,7 +78,7 @@ export async function withConfig<T>(
  * Create a provider wired to a single configured server, or to an empty
  * server list when `baseUrl` is omitted (the "not configured" case).
  * `overrides` merges into the constructor options for tests that need the
- * migrated-label map or the groupless-registry gate.
+ * groupless-registry gate or a custom discovery cache.
  */
 export function makeProvider(
 	baseUrl?: string,

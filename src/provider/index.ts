@@ -131,8 +131,6 @@ export interface LiteLLMChatModelProviderOptions {
 	logger?: Logger | undefined;
 	/** Resolves the legacy registry's servers; defaults to an empty list for group-only hosts. */
 	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
-	/** Pre-migration labels by base URL, for modelParameters scoping; defaults to none. */
-	getMigratedServerLabels?: (() => Record<string, string[]>) | undefined;
 	/**
 	 * Gate for refreshes that arrive without a group configuration: while it
 	 * returns true (the default) they serve the server registry; once the
@@ -199,7 +197,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			userAgent: options.userAgent,
 			logger: options.logger,
 			getServers: this._getServers,
-			getMigratedServerLabels: options.getMigratedServerLabels,
 		});
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 		this._now = options.now ?? (() => Date.now());

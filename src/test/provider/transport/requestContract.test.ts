@@ -310,37 +310,33 @@ suite("provider/request contract", () => {
 			assert.deepEqual(params, { temperature: 0.2 });
 		});
 
-		test("legacy label scopes match alongside the baseUrl scope", async () => {
-			const params = await withConfig({ modelParameters: { "Production/gpt-4": { temperature: 0.4 } } }, () =>
-				getModelParameters("gpt-4", new Map(), ["http://litellm.test", "Production"])
-			);
-			assert.deepEqual(params, { temperature: 0.4 });
-		});
-
-		test("the most specific model prefix wins across scopes", async () => {
+		test("a pre-migration label scope no longer matches", async () => {
+			// The label-matching path is gone: a "Label/<model>" key is just a
+			// bare prefix entry now, and "Production/gpt-4" does not prefix
+			// "gpt-4", so only the unscoped entry applies.
 			const params = await withConfig(
 				{
 					modelParameters: {
 						"Production/gpt-4": { temperature: 0.4 },
-						"http://litellm.test/gpt-4-turbo": { temperature: 0.6 },
+						"gpt-4": { temperature: 0.8 },
 					},
 				},
-				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test", "Production"])
+				() => getModelParameters("gpt-4", new Map(), ["http://litellm.test"])
 			);
-			assert.deepEqual(params, { temperature: 0.6 });
+			assert.deepEqual(params, { temperature: 0.8 });
 		});
 
-		test("a long scope with a vague model prefix never outranks a precise short-scoped key", async () => {
+		test("the most specific model prefix wins within the base URL scope", async () => {
 			const params = await withConfig(
 				{
 					modelParameters: {
-						"http://very-long-server-url.example.com:4000/g": { temperature: 0.1 },
-						"Prod/gpt-4-turbo": { temperature: 0.9 },
+						"http://litellm.test/gpt-4": { temperature: 0.4 },
+						"http://litellm.test/gpt-4-turbo": { temperature: 0.6 },
 					},
 				},
-				() => getModelParameters("gpt-4-turbo", new Map(), ["http://very-long-server-url.example.com:4000", "Prod"])
+				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"])
 			);
-			assert.deepEqual(params, { temperature: 0.9 });
+			assert.deepEqual(params, { temperature: 0.6 });
 		});
 	});
 

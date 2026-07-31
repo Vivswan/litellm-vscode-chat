@@ -30,11 +30,9 @@ export function findLongestPrefixMatch<T>(id: string, entries: Record<string, T>
 
 /**
  * The most specific scoped entry across all scopes. Specificity is the length
- * of the model prefix after the scope, not of the whole key, so a long base
- * URL with a vague model prefix never outranks a short label with a precise
- * one. Scoped keys must contain the full "<scope>/" prefix. Ties on model
- * prefix length resolve to the earlier scope in `scopes` (callers pass the
- * base URL before legacy labels), then to configuration object order.
+ * of the model prefix after the scope, not of the whole key. Scoped keys must
+ * contain the full "<scope>/" prefix. Ties on model prefix length resolve to
+ * the earlier scope in `scopes`, then to configuration object order.
  */
 function findScopedMatch<T>(
 	rawId: string,
@@ -61,9 +59,8 @@ function findScopedMatch<T>(
 
 /**
  * Resolve the configured modelParameters entry for a model. Scoped keys are
- * tried as "<scope>/<modelId>" for the route's server label plus every entry
- * in `serverScopes` (a group server's base URL and its pre-migration label);
- * any scoped match beats an unscoped one.
+ * tried as "<scope>/<modelId>" for every entry in `serverScopes` (the
+ * server's normalized base URL); any scoped match beats an unscoped one.
  */
 export function getModelParameters(
 	modelId: string,
@@ -73,8 +70,7 @@ export function getModelParameters(
 	const route = modelRoutes.get(modelId);
 	const rawId = route?.rawModelId ?? modelId;
 	const modelParameters = getModelParametersConfig();
-	const scopes = route?.serverLabel ? [route.serverLabel, ...serverScopes] : serverScopes;
-	const scoped = findScopedMatch(rawId, scopes, modelParameters);
+	const scoped = findScopedMatch(rawId, serverScopes, modelParameters);
 	if (scoped) {
 		return { ...scoped.value };
 	}

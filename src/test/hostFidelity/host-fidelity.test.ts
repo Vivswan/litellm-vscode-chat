@@ -894,7 +894,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 				"modelParameters",
 				{
 					[CAPTURE_MODEL_ID]: { temperature: 0.5 },
-					[`ServerA/${CAPTURE_MODEL_ID}`]: { temperature: 0.2 },
+					[`${baseUrlA}/${CAPTURE_MODEL_ID}`]: { temperature: 0.2 },
 				},
 				vscode.ConfigurationTarget.Global
 			);
@@ -929,7 +929,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 				"modelParameters",
 				{
 					[CAPTURE_MODEL_ID]: { temperature: 0.5 },
-					[`ServerA/${CAPTURE_MODEL_ID}`]: { temperature: 0.2 },
+					[`${baseUrlA}/${CAPTURE_MODEL_ID}`]: { temperature: 0.2 },
 				},
 				vscode.ConfigurationTarget.Global
 			);

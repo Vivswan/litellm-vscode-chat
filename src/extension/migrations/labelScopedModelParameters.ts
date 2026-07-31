@@ -100,23 +100,24 @@ function invertLabelMap(labelsByBaseUrl: Record<string, string[]>): Map<string, 
 
 /**
  * Every base-URL-scoped key this key would resolve to under label scoping.
- * At runtime each server's requests consult only that server's own
- * pre-migration label, so when several mapped labels prefix one key, each
- * label is a live reading for its server and each gets a copy.
+ * Under the (now removed) label-matching path each server's requests
+ * consulted only that server's own pre-migration label, so when several
+ * mapped labels prefix one key, each label was a live reading for its server
+ * and each gets a copy.
  *
  * The guard is per label: label L produces no target for a key already under
  * L's OWN base URL (or equal to it), because such a key needs no copy from L,
  * and when L is a URL-prefix of its own base URL (label "https://llm.corp"
  * for base URL "https://llm.corp/v1") the copies added on earlier activations
  * would otherwise re-match L and grow a new "/v1" segment every run. A key
- * under some OTHER server's base URL still gets L's copy: that reading is
- * live for L's server today.
+ * under some OTHER server's base URL still gets L's copy: that reading was
+ * live for L's server when the key was written.
  *
  * Known corner, accepted: when L prefixes its own base URL, a key under that
  * base URL can itself be a genuine label reading (a model prefix that starts
  * with the URL's tail, "v1/..." above), but it is indistinguishable from a
- * copy this migration added earlier, so no copy is made and the key keeps
- * matching through the label path while it lives.
+ * copy this migration added earlier, so no copy is made and that residual
+ * label reading is lost with the label-matching path.
  */
 function scopedTargets(key: string, urlByLabel: ReadonlyMap<string, string>): string[] {
 	const targets: string[] = [];
@@ -149,10 +150,10 @@ function countLabelScopedKeys(layer: unknown, urlByLabel: ReadonlyMap<string, st
  * built from the persisted migrated-labels map. The original keys are KEPT: a
  * key like "openai/gpt-4o" may be a bare model-prefix entry rather than a
  * label scope, the two readings are structurally indistinguishable, and both
- * are simultaneously live at runtime today, so copying preserves behavior
- * exactly under either reading while moving would corrupt real config. Once
- * the label-matching path is removed, the originals simply remain valid
- * bare-prefix keys.
+ * were simultaneously live at runtime when the keys were written, so copying
+ * preserves behavior exactly under either reading while moving would corrupt
+ * real config. With the label-matching path gone, the originals simply
+ * remain valid bare-prefix keys.
  *
  * Only the user (Global) settings layer is edited: workspace and folder
  * settings are shared files this machine's map has no business rewriting, so

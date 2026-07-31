@@ -171,7 +171,7 @@ All non-reserved `modelParameters` keys are passed through to LiteLLM: the exten
 }
 ```
 
-Servers that VS Code manages as provider groups - everything the `servers` setting or the native editor creates - match by base URL. Servers that came from the pre-migration server list also still match by their old label (for example `Production/gpt-4`), as long as the label and its base URL map one-to-one (a label that pointed at several URLs, or a URL that carried several labels, loses label scoping); when both forms could match, the more precise model prefix wins no matter how long the server part of the key is. A server still in the legacy server list matches by label only.
+Server scoping matches by base URL for every server - the `servers` setting, the native editor, and the legacy server list all identify a server by where it points. Keys scoped by a pre-migration server label (for example `Production/gpt-4`) no longer match; the extension rewrote user-settings keys automatically during the provider-group migration (adding a base-URL-scoped copy beside each label-scoped key), but label-scoped keys in workspace or folder settings must be rewritten by hand to the `<baseUrl>/<model prefix>` form.
 
 **Parameter precedence**: Runtime options > model picker choices > user config. Any parameter left unset by all three falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one - the output limit your server declares in model info, or at most 4096 when the server declares none).
 
