@@ -60,9 +60,13 @@ suite("shared/serverEntry: package.json drift guard", () => {
 
 	test("the provider-group configuration declares the descriptor's fields with its secret flags", () => {
 		const [provider] = readPackageJson().contributes.languageModelChatProviders;
-		assert.deepStrictEqual(Object.keys(provider.configuration.properties), ["baseUrl", ...optionalIds]);
+		// `label` is the one non-descriptor property: it mirrors the group NAME
+		// into the configuration (the host echoes only the configuration back),
+		// giving same-URL same-credential entries distinct identities.
+		assert.deepStrictEqual(Object.keys(provider.configuration.properties), ["baseUrl", "label", ...optionalIds]);
 		assert.deepStrictEqual([...provider.configuration.required], ["baseUrl"]);
 		assert.notStrictEqual(provider.configuration.properties.baseUrl?.secret, true, "baseUrl is not a secret");
+		assert.notStrictEqual(provider.configuration.properties.label?.secret, true, "label is not a secret");
 		for (const field of OPTIONAL_ENTRY_FIELDS) {
 			const schema = provider.configuration.properties[field.id];
 			assert.ok(schema, `provider configuration declares ${field.id}`);

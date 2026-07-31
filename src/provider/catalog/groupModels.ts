@@ -24,6 +24,13 @@ import type { OutputLimitSource } from "./schemas";
 export interface GroupServer {
 	baseUrl: NormalizedBaseUrl;
 	apiKey: string;
+	/**
+	 * The declared settings entry this group mirrors; the sync engine writes it
+	 * into the group configuration, so external and pre-label groups lack it.
+	 * Non-secret. Part of the group's identity (see groupClientId) and the
+	 * status label, and it rides the attached server to the request path.
+	 */
+	label?: string;
 	/** Client-credentials authentication; present only when the configuration names a token URL and client ID. */
 	oauth?: OAuthConfig;
 	/** Gateway virtual key; present only when the configuration names both a header and a value. */
@@ -70,23 +77,52 @@ export type LiteLLMModelInfo = PreAttachModelInfo | AttachedModelInfo;
 const GROUP_CLIENT_ID_PREFIX = "group:";
 
 /**
+ * The labeled identity form's discriminator segment. It sits where the
+ * unlabeled form carries its 32-hex fingerprint, and "labeled" is not a hex
+ * string, so no unlabeled identity - whatever the API key contains - can
+ * spell a labeled-form ID. That output-side separation is the point: the
+ * unlabeled plain branch hashes the raw free-form API key, so any INPUT-side
+ * encoding of the label could be forged by a bare key that is byte-for-byte
+ * that encoding.
+ */
+const GROUP_CLIENT_ID_LABELED_SEGMENT = "labeled:";
+
+/**
  * Two groups may point at one base URL with different credentials, so group
  * identity includes a non-secret fingerprint over the whole credential
  * material: API key, OAuth client credentials (delegated to
  * oauthCredentialFingerprint, the canonical enumeration of the OAuth
- * identity), and virtual key. Within the credential branch the material is
- * JSON-encoded before hashing - the API key is free-form, so a delimiter
- * join would let two different credential sets serialize identically. The
- * plain branch hashes the raw API key so those identities survive
- * credential-field additions and encoding changes unchanged (pinned by
- * test); the trade-off is that the two branches share a hash domain, so a
- * bare API key that is byte-for-byte the credential branch's JSON text
- * collides with that configuration - accepted, since both configurations
- * are the same user's own settings. Rotating any part mints a new identity:
- * the group double-counts in the status window for one cycle until the old
- * identity ages out, which self-heals.
+ * identity), and virtual key. Two DECLARED entries may even share the URL and
+ * every credential, so the entry label the sync engine stamps into the
+ * configuration joins the identity too - without it both entries would
+ * collapse to one status-window identity and the second could never report.
+ * Labeled identities live in their own ID namespace
+ * (group:labeled:<fingerprint>:<url>); see GROUP_CLIENT_ID_LABELED_SEGMENT
+ * for why the separation is on the output side. Within a fingerprinted
+ * branch the material is JSON-encoded before hashing - the API key is
+ * free-form, so a delimiter join would let two different credential sets
+ * serialize identically. The unlabeled plain branch hashes the raw API key
+ * so those identities survive credential-field additions and encoding
+ * changes unchanged (pinned by test); the trade-off is that the two
+ * unlabeled branches share a hash domain, so a bare API key that is
+ * byte-for-byte the credential branch's JSON text collides with that
+ * configuration - accepted, since both configurations are the same user's
+ * own settings. A group without a label (external, adopted, or created
+ * before labels flowed) keeps the exact pre-label identity, so nobody
+ * else's identity churns. Rotating any part mints a new identity: the group
+ * double-counts in the status window for one cycle until the old identity
+ * ages out, which self-heals.
  */
 export function groupClientId(server: GroupServer): string {
+	if (server.label !== undefined) {
+		const credentials = JSON.stringify([
+			server.apiKey,
+			server.oauth ? oauthCredentialFingerprint(server.oauth) : null,
+			server.virtualKey ? [server.virtualKey.header, server.virtualKey.value] : null,
+			server.label,
+		]);
+		return `${GROUP_CLIENT_ID_PREFIX}${GROUP_CLIENT_ID_LABELED_SEGMENT}${fingerprint(credentials)}:${server.baseUrl}`;
+	}
 	const credentials =
 		server.oauth || server.virtualKey
 			? JSON.stringify([
@@ -200,6 +236,10 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 	if (baseUrl === undefined || baseUrl.length === 0) {
 		return undefined;
 	}
+	// The entry label the sync engine stamps into the configuration; not an
+	// OPTIONAL_ENTRY_FIELDS member because it is a required field of the
+	// declared entry itself, read explicitly here like baseUrl.
+	const label = usableString(configuration.label);
 	const fields: { -readonly [K in OptionalEntryFieldId]?: unknown } = {};
 	for (const { id } of OPTIONAL_ENTRY_FIELDS) {
 		fields[id] = configuration[id];
@@ -221,6 +261,7 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
 	return {
 		baseUrl,
 		apiKey: typeof apiKey === "string" ? apiKey : "",
+		...(label !== undefined ? { label } : {}),
 		...(oauth !== undefined ? { oauth } : {}),
 		...(virtualKey !== undefined ? { virtualKey } : {}),
 	};
@@ -315,6 +356,7 @@ function parseAttachedServer(candidate: unknown, log?: NarrowLog): GroupServer |
 		// nothing (e.g. "/") is no server.
 		return undefined;
 	}
+	const label = usableString(candidate.label);
 	const rawOAuth: unknown = candidate.oauth;
 	const rawVirtualKey: unknown = candidate.virtualKey;
 	const oauth = isRecord(rawOAuth)
@@ -326,6 +368,7 @@ function parseAttachedServer(candidate: unknown, log?: NarrowLog): GroupServer |
 	return {
 		baseUrl,
 		apiKey: candidate.apiKey,
+		...(label !== undefined ? { label } : {}),
 		...(oauth !== undefined ? { oauth } : {}),
 		...(virtualKey !== undefined ? { virtualKey } : {}),
 	};
@@ -350,7 +393,7 @@ function modelOutputLimitSource(model: LiteLLMModelInfo): OutputLimitSource {
 	return model.litellm?.outputLimitSource === "provider" ? "provider" : "defaults";
 }
 
-/** Display label for a group server; there is no group name on the extension side, so the URL host stands in. */
+/** Display label for a group server without a configured label: the host never hands the group NAME to the extension, so the URL host stands in. */
 export function groupServerLabel(baseUrl: string): string {
 	try {
 		return new URL(baseUrl).host;

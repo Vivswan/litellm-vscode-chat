@@ -190,6 +190,7 @@ suite("extension/serverSync", () => {
 				name: "Prod",
 				vendor: "litellm",
 				baseUrl: "http://prod.test",
+				label: "Prod",
 				apiKey: "sk-inline",
 				oauthTokenUrl: "https://idp.test/token",
 				virtualKeyValue: "vk-stored",
@@ -201,8 +202,11 @@ suite("extension/serverSync", () => {
 			// args object's key insertion order is durable state: reordering it
 			// (including "tidying" secrets and non-secrets apart - they interleave)
 			// would invalidate every stored fingerprint and force a re-push of all
-			// groups. The expected list is spelled out on purpose; do not derive it
-			// from the descriptor this test exists to pin.
+			// groups. `label` sits right after baseUrl so that removing it yields
+			// the pre-label key sequence byte for byte - the legacy-fingerprint
+			// migration shim depends on exactly that. The expected list is spelled
+			// out on purpose; do not derive it from the descriptor this test
+			// exists to pin.
 			const args = buildGroupArgs(
 				{
 					label: "Prod",
@@ -222,6 +226,7 @@ suite("extension/serverSync", () => {
 				"name",
 				"vendor",
 				"baseUrl",
+				"label",
 				"apiKey",
 				"oauthTokenUrl",
 				"oauthClientId",
@@ -639,6 +644,69 @@ suite("extension/serverSync", () => {
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"], "the record survives the restart pass");
 		});
 
+		test("a pre-label fingerprint's forced re-add reads as in-sync and upgrades the record", async () => {
+			// Adding `label` to buildGroupArgs changed every entry's fingerprint
+			// at once, so the first activation after the update re-adds every
+			// healthy group and gets the add-only host's duplicate rejection. The
+			// stored pre-label rendering must confirm it - without that, every
+			// existing entry would wedge on the name-conflict error - and the
+			// record upgrades to the current shape so the shim runs once.
+			const setting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
+			const recorded = makeSyncEnv(setting);
+			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
+			const args = buildGroupArgs(parsed, {});
+			const { label: _label, ...legacyArgs } = args;
+			recorded.fingerprints = { A: fingerprint(JSON.stringify(legacyArgs)) };
+			recorded.duplicateLabels.add("A");
+
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the pre-label group reads as in-sync");
+			assert.deepStrictEqual(
+				recorded.fingerprints,
+				{ A: fingerprint(JSON.stringify(args)) },
+				"the record upgrades to the labeled rendering"
+			);
+		});
+
+		test("an unchanged entry with a pre-label fingerprint stays silent on unforced passes too", async () => {
+			const setting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
+			const recorded = makeSyncEnv(setting);
+			const parsed = expectDefined(parseServersSetting(setting).entries[0]);
+			const args = buildGroupArgs(parsed, {});
+			const { label: _label, ...legacyArgs } = args;
+			recorded.fingerprints = { A: fingerprint(JSON.stringify(legacyArgs)) };
+
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			assert.strictEqual(recorded.upserts.length, 0, "no host call for content the live group already holds");
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined);
+			assert.deepStrictEqual(
+				recorded.fingerprints,
+				{ A: fingerprint(JSON.stringify(args)) },
+				"the pass-end persist upgrades the record in place"
+			);
+		});
+
+		test("a pre-label fingerprint never confirms a CHANGED entry; the conflict still surfaces", async () => {
+			// The legacy rendering is accepted only for byte-identical content:
+			// a fingerprint of the OLD configuration (in either shape) must not
+			// wave a changed entry through as in-sync.
+			const oldSetting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
+			const parsedOld = expectDefined(parseServersSetting(oldSetting).entries[0]);
+			const { label: _label, ...legacyOldArgs } = buildGroupArgs(parsedOld, {});
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test", apiKey: "sk-2" }]);
+			recorded.fingerprints = { A: fingerprint(JSON.stringify(legacyOldArgs)) };
+			recorded.duplicateLabels.add("A");
+
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
+		});
+
 		test("a duplicate for a configuration another window already synced confirms against the store", async () => {
 			// Two windows share the machine-scoped setting, globalState, and the
 			// host's groups, but run separate engines. This window seeded before
@@ -802,8 +870,8 @@ suite("extension/serverSync", () => {
 			assert.ok(a !== undefined && b !== undefined);
 			assert.strictEqual(
 				a.expectedClientId,
-				groupClientId({ baseUrl: normalizeBaseUrl("http://x.test"), apiKey: "sk-a" }),
-				"the same identity the provider stamps on its status snapshots"
+				groupClientId({ baseUrl: normalizeBaseUrl("http://x.test"), apiKey: "sk-a", label: "A" }),
+				"the same identity the provider stamps on its status snapshots, entry label included"
 			);
 			assert.notStrictEqual(
 				a.expectedClientId,
@@ -814,6 +882,30 @@ suite("extension/serverSync", () => {
 				a.expectedClientId !== undefined && !a.expectedClientId.includes("sk-a"),
 				"a fingerprint, not the secret"
 			);
+		});
+
+		test("entries sharing one connection get distinct client IDs but one shared connection ID", async () => {
+			// The exact user scenario behind per-entry identity: two declared
+			// entries, one base URL, one key. The labeled IDs keep their status
+			// entries apart; the label-agnostic connection ID is what both share,
+			// so the dashboard join can hand a pre-label group's snapshot to both.
+			const recorded = makeSyncEnv([
+				{ label: "A", baseUrl: "http://x.test", apiKey: "sk-shared" },
+				{ label: "B", baseUrl: "http://x.test", apiKey: "sk-shared" },
+			]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			const [a, b] = engine.getDeclared();
+			assert.ok(a !== undefined && b !== undefined);
+			assert.notStrictEqual(a.expectedClientId, b.expectedClientId, "same connection, distinct entry identities");
+			assert.strictEqual(
+				a.expectedConnectionId,
+				groupClientId({ baseUrl: normalizeBaseUrl("http://x.test"), apiKey: "sk-shared" }),
+				"the connection ID is the label-less identity pre-label groups report under"
+			);
+			assert.strictEqual(a.expectedConnectionId, b.expectedConnectionId, "one connection, one shared connection ID");
+			assert.ok(!JSON.stringify(engine.getDeclared()).includes("sk-shared"), "fingerprints only, never the secret");
 		});
 
 		test("the client ID mirrors the provider's narrowing for OAuth and virtual-key entries too", async () => {
@@ -844,6 +936,7 @@ suite("extension/serverSync", () => {
 				groupClientId({
 					baseUrl: normalizeBaseUrl("http://oauth.test"),
 					apiKey: "",
+					label: "OAuth",
 					oauth: { tokenUrl: "https://idp.test/token", clientId: "client", clientSecret: "cs-1", scopes: "read write" },
 				}),
 				"the OAuth block, secure-side client secret included, fingerprints like the provider's"
@@ -853,6 +946,7 @@ suite("extension/serverSync", () => {
 				groupClientId({
 					baseUrl: normalizeBaseUrl("http://vk.test"),
 					apiKey: "",
+					label: "VirtualKey",
 					virtualKey: { header: "x-litellm-api-key", value: "vk-1" },
 				}),
 				"the virtual-key pair fingerprints like the provider's"
@@ -925,6 +1019,7 @@ suite("extension/serverSync", () => {
 			assert.deepStrictEqual(server, {
 				baseUrl: normalizeBaseUrl("http://round.test"),
 				apiKey: "sk-inline",
+				label: "Everything",
 				oauth: {
 					tokenUrl: "https://idp.test/token",
 					clientId: "client-1",

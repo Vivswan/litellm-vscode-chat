@@ -306,11 +306,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			return [];
 		}
 
-		// Re-seeing a group that already reported in this cycle means a new
-		// sweep started without a group-agnostic call marking it.
+		// Re-seeing a group within one unmarked cycle means a new sweep started
+		// without a group-agnostic call; the window decides (marked cycles are
+		// host-driven and never restart mid-sweep; see StatusWindow).
 		const serverId = groupClientId(groupServer);
-		if (this._statusWindow.seenThisCycle(serverId)) {
-			this._statusWindow.beginCycle();
+		if (this._statusWindow.beginCycleOnReSight(serverId)) {
 			this.pruneServerCaches([...this._statusWindow.serverIds(), serverId]);
 		}
 
@@ -343,7 +343,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	): Promise<LiteLLMModelInfo[]> {
 		const server: ServerConnection = {
 			id: groupClientId(groupServer),
-			label: groupServerLabel(groupServer.baseUrl),
+			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
 			baseUrl: groupServer.baseUrl,
 			apiKey: groupServer.apiKey,
 			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),

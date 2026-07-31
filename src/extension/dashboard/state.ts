@@ -108,10 +108,15 @@ function buildServer(snapshot: ServerModelsSnapshot, label: string): DashboardSe
  * Pair declared entries with live snapshots. Declared entries pair by the
  * group client ID first (the sync engine computes the same
  * credential-fingerprinted identity the provider stamps on its snapshots, so
- * entries sharing a base URL with different credentials join exactly), then by
- * label plus base URL, then by base URL alone for entries the engine has not
- * resolved yet. Shared by the state builder and the adopt intent's source
- * resolution, which must agree on which snapshots are external.
+ * entries sharing a base URL with different credentials join exactly), then
+ * by the label-agnostic connection ID - non-exclusively, because groups
+ * created before entry labels flowed into their configurations report under
+ * one shared identity, and every declared entry mirroring that connection is
+ * honestly described by its snapshot (shared real status beats "not
+ * checked") - then by label plus base URL, then by base URL alone for
+ * entries the engine has not resolved yet. Shared by the state builder and
+ * the adopt intent's source resolution, which must agree on which snapshots
+ * are external.
  */
 export function joinDeclared(
 	labeled: readonly LabeledSnapshot[],
@@ -124,21 +129,39 @@ export function joinDeclared(
 } {
 	const unmatched = new Set<LabeledSnapshot>(labeled);
 	const matchedByDeclared = new Map<number, LabeledSnapshot>();
-	const passes: readonly ((snapshot: ServerModelsSnapshot, view: DeclaredServerView) => boolean)[] = [
-		(snapshot, view) => view.expectedClientId !== undefined && snapshot.status.serverId === view.expectedClientId,
-		(snapshot, view) =>
-			snapshot.status.label === view.label &&
-			normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
-		(snapshot, view) => normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
+	const passes: readonly {
+		match: (snapshot: ServerModelsSnapshot, view: DeclaredServerView) => boolean;
+		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide (see the doc above). */
+		shared?: boolean;
+	}[] = [
+		{
+			match: (snapshot, view) =>
+				view.expectedClientId !== undefined && snapshot.status.serverId === view.expectedClientId,
+		},
+		{
+			match: (snapshot, view) =>
+				view.expectedConnectionId !== undefined && snapshot.status.serverId === view.expectedConnectionId,
+			shared: true,
+		},
+		{
+			match: (snapshot, view) =>
+				snapshot.status.label === view.label &&
+				normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
+		},
+		{ match: (snapshot, view) => normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl) },
 	];
 	for (const pass of passes) {
+		// Snapshots this pass already handed out, still claimable when shared.
+		const claimed = new Set<LabeledSnapshot>();
 		declared.forEach((view, declaredIndex) => {
 			if (matchedByDeclared.has(declaredIndex)) {
 				return;
 			}
-			const found = [...unmatched].find((entry) => pass(entry.snapshot, view));
+			const pool = pass.shared === true ? [...unmatched, ...claimed] : [...unmatched];
+			const found = pool.find((entry) => pass.match(entry.snapshot, view));
 			if (found !== undefined) {
 				matchedByDeclared.set(declaredIndex, found);
+				claimed.add(found);
 				unmatched.delete(found);
 			}
 		});
@@ -192,10 +215,14 @@ function buildServers(
 ): { servers: DashboardServer[]; snapshotLabels: string[] } {
 	const { matchedByDeclared, unmatched } = joinDeclared(labeled, declared);
 	const displayLabels = new Map<LabeledSnapshot, string>(labeled.map((entry) => [entry, entry.label]));
+	// A snapshot shared by several declared entries renders its models once,
+	// under the first claimant's label (declared order, deterministic).
+	const relabeled = new Set<LabeledSnapshot>();
 	const servers: DashboardServer[] = [];
 	declared.forEach((view, declaredIndex) => {
 		const matched = matchedByDeclared.get(declaredIndex);
-		if (matched !== undefined) {
+		if (matched !== undefined && !relabeled.has(matched)) {
+			relabeled.add(matched);
 			displayLabels.set(matched, view.label);
 		}
 		servers.push({

@@ -421,6 +421,89 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[0]?.modelCount, 2);
 		});
 
+		test("two declared entries mirroring one pre-label group share its snapshot instead of one reading unchecked", () => {
+			// Two entries, one URL, one key: groups created before labels flowed
+			// into their configurations report under ONE label-agnostic identity.
+			// Both entries carry it as expectedConnectionId, and both rows must
+			// render the live status - honest shared state beats a second row
+			// stuck on "not checked" forever.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-shared:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 3,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-prod-labeled:http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+					}),
+					makeDeclared({
+						label: "Staging",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-staging-labeled:http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+					}),
+				]
+			);
+
+			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
+			assert.strictEqual(state.servers.length, 2, "no third external row for the shared snapshot");
+			assert.strictEqual(byLabel.get("Prod")?.state, "ok");
+			assert.strictEqual(byLabel.get("Prod")?.modelCount, 3);
+			assert.strictEqual(byLabel.get("Staging")?.state, "ok", "the second entry shares the live status");
+			assert.strictEqual(byLabel.get("Staging")?.modelCount, 3);
+			assert.ok(!JSON.stringify(state).includes("fp-shared"), "the join key never reaches the webview state");
+		});
+
+		test("the shared pass never crosses connections: a different-credential entry keeps its own outcome", () => {
+			// One live group under key A. The entry declaring key B shares only
+			// the URL, not the connection, so handing it key A's status would
+			// claim a server it cannot reach is healthy; it must stay unchecked
+			// (the URL fallback finds the snapshot already claimed).
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-a:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 3,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "KeyA",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-a-labeled:http://x.test",
+						expectedConnectionId: "group:fp-a:http://x.test",
+					}),
+					makeDeclared({
+						label: "KeyB",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-b-labeled:http://x.test",
+						expectedConnectionId: "group:fp-b:http://x.test",
+					}),
+				]
+			);
+
+			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
+			assert.strictEqual(byLabel.get("KeyA")?.state, "ok");
+			assert.strictEqual(byLabel.get("KeyB")?.state, "unchecked", "a different connection never shares status");
+		});
+
 		test("a declared entry no discovery pass has seen renders unchecked; a sync failure renders as its error", () => {
 			const state = buildDashboardState([], makeReader({}), [
 				makeDeclared({ label: "New", baseUrl: "http://new.test" }),

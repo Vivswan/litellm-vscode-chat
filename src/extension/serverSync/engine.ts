@@ -31,6 +31,15 @@ export interface DeclaredServerView extends NonSecretOptionalFields {
 	 * Absent when the entry does not resolve to a usable group configuration.
 	 */
 	readonly expectedClientId?: string | undefined;
+	/**
+	 * The label-agnostic connection identity: the client ID the same
+	 * configuration produces without the entry label. Groups created before
+	 * labels flowed into the configuration report under this identity, and
+	 * entries that mirror one server with one credential set share it, so the
+	 * join's shared-status pass can hand them all the same live snapshot.
+	 * Same non-secret handling rules as expectedClientId.
+	 */
+	readonly expectedConnectionId?: string | undefined;
 	/** The label's last upsert failure, cleared by the next success. */
 	readonly syncError?: string | undefined;
 }
@@ -58,11 +67,19 @@ export interface ServerSyncEnv {
 /**
  * The provider-group command arguments for one entry with its secrets
  * resolved. Fields ride in OPTIONAL_ENTRY_FIELDS order after name, vendor,
- * and baseUrl, and that order is frozen: the persisted sync fingerprint
- * hashes JSON.stringify of this object.
+ * baseUrl, and label, and that order is frozen: the persisted sync
+ * fingerprint hashes JSON.stringify of this object. `label` repeats the
+ * group name as a configuration property because the host echoes only the
+ * configuration back to the provider, never the name; it is what gives
+ * entries sharing a base URL and credentials distinct group identities.
  */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
-	const args: Record<string, string> = { name: entry.label, vendor: VENDOR_ID, baseUrl: entry.baseUrl };
+	const args: Record<string, string> = {
+		name: entry.label,
+		vendor: VENDOR_ID,
+		baseUrl: entry.baseUrl,
+		label: entry.label,
+	};
 	const inline = inlineSecretValues(entry);
 	for (const field of OPTIONAL_ENTRY_FIELDS) {
 		// Inline settings values outrank the label's SecretStorage blob.
@@ -72,6 +89,23 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
 		}
 	}
 	return args;
+}
+
+/**
+ * The fingerprint of the same args as pre-label extension versions built
+ * them. Adding `label` to buildGroupArgs changed every entry's fingerprint
+ * at once, and the host cannot update an existing group, so without this
+ * rendering every healthy pre-label entry would wedge: its forced re-add
+ * comes back as a duplicate, the stored (pre-label) fingerprint would not
+ * confirm it, and the entry would surface the name-conflict error forever.
+ * A stored fingerprint matching this rendering is the same proof of "the
+ * live group holds this entry's content" - minus the label, which an
+ * add-only host can never receive retroactively - and the matching paths
+ * upgrade the record to the current shape, so the shim runs once per entry.
+ */
+function legacyGroupArgsFingerprint(args: Record<string, string>): string {
+	const { label: _label, ...legacyArgs } = args;
+	return fingerprint(JSON.stringify(legacyArgs));
 }
 
 function secretLocations(entry: DeclaredServer, stored: StoredServerSecrets): Record<SecretFieldId, SecretLocation> {
@@ -292,6 +326,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 			const args = buildGroupArgs(entry, stored);
 			const printed = fingerprint(JSON.stringify(args));
+			// The rendering pre-label sessions persisted for this same content;
+			// accepted wherever a stored fingerprint proves the live group's
+			// content, and upgraded to `printed` on the spot.
+			const legacyPrinted = legacyGroupArgsFingerprint(args);
 			const retryState = this.retry.get(entry.label);
 			if (secretsUnreadable) {
 				// Without the real secrets the fingerprint is not meaningful, so no
@@ -303,7 +341,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				}
 			} else if (
 				!force &&
-				previous[entry.label] === printed &&
+				(previous[entry.label] === printed || previous[entry.label] === legacyPrinted) &&
 				!(retryState?.kind === "upsertFailed" && retryState.fingerprint === printed)
 			) {
 				next[entry.label] = printed;
@@ -357,8 +395,14 @@ export class ServerSyncEngine implements vscode.Disposable {
 						// the in-memory map guards against can only UNDER-report (an
 						// older map), never invent a matching fingerprint, so a match
 						// proves the live group holds exactly these args while an
-						// absence proves nothing.
-						const confirmed = previous[entry.label] === printed || this.env.getFingerprints()[entry.label] === printed;
+						// absence proves nothing. The legacy rendering confirms too:
+						// a pre-label session's record describes the same content.
+						const storeRecord = this.env.getFingerprints()[entry.label];
+						const confirmed =
+							previous[entry.label] === printed ||
+							storeRecord === printed ||
+							previous[entry.label] === legacyPrinted ||
+							storeRecord === legacyPrinted;
 						if (confirmed) {
 							// Under an add-only host (no upsert), "the group already
 							// exists" for a confirmed configuration IS the synced steady
@@ -419,12 +463,20 @@ export class ServerSyncEngine implements vscode.Disposable {
 				}
 			}
 			const groupServer = parseGroupConfiguration(args);
+			let expectedClientId: string | undefined;
+			let expectedConnectionId: string | undefined;
+			if (groupServer !== undefined) {
+				expectedClientId = groupClientId(groupServer);
+				const { label: _label, ...connection } = groupServer;
+				expectedConnectionId = groupClientId(connection);
+			}
 			views.push({
 				label: entry.label,
 				baseUrl: entry.baseUrl,
 				...pickNonSecretOptionalFields(entry),
 				secrets: secretLocations(entry, stored),
-				expectedClientId: groupServer !== undefined ? groupClientId(groupServer) : undefined,
+				expectedClientId,
+				expectedConnectionId,
 				syncError,
 			});
 		}
