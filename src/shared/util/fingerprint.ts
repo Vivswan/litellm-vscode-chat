@@ -1,4 +1,4 @@
-import { createHash, pbkdf2Sync } from "node:crypto";
+import { pbkdf2Sync } from "node:crypto";
 import { z } from "zod";
 
 /**
@@ -80,16 +80,4 @@ function requireSalt(): string {
  */
 export function fingerprint(text: string): Fingerprint {
 	return fingerprintSchema.parse(pbkdf2Sync(text, requireSalt(), 1, 32, "sha256").toString("hex").slice(0, 32));
-}
-
-/**
- * The unsalted SHA-256 rendering pre-salt extension versions persisted.
- * Comparison-only: it exists so records those versions stored (the sync
- * engine's fingerprint map, the group migration's seeded records) can still
- * be recognized against current material and upgraded to the salted form.
- * Its output is deliberately not a Fingerprint and must never be persisted.
- */
-export function legacyUnsaltedFingerprint(text: string): string {
-	// codeql[js/insufficient-password-hash] -- comparison-only legacy rendering: recognizes records persisted by pre-salt versions; never stored
-	return createHash("sha256").update(text).digest("hex").slice(0, 32);
 }

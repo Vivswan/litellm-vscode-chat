@@ -34,7 +34,19 @@ export function createServerSyncEnv(
 		readSecrets: (label) => readServerSecrets(context.secrets, label),
 		addProviderGroup: (args) => vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", args),
 		confirmFingerprintsDurable: async () => (await fingerprintSalt.confirmDurable()) === "durable",
-		getFingerprints: () => context.globalState.get<Record<string, string>>(SERVER_SYNC_FINGERPRINTS_KEY) ?? {},
+		getFingerprints: () => {
+			// Validated at the trust boundary: the key is engine-owned and only
+			// ever written with strings, so a non-string value is corruption and
+			// must not ride into the session map (and back out through the
+			// pass-end write) behind an unchecked cast.
+			const stored = context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY);
+			if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
+				return {};
+			}
+			return Object.fromEntries(
+				Object.entries(stored).filter((field): field is [string, string] => typeof field[1] === "string")
+			);
+		},
 		setFingerprints: async (map) => {
 			// Re-confirmed at write time, per batch, not once per pass: a store
 			// mutation detected mid-pass must stop this write too. A map built
