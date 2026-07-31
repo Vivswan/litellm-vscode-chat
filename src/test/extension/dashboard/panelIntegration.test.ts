@@ -60,6 +60,17 @@ suite("extension/dashboard/panelIntegration", () => {
 
 	teardown(async function () {
 		this.timeout(20000);
+		// Remove leftover entries through the dashboard's own removal intent,
+		// not a raw settings write: removeServerSetting also deletes the
+		// entry's SecretStorage blob, so a bare config.update would strand
+		// secure blobs in the shared test host. What this cannot undo is the
+		// host-side provider group a sync pass may have upserted (VS Code has
+		// no group-removal API); that pollution is bounded to this label's
+		// disposable user-data-dir, which is why these tests stay in the unit
+		// label instead of paying a whole extra host launch for isolation.
+		for (const view of await declared()) {
+			await inject({ type: "removeServerSetting", label: view.label, requestId: `pi-teardown-${view.label}` });
+		}
 		const config = vscode.workspace.getConfiguration(CONFIG);
 		for (const key of TOUCHED_KEYS) {
 			if (config.inspect(key)?.globalValue !== undefined) {

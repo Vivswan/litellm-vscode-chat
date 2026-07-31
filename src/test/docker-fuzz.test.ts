@@ -12,6 +12,7 @@ import {
 	collectStream,
 	ensureActivated,
 	extractText,
+	extractThinkingParts,
 	extractToolCalls,
 	waitForHostModels,
 } from "./hostApiHelpers";
@@ -83,6 +84,16 @@ async function runStream(model: vscode.LanguageModelChat, name: string, events: 
 	assert.deepStrictEqual(actualSorted, assembled.expectedToolCalls, "tool calls diverged");
 	const ids = calls.map((c) => c.callId);
 	assert.strictEqual(new Set(ids).size, ids.length, `duplicate tool call IDs: ${ids.join(", ")}`);
+
+	// Only when the stream declares an expectation (corpus entries do): a
+	// reasoning stream that resolves with NO thinking parts must fail here,
+	// or deleting reasoning extraction would leave every entry green.
+	if (assembled.expectedThinking.length > 0) {
+		const thinking = extractThinkingParts(parts)
+			.map((part) => part.value ?? "")
+			.join("");
+		assert.strictEqual(thinking, assembled.expectedThinking, "thinking text diverged");
+	}
 }
 
 /**

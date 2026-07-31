@@ -97,12 +97,22 @@ jobs:
           fi
           # The webview suite renders source .tsx, never the esbuild output, so
           # a bundler regression could ship a blank dashboard with every test
-          # green; a size floor catches an empty or stub bundle cheaply.
+          # green. The floor must separate broken from healthy: a blank Preact
+          # render still weighs ~12,355 bytes, the real dashboard ~52,231, so
+          # 40000 fails the blank build with headroom on both sides. The grep
+          # is the content half: these strings only survive if the real
+          # dashboard components compiled into the bundle.
           webview_size="$(wc -c < dist/webview/dashboard.js | tr -d ' ')"
-          if [ "$webview_size" -lt 10000 ]; then
+          if [ "$webview_size" -lt 40000 ]; then
             echo "::error::dist/webview/dashboard.js is only ${webview_size} bytes; the dashboard bundle looks broken"
             exit 1
           fi
+          for marker in 'LiteLLM Dashboard' 'readInlineSecrets' 'saveServerSetting'; do
+            if ! grep -q "$marker" dist/webview/dashboard.js; then
+              echo "::error::dist/webview/dashboard.js lacks '${marker}'; the dashboard did not compile into the bundle"
+              exit 1
+            fi
+          done
           if ! echo "$listing" | grep -qx 'ThirdPartyNotices.txt'; then
             echo "::error::ThirdPartyNotices.txt is missing from the packaged file list"
             exit 1

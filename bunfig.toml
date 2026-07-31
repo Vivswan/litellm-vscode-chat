@@ -1,6 +1,9 @@
 # Bun's transpiler does not pick up jsx/jsxImportSource from the nested
 # src/test/webview/tsconfig.json (tsc does), so the preact JSX runtime is
-# pinned here for the webview test suite.
+# pinned here for the webview test suite. The same pin exists in
+# src/webview/tsconfig.json (typecheck) and scripts/esbuild.mts (bundle);
+# all three must agree. @types/bun tracks the packageManager bun version in
+# package.json - keep them aligned when bumping either.
 jsx = "react-jsx"
 jsxImportSource = "preact"
 

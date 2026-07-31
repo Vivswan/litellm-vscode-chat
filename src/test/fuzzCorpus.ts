@@ -23,6 +23,12 @@ export interface FuzzEvent {
 	chunks: unknown[];
 	/** Visible text this event appends, in stream order. */
 	text?: string;
+	/**
+	 * Thinking text this event must surface as thinking parts (the pinned
+	 * host exposes the thinking-part class, so reasoning deltas emit them).
+	 * Asserted only when at least one event of the stream declares it.
+	 */
+	thinking?: string;
 	/** Tool calls this event must produce. */
 	tools?: ExpectedToolCall[];
 	/** True when the tool calls arrive on the delta channel (triggers the one-time space hint after text). */
@@ -58,10 +64,11 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 		name: "issue-215-reasoning-only",
 		mode: "both",
 		events: [
-			{ label: "reasoning", chunks: [chunk({ reasoning_content: "step one " })] },
-			{ label: "reasoning-field", chunks: [chunk({ reasoning: "step two " })] },
+			{ label: "reasoning", thinking: "step one ", chunks: [chunk({ reasoning_content: "step one " })] },
+			{ label: "reasoning-field", thinking: "step two ", chunks: [chunk({ reasoning: "step two " })] },
 			{
 				label: "thinking-blocks",
+				thinking: "step three",
 				chunks: [
 					chunk({
 						reasoning_content: "step three",
@@ -82,6 +89,7 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 		events: [
 			{
 				label: "bare-reasoning",
+				thinking: "step one step two",
 				chunks: [
 					{ choices: [{ delta: { reasoning_content: "step one " } }] },
 					{ choices: [{ delta: { reasoning_content: "step two" } }] },
@@ -96,7 +104,11 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 		name: "issue-215-reasoning-then-tool-call-only",
 		mode: "both",
 		events: [
-			{ label: "reasoning", chunks: [chunk({ reasoning_content: "deciding which tool " })] },
+			{
+				label: "reasoning",
+				thinking: "deciding which tool ",
+				chunks: [chunk({ reasoning_content: "deciding which tool " })],
+			},
 			{
 				label: "delta-tool",
 				deltaToolChannel: true,
@@ -123,8 +135,8 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 		name: "issue-215-reasoning-then-text",
 		mode: "both",
 		events: [
-			{ label: "reasoning", chunks: [chunk({ reasoning_content: "silent planning " })] },
-			{ label: "reasoning-field", chunks: [chunk({ reasoning: "more planning " })] },
+			{ label: "reasoning", thinking: "silent planning ", chunks: [chunk({ reasoning_content: "silent planning " })] },
+			{ label: "reasoning-field", thinking: "more planning ", chunks: [chunk({ reasoning: "more planning " })] },
 			{ label: "text", text: "the visible answer", chunks: [chunk({ content: "the visible answer" })] },
 		],
 	},
