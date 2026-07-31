@@ -1,4 +1,18 @@
 import * as assert from "node:assert";
+import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
+import { resolveAdoptableCredentials } from "../../../extension/dashboard/adopt";
+import type { DashboardIntent } from "../../../extension/dashboard/intentSchema";
+import { webviewMessageSchema } from "../../../extension/dashboard/intentSchema";
+import type { IntentEnvironment } from "../../../extension/dashboard/intents";
+import {
+	DashboardOperationError,
+	executeDashboardIntent,
+	readInlineSecretValues,
+	validateHeadersRecord,
+	validateModelParametersRecord,
+	validateNumberSetting,
+	validateSaveServerSetting,
+} from "../../../extension/dashboard/intents";
 import type { NumberSettingId } from "../../../extension/dashboard/protocol";
 import {
 	BOOLEAN_SETTING_IDS,
@@ -14,27 +28,12 @@ import {
 } from "../../../extension/dashboard/protocol";
 import type { ServerFormDraft } from "../../../extension/dashboard/serverForm";
 import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../extension/dashboard/serverForm";
-import type {
-	AdoptableGroupCredentials,
-	DashboardIntent,
-	IntentEnvironment,
-	SettingsInspection,
-	SettingsReader,
-} from "../../../extension/dashboard/state";
+import type { SettingsInspection, SettingsReader } from "../../../extension/dashboard/state";
 import {
 	buildDashboardState,
-	DashboardOperationError,
-	executeDashboardIntent,
 	readDashboardSettings,
-	readInlineSecretValues,
-	resolveAdoptableCredentials,
 	resolveConfiguredScope,
 	resolveUpdateScope,
-	validateHeadersRecord,
-	validateModelParametersRecord,
-	validateNumberSetting,
-	validateSaveServerSetting,
-	webviewMessageSchema,
 } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";

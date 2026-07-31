@@ -6,7 +6,7 @@
  * construction so the extension-host unit suite covers it, and shared across
  * the trust boundary: the webview renders the problems this module computes,
  * and the extension re-validates the assembled payload with the same rules
- * (state.ts) before anything is written.
+ * (intents.ts) before anything is written.
  */
 
 import type {

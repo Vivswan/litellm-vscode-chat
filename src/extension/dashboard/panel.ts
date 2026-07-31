@@ -20,20 +20,19 @@ import { SERVERS_SETTING_KEY } from "../../shared/settings";
 import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../shared/webviewPaths";
 import type { DeclaredServerView, ServerSyncEngine } from "../serverSync";
 import { copyServerSecrets, deleteServerSecrets, readServerSecrets, updateServerSecret } from "../serverSync";
+import { resolveAdoptableCredentials } from "./adopt";
 import { buildDashboardHtml } from "./html";
-import type { ExtensionToWebviewMessage } from "./protocol";
-import type { IntentEnvironment, SettingsReader } from "./state";
+import { webviewMessageSchema } from "./intentSchema";
+import type { IntentEnvironment } from "./intents";
 import {
-	buildDashboardState,
 	DashboardOperationError,
 	DashboardValidationError,
 	executeDashboardIntent,
 	readInlineSecretValues,
-	resolveAdoptableCredentials,
-	resolveConfiguredScope,
-	resolveUpdateScope,
-	webviewMessageSchema,
-} from "./state";
+} from "./intents";
+import type { ExtensionToWebviewMessage } from "./protocol";
+import type { SettingsReader } from "./state";
+import { buildDashboardState, resolveConfiguredScope, resolveUpdateScope } from "./state";
 
 /** The slice of vscode.Webview the controller uses; createPanel sets the HTML before handing the panel over. */
 interface DashboardWebview {

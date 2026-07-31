@@ -13,6 +13,8 @@
 
 import * as assert from "node:assert";
 import * as fc from "fast-check";
+import { secretDirectiveSchema, webviewMessageSchema } from "../../../extension/dashboard/intentSchema";
+import { validateHeadersRecord } from "../../../extension/dashboard/intents";
 import {
 	BOOLEAN_SETTING_IDS,
 	DASHBOARD_COMMAND_IDS,
@@ -22,7 +24,6 @@ import {
 	SECRET_FIELD_IDS,
 	type WebviewToExtensionMessage,
 } from "../../../extension/dashboard/protocol";
-import { secretDirectiveSchema, validateHeadersRecord, webviewMessageSchema } from "../../../extension/dashboard/state";
 import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../../shared/headers";
 import { isUnsafeRecordKey } from "../../../shared/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
@@ -30,7 +31,7 @@ import { resolveFuzzSeed } from "../../fuzzStream";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
 
-/** Pins REQUEST_ID_MAX_LENGTH in state.ts: correlation tokens longer than this must be refused. */
+/** Pins REQUEST_ID_MAX_LENGTH in intentSchema.ts: correlation tokens longer than this must be refused. */
 const REQUEST_ID_MAX_LENGTH = 128;
 
 const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true });
