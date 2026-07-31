@@ -265,3 +265,27 @@ test("adopting an external row posts adoptServer carrying exactly the sanctioned
 	expect(posted.secrets).toEqual({ apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" });
 	expect(Object.keys(posted.secrets).sort()).toEqual(["apiKey", "oauthClientSecret", "virtualKeyValue"]);
 });
+
+test("the model count is a scope link only when the section is given onShowModels", () => {
+	// Direct mounts without the callback (and zero-count rows) keep the count
+	// as plain text: a link that scopes to nothing helps nobody.
+	const plain = mountSection([makeDeclaredServer({ label: "Prod", modelCount: 3 })]);
+	expect(plain.querySelector("button[aria-label='Show models from Prod']")).toBeNull();
+
+	const labels: string[] = [];
+	const root = mount(
+		<ServersSection
+			servers={[makeDeclaredServer({ label: "Prod", modelCount: 3 }), makeDeclaredServer({ label: "Empty" })]}
+			now={Date.now()}
+			ack={undefined}
+			failures={{}}
+			inlineSecrets={undefined}
+			onDismissFailure={noop}
+			onClearInlineSecrets={noop}
+			onShowModels={(label) => labels.push(label)}
+		/>
+	);
+	expect(root.querySelector("button[aria-label='Show models from Empty']")).toBeNull();
+	fireClick(root.querySelector("button[aria-label='Show models from Prod']") as HTMLElement);
+	expect(labels).toEqual(["Prod"]);
+});

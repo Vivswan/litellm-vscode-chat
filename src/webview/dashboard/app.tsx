@@ -15,13 +15,16 @@ import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
 import { postMessage } from "./vscodeApi";
 
-/** The dashboard's top-level sections, one tab each; servers first because setup starts there. */
-const SECTION_IDS = ["servers", "models", "settings"] as const;
+/**
+ * The dashboard's top-level sections, one tab each. Servers and models share
+ * the overview tab (they are one workflow: connect a server, see its models);
+ * only the settings form gets a page of its own.
+ */
+const SECTION_IDS = ["overview", "settings"] as const;
 type SectionId = (typeof SECTION_IDS)[number];
 
 const SECTION_LABELS: Record<SectionId, string> = {
-	servers: "Servers",
-	models: "Models",
+	overview: "Servers & Models",
 	settings: "Settings",
 };
 
@@ -208,17 +211,11 @@ function LoadingSkeleton() {
  * the panelTitle theme tokens) with the WAI-ARIA tabs contract: roving
  * tabindex, arrow keys move focus and selection together, Home/End jump. The
  * inactive panels stay mounted below (hidden, not unmounted) so an open form
- * or a half-typed filter survives a visit to another section.
+ * or a half-typed filter survives a visit to another section. The tabs carry
+ * no count badges: the hero directly above already shows the server and
+ * model totals.
  */
-function SectionTabs({
-	active,
-	counts,
-	onSelect,
-}: {
-	active: SectionId;
-	counts: Partial<Record<SectionId, number>>;
-	onSelect: (section: SectionId) => void;
-}) {
+function SectionTabs({ active, onSelect }: { active: SectionId; onSelect: (section: SectionId) => void }) {
 	const select = (section: SectionId) => {
 		onSelect(section);
 		document.getElementById(`tab-${section}`)?.focus();
@@ -249,18 +246,10 @@ function SectionTabs({
 					id={`tab-${section}`}
 					aria-selected={section === active}
 					aria-controls={`panel-${section}`}
-					aria-label={
-						counts[section] !== undefined ? `${SECTION_LABELS[section]} (${counts[section]})` : SECTION_LABELS[section]
-					}
 					tabIndex={section === active ? 0 : -1}
 					onClick={() => onSelect(section)}
 				>
 					{SECTION_LABELS[section]}
-					{counts[section] !== undefined ? (
-						<span class="count" aria-hidden="true">
-							{counts[section]}
-						</span>
-					) : null}
 				</button>
 			))}
 		</div>
@@ -297,11 +286,15 @@ function SectionPanel({
  */
 export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?: number } = {}) {
 	const [state, setState] = useState<DashboardState | undefined>(undefined);
-	const [section, setSection] = useState<SectionId>("servers");
+	const [section, setSection] = useState<SectionId>("overview");
 	const [ack, setAck] = useState<IntentAck | undefined>(undefined);
 	const [failures, setFailures] = useState<FailuresByIntent>({});
 	const [toasts, setToasts] = useState<readonly ToastItem[]>([]);
 	const [inlineSecrets, setInlineSecrets] = useState<InlineSecretsResponse | undefined>(undefined);
+	// The models list's server scope (a server row's model-count link sets it,
+	// the chip in the models filter bar clears it). Held here rather than in
+	// ModelsSection because the servers table is the other end of the wire.
+	const [serverScope, setServerScope] = useState<string | undefined>(undefined);
 	// One clock for every relative time on the page; hidden panels share the
 	// same tick instead of running intervals of their own.
 	const now = useNow();
@@ -357,6 +350,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		return () => window.removeEventListener("message", onMessage);
 	}, []);
 
+	// A scope whose server left the list would filter the table down to
+	// nothing with no row left to explain why, so it clears itself.
+	useEffect(() => {
+		if (serverScope !== undefined && state !== undefined && !state.servers.some((s) => s.label === serverScope)) {
+			setServerScope(undefined);
+		}
+	}, [serverScope, state]);
+
 	if (state === undefined) {
 		return <LoadingSkeleton />;
 	}
@@ -368,6 +369,16 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		});
 	};
 
+	const showServerModels = (label: string) => {
+		setServerScope(label);
+		// The jump moves the reading position and the keyboard position
+		// together: without the focus call, Tab would continue from the count
+		// link the user just left behind.
+		const target = document.getElementById("models-section");
+		target?.scrollIntoView();
+		target?.focus({ preventScroll: true });
+	};
+
 	const scalarFailure =
 		failures.setNumberSetting ?? failures.setBooleanSetting ?? failures.resetSetting ?? failures.executeCommand;
 	return (
@@ -376,12 +387,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			<p class="hint">Servers, models, and settings in one place; edits land in your VS Code settings.</p>
 			<StatusHero state={state} now={now} />
 			{scalarFailure !== undefined ? <p class="error">The last change did not apply: {scalarFailure.message}</p> : null}
-			<SectionTabs
-				active={section}
-				counts={{ servers: state.servers.length, models: state.models.length }}
-				onSelect={setSection}
-			/>
-			<SectionPanel section="servers" active={section}>
+			<SectionTabs active={section} onSelect={setSection} />
+			<SectionPanel section="overview" active={section}>
 				<ServersSection
 					servers={state.servers}
 					now={now}
@@ -390,10 +397,19 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					inlineSecrets={inlineSecrets}
 					onDismissFailure={dismissFailure}
 					onClearInlineSecrets={() => setInlineSecrets(undefined)}
+					onShowModels={showServerModels}
 				/>
-			</SectionPanel>
-			<SectionPanel section="models" active={section}>
-				<ModelsSection models={state.models} serverCount={state.servers.length} />
+				{/* With zero servers the guided start card is the whole story; a
+				    second empty block under it would dilute it. */}
+				{state.servers.length > 0 ? (
+					<ModelsSection
+						models={state.models}
+						serverCount={state.servers.length}
+						scope={
+							serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
+						}
+					/>
+				) : null}
 			</SectionPanel>
 			<SectionPanel section="settings" active={section}>
 				<SettingsSection settings={state.settings} failures={failures} />

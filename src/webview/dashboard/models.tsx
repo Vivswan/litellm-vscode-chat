@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { DashboardModel } from "../../extension/dashboard/protocol";
 import { Help, HoverTip } from "./help";
 import { HELP_MODELS_SECTION } from "./helpText";
-import { IconArrowUp, IconCheck, IconCopy } from "./icons";
+import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
 
 function formatTokens(count: number): string {
 	return count.toLocaleString();
@@ -162,7 +162,20 @@ const DEFAULT_ROW_HEIGHT = 26;
 const OVERSCAN = 10;
 const FALLBACK_VIEWPORT = 420;
 
-export function ModelsSection({ models, serverCount }: { models: readonly DashboardModel[]; serverCount: number }) {
+export function ModelsSection({
+	models,
+	serverCount,
+	scope,
+}: {
+	models: readonly DashboardModel[];
+	serverCount: number;
+	/**
+	 * Narrows the list to one server's models; the servers table's model-count
+	 * links set it, its chip's clear button reports back through onClear. One
+	 * object so a scope without a working clear cannot be expressed.
+	 */
+	scope?: { readonly label: string; readonly onClear: () => void } | undefined;
+}) {
 	const [filter, setFilter] = useState("");
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
 	const [scrollTop, setScrollTop] = useState(0);
@@ -181,11 +194,25 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 		}
 	});
 
+	// A new scope means a new list, so the scrollport rewinds: a scroll
+	// position inherited from the previous server would drop the reader
+	// mid-list (the window clamp keeps it in range, but not at the top).
+	const scopeLabel = scope?.label;
+	useEffect(() => {
+		if (scrollRef.current !== null) {
+			scrollRef.current.scrollTop = 0;
+		}
+		setScrollTop(0);
+	}, [scopeLabel]);
+
 	// Keyed to the server count, not the distinct labels: two groups can share
 	// a label, and their models must stay attributable.
 	const showServerColumn = serverCount > 1;
+	// The scope narrows first, then the text filter: the chip and the input
+	// compose as two independent conditions.
+	const scoped = scope === undefined ? models : models.filter((model) => model.serverLabel === scope.label);
 	const needle = filter.trim().toLowerCase();
-	const filtered = needle.length === 0 ? models : models.filter((model) => matches(model, needle));
+	const filtered = needle.length === 0 ? scoped : scoped.filter((model) => matches(model, needle));
 	const sorted = sort === undefined ? filtered : [...filtered].sort(compareBy(sort));
 
 	const toggleSort = (key: SortKey) => {
@@ -221,16 +248,17 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 	const columns = 7 + (showServerColumn ? 1 : 0);
 
 	return (
-		<section>
+		// The id anchors the servers table's model-count links: App scrolls and
+		// focuses here (hence the tabIndex), and the stylesheet's scroll-margin
+		// keeps the heading clear of the sticky tab bar.
+		<section id="models-section" tabIndex={-1}>
 			<h2>
 				Models <Help text={HELP_MODELS_SECTION} />
 			</h2>
 			{models.length === 0 ? (
 				<div class="empty-block">
 					<p>No models discovered yet.</p>
-					<p class="hint">
-						Models appear here once a server is connected and synced: add one under Servers, then run Sync models.
-					</p>
+					<p class="hint">Models appear here once a server has synced; run Sync models to ask your servers now.</p>
 				</div>
 			) : (
 				<>
@@ -242,8 +270,16 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 							value={filter}
 							onInput={(event) => setFilter(event.currentTarget.value)}
 						/>
+						{scope !== undefined ? (
+							<span class="chip">
+								Server: {scope.label}
+								<button type="button" class="quiet" aria-label="Clear the server filter" onClick={scope.onClear}>
+									<IconClose />
+								</button>
+							</span>
+						) : null}
 						<span class="hint">
-							showing {sorted.length} of {models.length}
+							showing {sorted.length} of {scoped.length}
 						</span>
 					</div>
 					{/* When windowed, the scrollport is a focusable, labelled region so
