@@ -19,7 +19,10 @@
  * proposal check in extHostLanguageModels.ts's $provideLanguageModelChatInfo
  * mapping and renders them vendor-agnostically (the model picker hover's
  * cost badge and warning banner in modelPickerHover.ts, the row icon and
- * ariaDescription in modelPickerItemPrimitives.ts). languageModelPricing's
+ * ariaDescription in modelPickerItemPrimitives.ts). The pricing fields are
+ * mirrored on the consumer-side LanguageModelChat too: the host copies them
+ * onto the API object it hands selectChatModels() callers, equally ungated.
+ * languageModelPricing's
  * `category` stays excluded deliberately: it renders fine (a hover tag), but
  * LiteLLM's model data cannot honestly populate a capability tier, so do not
  * add it.
@@ -132,6 +135,64 @@ declare module "vscode" {
 		 * Unlike degradation warnings, this does not produce a warning icon in the picker list.
 		 */
 		readonly warningText?: Record<string, string>;
+	}
+
+	export interface LanguageModelChat {
+		/**
+		 * Optional pricing label for this model, such as "Free", "$0.01/request", etc.
+		 * This value is provided by the model provider and is meant for display purposes only.
+		 */
+		readonly pricing?: string;
+
+		/**
+		 * Optional input cost in AI credits for this model.
+		 */
+		readonly inputCost?: number;
+
+		/**
+		 * Optional output cost in AI credits for this model.
+		 */
+		readonly outputCost?: number;
+
+		/**
+		 * Optional cache cost in AI credits for this model.
+		 */
+		readonly cacheCost?: number;
+
+		/**
+		 * Optional cache write cost in AI credits for this model.
+		 */
+		readonly cacheWriteCost?: number;
+
+		/**
+		 * Optional long-context input cost in AI credits for this model.
+		 * Present only when long-context pricing differs from default pricing.
+		 */
+		readonly longContextInputCost?: number;
+
+		/**
+		 * Optional long-context output cost in AI credits for this model.
+		 * Present only when long-context pricing differs from default pricing.
+		 */
+		readonly longContextOutputCost?: number;
+
+		/**
+		 * Optional long-context cache cost in AI credits for this model.
+		 * Present only when long-context pricing differs from default pricing.
+		 */
+		readonly longContextCacheCost?: number;
+
+		/**
+		 * Optional long-context cache write cost in AI credits for this model.
+		 * Present only when long-context pricing differs from default pricing.
+		 */
+		readonly longContextCacheWriteCost?: number;
+
+		/**
+		 * Optional relative pricing category for this model (e.g. "low", "medium", "high", "very_high").
+		 * Displayed in the model picker as a visual indicator of relative cost.
+		 */
+		readonly priceCategory?: string;
 	}
 
 	export interface PrepareLanguageModelChatModelOptions {

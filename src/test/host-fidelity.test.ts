@@ -136,6 +136,18 @@ suite("Host-Fidelity Tests (capture)", () => {
 			assert.strictEqual(model.family, "openai", "the capture server advertises litellm_provider: openai");
 		});
 
+		test("the host-preserved model exposes the pricing fields to consumers", () => {
+			// The capture fixture declares per-token costs precisely so this run
+			// pins, against a real host, that the pricing metadata registers
+			// without throwing (the capabilities.editTools gate is the
+			// precedent) and survives onto the LanguageModelChat object that
+			// selectChatModels() hands consumers.
+			assert.strictEqual(model.inputCost, 1.25, "per-token 0.00000125 converts to 1.25 per million");
+			assert.strictEqual(model.outputCost, 10);
+			assert.strictEqual(model.priceCategory, "medium", "blended (3*1.25+10)/4 = 3.4375 lands in the medium band");
+			assert.strictEqual(model.pricing, "$1.25 in / $10 out per 1M tokens");
+		});
+
 		test("countTokens returns positive for text", async () => {
 			const count = await model.countTokens("Hello world");
 			assert.ok(count > 0, `Token count should be positive, got ${count}`);
