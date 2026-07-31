@@ -6,9 +6,10 @@
 // docker-compose mounts into the litellm container (the proxy's own
 // github_copilot authenticator reads it there) and which the config
 // generator reads to fetch the live Copilot model catalog at generation
-// time. Re-run whenever GitHub revokes the token; delete the directory to
-// sign out. A GitHub account with a Copilot seat is required - a plain PAT
-// cannot reach the Copilot token exchange.
+// time. Re-run whenever GitHub revokes the token; delete the access-token
+// file inside the directory to sign out (the directory itself is a tracked
+// compose mountpoint - keep it). A GitHub account with a Copilot seat is
+// required - a plain PAT cannot reach the Copilot token exchange.
 
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";

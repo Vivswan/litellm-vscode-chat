@@ -130,8 +130,8 @@ export interface GeneratedConfig {
 
 /**
  * Write the runtime config to docker/.generated/litellm-config.yaml,
- * creating the directory if needed (docker/ itself holds nothing that is
- * committed, so a fresh clone starts without it). The write is skipped when
+ * creating the directory if needed (docker/.generated/ is gitignored, so a
+ * fresh clone starts without it). The write is skipped when
  * the content is already on disk, and goes through a same-directory temp
  * file plus rename otherwise, so a concurrently starting container can never
  * read a half-written config.
