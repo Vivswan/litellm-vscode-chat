@@ -18,11 +18,12 @@ import type { TextParseResult, TextToolCall } from "../textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "../textToolCallParser";
 import type { ChatCompletionChunk, ChunkAudio, ChunkDelta, ChunkSearchResult, ToolCallBuffer } from "../wire";
 import { parseChunk, TERMINAL_FINISH_REASONS } from "../wire";
+import { ToolCallLedger } from "./dedup";
 import type { AudioBuffer } from "./media";
 import { audioMimeForFormat, decodeBase64DataUrl, decodeBase64Strict } from "./media";
 import { sseFrames } from "./sse";
-import type { ThinkingContent } from "./thinking";
-import { extractThinking, REASONING_ONLY_RESPONSE_MESSAGE } from "./thinking";
+import type { DroppedReasoning, ThinkingContent } from "./thinking";
+import { extractThinking, freshDroppedReasoning, REASONING_ONLY_RESPONSE_MESSAGE } from "./thinking";
 import { knownUsageCounts, usageDataPartPayload } from "./usage";
 
 /**
@@ -53,23 +54,8 @@ interface RequestState {
 	hasEmittedAssistantText: boolean;
 	emittedBeginToolCallsHint: boolean;
 	textParser: TextToolCallParser;
-	/** Inline calls already decided (emitted or deduped) while provisional, so their completion is not re-emitted. */
-	handledTextCallSeqs: Set<number>;
-	/** name:index pairs from inline headers, deduping re-sent inline calls that carry an explicit index. */
-	inlineEmittedIndexIds: Set<string>;
-	/** name:args keys of emitted inline calls, deduping re-sent inline calls without an explicit index. */
-	inlineEmittedContentKeys: Set<string>;
-	/**
-	 * Per-channel counts of emitted name:args keys. A call arriving on one
-	 * channel consumes one pending count from the other channel (the same call
-	 * surfaced twice) and is suppressed; with no pending count it emits and
-	 * increments its own channel. N delta plus M inline occurrences of the same
-	 * key therefore emit max(N, M) calls, so identical parallel calls on one
-	 * channel all survive while cross-channel duplicates collapse in either
-	 * arrival order.
-	 */
-	deltaEmittedCounts: Map<string, number>;
-	inlineEmittedCounts: Map<string, number>;
+	/** The tool-call dedup ledger: inline-replay tracking plus the cross-channel max(N, M) rule (see ToolCallLedger). */
+	ledger: ToolCallLedger;
 	/** Whether a refusal delta was already logged for this request. */
 	loggedRefusal: boolean;
 	/** Whether an undecodable generated-image entry was already logged for this request (no per-entry flood). */
@@ -87,18 +73,8 @@ interface RequestState {
 	audioBuffer: AudioBuffer | undefined;
 	/** Set by every part handed to progress; the end-of-stream empty-response check reads it. */
 	reportedAnyPart: boolean;
-	/**
-	 * Aggregate of reasoning parts dropped because no thinking part could be
-	 * built (class missing, or its constructor threw): counts and lengths only,
-	 * never the text. "Parts" counts thinking items, not SSE chunks - one delta
-	 * carrying three thinking_blocks counts three.
-	 */
-	droppedReasoningParts: number;
-	droppedReasoningLength: number;
-	/** Set once the per-request drop classification was logged; finishStream runs more than once per stream. */
-	loggedDroppedReasoning: boolean;
-	/** Set once the reasoning-only empty response error was thrown; finishStream runs more than once per stream. */
-	threwReasoningOnly: boolean;
+	/** Reasoning lost to a missing or throwing thinking-part class; see DroppedReasoning. */
+	droppedReasoning: DroppedReasoning;
 }
 
 function freshRequestState(): RequestState {
@@ -108,21 +84,14 @@ function freshRequestState(): RequestState {
 		hasEmittedAssistantText: false,
 		emittedBeginToolCallsHint: false,
 		textParser: new TextToolCallParser(),
-		handledTextCallSeqs: new Set(),
-		inlineEmittedIndexIds: new Set(),
-		inlineEmittedContentKeys: new Set(),
-		deltaEmittedCounts: new Map(),
-		inlineEmittedCounts: new Map(),
+		ledger: new ToolCallLedger(),
 		loggedRefusal: false,
 		loggedImageSkip: false,
 		citations: new Map(),
 		usage: undefined,
 		audioBuffer: undefined,
 		reportedAnyPart: false,
-		droppedReasoningParts: 0,
-		droppedReasoningLength: 0,
-		loggedDroppedReasoning: false,
-		threwReasoningOnly: false,
+		droppedReasoning: freshDroppedReasoning(),
 	};
 }
 
@@ -170,8 +139,8 @@ export class StreamProcessor {
 
 	/** Aggregate only (part count and character length); the reasoning text never reaches the logs. */
 	private recordDroppedReasoning(thinking: ThinkingContent): void {
-		this._req.droppedReasoningParts += 1;
-		this._req.droppedReasoningLength += thinking.text.length;
+		this._req.droppedReasoning.parts += 1;
+		this._req.droppedReasoning.length += thinking.text.length;
 	}
 
 	/**
@@ -181,13 +150,14 @@ export class StreamProcessor {
 	 * the turn a user reports; the once-per-session support notice cannot.
 	 */
 	private logDroppedReasoningAggregate(): void {
-		if (this._req.droppedReasoningParts === 0 || this._req.loggedDroppedReasoning) {
+		const dropped = this._req.droppedReasoning;
+		if (dropped.parts === 0 || dropped.logged) {
 			return;
 		}
-		this._req.loggedDroppedReasoning = true;
+		dropped.logged = true;
 		this._log("Dropped reasoning output; LanguageModelThinkingPart missing or failed", {
-			parts: this._req.droppedReasoningParts,
-			totalLength: this._req.droppedReasoningLength,
+			parts: dropped.parts,
+			totalLength: dropped.length,
 		});
 	}
 
@@ -563,7 +533,7 @@ export class StreamProcessor {
 				continue;
 			}
 			const call = event.call;
-			if (this._req.handledTextCallSeqs.has(call.seq)) {
+			if (this._req.ledger.alreadyHandled(call.seq)) {
 				continue;
 			}
 			const parsed = tryParseJSONObject(call.args);
@@ -578,10 +548,10 @@ export class StreamProcessor {
 		}
 
 		const provisional = result.provisionalCall;
-		if (provisional && !this._req.handledTextCallSeqs.has(provisional.seq)) {
+		if (provisional && !this._req.ledger.alreadyHandled(provisional.seq)) {
 			const parsed = tryParseJSONObject(provisional.args);
 			if (parsed.ok) {
-				this._req.handledTextCallSeqs.add(provisional.seq);
+				this._req.ledger.markHandled(provisional.seq);
 				if (this.emitInlineToolCall(provisional, parsed.value, progress)) {
 					emittedAny = true;
 				}
@@ -598,20 +568,13 @@ export class StreamProcessor {
 	): boolean {
 		const name = call.name ?? "unknown_tool";
 		const contentKey = `${name}:${JSON.stringify(parsedArgs)}`;
-		if (typeof call.index === "number") {
-			if (this._req.inlineEmittedIndexIds.has(`${name}:${call.index}`)) {
-				return false;
-			}
-		} else if (this._req.inlineEmittedContentKeys.has(contentKey)) {
+		if (this._req.ledger.inlineAlreadyEmitted(name, call.index, contentKey)) {
 			return false;
 		}
 		const emitted = this.emitToolCall(progress, { name, parsedArgs });
 		// Registered even when suppressed as a cross-channel duplicate: either way
 		// this inline call is accounted for, and a replay of it must not emit.
-		if (typeof call.index === "number") {
-			this._req.inlineEmittedIndexIds.add(`${name}:${call.index}`);
-		}
-		this._req.inlineEmittedContentKeys.add(contentKey);
+		this._req.ledger.recordInlineEmission(name, call.index, contentKey);
 		return emitted;
 	}
 
@@ -622,8 +585,6 @@ export class StreamProcessor {
 	): boolean {
 		const source = bufferIndex === undefined ? "inline" : "delta";
 		const key = `${call.name}:${JSON.stringify(call.parsedArgs)}`;
-		const ownCounts = source === "inline" ? this._req.inlineEmittedCounts : this._req.deltaEmittedCounts;
-		const otherCounts = source === "inline" ? this._req.deltaEmittedCounts : this._req.inlineEmittedCounts;
 
 		const retireBuffer = () => {
 			if (bufferIndex !== undefined) {
@@ -632,20 +593,14 @@ export class StreamProcessor {
 			}
 		};
 
-		const pending = otherCounts.get(key) ?? 0;
-		if (pending > 0) {
-			if (pending === 1) {
-				otherCounts.delete(key);
-			} else {
-				otherCounts.set(key, pending - 1);
-			}
+		if (this._req.ledger.shouldSuppress(source, key)) {
 			retireBuffer();
 			// Classification only: the tool name can be response text on the inline channel.
 			this._log("Suppressing tool call already emitted via the other channel", { source });
 			return false;
 		}
 
-		ownCounts.set(key, (ownCounts.get(key) ?? 0) + 1);
+		this._req.ledger.recordEmission(source, key);
 		const id = call.id ?? `call_${this._toolCallIds.next()}`;
 		this.reportPart(progress, new vscode.LanguageModelToolCallPart(id, call.name, call.parsedArgs));
 		retireBuffer();
@@ -701,10 +656,10 @@ export class StreamProcessor {
 
 		const rest = this._req.textParser.flush();
 		const call = rest.provisionalCall;
-		if (call && !this._req.handledTextCallSeqs.has(call.seq)) {
+		if (call && !this._req.ledger.alreadyHandled(call.seq)) {
 			const parsed = tryParseJSONObject(call.args);
 			if (parsed.ok) {
-				this._req.handledTextCallSeqs.add(call.seq);
+				this._req.ledger.markHandled(call.seq);
 				this.emitInlineToolCall(call, parsed.value, progress);
 			} else {
 				// Classification only: the name and arguments are response text.
@@ -756,10 +711,10 @@ export class StreamProcessor {
 		if (
 			finishedNormally &&
 			!this._req.reportedAnyPart &&
-			this._req.droppedReasoningParts > 0 &&
-			!this._req.threwReasoningOnly
+			this._req.droppedReasoning.parts > 0 &&
+			!this._req.droppedReasoning.threw
 		) {
-			this._req.threwReasoningOnly = true;
+			this._req.droppedReasoning.threw = true;
 			throw new Error(REASONING_ONLY_RESPONSE_MESSAGE);
 		}
 

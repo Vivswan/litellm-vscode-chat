@@ -68,3 +68,22 @@ export function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefin
  */
 export const REASONING_ONLY_RESPONSE_MESSAGE =
 	"The model produced only reasoning output, which this version of VS Code could not display: the LanguageModelThinkingPart API is missing or failed. Update VS Code to a version that supports thinking parts, or use a model that returns final text.";
+
+/**
+ * Per-request aggregate of reasoning dropped because no thinking part could
+ * be built (class missing, or its constructor threw): counts and lengths
+ * only, never the text. "parts" counts thinking items, not SSE chunks - one
+ * delta carrying three thinking_blocks counts three. logged and threw latch
+ * the once-per-request drop log line and the reasoning-only error, because
+ * finishStream runs more than once per stream.
+ */
+export interface DroppedReasoning {
+	parts: number;
+	length: number;
+	logged: boolean;
+	threw: boolean;
+}
+
+export function freshDroppedReasoning(): DroppedReasoning {
+	return { parts: 0, length: 0, logged: false, threw: false };
+}
