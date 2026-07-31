@@ -16,7 +16,7 @@ import {
 	ServerSyncEngine,
 	updateServerSecret,
 } from "../../extension/serverSync";
-import { groupClientId, parseGroupConfiguration } from "../../provider/groupModels";
+import { groupClientId, parseGroupConfiguration } from "../../provider/catalog/groupModels";
 import { normalizeBaseUrl } from "../../shared/baseUrl";
 import { CMD } from "../../shared/commandIds";
 import { fingerprint } from "../../shared/fingerprint";

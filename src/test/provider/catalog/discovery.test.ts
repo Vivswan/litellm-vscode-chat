@@ -7,14 +7,14 @@ import {
 	mapModelInfoEntry,
 	mergeModelDeployments,
 	parseModelInfoItem,
-} from "../../provider/discovery";
-import { deriveTokenConstraints } from "../../provider/modelCatalog";
-import { buildModelInfos } from "../../provider/registration";
-import type { LiteLLMModelItem, ModelShape } from "../../provider/schemas";
-import { createServerClient } from "../../provider/transport/clients";
-import { RequestError } from "../../provider/transport/errorMapping";
-import { publicErrorText } from "../../shared/logger";
-import type { TokenDefaults } from "../../shared/settings";
+} from "../../../provider/catalog/discovery";
+import { deriveTokenConstraints } from "../../../provider/catalog/modelCatalog";
+import { buildModelInfos } from "../../../provider/catalog/registration";
+import type { LiteLLMModelItem, ModelShape } from "../../../provider/catalog/schemas";
+import { createServerClient } from "../../../provider/transport/clients";
+import { RequestError } from "../../../provider/transport/errorMapping";
+import { publicErrorText } from "../../../shared/logger";
+import type { TokenDefaults } from "../../../shared/settings";
 import {
 	discoveryHandlers,
 	emptyErrorResponse,
@@ -23,8 +23,8 @@ import {
 	mswServer,
 	TEST_BASE_URL,
 	useMsw,
-} from "../mocks/handlers";
-import { expectDefined, withConfig, withFetch } from "../testUtils";
+} from "../../mocks/handlers";
+import { expectDefined, withConfig, withFetch } from "../../testUtils";
 
 /** Fixed per-pass defaults snapshot, mirroring the provider's single read per refresh. */
 const TEST_TOKEN_DEFAULTS: TokenDefaults = { maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined };
@@ -52,7 +52,7 @@ function expectShape<K extends ModelShape["kind"]>(model: LiteLLMModelItem, kind
 	return model.shape as Extract<ModelShape, { kind: K }>;
 }
 
-suite("provider/discovery", () => {
+suite("provider/catalog/discovery", () => {
 	useMsw();
 
 	suite("guards", () => {

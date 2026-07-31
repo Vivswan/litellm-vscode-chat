@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
-import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { expectDefined, makeProvider, toHeaderMap, withConfig } from "../testUtils";
+import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
+import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
+import { expectDefined, makeProvider, toHeaderMap, withConfig } from "../../testUtils";
 
 suite("provider/model info and fallback", () => {
 	useMsw();

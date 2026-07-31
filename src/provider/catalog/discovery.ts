@@ -1,8 +1,10 @@
 import type OpenAI from "openai";
-import { isRecord } from "../shared/json";
-import { errorMessageText } from "../shared/logger";
-import { normalizeCostPerToken, normalizePositiveNumber } from "../shared/numbers";
-import type { TokenDefaults } from "../shared/settings";
+import { isRecord } from "../../shared/json";
+import { errorMessageText } from "../../shared/logger";
+import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/numbers";
+import type { TokenDefaults } from "../../shared/settings";
+import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
+import { mapSdkError, RequestError, timeoutMessage } from "../transport/errorMapping";
 import { collapseTokenConstraints } from "./modelCatalog";
 import type {
 	LiteLLMArchitecture,
@@ -12,8 +14,6 @@ import type {
 	RawModelItem,
 } from "./schemas";
 import { providerEntrySchema, rawModelInfoItemSchema, rawModelItemSchema, supportsTools } from "./schemas";
-import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "./transport/clients";
-import { mapSdkError, RequestError, timeoutMessage } from "./transport/errorMapping";
 
 /**
  * The retry budget for discovery GETs. They are idempotent, so retrying is

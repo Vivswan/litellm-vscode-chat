@@ -37,7 +37,7 @@ import {
 	webviewMessageSchema,
 } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/serverSync";
-import { REASONING_EFFORT_SCHEMA } from "../../../provider/modelConfiguration";
+import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { normalizeBaseUrl } from "../../../shared/baseUrl";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
 

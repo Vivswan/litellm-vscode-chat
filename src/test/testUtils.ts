@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";
-import type { LiteLLMModelInfo, PreAttachModelInfo } from "../provider/groupModels";
+import type { LiteLLMModelInfo, PreAttachModelInfo } from "../provider/catalog/groupModels";
 import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
