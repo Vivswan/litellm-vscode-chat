@@ -28,16 +28,29 @@ export function ensureRegistryMutable(): boolean {
 }
 
 /**
- * Full mutation guard: the migration lock, plus a completion re-check that
- * closes the window between a migration finishing and this command's UI-mode
- * decision: a server added into an already-migrated registry would only be
- * cleaned up as an orphan.
+ * Whether the legacy registry is still served in each UI mode (only
+ * "nativeRequired" means migration retired it). The one predicate behind the
+ * mutation guard below and the provider's grouplessRegistryEnabled gate, so
+ * the two cannot drift; exhaustive by construction, so a mode added to
+ * ManagementUiMode does not compile until it takes a side here.
  */
-export function canMutateRegistry(isMigrated: () => boolean): boolean {
+export const REGISTRY_SERVED_IN_MODE: Record<ManagementUiMode, boolean> = {
+	legacy: true,
+	nativePreferred: true,
+	nativeRequired: false,
+};
+
+/**
+ * Full mutation guard: the migration lock, plus a UI-mode read at the moment
+ * of mutation. Re-reading the mode here closes the window between a migration
+ * finishing and a prompt flow's write: a server added into an
+ * already-migrated registry would only be cleaned up as an orphan.
+ */
+export function canMutateRegistry(getUiMode: () => ManagementUiMode): boolean {
 	if (!ensureRegistryMutable()) {
 		return false;
 	}
-	if (isMigrated()) {
+	if (!REGISTRY_SERVED_IN_MODE[getUiMode()]) {
 		void vscode.window.showInformationMessage(
 			`LiteLLM servers are now managed in VS Code's language models UI. Re-run "${MANAGE_COMMAND_TITLE}" to open it.`
 		);
@@ -136,8 +149,12 @@ export function warnAboutOrphanedModelParameters(
 	);
 }
 
-async function addServerFlow(registry: ServerRegistry, logger: Logger, isMigrated: () => boolean): Promise<boolean> {
-	if (!canMutateRegistry(isMigrated)) {
+async function addServerFlow(
+	registry: ServerRegistry,
+	logger: Logger,
+	getUiMode: () => ManagementUiMode
+): Promise<boolean> {
+	if (!canMutateRegistry(getUiMode)) {
 		return false;
 	}
 	const label = await promptForServerLabel(registry);
@@ -156,7 +173,7 @@ async function addServerFlow(registry: ServerRegistry, logger: Logger, isMigrate
 	}
 
 	// A migration may have started while the input boxes were open.
-	if (!canMutateRegistry(isMigrated)) {
+	if (!canMutateRegistry(getUiMode)) {
 		return false;
 	}
 	await registry.addServer(label, baseUrl, apiKey);
@@ -175,7 +192,7 @@ async function manageServerFlow(
 	registry: ServerRegistry,
 	serverId: string,
 	logger: Logger,
-	isMigrated: () => boolean
+	getUiMode: () => ManagementUiMode
 ): Promise<void> {
 	const servers = registry.getServers();
 	const server = servers.find((s) => s.id === serverId);
@@ -200,7 +217,7 @@ async function manageServerFlow(
 	}
 
 	if (pick.action === "edit") {
-		if (!canMutateRegistry(isMigrated)) {
+		if (!canMutateRegistry(getUiMode)) {
 			return;
 		}
 		const label = await promptForServerLabel(registry, server.label, serverId);
@@ -221,7 +238,7 @@ async function manageServerFlow(
 
 		const oldLabel = server.label;
 		// A migration may have started while the input boxes were open.
-		if (!canMutateRegistry(isMigrated)) {
+		if (!canMutateRegistry(getUiMode)) {
 			return;
 		}
 		await registry.updateServer(serverId, label, baseUrl, apiKey);
@@ -235,7 +252,7 @@ async function manageServerFlow(
 	} else if (pick.action === "test") {
 		await vscode.commands.executeCommand(CMD.testConnection);
 	} else if (pick.action === "remove") {
-		if (!canMutateRegistry(isMigrated)) {
+		if (!canMutateRegistry(getUiMode)) {
 			return;
 		}
 		const confirm = await vscode.window.showWarningMessage(
@@ -245,7 +262,7 @@ async function manageServerFlow(
 		);
 		if (confirm === "Remove") {
 			// A migration may have started while the confirmation dialog was open.
-			if (!canMutateRegistry(isMigrated)) {
+			if (!canMutateRegistry(getUiMode)) {
 				return;
 			}
 			await registry.removeServer(serverId);
@@ -336,9 +353,9 @@ const HUB_ITEMS: readonly HubItem[] = [
 async function openServerManagement(
 	registry: ServerRegistry,
 	logger: Logger,
-	mode: ManagementUiMode,
-	isMigrated: () => boolean
+	getUiMode: () => ManagementUiMode
 ): Promise<void> {
+	const mode = getUiMode();
 	if (mode !== "legacy") {
 		try {
 			await vscode.commands.executeCommand(NATIVE_MANAGE_MODELS_COMMAND);
@@ -359,7 +376,7 @@ async function openServerManagement(
 	const servers = registry.getServers();
 
 	if (servers.length === 0) {
-		await addServerFlow(registry, logger, isMigrated);
+		await addServerFlow(registry, logger, getUiMode);
 		return;
 	}
 
@@ -382,10 +399,10 @@ async function openServerManagement(
 	}
 
 	if (pick.action === "add") {
-		await addServerFlow(registry, logger, isMigrated);
+		await addServerFlow(registry, logger, getUiMode);
 	} else if (pick.action.startsWith("edit:")) {
 		const serverId = pick.action.slice(5);
-		await manageServerFlow(registry, serverId, logger, isMigrated);
+		await manageServerFlow(registry, serverId, logger, getUiMode);
 	}
 }
 
@@ -403,8 +420,7 @@ export function registerManageCommand(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
 	logger: Logger,
-	getUiMode: () => ManagementUiMode = () => "legacy",
-	isMigrated: () => boolean = () => false
+	getUiMode: () => ManagementUiMode = () => "legacy"
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.manage, async () => {
@@ -416,15 +432,13 @@ export function registerManageCommand(
 				return;
 			}
 			if (pick.action === "servers") {
-				await openServerManagement(registry, logger, getUiMode(), isMigrated);
+				await openServerManagement(registry, logger, getUiMode);
 			} else if (pick.action === "settings") {
 				await vscode.commands.executeCommand("workbench.action.openSettings", EXTENSION_SETTINGS_FILTER);
 			} else {
 				await vscode.commands.executeCommand(pick.action);
 			}
 		}),
-		vscode.commands.registerCommand(INTERNAL_CMD.manageServers, () =>
-			openServerManagement(registry, logger, getUiMode(), isMigrated)
-		)
+		vscode.commands.registerCommand(INTERNAL_CMD.manageServers, () => openServerManagement(registry, logger, getUiMode))
 	);
 }
