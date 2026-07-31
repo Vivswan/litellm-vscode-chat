@@ -20,8 +20,7 @@ suite("extension/serverManagement", () => {
 	function captureManageHandlers(
 		registry: ServerRegistry,
 		logger: Logger,
-		mode: ManagementUiMode,
-		isMigrated: () => boolean = () => false
+		mode: ManagementUiMode | (() => ManagementUiMode)
 	) {
 		const handlers = new Map<string, () => Promise<void>>();
 		const origRegister = vscode.commands.registerCommand;
@@ -34,8 +33,7 @@ suite("extension/serverManagement", () => {
 				{ subscriptions: [] } as unknown as vscode.ExtensionContext,
 				registry,
 				logger,
-				() => mode,
-				isMigrated
+				typeof mode === "function" ? mode : () => mode
 			);
 		} finally {
 			(vscode.commands as Record<string, unknown>).registerCommand = origRegister;
@@ -285,8 +283,7 @@ suite("extension/serverManagement", () => {
 			picks?: readonly (string | undefined)[];
 			/** The warning-dialog answer; a function may flip state before answering. */
 			warningResponse?: string | undefined | ((message: string) => string | undefined);
-			mode?: ManagementUiMode;
-			isMigrated?: () => boolean;
+			mode?: ManagementUiMode | (() => ManagementUiMode);
 			nativeUiFails?: boolean;
 		}
 
@@ -303,12 +300,7 @@ suite("extension/serverManagement", () => {
 				error: (message: string) => logged.push(message),
 			});
 			const seeded = registry.getServers().map(({ id, label, baseUrl }) => ({ id, label, baseUrl }));
-			const handler = captureManageHandlers(
-				registry,
-				logger,
-				plan.mode ?? "legacy",
-				plan.isMigrated ?? (() => false)
-			).manageServers;
+			const handler = captureManageHandlers(registry, logger, plan.mode ?? "legacy").manageServers;
 
 			const result: WalkResult = {
 				registry,
@@ -610,7 +602,7 @@ suite("extension/serverManagement", () => {
 		test("a migration completing while the add prompts are open aborts the write with the language-models-UI notice", async () => {
 			let migrated = false;
 			const run = await runServerWalk({
-				isMigrated: () => migrated,
+				mode: () => (migrated ? "nativeRequired" : "legacy"),
 				inputs: [
 					"Prod",
 					"http://localhost:4000",
@@ -632,7 +624,7 @@ suite("extension/serverManagement", () => {
 			const edit = await runServerWalk({
 				seed: [["Old", "http://old", "key1"]],
 				picks: ["Old", "Edit"],
-				isMigrated: () => migrated,
+				mode: () => (migrated ? "nativeRequired" : "legacy"),
 				inputs: [
 					"New",
 					"http://new",
@@ -655,13 +647,29 @@ suite("extension/serverManagement", () => {
 			const remove = await runServerWalk({
 				seed: [["Prod", "http://prod", ""]],
 				picks: ["Prod", "Remove"],
-				isMigrated: () => migrated,
+				mode: () => (migrated ? "nativeRequired" : "legacy"),
 				warningResponse: () => {
 					migrated = true;
 					return "Remove";
 				},
 			});
 			assert.strictEqual(remove.registry.getServers().length, 1, "the migrated registry must not be mutated");
+		});
+
+		test("nativePreferred's fallback lets a fresh-install add complete without tripping the mutation guard", async () => {
+			const run = await runServerWalk({
+				mode: "nativePreferred",
+				nativeUiFails: true,
+				inputs: ["Prod", "http://localhost:4000", "sk-key"],
+			});
+			assert.deepStrictEqual(run.executed, ["workbench.action.chat.manage"]);
+			const server = expectDefined(run.registry.getServers()[0], "the fresh-install add must store the server");
+			assert.strictEqual(server.label, "Prod");
+			assert.deepStrictEqual(
+				run.infoToasts.filter((toast) => toast.message.includes("language models UI")),
+				[],
+				"nativePreferred must not read as a retired registry"
+			);
 		});
 
 		test("nativePreferred with a working native UI never opens the legacy list; its fallback shows the populated list", async () => {
@@ -747,13 +755,18 @@ suite("extension/serverManagement", () => {
 			};
 			try {
 				assert.strictEqual(
-					canMutateRegistry(() => false),
+					canMutateRegistry(() => "legacy"),
 					true
+				);
+				assert.strictEqual(
+					canMutateRegistry(() => "nativePreferred"),
+					true,
+					"the registry is still served while the native UI is merely preferred"
 				);
 				assert.strictEqual(messages.length, 0);
 
 				assert.strictEqual(
-					canMutateRegistry(() => true),
+					canMutateRegistry(() => "nativeRequired"),
 					false,
 					"a migrated registry must not accept mutations"
 				);

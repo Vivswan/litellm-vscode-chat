@@ -20,7 +20,7 @@ import {
 	reconfigureAction,
 	showActionableMessage,
 } from "./extension/notifier";
-import { registerManageCommand } from "./extension/serverManagement";
+import { type ManagementUiMode, REGISTRY_SERVED_IN_MODE, registerManageCommand } from "./extension/serverManagement";
 import { ServerRegistry } from "./extension/serverRegistry";
 import {
 	createServerSyncEnv,
@@ -56,11 +56,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// so the host-fidelity suite drives models through the registry.
 	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
 	const isMigrated = () => isGroupMigrationComplete(context.globalState);
+	// The management UI mode is also the registry-liveness truth (see
+	// REGISTRY_SERVED_IN_MODE): the native provider-group UI once the registry
+	// is migrated (no fallback: the quick pick would edit configuration nothing
+	// serves anymore) or was never populated (with the quick pick as fallback),
+	// and always the legacy flows in test mode.
+	const getManagementUiMode = (): ManagementUiMode => {
+		if (testMode) {
+			return "legacy";
+		}
+		if (isMigrated()) {
+			return "nativeRequired";
+		}
+		return registry.getServers().length === 0 ? "nativePreferred" : "legacy";
+	};
 	const provider = new LiteLLMChatModelProvider({
 		userAgent: ua,
 		logger,
 		getServers: () => registry.getServersWithKeys(),
-		grouplessRegistryEnabled: () => testMode || !isMigrated(),
+		grouplessRegistryEnabled: () => REGISTRY_SERVED_IN_MODE[getManagementUiMode()],
 	});
 
 	// The setting itself is the truth here, not the sync engine's view: the
@@ -178,24 +192,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		await context.globalState.update(HAS_SHOWN_WELCOME_KEY, true);
 	}
 
-	// Server management command: the native provider-group UI once the registry
-	// is migrated (no fallback: the quick pick would edit configuration nothing
-	// serves anymore) or was never populated (with the quick pick as fallback).
-	registerManageCommand(
-		context,
-		registry,
-		logger,
-		() => {
-			if (testMode) {
-				return "legacy";
-			}
-			if (isMigrated()) {
-				return "nativeRequired";
-			}
-			return registry.getServers().length === 0 ? "nativePreferred" : "legacy";
-		},
-		() => !testMode && isMigrated()
-	);
+	// Server management command: the hub's server entry routes by the UI mode
+	// (see getManagementUiMode above).
+	registerManageCommand(context, registry, logger, getManagementUiMode);
 
 	// Test connection command
 	registerTestConnectionCommand(context, provider, statusBar, outputChannel, logger);
