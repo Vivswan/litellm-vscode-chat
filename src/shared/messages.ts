@@ -135,6 +135,15 @@ function collectToolResultContent(
 				} else {
 					log?.("Tool returned image data which cannot be forwarded as tool result text");
 				}
+			} else {
+				// PDF and audio blocks exist only on user messages; a tool message
+				// has no wire shape for them, so the drop must stay observable like
+				// the non-vision image case above. The mime is tool-controlled and
+				// this log feeds the issue-report buffer, so it is allowlisted by
+				// shape.
+				log?.("Tool returned media with no tool-result wire mapping", {
+					mimeType: isSafeMimeType(c.mimeType) ? c.mimeType : "unparseable",
+				});
 			}
 		} else if (c instanceof vscode.LanguageModelPromptTsxPart) {
 			const extracted = extractPromptTsxText(c);

@@ -1,14 +1,23 @@
 import * as vscode from "vscode";
 import { isToolResultPart } from "./messages";
-import { isImageMimeType, isPdfMimeType, isTextMimeType } from "./mime";
+import { audioInputFormatForMime, isImageMimeType, isPdfMimeType, isTextMimeType } from "./mime";
 import type { OpenAIFunctionToolDef } from "./wire";
 
 export const CHARS_PER_TOKEN = 4;
 export const IMAGE_TOKEN_ESTIMATE = 765;
 export const PDF_TOKEN_ESTIMATE = 500;
+/**
+ * Providers meter audio by duration, not bytes (OpenAI's gpt-4o audio input
+ * runs about 10 tokens per second, Gemini 32 per second), and the duration is
+ * not recoverable here without decoding the container. A fixed minute-scale
+ * figure between those two rates keeps a typical voice clip from counting as
+ * zero, which is the dangerous direction: an undercounted prompt is never
+ * trimmed by the host's budget and overflows server-side instead.
+ */
+export const AUDIO_TOKEN_ESTIMATE = 1000;
 
 export interface TokenEstimationOptions {
-	/** When true, images and PDFs contribute fixed estimates; when false they count as zero. */
+	/** When true, images, PDFs, and audio clips contribute fixed estimates; when false they count as zero. */
 	includeMultimodal: boolean;
 }
 
@@ -27,6 +36,11 @@ export function estimatePartTokens(part: unknown, options: TokenEstimationOption
 			if (isPdfMimeType(part.mimeType)) {
 				return PDF_TOKEN_ESTIMATE;
 			}
+			// The same vocabulary as the wire conversion: audio outside it never
+			// reaches the server, so it must not inflate the estimate.
+			if (audioInputFormatForMime(part.mimeType) !== undefined) {
+				return AUDIO_TOKEN_ESTIMATE;
+			}
 		}
 		if (isTextMimeType(part.mimeType)) {
 			return Math.ceil(part.data.length / CHARS_PER_TOKEN);
@@ -36,9 +50,19 @@ export function estimatePartTokens(part: unknown, options: TokenEstimationOption
 	// each entry recurses through the same per-part estimates. In agent
 	// sessions tool output dominates the prompt; counting it as 0 made the
 	// host's budget skip trimming until the request overflowed server-side.
+	// The conversion path (collectToolResultContent) forwards only text and
+	// images from a tool result and drops PDF and audio unconditionally, so
+	// those count zero here: they never ship, whatever the model supports.
 	if (isToolResultPart(part)) {
 		let total = 0;
 		for (const inner of part.content ?? []) {
+			if (
+				inner instanceof vscode.LanguageModelDataPart &&
+				!isImageMimeType(inner.mimeType) &&
+				!isTextMimeType(inner.mimeType)
+			) {
+				continue;
+			}
 			total += estimatePartTokens(inner, options);
 		}
 		return total;
