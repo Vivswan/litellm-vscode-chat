@@ -170,8 +170,15 @@ function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
 	// the headline cost. The converted values are already rounded to six
 	// decimals, so String() renders them without float noise; a positive cost
 	// too small for that unit has rounded to 0 above, and the label mirrors
-	// the numeric field's 0 rather than inventing a smaller unit.
-	if (fields.inputCost !== undefined && fields.outputCost !== undefined) {
+	// the numeric field's 0 rather than inventing a smaller unit. A pair that
+	// BOTH rounded to 0 gets neither label nor badge: it slipped past the raw
+	// 0/0 undeclared check on sub-unit dust, and "$0 in / $0 out" plus a "low"
+	// badge would present it as free.
+	if (
+		fields.inputCost !== undefined &&
+		fields.outputCost !== undefined &&
+		(fields.inputCost > 0 || fields.outputCost > 0)
+	) {
 		fields.priceCategory = priceCategoryFor(fields.inputCost, fields.outputCost);
 		fields.pricing = `$${fields.inputCost} in / $${fields.outputCost} out per 1M tokens`;
 	}
