@@ -73,7 +73,7 @@ jobs:
           # stream scenarios, the fake stack the fuzzers drive, the streaming
           # transport whose leniency contract the fuzzer pins, and the
           # orchestrator plus its label list, which decide what --only runs.
-          pattern='^src/test/(fuzz|monkey|scenarios|fakeStack/|docker-(fuzz|conversation|monkey)\.test\.ts)|^src/provider/transport/streaming\.ts$|^scripts/stack/fake-openai-server\.ts$|^scripts/docker-test\.ts$|^src/test/dockerTestLabels\.ts$|\.property\.test\.ts$'
+          pattern='^src/test/(fuzz|monkey|scenarios|fakeStack/|docker-(fuzz|conversation|monkey)\.test\.ts)|^src/provider/transport/streaming/|^scripts/stack/fake-openai-server\.ts$|^scripts/docker-test\.ts$|^src/test/dockerTestLabels\.ts$|\.property\.test\.ts$'
           if [ "$EVENT" != "push" ] && [ "$EVENT" != "pull_request" ]; then
             # Scheduled and dispatched gate runs have no diff to inspect.
             echo "hit=false" >> "$GITHUB_OUTPUT"

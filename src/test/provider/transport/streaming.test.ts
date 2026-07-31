@@ -2308,16 +2308,19 @@ suite("provider/streaming progress funnel", () => {
 		// The empty-response check counts emissions via reportPart; a direct
 		// progress.report call anywhere else would bypass it silently and only
 		// surface as a spurious reasoning-only error, so the funnel is pinned
-		// structurally. Exactly three sites are sanctioned: reportPart itself,
-		// and the two end-of-stream trailer emissions (the Sources list and the
-		// usage DataPart), which decorate an already-validated response and
-		// must NOT count as substantive output for the reasoning-only check (a
-		// stream whose only output is its trailers still dropped whatever
-		// reasoning it had).
-		const source = fs.readFileSync(
-			path.resolve(__dirname, "..", "..", "..", "..", "src", "provider", "transport", "streaming.ts"),
-			"utf8"
-		);
+		// structurally across every file of the streaming module. Exactly three
+		// sites are sanctioned: reportPart itself, and the two end-of-stream
+		// trailer emissions (the Sources list and the usage DataPart), which
+		// decorate an already-validated response and must NOT count as
+		// substantive output for the reasoning-only check (a stream whose only
+		// output is its trailers still dropped whatever reasoning it had).
+		const dir = path.resolve(__dirname, "..", "..", "..", "..", "src", "provider", "transport", "streaming");
+		const source = fs
+			.readdirSync(dir)
+			.filter((name) => name.endsWith(".ts"))
+			.sort()
+			.map((name) => fs.readFileSync(path.join(dir, name), "utf8"))
+			.join("\n");
 		const calls = source.match(/progress\.report\(/g) ?? [];
 		assert.strictEqual(calls.length, 3, "part emission goes through reportPart, plus the two trailer sites");
 	});

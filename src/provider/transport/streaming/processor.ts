@@ -1,32 +1,29 @@
 import * as vscode from "vscode";
-import type { DataPartCtor } from "../../shared/conversion/dataPart";
+import type { DataPartCtor } from "../../../shared/conversion/dataPart";
 import {
 	dataPartCtor,
 	logDataPartProbeErrorOnce,
 	logMissingDataPartSupportOnce,
-} from "../../shared/conversion/dataPart";
-import { isImageMimeType, isSafeMimeType } from "../../shared/conversion/mime";
-import type { ThinkingPartCtor } from "../../shared/conversion/thinkingPart";
+} from "../../../shared/conversion/dataPart";
+import { isImageMimeType } from "../../../shared/conversion/mime";
+import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
 import {
 	logMissingThinkingPartSupportOnce,
 	logThinkingPartProbeErrorOnce,
 	thinkingPartCtor,
-} from "../../shared/conversion/thinkingPart";
-import { isRecord, tryParseJSONObject } from "../../shared/json";
-import { streamErrorFrame } from "./errorMapping";
-import type { TextParseResult, TextToolCall } from "./textToolCallParser";
-import { isTruncatedToolCallText, TextToolCallParser } from "./textToolCallParser";
-import type {
-	ChatCompletionChunk,
-	ChunkAudio,
-	ChunkChoice,
-	ChunkDelta,
-	ChunkSearchResult,
-	ThinkingBlock,
-	ThinkingBlockDelta,
-	ToolCallBuffer,
-} from "./wire";
-import { parseChunk, TERMINAL_FINISH_REASONS } from "./wire";
+} from "../../../shared/conversion/thinkingPart";
+import { tryParseJSONObject } from "../../../shared/json";
+import { streamErrorFrame } from "../errorMapping";
+import type { TextParseResult, TextToolCall } from "../textToolCallParser";
+import { isTruncatedToolCallText, TextToolCallParser } from "../textToolCallParser";
+import type { ChatCompletionChunk, ChunkAudio, ChunkDelta, ChunkSearchResult, ToolCallBuffer } from "../wire";
+import { parseChunk, TERMINAL_FINISH_REASONS } from "../wire";
+import type { AudioBuffer } from "./media";
+import { audioMimeForFormat, decodeBase64DataUrl, decodeBase64Strict } from "./media";
+import { sseFrames } from "./sse";
+import type { ThinkingContent } from "./thinking";
+import { extractThinking, REASONING_ONLY_RESPONSE_MESSAGE } from "./thinking";
+import { knownUsageCounts, usageDataPartPayload } from "./usage";
 
 /**
  * Hands out tool-call ID numbers. Owned by the ChatClient and shared across
@@ -35,63 +32,6 @@ import { parseChunk, TERMINAL_FINISH_REASONS } from "./wire";
  */
 export interface ToolCallIdSource {
 	next(): number;
-}
-
-interface ThinkingContent {
-	text: string;
-	id?: string | undefined;
-	metadata?: unknown;
-}
-
-function structuredThinkingContents(raw: string | ThinkingBlock | undefined): ThinkingContent[] {
-	if (raw === undefined) {
-		return [];
-	}
-	if (typeof raw === "string") {
-		return raw ? [{ text: raw }] : [];
-	}
-	const text = typeof raw.text === "string" ? raw.text : "";
-	return text ? [{ text, id: raw.id, metadata: raw.metadata }] : [];
-}
-
-function thinkingBlockContents(blocks: readonly ThinkingBlockDelta[] | undefined): ThinkingContent[] {
-	if (!blocks) {
-		return [];
-	}
-	return blocks.flatMap((block): ThinkingContent[] => {
-		if (block.type === "redacted_thinking") {
-			return block.data ? [{ text: "", metadata: { type: block.type, data: block.data } }] : [];
-		}
-		const text = block.thinking ?? "";
-		const metadata = block.signature !== undefined ? { type: block.type, signature: block.signature } : undefined;
-		return text || metadata ? [{ text, metadata }] : [];
-	});
-}
-
-/**
- * Extract thinking/reasoning content from a streaming choice. Covers the four
- * provider formats: a structured thinking object (choice- or delta-level), a
- * thinking_blocks array (Anthropic extended thinking via LiteLLM, whose text
- * duplicates reasoning_content but whose signature and redacted data exist
- * nowhere else), a reasoning_content string, and a reasoning string. Each
- * format wins only when it yields usable content, so an empty higher-priority
- * field never suppresses a populated lower-priority one.
- */
-function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefined): ThinkingContent[] {
-	const choiceStructured = structuredThinkingContents(choice.thinking);
-	if (choiceStructured.length > 0) {
-		return choiceStructured;
-	}
-	const deltaStructured = structuredThinkingContents(delta?.thinking);
-	if (deltaStructured.length > 0) {
-		return deltaStructured;
-	}
-	const blocks = thinkingBlockContents(delta?.thinking_blocks);
-	if (blocks.length > 0) {
-		return blocks;
-	}
-	const reasoning = delta?.reasoning_content || delta?.reasoning;
-	return reasoning ? [{ text: reasoning }] : [];
 }
 
 function normalizeToolCallIndex(index: number | string | undefined): number {
@@ -105,78 +45,6 @@ function normalizeToolCallIndex(index: number | string | undefined): number {
 		}
 	}
 	return 0;
-}
-
-/**
- * Canonical base64 to bytes. ASCII whitespace is stripped first (MIME-style
- * wrapped base64 is the one legitimate variation); after that the payload
- * must be full 4-character groups over the standard alphabet with padding
- * only as a correct-length suffix, and re-encoding must reproduce it byte for
- * byte - Buffer.from(_, "base64") silently truncates short groups and zeroes
- * noncanonical pad bits ("AB=="), and corrupt media must surface as a logged
- * skip, never as garbage bytes.
- */
-function decodeBase64Strict(data: string): Uint8Array | undefined {
-	const compact = data.replace(/[ \t\r\n]/g, "");
-	if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(compact)) {
-		return undefined;
-	}
-	const bytes = Buffer.from(compact, "base64");
-	if (bytes.toString("base64") !== compact) {
-		return undefined;
-	}
-	return new Uint8Array(bytes);
-}
-
-interface DecodedDataUrl {
-	mime: string;
-	bytes: Uint8Array;
-}
-
-/**
- * Decode a base64 data URL (the shape image-generating models emit); anything
- * else is undefined, for log-and-skip. The mime is model-controlled and later
- * reaches the host, so it is validated here at the source: type/subtype over
- * a conservative character set, with a length cap.
- */
-function decodeBase64DataUrl(url: string): DecodedDataUrl | undefined {
-	const match = /^data:([^;,]+);base64,(.*)$/s.exec(url);
-	if (!match) {
-		return undefined;
-	}
-	const mime = match[1] as string;
-	if (!isSafeMimeType(mime)) {
-		return undefined;
-	}
-	const bytes = decodeBase64Strict(match[2] as string);
-	return bytes === undefined ? undefined : { mime, bytes };
-}
-
-/** Base64 fragments of the in-flight generated audio output; see the accumulation comment on processAudioDelta. */
-interface AudioBuffer {
-	id: string | undefined;
-	base64: string;
-}
-
-/**
- * The request's audio.format values mapped to the mime stamped on the emitted
- * DataPart. The wire delta carries no format field, so the request parameter
- * is the only place the encoding is stated. pcm16 is raw samples without a
- * container; audio/pcm is the conventional type.
- */
-const AUDIO_FORMAT_MIMES: Readonly<Record<string, string>> = {
-	wav: "audio/wav",
-	mp3: "audio/mpeg",
-	flac: "audio/flac",
-	opus: "audio/opus",
-	aac: "audio/aac",
-	pcm16: "audio/pcm",
-};
-
-/** audio/wav is the fallback for an absent or unknown format; every mapped value must still pass the safe-mime gate. */
-function audioMimeForFormat(format: string | undefined): string {
-	const mime = format === undefined ? undefined : AUDIO_FORMAT_MIMES[format.toLowerCase()];
-	return mime !== undefined && isSafeMimeType(mime) ? mime : "audio/wav";
 }
 
 interface RequestState {
@@ -231,105 +99,6 @@ interface RequestState {
 	loggedDroppedReasoning: boolean;
 	/** Set once the reasoning-only empty response error was thrown; finishStream runs more than once per stream. */
 	threwReasoningOnly: boolean;
-}
-
-/**
- * The fixed message for a normally-finished stream that produced no parts at
- * all while reasoning output was dropped - because the host has no
- * LanguageModelThinkingPart class, or because the class it has failed to
- * construct. A thrown error rather than a fallback text part: text parts
- * round-trip into replayed chat history, and an error surfaces in the chat UI
- * and flows through the provider boundary's single-point logging. Static
- * string only; nothing response-derived.
- */
-const REASONING_ONLY_RESPONSE_MESSAGE =
-	"The model produced only reasoning output, which this version of VS Code could not display: the LanguageModelThinkingPart API is missing or failed. Update VS Code to a version that supports thinking parts, or use a model that returns final text.";
-
-/**
- * The known numeric token counts of a usage trailer. The record is
- * response-owned, so logging it wholesale would let arbitrary server keys
- * ride into the issue-report buffer; only these counts have diagnostic
- * value, and only numbers pass.
- */
-function knownUsageCounts(usage: object): Record<string, number> {
-	const record = usage as Record<string, unknown>;
-	const counts: Record<string, number> = {};
-	// Number.isFinite, not typeof: a server literal like 1e999 parses to
-	// Infinity, which is useless as a diagnostic count.
-	for (const key of [
-		"prompt_tokens",
-		"completion_tokens",
-		"total_tokens",
-		"cache_creation_input_tokens",
-		"cache_read_input_tokens",
-	]) {
-		const value = record[key];
-		if (Number.isFinite(value)) {
-			counts[key] = value as number;
-		}
-	}
-	const detailGroups: ReadonlyArray<readonly [string, readonly string[]]> = [
-		["prompt_tokens_details", ["cached_tokens", "cache_creation_input_tokens", "audio_tokens"]],
-		["completion_tokens_details", ["reasoning_tokens", "audio_tokens"]],
-	];
-	for (const [group, keys] of detailGroups) {
-		const nested = record[group];
-		if (typeof nested !== "object" || nested === null) {
-			continue;
-		}
-		for (const key of keys) {
-			const value = (nested as Record<string, unknown>)[key];
-			if (Number.isFinite(value)) {
-				counts[`${group}.${key}`] = value as number;
-			}
-		}
-	}
-	return counts;
-}
-
-/**
- * The sanitized payload of the end-of-stream "usage" DataPart, or undefined
- * when the trailer lacks any of the three required counts (the consumer's
- * shape check rejects such a payload outright, so emitting it would be
- * noise). The trailer is response-owned, so it is never forwarded verbatim:
- * only these known numeric counts pass, the same discipline as
- * knownUsageCounts. Cache accounting reads the OpenAI-style
- * prompt_tokens_details keys first and falls back to the top-level
- * cache_read_input_tokens/cache_creation_input_tokens fields LiteLLM emits on
- * Anthropic routes, mapping both shapes onto the prompt_tokens_details keys
- * the consumer reads. Number.isFinite guards every count: a server literal
- * like 1e999 parses to Infinity, JSON.stringify would serialize it as null,
- * and the consumer's shape check would then reject the whole payload.
- */
-function usageDataPartPayload(usage: Record<string, unknown>): Record<string, unknown> | undefined {
-	const num = (value: unknown): number | undefined => (Number.isFinite(value) ? (value as number) : undefined);
-	const promptTokens = num(usage.prompt_tokens);
-	const completionTokens = num(usage.completion_tokens);
-	const totalTokens = num(usage.total_tokens);
-	if (promptTokens === undefined || completionTokens === undefined || totalTokens === undefined) {
-		return undefined;
-	}
-	const promptDetails = isRecord(usage.prompt_tokens_details) ? usage.prompt_tokens_details : undefined;
-	const completionDetails = isRecord(usage.completion_tokens_details) ? usage.completion_tokens_details : undefined;
-	const cachedTokens = num(promptDetails?.cached_tokens) ?? num(usage.cache_read_input_tokens);
-	const cacheCreationTokens = num(promptDetails?.cache_creation_input_tokens) ?? num(usage.cache_creation_input_tokens);
-	const reasoningTokens = num(completionDetails?.reasoning_tokens);
-	const payload: Record<string, unknown> = {
-		prompt_tokens: promptTokens,
-		completion_tokens: completionTokens,
-		total_tokens: totalTokens,
-	};
-	const details: Record<string, number> = {
-		...(cachedTokens !== undefined ? { cached_tokens: cachedTokens } : {}),
-		...(cacheCreationTokens !== undefined ? { cache_creation_input_tokens: cacheCreationTokens } : {}),
-	};
-	if (Object.keys(details).length > 0) {
-		payload.prompt_tokens_details = details;
-	}
-	if (reasoningTokens !== undefined) {
-		payload.completion_tokens_details = { reasoning_tokens: reasoningTokens };
-	}
-	return payload;
 }
 
 function freshRequestState(): RequestState {
@@ -427,74 +196,46 @@ export class StreamProcessor {
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		token: vscode.CancellationToken
 	): Promise<void> {
-		const reader = responseBody.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
 		let sawDone = false;
-
 		try {
-			while (!token.isCancellationRequested) {
-				const { done, value } = await reader.read();
-				if (done) {
-					break;
+			for await (const frame of sseFrames(responseBody, token)) {
+				if (frame.kind === "done") {
+					sawDone = true;
+					this.finishStream(progress, !token.isCancellationRequested);
+					continue;
 				}
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-
-				for (const rawLine of lines) {
-					// SSE over CRLF frames every line with a trailing \r; JSON payloads
-					// never end in a raw \r (it is escaped), so stripping it is safe and
-					// keeps "data: [DONE]\r\n" recognized instead of logged as malformed.
-					const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-					if (!line.startsWith("data: ")) {
-						continue;
-					}
-					const data = line.slice(6);
-					if (data === "[DONE]") {
-						sawDone = true;
-						this.finishStream(progress, !token.isCancellationRequested);
-						continue;
-					}
-
-					let chunk: ChatCompletionChunk | undefined;
-					try {
-						chunk = parseChunk(JSON.parse(data));
-					} catch (e) {
-						// Classifications only: neither the raw line nor the JSON error
-						// message (V8 embeds an input excerpt) may reach the logs.
-						this._log("Skipping malformed SSE line", {
-							length: data.length,
-							errorClass: e instanceof Error ? e.name : typeof e,
-						});
-						continue;
-					}
-					if (!chunk) {
-						this._log("Skipping malformed SSE line", { length: data.length });
-						continue;
-					}
-					// An in-band error frame with no usable choices terminates the
-					// request: LiteLLM streams `data: {"error": {...}}` when an
-					// upstream dies after the 200, and swallowing it would end the
-					// request as a silent truncation. This is NOT the log-and-skip
-					// path - that leniency covers unparseable junk, and an error
-					// frame is a perfectly parseable statement of failure. After
-					// [DONE] the response already completed, so a late frame must
-					// not turn success into failure.
-					if (!sawDone && chunk.error && !(chunk.choices && chunk.choices.length > 0)) {
-						throw streamErrorFrame(chunk.error);
-					}
-					this.processDelta(chunk, progress, token);
+				const data = frame.payload;
+				let chunk: ChatCompletionChunk | undefined;
+				try {
+					chunk = parseChunk(JSON.parse(data));
+				} catch (e) {
+					// Classifications only: neither the raw line nor the JSON error
+					// message (V8 embeds an input excerpt) may reach the logs.
+					this._log("Skipping malformed SSE line", {
+						length: data.length,
+						errorClass: e instanceof Error ? e.name : typeof e,
+					});
+					continue;
 				}
+				if (!chunk) {
+					this._log("Skipping malformed SSE line", { length: data.length });
+					continue;
+				}
+				// An in-band error frame with no usable choices terminates the
+				// request: LiteLLM streams `data: {"error": {...}}` when an
+				// upstream dies after the 200, and swallowing it would end the
+				// request as a silent truncation. This is NOT the log-and-skip
+				// path - that leniency covers unparseable junk, and an error
+				// frame is a perfectly parseable statement of failure. After
+				// [DONE] the response already completed, so a late frame must
+				// not turn success into failure.
+				if (!sawDone && chunk.error && !(chunk.choices && chunk.choices.length > 0)) {
+					throw streamErrorFrame(chunk.error);
+				}
+				this.processDelta(chunk, progress, token);
 			}
 			this.endOfStream(progress, !token.isCancellationRequested);
 		} finally {
-			try {
-				reader.releaseLock();
-			} catch {
-				// The stream may already be errored (e.g. aborted fetch); the lock is moot then.
-			}
 			// A request that fails mid-stream (in-band error frame, reader
 			// failure) never reaches finishStream; its drop aggregate still logs
 			// here before the state resets.
