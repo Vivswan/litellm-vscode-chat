@@ -16,7 +16,7 @@
 	// Best-effort prefetch of the test stack's images; pulls are incremental,
 	// so this is a no-op when they are already present. The `|| true` keeps a
 	// start without docker or network from failing.
-	"postStartCommand": "docker compose pull --quiet || true",
+	"postStartCommand": "docker compose -f docker/docker-compose.yml --project-directory . pull --quiet || true",
 	"forwardPorts": [4000, 8090],
 	"portsAttributes": {
 		"4000": { "label": "LiteLLM proxy" },

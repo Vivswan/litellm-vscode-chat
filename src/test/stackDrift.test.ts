@@ -11,7 +11,7 @@ import { COPILOT_TOKEN_DIR, FAKE_BACKEND_PORT, REAL_PROVIDERS } from "./fakeStac
  * are the code-side truth (STACK_DEFAULTS in envFile.ts, FAKE_BACKEND_PORT
  * and REAL_PROVIDERS in fakeStack/proxyConfig.ts, PLAYBACK_MODEL in
  * fakeStack/models.ts, package.json's packageManager and engines fields);
- * docker-compose.yml, .env.example, README.md, and the devcontainer cannot
+ * docker/docker-compose.yml, .env.example, README.md, and the devcontainer cannot
  * import them, so these tests turn every restatement into a CI-enforced
  * mirror. Captured values are compared whole, never as substrings, so a
  * stale number that happens to prefix the live one still fails. Tests run
@@ -30,7 +30,7 @@ function read(name: string): string {
 	return content;
 }
 
-suite("stack drift guard: docker-compose.yml", () => {
+suite("stack drift guard: docker/docker-compose.yml", () => {
 	/**
 	 * The indented body of one service under `services:` (from its 2-space
 	 * name line up to the next 2-space key). Checks anchor to a service block
@@ -39,8 +39,8 @@ suite("stack drift guard: docker-compose.yml", () => {
 	 * a service reorder cannot change which lines are compared.
 	 */
 	function serviceBlock(name: string): string {
-		const match = new RegExp(`^  ${name}:\\n((?:(?:    .*)?\\n)*)`, "m").exec(read("docker-compose.yml"));
-		assert.ok(match, `docker-compose.yml declares a "${name}" service`);
+		const match = new RegExp(`^  ${name}:\\n((?:(?:    .*)?\\n)*)`, "m").exec(read("docker/docker-compose.yml"));
+		assert.ok(match, `docker/docker-compose.yml declares a "${name}" service`);
 		const body = match[1] as string;
 		assert.ok(body.trim() !== "", `the "${name}" service block is not empty`);
 		return body;
@@ -59,7 +59,7 @@ suite("stack drift guard: docker-compose.yml", () => {
 		// litellm healthcheck URL) is compose-internal with no TypeScript
 		// mirror and stays deliberately unguarded.
 		const fallbacks: Record<string, string> = {};
-		for (const match of read("docker-compose.yml").matchAll(/\$\{([A-Z_]+):-([^}]*)\}/g)) {
+		for (const match of read("docker/docker-compose.yml").matchAll(/\$\{([A-Z_]+):-([^}]*)\}/g)) {
 			const name = match[1] as string;
 			assert.ok(
 				!Object.hasOwn(fallbacks, name),
@@ -68,9 +68,9 @@ suite("stack drift guard: docker-compose.yml", () => {
 			fallbacks[name] = match[2] as string;
 		}
 		const found = Object.keys(fallbacks).length;
-		assert.ok(found >= 3, `docker-compose.yml declares \${VAR:-default} fallbacks (found ${found})`);
+		assert.ok(found >= 3, `docker/docker-compose.yml declares \${VAR:-default} fallbacks (found ${found})`);
 		for (const [name, value] of Object.entries(STACK_DEFAULTS)) {
-			assert.ok(Object.hasOwn(fallbacks, name), `docker-compose.yml has no \${${name}:-...}`);
+			assert.ok(Object.hasOwn(fallbacks, name), `docker/docker-compose.yml has no \${${name}:-...}`);
 			assert.strictEqual(fallbacks[name], value, `compose fallback for ${name}`);
 		}
 	});
@@ -138,8 +138,8 @@ suite("stack drift guard: bun version pin", () => {
 		const { packageManager } = JSON.parse(read("package.json")) as { packageManager?: string };
 		const pinned = /^bun@(\d+\.\d+\.\d+)$/.exec(packageManager ?? "")?.[1];
 		assert.ok(pinned, `package.json packageManager pins an exact bun version (got "${packageManager}")`);
-		const image = /^\s+image: docker\.io\/oven\/bun:(\S+?)-alpine$/m.exec(read("docker-compose.yml"))?.[1];
-		assert.ok(image, "docker-compose.yml runs the fake backend on a docker.io/oven/bun:*-alpine image");
+		const image = /^\s+image: docker\.io\/oven\/bun:(\S+?)-alpine$/m.exec(read("docker/docker-compose.yml"))?.[1];
+		assert.ok(image, "docker/docker-compose.yml runs the fake backend on a docker.io/oven/bun:*-alpine image");
 		assert.strictEqual(image, pinned, "compose oven/bun image tag version");
 		// devcontainer.json is JSONC; drop full-line comments before parsing.
 		const devcontainer = read(".devcontainer/devcontainer.json").replace(/^\s*\/\/.*$/gm, "");

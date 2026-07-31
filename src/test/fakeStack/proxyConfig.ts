@@ -16,7 +16,7 @@ import { FAKE_MODELS } from "./models";
 /**
  * The container-internal port the fake OpenAI backend binds.
  * scripts/stack/fake-openai-server.ts defaults its PORT env to this number, and
- * docker-compose.yml restates it three times (the service's PORT env, the
+ * docker/docker-compose.yml restates it three times (the service's PORT env, the
  * host mapping's container side, the healthcheck URL); stackDrift.test.ts
  * pins those compose copies.
  */
@@ -27,7 +27,7 @@ const FAKE_API_BASE = `http://fake-openai:${FAKE_BACKEND_PORT}/v1`;
 /**
  * The real-provider wildcard routes the generated config may emit, keyed by
  * the API-key variable each route reads via os.environ inside the container.
- * docker-compose.yml must pass every envVar through to the litellm service
+ * docker/docker-compose.yml must pass every envVar through to the litellm service
  * and .env.example must template it; stackDrift.test.ts pins both.
  * (github was a member until GitHub Models was retired on 2026-07-30.)
  */
@@ -245,7 +245,7 @@ function expansionSection(keyedEntries: number): string[] {
 
 /**
  * Where the GitHub Copilot device-flow token lives on the host, relative to
- * the repo root (seeded by `bun run copilot-login`). docker-compose.yml
+ * the repo root (seeded by `bun run copilot-login`). docker/docker-compose.yml
  * restates it in the litellm mount, the fake-openai masking volume, and the
  * GITHUB_COPILOT_TOKEN_DIR env; stackDrift.test.ts pins those copies.
  */
