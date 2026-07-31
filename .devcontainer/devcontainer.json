@@ -1,16 +1,37 @@
 {
 	"name": "LiteLLM VS Code Chat",
 	"image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+	"hostRequirements": {
+		"cpus": 4,
+		"memory": "8gb",
+		"storage": "32gb"
+	},
 	"features": {
 		"ghcr.io/devcontainers-extra/features/bun:1": {
 			"version": "1.3.14"
 		},
-		"ghcr.io/devcontainers/features/docker-in-docker:2": {}
+		"ghcr.io/devcontainers/features/docker-in-docker:4.0.0": {}
 	},
-	"postCreateCommand": "bash scripts/setup-env.sh",
+	"onCreateCommand": "bash .devcontainer/install-test-deps.sh && bash scripts/setup-env.sh",
+	// Best-effort prefetch of the test stack's images; pulls are incremental,
+	// so this is a no-op when they are already present. The `|| true` keeps a
+	// start without docker or network from failing.
+	"postStartCommand": "docker compose pull --quiet || true",
+	"forwardPorts": [4000, 8090],
+	"portsAttributes": {
+		"4000": { "label": "LiteLLM proxy" },
+		"8090": { "label": "fake-openai" }
+	},
 	"customizations": {
 		"vscode": {
-			"extensions": ["biomejs.biome"]
+			"settings": {
+				"editor.defaultFormatter": "biomejs.biome",
+				"editor.formatOnSave": true,
+				"editor.codeActionsOnSave": {
+					"source.organizeImports.biome": "explicit"
+				}
+			},
+			"extensions": ["biomejs.biome", "dbaeumer.vscode-eslint"]
 		}
 	}
 }
