@@ -303,7 +303,7 @@ bun run docker:down    # stop the stack and remove volumes
 bun run generate-config  # print the generated LiteLLM config to stdout (never writes; startup writes the real file)
 ```
 
-The stack also works with Podman: the scripts try `docker compose` first, then `podman compose`, and `COMPOSE_CMD` overrides the choice. The compose provider must support `up --wait`; Podman with the docker-compose provider does, while older `podman-compose` releases may not. On SELinux hosts, change the bind mounts in `docker-compose.yml` from `:ro` to `:ro,z`. Always start the stack through `bun run docker:up` (or `dev:fake` / `test:docker`): those paths generate `docker/.generated/litellm-config.yaml` first. Invoking `docker compose up` directly is unsupported - without the generation step the read-only directory mount materializes empty and the litellm container exits on a missing config.
+The stack also works with Podman: the scripts try `docker compose` first, then `podman compose`, and `COMPOSE_CMD` overrides the choice. The compose provider must support `up --wait`; Podman with the docker-compose provider does, while older `podman-compose` releases may not. On SELinux hosts, change the bind mounts in `docker-compose.yml` from `:ro` to `:ro,z`. Always start the stack through `bun run docker:up` (or `dev` / `test:docker`): those paths generate `docker/.generated/litellm-config.yaml` first. Invoking `docker compose up` directly is unsupported - without the generation step the read-only directory mount materializes empty and the litellm container exits on a missing config.
 
 The existing host-fidelity suite can target the stack too:
 

@@ -29,18 +29,18 @@ package-lock.json
 
 .husky/_/
 
-# One-shot seed dropped by `bun run dev:fake`, consumed on activation
-.dev-fake-seed.json
+# One-shot seed dropped by `bun run dev`, consumed on activation
+.dev-seed.json
 
-# Dedicated persistent profile for the dev:fake Extension Development Host;
-# scripts/dev-fake.ts wipes it whenever the seed configuration changes
+# Dedicated persistent profile for the dev launcher's Extension Development
+# Host; scripts/dev.ts wipes it whenever the seed configuration changes
 .dev-profile/
 
 # Runtime-generated LiteLLM proxy config (scripts/litellmConfig.ts); every
 # stack startup path regenerates it
 docker/.generated/
 
-# Live log tees written by `bun run dev:fake` (litellm, fake-openai, extension)
+# Live log tees written by `bun run dev` (litellm, fake-openai, extension)
 /logs/
 
 # END REPOSITORY LOCAL

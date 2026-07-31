@@ -342,7 +342,7 @@
 		"docker:up": "bun scripts/compose.ts up -d --wait",
 		"docker:down": "bun scripts/compose.ts down -v",
 		"docker:logs": "bun scripts/compose.ts logs -f",
-		"dev:fake": "bun scripts/dev-fake.ts",
+		"dev": "bun scripts/dev.ts",
 		"generate-config": "bun scripts/generate-litellm-config.ts",
 		"test": "bun run compile && bun run bundle:dev && vscode-test --label unit",
 		"test:coverage": "bun run compile && bun run bundle:dev && vscode-test --label unit --coverage && bun scripts/check-coverage.ts",

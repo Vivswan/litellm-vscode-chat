@@ -1,7 +1,7 @@
 /**
  * .env parsing and variable resolution for the local docker stack, shared by
- * the scripts (config generation, docker-test, dev-fake) and pinned by the
- * unit suite. The grammar follows what Docker Compose itself reads (the
+ * the scripts (config generation, docker-test, the dev launcher) and pinned
+ * by the unit suite. The grammar follows what Docker Compose itself reads (the
  * godotenv subset the stack relies on): `export ` prefixes are stripped,
  * whole-value single or double quotes are removed, an unquoted value ends at
  * the first `#` that is preceded by whitespace (so `4100 # local` is "4100"

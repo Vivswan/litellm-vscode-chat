@@ -1,6 +1,6 @@
 /**
- * The dev-seed handshake between `bun run dev:fake` and a development-mode
- * activation: the launcher (scripts/dev-fake.ts) writes this file into the
+ * The dev-seed handshake between `bun run dev` and a development-mode
+ * activation: the launcher (scripts/dev.ts) writes this file into the
  * extension development folder, and src/extension/devSeed.ts consumes it
  * exactly once. Both sides import the filename and shape from here so the
  * contract cannot drift. Pure declarations: no vscode, no Node (the launcher
@@ -8,7 +8,7 @@
  */
 
 /** The seed file's name, resolved against the extension development folder. */
-export const DEV_SEED_FILENAME = ".dev-fake-seed.json";
+export const DEV_SEED_FILENAME = ".dev-seed.json";
 
 /**
  * The seed file's shape. The launcher writes exactly this; the extension side

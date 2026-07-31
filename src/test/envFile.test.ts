@@ -4,9 +4,10 @@ import { composeSetting, parseEnvFile } from "./envFile";
 /**
  * Pins the .env grammar the docker stack scripts share with docker-compose
  * (godotenv subset) and the ${VAR:-fallback} resolution semantics. The
- * config generator, docker-test, and dev-fake all resolve ports, keys, and
- * wildcard emission through these two functions, so a divergence from what
- * compose reads shows up as a stack that disagrees with its own config.
+ * config generator, docker-test, and the dev launcher all resolve ports,
+ * keys, and wildcard emission through these two functions, so a divergence
+ * from what compose reads shows up as a stack that disagrees with its own
+ * config.
  */
 
 suite("envFile: parseEnvFile", () => {

@@ -21,7 +21,7 @@ node_modules/**
 .devcontainer/**
 .github/**
 .husky/**
-.dev-fake-seed.json
+.dev-seed.json
 .dev-profile/**
 logs/**
 coverage/**

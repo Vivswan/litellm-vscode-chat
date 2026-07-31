@@ -73,7 +73,7 @@ bun run test               # unit suite in the extension host (test:coverage add
 bun run test:docker        # docker suites + stream fuzzer against a real LiteLLM proxy
 bun run docker:up          # local LiteLLM proxy + fake OpenAI backend (docker:down, docker:logs)
 bun run generate-config    # print the generated LiteLLM proxy config to stdout (stack startup writes the real file)
-bun run dev:fake           # Extension Development Host preconfigured against the fake stack
+bun run dev                # Extension Development Host preconfigured against the fake stack
 bun run host-fidelity-test # end-to-end against a capture or live server (LITELLM_REAL_*)
 ```
 
@@ -81,7 +81,7 @@ bun run host-fidelity-test # end-to-end against a capture or live server (LITELL
 
 - After TypeScript changes: `bun run compile`; when scripts/ changed, `bun run typecheck`.
 - After source or test changes: `bun run lint`, `bun run lint:types`, `bun run lint:knip`, and the relevant tests. After workflow changes: `bun run lint:actions`.
-- Never launch VS Code or any GUI for verification; humans test interactively (`F5` or `bun run dev:fake`).
+- Never launch VS Code or any GUI for verification; humans test interactively (`F5` or `bun run dev`).
 
 ### Architecture
 

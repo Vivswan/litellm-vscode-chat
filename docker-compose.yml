@@ -15,8 +15,8 @@ services:
       # to FAKE_BACKEND_PORT in src/test/fakeStack/proxyConfig.ts (as must the
       # mapping and healthcheck below) - stackDrift.test.ts pins all three.
       PORT: "8080"
-      # dev:fake sets FAKE_VERBOSE=1 so the container log carries every chat
-      # request and response body; the test orchestrator leaves it off.
+      # The dev launcher sets FAKE_VERBOSE=1 so the container log carries every
+      # chat request and response body; the test orchestrator leaves it off.
       FAKE_VERBOSE: ${FAKE_VERBOSE:-}
     ports:
       # Loopback only: this port exposes unauthenticated test controls.

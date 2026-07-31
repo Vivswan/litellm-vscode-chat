@@ -71,7 +71,7 @@ jobs:
 
       # The dev compile puts out/ on disk first, so this proves .vscodeignore
       # excludes it rather than passing because the files were never built.
-      # logs/ and coverage/ get seeded the same way: dev:fake and
+      # logs/ and coverage/ get seeded the same way: the dev launcher and
       # test:coverage write them locally but nothing in this job does, so
       # without the seeding their exclusion would never actually be exercised.
       - name: Verify the packaged file list stays clean
