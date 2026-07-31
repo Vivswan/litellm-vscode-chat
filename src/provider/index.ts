@@ -22,6 +22,7 @@ import {
 	groupServerLabel,
 	markStale,
 	parseGroupConfiguration,
+	parseModelMetadata,
 } from "./catalog/groupModels";
 import type { ModelRoute } from "./catalog/modelCatalog";
 import { buildModelInfos } from "./catalog/registration";
@@ -525,13 +526,19 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	async provideTokenCount(
-		_model: LiteLLMModelInfo,
+		model: LiteLLMModelInfo,
 		text: string | LanguageModelChatRequestMessage,
 		_token: CancellationToken
 	): Promise<number> {
 		if (typeof text === "string") {
 			return Math.ceil(text.length / CHARS_PER_TOKEN);
 		}
-		return estimateMessagesTokens([text], { includeMultimodal: true });
+		// The same capability gates the chat path sends under, so the host's
+		// budget prices the same transmitted forms the request would carry.
+		const metadata = parseModelMetadata(model, (message, data) => this.log(message, data));
+		return estimateMessagesTokens([text], {
+			imageInput: metadata.imageInput,
+			audioInput: metadata.supportsAudioInput,
+		});
 	}
 }

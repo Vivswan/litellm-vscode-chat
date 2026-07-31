@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import { isToolResultPart } from "./messages";
-import { audioInputFormatForMime, isImageMimeType, isPdfMimeType, isTextMimeType } from "./mime";
+import { type DataPartPosition, dataPartWireForm } from "./dataPartForm";
+import { extractPromptTsxText, isToolResultPart } from "./messages";
 import type { OpenAIFunctionToolDef } from "./wire";
 
 export const CHARS_PER_TOKEN = 4;
@@ -16,12 +16,23 @@ export const PDF_TOKEN_ESTIMATE = 500;
  */
 export const AUDIO_TOKEN_ESTIMATE = 1000;
 
+/**
+ * The same capability gates the message conversion runs under, resolved from
+ * the model (registered imageInput capability, LiteLLM audio-input modality).
+ * Estimation prices the same transmitted forms conversion produces for this
+ * model - media at fixed heuristic figures, text by length - and a part the
+ * gates exclude never ships, so it counts zero.
+ */
 export interface TokenEstimationOptions {
-	/** When true, images, PDFs, and audio clips contribute fixed estimates; when false they count as zero. */
-	includeMultimodal: boolean;
+	imageInput: boolean;
+	audioInput: boolean;
 }
 
-export function estimatePartTokens(part: unknown, options: TokenEstimationOptions): number {
+export function estimatePartTokens(
+	part: unknown,
+	options: TokenEstimationOptions,
+	position: DataPartPosition = "user"
+): number {
 	if (part instanceof vscode.LanguageModelTextPart) {
 		return Math.ceil(part.value.length / CHARS_PER_TOKEN);
 	}
@@ -29,60 +40,43 @@ export function estimatePartTokens(part: unknown, options: TokenEstimationOption
 		return Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / CHARS_PER_TOKEN);
 	}
 	if (part instanceof vscode.LanguageModelDataPart) {
-		if (options.includeMultimodal) {
-			if (isImageMimeType(part.mimeType)) {
+		const wire = dataPartWireForm(part.mimeType, position, options);
+		switch (wire.form) {
+			case "image":
 				return IMAGE_TOKEN_ESTIMATE;
-			}
-			if (isPdfMimeType(part.mimeType)) {
+			case "pdf":
 				return PDF_TOKEN_ESTIMATE;
-			}
-			// The same vocabulary as the wire conversion: audio outside it never
-			// reaches the server, so it must not inflate the estimate.
-			if (audioInputFormatForMime(part.mimeType) !== undefined) {
+			case "audio":
 				return AUDIO_TOKEN_ESTIMATE;
-			}
-		}
-		if (isTextMimeType(part.mimeType)) {
-			return Math.ceil(part.data.length / CHARS_PER_TOKEN);
+			case "text":
+				return Math.ceil(part.data.length / CHARS_PER_TOKEN);
+			case "none":
+				return 0;
+			default:
+				return wire satisfies never;
 		}
 	}
 	// Tool results wrap their output in a content array (no string value), so
-	// each entry recurses through the same per-part estimates. In agent
-	// sessions tool output dominates the prompt; counting it as 0 made the
-	// host's budget skip trimming until the request overflowed server-side.
-	// The conversion path (collectToolResultContent) forwards only text and
-	// images from a tool result and drops PDF and audio unconditionally, so
-	// those count zero here: they never ship, whatever the model supports.
+	// each entry recurses through the same per-part estimates at the
+	// "toolResult" position, whose wire forms drop PDF and audio and gate
+	// images just like collectToolResultContent. In agent sessions tool output
+	// dominates the prompt; counting it as 0 made the host's budget skip
+	// trimming until the request overflowed server-side.
 	if (isToolResultPart(part)) {
 		let total = 0;
 		for (const inner of part.content ?? []) {
-			if (
-				inner instanceof vscode.LanguageModelDataPart &&
-				!isImageMimeType(inner.mimeType) &&
-				!isTextMimeType(inner.mimeType)
-			) {
-				continue;
-			}
-			total += estimatePartTokens(inner, options);
+			total += estimatePartTokens(inner, options, "toolResult");
 		}
 		return total;
 	}
-	// Prompt-TSX parts transmit as their string value or, for object values,
-	// their JSON serialization (extractPromptTsxText in messages.ts); the
-	// estimate counts that same rendering. A string value would also hit the
-	// generic fallback below, but an object value would otherwise score 0.
+	// Prompt-TSX parts transmit as extractPromptTsxText's rendering (the string
+	// value or, for object values, their JSON serialization); the estimate
+	// counts that same text. Values with no JSON rendering transmit nothing and
+	// price zero. A string value would also hit the generic fallback below, but
+	// an object value would otherwise score 0.
 	if (part instanceof vscode.LanguageModelPromptTsxPart) {
-		if (typeof part.value === "string") {
-			return Math.ceil(part.value.length / CHARS_PER_TOKEN);
-		}
-		if (part.value !== undefined && part.value !== null) {
-			try {
-				return Math.ceil(JSON.stringify(part.value).length / CHARS_PER_TOKEN);
-			} catch {
-				return 0;
-			}
-		}
-		return 0;
+		const extracted = extractPromptTsxText(part);
+		return typeof extracted === "string" ? Math.ceil(extracted.length / CHARS_PER_TOKEN) : 0;
 	}
 	// Thinking parts (a proposed API class) reach here as unrecognized objects
 	// carrying a string value; their text plus any replayed signature or
@@ -106,8 +100,13 @@ export function estimateMessagesTokens(
 ): number {
 	let total = 0;
 	for (const m of msgs) {
+		// Everything but a user message takes the assistant position: mapRole
+		// treats system and unknown roles alike, and conversion sends binary
+		// blocks only for user messages, so the seam's assistant rule (text
+		// decodes, binary drops) covers all of them.
+		const position: DataPartPosition = m.role === vscode.LanguageModelChatMessageRole.User ? "user" : "assistant";
 		for (const part of m.content) {
-			total += estimatePartTokens(part, options);
+			total += estimatePartTokens(part, options, position);
 		}
 	}
 	return total;
