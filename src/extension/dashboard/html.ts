@@ -505,6 +505,10 @@ const STYLES = `
 		position: sticky;
 		z-index: 2;
 		bottom: -20px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
 		margin: 8px -20px -20px;
 		padding: 12px 20px;
 		background: var(--vscode-editorWidget-background, var(--vscode-editor-background));

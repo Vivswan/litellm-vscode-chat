@@ -1,4 +1,4 @@
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { DashboardModel } from "../../extension/dashboard/protocol";
 import { Help, HoverTip } from "./help";
 import { HELP_MODELS_SECTION } from "./helpText";
@@ -149,13 +149,16 @@ function SortHeader({
 }
 
 /**
- * Windowing constants. Rows are pinned to a fixed height by the .windowed
- * stylesheet rules, so index arithmetic against scrollTop is exact; the
- * threshold keeps small fleets on the simple full-render path, and the
- * overscan hides the window edges while scrolling.
+ * Windowing constants. The stylesheet's 26px row height is only a minimum
+ * (a larger host font grows the rows), so the arithmetic runs on the first
+ * rendered row's measured offsetHeight and DEFAULT_ROW_HEIGHT is the
+ * fallback while nothing is measurable - which is permanently the case in
+ * the happy-dom suite, where offsetHeight is always 0; the tests exercise
+ * the fallback path only. The threshold keeps small fleets on the simple
+ * full-render path, and the overscan hides the window edges while scrolling.
  */
 const WINDOW_THRESHOLD = 50;
-const ROW_HEIGHT = 26;
+const DEFAULT_ROW_HEIGHT = 26;
 const OVERSCAN = 10;
 const FALLBACK_VIEWPORT = 420;
 
@@ -164,8 +167,19 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
 	const [scrollTop, setScrollTop] = useState(0);
 	const [copied, setCopied] = useState<string | undefined>(undefined);
+	const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
 	const scrollRef = useRef<HTMLElement>(null);
 	const copySeq = useRef(0);
+
+	// Re-measure after every render: the guarded set makes this settle in one
+	// extra pass when the theme's font size changes the real row height.
+	useEffect(() => {
+		const row = scrollRef.current?.querySelector<HTMLTableRowElement>("tbody tr:not(.spacer)");
+		const measured = row?.offsetHeight ?? 0;
+		if (measured > 0 && measured !== rowHeight) {
+			setRowHeight(measured);
+		}
+	});
 
 	// Keyed to the server count, not the distinct labels: two groups can share
 	// a label, and their models must stay attributable.
@@ -198,9 +212,9 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 		const height = scrollRef.current?.clientHeight ?? 0;
 		return height > 0 ? height : FALLBACK_VIEWPORT;
 	})();
-	const windowSize = Math.ceil(viewport / ROW_HEIGHT) + OVERSCAN * 2;
+	const windowSize = Math.ceil(viewport / rowHeight) + OVERSCAN * 2;
 	const start = windowed
-		? Math.max(0, Math.min(Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN, sorted.length - windowSize))
+		? Math.max(0, Math.min(Math.floor(scrollTop / rowHeight) - OVERSCAN, sorted.length - windowSize))
 		: 0;
 	const end = windowed ? Math.min(sorted.length, start + windowSize) : sorted.length;
 	const visible = sorted.slice(start, end);
@@ -261,8 +275,9 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 							</thead>
 							<tbody>
 								{start > 0 ? (
-									<tr class="spacer">
-										<td colSpan={columns} style={{ height: `${start * ROW_HEIGHT}px`, padding: 0, border: "none" }} />
+									// biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: a spacer row is layout filler with no content; presentation removes it from the accessibility tree, which is the point
+									<tr class="spacer" role="presentation">
+										<td colSpan={columns} style={{ height: `${start * rowHeight}px`, padding: 0, border: "none" }} />
 									</tr>
 								) : null}
 								{visible.map((model, index) => {
@@ -299,10 +314,11 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 									);
 								})}
 								{end < sorted.length ? (
-									<tr class="spacer">
+									// biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: a spacer row is layout filler with no content; presentation removes it from the accessibility tree, which is the point
+									<tr class="spacer" role="presentation">
 										<td
 											colSpan={columns}
-											style={{ height: `${(sorted.length - end) * ROW_HEIGHT}px`, padding: 0, border: "none" }}
+											style={{ height: `${(sorted.length - end) * rowHeight}px`, padding: 0, border: "none" }}
 										/>
 									</tr>
 								) : null}

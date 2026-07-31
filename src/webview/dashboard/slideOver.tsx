@@ -31,8 +31,8 @@ export function SlideOver({
 	fallbackFocusId: string;
 	/** Render the discard-confirm bar; Esc got a dirty form and the owner wants a decision. */
 	confirming: boolean;
-	/** An informational bar (e.g. "still adopting"), so a refused close request answers visibly instead of doing nothing. */
-	notice?: string | undefined;
+	/** An informational bar (e.g. "still adopting", possibly with an escape action), so a refused close request answers visibly instead of doing nothing. */
+	notice?: ComponentChildren | undefined;
 	onRequestClose: () => void;
 	onKeepEditing: () => void;
 	onDiscard: () => void;
@@ -118,7 +118,7 @@ export function SlideOver({
 						</button>
 					</div>
 				) : null}
-				{notice !== undefined ? (
+				{notice !== undefined && notice !== null ? (
 					<div class="slide-notice" role="status">
 						{notice}
 					</div>

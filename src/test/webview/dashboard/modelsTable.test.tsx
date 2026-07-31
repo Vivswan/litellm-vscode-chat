@@ -93,8 +93,10 @@ test("past the threshold the table windows: spacers stand in for off-screen rows
 	const rendered = firstColumn(root);
 	expect(rendered.length).toBeLessThan(200);
 	expect(rendered[0]).toBe("Model 000");
-	// Only the trailing spacer at the top of the list.
+	// Only the trailing spacer at the top of the list; spacers are layout
+	// filler and stay out of the accessibility tree.
 	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(1);
+	expect(root.querySelector("tbody tr.spacer")?.getAttribute("role")).toBe("presentation");
 
 	scrollTo(container, 26 * 100);
 	const scrolled = firstColumn(root);

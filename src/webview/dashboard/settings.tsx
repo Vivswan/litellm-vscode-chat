@@ -57,11 +57,11 @@ function SettingRow({ modified, children }: { modified: boolean; children: Compo
  * The reset action on a configured row, shown on hover or while the row holds
  * focus. Named for what it really does: it removes the value from the
  * highest-precedence scope that sets it (the next scope's value or the
- * default shows through), so the tooltip and accessible name say which
- * scope's value goes, never "reset to default". Each button carries its own
- * accessible name; six bare "Reset"s would be indistinguishable to a screen
- * reader. Sits in the control row after the input, so Tab reaches it from the
- * field it resets.
+ * default shows through), so the accessible name says which scope's value
+ * goes, never "reset to default". Each button carries its own accessible
+ * name; six bare "Reset"s would be indistinguishable to a screen reader.
+ * Sits in the control row after the input, so Tab reaches it from the field
+ * it resets.
  */
 function ResetButton({
 	title,
@@ -77,7 +77,6 @@ function ResetButton({
 		<button
 			type="button"
 			class="quiet reset"
-			title={action}
 			aria-label={action}
 			onClick={() => postMessage({ type: "resetSetting", setting: settingId })}
 		>
