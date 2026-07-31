@@ -29,8 +29,8 @@ export type FinishReason =
  * flushed as soon as one arrives, without waiting for the [DONE] sentinel.
  * Deliberately not every FinishReason: length, content_filter, and
  * function_call keep the long-standing behavior of flushing only at [DONE]
- * or EOF. Typed as a FinishReason list (not a literal tuple) so streaming.ts
- * can membership-test any parsed finish_reason against it.
+ * or EOF. Typed as a FinishReason list (not a literal tuple) so the stream
+ * processor can membership-test any parsed finish_reason against it.
  */
 export const TERMINAL_FINISH_REASONS: readonly FinishReason[] = ["stop", "tool_calls"];
 
