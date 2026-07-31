@@ -110,6 +110,25 @@ test("past the threshold the table windows: spacers stand in for off-screen rows
 	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(1);
 });
 
+test("sorting while scrolled deep re-fills the window from the new order without leaving range", () => {
+	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} />);
+	const container = root.querySelector(".table-scroll") as HTMLElement;
+	scrollTo(container, 26 * 150);
+	expect(firstColumn(root)).toContain("Model 150");
+
+	// Descending by name: the window at the same scroll offset now shows the
+	// reversed order's slice, still fully in range with both spacers.
+	fireClick(headerButton(root, "Model"));
+	fireClick(headerButton(root, "Model"));
+	const rows = firstColumn(root);
+	expect(rows.length).toBeGreaterThan(0);
+	const sortedDesc = [...rows].sort().reverse();
+	expect(rows).toEqual(sortedDesc);
+	// scrollTop 150*26 with 200 rows: the window sits mid-list, spacers on both sides.
+	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(2);
+	expect(rows).toContain("Model 059"); // 200 - 1 - 140 = 59: the descending row near index 140
+});
+
 test("a filter that shrinks the list under a deep scroll clamps the window back into range", () => {
 	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} />);
 	const container = root.querySelector(".table-scroll") as HTMLElement;

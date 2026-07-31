@@ -140,11 +140,9 @@ function SortHeader({
 		>
 			<button type="button" class="sort" onClick={() => onSort(sortKey)}>
 				{label}
-				{active ? (
-					<span class={sort.dir === 1 ? "sort-arrow" : "sort-arrow desc"}>
-						<IconArrowUp />
-					</span>
-				) : null}
+				<span class={active ? (sort.dir === 1 ? "sort-arrow" : "sort-arrow desc") : "sort-arrow idle"}>
+					<IconArrowUp />
+				</span>
 			</button>
 		</th>
 	);
@@ -166,7 +164,7 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
 	const [scrollTop, setScrollTop] = useState(0);
 	const [copied, setCopied] = useState<string | undefined>(undefined);
-	const scrollRef = useRef<HTMLDivElement>(null);
+	const scrollRef = useRef<HTMLElement>(null);
 	const copySeq = useRef(0);
 
 	// Keyed to the server count, not the distinct labels: two groups can share
@@ -234,12 +232,19 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 							showing {sorted.length} of {models.length}
 						</span>
 					</div>
-					<div
+					{/* When windowed, the scrollport is a focusable, labelled region so
+					    arrow/PageDown scrolling works from the keyboard, and the table
+					    declares its true row count while only a window of rows exists
+					    in the DOM. Visiting every row by Tab alone is out of scope:
+					    off-window rows are reachable by scrolling, not by focus. */}
+					<section
 						class={windowed ? "table-scroll windowed" : "table-scroll"}
 						ref={scrollRef}
+						aria-label="Models table"
+						tabIndex={windowed ? 0 : undefined}
 						onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
 					>
-						<table class="models">
+						<table class="models" aria-rowcount={windowed ? sorted.length + 1 : undefined}>
 							<thead>
 								<tr>
 									<SortHeader label="Model" sortKey="name" sort={sort} onSort={toggleSort} />
@@ -265,16 +270,17 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 									// state push, and a model appears once per server.
 									const rowId = `${model.serverLabel}/${model.id}`;
 									return (
-										<tr key={start + index}>
+										<tr key={start + index} aria-rowindex={windowed ? start + index + 2 : undefined}>
 											<td>{model.name}</td>
 											<td>{model.family}</td>
 											{showServerColumn ? <td>{model.serverLabel}</td> : null}
 											<td class="num">{formatTokens(model.maxInputTokens)}</td>
 											<td class="num">{formatTokens(model.maxOutputTokens)}</td>
 											<td class="num">
-												{/* Cache and long-context tiers ride a rendered hover tip;
-												    native title tooltips do not show in the webview host. */}
-												<HoverTip tip={pricingDetail(model)}>
+												{/* Cache and long-context tiers exist only here, so the tip
+												    is focus-reachable; native title tooltips do not show in
+												    the webview host. */}
+												<HoverTip focusable tip={pricingDetail(model)}>
 													<span>{formatPricing(model)}</span>
 												</HoverTip>
 											</td>
@@ -302,7 +308,7 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 								) : null}
 							</tbody>
 						</table>
-					</div>
+					</section>
 					{sorted.length === 0 ? <p class="empty">No models match the filter.</p> : null}
 				</>
 			)}
