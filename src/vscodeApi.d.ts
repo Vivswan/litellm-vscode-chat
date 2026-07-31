@@ -23,6 +23,16 @@
  * `category` stays excluded deliberately: it renders fine (a hover tag), but
  * LiteLLM's model data cannot honestly populate a capability tier, so do not
  * add it.
+ *
+ * Watched APIs, currently out of reach (re-check when their gates move):
+ * - capabilities.editTools: hard-gated, the host throws (see above) - a
+ *   permanent exclusion for a Marketplace build.
+ * - chatInputNotification / chatStatusItem: proposal-gated surfaces.
+ * - Third-party prompt-cache breakpoints: the host hardcodes the vendor set
+ *   (microsoft/vscode#313920).
+ * - stateful_marker / context_management data parts: consumed ungated, but
+ *   they carry Responses/Messages-style server state that the pinned
+ *   /chat/completions transport cannot produce.
  */
 declare module "vscode" {
 	/**
