@@ -2,13 +2,7 @@ import type * as vscode from "vscode";
 import { z } from "zod";
 import { normalizeBaseUrl } from "../shared/baseUrl";
 import type { ServerConfig, ServerWithKey } from "../shared/servers";
-import {
-	apiKeySecret,
-	LEGACY_API_KEY_SECRET,
-	LEGACY_BASE_URL_SECRET,
-	SERVER_REGISTRY_KEY,
-	SKIPPED_MIGRATION_SERVERS_KEY,
-} from "../shared/storageKeys";
+import { apiKeySecret, SERVER_REGISTRY_KEY, SKIPPED_MIGRATION_SERVERS_KEY } from "../shared/storageKeys";
 
 const serverConfigSchema = z.looseObject({
 	id: z.string(),
@@ -220,21 +214,6 @@ export class ServerRegistry {
 
 	hasLabel(label: string, excludeId?: string): boolean {
 		return this.getServers().some((s) => s.label === label && s.id !== excludeId);
-	}
-
-	async migrateLegacy(): Promise<boolean> {
-		if (this.getServers().length > 0) {
-			return false;
-		}
-		const baseUrl = await this.secrets.get(LEGACY_BASE_URL_SECRET);
-		if (!baseUrl) {
-			return false;
-		}
-		const apiKey = (await this.secrets.get(LEGACY_API_KEY_SECRET)) ?? "";
-		await this.addServer("Default", baseUrl, apiKey);
-		await this.secrets.delete(LEGACY_BASE_URL_SECRET);
-		await this.secrets.delete(LEGACY_API_KEY_SECRET);
-		return true;
 	}
 }
 

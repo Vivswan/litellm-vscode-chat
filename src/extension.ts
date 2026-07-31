@@ -14,6 +14,8 @@ import {
 	isGroupMigrationComplete,
 	migrateServersToProviderGroups,
 } from "./extension/groupMigration";
+import type { MigrationContext } from "./extension/migrations";
+import { runMigrations } from "./extension/migrations";
 import {
 	CONFIGURE_NOW_LABEL,
 	createConfigurationPrompt,
@@ -80,15 +82,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		provider.getServerSnapshots().length > 0 || provider.hasSeenGroupConfiguration() || hasDeclaredServers();
 	provider.setConfigurationPrompt(createConfigurationPrompt(hasConfiguredServers));
 
-	// The provider must not see a half-migrated registry, so migration completes before registration.
-	try {
-		const migrated = await registry.migrateLegacy();
-		if (migrated) {
-			logger.log("Migrated legacy single-server config to server registry");
-		}
-	} catch (error) {
-		logger.error("Legacy config migration failed", error);
-	}
+	// The provider must not see a half-migrated registry, so pre-registration
+	// migrations complete before registration. Best-effort: a failed migration
+	// logs and retries on the next activation.
+	const migrationContext: MigrationContext = {
+		globalState: context.globalState,
+		secrets: context.secrets,
+		registry,
+		logger,
+	};
+	await runMigrations("pre-registration", migrationContext);
 
 	vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, provider);
 
