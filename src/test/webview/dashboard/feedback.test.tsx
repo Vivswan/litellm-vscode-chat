@@ -96,7 +96,7 @@ test("a failure renders as an alert banner, never a toast, and Dismiss clears it
 test("the in-flight Save disables and shows the busy spinner until its ack lands", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	fireClick(buttonByText(root, "Add server"));
+	fireClick(buttonByText(root, "Add your first server"));
 	fireInput(inputByLabel(root, "Label"), "Prod");
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 	resetPosted();
@@ -110,4 +110,15 @@ test("the in-flight Save disables and shows the busy spinner until its ack lands
 	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: posted.requestId });
 	expect(root.querySelector(".slide-over")).toBeNull();
 	expect(toastTexts(root)).toEqual(["Server saved"]);
+});
+
+test("the toast stack caps at three, dropping the oldest first", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	for (const id of ["r1", "r2", "r3", "r4"]) {
+		pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: id });
+	}
+	// Four successes, three toasts: the first one was dropped.
+	expect(toastTexts(root)).toEqual(["Server saved", "Server saved", "Server saved"]);
+	expect(root.querySelectorAll(".toast").length).toBe(3);
 });

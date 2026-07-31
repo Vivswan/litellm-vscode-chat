@@ -35,6 +35,7 @@ function mountSection(servers: readonly ReturnType<typeof makeDeclaredServer>[])
 	return mount(
 		<ServersSection
 			servers={servers}
+			now={Date.now()}
 			ack={undefined}
 			failures={{}}
 			inlineSecrets={undefined}
@@ -44,10 +45,11 @@ function mountSection(servers: readonly ReturnType<typeof makeDeclaredServer>[])
 	);
 }
 
-test("Test connection and Show diagnostics disable with zero servers and post their executeCommand ids", () => {
+test("the toolbar renders only once a server exists, and its buttons post their executeCommand ids", () => {
+	// First run: the guided card is the only affordance, no strip of dead
+	// controls above it.
 	const empty = mountSection([]);
-	expect(buttonByText(empty, "Test connection").disabled).toBe(true);
-	expect(buttonByText(empty, "Show diagnostics").disabled).toBe(true);
+	expect(empty.querySelector(".toolbar")).toBeNull();
 
 	const populated = mountSection([makeDeclaredServer()]);
 	fireClick(buttonByText(populated, "Test connection"));
@@ -180,7 +182,7 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 
-	fireClick(buttonByText(root, "Add server"));
+	fireClick(buttonByText(root, "Add your first server"));
 	expect(root.querySelector(".form-card")).not.toBeNull();
 
 	// Invalid draft: Save posts nothing and names the first blocking problem.
@@ -205,7 +207,7 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	expect(root.querySelector(".form-card")).toBeNull();
 
 	// Validation-kind failure: the draft is still the truth, the form reopens for retry.
-	fireClick(buttonByText(root, "Add server"));
+	fireClick(buttonByText(root, "Add your first server"));
 	fireInput(inputByLabel(root, "Label"), "Second");
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
 	resetPosted();

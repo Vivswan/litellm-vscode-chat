@@ -47,7 +47,7 @@ test("a full state push replaces the skeleton with hero verdict and counts", () 
 	});
 	pushToWebview(statePush(state));
 
-	const overall = root.querySelector(".overall");
+	const overall = root.querySelector(".hero .pill");
 	expect(overall?.classList.contains("tone-warn")).toBe(true);
 	expect(overall?.textContent).toContain("Degraded");
 	const stats = Array.from(root.querySelectorAll(".stat")).map((stat) => (stat.textContent ?? "").trim());

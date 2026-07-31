@@ -36,7 +36,7 @@ import {
 import { IconAdd } from "./icons";
 import { ParamGroupsFields } from "./recordEditors";
 import { SlideOver } from "./slideOver";
-import { relativeTime, useNow } from "./time";
+import { relativeTime } from "./time";
 import { postMessage } from "./vscodeApi";
 
 /** A correlation ID for one posted intent; matched against intentSucceeded/intentFailed notices. */
@@ -60,7 +60,7 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 	if (server.state === "ok") {
 		if (server.error !== undefined) {
 			return (
-				<HoverTip tip="The server answered, but its last settings sync reported a problem; details below.">
+				<HoverTip focusable tip="The server answered, but its last settings sync reported a problem; details below.">
 					<span class="pill tone-warn">
 						<span class="dot" />
 						Sync issue
@@ -87,7 +87,7 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 		);
 	}
 	return (
-		<HoverTip tip="Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now.">
+		<HoverTip focusable tip="Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now.">
 			<span class="pill tone-muted">
 				<span class="dot" />
 				Not checked
@@ -282,18 +282,20 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 					/>
 					settings (visible)
 				</label>
-				{value.existing !== "none" ? (
-					<label>
-						<input
-							type="checkbox"
-							checked={value.clear}
-							disabled={props.disabled}
-							onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
-						/>
-						remove
-					</label>
-				) : null}
 			</span>
+			{/* Removal is destructive, so it lives on its own line in its own
+			    tone, never as a third option inside the storage choice. */}
+			{value.existing !== "none" ? (
+				<label class={value.clear ? "secret-remove armed" : "secret-remove"}>
+					<input
+						type="checkbox"
+						checked={value.clear}
+						disabled={props.disabled}
+						onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
+					/>
+					Remove the stored {SERVER_FORM_FIELD_LABELS[field]} on save
+				</label>
+			) : null}
 			{value.prefill !== undefined && !value.clear ? (
 				value.value.trim().length === 0 ? (
 					<span class="hint">Emptied, but the stored value is kept; use remove to delete it.</span>
@@ -515,15 +517,18 @@ function ServerForm({
 			<TextField field="label" placeholder="e.g. Production" props={props} />
 			{renaming && (parse.ok || parse.problems.label === undefined) ? (
 				<p class="hint">
-					The label is this server's identity: saving under a new one creates a new provider group, and the old group
-					stays until removed in the native editor.
+					Renaming makes VS Code treat this as a new server: the old name keeps serving its models until you remove its
+					entry in the native editor.
 				</p>
 			) : null}
 			{target.kind === "edit" && !renaming ? (
-				<p class="hint">
-					Connection changes (URL, credentials) cannot reach the existing VS Code group: VS Code has no group-update
-					API. After saving, remove the old group in the native editor and run Sync Models Now.
-				</p>
+				<details class="fine-print">
+					<summary>Changing the URL or credentials?</summary>
+					<p class="hint">
+						Saving stores the change, but VS Code keeps using the old connection details until they are replaced: open
+						the native editor from the Servers toolbar, remove this server's old entry there, then run Sync Models Now.
+					</p>
+				</details>
 			) : null}
 			{collides ? <p class="hint">An entry with this label already exists; saving replaces it.</p> : null}
 			<TextField field="baseUrl" placeholder="e.g. http://localhost:4000" props={props} />
@@ -836,13 +841,16 @@ function ServerRow({
 				{server.modelCount}
 			</td>
 			<td>
+				{/* The credential kind is the information, so it is the visible
+				    text; a generic "auth" badge would hide it in a hover tip. */}
 				{server.hasApiKey || server.hasOAuth ? (
-					<HoverTip tip={server.hasOAuth ? "OAuth configured" : "API key configured"}>
-						<span class="badge">auth</span>
-					</HoverTip>
+					<span class="badge">{server.hasOAuth ? "OAuth" : "API key"}</span>
 				) : null}
 				{server.origin === "external" ? (
-					<HoverTip tip="No entry in the servers setting; managed in the native editor">
+					<HoverTip
+						focusable
+						tip="No entry in the servers setting; managed in the native editor. Edit adopts it into the setting."
+					>
 						<span class="badge">external</span>
 					</HoverTip>
 				) : null}
@@ -885,6 +893,7 @@ function ServerRow({
 
 export function ServersSection({
 	servers,
+	now,
 	ack,
 	failures,
 	inlineSecrets,
@@ -892,6 +901,8 @@ export function ServersSection({
 	onClearInlineSecrets,
 }: {
 	servers: readonly DashboardServer[];
+	/** The shared clock tick (one useNow in App), so a hidden panel does not run its own interval. */
+	now: number;
 	ack: IntentAck | undefined;
 	failures: FailuresByIntent;
 	inlineSecrets: InlineSecretsResponse | undefined;
@@ -908,6 +919,9 @@ export function ServersSection({
 	const [formDirty, setFormDirty] = useState(false);
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 	const [formBusy, setFormBusy] = useState(false);
+	// A close attempt while the adopt is in flight gets a visible answer (the
+	// slide-over's notice bar), not silence.
+	const [busyNote, setBusyNote] = useState(false);
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
 	// The one-time post-adoption notice: the old host-owned group survives (no
 	// removal API), so the user is told plainly why models now appear twice.
@@ -925,6 +939,7 @@ export function ServersSection({
 		setFormDirty(false);
 		setConfirmingDiscard(false);
 		setFormBusy(false);
+		setBusyNote(false);
 		setForm((current) => ({ target, key: (current?.key ?? 0) + 1 }));
 	};
 
@@ -933,13 +948,16 @@ export function ServersSection({
 		setFormDirty(false);
 		setConfirmingDiscard(false);
 		setFormBusy(false);
+		setBusyNote(false);
 		onClearInlineSecrets();
 	};
 
 	// Every way out of an open form funnels through here: the form's Cancel,
-	// the slide-over's X, the scrim, and Esc. One policy: ignore while an
-	// intent is in flight, confirm before discarding edits, otherwise close
-	// (dismissing the form's stale failure notice with it).
+	// the slide-over's X, the scrim, and Esc. One policy: while an intent is
+	// in flight, answer with the visible notice bar; on a dirty form, toggle
+	// the discard confirm (so Esc while it shows means "keep editing" - only
+	// the explicit Discard button destroys edits); otherwise close, dismissing
+	// the form's stale failure notice with it.
 	const cancelIntent: DashboardIntentType = form?.target.kind === "adopt" ? "adoptServer" : "saveServerSetting";
 	const discardForm = () => {
 		onDismissFailure(cancelIntent);
@@ -947,56 +965,59 @@ export function ServersSection({
 	};
 	const requestCloseForm = () => {
 		if (formBusy) {
+			setBusyNote(true);
 			return;
 		}
-		if (formDirty && !confirmingDiscard) {
-			setConfirmingDiscard(true);
+		if (formDirty) {
+			setConfirmingDiscard((current) => !current);
 			return;
 		}
 		discardForm();
 	};
 
 	const declaredLabels = servers.filter((server) => server.origin === "declared").map((server) => server.label);
-	const now = useNow();
 
 	return (
 		<section>
 			<h2>
 				Servers <Help text={HELP_SERVERS_SECTION} below />
 			</h2>
-			<div class="toolbar">
-				<button type="button" onClick={() => openForm({ kind: "add" })}>
-					<IconAdd /> Add server
-				</button>
-				<button
-					type="button"
-					class="secondary"
-					disabled={noServers}
-					onClick={() => postMessage({ type: "executeCommand", command: "testConnection" })}
-				>
-					Test connection
-				</button>
-				<button
-					type="button"
-					class="secondary"
-					disabled={noServers}
-					onClick={() => postMessage({ type: "executeCommand", command: "showDiagnostics" })}
-				>
-					Show diagnostics
-				</button>
-				<button
-					type="button"
-					class="quiet"
-					title="VS Code's Manage Language Models editor; group removal lives there"
-					onClick={() => postMessage({ type: "executeCommand", command: "manageServers" })}
-				>
-					Open native editor
-				</button>
-			</div>
+			{/* First run shows the guided card alone; a strip of mostly disabled
+			    controls above it would put dead buttons before the guidance. */}
+			{!noServers ? (
+				<div class="toolbar">
+					<button type="button" onClick={() => openForm({ kind: "add" })}>
+						<IconAdd /> Add server
+					</button>
+					<button
+						type="button"
+						class="secondary"
+						onClick={() => postMessage({ type: "executeCommand", command: "testConnection" })}
+					>
+						Test connection
+					</button>
+					<button
+						type="button"
+						class="secondary"
+						onClick={() => postMessage({ type: "executeCommand", command: "showDiagnostics" })}
+					>
+						Show diagnostics
+					</button>
+					<button
+						type="button"
+						class="quiet"
+						onClick={() => postMessage({ type: "executeCommand", command: "manageServers" })}
+					>
+						Open native editor
+					</button>
+				</div>
+			) : null}
 			{form !== undefined ? (
 				<SlideOver
 					labelledBy="server-form-title"
+					fallbackFocusId="tab-servers"
 					confirming={confirmingDiscard}
+					notice={busyNote ? "Still adopting; the form closes by itself when it finishes." : undefined}
 					onRequestClose={requestCloseForm}
 					onKeepEditing={() => setConfirmingDiscard(false)}
 					onDiscard={discardForm}
@@ -1009,7 +1030,12 @@ export function ServersSection({
 							failures={failures}
 							declaredLabels={declaredLabels}
 							onUserEdit={() => setFormDirty(true)}
-							onBusyChange={setFormBusy}
+							onBusyChange={(busy) => {
+								setFormBusy(busy);
+								if (!busy) {
+									setBusyNote(false);
+								}
+							}}
 							onAdopted={(message) => {
 								setAdoptNotice(
 									`Adopted into the servers setting. The original VS Code-managed group still exists, so its models appear twice until you remove that group in the native editor.${message !== undefined ? ` ${message}` : ""}`
@@ -1147,15 +1173,17 @@ export function ServersSection({
 				</div>
 			) : null}
 			{servers.some((server) => server.notice === "entry-params-inactive") ? (
-				<p class="state-warn">
-					{servers
-						.filter((server) => server.notice === "entry-params-inactive")
-						.map((server) => server.label)
-						.join(", ")}
-					: per-server model parameters are not applied because the provider group does not carry the entry's labeled
-					identity (it predates entry labels or a rename). Remove the group in the native Manage Language Models editor
-					and run Sync Models Now, or save the entry under a new label, to activate them.
-				</p>
+				<div class="banner banner-warn">
+					<p class="state-warn">
+						{servers
+							.filter((server) => server.notice === "entry-params-inactive")
+							.map((server) => server.label)
+							.join(", ")}
+						: per-server model parameters are not applied because the provider group does not carry the entry's labeled
+						identity (it predates entry labels or a rename). Remove the group in the native Manage Language Models
+						editor and run Sync Models Now, or save the entry under a new label, to activate them.
+					</p>
+				</div>
 			) : null}
 		</section>
 	);

@@ -29,8 +29,9 @@ afterEach(() => {
 	cleanup();
 });
 
+/** With no server configured the add form opens from the guided start's CTA. */
 function openAddForm(root: HTMLElement): void {
-	const opener = buttonByText(root, "Add server");
+	const opener = buttonByText(root, "Add your first server");
 	opener.focus();
 	fireClick(opener);
 }
@@ -91,10 +92,10 @@ test("Esc closes a clean form immediately and hands focus back to the opener", (
 	fireKeyDown(inputByLabel(dialog(root), "Label"), "Escape");
 	expect(root.querySelector(".slide-over")).toBeNull();
 	expect(root.querySelector(".scrim")).toBeNull();
-	expect(document.activeElement).toBe(buttonByText(root, "Add server"));
+	expect(document.activeElement).toBe(buttonByText(root, "Add your first server"));
 });
 
-test("Esc on a dirty form asks before discarding: keep editing stays, a second Esc discards", () => {
+test("Esc on a dirty form asks before discarding, and Esc never destroys: only the Discard button does", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	openAddForm(root);
@@ -105,12 +106,21 @@ test("Esc on a dirty form asks before discarding: keep editing stays, a second E
 	expect(root.querySelector(".slide-over")).not.toBeNull();
 	expect(root.querySelector(".discard-confirm")?.textContent).toContain("Discard unsaved changes?");
 
+	// A second Esc reads as "keep editing" (a reflexive Esc-Esc must not
+	// destroy a half-typed form); the bar hides, the draft survives.
+	fireKeyDown(label, "Escape");
+	expect(root.querySelector(".slide-over")).not.toBeNull();
+	expect(root.querySelector(".discard-confirm")).toBeNull();
+	expect(inputByLabel(dialog(root), "Label").value).toBe("Prod");
+
+	fireClick(buttonByText(dialog(root), "Cancel"));
 	fireClick(buttonByText(dialog(root), "Keep editing"));
 	expect(root.querySelector(".discard-confirm")).toBeNull();
 	expect(inputByLabel(dialog(root), "Label").value).toBe("Prod");
 
+	// The explicit Discard button is the only path that destroys the draft.
 	fireKeyDown(label, "Escape");
-	fireKeyDown(label, "Escape");
+	fireClick(buttonByText(dialog(root), "Discard"));
 	expect(root.querySelector(".slide-over")).toBeNull();
 });
 
@@ -144,7 +154,7 @@ test("the form's own Cancel button routes through the discard confirm when dirty
 	expect(root.querySelector(".slide-over")).toBeNull();
 });
 
-test("an in-flight adopt ignores close requests until its ack lands", () => {
+test("an in-flight adopt refuses close requests with a visible notice until its ack lands", () => {
 	const external = makeExternalServer();
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [external] })));
@@ -154,14 +164,33 @@ test("an in-flight adopt ignores close requests until its ack lands", () => {
 	fireClick(buttonByText(dialog(root), "Adopt"));
 	const posted = postedMessages[0] as { requestId: string };
 
+	// The refusal is not silent: the panel answers with a status bar.
 	fireKeyDown(dialog(root), "Escape");
 	expect(root.querySelector(".slide-over")).not.toBeNull();
 	expect(root.querySelector(".discard-confirm")).toBeNull();
+	expect(root.querySelector(".slide-notice")?.textContent).toContain("Still adopting");
 
 	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: posted.requestId });
 	expect(root.querySelector(".slide-over")).toBeNull();
 	// The post-adoption notice survives the close.
 	expect(root.textContent).toContain("its models appear twice");
+});
+
+test("focus falls back to the Servers tab when the opener unmounted with the form open", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	// Open from the guided start's CTA, which disappears once a server exists.
+	const cta = buttonByText(root, "Add your first server");
+	cta.focus();
+	fireClick(cta);
+	expect(root.querySelector(".slide-over")).not.toBeNull();
+
+	// A background sync lands a server: the guided card (and the opener) unmounts.
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
+	expect(buttonByText(root, "Cancel")).toBeDefined();
+	fireKeyDown(dialog(root), "Escape");
+	expect(root.querySelector(".slide-over")).toBeNull();
+	expect(document.activeElement?.id).toBe("tab-servers");
 });
 
 test("editing continues across a background state push while the slide-over is open", () => {

@@ -24,6 +24,7 @@ function mountSection(servers: readonly ReturnType<typeof makeDeclaredServer>[])
 	return mount(
 		<ServersSection
 			servers={servers}
+			now={Date.now()}
 			ack={undefined}
 			failures={{}}
 			inlineSecrets={undefined}

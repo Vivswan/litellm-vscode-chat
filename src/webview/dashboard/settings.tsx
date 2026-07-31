@@ -281,10 +281,10 @@ export function SettingsSection({ settings, failures }: { settings: DashboardSet
 	const otherBooleans = BOOLEAN_SETTING_IDS.filter((id) => !placed.has(id));
 	return (
 		<section>
-			<div class="section-head">
-				<h2>
-					Settings <Help text={HELP_SETTINGS_SECTION} />
-				</h2>
+			<h2>
+				Settings <Help text={HELP_SETTINGS_SECTION} />
+			</h2>
+			<div class="toolbar">
 				<button
 					type="button"
 					class="secondary"

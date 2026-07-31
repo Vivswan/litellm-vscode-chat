@@ -157,12 +157,12 @@ function lastSync(servers: readonly DashboardServer[], now: number): string | un
 }
 
 /** The at-a-glance strip the status bar click promises: overall state, counts, last sync, and Sync. */
-function StatusHero({ state }: { state: DashboardState }) {
+function StatusHero({ state, now }: { state: DashboardState; now: number }) {
 	const overall = overallState(state.servers);
-	const synced = lastSync(state.servers, useNow());
+	const synced = lastSync(state.servers, now);
 	return (
 		<div class="hero">
-			<span class={`pill overall tone-${overall.tone}`}>
+			<span class={`pill tone-${overall.tone}`}>
 				<span class="dot" />
 				{overall.word}
 			</span>
@@ -249,11 +249,18 @@ function SectionTabs({
 					id={`tab-${section}`}
 					aria-selected={section === active}
 					aria-controls={`panel-${section}`}
+					aria-label={
+						counts[section] !== undefined ? `${SECTION_LABELS[section]} (${counts[section]})` : SECTION_LABELS[section]
+					}
 					tabIndex={section === active ? 0 : -1}
 					onClick={() => onSelect(section)}
 				>
 					{SECTION_LABELS[section]}
-					{counts[section] !== undefined ? <span class="count">{counts[section]}</span> : null}
+					{counts[section] !== undefined ? (
+						<span class="count" aria-hidden="true">
+							{counts[section]}
+						</span>
+					) : null}
 				</button>
 			))}
 		</div>
@@ -295,6 +302,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	const [failures, setFailures] = useState<FailuresByIntent>({});
 	const [toasts, setToasts] = useState<readonly ToastItem[]>([]);
 	const [inlineSecrets, setInlineSecrets] = useState<InlineSecretsResponse | undefined>(undefined);
+	// One clock for every relative time on the page; hidden panels share the
+	// same tick instead of running intervals of their own.
+	const now = useNow();
 	const dismissToast = useCallback((id: number) => {
 		setToasts((current) => current.filter((toast) => toast.id !== id));
 	}, []);
@@ -329,7 +339,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				if (base !== undefined) {
 					const caveat = message.intentType !== "adoptServer" ? message.message : undefined;
 					const text = caveat !== undefined ? `${base}. ${caveat}` : base;
-					setToasts((current) => [...current, { id: seq, text }]);
+					// The stack stays readable: at most three, oldest dropped first.
+					setToasts((current) => [...current, { id: seq, text }].slice(-3));
 				}
 				return;
 			}
@@ -363,7 +374,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		<main>
 			<h1>LiteLLM Dashboard</h1>
 			<p class="hint">Servers, models, and settings in one place; edits land in your VS Code settings.</p>
-			<StatusHero state={state} />
+			<StatusHero state={state} now={now} />
 			{scalarFailure !== undefined ? <p class="error">The last change did not apply: {scalarFailure.message}</p> : null}
 			<SectionTabs
 				active={section}
@@ -373,6 +384,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			<SectionPanel section="servers" active={section}>
 				<ServersSection
 					servers={state.servers}
+					now={now}
 					ack={ack}
 					failures={failures}
 					inlineSecrets={inlineSecrets}

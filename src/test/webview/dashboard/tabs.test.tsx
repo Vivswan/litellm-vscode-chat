@@ -49,7 +49,12 @@ function mountApp() {
 test("three tabs render with counts, servers selected by default, and panels wired by aria", () => {
 	const root = mountApp();
 	const tabs = Array.from(root.querySelectorAll("[role='tab']"));
-	expect(tabs.map((t) => (t.textContent ?? "").trim())).toEqual(["Servers1", "Models2", "Settings"]);
+	// The accessible name separates label and count ("Servers (1)", not the
+	// visual concatenation "Servers1"), and the count badge stays visual-only.
+	expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["Servers (1)", "Models (2)", "Settings"]);
+	for (const t of tabs) {
+		expect(t.querySelector(".count")?.getAttribute("aria-hidden") ?? "true").toBe("true");
+	}
 
 	const servers = tab(root, "Servers");
 	expect(servers.getAttribute("aria-selected")).toBe("true");
@@ -107,4 +112,21 @@ test("section-local state survives a round trip through another tab", () => {
 	const restored = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	expect(restored.value).toBe("second");
 	expect(root.textContent).toContain("showing 1 of 2");
+});
+
+test("controls inside an inactive panel sit under a hidden ancestor, out of the Tab order", () => {
+	const root = mountApp();
+	fireClick(tab(root, "Models"));
+
+	// hidden => display:none => unfocusable; this is the property that keeps
+	// background panels Tab-unreachable, so pin it on a real control.
+	const addServer = Array.from(root.querySelectorAll("button")).find(
+		(b) => (b.textContent ?? "").trim() === "Add server"
+	);
+	expect(addServer).toBeDefined();
+	expect(addServer?.closest("[hidden]")).not.toBeNull();
+
+	// The active panel's controls have no hidden ancestor.
+	const filter = root.querySelector("input[aria-label='Filter models']");
+	expect(filter?.closest("[hidden]")).toBeNull();
 });

@@ -254,7 +254,9 @@ test("a typed secret leaves the page only as a directive: set, keep for untouche
 	openEdit(root);
 	pushToWebview({ type: "inlineSecrets", requestId: readInlineRequest().requestId, values: { apiKey: SENTINEL } });
 	expectOnlyInApiKeyInput(SENTINEL);
-	const removeToggle = Array.from(root.querySelectorAll(".secret-where input[type='checkbox']"))[0];
+	// The remove control lives on its own line outside the storage
+	// radiogroup: destructive, not a third storage choice.
+	const removeToggle = Array.from(root.querySelectorAll(".secret-remove input[type='checkbox']"))[0];
 	fireCheck(removeToggle as HTMLInputElement, true);
 	// The disabled input keeps its draft text; ticking must not echo it elsewhere.
 	expectOnlyInApiKeyInput(SENTINEL);
