@@ -20,10 +20,11 @@ import { getMigratedServerLabels, labelScopedModelParametersMigration } from "./
 import { hasLegacyConfig } from "./legacySingleServer";
 
 /**
- * Internal host action that validates a { vendor, name, baseUrl, apiKey }
- * group by calling the provider once with that configuration, persists the
- * group, and takes ownership of the secret. Not part of the stable API, so
- * every use is wrapped and failure defers the migration to the next activation.
+ * Internal host action that validates a { vendor, name, label, baseUrl,
+ * apiKey } group by calling the provider once with that configuration,
+ * persists the group, and takes ownership of the secret. Not part of the
+ * stable API, so every use is wrapped and failure defers the migration to the
+ * next activation.
  */
 const MIGRATE_GROUP_COMMAND = "lm.migrateLanguageModelsProviderGroup";
 
@@ -259,6 +260,12 @@ async function submitGroupSeed(
 		await executeCommand(MIGRATE_GROUP_COMMAND, {
 			vendor: VENDOR_ID,
 			name: record.name,
+			// The registry server's label, stamped into the configuration the way
+			// the sync engine stamps a declared entry's: it is what lets per-entry
+			// modelParameters resolve against models this group serves. Groups
+			// seeded before this field existed carry none; the dashboard flags
+			// those when an entry's parameters would silently not apply.
+			label: record.label,
 			baseUrl: record.baseUrl,
 			apiKey: current.apiKey || undefined,
 		});

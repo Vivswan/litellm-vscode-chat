@@ -779,6 +779,14 @@ function ServerRow({
 						external
 					</span>
 				) : null}
+				{server.notice === "entry-params-inactive" ? (
+					<span
+						class="badge state-warn"
+						title="This entry's per-server model parameters are not applied: the provider group serving it does not carry this entry's labeled identity (it predates entry labels or a rename). Remove the group in the native Manage Language Models editor and run Sync Models Now, or save the entry under a new label, to activate them."
+					>
+						params inactive
+					</span>
+				) : null}
 			</td>
 			<td class="actions">
 				{server.origin === "declared" ? (
@@ -1038,6 +1046,17 @@ export function ServersSection({
 						.filter((server) => server.error !== undefined)
 						.map((server) => `${server.label}: ${server.error}`)
 						.join("; ")}
+				</p>
+			) : null}
+			{servers.some((server) => server.notice === "entry-params-inactive") ? (
+				<p class="state-warn">
+					{servers
+						.filter((server) => server.notice === "entry-params-inactive")
+						.map((server) => server.label)
+						.join(", ")}
+					: per-server model parameters are not applied because the provider group does not carry the entry's labeled
+					identity (it predates entry labels or a rename). Remove the group in the native Manage Language Models editor
+					and run Sync Models Now, or save the entry under a new label, to activate them.
 				</p>
 			) : null}
 		</section>

@@ -60,6 +60,31 @@ test("Test connection and Show diagnostics disable with zero servers and post th
 	]);
 });
 
+test("a noticed entry renders the params-inactive badge and the remedy paragraph", () => {
+	const root = mountSection([
+		makeDeclaredServer({ label: "Prod", notice: "entry-params-inactive" }),
+		makeDeclaredServer({ label: "Quiet", baseUrl: "http://quiet.test" }),
+	]);
+
+	const badge = [...root.querySelectorAll("span.badge.state-warn")].find(
+		(el) => el.textContent?.trim() === "params inactive"
+	);
+	expect(badge).toBeDefined();
+	expect(badge?.getAttribute("title")).toContain("run Sync Models Now");
+
+	const paragraph = root.querySelector("p.state-warn");
+	expect(paragraph?.textContent).toContain("Prod");
+	expect(paragraph?.textContent).not.toContain("Quiet");
+	expect(paragraph?.textContent).toContain("per-server model parameters are not applied");
+	expect(paragraph?.textContent).toContain("run Sync Models Now");
+});
+
+test("without a notice, no params-inactive badge or paragraph renders", () => {
+	const root = mountSection([makeDeclaredServer()]);
+	expect([...root.querySelectorAll("span.badge")].map((el) => el.textContent?.trim())).not.toContain("params inactive");
+	expect(root.querySelector("p.state-warn")).toBeNull();
+});
+
 test("the edit form round-trips per-entry model parameters into the save intent", () => {
 	const root = mountSection([
 		makeDeclaredServer({

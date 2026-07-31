@@ -41,7 +41,7 @@ function makeLogger(): { logger: Logger; lines: string[] } {
 
 interface GroupSubmission {
 	command: string;
-	group: { vendor: string; name: string; baseUrl: string; apiKey: string | undefined };
+	group: { vendor: string; name: string; label: string; baseUrl: string; apiKey: string | undefined };
 }
 
 /**
@@ -118,6 +118,11 @@ suite("extension/migrations/registryToProviderGroups", () => {
 				["lm.migrateLanguageModelsProviderGroup", "litellm", "Production", "http://prod.test", "prod-key"],
 				["lm.migrateLanguageModelsProviderGroup", "litellm", "Local", "http://local.test", undefined],
 			]
+		);
+		assert.deepStrictEqual(
+			host.submissions.map((s) => s.group.label),
+			["Production", "Local"],
+			"the label rides each submission so migrated groups can serve per-entry modelParameters"
 		);
 		assert.strictEqual(storage.mementoStore.get(GROUP_MIGRATION_COMPLETE_KEY), true);
 		assert.deepStrictEqual(storage.mementoStore.get(MIGRATED_SERVER_LABELS_KEY), {
