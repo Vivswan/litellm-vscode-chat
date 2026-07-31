@@ -2,9 +2,13 @@ import os from "node:os";
 import path from "node:path";
 import { defineConfig } from "@vscode/test-cli";
 
-const userDataDir =
-	process.env.VSCODE_TEST_USER_DATA_DIR || path.join(os.tmpdir(), `litellm-vscode-test-${process.pid}`);
-const launchArgs = ["--user-data-dir", userDataDir];
+// Per-label isolation; VS Code's IPC socket lives inside this dir and must fit macOS's ~104-byte AF_UNIX path cap.
+const launchArgsFor = (label) => [
+	"--user-data-dir",
+	process.env.VSCODE_TEST_USER_DATA_DIR
+		? path.join(process.env.VSCODE_TEST_USER_DATA_DIR, label)
+		: path.join(os.tmpdir(), `lvt-${process.pid}-${label}`),
+];
 
 export default defineConfig({
 	coverage: {
@@ -40,7 +44,7 @@ export default defineConfig({
 				FUZZ_RUNS: process.env.FUZZ_RUNS || "",
 				FUZZ_SEED: process.env.FUZZ_SEED || "",
 			},
-			launchArgs,
+			launchArgs: launchArgsFor("unit"),
 		},
 		{
 			label: "host-fidelity",
@@ -51,12 +55,13 @@ export default defineConfig({
 				color: true,
 			},
 			env: {
+				LITELLM_REAL_LIVE: process.env.LITELLM_REAL_LIVE || "",
 				LITELLM_REAL_BASE_URL: process.env.LITELLM_REAL_BASE_URL || "",
 				LITELLM_REAL_API_KEY: process.env.LITELLM_REAL_API_KEY || "",
 				LITELLM_REAL_MODEL: process.env.LITELLM_REAL_MODEL || "",
 				LITELLM_REAL_TIMEOUT: process.env.LITELLM_REAL_TIMEOUT || "",
 			},
-			launchArgs,
+			launchArgs: launchArgsFor("host-fidelity"),
 		},
 		{
 			label: "docker",
@@ -71,7 +76,7 @@ export default defineConfig({
 				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
 				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
 			},
-			launchArgs,
+			launchArgs: launchArgsFor("docker"),
 		},
 		{
 			label: "docker-transport",
@@ -86,7 +91,7 @@ export default defineConfig({
 				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
 				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
 			},
-			launchArgs,
+			launchArgs: launchArgsFor("docker-transport"),
 		},
 		{
 			label: "docker-serversync",
@@ -101,7 +106,7 @@ export default defineConfig({
 				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
 				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
 			},
-			launchArgs,
+			launchArgs: launchArgsFor("docker-serversync"),
 		},
 		{
 			label: "docker-fuzz",
@@ -119,7 +124,7 @@ export default defineConfig({
 				FUZZ_ITERATIONS: process.env.FUZZ_ITERATIONS || "",
 				FUZZ_SHARD: process.env.FUZZ_SHARD || "",
 			},
-			launchArgs,
+			launchArgs: launchArgsFor("docker-fuzz"),
 		},
 		{
 			label: "docker-conversation",
@@ -136,7 +141,7 @@ export default defineConfig({
 				FUZZ_SEED: process.env.FUZZ_SEED || "",
 				CONVERSATION_ITERATIONS: process.env.CONVERSATION_ITERATIONS || "",
 			},
-			launchArgs,
+			launchArgs: launchArgsFor("docker-conversation"),
 		},
 		{
 			label: "docker-monkey",
@@ -155,7 +160,7 @@ export default defineConfig({
 				FUZZ_SHARD: process.env.FUZZ_SHARD || "",
 				MONKEY_ITERATIONS: process.env.MONKEY_ITERATIONS || "",
 			},
-			launchArgs,
+			launchArgs: launchArgsFor("docker-monkey"),
 		},
 	],
 });

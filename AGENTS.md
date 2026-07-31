@@ -69,12 +69,11 @@ bun run compile            # tsc to out/ (tests run from here)
 bun run bundle             # production bundles (bundle:dev for unminified)
 bun run typecheck          # all three tsconfig projects
 bun run lint               # Biome (lint:types, lint:knip, lint:actions for the others)
-bun run test               # unit suite in the extension host (test:coverage adds the floor)
+bun run test               # unit + capture host-fidelity suites in the extension host (test:coverage adds the floor)
 bun run test:docker        # docker suites + stream fuzzer against a real LiteLLM proxy
 bun run docker:up          # local LiteLLM proxy + fake OpenAI backend (docker:down, docker:logs)
 bun run generate-config    # print the generated LiteLLM proxy config to stdout (stack startup writes the real file)
 bun run dev                # Extension Development Host preconfigured against the fake stack
-bun run host-fidelity-test # end-to-end against a capture or live server (LITELLM_REAL_*)
 ```
 
 ### Validation expectations for agents
@@ -100,7 +99,7 @@ Two deliberate design contracts worth knowing before touching transport code: st
 
 ### Repository conventions
 
-- Biome formats and lints: tabs (width 2), semicolons, 120-char lines. Husky pre-commit runs format, lint, actionlint, scripts typecheck, and the unit suite; it runs `biome check --write` repo-wide and aborts the commit when that modifies anything, so re-stage and commit again.
+- Biome formats and lints: tabs (width 2), semicolons, 120-char lines. Husky pre-commit runs format, lint, actionlint, scripts typecheck, and the unit and capture host-fidelity suites; it runs `biome check --write` repo-wide and aborts the commit when that modifies anything, so re-stage and commit again.
 - release-please manages versioning and Marketplace publishing from Conventional Commit titles. Never bump `package.json` manually.
 - A commit that resolves a community-reported issue or supersedes a community PR credits the author in its subject, e.g. `fix: normalize base URL slashes (#53, thanks @Pandaplanes)` - release-please copies the subject into the changelog, so the credit ships with the release. Commits that land or supersede community CODE also carry a human `Co-authored-by:` trailer and a row in `ACKNOWLEDGMENTS.md`.
 - No AI/tool attribution in commits or PRs: no "Generated with", no "Co-Authored-By: Claude/Copilot/Codex" or similar. `Co-authored-by:` trailers for human community contributors are the one sanctioned use.
@@ -115,4 +114,4 @@ Tests mirror the source layout under `src/test/` and run in the extension host (
 
 ### CI
 
-Repo-owned jobs live in `checks.yml` inside the required all-green gate: the unit suite on three OSes with a Linux coverage floor, the promoted host-fidelity and docker-stack suites, and the format-check workflow (including the packaged-file-list check). `host-fidelity.yml` and `docker-test.yml` are workflow_dispatch-only wrappers; `nightly.yml` runs the docker and property suites at high iteration counts and files `nightly-fuzz` issues with reproduction seeds; `release.yml` publishes the VSIX after release-please cuts a release.
+Repo-owned jobs live in `checks.yml` inside the required all-green gate: the unit and capture host-fidelity suites on three OSes with a Linux coverage floor, the promoted docker-stack suite (docker suites, stream fuzzer, and live host-fidelity against the dockerized proxy), and the format-check workflow (including the packaged-file-list check). `docker-test.yml` is a workflow_dispatch-only wrapper; `nightly-fuzz.yml` runs the docker and property suites at high iteration counts and files `nightly-fuzz` issues with reproduction seeds; `release.yml` publishes the VSIX after release-please cuts a release.
