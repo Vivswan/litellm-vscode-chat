@@ -25,7 +25,7 @@ Press `F5` to launch the Extension Development Host, or `bun run dev` to launch 
 
 ## Local LiteLLM stack (Docker or Podman)
 
-For local testing you can run a real LiteLLM proxy in Docker, backed by a fake OpenAI server. The fake serves six realistic models and takes its instructions from the chat input itself: a `%` command on the last line of your message picks the response shape, so one model can play every stream shape the extension handles. The sigil is `%` because the obvious choices are both intercepted before they reach the model: Copilot Chat claims `/`-prefixed input for its own slash commands, and agent CLIs like Claude Code run a leading `!` as a shell command, while no chat input surface claims `%`.
+For local testing you can run a real LiteLLM proxy in Docker, backed by a fake OpenAI server:
 
 ```bash
 cp .env.example .env   # optional; only needed for real provider keys or port changes
@@ -34,7 +34,19 @@ bun run docker:up
 
 Then add a server in the extension with base URL `http://localhost:4000` and API key `sk-test-1234`.
 
-The model list is deliberately small and shaped like a real deployment (`src/test/fakeStack/models.ts`): `claude-opus-4-5` (everything on: reasoning, caching, tiered pricing, 1M context), `gpt-5.2` (a load-balanced pair), `gpt-5.2-mini` (the everyday target), `gpt-5.2-omni` (audio flags), `deepseek-r2` (reasoning without tools), and `llama-4-scout` (no limits or pricing declared, tools explicitly off). A seventh entry, `gpt-4-turbo`, is blocked in the config and must never appear in the picker - that absence is itself under test.
+The fake serves six realistic models and takes its instructions from the chat input itself: a `%` command on the last line of your message picks the response shape, so one model can play every stream shape the extension handles. (The sigil is `%` because the obvious choices are both intercepted before they reach the model: Copilot Chat claims `/`-prefixed input for its own slash commands, and agent CLIs like Claude Code run a leading `!` as a shell command, while no chat input surface claims `%`.)
+
+The model list is deliberately small and shaped like a real deployment (`src/test/fakeStack/models.ts`):
+
+| Model | What it plays |
+|-------|---------------|
+| `claude-opus-4-5` | Everything on: reasoning, caching, tiered pricing, 1M context |
+| `gpt-5.2` | A load-balanced pair |
+| `gpt-5.2-mini` | The everyday target |
+| `gpt-5.2-omni` | Audio flags |
+| `deepseek-r2` | Reasoning without tools |
+| `llama-4-scout` | No limits or pricing declared, tools explicitly off |
+| `gpt-4-turbo` | Blocked in the config; must never appear in the picker - that absence is itself under test |
 
 Pick any of them in the Copilot model picker and type a command as your message. `%help` lists everything; the ones you will reach for first:
 
@@ -55,9 +67,17 @@ Pick any of them in the Copilot model picker and type a command as your message.
 
 A message without a command gets a fixed reply pointing at `%help`. Everything is deterministic: the same conversation produces the same bytes.
 
-The proxy config is generated at stack startup (`docker/.generated/litellm-config.yaml`, gitignored) from `src/test/fakeStack/models.ts`. With a real provider key set in `.env` or the environment, the generated config also routes `openai/*` or `anthropic/*` model names through the proxy to that provider - the intended way to eyeball real-provider behavior through the same stack - and turns on LiteLLM's `check_provider_endpoint`, which expands the wildcard into the provider's live catalog on `/v1/models` for direct API consumers of the proxy. The extension's picker reads `/v1/model/info`, where a wildcard route appears as its literal entry (`openai/*`). Without a key the wildcard route is not emitted at all, so there are no phantom catalog models and no misleading 401s. GitHub Copilot works differently (its API takes a device-flow login, not an API key): run `bun run copilot-login` once, and every stack start fetches your live Copilot catalog and emits a `github_copilot/<model>` route per model. Set `LITELLM_WILDCARD_ALL=1` to add a bare `*` passthrough for anything else LiteLLM can infer. The docker test suite always generates without these routes, so local keys never change test results.
+### Real provider routes
 
-Useful commands:
+The proxy config is generated at stack startup (`docker/.generated/litellm-config.yaml`, gitignored) from `src/test/fakeStack/models.ts`. On top of the fixed catalog:
+
+- **A real provider key** set in `.env` or the environment makes the generated config also route `openai/*` or `anthropic/*` model names through the proxy to that provider - the intended way to eyeball real-provider behavior through the same stack. It also turns on LiteLLM's `check_provider_endpoint`, which expands the wildcard into the provider's live catalog on `/v1/models` for direct API consumers of the proxy; the extension's picker reads `/v1/model/info`, where a wildcard route appears as its literal entry (`openai/*`).
+- **Without a key** the wildcard route is not emitted at all, so there are no phantom catalog models and no misleading 401s.
+- **GitHub Copilot** works differently (its API takes a device-flow login, not an API key): run `bun run copilot-login` once, and every stack start fetches your live Copilot catalog and emits a `github_copilot/<model>` route per model.
+- **`LITELLM_WILDCARD_ALL=1`** adds a bare `*` passthrough for anything else LiteLLM can infer.
+- **The docker test suite** always generates without these routes, so local keys never change test results.
+
+### Useful commands
 
 ```bash
 bun run test:docker    # run the docker test suites against the stack (starts and stops it)
@@ -67,7 +87,11 @@ bun run generate-config  # print the generated LiteLLM config to stdout (never w
 bun run copilot-login    # one-time GitHub device flow; stack starts then emit github_copilot/<model> routes
 ```
 
-The stack also works with Podman: the scripts try `docker compose` first, then `podman compose`, and `COMPOSE_CMD` overrides the choice. The compose provider must support `up --wait`; Podman with the docker-compose provider does, while older `podman-compose` releases may not. On SELinux hosts, change the bind mounts in `docker/docker-compose.yml` from `:ro` to `:ro,z`. Always start the stack through `bun run docker:up` (or `dev` / `test:docker`): those paths generate `docker/.generated/litellm-config.yaml` first. Invoking `docker compose up` directly is unsupported - without the generation step the read-only directory mount materializes empty and the litellm container exits on a missing config.
+### Docker and Podman notes
+
+- The stack also works with Podman: the scripts try `docker compose` first, then `podman compose`, and `COMPOSE_CMD` overrides the choice. The compose provider must support `up --wait`; Podman with the docker-compose provider does, while older `podman-compose` releases may not.
+- On SELinux hosts, change the bind mounts in `docker/docker-compose.yml` from `:ro` to `:ro,z`.
+- Always start the stack through `bun run docker:up` (or `dev` / `test:docker`): those paths generate `docker/.generated/litellm-config.yaml` first. Invoking `docker compose up` directly is unsupported - without the generation step the read-only directory mount materializes empty and the litellm container exits on a missing config.
 
 ## Host-fidelity suite against a live server
 

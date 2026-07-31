@@ -4,9 +4,11 @@ Install the extension, point it at a LiteLLM proxy, and its models show up in Gi
 
 ## Requirements
 
-- VS Code 1.129.0 or higher, with the GitHub Copilot Chat extension installed and signed in; this extension plugs into Copilot's chat view, so without it there is no chat interface and no model picker
-- A running LiteLLM proxy, self-hosted or cloud. A LiteLLM proxy is one server that exposes many LLM providers behind a single OpenAI-compatible endpoint; if you do not have one, LiteLLM's own [proxy quickstart](https://docs.litellm.ai/docs/proxy/quick_start) gets a local one running in a few commands
-- A LiteLLM API key, if your proxy requires one: usually an `sk-...` value, either the proxy's master key from its config or a [virtual key](servers.md#virtual-keys) issued by whoever runs the proxy. If your company runs the server, ask its administrator; if you are not sure whether yours needs one, "LiteLLM: Test Connection" reports an authentication error when it does
+- **VS Code 1.129.0 or higher**, with the GitHub Copilot Chat extension installed and signed in. This extension plugs into Copilot's chat view, so without it there is no chat interface and no model picker.
+- **A running LiteLLM proxy**, self-hosted or cloud. A LiteLLM proxy is one server that exposes many LLM providers behind a single OpenAI-compatible endpoint; if you do not have one, LiteLLM's own [proxy quickstart](https://docs.litellm.ai/docs/proxy/quick_start) gets a local one running in a few commands.
+- **A LiteLLM API key**, if your proxy requires one: usually an `sk-...` value, either the proxy's master key from its config or a [virtual key](servers.md#virtual-keys) issued by whoever runs the proxy.
+  - If your company runs the server, ask its administrator.
+  - Not sure whether yours needs one? "LiteLLM: Test Connection" reports an authentication error when it does.
 
 The repository also ships a scriptable local proxy for trying things out; see [Development](development.md).
 
@@ -21,7 +23,12 @@ The repository also ships a scriptable local proxy for trying things out; see [D
 
 The extension also ships a walkthrough covering these steps: run "Welcome: Open Walkthrough..." from the Command Palette and pick "Get started with LiteLLM for Copilot Chat".
 
-You can equally start from the dashboard: run "LiteLLM: Open Dashboard" from the Command Palette and use its Add server form. The two paths store the server differently, though: the dashboard writes a declared entry in the `litellm-vscode-chat.servers` setting, while the native Manage Models editor creates a VS Code-managed group the dashboard shows as "external" until you adopt it. Declared entries are the more capable kind (editable from the dashboard, per-server [model parameters](model-parameters.md#per-entry-parameters)); see [external servers and adoption](servers.md#external-servers-and-adoption).
+You can equally start from the dashboard: run "LiteLLM: Open Dashboard" from the Command Palette and use its Add server form. The two paths store the server differently:
+
+| Path | What it creates | What that gets you |
+|------|-----------------|--------------------|
+| Dashboard Add server form | A declared entry in the `litellm-vscode-chat.servers` setting | The more capable kind: editable from the dashboard, per-server [model parameters](model-parameters.md#per-entry-parameters) |
+| Native Manage Models editor | A VS Code-managed group | Shown as "external" in the dashboard until you [adopt it](servers.md#external-servers-and-adoption) |
 
 ## Where to configure things
 

@@ -822,19 +822,27 @@ suite("fakeStack commands: docs drift guard", () => {
 		assert.ok(agents.includes(`${COMMAND_SIGIL}play:<name>`), "AGENTS.md points at the sigil-derived play command");
 	});
 
-	test("the development doc model-list paragraph names exactly the catalog's aliases", () => {
-		// The paragraph hand-writes every alias in backticks, including the
-		// blocked gpt-4-turbo (whose absence from the picker is itself under
-		// test). Alias-shaped backtick tokens are compared bidirectionally
-		// against FAKE_MODELS, so a catalog rename, addition, or removal fails
-		// here instead of leaving the doc naming a model the stack no longer
-		// serves. Non-alias tokens in the paragraph (file paths, commands) do
-		// not match the alias shape and stay free to change.
-		const doc = fs.readFileSync(path.join(repoRoot, "docs", "development.md"), "utf8");
-		const paragraph = doc.split("\n").find((line) => line.startsWith("The model list is deliberately small"));
-		assert.ok(paragraph, "docs/development.md keeps the fake-stack model-list paragraph");
+	test("the development doc model-list table names exactly the catalog's aliases", () => {
+		// The intro line plus the table under it hand-write every alias in
+		// backticks, including the blocked gpt-4-turbo (whose absence from the
+		// picker is itself under test). Alias-shaped backtick tokens are
+		// compared bidirectionally against FAKE_MODELS, so a catalog rename,
+		// addition, or removal fails here instead of leaving the doc naming a
+		// model the stack no longer serves. Non-alias tokens in the block (file
+		// paths, commands) do not match the alias shape and stay free to change.
+		const lines = fs.readFileSync(path.join(repoRoot, "docs", "development.md"), "utf8").split("\n");
+		const start = lines.findIndex((line) => line.startsWith("The model list is deliberately small"));
+		assert.ok(start >= 0, "docs/development.md keeps the fake-stack model-list intro");
+		const block: string[] = [lines[start] as string];
+		for (const line of lines.slice(start + 1)) {
+			if (line.trim() !== "" && !line.startsWith("|")) {
+				break;
+			}
+			block.push(line);
+		}
+		const paragraph = block.join("\n");
 		// Alias-shaped: the catalog's charset PLUS at least one dash or
-		// dot-digit, so a plain backticked word in the paragraph (`bun`, a
+		// dot-digit, so a plain backticked word in the block (`bun`, a
 		// shortened `models.ts`) cannot become a phantom alias. The self-check
 		// keeps the shape in sync with the catalog: an alias the shape cannot
 		// capture would otherwise fail the bidirectional compare confusingly.
@@ -850,7 +858,7 @@ suite("fakeStack commands: docs drift guard", () => {
 		assert.deepStrictEqual(
 			[...new Set(mentioned)].sort(),
 			[...declared].sort(),
-			"the development doc paragraph mirrors the FAKE_MODELS aliases"
+			"the development doc model-list table mirrors the FAKE_MODELS aliases"
 		);
 	});
 });
