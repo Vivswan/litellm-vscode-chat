@@ -261,6 +261,8 @@ suite("extension/serverManagement", () => {
 			registry: ServerRegistry;
 			/** The registry contents right after seeding, for no-mutation assertions. */
 			seeded: { id: string; label: string; baseUrl: string }[];
+			/** Every line the flows logged; feeds the issue-report buffer, so secrets must never appear. */
+			logged: string[];
 			/** The options each showInputBox call received, in prompt order. */
 			inputOptions: vscode.InputBoxOptions[];
 			/** Every quick pick shown: its options and the items offered. */
@@ -295,7 +297,11 @@ suite("extension/serverManagement", () => {
 			for (const [label, baseUrl, apiKey] of plan.seed ?? []) {
 				await registry.addServer(label, baseUrl, apiKey);
 			}
-			const logger = new Logger({ info: () => {}, error: () => {} });
+			const logged: string[] = [];
+			const logger = new Logger({
+				info: (message: string) => logged.push(message),
+				error: (message: string) => logged.push(message),
+			});
 			const seeded = registry.getServers().map(({ id, label, baseUrl }) => ({ id, label, baseUrl }));
 			const handler = captureManageHandlers(
 				registry,
@@ -307,6 +313,7 @@ suite("extension/serverManagement", () => {
 			const result: WalkResult = {
 				registry,
 				seeded,
+				logged,
 				inputOptions: [],
 				quickPicks: [],
 				infoToasts: [],
@@ -389,6 +396,13 @@ suite("extension/serverManagement", () => {
 			assert.strictEqual(server.label, "Prod");
 			assert.strictEqual(server.baseUrl, "http://localhost:4000");
 			assert.strictEqual(await run.registry.getApiKey(server.id), "sk-key");
+			// The log lines feed the public issue-report buffer; the key must
+			// never reach them (the flow logs label and URL only).
+			assert.ok(run.logged.length > 0, "the add flow logs its outcome");
+			assert.ok(
+				!run.logged.some((line) => line.includes("sk-key")),
+				`the API key leaked into the log buffer: ${JSON.stringify(run.logged)}`
+			);
 			assert.strictEqual(run.infoToasts.length, 1);
 			const toast = expectDefined(run.infoToasts[0]);
 			assert.ok(toast.message.includes('"Prod" added'), toast.message);
@@ -528,6 +542,8 @@ suite("extension/serverManagement", () => {
 			const toast = expectDefined(run.infoToasts[0]);
 			assert.ok(toast.message.includes("updated"), toast.message);
 			assert.deepStrictEqual(toast.buttons, ["Test Connection", "Dismiss"]);
+			// Neither the old nor the new key may reach the log buffer.
+			assert.ok(!run.logged.some((line) => line.includes("key1") || line.includes("key2")));
 		});
 
 		test("renaming through the edit walk warns about orphaned modelParameters; keeping the label does not", async () => {
