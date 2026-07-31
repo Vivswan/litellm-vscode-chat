@@ -1,11 +1,11 @@
 /**
  * ModelsSection rendering: formatter behavior (tokens, pricing, capabilities,
- * the pricing tooltip) and the filter/server-column rules.
+ * the pricing tooltip) and the filter, server-scope, and server-column rules.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ModelsSection } from "../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";
-import { cleanup, fireInput, mount, resetPosted } from "../harness";
+import { cleanup, fireClick, fireInput, mount, resetPosted } from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -102,4 +102,33 @@ test("the server column appears only when serverCount > 1, keyed to the count ra
 	const dual = mount(<ModelsSection models={models} serverCount={2} />);
 	const dualHeaders = Array.from(dual.querySelectorAll("th")).map((th) => (th.textContent ?? "").trim());
 	expect(dualHeaders).toContain("Server");
+});
+
+test("a server scope narrows the rows before the text filter and renders as a clearable chip", () => {
+	const models = [
+		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Prod" }),
+		makeModel({ id: "gpt-4o-b", name: "Omni B", serverLabel: "Prod" }),
+		makeModel({ id: "claude-sonnet", name: "Sonnet", serverLabel: "Staging" }),
+	];
+	let cleared = 0;
+	const root = mount(
+		<ModelsSection models={models} serverCount={2} scope={{ label: "Prod", onClear: () => cleared++ }} />
+	);
+	const visibleNames = () =>
+		Array.from(root.querySelectorAll("tbody tr")).map((row) => (row.querySelector("td")?.textContent ?? "").trim());
+
+	// The scope alone: only Prod's models, and the denominator follows it.
+	expect(visibleNames()).toEqual(["Omni", "Omni B"]);
+	expect(root.textContent).toContain("showing 2 of 2");
+	expect((root.querySelector(".chip")?.textContent ?? "").trim()).toContain("Server: Prod");
+
+	// The text filter composes on top of the scope, never around it.
+	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
+	fireInput(filter, "sonnet");
+	expect(visibleNames()).toEqual([]);
+	expect(root.textContent).toContain("No models match the filter.");
+
+	// Clearing is the owner's job: the chip's button only reports back.
+	fireClick(root.querySelector("button[aria-label='Clear the server filter']") as HTMLElement);
+	expect(cleared).toBe(1);
 });

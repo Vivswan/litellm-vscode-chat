@@ -826,12 +826,14 @@ function ServerRow({
 	armed,
 	onEdit,
 	onArmRemove,
+	onShowModels,
 }: {
 	server: DashboardServer;
 	now: number;
 	armed: boolean;
 	onEdit: () => void;
 	onArmRemove: (armed: boolean) => void;
+	onShowModels: ((label: string) => void) | undefined;
 }) {
 	const confirmRemove = () => {
 		postMessage({ type: "removeServerSetting", label: server.label, requestId: newRequestId() });
@@ -845,7 +847,21 @@ function ServerRow({
 				<StatusPill server={server} now={now} />
 			</td>
 			<td class="num" data-label="Models">
-				{server.modelCount}
+				{/* The count doubles as the bridge to the models section below:
+				    clicking it scopes the list to this server. A zero stays plain
+				    text, since an empty scoped list has nothing to show. */}
+				{onShowModels !== undefined && server.modelCount > 0 ? (
+					<button
+						type="button"
+						class="quiet count-link"
+						aria-label={`Show models from ${server.label}`}
+						onClick={() => onShowModels(server.label)}
+					>
+						{server.modelCount}
+					</button>
+				) : (
+					server.modelCount
+				)}
 			</td>
 			<td>
 				{/* The credential kind is the information, so it is the visible
@@ -906,6 +922,7 @@ export function ServersSection({
 	inlineSecrets,
 	onDismissFailure,
 	onClearInlineSecrets,
+	onShowModels,
 	adoptEscapeAfterMs = ADOPT_ESCAPE_AFTER_MS,
 }: {
 	servers: readonly DashboardServer[];
@@ -918,6 +935,8 @@ export function ServersSection({
 	onDismissFailure: (intentType: DashboardIntentType) => void;
 	/** Drop the held inlineSecrets response; called when the edit form closes so the value leaves webview memory. */
 	onClearInlineSecrets: () => void;
+	/** Scope the models section below to one server; absent, the count cells stay plain text. */
+	onShowModels?: ((label: string) => void) | undefined;
 	/** The escape hatch's grace period; a prop only so tests need not wait out the real value. */
 	adoptEscapeAfterMs?: number;
 }) {
@@ -1038,7 +1057,7 @@ export function ServersSection({
 			{form !== undefined ? (
 				<SlideOver
 					labelledBy="server-form-title"
-					fallbackFocusId="tab-servers"
+					fallbackFocusId="tab-overview"
 					confirming={confirmingDiscard}
 					notice={
 						busyNote || escapeArmed ? (
@@ -1151,7 +1170,7 @@ export function ServersSection({
 					<ol>
 						<li>Enter the server's URL - for a local proxy that is usually http://localhost:4000.</li>
 						<li>Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.</li>
-						<li>Save. Models sync automatically and show up under Models.</li>
+						<li>Save. Models sync automatically and show up on this page.</li>
 					</ol>
 					<button type="button" onClick={() => openForm({ kind: "add" })}>
 						Add your first server
@@ -1190,6 +1209,7 @@ export function ServersSection({
 										)
 									}
 									onArmRemove={(armed) => setArmedRemove(armed ? server.label : undefined)}
+									onShowModels={onShowModels}
 								/>
 							))}
 						</tbody>

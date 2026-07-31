@@ -206,7 +206,7 @@ test("an in-flight adopt refuses close requests with a visible notice until its 
 	expect(root.textContent).toContain("its models appear twice");
 });
 
-test("focus falls back to the Servers tab when the opener unmounted with the form open", () => {
+test("focus falls back to the combined tab when the opener unmounted with the form open", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	// Open from the guided start's CTA, which disappears once a server exists.
@@ -220,7 +220,7 @@ test("focus falls back to the Servers tab when the opener unmounted with the for
 	expect(buttonByText(root, "Cancel")).toBeDefined();
 	fireKeyDown(dialog(root), "Escape");
 	expect(root.querySelector(".slide-over")).toBeNull();
-	expect(document.activeElement?.id).toBe("tab-servers");
+	expect(document.activeElement?.id).toBe("tab-overview");
 });
 
 test("editing continues across a background state push while the slide-over is open", () => {

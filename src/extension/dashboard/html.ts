@@ -117,11 +117,17 @@ const STYLES = `
 
 	table { border-collapse: collapse; width: 100%; margin: 8px 0; }
 	.table-scroll { overflow-x: auto; }
-	/* Long model lists render windowed inside their own scrollport; the fixed
-	   row height is what makes the scroll arithmetic exact, and the sticky
+	/* Long model lists render windowed inside their own scrollport at the
+	   bottom of the combined page. The cap keeps the whole scrollport on
+	   screen once the page has scrolled the models heading up to the sticky
+	   tab bar: the chrome above and below it (tab bar, heading, filter bar,
+	   page padding) measures a bit over 11em at the default font, and the
+	   em unit keeps the budget honest when the host font or zoom grows it.
+	   The floor keeps the scrollport usable in short windows. The fixed row
+	   height is what makes the scroll arithmetic exact, and the sticky
 	   header keeps the sort controls reachable mid-list. */
 	.table-scroll.windowed {
-		max-height: max(280px, calc(100vh - 260px));
+		max-height: max(280px, calc(100vh - 13em));
 		overflow-y: auto;
 		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 	}
@@ -159,6 +165,15 @@ const STYLES = `
 	   it; opacity (not visibility) keeps them in the Tab order throughout. */
 	button.icon-action { opacity: 0; transition: opacity 120ms ease-out; }
 	tr:hover button.icon-action, tr:focus-within button.icon-action, button.icon-action:focus-visible { opacity: 1; }
+	/* A server row's model count doubling as the jump into the models section:
+	   keeps the cell's numeric look, with a dotted underline as the only hint
+	   that it does something. */
+	td.num button.count-link {
+		padding: 0 4px;
+		font-variant-numeric: tabular-nums;
+		text-decoration: underline dotted;
+		text-underline-offset: 2px;
+	}
 	th, td {
 		text-align: left;
 		padding: 3px 12px 3px 0;
@@ -375,7 +390,7 @@ const STYLES = `
 	.setting-row .reset { visibility: hidden; }
 	.setting-row:hover .reset, .setting-row:focus-within .reset { visibility: visible; }
 
-	.badge, .count {
+	.badge {
 		display: inline-block;
 		padding: 0 6px;
 		border-radius: 8px;
@@ -386,7 +401,6 @@ const STYLES = `
 		white-space: nowrap;
 	}
 	.badge + .badge { margin-left: 4px; }
-	.count { font-weight: 400; }
 	.caps { color: var(--vscode-descriptionForeground); }
 	.state-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
 	.state-error { color: var(--vscode-errorForeground); }
@@ -625,6 +639,23 @@ const STYLES = `
 
 	.filterbar { display: flex; gap: 12px; align-items: baseline; margin: 8px 0; flex-wrap: wrap; }
 	.filterbar input { min-width: 260px; }
+	/* The active server scope as a chip beside the filter input: same quiet
+	   chrome as a badge, plus its clear button riding inside. */
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 1px 2px 1px 8px;
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+		border-radius: 9px;
+		font-size: 0.9em;
+		white-space: nowrap;
+	}
+	.chip button { padding: 0 4px; }
+	/* Landing target of the servers table's model-count links; the margin
+	   keeps the heading clear of the sticky tab bar, and the programmatic
+	   focus (a container, not a control) draws no ring. */
+	#models-section { scroll-margin-top: 44px; outline: none; }
 
 	.empty { color: var(--vscode-descriptionForeground); font-style: italic; }
 	.empty-block {
