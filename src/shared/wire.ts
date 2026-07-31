@@ -62,7 +62,13 @@ export interface OpenAIAssistantMessage {
 	thinking_blocks?: OpenAIThinkingBlock[];
 }
 
-/** A tool-result message; the pairing tool_call_id is required by construction. */
+/**
+ * A tool-result message; the pairing tool_call_id is required by construction.
+ * Content is always the flattened text: LiteLLM's OpenAI transformation
+ * forwards tool-message content verbatim and OpenAI-family models reject
+ * content blocks here, so tool-result images ride a synthesized user message
+ * after the turn instead (see shared/messages.ts).
+ */
 export interface OpenAIToolMessage {
 	role: "tool";
 	tool_call_id: string;
@@ -100,8 +106,18 @@ export interface OpenAIChatFileContentBlock {
 	file: { file_data: string; filename?: string };
 }
 
+/**
+ * Audio content block for audio input (the OpenAI input_audio shape; LiteLLM
+ * routes it to audio-capable models). The wire names only wav and mp3.
+ */
+export interface OpenAIChatInputAudioContentBlock {
+	type: "input_audio";
+	input_audio: { data: string; format: "wav" | "mp3" };
+}
+
 /** Structured content blocks used in chat messages. */
 export type OpenAIChatContentBlock =
 	| OpenAIChatTextContentBlock
 	| OpenAIChatImageUrlContentBlock
-	| OpenAIChatFileContentBlock;
+	| OpenAIChatFileContentBlock
+	| OpenAIChatInputAudioContentBlock;

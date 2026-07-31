@@ -543,6 +543,75 @@ suite("provider/request contract", () => {
 		});
 	});
 
+	suite("message conversion capability gates", () => {
+		// Pins the chatClient wiring, not the conversion itself (shared/messages
+		// tests own that): deleting either gate from the convertMessages call
+		// site must fail here.
+		const imageMessage = (): vscode.LanguageModelChatRequestMessage => ({
+			role: vscode.LanguageModelChatMessageRole.User,
+			content: [
+				new vscode.LanguageModelTextPart("look:"),
+				new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png"),
+			],
+			name: undefined,
+		});
+		const audioMessage = (): vscode.LanguageModelChatRequestMessage => ({
+			role: vscode.LanguageModelChatMessageRole.User,
+			content: [
+				new vscode.LanguageModelTextPart("listen:"),
+				new vscode.LanguageModelDataPart(new Uint8Array([4, 5, 6]), "audio/wav"),
+			],
+			name: undefined,
+		});
+
+		test("the model's imageInput capability gates image conversion on the wire", async () => {
+			const withImageInput = await captureRequestBody(
+				createConfiguredProvider(),
+				makeModelInfo({ capabilities: { imageInput: true } }),
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+				{ messages: [imageMessage()] }
+			);
+			assert.ok(JSON.stringify(withImageInput.messages).includes("image_url"), "a vision model gets the image block");
+
+			const withoutImageInput = await captureRequestBody(
+				createConfiguredProvider(),
+				makeModelInfo(),
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+				{ messages: [imageMessage()] }
+			);
+			assert.ok(
+				!JSON.stringify(withoutImageInput.messages).includes("image_url"),
+				"a non-vision model must never receive an image block"
+			);
+		});
+
+		test("the model's audio metadata gates input_audio conversion on the wire", async () => {
+			const withAudio = await captureRequestBody(
+				createConfiguredProvider(),
+				makeModelInfo({
+					litellm: { supportsPromptCaching: false, outputLimitSource: "defaults", supportsAudioInput: true },
+				}),
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+				{ messages: [audioMessage()] }
+			);
+			assert.ok(
+				JSON.stringify(withAudio.messages).includes("input_audio"),
+				"an audio model gets the input_audio block"
+			);
+
+			const withoutAudio = await captureRequestBody(
+				createConfiguredProvider(),
+				makeModelInfo(),
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+				{ messages: [audioMessage()] }
+			);
+			assert.ok(
+				!JSON.stringify(withoutAudio.messages).includes("input_audio"),
+				"a non-audio model must never receive an input_audio block"
+			);
+		});
+	});
+
 	suite("max_tokens precedence", () => {
 		/** A /v1/model/info listing for one "test-model" entry with the given model_info fields. */
 		const infoListing = (...modelInfos: Record<string, unknown>[]) => ({

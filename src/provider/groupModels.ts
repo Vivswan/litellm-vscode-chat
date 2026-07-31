@@ -35,6 +35,13 @@ interface LiteLLMModelMetadataBase {
 	readonly supportsPromptCaching: boolean;
 	/** Where maxOutputTokens came from; only "provider" values escape the request-side cap. */
 	readonly outputLimitSource: OutputLimitSource;
+	/**
+	 * True when the LiteLLM capability data listed audio among the model's
+	 * input modalities; gates the input_audio message conversion. Optional
+	 * because model objects round-trip through the host and entries written
+	 * by older extension versions lack it (absent reads as false).
+	 */
+	readonly supportsAudioInput?: boolean;
 }
 
 /**
@@ -231,6 +238,7 @@ export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer)
 		litellm: {
 			supportsPromptCaching: modelSupportsPromptCaching(info),
 			outputLimitSource: modelOutputLimitSource(info),
+			supportsAudioInput: modelSupportsAudioInput(info),
 			server,
 		},
 	};
@@ -271,6 +279,9 @@ export interface ParsedModelMetadata {
 	/** The attached group server, or undefined for registry-served models. */
 	readonly server: GroupServer | undefined;
 	readonly supportsPromptCaching: boolean;
+	readonly supportsAudioInput: boolean;
+	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */
+	readonly imageInput: boolean;
 	/** Anything but an exact "provider" (a missing field, an older extension's metadata) keeps the conservative cap. */
 	readonly outputLimitSource: OutputLimitSource;
 }
@@ -287,6 +298,8 @@ export function parseModelMetadata(model: LiteLLMModelInfo, log?: NarrowLog): Pa
 	return {
 		server: parseAttachedServer(model.litellm?.server, log),
 		supportsPromptCaching: modelSupportsPromptCaching(model),
+		supportsAudioInput: modelSupportsAudioInput(model),
+		imageInput: model.capabilities?.imageInput === true,
 		outputLimitSource: modelOutputLimitSource(model),
 	};
 }
@@ -320,6 +333,11 @@ function parseAttachedServer(candidate: unknown, log?: NarrowLog): GroupServer |
 
 export function modelSupportsPromptCaching(model: LiteLLMModelInfo): boolean {
 	return model.litellm?.supportsPromptCaching === true;
+}
+
+/** Re-narrowed like every host round trip: absent (older metadata) or malformed reads as false. */
+function modelSupportsAudioInput(model: LiteLLMModelInfo): boolean {
+	return model.litellm?.supportsAudioInput === true;
 }
 
 /**

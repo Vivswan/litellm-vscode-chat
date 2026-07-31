@@ -1,10 +1,11 @@
 import * as vscode from "vscode";
-import { isImageMimeType, isPdfMimeType, isSafeMimeType, isTextMimeType } from "./mime";
+import { audioInputFormatForMime, isImageMimeType, isPdfMimeType, isSafeMimeType, isTextMimeType } from "./mime";
 import { thinkingPartCtor } from "./thinkingPart";
 import type {
 	OpenAIChatContentBlock,
 	OpenAIChatFileContentBlock,
 	OpenAIChatImageUrlContentBlock,
+	OpenAIChatInputAudioContentBlock,
 	OpenAIChatMessage,
 	OpenAIChatRole,
 	OpenAIThinkingBlock,
@@ -13,17 +14,49 @@ import type {
 
 type LogFn = (message: string, data?: unknown) => void;
 
+/**
+ * Capability-derived conversion gates, resolved by the caller from the
+ * model's registered capabilities (imageInput) and its LiteLLM input
+ * modalities (audioInput); parts a gate excludes take the same drop-and-log
+ * paths as if no wire mapping existed. Capabilities decide what goes on the
+ * wire; nothing here injects a request parameter.
+ */
+export interface ConvertMessagesOptions {
+	log?: LogFn | undefined;
+	/**
+	 * Convert image DataParts to image_url blocks: user-message images in
+	 * place, tool-result images gathered into one synthesized user message per
+	 * turn. Without it they drop with a log, so a replayed image-bearing
+	 * history never sends image blocks to a non-vision model.
+	 */
+	imageInput?: boolean | undefined;
+	/** Convert audio DataParts on user messages to input_audio blocks; without it they drop with the no-wire-mapping log. */
+	audioInput?: boolean | undefined;
+}
+
+function imageDataPartToBlock(part: vscode.LanguageModelDataPart): OpenAIChatImageUrlContentBlock {
+	const base64 = Buffer.from(part.data).toString("base64");
+	return { type: "image_url", image_url: { url: `data:${part.mimeType.toLowerCase()};base64,${base64}` } };
+}
+
 function convertDataPartToContentBlock(
-	part: vscode.LanguageModelDataPart
-): OpenAIChatImageUrlContentBlock | OpenAIChatFileContentBlock | null {
+	part: vscode.LanguageModelDataPart,
+	options: { imageInput: boolean; audioInput: boolean }
+): OpenAIChatImageUrlContentBlock | OpenAIChatFileContentBlock | OpenAIChatInputAudioContentBlock | null {
 	const mime = part.mimeType.toLowerCase();
-	if (isImageMimeType(mime)) {
-		const base64 = Buffer.from(part.data).toString("base64");
-		return { type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } };
+	if (options.imageInput && isImageMimeType(mime)) {
+		return imageDataPartToBlock(part);
 	}
 	if (isPdfMimeType(mime)) {
 		const base64 = Buffer.from(part.data).toString("base64");
 		return { type: "file", file: { file_data: `data:${mime};base64,${base64}` } };
+	}
+	const audioFormat = audioInputFormatForMime(mime);
+	if (options.audioInput && audioFormat !== undefined) {
+		return {
+			type: "input_audio",
+			input_audio: { data: Buffer.from(part.data).toString("base64"), format: audioFormat },
+		};
 	}
 	return null;
 }
@@ -67,7 +100,27 @@ function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): 
 	return "system";
 }
 
-function collectToolResultText(pr: vscode.LanguageModelToolResultPart, log?: LogFn): string {
+/**
+ * The parts of one tool result the wire can carry: its flattened text (the
+ * tool message body) and, for vision models, the image blocks the caller
+ * gathers into the turn's synthesized image message. Tool messages themselves
+ * never carry image blocks: LiteLLM's OpenAI transformation forwards
+ * tool-message content verbatim and OpenAI-family models reject image blocks
+ * there, so the images ride a user message after the turn instead (OpenAI's
+ * documented shape, which Anthropic accepts too). For models without
+ * imageInput the image is dropped with the log below, as before.
+ */
+interface ToolResultContent {
+	text: string;
+	images: OpenAIChatImageUrlContentBlock[];
+}
+
+function collectToolResultContent(
+	pr: vscode.LanguageModelToolResultPart,
+	imageInput: boolean,
+	log?: LogFn
+): ToolResultContent {
+	const images: OpenAIChatImageUrlContentBlock[] = [];
 	let text = "";
 	for (const c of pr.content ?? []) {
 		if (c instanceof vscode.LanguageModelTextPart) {
@@ -77,7 +130,11 @@ function collectToolResultText(pr: vscode.LanguageModelToolResultPart, log?: Log
 			if (decoded !== null) {
 				text += decoded;
 			} else if (isImageMimeType(c.mimeType)) {
-				log?.("Tool returned image data which cannot be forwarded as tool result text");
+				if (imageInput) {
+					images.push(imageDataPartToBlock(c));
+				} else {
+					log?.("Tool returned image data which cannot be forwarded as tool result text");
+				}
 			}
 		} else if (c instanceof vscode.LanguageModelPromptTsxPart) {
 			const extracted = extractPromptTsxText(c);
@@ -94,8 +151,15 @@ function collectToolResultText(pr: vscode.LanguageModelToolResultPart, log?: Log
 			}
 		}
 	}
-	return text;
+	return { text, images };
 }
+
+/**
+ * The fixed lead-in of the synthesized image message. A constant, never
+ * response-derived text: it exists so the model can tell these blocks are
+ * tool output, not a new user question.
+ */
+const TOOL_IMAGES_LEAD_IN = "Images returned by the tool calls above:";
 
 /**
  * One thinking part read back from assistant history, in the three replay
@@ -171,10 +235,26 @@ function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThi
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
-	options?: { log?: LogFn }
+	options?: ConvertMessagesOptions
 ): OpenAIChatMessage[] {
 	const log = options?.log;
+	const imageInput = options?.imageInput === true;
+	const audioInput = options?.audioInput === true;
 	const out: OpenAIChatMessage[] = [];
+	// Tool-result images pending their synthesized user message. OpenAI
+	// requires every tool message of an assistant tool_calls turn to directly
+	// follow that assistant message, and the host may split one turn's results
+	// across consecutive messages, so the flush waits for the first non-tool
+	// message (or end of history): exactly one image message per turn, after
+	// its last tool message, never interleaved between tool messages.
+	let pendingToolImages: OpenAIChatImageUrlContentBlock[] = [];
+	const push = (message: OpenAIChatMessage): void => {
+		if (message.role !== "tool" && pendingToolImages.length > 0) {
+			out.push({ role: "user", content: [{ type: "text", text: TOOL_IMAGES_LEAD_IN }, ...pendingToolImages] });
+			pendingToolImages = [];
+		}
+		out.push(message);
+	};
 	// One dropped-DataPart log per conversion: a media-heavy history would
 	// otherwise evict the whole issue-report buffer on every turn.
 	let loggedDroppedDataPart = false;
@@ -182,7 +262,7 @@ export function convertMessages(
 		const role = mapRole(m, log);
 		const textParts: string[] = [];
 		const toolCalls: OpenAIToolCall[] = [];
-		const toolResults: { callId: string; content: string }[] = [];
+		const toolResults: { callId: string; content: ToolResultContent }[] = [];
 		const contentBlocks: OpenAIChatContentBlock[] = [];
 		const thinkingEntries: ThinkingHistoryEntry[] = [];
 
@@ -199,7 +279,7 @@ export function convertMessages(
 				}
 				toolCalls.push({ id, type: "function", function: { name: part.name, arguments: args } });
 			} else if (isToolResultPart(part)) {
-				toolResults.push({ callId: part.callId, content: collectToolResultText(part, log) });
+				toolResults.push({ callId: part.callId, content: collectToolResultContent(part, imageInput, log) });
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				// Only user messages carry binary content blocks on the wire.
 				// Assistant history may hold model-generated media (surfaced as
@@ -207,7 +287,7 @@ export function convertMessages(
 				// shape for it, so the part is dropped while the turn's TEXT is
 				// always kept - moving text into contentBlocks here would hand
 				// it to a branch that only user messages ever drain.
-				const block = role === "user" ? convertDataPartToContentBlock(part) : null;
+				const block = role === "user" ? convertDataPartToContentBlock(part, { imageInput, audioInput }) : null;
 				if (block) {
 					if (textParts.length > 0) {
 						contentBlocks.push({ type: "text", text: textParts.join("") });
@@ -246,7 +326,7 @@ export function convertMessages(
 		const thinkingBlocks = foldThinkingBlocks(thinkingEntries);
 
 		if (toolCalls.length > 0) {
-			out.push({
+			push({
 				role: "assistant",
 				content: textParts.join("") || undefined,
 				tool_calls: toolCalls,
@@ -255,7 +335,8 @@ export function convertMessages(
 		}
 
 		for (const tr of toolResults) {
-			out.push({ role: "tool", tool_call_id: tr.callId, content: tr.content || "" });
+			push({ role: "tool", tool_call_id: tr.callId, content: tr.content.text });
+			pendingToolImages.push(...tr.content.images);
 		}
 
 		// contentBlocks is non-empty exactly when a binary block converted above,
@@ -264,25 +345,29 @@ export function convertMessages(
 			if (textParts.length > 0) {
 				contentBlocks.push({ type: "text", text: textParts.join("") });
 			}
-			out.push({ role, content: contentBlocks });
+			push({ role, content: contentBlocks });
 		} else if (role === "assistant") {
 			// The turn's text rides on the tool-call message when there is one.
 			const text = toolCalls.length === 0 ? textParts.join("") : "";
 			if (text) {
-				out.push(
+				push(
 					thinkingBlocks.length > 0 ? { role, content: text, thinking_blocks: thinkingBlocks } : { role, content: text }
 				);
 			} else if (toolCalls.length === 0 && thinkingBlocks.length > 0) {
 				// A signed thinking block must replay even when its assistant turn
 				// carried no text or tool calls.
-				out.push({ role, content: "", thinking_blocks: thinkingBlocks });
+				push({ role, content: "", thinking_blocks: thinkingBlocks });
 			}
 		} else {
 			const text = textParts.join("");
 			if (text) {
-				out.push({ role, content: text });
+				push({ role, content: text });
 			}
 		}
+	}
+	// Images from a trailing tool turn still need their message.
+	if (pendingToolImages.length > 0) {
+		out.push({ role: "user", content: [{ type: "text", text: TOOL_IMAGES_LEAD_IN }, ...pendingToolImages] });
 	}
 	return out;
 }

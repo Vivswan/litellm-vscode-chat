@@ -225,6 +225,10 @@ export function buildModelInfos(
 		const shape = m.shape;
 		const modalities = m.architecture?.input_modalities ?? [];
 		const vision = Array.isArray(modalities) && modalities.includes("image");
+		// LiteLLM capability data only (supports_audio_input via discovery, or a
+		// server-declared architecture); VS Code has no audio capability flag,
+		// so this rides the litellm metadata and gates message conversion.
+		const audioInput = Array.isArray(modalities) && modalities.includes("audio");
 
 		switch (shape.kind) {
 			case "deployment": {
@@ -250,6 +254,7 @@ export function buildModelInfos(
 						litellm: {
 							supportsPromptCaching: provider.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
+							supportsAudioInput: audioInput,
 						},
 					} satisfies PreAttachModelInfo,
 				];
@@ -272,7 +277,11 @@ export function buildModelInfos(
 							toolCalling: true,
 							imageInput: vision,
 						},
-						litellm: { supportsPromptCaching: false, outputLimitSource: constraints.outputLimitSource },
+						litellm: {
+							supportsPromptCaching: false,
+							outputLimitSource: constraints.outputLimitSource,
+							supportsAudioInput: audioInput,
+						},
 					} satisfies PreAttachModelInfo,
 				];
 			}
@@ -293,6 +302,7 @@ export function buildModelInfos(
 					const aggregateMetadata = {
 						supportsPromptCaching: aggregatePromptCaching,
 						outputLimitSource: constraints.outputLimitSource,
+						supportsAudioInput: audioInput,
 					};
 					const aggregateConfigurationSchema = configurationSchemaFor(toolProviders);
 					const aggregateCapabilities = {
@@ -355,6 +365,7 @@ export function buildModelInfos(
 						litellm: {
 							supportsPromptCaching: p.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
+							supportsAudioInput: audioInput,
 						},
 					} satisfies PreAttachModelInfo);
 					registerRoute(exposedId, rawId);
@@ -385,6 +396,7 @@ export function buildModelInfos(
 						litellm: {
 							supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),
 							outputLimitSource: constraints.outputLimitSource,
+							supportsAudioInput: audioInput,
 						},
 					} satisfies PreAttachModelInfo);
 					registerRoute(exposedId, m.id);

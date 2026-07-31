@@ -311,6 +311,31 @@ suite("provider/groupModels", () => {
 			);
 		});
 
+		test("attachGroupServer carries the audio-input gate and parseModelMetadata re-narrows it", () => {
+			const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
+			const audioModel = attachGroupServer(
+				makeModelInfo({
+					litellm: { supportsPromptCaching: false, outputLimitSource: "defaults", supportsAudioInput: true },
+				}),
+				server
+			);
+			assert.strictEqual(audioModel.litellm.supportsAudioInput, true, "the metadata rebuild must not drop the gate");
+			assert.strictEqual(parseModelMetadata(audioModel).supportsAudioInput, true);
+			assert.strictEqual(
+				parseModelMetadata(makeModelInfo({ capabilities: { imageInput: true } })).imageInput,
+				true,
+				"the imageInput capability rides the same one-parse boundary"
+			);
+			assert.strictEqual(parseModelMetadata(makeModelInfo()).imageInput, false);
+			// Older metadata without the field, and junk across the host boundary, read as false.
+			assert.strictEqual(parseModelMetadata(makeModelInfo()).supportsAudioInput, false);
+			const junk = {
+				...makeModelInfo(),
+				litellm: { supportsPromptCaching: false, outputLimitSource: "defaults", supportsAudioInput: "yes" },
+			} as unknown as LiteLLMModelInfo;
+			assert.strictEqual(parseModelMetadata(junk).supportsAudioInput, false);
+		});
+
 		test("the type system refuses an attached copy where a pre-attach info belongs", () => {
 			const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
 			const attached = attachGroupServer(makeModelInfo(), server);
