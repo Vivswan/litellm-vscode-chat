@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { RequestError } from "../../provider/errorMapping";
 import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
 import type { AggregatedStatus } from "../../shared/servers";
 import {
@@ -121,6 +122,51 @@ suite("provider groups", () => {
 		assert.strictEqual(request.url, `${TEST_BASE_URL}/v1/chat/completions`);
 		assert.strictEqual(request.body.model, "test-model");
 		assert.strictEqual(request.headers["x-api-key"], "group-key");
+	});
+
+	test("classified chat failures surface as stable LanguageModelError codes for vscode.lm consumers", async () => {
+		const provider = makeProvider();
+		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
+		const infos = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" }),
+			cancellation()
+		);
+		const model = expectDefined(infos[0]);
+		const send = () =>
+			provider.provideLanguageModelChatResponse(
+				model,
+				[userMessage("hi")],
+				{} as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				cancellation()
+			);
+
+		const cases: Array<[number, string]> = [
+			[401, "NoPermissions"],
+			[404, "NotFound"],
+			[429, "Blocked"],
+		];
+		for (const [status, code] of cases) {
+			mswServer.use(
+				http.post(CHAT_COMPLETIONS_URL, () => HttpResponse.json({ error: { message: "nope" } }, { status }))
+			);
+			await assert.rejects(send, (e: unknown) => {
+				assert.ok(
+					e instanceof vscode.LanguageModelError,
+					`expected a LanguageModelError for ${status}, got ${String(e)}`
+				);
+				assert.strictEqual(e.code, code, `status ${status} maps to the ${code} code`);
+				assert.ok(e.cause instanceof RequestError, "the classified original rides as the cause");
+				return true;
+			});
+		}
+
+		// A status outside the documented codes stays the classified
+		// RequestError; inventing a code would misinform consumer backoff logic.
+		mswServer.use(
+			http.post(CHAT_COMPLETIONS_URL, () => HttpResponse.json({ error: { message: "boom" } }, { status: 500 }))
+		);
+		await assert.rejects(send, (e: unknown) => e instanceof RequestError && e.status === 500);
 	});
 
 	test("a keyless group configuration sends no auth header", async () => {

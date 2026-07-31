@@ -8,11 +8,12 @@ import type {
 	Progress,
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
-import { CancellationError, EventEmitter } from "vscode";
+import { CancellationError, EventEmitter, LanguageModelError } from "vscode";
 import { ChatClient, type ServerConnection } from "./provider/chatClient";
 import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
 import { DiscoveryCache } from "./provider/discoveryCache";
+import { RequestError } from "./provider/errorMapping";
 import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./provider/groupModels";
 import {
 	attachGroupServer,
@@ -76,6 +77,37 @@ function statusErrorTexts(reason: unknown): { error: string; logSafeError: LogSa
 		error: display.length > 0 ? display : "Unknown error",
 		logSafeError: logSafe.length > 0 ? logSafe : markLogSafe("Unknown error"),
 	};
+}
+
+/**
+ * Wrap a classified transport failure in the stable LanguageModelError so
+ * vscode.lm consumers can branch on the documented codes (NoPermissions for a
+ * rejected key, Blocked for a rate limit, NotFound for a model the proxy no
+ * longer serves) instead of matching message text. Only the taxonomy-backed
+ * cases map; everything else - including CancellationError, which is never
+ * wrapped or logged - passes through unchanged, and 401s keep their auth
+ * classification rather than being re-wrapped as anything else. The message
+ * is preserved because it renders in the chat UI, and the original
+ * RequestError rides as `cause` so the classification survives for callers
+ * that inspect it.
+ */
+function toLanguageModelError(err: unknown): unknown {
+	if (!(err instanceof RequestError)) {
+		return err;
+	}
+	let wrapped: Error | undefined;
+	if (err.kind === "auth") {
+		wrapped = LanguageModelError.NoPermissions(err.message);
+	} else if (err.status === 404) {
+		wrapped = LanguageModelError.NotFound(err.message);
+	} else if (err.status === 429) {
+		wrapped = LanguageModelError.Blocked(err.message);
+	}
+	if (wrapped === undefined) {
+		return err;
+	}
+	wrapped.cause = err;
+	return wrapped;
 }
 
 export interface LiteLLMChatModelProviderOptions {
@@ -601,7 +633,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			if (!(err instanceof CancellationError)) {
 				this.logError("Chat request failed", err);
 			}
-			throw err;
+			// The ORIGINAL error is logged above; only the throw is wrapped, so
+			// the boundary still logs exactly once and keeps the classification.
+			throw toLanguageModelError(err);
 		}
 	}
 
