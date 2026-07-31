@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import type { Logger } from "../../shared/logger";
 import type { ServerRegistry } from "../serverRegistry";
+import { labelScopedModelParametersMigration } from "./labelScopedModelParameters";
 import { legacySingleServerMigration } from "./legacySingleServer";
 import { registryToProviderGroupsMigration } from "./registryToProviderGroups";
 
@@ -42,7 +43,11 @@ export interface ExtensionMigration {
 }
 
 /** Registration order is execution order within each phase. */
-const MIGRATIONS: readonly ExtensionMigration[] = [legacySingleServerMigration, registryToProviderGroupsMigration];
+const MIGRATIONS: readonly ExtensionMigration[] = [
+	legacySingleServerMigration,
+	registryToProviderGroupsMigration,
+	labelScopedModelParametersMigration,
+];
 
 /** Best-effort: a failing migration logs once and the rest still run; never rejects. */
 export async function runMigrations(
