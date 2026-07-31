@@ -271,16 +271,26 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
  * Attach the resolved server to a pre-attach model entry: the sole
  * constructor of AttachedModelInfo. The detail field is dropped so the host
  * fills it with the group name.
+ *
+ * The destructure below is a canary, not round-trip safety: when GroupServer
+ * grows an optional field (a required one already breaks every hand-written
+ * copy through the return type), the `unconsumed` assignment stops compiling
+ * and forces a visit to this seam. The real work then happens in the copies
+ * that cannot carry such a guard - parseAttachedServer's re-narrowing below
+ * and the ServerConnection copies on the request path.
  */
 export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer): AttachedModelInfo {
 	const { detail: _detail, ...rest } = info;
+	const { baseUrl: _url, apiKey: _key, label: _label, oauth: _oauth, virtualKey: _vk, ...unconsumed } = server;
+	// A new GroupServer field lands in `unconsumed` and fails this assignment.
+	void (unconsumed satisfies Record<string, never>);
 	return {
 		...rest,
 		litellm: {
 			supportsPromptCaching: modelSupportsPromptCaching(info),
 			outputLimitSource: modelOutputLimitSource(info),
 			supportsAudioInput: modelSupportsAudioInput(info),
-			server,
+			server: { ...server },
 		},
 	};
 }
