@@ -21,9 +21,11 @@ import { expectDefined, makeExtensionStorage } from "../testUtils";
 suite("production activation", () => {
 	const infoMessages: string[] = [];
 	const mementoWrites: string[] = [];
+	const channelLines: string[] = [];
 	let provider: LiteLLMChatModelProvider | undefined;
 	let registeredVendor: string | undefined;
 	let testCommandsBefore: string[] = [];
+	let storage: ReturnType<typeof makeExtensionStorage>;
 
 	suiteSetup(async function () {
 		this.timeout(30000);
@@ -35,7 +37,7 @@ suite("production activation", () => {
 		testCommandsBefore = (await vscode.commands.getCommands(true)).filter((id) => id.startsWith("litellm."));
 		assert.deepStrictEqual(testCommandsBefore, [], "no litellm.* command may exist before the fake activation");
 
-		const storage = makeExtensionStorage({
+		storage = makeExtensionStorage({
 			[GROUP_MIGRATION_COMPLETE_KEY]: true,
 			[HAS_SHOWN_WELCOME_KEY]: true,
 			// A leftover registry server: after the migration completed, the
@@ -65,6 +67,24 @@ suite("production activation", () => {
 
 		const origInfo = vscode.window.showInformationMessage;
 		const origRegisterProvider = vscode.lm.registerLanguageModelChatProvider;
+		const origCreateChannel = vscode.window.createOutputChannel;
+		// A capturing output channel: the Logger only needs the LogSink half
+		// (info/error), and the refresh test below asserts on logged lines.
+		(vscode.window as Record<string, unknown>).createOutputChannel = () => ({
+			name: "LiteLLM",
+			info: (message: string) => channelLines.push(message),
+			error: (message: string) => channelLines.push(message),
+			warn: () => {},
+			debug: () => {},
+			trace: () => {},
+			append: () => {},
+			appendLine: () => {},
+			replace: () => {},
+			clear: () => {},
+			show: () => {},
+			hide: () => {},
+			dispose: () => {},
+		});
 		(vscode.window as Record<string, unknown>).showInformationMessage = async (message: string) => {
 			infoMessages.push(message);
 			return undefined;
@@ -82,6 +102,7 @@ suite("production activation", () => {
 		} finally {
 			(vscode.window as Record<string, unknown>).showInformationMessage = origInfo;
 			(vscode.lm as Record<string, unknown>).registerLanguageModelChatProvider = origRegisterProvider;
+			(vscode.window as Record<string, unknown>).createOutputChannel = origCreateChannel;
 		}
 	});
 
@@ -94,31 +115,62 @@ suite("production activation", () => {
 		assert.deepStrictEqual(testOnly, []);
 	});
 
-	test("activation with hasShownWelcome pre-seeded shows no welcome toast and skips the globalState re-write", () => {
-		assert.deepStrictEqual(
-			infoMessages.filter((message) => message.includes("Welcome")),
-			[],
-			"returning users must not be re-toasted"
-		);
+	test("activation with hasShownWelcome pre-seeded skips the globalState re-write", () => {
+		// The load-bearing assertion: a regression to always-update would
+		// rewrite the flag on every activation. The toast check below is only
+		// belt and braces - the seeded registry server independently
+		// suppresses the welcome toast, so its absence cannot prove the
+		// hasShownWelcome gate on its own.
 		assert.ok(
 			!mementoWrites.includes(HAS_SHOWN_WELCOME_KEY),
 			"the already-true welcome flag must not be rewritten on every activation"
+		);
+		assert.deepStrictEqual(
+			infoMessages.filter((message) => message.includes("Welcome")),
+			[]
 		);
 	});
 
 	test("production activation with migration complete disables the groupless registry refresh", async () => {
 		assert.strictEqual(registeredVendor, "litellm");
 		const registered = expectDefined(provider, "activation must register the provider");
+
+		// The activation-time migration may have rewritten the registry blob
+		// (today's orphan cleanup deletes servers it does not recognize; the
+		// evidence-based rework keeps them). Depend on neither: re-seed the
+		// fixture under a strictly newer version - the registry adopts newer
+		// blobs on its next read - and prove it is present immediately before
+		// the refresh, so the refusal below judges a POPULATED registry.
+		await storage.memento.update(SERVER_REGISTRY_KEY, {
+			version: 1000,
+			servers: [{ id: "srv-prod-1", label: "Leftover", baseUrl: "http://localhost:49997" }],
+		});
+		assert.ok(
+			JSON.stringify(storage.mementoStore.get(SERVER_REGISTRY_KEY)).includes("Leftover"),
+			"the seeded server must exist immediately before the refresh"
+		);
+
+		channelLines.length = 0;
 		const token = new vscode.CancellationTokenSource().token;
 		const models = await registered.provideLanguageModelChatInformation({ silent: true }, token);
-		// The migrated registry still holds "Leftover"; serving it would
-		// double-list every server beside its provider group. The refresh must
-		// not even attempt its discovery (a snapshot would record the attempt).
+		// Serving "Leftover" would double-list every server beside its
+		// provider group; the refresh must not even attempt its discovery.
 		assert.deepStrictEqual(models, []);
 		assert.deepStrictEqual(
 			registered.getServerSnapshots().map((snapshot) => snapshot.status.label),
 			[],
 			"the groupless refresh must not touch the migrated registry's servers"
+		);
+		// The discriminating half (a failed discovery would also yield no
+		// models, so the empties above cannot prove the gate alone): the gated
+		// path logs its refusal and never reaches the fetch.
+		assert.ok(
+			channelLines.some((line) => line.includes("serving no models for the group-agnostic refresh")),
+			`expected the migrated-registry refusal in: ${JSON.stringify(channelLines)}`
+		);
+		assert.ok(
+			!channelLines.some((line) => line.includes("Fetching models from servers")),
+			"a broken gate would fetch the seeded registry server"
 		);
 	});
 });

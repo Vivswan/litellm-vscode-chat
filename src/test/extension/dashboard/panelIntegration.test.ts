@@ -58,6 +58,14 @@ suite("extension/dashboard/panelIntegration", () => {
 		await ensureActivated();
 	});
 
+	suiteTeardown(async function () {
+		this.timeout(20000);
+		// Dispose the real dashboard panel the injection command opened; a
+		// webview surviving the suite would keep receiving state pushes from
+		// later suites' configuration churn.
+		await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+	});
+
 	teardown(async function () {
 		this.timeout(20000);
 		// Remove leftover entries through the dashboard's own removal intent,
@@ -68,6 +76,11 @@ suite("extension/dashboard/panelIntegration", () => {
 		// no group-removal API); that pollution is bounded to this label's
 		// disposable user-data-dir, which is why these tests stay in the unit
 		// label instead of paying a whole extra host launch for isolation.
+		// LANDMINE for future msw-based suites in this label: that leftover
+		// group can make the host refresh our provider against its baseUrl at
+		// any later point, and msw's onUnhandledRequest:"error" would flag the
+		// stray request. Keep such suites' handlers tolerant of
+		// localhost:49999 or move them ahead of this file.
 		for (const view of await declared()) {
 			await inject({ type: "removeServerSetting", label: view.label, requestId: `pi-teardown-${view.label}` });
 		}
@@ -86,9 +99,12 @@ suite("extension/dashboard/panelIntegration", () => {
 	test("litellm._test.dashboardMessage opens the real dashboard panel and a ready message classifies ok", async function () {
 		this.timeout(20000);
 		// The command opens the panel through the real litellm.openDashboard
-		// path: createRealPanel, createNonce, and buildDashboardHtml all run, so
-		// a bundle-filename or CSP regression fails here instead of shipping a
-		// blank dashboard.
+		// path, so createRealPanel, createNonce, and buildDashboardHtml all
+		// execute against the real extension URI - a construction-time throw
+		// (bad Uri.joinPath, a template error) fails here. What this cannot
+		// see is the page actually loading: a wrong bundle filename or CSP
+		// still ships a blank webview (the packaged-file-list check and its
+		// bundle floor cover the filename; rendering stays manual F5).
 		assert.strictEqual(await inject({ type: "ready" }), "ok");
 		// And the schema boundary still rejects junk after the panel exists.
 		assert.strictEqual(await inject({ type: "no-such-intent" }), "ignored-malformed");
@@ -189,7 +205,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		assert.strictEqual(await inject({ type: "executeCommand", command: "syncModels" }), "ok");
 	});
 
-	test("adoptServer with no matching host group still saves the entry and acks with the credentials caveat", async function () {
+	test("adoptServer with no matching host group still saves the entry instead of failing the intent", async function () {
 		this.timeout(20000);
 		const outcome = await inject({
 			type: "adoptServer",
@@ -199,8 +215,10 @@ suite("extension/dashboard/panelIntegration", () => {
 			secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
 			requestId: "pi-adopt-1",
 		});
-		// Degrading (entry saved, caveat message) instead of throwing is the
-		// contract: adoption must stay usable exactly when the group vanished.
+		// Degrading instead of throwing is the contract: adoption must stay
+		// usable exactly when the group vanished. The caveat message rides the
+		// unobservable webview ack; what this can prove is the outcome class
+		// and the saved entry.
 		assert.strictEqual(outcome, "ok");
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		assert.ok(JSON.stringify(globalValue ?? {}).includes("PanelIT-Adopted"), "the adopted entry must be saved");
