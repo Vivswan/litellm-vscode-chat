@@ -39,6 +39,13 @@ import { SlideOver } from "./slideOver";
 import { relativeTime } from "./time";
 import { postMessage } from "./vscodeApi";
 
+/**
+ * How long a pending adopt may hold the modal before the notice bar arms its
+ * "Close anyway" escape: long enough for a normal ack, short enough that a
+ * hung one cannot trap the user until a reload.
+ */
+const ADOPT_ESCAPE_AFTER_MS = 10000;
+
 /** A correlation ID for one posted intent; matched against intentSucceeded/intentFailed notices. */
 function newRequestId(): string {
 	const cryptoApi = globalThis.crypto;
@@ -899,6 +906,7 @@ export function ServersSection({
 	inlineSecrets,
 	onDismissFailure,
 	onClearInlineSecrets,
+	adoptEscapeAfterMs = ADOPT_ESCAPE_AFTER_MS,
 }: {
 	servers: readonly DashboardServer[];
 	/** The shared clock tick (one useNow in App), so a hidden panel does not run its own interval. */
@@ -910,6 +918,8 @@ export function ServersSection({
 	onDismissFailure: (intentType: DashboardIntentType) => void;
 	/** Drop the held inlineSecrets response; called when the edit form closes so the value leaves webview memory. */
 	onClearInlineSecrets: () => void;
+	/** The escape hatch's grace period; a prop only so tests need not wait out the real value. */
+	adoptEscapeAfterMs?: number;
 }) {
 	// The form target survives state pushes (editing continues across a
 	// background refresh); a fresh key forces a clean draft per open.
@@ -922,6 +932,19 @@ export function ServersSection({
 	// A close attempt while the adopt is in flight gets a visible answer (the
 	// slide-over's notice bar), not silence.
 	const [busyNote, setBusyNote] = useState(false);
+	// A pending adopt whose ack never arrives must not trap the user until a
+	// reload: after the grace period the notice bar surfaces on its own and
+	// arms a "Close anyway" action. The intent keeps running extension-side,
+	// so its outcome still lands as a toast.
+	const [escapeArmed, setEscapeArmed] = useState(false);
+	useEffect(() => {
+		if (!formBusy) {
+			setEscapeArmed(false);
+			return;
+		}
+		const timer = setTimeout(() => setEscapeArmed(true), adoptEscapeAfterMs);
+		return () => clearTimeout(timer);
+	}, [formBusy, adoptEscapeAfterMs]);
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
 	// The one-time post-adoption notice: the old host-owned group survives (no
 	// removal API), so the user is told plainly why models now appear twice.
@@ -1017,7 +1040,18 @@ export function ServersSection({
 					labelledBy="server-form-title"
 					fallbackFocusId="tab-servers"
 					confirming={confirmingDiscard}
-					notice={busyNote ? "Still adopting; the form closes by itself when it finishes." : undefined}
+					notice={
+						busyNote || escapeArmed ? (
+							<>
+								Still adopting; the form closes by itself when it finishes.
+								{escapeArmed ? (
+									<button type="button" class="secondary" onClick={closeForm}>
+										Close anyway - adoption continues in the background
+									</button>
+								) : null}
+							</>
+						) : undefined
+					}
 					onRequestClose={requestCloseForm}
 					onKeepEditing={() => setConfirmingDiscard(false)}
 					onDiscard={discardForm}

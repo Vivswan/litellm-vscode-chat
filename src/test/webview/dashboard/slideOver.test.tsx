@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "preact/test-utils";
 import { App } from "../../../webview/dashboard/app";
+import { ServersSection } from "../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
@@ -124,6 +125,35 @@ test("Esc on a dirty form asks before discarding, and Esc never destroys: only t
 	expect(root.querySelector(".slide-over")).toBeNull();
 });
 
+test("while the confirm bar shows, Esc, the X, and the scrim all mean keep editing; none falls through to discard", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	openAddForm(root);
+	const label = inputByLabel(dialog(root), "Label");
+	fireInput(label, "Prod");
+
+	const stillEditing = () => {
+		expect(root.querySelector(".slide-over")).not.toBeNull();
+		expect(root.querySelector(".discard-confirm")).toBeNull();
+		expect(inputByLabel(dialog(root), "Label").value).toBe("Prod");
+	};
+
+	fireKeyDown(label, "Escape");
+	expect(root.querySelector(".discard-confirm")).not.toBeNull();
+	fireClick(dialog(root).querySelector("button[aria-label='Close']") as HTMLElement);
+	stillEditing();
+
+	fireKeyDown(label, "Escape");
+	expect(root.querySelector(".discard-confirm")).not.toBeNull();
+	fireClick(root.querySelector(".scrim") as HTMLElement);
+	stillEditing();
+
+	fireKeyDown(label, "Escape");
+	expect(root.querySelector(".discard-confirm")).not.toBeNull();
+	fireKeyDown(label, "Escape");
+	stillEditing();
+});
+
 test("the Discard button closes the dirty form; the scrim and the X route through the same policy", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
@@ -203,4 +233,38 @@ test("editing continues across a background state push while the slide-over is o
 	pushToWebview(statePush(makeState({ servers: [server] })));
 	expect(root.querySelector(".slide-over")).not.toBeNull();
 	expect(inputByLabel(dialog(root), "Base URL").value).toBe("http://localhost:9999");
+});
+
+test("a hung adopt arms a Close anyway escape after the grace period", async () => {
+	const noop = () => {};
+	const root = mount(
+		<ServersSection
+			servers={[makeExternalServer()]}
+			now={Date.now()}
+			ack={undefined}
+			failures={{}}
+			inlineSecrets={undefined}
+			onDismissFailure={noop}
+			onClearInlineSecrets={noop}
+			adoptEscapeAfterMs={20}
+		/>
+	);
+	fireClick(buttonByText(root, "Edit"));
+	resetPosted();
+	fireClick(buttonByText(dialog(root), "Adopt"));
+	expect(postedMessages.length).toBe(1);
+
+	// Before the grace period: refused closes answer with the plain notice.
+	fireKeyDown(dialog(root), "Escape");
+	expect(root.querySelector(".slide-notice")?.textContent).toContain("Still adopting");
+	expect(root.querySelector(".slide-notice")?.querySelector("button")).toBeNull();
+	expect(root.querySelector(".slide-over")).not.toBeNull();
+
+	// After it, the notice surfaces the escape on its own; the modal is never
+	// permanently trappable.
+	await new Promise((resolve) => setTimeout(resolve, 60));
+	await act(() => {});
+	const escapeButton = buttonByText(dialog(root), "Close anyway - adoption continues in the background");
+	fireClick(escapeButton);
+	expect(root.querySelector(".slide-over")).toBeNull();
 });
