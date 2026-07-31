@@ -10,8 +10,8 @@
 // start can see a stale or missing config. Other compose subcommands (down,
 // logs) do not regenerate.
 //
-// Wildcard routes to real providers are key-conditional: openai/*,
-// anthropic/*, or github/* is emitted only when the matching API key is
+// Wildcard routes to real providers are key-conditional: openai/* or
+// anthropic/* is emitted only when the matching API key is
 // non-empty at generation time (compose precedence: a set shell variable is
 // authoritative even when empty, .env fills in only unset ones), and the
 // bare "*" passthrough only with LITELLM_WILDCARD_ALL=1. The docker test
@@ -21,11 +21,81 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { composeSetting, parseEnvFile, STACK_DEFAULTS } from "../src/test/envFile";
-import type { GenerateOptions } from "../src/test/fakeStack/proxyConfig";
-import { generateConfig as emitConfig } from "../src/test/fakeStack/proxyConfig";
+import type { CopilotModel, GenerateOptions } from "../src/test/fakeStack/proxyConfig";
+import {
+	COPILOT_TOKEN_DIR,
+	generateConfig as emitConfig,
+	parseCopilotCatalog,
+} from "../src/test/fakeStack/proxyConfig";
 
 export type { GenerateOptions };
-export { composeSetting, STACK_DEFAULTS };
+export { COPILOT_TOKEN_DIR, composeSetting, STACK_DEFAULTS };
+
+/**
+ * The well-known first-party Copilot editor client id (with the matching
+ * Editor-Version/Copilot-Integration-Id headers below) that third-party
+ * tools reuse to reach the Copilot API. GitHub's Copilot terms can treat
+ * use outside a supported client as unauthorized; running copilot-login is
+ * the account owner's deliberate acceptance of that risk.
+ */
+export const COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98";
+
+const COPILOT_FETCH_TIMEOUT_MS = 15_000;
+
+/**
+ * The generation-time Copilot catalog fetch: cached device-flow token ->
+ * short-lived Copilot key -> live model list. Returns [] when no login has
+ * been seeded (the common case); every other failure - unreadable token,
+ * provider outage, catalog drift - is loud but non-fatal, so nothing here
+ * can brick stack startup: the stack still serves the fake catalog, just
+ * without github_copilot routes.
+ */
+export async function fetchCopilotModels(): Promise<CopilotModel[]> {
+	try {
+		const tokenPath = path.join(process.cwd(), COPILOT_TOKEN_DIR, "access-token");
+		if (!existsSync(tokenPath)) {
+			return [];
+		}
+		const accessToken = readFileSync(tokenPath, "utf8").trim();
+		const exchange = await fetch("https://api.github.com/copilot_internal/v2/token", {
+			headers: { Authorization: `token ${accessToken}` },
+			signal: AbortSignal.timeout(COPILOT_FETCH_TIMEOUT_MS),
+		});
+		if (!exchange.ok) {
+			throw new Error(`token exchange returned HTTP ${exchange.status}; re-run: bun run copilot-login`);
+		}
+		const { token } = (await exchange.json()) as { token?: string };
+		if (typeof token !== "string") {
+			throw new Error("token exchange response carried no token; re-run: bun run copilot-login");
+		}
+		const catalog = await fetch("https://api.githubcopilot.com/models", {
+			headers: {
+				Authorization: `Bearer ${token}`,
+				"Editor-Version": "vscode/1.99.0",
+				"Copilot-Integration-Id": "vscode-chat",
+				Accept: "application/json",
+			},
+			signal: AbortSignal.timeout(COPILOT_FETCH_TIMEOUT_MS),
+		});
+		if (!catalog.ok) {
+			throw new Error(`catalog fetch returned HTTP ${catalog.status}`);
+		}
+		const { models, rejected } = parseCopilotCatalog(await catalog.json());
+		if (rejected.length > 0) {
+			console.warn(`[litellm-config] ${rejected.length} copilot catalog entries skipped: ${rejected.join(", ")}`);
+		}
+		if (models.length === 0) {
+			throw new Error("catalog returned no usable models");
+		}
+		return models;
+	} catch (error) {
+		console.warn(
+			`[litellm-config] github_copilot routes skipped: ${error instanceof Error ? error.message : error}. ` +
+				"The regenerated config carries no github_copilot entries until the next successful stack start."
+		);
+		return [];
+	}
+}
 
 /**
  * Read and parse the stack's .env file with the compose-conformant grammar

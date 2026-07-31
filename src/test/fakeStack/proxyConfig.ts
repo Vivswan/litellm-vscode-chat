@@ -29,21 +29,26 @@ const FAKE_API_BASE = `http://fake-openai:${FAKE_BACKEND_PORT}/v1`;
  * the API-key variable each route reads via os.environ inside the container.
  * docker-compose.yml must pass every envVar through to the litellm service
  * and .env.example must template it; stackDrift.test.ts pins both.
+ * (github was a member until GitHub Models was retired on 2026-07-30.)
  */
 export const REAL_PROVIDERS: ReadonlyArray<{ prefix: string; envVar: string }> = [
 	{ prefix: "openai", envVar: "OPENAI_API_KEY" },
 	{ prefix: "anthropic", envVar: "ANTHROPIC_API_KEY" },
-	{ prefix: "github", envVar: "GITHUB_API_KEY" },
 ];
 
-export interface GenerateOptions {
+export type GenerateOptions =
 	/**
-	 * Emit wildcard routes for real providers whose API key is set, plus the
-	 * opt-in bare "*" passthrough. The docker test orchestrator passes false
-	 * so test config is byte-identical with and without local keys.
+	 * The deterministic test mode: no wildcard routes, no Copilot entries, no
+	 * network anywhere near generation. The docker test orchestrator uses
+	 * this so local keys and logins can never change test results.
 	 */
-	realProviders: boolean;
-}
+	| { realProviders: false }
+	/**
+	 * The real mode carries its Copilot catalog explicitly (fetched by the
+	 * caller; [] when no login is seeded), so a test-mode call cannot smuggle
+	 * models in and a real-mode call cannot forget to decide.
+	 */
+	| { realProviders: true; copilotModels: readonly CopilotModel[] };
 
 /** Resolves an environment variable for wildcard decisions; "" means unset. */
 export type EnvLookup = (name: string) => string;
@@ -192,13 +197,25 @@ function realProviderEntry(prefix: string, envVar: string): string {
 	].join("\n");
 }
 
-function realProviderSection(envValue: EnvLookup): string[] {
+/** The real-provider model_list entries, split by what gates the expansion flag. */
+interface RealProviderEntries {
+	entries: string[];
+	/** Entries from keyed REAL_PROVIDERS rows; the bare "*" passthrough is not one. */
+	keyed: number;
+}
+
+function realProviderEntries(envValue: EnvLookup): RealProviderEntries {
 	const entries = REAL_PROVIDERS.filter(({ envVar }) => envValue(envVar) !== "").map(({ prefix, envVar }) =>
 		realProviderEntry(prefix, envVar)
 	);
+	const keyed = entries.length;
 	if (envValue("LITELLM_WILDCARD_ALL") === "1") {
 		entries.push(['  - model_name: "*"', "    litellm_params:", '      model: "*"'].join("\n"));
 	}
+	return { entries, keyed };
+}
+
+function realProviderSection(entries: string[]): string[] {
 	if (entries.length === 0) {
 		return [];
 	}
@@ -210,9 +227,135 @@ function realProviderSection(envValue: EnvLookup): string[] {
 	];
 }
 
+/**
+ * A wildcard route advertises only its literal pattern; check_provider_endpoint
+ * makes LiteLLM query the keyed provider's live model endpoint and expand the
+ * wildcard - on /v1/models only, so it serves direct API consumers of the
+ * proxy. The extension's picker reads /v1/model/info, where the wildcard
+ * still appears as its literal entry. Gated on KEYED routes: the bare "*"
+ * passthrough has no provider endpoint to expand, the fake catalog needs no
+ * expansion, and the test config must not depend on provider reachability.
+ */
+function expansionSection(keyedEntries: number): string[] {
+	if (keyedEntries === 0) {
+		return [];
+	}
+	return ["litellm_settings:", "  check_provider_endpoint: true", ""];
+}
+
+/**
+ * Where the GitHub Copilot device-flow token lives on the host, relative to
+ * the repo root (seeded by `bun run copilot-login`). docker-compose.yml
+ * restates it in the litellm mount, the fake-openai masking volume, and the
+ * GITHUB_COPILOT_TOKEN_DIR env; stackDrift.test.ts pins those copies.
+ */
+export const COPILOT_TOKEN_DIR = "docker/.copilot-token";
+
+/** One model from the GitHub Copilot catalog, as fetched at generation time. */
+export interface CopilotModel {
+	readonly id: string;
+	/** The catalog's capabilities.type: "chat", "embeddings", ... */
+	readonly type: string;
+	/** The catalog's supported_endpoints; empty means the default /chat/completions. */
+	readonly supportedEndpoints: readonly string[];
+}
+
+/** Copilot ids are emitted into YAML unquoted, so gate them hard. */
+const COPILOT_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+
+/** The outcome of parsing a raw Copilot catalog payload at the boundary. */
+export interface CopilotCatalogParse {
+	models: CopilotModel[];
+	/** Entries dropped for an unusable or unsafe id; names only, never secrets. */
+	rejected: string[];
+}
+
+/**
+ * Boundary parser for the Copilot /models payload: every malformed entry is
+ * dropped into `rejected` instead of thrown, so no catalog drift can abort
+ * config generation - the emission below stays total for whatever this
+ * returns. Unknown shapes degrade to the chat defaults.
+ */
+export function parseCopilotCatalog(payload: unknown): CopilotCatalogParse {
+	const data = (payload as { data?: unknown } | null)?.data;
+	if (!Array.isArray(data)) {
+		return { models: [], rejected: [] };
+	}
+	const models: CopilotModel[] = [];
+	const rejected: string[] = [];
+	for (const raw of data as Array<Record<string, unknown>>) {
+		const id = raw?.id;
+		if (typeof id !== "string" || !COPILOT_ID_PATTERN.test(id)) {
+			rejected.push(typeof id === "string" ? id : "<non-string id>");
+			continue;
+		}
+		const capabilities = raw.capabilities as { type?: unknown } | undefined;
+		const endpoints = raw.supported_endpoints;
+		models.push({
+			id,
+			type: typeof capabilities?.type === "string" ? capabilities.type : "chat",
+			supportedEndpoints: Array.isArray(endpoints)
+				? endpoints.filter((endpoint): endpoint is string => typeof endpoint === "string")
+				: [],
+		});
+	}
+	return { models, rejected };
+}
+
+/**
+ * LiteLLM's model_info mode for a catalog entry. Embeddings models declare
+ * themselves via type; chat-vs-responses comes from supported_endpoints
+ * (an empty list means the default /chat/completions), because the catalog
+ * reports type "chat" even for models the API only serves via /responses.
+ */
+function copilotMode(model: CopilotModel): string | undefined {
+	if (model.type === "embeddings") {
+		return "embedding";
+	}
+	if (model.supportedEndpoints.includes("/responses") && !model.supportedEndpoints.includes("/chat/completions")) {
+		return "responses";
+	}
+	return undefined;
+}
+
+/**
+ * Explicit github_copilot/<id> routes for every model the live Copilot
+ * catalog reported when the config was generated. Auth is not in the entry:
+ * the github_copilot provider reads its device-flow token from
+ * GITHUB_COPILOT_TOKEN_DIR inside the container.
+ */
+function copilotSection(models: readonly CopilotModel[]): string[] {
+	if (models.length === 0) {
+		return [];
+	}
+	const entries = models.map((model) => {
+		if (!COPILOT_ID_PATTERN.test(model.id)) {
+			throw new Error(`Copilot model id "${model.id}" must match ${COPILOT_ID_PATTERN}`);
+		}
+		const lines = [
+			`  - model_name: github_copilot/${model.id}`,
+			"    litellm_params:",
+			`      model: github_copilot/${model.id}`,
+		];
+		const mode = copilotMode(model);
+		if (mode !== undefined) {
+			lines.push("    model_info:", `      mode: ${mode}`);
+		}
+		return lines.join("\n");
+	});
+	return [
+		"",
+		"  # GitHub Copilot models, discovered from the live catalog at generation",
+		"  # time (bun run copilot-login seeds the token; no token, no entries).",
+		...entries,
+	];
+}
+
 export function generateConfig(options: GenerateOptions, envValue: EnvLookup = () => ""): string {
 	assertUniqueNames();
 	const consolidatedEntries = FAKE_MODELS.map(consolidatedModelEntry);
+	const realEntries = options.realProviders ? realProviderEntries(envValue) : { entries: [], keyed: 0 };
+	const copilotModels = options.realProviders ? options.copilotModels : [];
 
 	return [
 		"# Generated at stack startup by scripts/litellmConfig.ts; do not edit.",
@@ -226,7 +369,8 @@ export function generateConfig(options: GenerateOptions, envValue: EnvLookup = (
 		"  # src/test/fakeStack/models.ts. LiteLLM strips the openai/ prefix, so",
 		"  # the backend receives the bare fake-* upstream id.",
 		consolidatedEntries.join("\n\n"),
-		...(options.realProviders ? realProviderSection(envValue) : []),
+		...realProviderSection(realEntries.entries),
+		...copilotSection(copilotModels),
 		"",
 		"router_settings:",
 		`  # The fake backend serves deliberate ${COMMAND_SIGIL}error:<status> responses; the`,
@@ -240,6 +384,7 @@ export function generateConfig(options: GenerateOptions, envValue: EnvLookup = (
 		"  allowed_fails: 1000000",
 		"  cooldown_time: 0",
 		"",
+		...expansionSection(realEntries.keyed),
 		"general_settings:",
 		"  master_key: os.environ/LITELLM_MASTER_KEY",
 		"",
