@@ -14,7 +14,7 @@ afterEach(() => {
 	cleanup();
 });
 
-test("renders one row per model with formatted tokens, pricing, capabilities, and the full pricing tooltip", () => {
+test("renders one row per model with formatted tokens, pricing, capabilities, and the full pricing detail tip", () => {
 	const priced = makeModel({
 		id: "gpt-priced",
 		name: "GPT Priced",
@@ -39,7 +39,11 @@ test("renders one row per model with formatted tokens, pricing, capabilities, an
 	const rows = Array.from(root.querySelectorAll("tbody tr"));
 	expect(rows.length).toBe(2);
 
-	const cells = Array.from(rows[0]?.querySelectorAll("td") ?? []).map((cell) => (cell.textContent ?? "").trim());
+	// The pricing cell's tip text lives inside the cell, so read cell text
+	// from the cells' first text nodes and the pricing from its own span.
+	const cells = Array.from(rows[0]?.querySelectorAll("td") ?? []).map((cell) =>
+		(cell.querySelector(".tip-wrap > span")?.textContent ?? cell.textContent ?? "").trim()
+	);
 	// toLocaleString is the formatter under test; compute the expectation the same way.
 	expect(cells).toContain((128000).toLocaleString());
 	expect(cells).toContain((16384).toLocaleString());
@@ -47,12 +51,16 @@ test("renders one row per model with formatted tokens, pricing, capabilities, an
 	expect(cells).toContain("$2.5 in / $10.1 out");
 	expect(cells).toContain("tools, vision, caching, reasoning");
 
-	const pricingCell = rows[0]?.querySelector("td[title]");
-	expect(pricingCell?.getAttribute("title")).toBe(
+	// The cache and long-context tiers render in a hover tip element (native
+	// title attributes do not show inside the webview host).
+	const pricingTip = rows[0]?.querySelector("td .tip-wrap .help-tip");
+	expect(pricingTip?.textContent).toBe(
 		"USD per million tokens, cache read $0.257, cache write $3.13, long-context tier: $5 in, $20 out, cache read $0.5, cache write $6.25"
 	);
 
-	const bareCells = Array.from(rows[1]?.querySelectorAll("td") ?? []).map((cell) => (cell.textContent ?? "").trim());
+	const bareCells = Array.from(rows[1]?.querySelectorAll("td") ?? []).map((cell) =>
+		(cell.querySelector(".tip-wrap > span")?.textContent ?? cell.textContent ?? "").trim()
+	);
 	expect(bareCells).toContain("-");
 	expect(bareCells).toContain("");
 });

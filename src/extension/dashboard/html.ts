@@ -116,6 +116,38 @@ const STYLES = `
 
 	table { border-collapse: collapse; width: 100%; margin: 8px 0; }
 	.table-scroll { overflow-x: auto; }
+	/* Long model lists render windowed inside their own scrollport; the fixed
+	   row height is what makes the scroll arithmetic exact, and the sticky
+	   header keeps the sort controls reachable mid-list. */
+	.table-scroll.windowed { max-height: 480px; overflow-y: auto; }
+	.table-scroll.windowed thead th {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		background: var(--vscode-editor-background, var(--vscode-panel-background));
+	}
+	.table-scroll.windowed tbody tr:not(.spacer) { height: 26px; }
+	.table-scroll.windowed tbody td { padding-top: 0; padding-bottom: 0; white-space: nowrap; }
+	th button.sort {
+		background: transparent;
+		border: none;
+		border-radius: 0;
+		padding: 0;
+		color: inherit;
+		font: inherit;
+		font-weight: 600;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		white-space: nowrap;
+	}
+	th button.sort:hover { background: transparent; color: var(--vscode-foreground); }
+	.sort-arrow { display: inline-flex; }
+	.sort-arrow.desc { transform: rotate(180deg); }
+	/* Per-row icon actions surface on the row's hover or when focus is inside
+	   it; opacity (not visibility) keeps them in the Tab order throughout. */
+	button.icon-action { opacity: 0; transition: opacity 120ms ease-out; }
+	tr:hover button.icon-action, tr:focus-within button.icon-action, button.icon-action:focus-visible { opacity: 1; }
 	th, td {
 		text-align: left;
 		padding: 3px 12px 3px 0;

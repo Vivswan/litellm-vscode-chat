@@ -20,3 +20,18 @@ export function IconClose() {
 		<Svg path="M8 7.29l4.15-4.14.7.7L8.71 8l4.14 4.15-.7.7L8 8.71l-4.15 4.14-.7-.7L7.29 8 3.15 3.85l.7-.7L8 7.29z" />
 	);
 }
+
+/** Rotated by CSS (.sort-arrow.desc) for the descending direction. */
+export function IconArrowUp() {
+	return <Svg path="M8 3l4 4-.71.71L8.5 5.12V13h-1V5.12L4.71 7.71 4 7l4-4z" />;
+}
+
+export function IconCopy() {
+	return (
+		<Svg path="M10 1H3.5L2 2.5V12h1V2.71l.71-.71H10V1zm2.5 2h-7L4 4.5v9L5.5 15h7l1.5-1.5v-9L12.5 3zM13 13.29l-.71.71H5.71L5 13.29V4.71L5.71 4h6.58l.71.71v8.58z" />
+	);
+}
+
+export function IconCheck() {
+	return <Svg path="M6.27 12.3L2.5 8.53l.94-.94 2.83 2.83 6.29-6.29.94.94-7.23 7.23z" />;
+}
