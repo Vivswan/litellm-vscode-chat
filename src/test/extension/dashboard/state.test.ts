@@ -465,6 +465,208 @@ suite("extension/dashboard/state", () => {
 			assert.ok(!JSON.stringify(state).includes("fp-shared"), "the join key never reaches the webview state");
 		});
 
+		test("a snapshot shared by two declared entries lists its models under both labels", () => {
+			// The host registers a group's models once PER GROUP (the picker shows
+			// both servers' copies), so a pre-label snapshot claimed by several
+			// declared entries must attribute its models to every claimant, not
+			// render them once under the first label.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-shared:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 2,
+						}),
+						models: [makeModelInfo({ id: "m1", name: "m1" }), makeModelInfo({ id: "m2", name: "m2" })],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-prod-labeled:http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+					}),
+					makeDeclared({
+						label: "Staging",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-staging-labeled:http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+					}),
+				]
+			);
+
+			assert.deepStrictEqual(
+				state.models.map((m) => `${m.serverLabel}/${m.name}`),
+				["Prod/m1", "Prod/m2", "Staging/m1", "Staging/m2"]
+			);
+		});
+
+		test("an upsertFailed claimant gets no models copy; its row still shows the shared status", () => {
+			// One pre-label group exists and a second same-connection entry's
+			// group add FAILED outright: the engine still emits the entry's
+			// connection identity, so it claims the snapshot - but the picker has
+			// ONE group, and duplicating the models would overcount it.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-shared:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 2,
+						}),
+						models: [makeModelInfo({ id: "m1", name: "m1" }), makeModelInfo({ id: "m2", name: "m2" })],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+					}),
+					makeDeclared({
+						label: "Staging",
+						baseUrl: "http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+						syncError: "The host rejected the provider group upsert",
+						syncErrorClass: "upsertFailed",
+					}),
+				]
+			);
+
+			assert.deepStrictEqual(
+				state.models.map((m) => `${m.serverLabel}/${m.name}`),
+				["Prod/m1", "Prod/m2"]
+			);
+			const staging = state.servers.find((server) => server.label === "Staging");
+			assert.strictEqual(staging?.state, "ok", "the shared live status still rides the row");
+			assert.strictEqual(staging?.modelCount, 2);
+			assert.strictEqual(staging?.error, "The host rejected the provider group upsert");
+		});
+
+		test("a blocked claimant keeps its models copy: the duplicate refusal proves its group exists", () => {
+			// A name-conflict refusal means a live group with that name IS
+			// registering models; dropping the copy would under-report the picker.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-shared:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 1,
+						}),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+					}),
+					makeDeclared({
+						label: "Staging",
+						baseUrl: "http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+						syncError: "A provider group with this name already exists",
+						syncErrorClass: "blocked",
+					}),
+				]
+			);
+
+			assert.deepStrictEqual(
+				state.models.map((m) => `${m.serverLabel}/${m.name}`),
+				["Prod/m1", "Staging/m1"]
+			);
+		});
+
+		test("a snapshot whose only claimant is upsertFailed still lists its models once, under that label", () => {
+			// The reporting group exists and serves (the snapshot is its live
+			// report), so the models cannot vanish just because the entry's last
+			// add failed; they render once, not zero times.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:fp-shared:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 1,
+						}),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedConnectionId: "group:fp-shared:http://x.test",
+						syncError: "The host rejected the provider group upsert",
+						syncErrorClass: "upsertFailed",
+					}),
+				]
+			);
+
+			assert.deepStrictEqual(
+				state.models.map((m) => `${m.serverLabel}/${m.name}`),
+				["Prod/m1"]
+			);
+		});
+
+		test("two labeled groups on one connection each list their own copy of the models", () => {
+			// The post-identity shape of the same setup: distinct labeled
+			// snapshots carrying the same raw model IDs stay two registrations,
+			// one row per server per model, matching the picker.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({
+							serverId: "group:labeled:fp-a:http://x.test",
+							label: "Prod",
+							baseUrl: "http://x.test",
+							modelCount: 1,
+						}),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+					{
+						status: makeServerStatus({
+							serverId: "group:labeled:fp-b:http://x.test",
+							label: "Staging",
+							baseUrl: "http://x.test",
+							modelCount: 1,
+						}),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:labeled:fp-a:http://x.test",
+					}),
+					makeDeclared({
+						label: "Staging",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:labeled:fp-b:http://x.test",
+					}),
+				]
+			);
+
+			assert.deepStrictEqual(
+				state.models.map((m) => `${m.serverLabel}/${m.name}`),
+				["Prod/m1", "Staging/m1"]
+			);
+		});
+
 		test("an entry with modelParameters served by a pre-label group flags the inactive parameters", () => {
 			// The connection-identity join means the live group carries no label,
 			// so the request path never applies this entry's parameters. The row

@@ -227,25 +227,39 @@ function declaredOutcome(
  * Provider-group snapshots are labeled by URL host (the host never hands the
  * group name to the extension), so the join cannot require a label match; see
  * joinDeclared for the pairing passes. `snapshotLabels` maps each snapshot to
- * the label its models render under: the declared label when joined, so the
- * models table agrees with the server rows.
+ * the labels its models render under: every claiming entry's label when
+ * joined (a shared snapshot is one group's report, but the host registers
+ * those models once per group, so the models table lists them under each
+ * claimant to match the picker), the snapshot's own label otherwise. The one
+ * exclusion is a claimant whose sync failed as upsertFailed - its add failed
+ * outright, so the host has no group for it and a copy would be phantom;
+ * blocked claimants keep their copy (the duplicate refusal proves a group
+ * with that name exists and registers models). The snapshot still renders at
+ * least once (the reporting group exists and serves), under the first
+ * claimant when every claimant is excluded. Known residual divergences: a
+ * native group removal the engine has not re-discovered still overcounts,
+ * and an external unlabeled group sharing a connection with a pre-label
+ * entry collapses into it (pre-existing under-report); exact host
+ * cardinality is not recoverable from declarations alone.
  */
 function buildServers(
 	labeled: readonly LabeledSnapshot[],
 	declared: readonly DeclaredServerView[]
-): { servers: DashboardServer[]; snapshotLabels: string[] } {
+): { servers: DashboardServer[]; snapshotLabels: string[][] } {
 	const { matchedByDeclared, unmatched } = joinDeclared(labeled, declared);
-	const displayLabels = new Map<LabeledSnapshot, string>(labeled.map((entry) => [entry, entry.label]));
-	// A snapshot shared by several declared entries renders its models once,
-	// under the first claimant's label (declared order, deterministic).
-	const relabeled = new Set<LabeledSnapshot>();
+	// Countable claimant labels per snapshot, in declared order, with the
+	// first claimant of any state as the render-at-least-once fallback.
+	const claimants = new Map<LabeledSnapshot, { labels: string[]; fallback: string }>();
 	const servers: DashboardServer[] = [];
 	declared.forEach((view, declaredIndex) => {
 		const match = matchedByDeclared.get(declaredIndex);
 		const matched = match?.entry;
-		if (matched !== undefined && !relabeled.has(matched)) {
-			relabeled.add(matched);
-			displayLabels.set(matched, view.label);
+		if (matched !== undefined) {
+			const claimed = claimants.get(matched) ?? { labels: [], fallback: view.label };
+			if (view.syncErrorClass !== "upsertFailed") {
+				claimed.labels.push(view.label);
+			}
+			claimants.set(matched, claimed);
 		}
 		// Only the exact labeled-identity join proves the live group carries
 		// this entry's label, which is what the request path's label-and-URL
@@ -276,7 +290,16 @@ function buildServers(
 		servers.push(buildServer(entry.snapshot, entry.label));
 	}
 	servers.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
-	return { servers, snapshotLabels: labeled.map((entry) => displayLabels.get(entry) ?? entry.label) };
+	return {
+		servers,
+		snapshotLabels: labeled.map((entry) => {
+			const claimed = claimants.get(entry);
+			if (claimed === undefined) {
+				return [entry.label];
+			}
+			return claimed.labels.length > 0 ? claimed.labels : [claimed.fallback];
+		}),
+	};
 }
 
 function buildModel(info: PreAttachModelInfo, serverLabel: string): DashboardModel {
@@ -442,7 +465,9 @@ export function buildDashboardState(
 		servers,
 		models: labeled
 			.flatMap(({ snapshot, label }, index) =>
-				snapshot.models.map((info) => buildModel(info, snapshotLabels[index] ?? label))
+				(snapshotLabels[index] ?? [label]).flatMap((serverLabel) =>
+					snapshot.models.map((info) => buildModel(info, serverLabel))
+				)
 			)
 			.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.name.localeCompare(b.name)),
 		settings: readDashboardSettings(reader),

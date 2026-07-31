@@ -301,10 +301,12 @@ export function ModelsSection({ models, serverCount }: { models: readonly Dashbo
 											</td>
 											<td class="caps">{capabilities(model)}</td>
 											<td class="actions">
+												{/* The server label keeps the accessible name unique when one
+												    raw ID is registered through several servers. */}
 												<button
 													type="button"
 													class="quiet icon-action"
-													aria-label={`Copy model ID ${model.id}`}
+													aria-label={`Copy model ID ${model.id} from ${model.serverLabel}`}
 													onClick={() => copyId(model, rowId)}
 												>
 													{copied === rowId ? <IconCheck /> : <IconCopy />}
