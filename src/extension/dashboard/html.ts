@@ -76,6 +76,44 @@ const STYLES = `
 	.tone-warn { color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow)); }
 	.tone-muted { color: var(--vscode-descriptionForeground); }
 
+	/* The section tab bar: native panel-title anatomy (muted labels, 1px
+	   underline on the active one) on the panelTitle tokens, sticky so the
+	   section switcher survives scrolling a long models table. The negative
+	   margins let the underline run the full panel width while labels keep
+	   the content's left edge. */
+	.tabs {
+		position: sticky;
+		top: 0;
+		z-index: 20;
+		display: flex;
+		gap: 8px;
+		margin: 16px -24px 8px;
+		padding: 4px 24px 0;
+		background: var(--vscode-editor-background, var(--vscode-panel-background));
+		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+	}
+	button.tab {
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid transparent;
+		border-radius: 0;
+		margin-bottom: -1px;
+		padding: 6px 2px;
+		color: var(--vscode-panelTitle-inactiveForeground, var(--vscode-descriptionForeground));
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	button.tab:hover {
+		background: transparent;
+		color: var(--vscode-panelTitle-activeForeground, var(--vscode-foreground));
+	}
+	button.tab[aria-selected="true"] {
+		color: var(--vscode-panelTitle-activeForeground, var(--vscode-foreground));
+		border-bottom-color: var(--vscode-panelTitle-activeBorder, var(--vscode-focusBorder));
+	}
+	button.tab:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+
 	table { border-collapse: collapse; width: 100%; margin: 8px 0; }
 	.table-scroll { overflow-x: auto; }
 	th, td {

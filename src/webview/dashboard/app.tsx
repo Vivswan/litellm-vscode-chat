@@ -1,3 +1,4 @@
+import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type {
 	DashboardIntentType,
@@ -12,6 +13,16 @@ import { ServersSection } from "./servers";
 import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
 import { postMessage } from "./vscodeApi";
+
+/** The dashboard's top-level sections, one tab each; servers first because setup starts there. */
+const SECTION_IDS = ["servers", "models", "settings"] as const;
+type SectionId = (typeof SECTION_IDS)[number];
+
+const SECTION_LABELS: Record<SectionId, string> = {
+	servers: "Servers",
+	models: "Models",
+	settings: "Settings",
+};
 
 /**
  * Messages arriving on the window come from the extension only (the CSP
@@ -124,6 +135,80 @@ function LoadingSkeleton() {
 }
 
 /**
+ * The section tab bar. Native panel-tab anatomy (underlined active title on
+ * the panelTitle theme tokens) with the WAI-ARIA tabs contract: roving
+ * tabindex, arrow keys move focus and selection together, Home/End jump. The
+ * inactive panels stay mounted below (hidden, not unmounted) so an open form
+ * or a half-typed filter survives a visit to another section.
+ */
+function SectionTabs({
+	active,
+	counts,
+	onSelect,
+}: {
+	active: SectionId;
+	counts: Partial<Record<SectionId, number>>;
+	onSelect: (section: SectionId) => void;
+}) {
+	const select = (section: SectionId) => {
+		onSelect(section);
+		document.getElementById(`tab-${section}`)?.focus();
+	};
+	const onKeyDown = (event: KeyboardEvent) => {
+		const index = SECTION_IDS.indexOf(active);
+		if (event.key === "ArrowRight") {
+			select(SECTION_IDS[(index + 1) % SECTION_IDS.length] as SectionId);
+		} else if (event.key === "ArrowLeft") {
+			select(SECTION_IDS[(index + SECTION_IDS.length - 1) % SECTION_IDS.length] as SectionId);
+		} else if (event.key === "Home") {
+			select(SECTION_IDS[0] as SectionId);
+		} else if (event.key === "End") {
+			select(SECTION_IDS[SECTION_IDS.length - 1] as SectionId);
+		} else {
+			return;
+		}
+		event.preventDefault();
+	};
+	return (
+		<div class="tabs" role="tablist" aria-label="Dashboard sections" onKeyDown={onKeyDown}>
+			{SECTION_IDS.map((section) => (
+				<button
+					key={section}
+					type="button"
+					class="tab"
+					role="tab"
+					id={`tab-${section}`}
+					aria-selected={section === active}
+					aria-controls={`panel-${section}`}
+					tabIndex={section === active ? 0 : -1}
+					onClick={() => onSelect(section)}
+				>
+					{SECTION_LABELS[section]}
+					{counts[section] !== undefined ? <span class="count">{counts[section]}</span> : null}
+				</button>
+			))}
+		</div>
+	);
+}
+
+/** One tab's content, kept mounted while hidden; see SectionTabs. */
+function SectionPanel({
+	section,
+	active,
+	children,
+}: {
+	section: SectionId;
+	active: SectionId;
+	children: ComponentChildren;
+}) {
+	return (
+		<div role="tabpanel" id={`panel-${section}`} aria-labelledby={`tab-${section}`} hidden={section !== active}>
+			{children}
+		</div>
+	);
+}
+
+/**
  * The dashboard root: holds the latest pushed state and the latest intent
  * outcomes, nothing else. The extension re-pushes the full state on every
  * store change, so this component never mutates or persists what it renders.
@@ -136,6 +221,7 @@ function LoadingSkeleton() {
  */
 export function App() {
 	const [state, setState] = useState<DashboardState | undefined>(undefined);
+	const [section, setSection] = useState<SectionId>("servers");
 	const [ack, setAck] = useState<IntentAck | undefined>(undefined);
 	const [failures, setFailures] = useState<FailuresByIntent>({});
 	const [inlineSecrets, setInlineSecrets] = useState<InlineSecretsResponse | undefined>(undefined);
@@ -200,16 +286,27 @@ export function App() {
 			<p class="hint">Servers, models, and settings in one place; edits land in your VS Code settings.</p>
 			<StatusHero state={state} />
 			{scalarFailure !== undefined ? <p class="error">The last change did not apply: {scalarFailure.message}</p> : null}
-			<ServersSection
-				servers={state.servers}
-				ack={ack}
-				failures={failures}
-				inlineSecrets={inlineSecrets}
-				onDismissFailure={dismissFailure}
-				onClearInlineSecrets={() => setInlineSecrets(undefined)}
+			<SectionTabs
+				active={section}
+				counts={{ servers: state.servers.length, models: state.models.length }}
+				onSelect={setSection}
 			/>
-			<ModelsSection models={state.models} serverCount={state.servers.length} />
-			<SettingsSection settings={state.settings} failures={failures} />
+			<SectionPanel section="servers" active={section}>
+				<ServersSection
+					servers={state.servers}
+					ack={ack}
+					failures={failures}
+					inlineSecrets={inlineSecrets}
+					onDismissFailure={dismissFailure}
+					onClearInlineSecrets={() => setInlineSecrets(undefined)}
+				/>
+			</SectionPanel>
+			<SectionPanel section="models" active={section}>
+				<ModelsSection models={state.models} serverCount={state.servers.length} />
+			</SectionPanel>
+			<SectionPanel section="settings" active={section}>
+				<SettingsSection settings={state.settings} failures={failures} />
+			</SectionPanel>
 		</main>
 	);
 }
