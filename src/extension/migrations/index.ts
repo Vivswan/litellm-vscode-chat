@@ -45,8 +45,10 @@ export interface ExtensionMigration {
 /**
  * Chronological by the release whose state each one migrates away from (the
  * per-file headers carry the full story); registration order is execution
- * order within each phase, and labelScopedModelParameters must stay after
- * registryToProviderGroups: it reads the label map that migration writes.
+ * order within each phase. labelScopedModelParameters reads the label map
+ * registryToProviderGroups writes during post-registration seeding; since the
+ * copy pass runs pre-registration, the group migration reruns it directly
+ * whenever a seeding pass merges new label-map entries.
  */
 const MIGRATIONS: readonly ExtensionMigration[] = [
 	legacySingleServerMigration, // away from <= v0.2.2 (pre-registry single-server secrets)

@@ -16,6 +16,7 @@ import {
 } from "../../shared/storageKeys";
 import type { ServerRegistry } from "../serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
+import { getMigratedServerLabels, labelScopedModelParametersMigration } from "./labelScopedModelParameters";
 import { hasLegacyConfig } from "./legacySingleServer";
 
 /**
@@ -25,8 +26,6 @@ import { hasLegacyConfig } from "./legacySingleServer";
  * every use is wrapped and failure defers the migration to the next activation.
  */
 const MIGRATE_GROUP_COMMAND = "lm.migrateLanguageModelsProviderGroup";
-
-const labelMapSchema = z.record(z.string(), z.array(z.string()));
 
 const seededGroupSchema = z.object({
 	id: z.string(),
@@ -81,12 +80,6 @@ export function isGroupMigrationRunning(): boolean {
  */
 export function isGroupMigrationComplete(globalState: vscode.Memento): boolean {
 	return globalState.get<boolean>(GROUP_MIGRATION_COMPLETE_KEY, false) === true;
-}
-
-/** baseUrl -> labels for servers migrated to provider groups, written as each server seeds. */
-export function getMigratedServerLabels(globalState: vscode.Memento): Record<string, string[]> {
-	const parsed = labelMapSchema.safeParse(globalState.get<unknown>(MIGRATED_SERVER_LABELS_KEY));
-	return parsed.success ? parsed.data : {};
 }
 
 function getSeededGroups(globalState: vscode.Memento): SeededGroup[] {
@@ -627,6 +620,44 @@ async function completeFreshInstall(ctx: MigrationContext): Promise<boolean> {
 	return true;
 }
 
+function labelMapsEqual(a: Record<string, string[]>, b: Record<string, string[]>): boolean {
+	const aKeys = Object.keys(a);
+	if (aKeys.length !== Object.keys(b).length) {
+		return false;
+	}
+	return aKeys.every((key) => {
+		const left = a[key];
+		const right = b[key];
+		return (
+			left !== undefined &&
+			right !== undefined &&
+			left.length === right.length &&
+			left.every((label, index) => label === right[index])
+		);
+	});
+}
+
+/**
+ * The label-scoped modelParameters copy runs pre-registration, but the label
+ * map it reads is written here, during post-registration seeding. Without
+ * this rerun, a user updating straight from a registry-era version would get
+ * the map only mid-session and the copy pass would not see it until the next
+ * activation. Best-effort with the runner's error isolation: a failure logs
+ * once and never disturbs this migration's outcome.
+ */
+async function rerunLabelCopyForNewEntries(ctx: MigrationContext, before: Record<string, string[]>): Promise<void> {
+	if (labelMapsEqual(before, getMigratedServerLabels(ctx.globalState))) {
+		return;
+	}
+	try {
+		if ((await labelScopedModelParametersMigration.run(ctx)) === "migrated") {
+			ctx.logger.log(labelScopedModelParametersMigration.description);
+		}
+	} catch (error) {
+		ctx.logger.error(`Migration "${labelScopedModelParametersMigration.state}" failed`, error);
+	}
+}
+
 /**
  * Migrates away from: the registry-backed server storage of v0.2.3 through
  * v0.3.1 (host provider groups replace it in the first release after
@@ -644,7 +675,9 @@ export const registryToProviderGroupsMigration: ExtensionMigration = {
 	description: "Migrated the server registry to VS Code provider groups",
 	phase: "post-registration",
 	async run(ctx: MigrationContext): Promise<MigrationOutcome> {
+		const labelsBefore = getMigratedServerLabels(ctx.globalState);
 		const completed = await migrateServersToProviderGroups(ctx.registry, ctx.globalState, ctx.secrets, ctx.logger);
+		await rerunLabelCopyForNewEntries(ctx, labelsBefore);
 		if (completed) {
 			return "migrated";
 		}

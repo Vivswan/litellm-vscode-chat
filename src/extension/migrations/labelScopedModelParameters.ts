@@ -1,10 +1,71 @@
 import * as vscode from "vscode";
+import { z } from "zod";
 import { normalizeBaseUrl } from "../../shared/baseUrl";
 import type { Logger } from "../../shared/logger";
 import { CONFIG_SECTION } from "../../shared/settingSpec";
 import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/settings";
+import { MIGRATED_SERVER_LABELS_KEY } from "../../shared/storageKeys";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
-import { getMigratedServerLabels } from "./registryToProviderGroups";
+
+const labelMapSchema = z.record(z.string(), z.array(z.string()));
+
+/**
+ * baseUrl -> labels for servers migrated to provider groups. The group
+ * migration writes the map as each server seeds; this migration is its
+ * long-term reader, which is why the accessor lives here (and not in
+ * registryToProviderGroups, which must be able to import this module to
+ * rerun the copy after merging new entries).
+ */
+export function getMigratedServerLabels(globalState: vscode.Memento): Record<string, string[]> {
+	const parsed = labelMapSchema.safeParse(globalState.get<unknown>(MIGRATED_SERVER_LABELS_KEY));
+	return parsed.success ? parsed.data : {};
+}
+
+/**
+ * baseUrl -> labels from BOTH sources the runtime label path used to serve:
+ * the persisted map (servers already seeded into provider groups) and the
+ * current registry snapshot (servers the group migration has not seeded -
+ * deferred or skipped entries have no map entry, but their label and URL sit
+ * right in the registry). A label mapping to more than one normalized URL
+ * across the union is dropped everywhere - the same rule the group
+ * migration's mergeLabelMap applies within the map - because its scoped keys
+ * cannot be resolved to one server. URLs are normalized before comparison, so
+ * a trailing-slash variant of the same server is not read as a conflict.
+ */
+export function unionLabelSources(
+	labelsByBaseUrl: Record<string, string[]>,
+	registryServers: readonly { label: string; baseUrl: string }[]
+): Record<string, string[]> {
+	const urlsByLabel = new Map<string, Set<string>>();
+	const add = (label: string, baseUrl: string): void => {
+		const urls = urlsByLabel.get(label) ?? new Set<string>();
+		urls.add(normalizeBaseUrl(baseUrl));
+		urlsByLabel.set(label, urls);
+	};
+	for (const [baseUrl, labels] of Object.entries(labelsByBaseUrl)) {
+		for (const label of labels) {
+			add(label, baseUrl);
+		}
+	}
+	for (const server of registryServers) {
+		add(server.label, server.baseUrl);
+	}
+
+	const union: Record<string, string[]> = {};
+	for (const [label, urls] of urlsByLabel) {
+		if (urls.size !== 1) {
+			continue;
+		}
+		const [baseUrl] = urls;
+		if (baseUrl === undefined) {
+			continue;
+		}
+		const labels = union[baseUrl] ?? [];
+		labels.push(label);
+		union[baseUrl] = labels;
+	}
+	return union;
+}
 
 /** The slice of WorkspaceConfiguration the rewrite needs; tests fake it. */
 export interface ModelParametersSetting {
@@ -21,10 +82,11 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * label -> normalized baseUrl. The persisted map only ever holds unambiguous
- * labels, so the inversion is total. Normalization matters: the runtime scope
- * is the group's normalized base URL, so a raw map value (say, with a
- * trailing slash) would build a key that never matches.
+ * label -> normalized baseUrl. The map handed in only ever holds unambiguous
+ * labels (the persisted map and unionLabelSources both guarantee it), so the
+ * inversion is total. Normalization matters: the runtime scope is the group's
+ * normalized base URL, so a raw map value (say, with a trailing slash) would
+ * build a key that never matches.
  */
 function invertLabelMap(labelsByBaseUrl: Record<string, string[]>): Map<string, string> {
 	const urlByLabel = new Map<string, string>();
@@ -140,6 +202,11 @@ export async function rewriteLabelScopedModelParameters(
 		return "nothing-to-do";
 	}
 
+	// Whole-object read/modify/write: another window's pass, or a user edit
+	// saved between this read and this write, can be overwritten. Lost COPIES
+	// self-heal (the next activation's pass re-adds them); a lost user edit
+	// may not. Accepted residual, the same non-transactional trade the rest
+	// of the migration family's storage writes make.
 	await setting.update(
 		MODEL_PARAMETERS_SETTING_KEY,
 		Object.fromEntries([...Object.entries(globalRecord), ...additions]),
@@ -156,21 +223,24 @@ export async function rewriteLabelScopedModelParameters(
  * and earlier, where the server label was the scoping identity. Deletable
  * once installs carrying label-scoped keys are judged extinct.
  *
- * Ordered after registry-to-provider-groups, which keeps writing the label
- * map as servers seed, so entries copy on the same activation. The
- * label-matching path in the provider stays alive for one more release
- * (workspace-layer keys and other machines' settings still rely on it); when
- * it goes, the copies added here carry the scoped behavior and the original
- * keys stay behind as ordinary bare-prefix entries.
+ * Runs pre-registration so the rewrite is awaited before the provider
+ * registers and the first request of a session cannot race the copy pass.
+ * Labels come from unionLabelSources: the persisted map alone would miss
+ * every registry server the group migration has not seeded yet (it only
+ * writes the map on successful seeding), so the registry snapshot fills the
+ * gap for deferred and skipped servers. The map is still written DURING the
+ * group migration's post-registration seeding, after this has already run,
+ * so the group migration also reruns this migration whenever a pass merges
+ * new label-map entries.
  */
 export const labelScopedModelParametersMigration: ExtensionMigration = {
 	state: "label-scoped-model-parameters",
 	description: "Added base-URL-scoped copies of label-scoped modelParameters keys",
-	phase: "post-registration",
+	phase: "pre-registration",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
 		return rewriteLabelScopedModelParameters(
 			vscode.workspace.getConfiguration(CONFIG_SECTION),
-			getMigratedServerLabels(ctx.globalState),
+			unionLabelSources(getMigratedServerLabels(ctx.globalState), ctx.registry.getServers()),
 			ctx.logger
 		);
 	},

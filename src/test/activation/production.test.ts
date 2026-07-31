@@ -4,7 +4,14 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { activate } from "../../extension";
 import type { LiteLLMChatModelProvider } from "../../provider";
-import { GROUP_MIGRATION_COMPLETE_KEY, HAS_SHOWN_WELCOME_KEY, SERVER_REGISTRY_KEY } from "../../shared/storageKeys";
+import { CONFIG_SECTION } from "../../shared/settingSpec";
+import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/settings";
+import {
+	GROUP_MIGRATION_COMPLETE_KEY,
+	HAS_SHOWN_WELCOME_KEY,
+	MIGRATED_SERVER_LABELS_KEY,
+	SERVER_REGISTRY_KEY,
+} from "../../shared/storageKeys";
 import { expectDefined, makeExtensionStorage } from "../testUtils";
 
 /**
@@ -26,6 +33,10 @@ suite("production activation", () => {
 	let registeredVendor: string | undefined;
 	let testCommandsBefore: string[] = [];
 	let storage: ReturnType<typeof makeExtensionStorage>;
+	// Snapshot taken inside the registration stub: what the modelParameters
+	// setting held at the exact moment the provider registered.
+	let modelParametersAtRegistration: Record<string, unknown> | undefined;
+	let modelParametersBefore: Record<string, unknown> | undefined;
 
 	suiteSetup(async function () {
 		this.timeout(30000);
@@ -37,9 +48,21 @@ suite("production activation", () => {
 		testCommandsBefore = (await vscode.commands.getCommands(true)).filter((id) => id.startsWith("litellm."));
 		assert.deepStrictEqual(testCommandsBefore, [], "no litellm.* command may exist before the fake activation");
 
+		// A label-scoped modelParameters key plus the persisted label map: the
+		// pre-registration migration must rewrite the user setting before the
+		// provider registers, which the registration stub below observes.
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		modelParametersBefore = config.inspect<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY)?.globalValue;
+		await config.update(
+			MODEL_PARAMETERS_SETTING_KEY,
+			{ "Leftover/gpt-4": { temperature: 0.25 } },
+			vscode.ConfigurationTarget.Global
+		);
+
 		storage = makeExtensionStorage({
 			[GROUP_MIGRATION_COMPLETE_KEY]: true,
 			[HAS_SHOWN_WELCOME_KEY]: true,
+			[MIGRATED_SERVER_LABELS_KEY]: { "http://localhost:49997": ["Leftover"] },
 			// A leftover registry server: after the migration completed, the
 			// groupless refresh must NOT serve it in production.
 			[SERVER_REGISTRY_KEY]: {
@@ -95,6 +118,9 @@ suite("production activation", () => {
 		) => {
 			registeredVendor = vendor;
 			provider = registered;
+			modelParametersAtRegistration = vscode.workspace
+				.getConfiguration(CONFIG_SECTION)
+				.get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY);
 			return { dispose() {} };
 		};
 		try {
@@ -104,6 +130,12 @@ suite("production activation", () => {
 			(vscode.lm as Record<string, unknown>).registerLanguageModelChatProvider = origRegisterProvider;
 			(vscode.window as Record<string, unknown>).createOutputChannel = origCreateChannel;
 		}
+	});
+
+	suiteTeardown(async () => {
+		await vscode.workspace
+			.getConfiguration(CONFIG_SECTION)
+			.update(MODEL_PARAMETERS_SETTING_KEY, modelParametersBefore, vscode.ConfigurationTarget.Global);
 	});
 
 	test("production-mode activation registers no litellm._test.* commands", async () => {
@@ -129,6 +161,19 @@ suite("production activation", () => {
 			infoMessages.filter((message) => message.includes("Welcome")),
 			[]
 		);
+	});
+
+	test("the label-scoped modelParameters rewrite completes before the provider registers", () => {
+		// The load-bearing half of the pre-registration phase: the copy pass is
+		// awaited before registerLanguageModelChatProvider, so the session's
+		// first request can never race it. The stub captured the setting at
+		// registration time; the base-URL copy must already be there.
+		const captured = expectDefined(
+			modelParametersAtRegistration,
+			"the registration stub must have captured the setting"
+		);
+		assert.deepStrictEqual(captured["http://localhost:49997/gpt-4"], { temperature: 0.25 });
+		assert.deepStrictEqual(captured["Leftover/gpt-4"], { temperature: 0.25 }, "the original key is kept");
 	});
 
 	test("production activation with migration complete disables the groupless registry refresh", async () => {

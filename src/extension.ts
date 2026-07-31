@@ -12,7 +12,8 @@ import { registerDiagnosticsCommand } from "./extension/diagnostics";
 import { createIssueReporterEnv, IssueReporter } from "./extension/issueReporter";
 import type { MigrationContext } from "./extension/migrations";
 import { runMigrations } from "./extension/migrations";
-import { getMigratedServerLabels, isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
+import { getMigratedServerLabels } from "./extension/migrations/labelScopedModelParameters";
+import { isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
 import {
 	CONFIGURE_NOW_LABEL,
 	createConfigurationPrompt,

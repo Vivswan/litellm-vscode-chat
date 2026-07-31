@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { MigrationContext } from "../../../extension/migrations";
+import { getMigratedServerLabels } from "../../../extension/migrations/labelScopedModelParameters";
 import { legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
 import {
-	getMigratedServerLabels,
 	isGroupMigrationComplete,
 	isGroupMigrationRunning,
 	migrateServersToProviderGroups,
@@ -12,6 +12,8 @@ import {
 import { ServerRegistry } from "../../../extension/serverRegistry";
 import { fingerprint } from "../../../shared/fingerprint";
 import { Logger } from "../../../shared/logger";
+import { CONFIG_SECTION } from "../../../shared/settingSpec";
+import { MODEL_PARAMETERS_SETTING_KEY } from "../../../shared/settings";
 import {
 	apiKeySecret,
 	GROUP_MIGRATION_COMPLETE_KEY,
@@ -988,6 +990,38 @@ suite("extension/migrations/registryToProviderGroups", () => {
 
 			assert.strictEqual(outcome, "migrated");
 			assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
+		});
+
+		test("a pass that merges new label-map entries reruns the label-scoped copy on the same activation", async () => {
+			// The copy migration runs pre-registration, before this (post-
+			// registration) migration writes the label map, so the wrapper must
+			// invoke it again once new entries merge; otherwise a registry-era
+			// updater's label-scoped keys would wait a full session for their
+			// base-URL copies.
+			const storage = makeExtensionStorage();
+			storage.mementoStore.set(SEEDED_PROVIDER_GROUPS_KEY, [
+				{ id: "aaaa1111", name: "Production", label: "Production", baseUrl: "http://prod.test", keyFingerprint: "0" },
+			]);
+			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+			const original = config.inspect<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY)?.globalValue;
+			await config.update(
+				MODEL_PARAMETERS_SETTING_KEY,
+				{ "Production/gpt-4": { temperature: 0.25 } },
+				vscode.ConfigurationTarget.Global
+			);
+
+			try {
+				const outcome = await registryToProviderGroupsMigration.run(makeMigrationContext(storage));
+
+				assert.strictEqual(outcome, "migrated");
+				const rewritten = vscode.workspace
+					.getConfiguration(CONFIG_SECTION)
+					.get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY);
+				assert.deepStrictEqual(rewritten?.["http://prod.test/gpt-4"], { temperature: 0.25 });
+				assert.deepStrictEqual(rewritten?.["Production/gpt-4"], { temperature: 0.25 }, "the original key is kept");
+			} finally {
+				await config.update(MODEL_PARAMETERS_SETTING_KEY, original, vscode.ConfigurationTarget.Global);
+			}
 		});
 	});
 

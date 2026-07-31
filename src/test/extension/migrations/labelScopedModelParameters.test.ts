@@ -1,8 +1,17 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import type { MigrationContext } from "../../../extension/migrations";
 import type { ModelParametersSetting } from "../../../extension/migrations/labelScopedModelParameters";
-import { rewriteLabelScopedModelParameters } from "../../../extension/migrations/labelScopedModelParameters";
+import {
+	labelScopedModelParametersMigration,
+	rewriteLabelScopedModelParameters,
+	unionLabelSources,
+} from "../../../extension/migrations/labelScopedModelParameters";
+import { ServerRegistry } from "../../../extension/serverRegistry";
 import { Logger } from "../../../shared/logger";
+import { CONFIG_SECTION } from "../../../shared/settingSpec";
+import { MODEL_PARAMETERS_SETTING_KEY } from "../../../shared/settings";
+import { makeExtensionStorage } from "../../testUtils";
 
 interface Layers {
 	globalValue?: Record<string, unknown>;
@@ -294,5 +303,66 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 			"Prod/gpt-4": { temperature: 0.2 },
 			"http://prod.test/gpt-4": { temperature: 0.2 },
 		});
+	});
+});
+
+suite("extension/migrations/labelScopedModelParameters: unionLabelSources", () => {
+	test("registry servers without a map entry contribute their label and URL", () => {
+		// The deferred/skipped shape: the group migration writes the map only
+		// on successful seeding, so an unseeded server's label exists nowhere
+		// but the registry itself.
+		const union = unionLabelSources({}, [{ label: "Staging", baseUrl: "http://staging.test" }]);
+
+		assert.deepStrictEqual(union, { "http://staging.test": ["Staging"] });
+	});
+
+	test("a label pointing at different URLs across map and registry is dropped everywhere", () => {
+		const union = unionLabelSources({ "http://prod.test": ["Production", "Solo"] }, [
+			{ label: "Production", baseUrl: "http://other.test" },
+		]);
+
+		assert.deepStrictEqual(union, { "http://prod.test": ["Solo"] }, "the conflicted label must vanish from both sides");
+	});
+
+	test("the same label on the same URL in both sources is one entry, trailing slashes ignored", () => {
+		const union = unionLabelSources({ "http://prod.test/": ["Production"] }, [
+			{ label: "Production", baseUrl: "http://prod.test" },
+		]);
+
+		assert.deepStrictEqual(union, { "http://prod.test": ["Production"] });
+	});
+});
+
+suite("extension/migrations/labelScopedModelParameters: migration wiring", () => {
+	test("an unseeded registry server's label-scoped key copies at pre-registration, before any seeding", async () => {
+		const storage = makeExtensionStorage();
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		await registry.addServer("Staging", "http://staging.test", "key");
+		const ctx: MigrationContext = {
+			globalState: storage.memento,
+			secrets: storage.secrets,
+			registry,
+			logger: new Logger({ info: () => {}, error: () => {} }),
+		};
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const original = config.inspect<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY)?.globalValue;
+		await config.update(
+			MODEL_PARAMETERS_SETTING_KEY,
+			{ "Staging/gpt-4": { temperature: 0.3 } },
+			vscode.ConfigurationTarget.Global
+		);
+
+		try {
+			const outcome = await labelScopedModelParametersMigration.run(ctx);
+
+			assert.strictEqual(outcome, "migrated");
+			const rewritten = vscode.workspace
+				.getConfiguration(CONFIG_SECTION)
+				.get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY);
+			assert.deepStrictEqual(rewritten?.["http://staging.test/gpt-4"], { temperature: 0.3 });
+			assert.deepStrictEqual(rewritten?.["Staging/gpt-4"], { temperature: 0.3 }, "the original key is kept");
+		} finally {
+			await config.update(MODEL_PARAMETERS_SETTING_KEY, original, vscode.ConfigurationTarget.Global);
+		}
 	});
 });
