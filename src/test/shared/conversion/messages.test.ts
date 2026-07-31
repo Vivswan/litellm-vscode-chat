@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { convertMessages, isToolResultPart } from "../../shared/messages";
-import { expectDefined } from "../testUtils";
+import { convertMessages, isToolResultPart } from "../../../shared/conversion/messages";
+import { expectDefined } from "../../testUtils";
 
 interface OpenAIToolCall {
 	id: string;
@@ -16,7 +16,7 @@ interface ConvertedMessage {
 	tool_call_id?: string;
 }
 
-suite("shared/messages", () => {
+suite("shared/conversion/messages", () => {
 	test("role 3 maps to system without logging an unknown role", () => {
 		const logged: string[] = [];
 		const messages = [

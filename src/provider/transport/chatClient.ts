@@ -2,10 +2,12 @@ import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseO
 import * as vscode from "vscode";
 import type { NormalizedBaseUrl } from "../../shared/baseUrl";
 import { normalizeBaseUrl } from "../../shared/baseUrl";
+import { convertMessages } from "../../shared/conversion/messages";
+import { applyPromptCacheBreakpoints } from "../../shared/conversion/promptCache";
+import { estimateMessagesTokens, estimateToolTokens } from "../../shared/conversion/tokenEstimation";
+import { convertTools } from "../../shared/conversion/tools";
 import { isRecord } from "../../shared/json";
 import type { Logger } from "../../shared/logger";
-import { convertMessages } from "../../shared/messages";
-import { applyPromptCacheBreakpoints } from "../../shared/promptCache";
 import type { ServerWithKey } from "../../shared/servers";
 import {
 	getCustomHeaders,
@@ -14,8 +16,6 @@ import {
 	isPromptCachingEnabled,
 	type TokenDefaults,
 } from "../../shared/settings";
-import { estimateMessagesTokens, estimateToolTokens } from "../../shared/tokenEstimation";
-import { convertTools } from "../../shared/tools";
 import { validateRequest } from "../../shared/validation";
 import type { FetchModelsResult } from "../catalog/discovery";
 import { fetchModels } from "../catalog/discovery";

@@ -8,12 +8,12 @@ import {
 	estimateToolTokens,
 	IMAGE_TOKEN_ESTIMATE,
 	PDF_TOKEN_ESTIMATE,
-} from "../../shared/tokenEstimation";
+} from "../../../shared/conversion/tokenEstimation";
 
 const withMultimodal = { includeMultimodal: true };
 const textOnly = { includeMultimodal: false };
 
-suite("shared/tokenEstimation", () => {
+suite("shared/conversion/tokenEstimation", () => {
 	test("text parts count characters divided by CHARS_PER_TOKEN in both modes", () => {
 		const part = new vscode.LanguageModelTextPart("hello world");
 		const expected = Math.ceil("hello world".length / CHARS_PER_TOKEN);

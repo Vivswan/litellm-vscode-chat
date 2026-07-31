@@ -6,9 +6,9 @@ import {
 	probeThinkingPartCtor,
 	resetThinkingPartLogOnce,
 	thinkingPartCtor,
-} from "../../shared/thinkingPart";
+} from "../../../shared/conversion/thinkingPart";
 
-suite("shared/thinkingPart", () => {
+suite("shared/conversion/thinkingPart", () => {
 	setup(() => resetThinkingPartLogOnce());
 	teardown(() => resetThinkingPartLogOnce());
 
