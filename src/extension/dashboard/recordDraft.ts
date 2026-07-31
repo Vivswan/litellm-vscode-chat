@@ -60,7 +60,8 @@ function keyProblem(key: string, noun: string, dupes: Set<string>): string | und
 	return undefined;
 }
 
-interface GroupProblems {
+/** Row-aligned problems for one prefix group: the prefix's own and one slot per parameter row. */
+export interface GroupProblems {
 	readonly prefix: string | undefined;
 	readonly params: readonly (string | undefined)[];
 }

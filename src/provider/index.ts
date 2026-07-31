@@ -43,6 +43,10 @@ export interface LiteLLMChatModelProviderOptions {
 	logger?: Logger | undefined;
 	/** Resolves the legacy registry's servers; defaults to an empty list for group-only hosts. */
 	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
+	/** Request-time resolver for a declared entry's per-entry modelParameters; see ChatClientOptions. */
+	getEntryModelParameters?:
+		| ((label: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
+		| undefined;
 	/**
 	 * Gate for refreshes that arrive without a group configuration: while it
 	 * returns true (the default) they serve the server registry; once the
@@ -97,6 +101,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			userAgent: options.userAgent,
 			logger: options.logger,
 			getServers: this._getServers,
+			getEntryModelParameters: options.getEntryModelParameters,
 		});
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 		this._statusWindow = new StatusWindow(options.now ?? (() => Date.now()));

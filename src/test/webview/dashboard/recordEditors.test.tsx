@@ -6,6 +6,7 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../webview/dashboard/app";
+import { HELP_MODEL_PARAMETER_PREFIX } from "../../../webview/dashboard/helpText";
 import { makeSettings, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
@@ -120,4 +121,25 @@ test("model parameters: invalid JSON blocks Apply with the row problem; fixing i
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(false);
 	fireClick(buttonByText(section(), "Apply"));
 	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
+});
+
+test("model parameters: the global editor's prefix copy advertises URL scoping (the entry editor's must not)", () => {
+	// The shared ParamGroupsFields takes its prefix placeholder and help as
+	// required props because the two surfaces differ for real: global keys may
+	// lead with a base URL, per-entry keys match model IDs only (URL prefixes
+	// are inert there; servers.test.tsx pins that side). This pins the global
+	// side so the two cannot silently re-merge onto one copy.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	const section = sectionByHeading(root, "Model parameters");
+	fireClick(buttonByText(section, "Add model prefix"));
+
+	const prefixInput = section.querySelector<HTMLInputElement>("input.key[placeholder^='Model prefix']");
+	if (prefixInput === null) {
+		throw new Error("no prefix input rendered");
+	}
+	expect(prefixInput.placeholder).toBe("Model prefix, e.g. gpt-4 or http://host:4000/gpt-4");
+	const glyph = prefixInput.closest(".cell")?.querySelector("button.help");
+	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
+	expect(tip?.textContent).toBe(HELP_MODEL_PARAMETER_PREFIX);
 });

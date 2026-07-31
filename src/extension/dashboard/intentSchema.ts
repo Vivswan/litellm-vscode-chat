@@ -42,6 +42,7 @@ const saveServerSchema = z.strictObject({
 	label: z.string(),
 	baseUrl: z.string(),
 	...recordFromKeys(NON_SECRET_OPTIONAL_FIELD_IDS, () => z.string().optional()),
+	modelParameters: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
 });
 
 const secretDirectivesSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretDirectiveSchema));

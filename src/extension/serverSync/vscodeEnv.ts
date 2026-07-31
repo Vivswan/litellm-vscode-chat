@@ -14,7 +14,8 @@ import { SERVERS_SETTING_KEY } from "../../shared/settings";
 import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../shared/storageKeys";
 import type { ServerSyncEngine, ServerSyncEnv } from "./engine";
 import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./secrets";
-import { parseServersSetting } from "./setting";
+import type { EntryModelParameters } from "./setting";
+import { acceptedEntry, parseServersSetting } from "./setting";
 
 /** The real environment: workspace configuration, SecretStorage, globalState, and the host command. */
 export function createServerSyncEnv(context: vscode.ExtensionContext, logger: Logger): ServerSyncEnv {
@@ -42,6 +43,18 @@ export function createServerSyncEnv(context: vscode.ExtensionContext, logger: Lo
 		log: (message, data) => logger.log(message, data),
 		logError: (message, error) => logger.error(message, error),
 	};
+}
+
+/**
+ * The request path's read of one declared entry's per-entry modelParameters:
+ * the same live settings channel the sync engine reads, resolved through
+ * acceptedEntry so it lands on exactly the entry the label describes.
+ * Injected into the provider at activation (the provider layer cannot import
+ * this module); a label no declared entry carries yields undefined.
+ */
+export function readEntryModelParameters(label: string): EntryModelParameters | undefined {
+	const raw: unknown = vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
+	return acceptedEntry(raw, label)?.entry.modelParameters;
 }
 
 /** Palette display copy per secret field; UI strings stay out of the shared descriptor. */

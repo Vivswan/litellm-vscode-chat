@@ -1,7 +1,9 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { attachGroupServer } from "../../../provider/catalog/groupModels";
 import { findLongestPrefixMatch, getModelParameters } from "../../../provider/transport/request";
+import { normalizeBaseUrl } from "../../../shared/baseUrl";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
@@ -337,6 +339,141 @@ suite("provider/request contract", () => {
 				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"])
 			);
 			assert.deepEqual(params, { temperature: 0.6 });
+		});
+	});
+
+	suite("per-entry modelParameters", () => {
+		/** A model whose attached group server carries the declared entry's label. */
+		const labeledModel = (label: string) =>
+			attachGroupServer(makeModelInfo(), { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "test-key", label });
+
+		test("entry parameters override the global match key by key", async () => {
+			const params = await withConfig({ modelParameters: { "gpt-4": { temperature: 0.8, top_p: 0.9 } } }, () =>
+				getModelParameters("gpt-4-turbo", new Map(), [], { "gpt-4": { temperature: 0.2 } })
+			);
+			assert.deepEqual(params, { temperature: 0.2, top_p: 0.9 });
+		});
+
+		test("entry parameters outrank even a server-scoped global entry", async () => {
+			const params = await withConfig({ modelParameters: { "http://litellm.test/gpt-4": { temperature: 0.4 } } }, () =>
+				getModelParameters("gpt-4", new Map(), ["http://litellm.test"], { "gpt-4": { temperature: 0.1 } })
+			);
+			assert.deepEqual(params, { temperature: 0.1 });
+		});
+
+		test("the longest prefix wins within the entry record; no server scoping applies there", async () => {
+			const params = await withConfig({ modelParameters: {} }, () =>
+				getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"], {
+					gpt: { temperature: 0.5 },
+					"gpt-4": { temperature: 0.7 },
+					"http://litellm.test/gpt-4": { temperature: 0.3 },
+				})
+			);
+			assert.deepEqual(params, { temperature: 0.7 }, "a URL-prefixed entry key is just a non-matching prefix");
+		});
+
+		test("two entries sharing a base URL and key each send their own entry parameters", async () => {
+			// The headline scenario: base-URL scoping cannot tell these apart, the
+			// entry label can. The provider resolves each label to its own record.
+			const entryParams: Record<string, Record<string, Record<string, unknown>>> = {
+				"team-a": { "test-model": { temperature: 0.1, top_p: 0.9 } },
+				"team-b": { "test-model": { temperature: 0.6 } },
+			};
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryModelParameters: (label) => entryParams[label],
+			});
+			const globalConfig = { modelParameters: { "test-model": { temperature: 0.8, seed: 7 } } };
+
+			const bodyA = await withConfig(globalConfig, () =>
+				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(bodyA.temperature, 0.1);
+			assert.strictEqual(bodyA.top_p, 0.9);
+			assert.strictEqual(bodyA.seed, 7, "the global setting still supplies keys the entry leaves unset");
+
+			const bodyB = await withConfig(globalConfig, () =>
+				captureRequestBody(provider, labeledModel("team-b"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(bodyB.temperature, 0.6);
+			assert.strictEqual(bodyB.seed, 7);
+		});
+
+		test("runtime options and the picker configuration still outrank entry parameters", async () => {
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryModelParameters: () => ({
+					"test-model": { temperature: 0.2, reasoning_effort: "low", max_tokens: 3333 },
+				}),
+			});
+			const body = await withConfig({ modelParameters: { "test-model": { max_tokens: 2222 } } }, () =>
+				captureRequestBody(provider, labeledModel("team-a"), {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+					modelOptions: { temperature: 0.9 },
+					modelConfiguration: { reasoningEffort: "high" },
+				})
+			);
+			assert.strictEqual(body.temperature, 0.9, "runtime options outrank the entry");
+			assert.strictEqual(body.reasoning_effort, "high", "the picker outranks the entry");
+			assert.strictEqual(body.max_tokens, 3333, "the entry's max_tokens outranks the global setting's");
+		});
+
+		test("underscore-prefixed entry parameter keys are never forwarded", async () => {
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryModelParameters: () => ({ "test-model": { _internal: true, top_p: 0.5 } }),
+			});
+			const body = await withConfig({ modelParameters: {} }, () =>
+				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(body.top_p, 0.5);
+			assert.strictEqual(body._internal, undefined);
+		});
+
+		test("provider-owned keys in an entry record never reach the body; ordinary keys still do", async () => {
+			// The pass-through invariant test drives modelOptions; this drives the
+			// same hostile keys through the entry record, the other user-config
+			// source of request parameters.
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryModelParameters: () => ({
+					"test-model": {
+						model: "attacker-model",
+						messages: [{ role: "system", content: "pwned" }],
+						stream: false,
+						stream_options: { include_usage: false },
+						tools: [{ type: "function", function: { name: "smuggled" } }],
+						tool_choice: "none",
+						temperature: 0.4,
+					},
+				}),
+			});
+			const body = await withConfig({ modelParameters: {} }, () =>
+				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(body.model, "test-model");
+			assert.strictEqual(body.stream, true);
+			assert.deepStrictEqual(body.stream_options, { include_usage: true });
+			assert.ok(Array.isArray(body.messages));
+			assert.notDeepEqual(body.messages, [{ role: "system", content: "pwned" }]);
+			assert.strictEqual(body.tools, undefined, "a toolless request must not gain tools from config");
+			assert.strictEqual(body.tool_choice, undefined);
+			assert.strictEqual(body.temperature, 0.4, "ordinary keys in the same record still pass through");
+		});
+
+		test("a model whose attached server has no label never consults entry parameters", async () => {
+			let asked = 0;
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryModelParameters: () => {
+					asked += 1;
+					return { "test-model": { temperature: 0.1 } };
+				},
+			});
+			const unlabeled = attachGroupServer(makeModelInfo(), {
+				baseUrl: normalizeBaseUrl(TEST_BASE_URL),
+				apiKey: "test-key",
+			});
+			const body = await withConfig({ modelParameters: { "test-model": { temperature: 0.8 } } }, () =>
+				captureRequestBody(provider, unlabeled, { toolMode: vscode.LanguageModelChatToolMode.Auto })
+			);
+			assert.strictEqual(body.temperature, 0.8, "only the global setting applies");
+			assert.strictEqual(asked, 0, "the resolver is never called without a label");
 		});
 	});
 

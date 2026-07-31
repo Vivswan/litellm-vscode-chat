@@ -30,6 +30,7 @@ interface SettingSchema {
 	readonly additionalProperties?: boolean | { readonly type?: string | readonly string[] };
 	readonly description?: string;
 	readonly markdownDescription?: string;
+	readonly items?: { readonly properties?: Record<string, SettingSchema> };
 }
 
 interface PackageJson {
@@ -242,5 +243,18 @@ suite("shared/settings: object-setting contributions drift guard", () => {
 		const { properties } = readPackageJson().contributes.configuration;
 		const schema = settingSchema(properties, SERVERS_SETTING_KEY);
 		assert.strictEqual(schema.scope, "machine");
+	});
+
+	test("a servers entry declares per-entry modelParameters shaped like the global setting", () => {
+		// The servers items schema is additionalProperties:false, so without
+		// this property VS Code's settings validation would flag every entry
+		// that uses per-entry parameters.
+		const { properties } = readPackageJson().contributes.configuration;
+		const entryProperties = settingSchema(properties, SERVERS_SETTING_KEY).items?.properties;
+		assert.ok(entryProperties);
+		const schema = entryProperties.modelParameters;
+		assert.ok(schema, "the servers items schema declares no modelParameters property");
+		assert.strictEqual(schema.type, "object");
+		assert.deepStrictEqual(schema.additionalProperties, { type: "object" });
 	});
 });

@@ -6,9 +6,24 @@
 import { isRecord, isUnsafeRecordKey } from "../../shared/json";
 import type { OptionalEntryFieldId, OptionalEntryFields } from "../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS } from "../../shared/serverEntry";
+import { normalizeModelParameters } from "../../shared/settings";
 
-/** One parsed servers-setting entry: label and baseUrl usable, other fields present only with usable text. */
-export type DeclaredServer = { readonly label: string; readonly baseUrl: string } & OptionalEntryFields;
+/** An entry's per-entry modelParameters: model-ID prefix to request parameters, like the global setting. */
+export type EntryModelParameters = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
+/**
+ * One parsed servers-setting entry: label and baseUrl usable, other fields
+ * present only with usable text. `modelParameters` is present only when the
+ * raw entry carries a non-empty record of records; it scopes request
+ * parameters to models served through this entry and is read extension-side
+ * at request time - it never enters the group configuration or its
+ * fingerprint (buildGroupArgs does not emit it).
+ */
+export type DeclaredServer = {
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly modelParameters?: EntryModelParameters;
+} & OptionalEntryFields;
 
 function usableString(value: unknown): string | undefined {
 	if (typeof value !== "string") {
@@ -64,7 +79,9 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
 			return;
 		}
 		seen.add(label);
-		const entry: { label: string; baseUrl: string } & { -readonly [K in OptionalEntryFieldId]?: string } = {
+		const entry: { label: string; baseUrl: string; modelParameters?: EntryModelParameters } & {
+			-readonly [K in OptionalEntryFieldId]?: string;
+		} = {
 			label,
 			baseUrl,
 		};
@@ -73,6 +90,13 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
 			if (value !== undefined) {
 				entry[id] = value;
 			}
+		}
+		// Lenient like the optional fields above and the global setting's own
+		// normalization (the shared rule): non-record values and malformed
+		// sub-entries drop silently, and an empty result reads as absent.
+		const modelParameters = normalizeModelParameters(record.modelParameters);
+		if (Object.keys(modelParameters).length > 0) {
+			entry.modelParameters = modelParameters;
 		}
 		accepted.push({ index, entry });
 	});

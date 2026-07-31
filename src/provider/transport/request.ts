@@ -58,24 +58,28 @@ function findScopedMatch<T>(
 }
 
 /**
- * Resolve the configured modelParameters entry for a model. Scoped keys are
- * tried as "<scope>/<modelId>" for every entry in `serverScopes` (the
- * server's normalized base URL); any scoped match beats an unscoped one.
+ * Resolve the configured modelParameters for a model, merging two settings
+ * sources. The global setting resolves as before: scoped keys are tried as
+ * "<scope>/<modelId>" for every entry in `serverScopes` (the server's
+ * normalized base URL), and any scoped match beats an unscoped one.
+ * `entryModelParameters` is the declared server entry's own record (already
+ * scoped to one entry, so plain longest-prefix matching applies); its
+ * matching parameters override the global result key by key, mirroring how
+ * the picker configuration and runtime options later override both.
  */
 export function getModelParameters(
 	modelId: string,
 	modelRoutes: Map<string, ModelRoute>,
-	serverScopes: readonly string[] = []
+	serverScopes: readonly string[] = [],
+	entryModelParameters?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 ): Record<string, unknown> {
 	const route = modelRoutes.get(modelId);
 	const rawId = route?.rawModelId ?? modelId;
 	const modelParameters = getModelParametersConfig();
 	const scoped = findScopedMatch(rawId, serverScopes, modelParameters);
-	if (scoped) {
-		return { ...scoped.value };
-	}
-	const match = findLongestPrefixMatch(rawId, modelParameters);
-	return match ? { ...match } : {};
+	const global = scoped?.value ?? findLongestPrefixMatch(rawId, modelParameters);
+	const entry = findLongestPrefixMatch(rawId, entryModelParameters ?? {});
+	return { ...global, ...entry };
 }
 
 export interface RequestBodyParams {
@@ -94,7 +98,9 @@ export interface RequestBodyParams {
  * Builds the request body as a pure pass-through: only parameters the user
  * set are forwarded, never injected defaults, so the provider's own defaults
  * apply. User-set sources apply in ascending precedence: modelParameters
- * config, then the model-picker configuration, then runtime modelOptions.
+ * config (global, overridden by the declared entry's own; getModelParameters
+ * merges the two into `modelParams`), then the model-picker configuration,
+ * then runtime modelOptions.
  */
 export function buildRequestBody(params: RequestBodyParams): Record<string, unknown> {
 	const { rawModelId, openaiMessages, maxTokens, modelParams, toolConfig, modelConfiguration, modelOptions } = params;

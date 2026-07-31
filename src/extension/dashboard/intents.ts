@@ -198,6 +198,14 @@ export function validateSaveServerSetting(
 	if (virtualKeyDirective.action === "set" && !isValidHeaderValue(virtualKeyDirective.value)) {
 		return "virtualKeyValue: the value cannot be sent as an HTTP header";
 	}
+	if (server.modelParameters !== undefined) {
+		// The same reserved-key rules the global setModelParameters intent
+		// enforces; the message already names the offending rule.
+		const problem = validateModelParametersRecord(server.modelParameters);
+		if (problem !== undefined) {
+			return `modelParameters: ${problem}`;
+		}
+	}
 	return undefined;
 }
 

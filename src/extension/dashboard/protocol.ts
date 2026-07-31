@@ -28,10 +28,15 @@ import type {
 } from "../../shared/settingSpec";
 import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/settingSpec";
 
+/** A per-entry modelParameters record: model-ID prefix to request parameters. Non-secret user configuration. */
+type EntryModelParametersPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
 /** The non-secret configuration of a declared server, for the edit form's prefill. */
 interface DashboardServerConfig extends NonSecretOptionalFields {
 	/** Where each secret currently lives; the values themselves never reach the webview. */
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
+	/** The entry's own modelParameters, when it has any; the edit form's prefill. */
+	readonly modelParameters?: EntryModelParametersPayload | undefined;
 }
 
 interface DashboardServerBase {
@@ -501,6 +506,8 @@ export type SecretDirective =
 export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly label: string;
 	readonly baseUrl: string;
+	/** The entry's per-entry modelParameters; absent or empty means the saved entry carries none. */
+	readonly modelParameters?: EntryModelParametersPayload | undefined;
 }
 
 /** Webview-to-extension intents. The extension re-validates every one: the webview is a trust boundary. */

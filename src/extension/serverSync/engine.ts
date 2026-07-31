@@ -14,7 +14,7 @@ import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../
 import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { StoredServerSecrets } from "./secrets";
 import { inlineSecretValues } from "./secrets";
-import type { DeclaredServer } from "./setting";
+import type { DeclaredServer, EntryModelParameters } from "./setting";
 import { parseServersSetting } from "./setting";
 
 /** The non-secret view of a declared server the dashboard renders; secret values stay out. */
@@ -22,6 +22,8 @@ export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly label: string;
 	readonly baseUrl: string;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
+	/** The entry's per-entry modelParameters (non-secret user configuration); the edit form's prefill. */
+	readonly modelParameters?: EntryModelParameters | undefined;
 	/**
 	 * The group client ID the entry's resolved configuration produces: the same
 	 * identity the provider stamps on its status snapshots, so the dashboard can
@@ -72,6 +74,9 @@ export interface ServerSyncEnv {
  * group name as a configuration property because the host echoes only the
  * configuration back to the provider, never the name; it is what gives
  * entries sharing a base URL and credentials distinct group identities.
+ * The entry's modelParameters deliberately stay out: they are read
+ * extension-side at request time, so editing them must not change the
+ * fingerprint or churn the group.
  */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
 	const args: Record<string, string> = {
@@ -474,6 +479,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				label: entry.label,
 				baseUrl: entry.baseUrl,
 				...pickNonSecretOptionalFields(entry),
+				...(entry.modelParameters !== undefined ? { modelParameters: entry.modelParameters } : {}),
 				secrets: secretLocations(entry, stored),
 				expectedClientId,
 				expectedConnectionId,

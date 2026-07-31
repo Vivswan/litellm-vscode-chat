@@ -54,8 +54,10 @@ suite("shared/serverEntry: package.json drift guard", () => {
 		// Compared in order on purpose: OPTIONAL_ENTRY_FIELDS order is
 		// load-bearing (buildGroupArgs emits args in it and the sync fingerprint
 		// hashes that object; serverSync.test.ts pins the exact sequence), and
-		// the schema documents the same order.
-		assert.deepStrictEqual(Object.keys(items.properties), ["label", "baseUrl", ...optionalIds]);
+		// the schema documents the same order. `modelParameters` sits after the
+		// descriptor fields because it is not one: it never enters the group
+		// args or the fingerprint (settingSpec.test.ts pins its shape).
+		assert.deepStrictEqual(Object.keys(items.properties), ["label", "baseUrl", ...optionalIds, "modelParameters"]);
 	});
 
 	test("the provider-group configuration declares the descriptor's fields with its secret flags", () => {

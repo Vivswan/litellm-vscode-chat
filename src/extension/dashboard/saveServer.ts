@@ -137,12 +137,21 @@ export async function applySaveServerSetting(
 	});
 
 	// The final entry's non-secret fields, needed for the pairing checks below.
-	const newEntry: Record<string, string> = { label, baseUrl: intent.server.baseUrl.trim() };
+	const newEntry: Record<string, string | Readonly<Record<string, Readonly<Record<string, unknown>>>>> = {
+		label,
+		baseUrl: intent.server.baseUrl.trim(),
+	};
 	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
 		const value = intent.server[field]?.trim();
 		if (value !== undefined && value.length > 0) {
 			newEntry[field] = value;
 		}
+	}
+	// An empty record reads as absent everywhere (the parser omits it), so it
+	// is not written either; the saved entry stays as clean as a hand-written
+	// one.
+	if (intent.server.modelParameters !== undefined && Object.keys(intent.server.modelParameters).length > 0) {
+		newEntry.modelParameters = intent.server.modelParameters;
 	}
 
 	// OAuth is one unit, mirroring serverForm's exact rules: the request path

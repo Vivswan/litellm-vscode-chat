@@ -232,6 +232,45 @@ suite("extension/dashboard/serverForm", () => {
 		});
 	});
 
+	suite("per-entry model parameters", () => {
+		test("blocked rows surface on the field slot and row-aligned, like the global editor renders them", () => {
+			const parse = parseServerForm(
+				draft({ modelParameters: [{ prefix: "gpt-4", params: [{ key: "temperature", valueText: "not json" }] }] })
+			);
+			assert.ok(!parse.ok);
+			assert.notStrictEqual(parse.problems.modelParameters, undefined, "the save summary can point at the field");
+			assert.strictEqual(parse.modelParameterProblems.length, 1);
+			assert.notStrictEqual(parse.modelParameterProblems[0]?.params[0], undefined);
+		});
+
+		test("a draft blocked by another field carries no row problems for clean parameter rows", () => {
+			const parse = parseServerForm(
+				draft({ label: "", modelParameters: [{ prefix: "gpt-4", params: [{ key: "top_p", valueText: "0.9" }] }] })
+			);
+			assert.ok(!parse.ok);
+			assert.strictEqual(parse.problems.modelParameters, undefined);
+			assert.deepStrictEqual(parse.modelParameterProblems, []);
+		});
+
+		test("clean rows assemble into the intent; a draft without rows omits the field entirely", () => {
+			const intent = intentOf(
+				draft({
+					modelParameters: [
+						{
+							prefix: "gpt-4",
+							params: [
+								{ key: "temperature", valueText: "0.2" },
+								{ key: "stop", valueText: '["END"]' },
+							],
+						},
+					],
+				})
+			);
+			assert.deepStrictEqual(intent.server.modelParameters, { "gpt-4": { temperature: 0.2, stop: ["END"] } });
+			assert.ok(!("modelParameters" in intentOf(draft()).server));
+		});
+	});
+
 	suite("applyInlinePrefill", () => {
 		test("fills empty inline-located fields and marks them as the prefill", () => {
 			const base = draft({

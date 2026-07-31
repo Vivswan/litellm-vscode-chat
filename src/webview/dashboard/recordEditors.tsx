@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { HeaderScalar, ScopedRecordSetting } from "../../extension/dashboard/protocol";
 import { formatHeaderValue, formatJsonValue, SETTING_SCOPE_LABELS } from "../../extension/dashboard/protocol";
-import type { PrefixGroup } from "../../extension/dashboard/recordDraft";
+import type { GroupProblems, PrefixGroup } from "../../extension/dashboard/recordDraft";
 import { parseGroups, parseHeaderRows, toGroups, toHeaderRows } from "../../extension/dashboard/recordDraft";
 import { Help } from "./help";
 import {
@@ -81,6 +81,129 @@ function FailureNote({ failure, dirty }: { failure: IntentFailure | undefined; d
 }
 
 /**
+ * The model-parameter group rows themselves: one group per model prefix, one
+ * row per request parameter, values entered as JSON, problems row-aligned
+ * from parseGroups. Purely presentational (edits go through onChange), so the
+ * global settings editor below and the server form's per-entry section render
+ * the identical rows over their own drafts. The prefix placeholder and help
+ * are required props because the two surfaces genuinely differ: global keys
+ * may lead with a base URL to scope to one server, entry keys are already
+ * scoped and match model IDs only, so a URL prefix there would never match.
+ * The parameter-name and value help stay shared; they are scope-agnostic.
+ */
+export function ParamGroupsFields({
+	groups,
+	problems,
+	disabled,
+	prefixPlaceholder,
+	prefixHelp,
+	onChange,
+}: {
+	groups: readonly PrefixGroup[];
+	problems: readonly GroupProblems[];
+	disabled?: boolean;
+	prefixPlaceholder: string;
+	prefixHelp: string;
+	onChange: (next: PrefixGroup[]) => void;
+}) {
+	const patchGroup = (index: number, patch: Partial<PrefixGroup>) => {
+		onChange(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
+	};
+	return (
+		<>
+			{groups.map((group, groupIndex) => (
+				// Rows are positional while being edited; the index is the identity.
+				<div class="group" key={groupIndex}>
+					<div class="row">
+						<span class="cell key">
+							<input
+								type="text"
+								class={`key${problems[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
+								placeholder={prefixPlaceholder}
+								value={group.prefix}
+								disabled={disabled}
+								onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
+							/>
+							<Help text={prefixHelp} />
+						</span>
+						<button
+							type="button"
+							class="quiet"
+							disabled={disabled}
+							onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
+						>
+							Remove prefix
+						</button>
+						{problems[groupIndex]?.prefix !== undefined ? (
+							<span class="error">{problems[groupIndex]?.prefix}</span>
+						) : null}
+					</div>
+					<div class="rows">
+						{group.params.map((param, paramIndex) => (
+							<div class="row" key={paramIndex}>
+								<span class="cell key">
+									<input
+										type="text"
+										class="key"
+										placeholder="Parameter, e.g. temperature"
+										value={param.key}
+										disabled={disabled}
+										onInput={(event) =>
+											patchGroup(groupIndex, {
+												params: group.params.map((p, i) =>
+													i === paramIndex ? { ...p, key: event.currentTarget.value } : p
+												),
+											})
+										}
+									/>
+									<Help text={HELP_MODEL_PARAMETER_NAME} />
+								</span>
+								<span class="cell value">
+									<input
+										type="text"
+										class={`value${problems[groupIndex]?.params[paramIndex] === undefined ? "" : " invalid"}`}
+										placeholder="JSON value, e.g. 0.2"
+										value={param.valueText}
+										disabled={disabled}
+										onInput={(event) =>
+											patchGroup(groupIndex, {
+												params: group.params.map((p, i) =>
+													i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
+												),
+											})
+										}
+									/>
+									<Help text={HELP_MODEL_PARAMETER_VALUE} />
+								</span>
+								<button
+									type="button"
+									class="quiet"
+									disabled={disabled}
+									onClick={() => patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })}
+								>
+									Remove
+								</button>
+								{problems[groupIndex]?.params[paramIndex] !== undefined ? (
+									<span class="error">{problems[groupIndex]?.params[paramIndex]}</span>
+								) : null}
+							</div>
+						))}
+					</div>
+					<button
+						type="button"
+						class="secondary"
+						disabled={disabled}
+						onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
+					>
+						Add parameter
+					</button>
+				</div>
+			))}
+		</>
+	);
+}
+
+/**
  * Structured editor for litellm-vscode-chat.modelParameters, the
  * object-of-objects the native Settings GUI cannot edit: one group per model
  * prefix, one row per request parameter, values entered as JSON. Edits apply
@@ -101,10 +224,6 @@ export function ModelParametersEditor({
 	const parse = parseGroups(groups);
 	const problems = parse.ok ? [] : parse.problems;
 
-	const patchGroup = (index: number, patch: Partial<PrefixGroup>) => {
-		draft.update(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
-	};
-
 	const apply = () => {
 		if (!parse.ok) {
 			return;
@@ -123,84 +242,13 @@ export function ModelParametersEditor({
 			</p>
 			<ScopeNote scoped={scoped} />
 			{groups.length === 0 ? <p class="empty">No model parameters configured in this scope.</p> : null}
-			{groups.map((group, groupIndex) => (
-				// Rows are positional while being edited; the index is the identity.
-				<div class="group" key={groupIndex}>
-					<div class="row">
-						<span class="cell key">
-							<input
-								type="text"
-								class={`key${problems[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
-								placeholder="Model prefix, e.g. gpt-4 or http://host:4000/gpt-4"
-								value={group.prefix}
-								onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
-							/>
-							<Help text={HELP_MODEL_PARAMETER_PREFIX} />
-						</span>
-						<button type="button" class="quiet" onClick={() => draft.update(groups.filter((_, i) => i !== groupIndex))}>
-							Remove prefix
-						</button>
-						{problems[groupIndex]?.prefix !== undefined ? (
-							<span class="error">{problems[groupIndex]?.prefix}</span>
-						) : null}
-					</div>
-					<div class="rows">
-						{group.params.map((param, paramIndex) => (
-							<div class="row" key={paramIndex}>
-								<span class="cell key">
-									<input
-										type="text"
-										class="key"
-										placeholder="Parameter, e.g. temperature"
-										value={param.key}
-										onInput={(event) =>
-											patchGroup(groupIndex, {
-												params: group.params.map((p, i) =>
-													i === paramIndex ? { ...p, key: event.currentTarget.value } : p
-												),
-											})
-										}
-									/>
-									<Help text={HELP_MODEL_PARAMETER_NAME} />
-								</span>
-								<span class="cell value">
-									<input
-										type="text"
-										class={`value${problems[groupIndex]?.params[paramIndex] === undefined ? "" : " invalid"}`}
-										placeholder="JSON value, e.g. 0.2"
-										value={param.valueText}
-										onInput={(event) =>
-											patchGroup(groupIndex, {
-												params: group.params.map((p, i) =>
-													i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
-												),
-											})
-										}
-									/>
-									<Help text={HELP_MODEL_PARAMETER_VALUE} />
-								</span>
-								<button
-									type="button"
-									class="quiet"
-									onClick={() => patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })}
-								>
-									Remove
-								</button>
-								{problems[groupIndex]?.params[paramIndex] !== undefined ? (
-									<span class="error">{problems[groupIndex]?.params[paramIndex]}</span>
-								) : null}
-							</div>
-						))}
-					</div>
-					<button
-						type="button"
-						class="secondary"
-						onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
-					>
-						Add parameter
-					</button>
-				</div>
-			))}
+			<ParamGroupsFields
+				groups={groups}
+				problems={problems}
+				prefixPlaceholder="Model prefix, e.g. gpt-4 or http://host:4000/gpt-4"
+				prefixHelp={HELP_MODEL_PARAMETER_PREFIX}
+				onChange={(next) => draft.update(next)}
+			/>
 			<FailureNote failure={failure} dirty={draft.dirty} />
 			<div class="toolbar">
 				<button

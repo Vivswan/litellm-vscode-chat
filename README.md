@@ -74,6 +74,8 @@ Servers are declared in the `litellm-vscode-chat.servers` setting - an array of 
 
 The secret fields (`apiKey`, `oauthClientSecret`, `virtualKeyValue`) are per-entry choices: write them inline when a plaintext value in your settings file is acceptable, or leave them out and store them in VS Code secret storage instead - through the dashboard form's "store securely" option or the "LiteLLM: Set Server Secret" command. An inline value takes precedence over a stored one.
 
+An entry can also carry its own `modelParameters` - the same prefix-keyed record as the global `litellm-vscode-chat.modelParameters` setting, applied only to requests that go through this entry. Base-URL scoping cannot tell apart two entries pointing at the same host (say, one per virtual key), so this is how parameters target one of them; see [Custom Model Parameters](#custom-model-parameters-optional) for the matching and precedence rules. The dashboard's edit form has a matching "Model parameters for this server" section.
+
 Two asymmetries to know about:
 
 - The `label` is the entry's identity. The provider group is named after it, so renaming an entry creates a new group; the old one stays until you remove it.
@@ -173,7 +175,30 @@ All non-reserved `modelParameters` keys are passed through to LiteLLM: the exten
 
 Server scoping matches by base URL for every server - the `servers` setting, the native editor, and the legacy server list all identify a server by where it points. Keys scoped by a pre-migration server label (for example `Production/gpt-4`) no longer match; the extension rewrote user-settings keys automatically during the provider-group migration (adding a base-URL-scoped copy beside each label-scoped key), but label-scoped keys in workspace or folder settings must be rewritten by hand to the `<baseUrl>/<model prefix>` form.
 
-**Parameter precedence**: Runtime options > model picker choices > user config. Any parameter left unset by all three falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one - the output limit your server declares in model info, or at most 4096 when the server declares none).
+**Per-entry parameters**: When two `litellm-vscode-chat.servers` entries point at the same base URL (for example one per virtual key), base-URL scoping applies to both alike. To target exactly one of them, put `modelParameters` on that entry instead:
+
+```jsonc
+// user settings.json
+"litellm-vscode-chat.servers": [
+	{
+		"label": "Team A",
+		"baseUrl": "https://litellm.example.com",
+		"virtualKeyHeader": "x-litellm-api-key",
+		"modelParameters": {
+			"gpt-4": { "temperature": 0.2 }
+		}
+	},
+	{
+		"label": "Team B",
+		"baseUrl": "https://litellm.example.com",
+		"virtualKeyHeader": "x-litellm-api-key"
+	}
+]
+```
+
+Entry keys are plain model-ID prefixes (longest match wins; no base-URL scoping - the entry already names its server). Where an entry parameter and a global one match the same model, the entry's value wins for that key and the global setting still supplies the rest. Entries without a label on their provider group - external groups managed only in the native editor - have no per-entry parameters; the global setting applies to them as before.
+
+**Parameter precedence**: Runtime options > model picker choices > entry `modelParameters` > global `modelParameters`. Any parameter left unset by all four falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one - the output limit your server declares in model info, or at most 4096 when the server declares none).
 
 ### Reasoning Effort (Model Picker)
 

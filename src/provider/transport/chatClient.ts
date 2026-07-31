@@ -69,6 +69,16 @@ export interface ChatClientOptions {
 	logger?: Logger | undefined;
 	/** Resolves the legacy registry's servers; defaults to none for hosts that only serve provider groups. */
 	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
+	/**
+	 * Resolves a declared server entry's per-entry modelParameters by its label
+	 * at request time; injected by the extension layer (the setting lives on
+	 * its side of the boundary). Defaults to none: models without an attached
+	 * labeled server (external groups, registry-path models) get only the
+	 * global modelParameters.
+	 */
+	getEntryModelParameters?:
+		| ((label: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
+		| undefined;
 }
 
 /**
@@ -79,6 +89,9 @@ export class ChatClient {
 	private readonly userAgent: string;
 	private readonly logger?: Logger | undefined;
 	private readonly getServers: () => Promise<ServerWithKey[]>;
+	private readonly getEntryModelParameters: (
+		label: string
+	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
 	private readonly clients = new ServerClientCache();
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly _modelRoutes = new Map<string, ModelRoute>();
@@ -96,6 +109,7 @@ export class ChatClient {
 		this.userAgent = options.userAgent;
 		this.logger = options.logger;
 		this.getServers = options.getServers ?? (() => Promise.resolve([]));
+		this.getEntryModelParameters = options.getEntryModelParameters ?? (() => undefined);
 	}
 
 	applyRegistration(routes: Map<string, ModelRoute>, clearFirst: boolean): void {
@@ -294,7 +308,18 @@ export class ChatClient {
 			);
 		}
 
-		const modelParams = getModelParameters(model.id, this._modelRoutes, connection.serverScopes);
+		// The attached server's label names the declared settings entry this
+		// request is routed through (two entries may share a base URL; the label
+		// is what tells them apart). Its per-entry modelParameters merge over the
+		// global setting's match inside getModelParameters; unlabeled servers
+		// (external groups, pre-label groups, registry models) contribute none.
+		// The label alone is the entry identity: the base URL is deliberately
+		// not cross-checked, because the host cannot update an existing group's
+		// URL, so after a user edits an entry's baseUrl a strict check would
+		// silently drop the entry's parameters until the group is recreated.
+		const entryModelParameters =
+			metadata.server?.label !== undefined ? this.getEntryModelParameters(metadata.server.label) : undefined;
+		const modelParams = getModelParameters(model.id, this._modelRoutes, connection.serverScopes, entryModelParameters);
 
 		let maxTokens: number;
 		if (typeof options.modelOptions?.max_tokens === "number") {
