@@ -31,7 +31,14 @@ import { isErrorServerStatus } from "./shared/servers";
 import { getDiscoveryCacheTtl, getTokenDefaults } from "./shared/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "./shared/tokenEstimation";
 
-/** Rolling status entries and their cached clients are evicted when not refreshed within this window. */
+/**
+ * Rolling status entries and their cached clients are evicted when not
+ * refreshed within this window. The same window bounds stale serving: a
+ * group's last known models are served past a failed refresh only while its
+ * last SUCCESSFUL discovery is younger than this, so a permanently-down
+ * server stops offering selectable models instead of surviving on its own
+ * failure reports.
+ */
 const STATUS_TTL_MS = 10 * 60 * 1000;
 
 /**
@@ -56,6 +63,13 @@ type StatusWindowSource = { kind: "registry" } | { kind: "group"; groupServer: G
 type StatusWindowEntry = {
 	cycle: number;
 	at: number;
+	/**
+	 * When this server last reported a successful discovery, carried forward
+	 * across failure reports (undefined = never succeeded). `at` refreshes on
+	 * every report, success or not, so it cannot age anything; this is the
+	 * anchor for the stale-serving window.
+	 */
+	lastSuccessAt: number | undefined;
 	status: ServerStatus;
 	models: readonly PreAttachModelInfo[];
 } & StatusWindowSource;
@@ -87,9 +101,10 @@ function statusErrorTexts(reason: unknown): { error: string; logSafeError: LogSa
  * cases map; everything else - including CancellationError, which is never
  * wrapped or logged - passes through unchanged, and 401s keep their auth
  * classification rather than being re-wrapped as anything else. The message
- * is preserved because it renders in the chat UI, and the original
- * RequestError rides as `cause` so the classification survives for callers
- * that inspect it.
+ * is preserved because it renders in the chat UI. The original RequestError
+ * rides as `cause` for in-process inspection only: the host RPC serializes
+ * just the standard error fields plus `code`, so a consumer on the far side
+ * of vscode.lm sees the code and message, never the cause.
  */
 function toLanguageModelError(err: unknown): unknown {
 	if (!(err instanceof RequestError)) {
@@ -124,6 +139,8 @@ export interface LiteLLMChatModelProviderOptions {
 	 */
 	grouplessRegistryEnabled?: (() => boolean) | undefined;
 	discoveryCache?: DiscoveryCache<readonly PreAttachModelInfo[]> | undefined;
+	/** The status window's only clock seam; tests inject a fake. The default reads Date.now at call time. */
+	now?: (() => number) | undefined;
 }
 
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteLLMModelInfo> {
@@ -168,6 +185,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// per-group refreshes, so this is the honest "servers exist" signal that the
 	// live snapshot count cannot give at cold start.
 	private _hasSeenGroupConfiguration = false;
+	private readonly _now: () => number;
 	private readonly _onDidChangeEmitter = new EventEmitter<void>();
 	/** Fired to make the host re-resolve the group-agnostic call and every group through this provider. */
 	readonly onDidChangeLanguageModelChatInformation: Event<void> = this._onDidChangeEmitter.event;
@@ -183,6 +201,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			getMigratedServerLabels: options.getMigratedServerLabels,
 		});
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
+		this._now = options.now ?? (() => Date.now());
 	}
 
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
@@ -203,7 +222,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	private beginStatusCycle(): void {
 		this._statusCycle += 1;
-		const now = Date.now();
+		const now = this._now();
 		for (const [serverId, entry] of this._serverStatuses) {
 			if (entry.cycle < this._statusCycle - 1 || now - entry.at > STATUS_TTL_MS) {
 				this._serverStatuses.delete(serverId);
@@ -222,9 +241,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		models: readonly PreAttachModelInfo[],
 		source: StatusWindowSource
 	): void {
+		const previous = this._serverStatuses.get(status.serverId);
 		this._serverStatuses.set(status.serverId, {
 			cycle: this._statusCycle,
-			at: Date.now(),
+			at: this._now(),
+			lastSuccessAt: status.state === "ok" ? this._now() : previous?.lastSuccessAt,
 			status,
 			models,
 			...source,
@@ -512,13 +533,20 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// The window's last known models ride along with the error status, so
 			// a group that just failed does not lose its last-served set: a silent
 			// refresh returns those models decorated as stale (warning icon plus
-			// hover banner) instead of making them vanish, and consecutive
-			// failures keep re-recording the retained set. The window is the
-			// honest source here - it is this session's live state, unlike the
-			// extension layer's persisted status, which can be a stale prior
-			// session's. Test Connection (non-silent) still throws.
+			// hover banner) instead of making them vanish. Retention is anchored
+			// to the last SUCCESSFUL discovery, not the last report - failure
+			// reports refresh the entry's timestamp, so without the anchor a
+			// permanently-down server would stay selectable forever. Past the
+			// window the failure serves the empty list, as it always did. The
+			// window is the honest source here - it is this session's live
+			// state, unlike the extension layer's persisted status, which can
+			// be a stale prior session's. Test Connection (non-silent) still
+			// throws.
 			const lastChecked = new Date().toISOString();
-			const retained = this._serverStatuses.get(server.id)?.models ?? [];
+			const previous = this._serverStatuses.get(server.id);
+			const withinStaleWindow =
+				previous?.lastSuccessAt !== undefined && this._now() - previous.lastSuccessAt <= STATUS_TTL_MS;
+			const retained = withinStaleWindow ? previous.models : [];
 			this.reportGroupStatus(server, groupServer, silent, { state: "error", ...texts }, retained);
 			if (silent) {
 				return markStale(attach(retained), lastChecked);
