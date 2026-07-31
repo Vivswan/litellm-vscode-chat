@@ -1107,7 +1107,8 @@ suite("provider/streaming refusal and annotations", () => {
 
 		const text = visibleTextOf(parts);
 		assert.equal(text.match(/Sources:/g)?.length, 1, `got ${text}`);
-		assert.ok(text.includes("https://example.test/early"), `the pre-[DONE] source stays listed, got ${text}`); // codeql[js/incomplete-url-substring-sanitization] -- asserting rendered output, not validating a URL
+		// codeql[js/incomplete-url-substring-sanitization] -- asserting rendered output, not validating a URL
+		assert.ok(text.includes("https://example.test/early"), `the pre-[DONE] source stays listed, got ${text}`);
 		assert.ok(
 			text.includes("[Straggler](https://example.test/straggler)"),
 			`the post-[DONE] source must not be lost, got ${text}`
@@ -1143,7 +1144,8 @@ suite("provider/streaming refusal and annotations", () => {
 
 		const text = visibleTextOf(parts);
 		assert.equal(text.match(/Sources:/g)?.length, 1, `got ${text}`);
-		assert.ok(text.includes("https://example.test/only"), `got ${text}`); // codeql[js/incomplete-url-substring-sanitization] -- asserting rendered output, not validating a URL
+		// codeql[js/incomplete-url-substring-sanitization] -- asserting rendered output, not validating a URL
+		assert.ok(text.includes("https://example.test/only"), `got ${text}`);
 	});
 });
 

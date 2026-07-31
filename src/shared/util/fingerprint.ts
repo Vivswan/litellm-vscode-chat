@@ -20,7 +20,6 @@ export type Fingerprint = z.infer<typeof fingerprintSchema>;
  * keys would share a cached client and put the wrong credentials on the wire.
  */
 export function fingerprint(text: string): Fingerprint {
-	// The suppression must ride the hashing line itself: CodeQL comments cover only their own line.
-	const digest = createHash("sha256").update(text).digest("hex"); // codeql[js/insufficient-password-hash] -- identity fingerprint, never password storage
-	return fingerprintSchema.parse(digest.slice(0, 32));
+	// codeql[js/insufficient-password-hash] -- not password storage: a non-secret identity for high-entropy API keys
+	return fingerprintSchema.parse(createHash("sha256").update(text).digest("hex").slice(0, 32));
 }
