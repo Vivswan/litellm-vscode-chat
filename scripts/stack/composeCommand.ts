@@ -1,4 +1,4 @@
-// scripts/composeCommand.ts
+// scripts/stack/composeCommand.ts
 //
 // Resolves which compose CLI to use, keeping the docker stack runnable under
 // both Docker and Podman: an explicit COMPOSE_CMD wins, then `docker compose`,

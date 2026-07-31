@@ -1,6 +1,6 @@
 /**
  * The dev-seed handshake between `bun run dev` and a development-mode
- * activation: the launcher (scripts/dev.ts) writes this file into the
+ * activation: the launcher (scripts/dev/dev.ts) writes this file into the
  * extension development folder, and src/extension/devSeed.ts consumes it
  * exactly once. Both sides import the filename and shape from here so the
  * contract cannot drift. Pure declarations: no vscode, no Node (the launcher

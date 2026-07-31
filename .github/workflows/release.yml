@@ -39,7 +39,7 @@ jobs:
           bun-version-file: package.json
 
       - name: Set up development environment
-        run: bash scripts/setup-env.sh
+        run: bash scripts/env/setup-env.sh
 
       - name: Type-check and bundle the extension
         run: bun run vscode:prepublish

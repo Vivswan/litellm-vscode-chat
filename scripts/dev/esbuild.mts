@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import type { BuildOptions, Metafile, Plugin } from "esbuild";
 import esbuild from "esbuild";
-import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../src/shared/webviewPaths.ts";
+import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../src/shared/webviewPaths.ts";
 
 const watch = process.argv.includes("--watch");
 const production = process.argv.includes("--production");

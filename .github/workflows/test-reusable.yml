@@ -92,7 +92,7 @@ jobs:
 
       - name: Set up development environment (Unix)
         if: runner.os != 'Windows'
-        run: bash scripts/setup-env.sh
+        run: bash scripts/env/setup-env.sh
 
       - name: Lint
         run: bun run lint

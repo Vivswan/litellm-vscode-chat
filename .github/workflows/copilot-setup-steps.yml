@@ -8,7 +8,7 @@ on:
       - .devcontainer/devcontainer.json
       - package.json
       - bun.lock
-      - scripts/setup-env.sh
+      - scripts/env/setup-env.sh
       - tsconfig.json
   pull_request:
     paths:
@@ -16,7 +16,7 @@ on:
       - .devcontainer/devcontainer.json
       - package.json
       - bun.lock
-      - scripts/setup-env.sh
+      - scripts/env/setup-env.sh
       - tsconfig.json
 
 jobs:

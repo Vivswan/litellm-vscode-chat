@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// scripts/fake-openai-server.ts
+// scripts/stack/fake-openai-server.ts
 //
 // OpenAI-compatible fake backend for the docker LiteLLM stack. The chat
 // input is the control surface: a "%" command on the last non-empty line
@@ -26,9 +26,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import { URL } from "node:url";
-import type { CommandContext, CommandResult } from "../src/test/fakeStack/commands";
-import { dispatchCommand, dispatchLine, fallbackReply } from "../src/test/fakeStack/commands";
-import { FAKE_MODEL_UPSTREAM_IDS } from "../src/test/fakeStack/models";
+import type { CommandContext, CommandResult } from "../../src/test/fakeStack/commands";
+import { dispatchCommand, dispatchLine, fallbackReply } from "../../src/test/fakeStack/commands";
+import { FAKE_MODEL_UPSTREAM_IDS } from "../../src/test/fakeStack/models";
 import {
 	authErrorBody,
 	createOAuthProviderState,
@@ -38,10 +38,17 @@ import {
 	oauthStats,
 	parseTokenRequestBody,
 	revokeAllTokens,
-} from "../src/test/fakeStack/oauth";
-import { FAKE_BACKEND_PORT } from "../src/test/fakeStack/proxyConfig";
-import type { Scenario } from "../src/test/scenarios";
-import { BUILTIN_SCENARIOS, collapseChunks, isScenario, playScenario, readBody, sendJson } from "../src/test/scenarios";
+} from "../../src/test/fakeStack/oauth";
+import { FAKE_BACKEND_PORT } from "../../src/test/fakeStack/proxyConfig";
+import type { Scenario } from "../../src/test/scenarios";
+import {
+	BUILTIN_SCENARIOS,
+	collapseChunks,
+	isScenario,
+	playScenario,
+	readBody,
+	sendJson,
+} from "../../src/test/scenarios";
 
 const PORT = Number(process.env.PORT || FAKE_BACKEND_PORT);
 const MAX_CUSTOM_SCENARIO_BYTES = 1024 * 1024;

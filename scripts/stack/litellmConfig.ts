@@ -1,11 +1,11 @@
-// scripts/litellmConfig.ts
+// scripts/stack/litellmConfig.ts
 //
 // IO wrapper for the runtime LiteLLM proxy config: the pure emission lives
 // in src/test/fakeStack/proxyConfig.ts (source of truth:
 // src/test/fakeStack/models.ts); this module adds
 // the .env-aware wildcard lookup and the atomic write to docker/.generated/
 // (gitignored). Both stack-starting paths regenerate the file first -
-// scripts/compose.ts on its `up` subcommand (docker:up, dev) and
+// scripts/stack/compose.ts on its `up` subcommand (docker:up, dev) and
 // scripts/docker-test.ts (which resolves the compose command itself) - so no
 // start can see a stale or missing config. Other compose subcommands (down,
 // logs) do not regenerate.
@@ -20,13 +20,13 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { composeSetting, parseEnvFile, STACK_DEFAULTS } from "../src/test/envFile";
-import type { CopilotModel, GenerateOptions } from "../src/test/fakeStack/proxyConfig";
+import { composeSetting, parseEnvFile, STACK_DEFAULTS } from "../../src/test/envFile";
+import type { CopilotModel, GenerateOptions } from "../../src/test/fakeStack/proxyConfig";
 import {
 	COPILOT_TOKEN_DIR,
 	generateConfig as emitConfig,
 	parseCopilotCatalog,
-} from "../src/test/fakeStack/proxyConfig";
+} from "../../src/test/fakeStack/proxyConfig";
 
 export type { GenerateOptions };
 export { COPILOT_TOKEN_DIR, composeSetting, STACK_DEFAULTS };

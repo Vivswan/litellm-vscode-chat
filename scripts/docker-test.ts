@@ -26,8 +26,8 @@
 import { execSync } from "node:child_process";
 import { DOCKER_TEST_LABELS, type DockerTestLabel, parseOnlyLabels } from "../src/test/dockerTestLabels";
 import { PLAYBACK_MODEL } from "../src/test/fakeStack/models";
-import { resolveComposeCommand } from "./composeCommand";
-import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } from "./litellmConfig";
+import { resolveComposeCommand } from "./stack/composeCommand";
+import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } from "./stack/litellmConfig";
 
 const args = process.argv.slice(2);
 

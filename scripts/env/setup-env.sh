@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 usage() {
 	cat <<'USAGE'
-Usage: scripts/setup-env.sh [--verify] [--full] [--no-hooks]
+Usage: scripts/env/setup-env.sh [--verify] [--full] [--no-hooks]
 
 Options:
   --verify    Install dependencies, then run compile and lint.

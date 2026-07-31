@@ -1,7 +1,7 @@
 /**
  * The consolidated fake model catalog: seven realistic aliases over
  * deliberately unrecognizable fake- upstreams. This table drives BOTH the
- * generated LiteLLM proxy config (scripts/litellmConfig.ts) and the docker
+ * generated LiteLLM proxy config (scripts/stack/litellmConfig.ts) and the docker
  * suite's expectations, so the config and the tests cannot drift apart.
  *
  * Naming is load-bearing (verified by the phase-3a spike): LiteLLM enriches

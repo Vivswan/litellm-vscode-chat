@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// scripts/copilot-login.ts
+// scripts/stack/copilot-login.ts
 //
 // One-time GitHub device-flow login for the stack's github_copilot routes.
 // Writes the OAuth access token into docker/.copilot-token/, which

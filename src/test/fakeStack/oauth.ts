@@ -1,5 +1,5 @@
 /**
- * The fake identity provider behind scripts/fake-openai-server.ts's
+ * The fake identity provider behind scripts/stack/fake-openai-server.ts's
  * /oauth/token endpoint and /authed path prefix: the fixed test credentials
  * and the pure grant/bearer/revocation logic, shared by the server and the
  * suites so the two cannot drift apart. Deterministic on purpose - tokens
