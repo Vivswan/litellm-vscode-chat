@@ -90,8 +90,9 @@ jobs:
               echo "Pin it as an example test next to the failing property, or in"
               echo "src/test/fuzzCorpus.ts when it is a FuzzEvent[] stream."
               echo
-              echo "bun run test also runs the (unseeded) capture host-fidelity suite;"
-              echo "if the log blames a Host-Fidelity test, the seed guidance above does not apply."
+              echo "bun run test also runs the unseeded webview, activation-production,"
+              echo "and capture host-fidelity suites; if the log blames one of those,"
+              echo "the seed guidance above does not apply."
             } > "$dir/report.md"
             exit "$status"
           fi
