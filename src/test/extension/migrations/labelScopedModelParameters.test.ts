@@ -25,17 +25,40 @@ interface RecordedUpdate {
 	target: vscode.ConfigurationTarget;
 }
 
-/** Fake WorkspaceConfiguration slice: updates land on the global layer, the way ConfigurationTarget.Global does. */
-function makeSetting(layers: Layers): { setting: ModelParametersSetting; layers: Layers; updates: RecordedUpdate[] } {
+/**
+ * Fake WorkspaceConfiguration slice: updates land on the global layer, the
+ * way ConfigurationTarget.Global does. `servers` is the machine-scoped
+ * servers setting's raw global value; undefined means the setting is absent.
+ */
+function makeSetting(
+	layers: Layers,
+	servers?: unknown[]
+): { setting: ModelParametersSetting; layers: Layers; updates: RecordedUpdate[]; state: { servers?: unknown[] } } {
 	const updates: RecordedUpdate[] = [];
+	const state: { servers?: unknown[] } = {};
+	if (servers !== undefined) {
+		state.servers = servers;
+	}
 	const setting: ModelParametersSetting = {
-		inspect: (section: string) => (section === "modelParameters" ? layers : undefined),
+		inspect: (section: string) => {
+			if (section === "modelParameters") {
+				return layers;
+			}
+			if (section === "servers") {
+				return state.servers === undefined ? undefined : { globalValue: state.servers };
+			}
+			return undefined;
+		},
 		update: async (section: string, value: unknown, target: vscode.ConfigurationTarget) => {
 			updates.push({ section, value, target });
-			layers.globalValue = value as Record<string, unknown>;
+			if (section === "modelParameters") {
+				layers.globalValue = value as Record<string, unknown>;
+			} else if (section === "servers") {
+				state.servers = value as unknown[];
+			}
 		},
 	};
-	return { setting, layers, updates };
+	return { setting, layers, updates, state };
 }
 
 function makeLogger(): { logger: Logger; lines: string[] } {
@@ -49,6 +72,11 @@ function makeLogger(): { logger: Logger; lines: string[] } {
 	};
 }
 
+/** A fresh entry-copy ledger for tests that do not exercise cross-run provenance. */
+function freshLedger() {
+	return makeExtensionStorage().memento;
+}
+
 suite("extension/migrations/labelScopedModelParameters", () => {
 	test("adds base-URL-scoped copies in the user layer while keeping the originals", async () => {
 		const { setting, updates } = makeSetting({
@@ -60,7 +88,12 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		});
 		const { logger, lines } = makeLogger();
 
-		const outcome = await rewriteLabelScopedModelParameters(setting, { "http://prod.test": ["Prod"] }, logger);
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://prod.test": ["Prod"] },
+			logger,
+			freshLedger()
+		);
 
 		assert.strictEqual(outcome, "migrated");
 		assert.strictEqual(updates.length, 1);
@@ -94,7 +127,12 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		});
 		const { logger } = makeLogger();
 
-		const outcome = await rewriteLabelScopedModelParameters(setting, { "http://prod.test": ["Prod"] }, logger);
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://prod.test": ["Prod"] },
+			logger,
+			freshLedger()
+		);
 
 		assert.strictEqual(outcome, "nothing-to-do");
 		assert.deepStrictEqual(updates, [], "the existing base-URL entry wins; there is nothing to write");
@@ -109,7 +147,12 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		});
 		const { logger } = makeLogger();
 
-		const outcome = await rewriteLabelScopedModelParameters(setting, { "http://proxy.test": ["openai"] }, logger);
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://proxy.test": ["openai"] },
+			logger,
+			freshLedger()
+		);
 
 		assert.strictEqual(outcome, "migrated");
 		assert.deepStrictEqual(updates[0]?.value, {
@@ -126,7 +169,12 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		});
 		const { logger } = makeLogger();
 
-		const outcome = await rewriteLabelScopedModelParameters(setting, { "http://prod.test": ["Prod"] }, logger);
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://prod.test": ["Prod"] },
+			logger,
+			freshLedger()
+		);
 
 		assert.strictEqual(outcome, "nothing-to-do");
 		assert.deepStrictEqual(updates, [], "no update may be written when nothing matches the map");
@@ -139,7 +187,12 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		});
 		const { logger, lines } = makeLogger();
 
-		const outcome = await rewriteLabelScopedModelParameters(setting, { "http://prod.test": ["Prod"] }, logger);
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://prod.test": ["Prod"] },
+			logger,
+			freshLedger()
+		);
 
 		assert.strictEqual(outcome, "nothing-to-do");
 		assert.deepStrictEqual(updates, [], "workspace layers must never be written");
@@ -158,8 +211,11 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		const { logger } = makeLogger();
 		const labelMap = { "http://prod.test": ["Prod"] };
 
-		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger), "migrated");
-		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger), "nothing-to-do");
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, freshLedger()), "migrated");
+		assert.strictEqual(
+			await rewriteLabelScopedModelParameters(setting, labelMap, logger, freshLedger()),
+			"nothing-to-do"
+		);
 
 		assert.strictEqual(updates.length, 1, "the second run must not write again");
 	});
@@ -177,7 +233,7 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		};
 		const { logger } = makeLogger();
 
-		const outcome = await rewriteLabelScopedModelParameters(setting, {}, logger);
+		const outcome = await rewriteLabelScopedModelParameters(setting, {}, logger, freshLedger());
 
 		assert.strictEqual(outcome, "nothing-to-do");
 		assert.strictEqual(inspected, false);
@@ -195,7 +251,8 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		const outcome = await rewriteLabelScopedModelParameters(
 			setting,
 			{ "http://prod.test": ["Prod"], "http://eu.test": ["Prod/EU"] },
-			logger
+			logger,
+			freshLedger()
 		);
 
 		assert.strictEqual(outcome, "migrated");
@@ -216,7 +273,8 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		const outcome = await rewriteLabelScopedModelParameters(
 			setting,
 			{ "https://llm.corp.com": ["https://llm.corp.com"] },
-			logger
+			logger,
+			freshLedger()
 		);
 
 		assert.strictEqual(outcome, "nothing-to-do");
@@ -233,14 +291,20 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		const { logger } = makeLogger();
 		const labelMap = { "https://llm.corp.com/v1": ["https://llm.corp.com"] };
 
-		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger), "migrated");
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, freshLedger()), "migrated");
 		assert.deepStrictEqual(updates[0]?.value, {
 			"https://llm.corp.com/gpt-4": { temperature: 0.2 },
 			"https://llm.corp.com/v1/gpt-4": { temperature: 0.2 },
 		});
 
-		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger), "nothing-to-do");
-		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger), "nothing-to-do");
+		assert.strictEqual(
+			await rewriteLabelScopedModelParameters(setting, labelMap, logger, freshLedger()),
+			"nothing-to-do"
+		);
+		assert.strictEqual(
+			await rewriteLabelScopedModelParameters(setting, labelMap, logger, freshLedger()),
+			"nothing-to-do"
+		);
 		assert.strictEqual(updates.length, 1, "reruns must never compound the base-URL path");
 	});
 
@@ -258,7 +322,8 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		const outcome = await rewriteLabelScopedModelParameters(
 			setting,
 			{ "https://llm.corp/v1": ["https://llm.corp"] },
-			logger
+			logger,
+			freshLedger()
 		);
 
 		assert.strictEqual(outcome, "nothing-to-do");
@@ -278,7 +343,8 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		const outcome = await rewriteLabelScopedModelParameters(
 			setting,
 			{ "http://x.test": ["https://y.test"], "https://y.test": ["Y"] },
-			logger
+			logger,
+			freshLedger()
 		);
 
 		assert.strictEqual(outcome, "migrated");
@@ -296,13 +362,278 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		});
 		const { logger } = makeLogger();
 
-		const outcome = await rewriteLabelScopedModelParameters(setting, { "http://prod.test///": ["Prod"] }, logger);
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://prod.test///": ["Prod"] },
+			logger,
+			freshLedger()
+		);
 
 		assert.strictEqual(outcome, "migrated");
 		assert.deepStrictEqual(updates[0]?.value, {
 			"Prod/gpt-4": { temperature: 0.2 },
 			"http://prod.test/gpt-4": { temperature: 0.2 },
 		});
+	});
+
+	test("a declared entry carrying the label receives the params in its own modelParameters record", async () => {
+		const { setting, updates, state } = makeSetting(
+			{
+				globalValue: {
+					"Prod/gpt-4": { temperature: 0.2 },
+					"gpt-4": { temperature: 1 },
+				},
+			},
+			[{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1" }]
+		);
+		const { logger, lines } = makeLogger();
+
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://prod.test": ["Prod"] },
+			logger,
+			freshLedger()
+		);
+
+		assert.strictEqual(outcome, "migrated");
+		assert.strictEqual(updates.length, 1, "only the servers setting is written; no base-URL copy is added");
+		assert.strictEqual(updates[0]?.section, "servers");
+		assert.deepStrictEqual(state.servers, [
+			{
+				label: "Prod",
+				baseUrl: "http://prod.test",
+				apiKey: "sk-1",
+				modelParameters: { "gpt-4": { temperature: 0.2 } },
+			},
+		]);
+		assert.ok(
+			!lines.some((l) => l.includes("Prod") || l.includes("prod.test")),
+			`no user-controlled key or URL may reach the logs. Lines: ${lines.join(" | ")}`
+		);
+	});
+
+	test("existing entry keys win the merge; migrated keys only fill gaps", async () => {
+		const { setting, state } = makeSetting(
+			{
+				globalValue: {
+					"Prod/gpt-4": { temperature: 0.2 },
+					"Prod/claude": { temperature: 0.5 },
+				},
+			},
+			[
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					modelParameters: { "gpt-4": { temperature: 0.9 } },
+				},
+			]
+		);
+		const { logger } = makeLogger();
+
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://prod.test": ["Prod"] },
+			logger,
+			freshLedger()
+		);
+
+		assert.strictEqual(outcome, "migrated");
+		assert.deepStrictEqual(
+			state.servers,
+			[
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					modelParameters: { "gpt-4": { temperature: 0.9 }, claude: { temperature: 0.5 } },
+				},
+			],
+			"the user's own entry key is deliberate current configuration and must not be overwritten"
+		);
+	});
+
+	test("two same-URL labels with different params each land in their own entry", async () => {
+		// The base-URL rewrite collapsed these into one insertion-order-dependent
+		// key; the per-entry destination is exact.
+		const { setting, state, updates } = makeSetting(
+			{
+				globalValue: {
+					"A/gpt-4": { temperature: 0.1 },
+					"B/gpt-4": { temperature: 0.6 },
+				},
+			},
+			[
+				{ label: "A", baseUrl: "http://x.test" },
+				{ label: "B", baseUrl: "http://x.test" },
+			]
+		);
+		const { logger } = makeLogger();
+
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://x.test": ["A", "B"] },
+			logger,
+			freshLedger()
+		);
+
+		assert.strictEqual(outcome, "migrated");
+		assert.strictEqual(updates.length, 1);
+		assert.deepStrictEqual(state.servers, [
+			{ label: "A", baseUrl: "http://x.test", modelParameters: { "gpt-4": { temperature: 0.1 } } },
+			{ label: "B", baseUrl: "http://x.test", modelParameters: { "gpt-4": { temperature: 0.6 } } },
+		]);
+	});
+
+	test("a label no declared entry carries falls back to the base-URL copy", async () => {
+		const { setting, updates } = makeSetting({ globalValue: { "Prod/gpt-4": { temperature: 0.2 } } }, [
+			{ label: "Other", baseUrl: "http://other.test" },
+		]);
+		const { logger } = makeLogger();
+
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://prod.test": ["Prod"] },
+			logger,
+			freshLedger()
+		);
+
+		assert.strictEqual(outcome, "migrated");
+		assert.strictEqual(updates.length, 1);
+		assert.strictEqual(updates[0]?.section, "modelParameters");
+		assert.deepStrictEqual(updates[0]?.value, {
+			"Prod/gpt-4": { temperature: 0.2 },
+			"http://prod.test/gpt-4": { temperature: 0.2 },
+		});
+	});
+
+	test("a same-label entry at another URL is a label reuse and gets nothing", async () => {
+		// The params were scoped to the label's pre-migration server; handing
+		// them to an entry that points elsewhere would repeat the label-alone
+		// confusion the per-entry destination exists to end.
+		const { setting, updates, state } = makeSetting({ globalValue: { "Prod/gpt-4": { temperature: 0.2 } } }, [
+			{ label: "Prod", baseUrl: "http://elsewhere.test" },
+		]);
+		const { logger } = makeLogger();
+
+		const outcome = await rewriteLabelScopedModelParameters(
+			setting,
+			{ "http://prod.test": ["Prod"] },
+			logger,
+			freshLedger()
+		);
+
+		assert.strictEqual(outcome, "migrated");
+		assert.strictEqual(updates.length, 1);
+		assert.strictEqual(updates[0]?.section, "modelParameters", "the fallback base-URL copy still lands");
+		assert.deepStrictEqual(state.servers, [{ label: "Prod", baseUrl: "http://elsewhere.test" }]);
+	});
+
+	test("a rerun after the per-entry copy is a no-op", async () => {
+		const { setting, updates } = makeSetting({ globalValue: { "Prod/gpt-4": { temperature: 0.2 } } }, [
+			{ label: "Prod", baseUrl: "http://prod.test" },
+		]);
+		const { logger } = makeLogger();
+		const labelMap = { "http://prod.test": ["Prod"] };
+
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, freshLedger()), "migrated");
+		assert.strictEqual(
+			await rewriteLabelScopedModelParameters(setting, labelMap, logger, freshLedger()),
+			"nothing-to-do"
+		);
+		assert.strictEqual(updates.length, 1, "the second run must not write again");
+	});
+
+	test("a migrated entry key the user deletes stays deleted on rerun", async () => {
+		const { setting, state } = makeSetting({ globalValue: { "Prod/gpt-4": { temperature: 0.2 } } }, [
+			{ label: "Prod", baseUrl: "http://prod.test" },
+		]);
+		const { logger } = makeLogger();
+		const labelMap = { "http://prod.test": ["Prod"] };
+		const ledger = makeExtensionStorage().memento;
+
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, ledger), "migrated");
+		assert.deepStrictEqual(state.servers, [
+			{ label: "Prod", baseUrl: "http://prod.test", modelParameters: { "gpt-4": { temperature: 0.2 } } },
+		]);
+
+		// The user deletes the migrated key from the entry; the source key
+		// still sits in the global setting (copied, never moved). The ledger
+		// is what tells this apart from a never-migrated source.
+		state.servers = [{ label: "Prod", baseUrl: "http://prod.test" }];
+
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, ledger), "nothing-to-do");
+		assert.deepStrictEqual(
+			state.servers,
+			[{ label: "Prod", baseUrl: "http://prod.test" }],
+			"the deletion is the user's decision and stays deleted"
+		);
+	});
+
+	test("a rerun completes unrecorded sources without resurrecting recorded ones", async () => {
+		const { setting, layers, state } = makeSetting({ globalValue: { "Prod/gpt-4": { temperature: 0.2 } } }, [
+			{ label: "Prod", baseUrl: "http://prod.test" },
+		]);
+		const { logger } = makeLogger();
+		const labelMap = { "http://prod.test": ["Prod"] };
+		const ledger = makeExtensionStorage().memento;
+
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, ledger), "migrated");
+
+		// A second label-scoped key appears afterwards, and the user deletes
+		// the first migrated key from the entry meanwhile.
+		layers.globalValue = { "Prod/gpt-4": { temperature: 0.2 }, "Prod/claude": { temperature: 0.5 } };
+		state.servers = [{ label: "Prod", baseUrl: "http://prod.test" }];
+
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, ledger), "migrated");
+		assert.deepStrictEqual(
+			state.servers,
+			[{ label: "Prod", baseUrl: "http://prod.test", modelParameters: { claude: { temperature: 0.5 } } }],
+			"only the unrecorded source lands; the deleted one stays deleted"
+		);
+	});
+
+	test("an entry key the user wrote themselves counts as resolved: deleting it later stays deleted", async () => {
+		const { setting, state, updates } = makeSetting({ globalValue: { "Prod/gpt-4": { temperature: 0.2 } } }, [
+			{ label: "Prod", baseUrl: "http://prod.test", modelParameters: { "gpt-4": { temperature: 0.9 } } },
+		]);
+		const { logger } = makeLogger();
+		const labelMap = { "http://prod.test": ["Prod"] };
+		const ledger = makeExtensionStorage().memento;
+
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, ledger), "nothing-to-do");
+		assert.deepStrictEqual(updates, [], "the user's own key wins; nothing to write");
+
+		state.servers = [{ label: "Prod", baseUrl: "http://prod.test" }];
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, ledger), "nothing-to-do");
+		assert.deepStrictEqual(state.servers, [{ label: "Prod", baseUrl: "http://prod.test" }]);
+	});
+
+	test('an unsafe stripped prefix ("Prod/__proto__") falls back to the base-URL copy', async () => {
+		// "__proto__" can never become an own key of the entry record: the
+		// merge assignment would mutate the temp object's prototype, the entry
+		// parser drops it, and every activation would re-queue the write. The
+		// full base-URL string key is a plain own property and safe.
+		const { setting, updates, state } = makeSetting({ globalValue: { "Prod/__proto__": { temperature: 0.2 } } }, [
+			{ label: "Prod", baseUrl: "http://prod.test" },
+		]);
+		const { logger } = makeLogger();
+		const labelMap = { "http://prod.test": ["Prod"] };
+		const ledger = makeExtensionStorage().memento;
+
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, ledger), "migrated");
+		assert.strictEqual(updates.length, 1);
+		assert.strictEqual(updates[0]?.section, "modelParameters");
+		assert.deepStrictEqual(updates[0]?.value, {
+			"Prod/__proto__": { temperature: 0.2 },
+			"http://prod.test/__proto__": { temperature: 0.2 },
+		});
+		assert.deepStrictEqual(
+			state.servers,
+			[{ label: "Prod", baseUrl: "http://prod.test" }],
+			"the entry stays untouched"
+		);
+
+		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, ledger), "nothing-to-do");
+		assert.strictEqual(updates.length, 1, "reruns must never loop on the unsafe prefix");
 	});
 });
 

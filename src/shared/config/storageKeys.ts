@@ -61,6 +61,17 @@ export const PENDING_SECRET_DELETIONS_KEY = "litellm.pendingSecretDeletions";
 export const MIGRATED_SERVER_LABELS_KEY = "litellm.migratedServerLabels";
 
 /**
+ * globalState: JSON-encoded [label, prefix] pairs whose label-scoped
+ * modelParameters key was already resolved into a declared entry's own
+ * modelParameters record (written, or found already present). Each source
+ * key migrates into an entry AT MOST ONCE: the sources are copied, never
+ * moved, so without this ledger a user deleting the migrated key from the
+ * entry would see it resurrected on the next activation. Owned by
+ * src/extension/migrations/labelScopedModelParameters.ts.
+ */
+export const MIGRATED_ENTRY_PARAMETER_COPIES_KEY = "litellm.migratedEntryParameterCopies";
+
+/**
  * globalState: ids of registry servers that were seeded into provider groups,
  * unioned at every finalization and never cleared. The only evidence the
  * post-completion orphan cleanup accepts before deleting an entry: labels and
