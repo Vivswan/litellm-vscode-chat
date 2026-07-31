@@ -7,6 +7,7 @@ import {
 	type ChunkChoice,
 	type ChunkDelta,
 	type ChunkImage,
+	type ChunkSearchResult,
 	parseChunk,
 	type StreamedToolCall,
 	type ThinkingBlock,
@@ -68,6 +69,18 @@ function assertAnnotation(annotation: ChunkAnnotation, label: string): void {
 	}
 }
 
+function assertSearchResults(results: ChunkSearchResult[] | undefined, label: string): void {
+	if (results === undefined) {
+		return;
+	}
+	assert.ok(Array.isArray(results), `${label} must be an array or undefined`);
+	for (const [i, result] of results.entries()) {
+		assert.ok(isPlainRecord(result), `${label}[${i}] must be a record`);
+		assertOptionalString(result.url, `${label}[${i}].url`);
+		assertOptionalString(result.title, `${label}[${i}].title`);
+	}
+}
+
 function assertImage(image: ChunkImage, label: string): void {
 	assert.ok(isPlainRecord(image), `${label} must be a record`);
 	assertOptionalString(image.type, `${label}.type`);
@@ -117,6 +130,7 @@ function assertDelta(delta: ChunkDelta, label: string): void {
 			assertAnnotation(annotation, `${label}.annotations[${i}]`);
 		}
 	}
+	assertSearchResults(delta.search_results, `${label}.search_results`);
 	if (delta.images !== undefined) {
 		assert.ok(Array.isArray(delta.images), `${label}.images must be an array or undefined`);
 		for (const [i, image] of delta.images.entries()) {
@@ -153,6 +167,13 @@ function assertChunkInvariants(chunk: ChatCompletionChunk): void {
 		"chunk.created must be number | undefined"
 	);
 	assertOptionalString(chunk.model, "chunk.model");
+	if (chunk.citations !== undefined) {
+		assert.ok(Array.isArray(chunk.citations), "chunk.citations must be an array or undefined");
+		for (const [i, citation] of chunk.citations.entries()) {
+			assert.ok(typeof citation === "string", `chunk.citations[${i}] must be a string (non-strings drop alone)`);
+		}
+	}
+	assertSearchResults(chunk.search_results, "chunk.search_results");
 	assert.ok(
 		chunk.usage === undefined || isPlainRecord(chunk.usage),
 		"chunk.usage must be a record or undefined (a wire null parses to undefined)"
@@ -180,6 +201,11 @@ const toolCallShaped = fc.record(
 		function: fc.oneof(fuzzValue, fc.record({ name: fuzzValue, arguments: fuzzValue }, { requiredKeys: [] })),
 	},
 	{ requiredKeys: [] }
+);
+
+const searchResultsShaped = fc.array(
+	fc.oneof(fuzzValue, fc.record({ url: fuzzValue, title: fuzzValue }, { requiredKeys: [] })),
+	{ maxLength: 3 }
 );
 
 const deltaShaped = fc.record(
@@ -220,6 +246,10 @@ const deltaShaped = fc.record(
 				{ maxLength: 3 }
 			)
 		),
+		provider_specific_fields: fc.oneof(
+			fuzzValue,
+			fc.record({ search_results: fc.oneof(fuzzValue, searchResultsShaped) }, { requiredKeys: [] })
+		),
 		images: fc.oneof(
 			fuzzValue,
 			fc.array(
@@ -258,6 +288,8 @@ const chunkShaped = fc.record(
 		created: fuzzValue,
 		model: fuzzValue,
 		choices: fc.oneof(fuzzValue, fc.array(fc.oneof(fuzzValue, choiceShaped), { maxLength: 3 })),
+		citations: fc.oneof(fuzzValue, fc.array(fuzzValue, { maxLength: 3 })),
+		search_results: fc.oneof(fuzzValue, searchResultsShaped),
 		usage: fuzzValue,
 	},
 	{ requiredKeys: [] }

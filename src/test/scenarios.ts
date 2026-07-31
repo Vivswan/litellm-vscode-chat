@@ -463,6 +463,31 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		],
 	},
 
+	// Perplexity-style chunk-root citations and search_results (LiteLLM's
+	// streaming pass-through): the source list grows as the model finds
+	// sources, so later chunks repeat the already-reported entries; the
+	// repeats must dedupe into one Sources trailer. makeChunk only builds
+	// choices, so the root fields are spread onto its result.
+	"citations-chunk-level": {
+		type: "sse",
+		chunks: [
+			{
+				...makeChunk({ role: "assistant", content: "Grass is green." }),
+				citations: ["https://example.test/grass"],
+				search_results: [{ title: "Grass color", url: "https://example.test/grass", date: "2026-01-01" }],
+			},
+			{
+				...makeChunk({ content: " The sky is blue." }),
+				citations: ["https://example.test/grass", "https://example.test/sky"],
+				search_results: [
+					{ title: "Grass color", url: "https://example.test/grass", date: "2026-01-01" },
+					{ title: "Sky color", url: "https://example.test/sky", date: "2026-01-02" },
+				],
+			},
+			makeChunk({}, "stop"),
+		],
+	},
+
 	// LiteLLM's Anthropic extended-thinking mapping: thinking_blocks with signatures
 	// alongside the duplicate reasoning_content text
 	"thinking-blocks": {
