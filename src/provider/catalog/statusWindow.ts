@@ -1,0 +1,154 @@
+/**
+ * The rolling status window: each server's latest discovery outcome and the
+ * models it registered, accumulated across the host's per-group refresh
+ * calls. The host fetches each provider group in its own call, so no single
+ * call sees the whole picture; the provider records every outcome here and
+ * reports the merged view.
+ */
+
+import type { ServerStatus } from "../../shared/servers";
+import type { GroupServer, PreAttachModelInfo } from "./groupModels";
+
+/**
+ * Rolling status entries and their cached clients are evicted when not
+ * refreshed within this window. The same window bounds stale serving: a
+ * group's last known models are served past a failed refresh only while its
+ * last SUCCESSFUL discovery is younger than this, so a permanently-down
+ * server stops offering selectable models instead of surviving on its own
+ * failure reports.
+ */
+const STATUS_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * One server's slice of the status window, for read-only consumers (the
+ * dashboard). `models` are the infos as built by registration, before any
+ * group server is attached - PreAttachModelInfo by type, so a snapshot that
+ * carries credentials does not compile.
+ */
+export interface ServerModelsSnapshot {
+	readonly status: ServerStatus;
+	readonly models: readonly PreAttachModelInfo[];
+}
+
+/**
+ * Where a status-window entry came from. A VS Code provider group carries its
+ * resolved connection (the extension layer's one path to a group's
+ * credentials); a legacy-registry entry has none, and the union makes a
+ * group entry without its GroupServer unrepresentable.
+ */
+export type StatusWindowSource = { kind: "registry" } | { kind: "group"; groupServer: GroupServer };
+
+type StatusWindowEntry = {
+	cycle: number;
+	at: number;
+	/**
+	 * When this server last reported a successful discovery, carried forward
+	 * across failure reports (undefined = never succeeded). `at` refreshes on
+	 * every report, success or not, so it cannot age anything; this is the
+	 * anchor for the stale-serving window.
+	 */
+	lastSuccessAt: number | undefined;
+	status: ServerStatus;
+	models: readonly PreAttachModelInfo[];
+} & StatusWindowSource;
+
+/**
+ * Statuses accumulate keyed by server ID; the group-agnostic call (normally
+ * the first of a refresh cycle) advances the cycle counter. An entry survives
+ * the cycle after its last report and is evicted at the second cycle
+ * boundary; that one-cycle grace is load-bearing: it keeps servers not yet
+ * re-fetched in the current sweep visible, so the merged view never flickers
+ * mid-sweep. Two fallbacks cover hosts that skip the group-agnostic call:
+ * re-seeing a group within one cycle also starts a new cycle (the provider
+ * consults seenThisCycle), and entries untouched for STATUS_TTL_MS go
+ * regardless.
+ */
+export class StatusWindow {
+	private cycle = 0;
+	private readonly entries = new Map<string, StatusWindowEntry>();
+
+	constructor(private readonly now: () => number) {}
+
+	beginCycle(): void {
+		this.cycle += 1;
+		const now = this.now();
+		for (const [serverId, entry] of this.entries) {
+			if (entry.cycle < this.cycle - 1 || now - entry.at > STATUS_TTL_MS) {
+				this.entries.delete(serverId);
+			}
+		}
+	}
+
+	/** Whether this server already reported in the current cycle; see the class doc for why callers care. */
+	seenThisCycle(serverId: string): boolean {
+		return this.entries.get(serverId)?.cycle === this.cycle;
+	}
+
+	/**
+	 * `models` are the pre-attach infos (registration output) by type, never
+	 * the group-attached copies: snapshots() hands them to the dashboard, and
+	 * attached copies embed the server's credentials, so AttachedModelInfo
+	 * does not compile here.
+	 */
+	record(status: ServerStatus, models: readonly PreAttachModelInfo[], source: StatusWindowSource): void {
+		const previous = this.entries.get(status.serverId);
+		this.entries.set(status.serverId, {
+			cycle: this.cycle,
+			at: this.now(),
+			lastSuccessAt: status.state === "ok" ? this.now() : previous?.lastSuccessAt,
+			status,
+			models,
+			...source,
+		});
+	}
+
+	/** The window's current view for read-only consumers; see ServerModelsSnapshot. */
+	snapshots(): ServerModelsSnapshot[] {
+		return [...this.entries.values()].map((entry) => ({ status: entry.status, models: entry.models }));
+	}
+
+	/**
+	 * The resolved connection of a live provider group, looked up by the server
+	 * ID its status snapshot carries. This is the extension layer's one path to
+	 * a group's credentials (the dashboard's adopt action copies them into the
+	 * servers setting; the group keeps its own); the value is handed to the
+	 * caller only and must never be logged or pushed into webview state.
+	 * Registry servers and aged-out groups resolve to undefined.
+	 */
+	getGroupServer(serverId: string): GroupServer | undefined {
+		const entry = this.entries.get(serverId);
+		return entry?.kind === "group" ? entry.groupServer : undefined;
+	}
+
+	/** Every server ID currently in the window, registry and group alike. */
+	serverIds(): string[] {
+		return [...this.entries.keys()];
+	}
+
+	groupClientIds(): string[] {
+		return [...this.entries].flatMap(([serverId, entry]) => (entry.kind === "group" ? [serverId] : []));
+	}
+
+	/** The resolved connections of every group in the window; same handling rules as getGroupServer. */
+	groupServers(): GroupServer[] {
+		return [...this.entries.values()].flatMap((entry) => (entry.kind === "group" ? [entry.groupServer] : []));
+	}
+
+	/**
+	 * The last known models a failed group refresh may still serve, with the
+	 * last successful discovery they came from. Retention is anchored to that
+	 * SUCCESS, not the last report - failure reports refresh the entry's
+	 * timestamp, so without the anchor a permanently-down server would stay
+	 * selectable forever. Undefined once the anchor ages past STATUS_TTL_MS
+	 * (or the server never succeeded), at which point the failure serves the
+	 * empty list, as it always did.
+	 */
+	staleServableModels(serverId: string): { models: readonly PreAttachModelInfo[]; lastSuccessAt: number } | undefined {
+		const entry = this.entries.get(serverId);
+		const lastSuccessAt = entry?.lastSuccessAt;
+		if (entry === undefined || lastSuccessAt === undefined || this.now() - lastSuccessAt > STATUS_TTL_MS) {
+			return undefined;
+		}
+		return { models: entry.models, lastSuccessAt };
+	}
+}
