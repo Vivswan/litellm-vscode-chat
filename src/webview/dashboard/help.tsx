@@ -17,15 +17,30 @@ import { useId } from "preact/hooks";
 
 /**
  * A hover tip over non-interactive inline content (badges, table cells),
- * drawn with the same .help-tip element the "?" affordance uses. For extra
- * detail only: anything load-bearing must also render as visible text
- * somewhere, because this tip needs a pointer to appear.
+ * drawn with the same .help-tip element the "?" affordance uses. Plain tips
+ * are for extra detail whose substance also renders as visible text
+ * somewhere. A tip whose content exists nowhere else must be `focusable`:
+ * the wrapper joins the Tab order and names the tip as its accessible
+ * description, so keyboards and assistive tech reach what hover shows.
  */
-export function HoverTip({ tip, children }: { tip: string; children: ComponentChildren }) {
+export function HoverTip({
+	tip,
+	focusable,
+	children,
+}: {
+	tip: string;
+	focusable?: boolean;
+	children: ComponentChildren;
+}) {
+	const id = useId();
 	return (
-		<span class="tip-wrap">
+		<span
+			class="tip-wrap"
+			tabIndex={focusable === true ? 0 : undefined}
+			aria-describedby={focusable === true ? id : undefined}
+		>
 			{children}
-			<span class="help-tip" role="tooltip">
+			<span class="help-tip" role="tooltip" id={id}>
 				{tip}
 			</span>
 		</span>
