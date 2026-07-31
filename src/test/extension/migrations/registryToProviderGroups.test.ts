@@ -1,14 +1,16 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import type { MigrationContext } from "../../../extension/migrations";
 import {
 	getMigratedServerLabels,
 	isGroupMigrationComplete,
 	isGroupMigrationRunning,
 	migrateServersToProviderGroups,
-} from "../../extension/groupMigration";
-import { ServerRegistry } from "../../extension/serverRegistry";
-import { fingerprint } from "../../shared/fingerprint";
-import { Logger } from "../../shared/logger";
+	registryToProviderGroupsMigration,
+} from "../../../extension/migrations/registryToProviderGroups";
+import { ServerRegistry } from "../../../extension/serverRegistry";
+import { fingerprint } from "../../../shared/fingerprint";
+import { Logger } from "../../../shared/logger";
 import {
 	apiKeySecret,
 	GROUP_MIGRATION_COMPLETE_KEY,
@@ -17,9 +19,9 @@ import {
 	PENDING_SECRET_DELETIONS_KEY,
 	SEEDED_PROVIDER_GROUPS_KEY,
 	SKIPPED_MIGRATION_SERVERS_KEY,
-} from "../../shared/storageKeys";
-import type { FakeExtensionStorage } from "../testUtils";
-import { makeExtensionStorage } from "../testUtils";
+} from "../../../shared/storageKeys";
+import type { FakeExtensionStorage } from "../../testUtils";
+import { makeExtensionStorage } from "../../testUtils";
 
 function makeLogger(): { logger: Logger; lines: string[] } {
 	const lines: string[] = [];
@@ -91,7 +93,7 @@ function expectMessage(message: string | undefined): string {
 	return message;
 }
 
-suite("extension/groupMigration", () => {
+suite("extension/migrations/registryToProviderGroups", () => {
 	test("migrates every registry server, persists the label map, and clears the registry", async () => {
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
@@ -783,5 +785,43 @@ suite("extension/groupMigration", () => {
 
 		const valid = makeExtensionStorage({ [MIGRATED_SERVER_LABELS_KEY]: { "http://prod.test": ["Production"] } });
 		assert.deepStrictEqual(getMigratedServerLabels(valid.memento), { "http://prod.test": ["Production"] });
+	});
+
+	// The wiring tests only exercise engine paths that never reach the host
+	// command; submission behavior stays pinned by the fake-host tests above.
+	suite("migration wiring", () => {
+		function makeMigrationContext(storage: FakeExtensionStorage): MigrationContext {
+			return {
+				globalState: storage.memento,
+				secrets: storage.secrets,
+				registry: new ServerRegistry(storage.memento, storage.secrets),
+				logger: makeLogger().logger,
+			};
+		}
+
+		test("runs the engine's maintenance and reports nothing-to-do once complete", async () => {
+			const storage = makeExtensionStorage({
+				[GROUP_MIGRATION_COMPLETE_KEY]: true,
+				[PENDING_SECRET_DELETIONS_KEY]: ["aaaa1111"],
+			});
+			storage.secretStore.set(apiKeySecret("aaaa1111"), "orphaned");
+
+			const outcome = await registryToProviderGroupsMigration.run(makeMigrationContext(storage));
+
+			assert.strictEqual(outcome, "nothing-to-do");
+			assert.strictEqual(storage.secretStore.size, 0, "the pending deletion must be retried through the wrapper");
+		});
+
+		test("finalizes crash-left seeded state and reports migrated", async () => {
+			const storage = makeExtensionStorage();
+			storage.mementoStore.set(SEEDED_PROVIDER_GROUPS_KEY, [
+				{ id: "aaaa1111", name: "Production", label: "Production", baseUrl: "http://prod.test", keyFingerprint: "0" },
+			]);
+
+			const outcome = await registryToProviderGroupsMigration.run(makeMigrationContext(storage));
+
+			assert.strictEqual(outcome, "migrated");
+			assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
+		});
 	});
 });

@@ -22,7 +22,7 @@ suite("host provider-group command semantics", () => {
 		// turn the required CI gate red the day the host ships an unrelated
 		// group command. Both known members are add-shaped: `add` creates a
 		// group from its arguments, `migrate` creates one from a legacy
-		// registry server (driven by extension/groupMigration.ts).
+		// registry server (driven by extension/migrations/registryToProviderGroups.ts).
 		assert.ok(groupCommands.includes("lm.addLanguageModelsProviderGroup"), groupCommands.join(", "));
 		assert.ok(groupCommands.includes("lm.migrateLanguageModelsProviderGroup"), groupCommands.join(", "));
 		const mutators = groupCommands.filter((id) => /remove|delete|update/i.test(id));

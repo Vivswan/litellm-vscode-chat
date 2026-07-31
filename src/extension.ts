@@ -9,13 +9,9 @@ import {
 import { registerDashboardCommand } from "./extension/dashboard/panel";
 import { consumeDevSeed, createDevSeedEnv } from "./extension/devSeed";
 import { registerDiagnosticsCommand } from "./extension/diagnostics";
-import {
-	getMigratedServerLabels,
-	isGroupMigrationComplete,
-	migrateServersToProviderGroups,
-} from "./extension/groupMigration";
 import type { MigrationContext } from "./extension/migrations";
 import { runMigrations } from "./extension/migrations";
+import { getMigratedServerLabels, isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
 import {
 	CONFIGURE_NOW_LABEL,
 	createConfigurationPrompt,
@@ -157,11 +153,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	});
 
 	// Hands registry servers to VS Code as provider groups. The host validates
-	// each group by calling the registered provider, so this runs after
+	// each group by calling the registered provider, so this phase runs after
 	// registration, and off the activation path because it hits the network.
-	void migrateServersToProviderGroups(registry, context.globalState, context.secrets, logger).catch((error) => {
-		logger.error("Provider-group migration failed", error);
-	});
+	void runMigrations("post-registration", migrationContext);
 
 	if (devSeed?.openDashboard) {
 		void vscode.commands.executeCommand(CMD.openDashboard).then(undefined, (error: unknown) => {
