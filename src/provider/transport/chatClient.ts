@@ -278,15 +278,15 @@ export class ChatClient {
 		const promptCachingEnabled = isPromptCachingEnabled();
 		const customHeaders = getCustomHeaders(this.log);
 		const requestTimeout = getRequestTimeout(this.log);
-		// Capability gates for message conversion, both re-narrowed at the host
-		// boundary by parseModelMetadata: the registered imageInput capability
-		// decides whether image DataParts ride the wire, and the LiteLLM-derived
-		// audio metadata decides whether audio DataParts become input_audio.
-		const converted = convertMessages(messages, {
-			log: this.log,
-			imageInput: metadata.imageInput,
-			audioInput: metadata.supportsAudioInput,
-		});
+		// Capability gates for message conversion and token estimation, both
+		// re-narrowed at the host boundary by parseModelMetadata: the registered
+		// imageInput capability decides whether image DataParts ride the wire,
+		// and the LiteLLM-derived audio metadata decides whether audio DataParts
+		// become input_audio. The pre-send limit check below prices the prompt
+		// under the same gates, so it counts the same transmitted forms the
+		// request carries.
+		const wireGates = { imageInput: metadata.imageInput, audioInput: metadata.supportsAudioInput };
+		const converted = convertMessages(messages, { log: this.log, ...wireGates });
 		validateRequest(messages);
 		const toolConfig = convertTools(options);
 
@@ -299,7 +299,7 @@ export class ChatClient {
 				? applyPromptCacheBreakpoints({ messages: converted, tools: toolConfig?.tools })
 				: { messages: converted, tools: toolConfig?.tools };
 
-		const inputTokenCount = estimateMessagesTokens(messages, { includeMultimodal: false });
+		const inputTokenCount = estimateMessagesTokens(messages, wireGates);
 		const toolTokenCount = estimateToolTokens(toolConfig?.tools);
 		const tokenLimit = Math.max(1, model.maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {

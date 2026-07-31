@@ -61,7 +61,23 @@ suite("provider", () => {
 		assert.ok(est > 0);
 	});
 
-	test("provideTokenCount estimates tokens for image parts", async () => {
+	test("provideTokenCount estimates tokens for image parts when the model takes image input", async () => {
+		const provider = makeProvider();
+		const imageData = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+		const msg: vscode.LanguageModelChatMessage = {
+			role: vscode.LanguageModelChatMessageRole.User,
+			content: [new vscode.LanguageModelTextPart("describe"), new vscode.LanguageModelDataPart(imageData, "image/png")],
+			name: undefined,
+		};
+		const est = await provider.provideTokenCount(
+			makeModelInfo({ id: "m", name: "m", maxOutputTokens: 1000, capabilities: { imageInput: true } }),
+			msg,
+			new vscode.CancellationTokenSource().token
+		);
+		assert.ok(est >= 765, `Should estimate at least 765 tokens for the image, got ${est}`);
+	});
+
+	test("provideTokenCount prices an image as zero for a model without image input", async () => {
 		const provider = makeProvider();
 		const imageData = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 		const msg: vscode.LanguageModelChatMessage = {
@@ -74,7 +90,11 @@ suite("provider", () => {
 			msg,
 			new vscode.CancellationTokenSource().token
 		);
-		assert.ok(est >= 765, `Should estimate at least 765 tokens for the image, got ${est}`);
+		assert.strictEqual(
+			est,
+			Math.ceil("describe".length / 4),
+			"conversion drops the image for a non-vision model, so only the text counts"
+		);
 	});
 
 	test("provideLanguageModelChatResponse throws without configuration", async () => {

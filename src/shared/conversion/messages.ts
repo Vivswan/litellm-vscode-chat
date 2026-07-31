@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { audioInputFormatForMime, isImageMimeType, isPdfMimeType, isSafeMimeType, isTextMimeType } from "./mime";
+import { type DataPartWireForm, type DataPartWireGates, dataPartWireForm } from "./dataPartForm";
+import { isImageMimeType, isSafeMimeType, isTextMimeType } from "./mime";
 import { thinkingPartCtor } from "./thinkingPart";
 import type {
 	OpenAIChatContentBlock,
@@ -39,26 +40,30 @@ function imageDataPartToBlock(part: vscode.LanguageModelDataPart): OpenAIChatIma
 	return { type: "image_url", image_url: { url: `data:${part.mimeType.toLowerCase()};base64,${base64}` } };
 }
 
+/** Build the content block for a resolved binary wire form; null for the forms ("text", "none") that carry no block. */
 function convertDataPartToContentBlock(
 	part: vscode.LanguageModelDataPart,
-	options: { imageInput: boolean; audioInput: boolean }
+	wire: DataPartWireForm
 ): OpenAIChatImageUrlContentBlock | OpenAIChatFileContentBlock | OpenAIChatInputAudioContentBlock | null {
 	const mime = part.mimeType.toLowerCase();
-	if (options.imageInput && isImageMimeType(mime)) {
-		return imageDataPartToBlock(part);
+	switch (wire.form) {
+		case "image":
+			return imageDataPartToBlock(part);
+		case "pdf": {
+			const base64 = Buffer.from(part.data).toString("base64");
+			return { type: "file", file: { file_data: `data:${mime};base64,${base64}` } };
+		}
+		case "audio":
+			return {
+				type: "input_audio",
+				input_audio: { data: Buffer.from(part.data).toString("base64"), format: wire.format },
+			};
+		case "text":
+		case "none":
+			return null;
+		default:
+			return wire satisfies never;
 	}
-	if (isPdfMimeType(mime)) {
-		const base64 = Buffer.from(part.data).toString("base64");
-		return { type: "file", file: { file_data: `data:${mime};base64,${base64}` } };
-	}
-	const audioFormat = audioInputFormatForMime(mime);
-	if (options.audioInput && audioFormat !== undefined) {
-		return {
-			type: "input_audio",
-			input_audio: { data: Buffer.from(part.data).toString("base64"), format: audioFormat },
-		};
-	}
-	return null;
 }
 
 function decodeDataPartText(part: vscode.LanguageModelDataPart): string | null {
@@ -68,7 +73,14 @@ function decodeDataPartText(part: vscode.LanguageModelDataPart): string | null {
 	return null;
 }
 
-function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string | null {
+/**
+ * What conversion transmits for a prompt-tsx part: its string value, the JSON
+ * serialization of an object value, or nothing. JSON.stringify itself returns
+ * undefined for values with no JSON rendering (a function, a symbol, a toJSON
+ * that returns undefined), so callers must treat undefined as dropped. Token
+ * estimation prices this same rendering.
+ */
+export function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string | undefined {
 	if (typeof part.value === "string") {
 		return part.value;
 	}
@@ -76,10 +88,10 @@ function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string |
 		try {
 			return JSON.stringify(part.value);
 		} catch {
-			return null;
+			return undefined;
 		}
 	}
-	return null;
+	return undefined;
 }
 
 export function isToolResultPart(value: unknown): value is vscode.LanguageModelToolResultPart {
@@ -117,7 +129,7 @@ interface ToolResultContent {
 
 function collectToolResultContent(
 	pr: vscode.LanguageModelToolResultPart,
-	imageInput: boolean,
+	gates: DataPartWireGates,
 	log?: LogFn
 ): ToolResultContent {
 	const images: OpenAIChatImageUrlContentBlock[] = [];
@@ -126,15 +138,13 @@ function collectToolResultContent(
 		if (c instanceof vscode.LanguageModelTextPart) {
 			text += c.value;
 		} else if (c instanceof vscode.LanguageModelDataPart) {
-			const decoded = decodeDataPartText(c);
-			if (decoded !== null) {
-				text += decoded;
+			const wire = dataPartWireForm(c.mimeType, "toolResult", gates);
+			if (wire.form === "text") {
+				text += decodeDataPartText(c) ?? "";
+			} else if (wire.form === "image") {
+				images.push(imageDataPartToBlock(c));
 			} else if (isImageMimeType(c.mimeType)) {
-				if (imageInput) {
-					images.push(imageDataPartToBlock(c));
-				} else {
-					log?.("Tool returned image data which cannot be forwarded as tool result text");
-				}
+				log?.("Tool returned image data which cannot be forwarded as tool result text");
 			} else {
 				// PDF and audio blocks exist only on user messages; a tool message
 				// has no wire shape for them, so the drop must stay observable like
@@ -247,8 +257,10 @@ export function convertMessages(
 	options?: ConvertMessagesOptions
 ): OpenAIChatMessage[] {
 	const log = options?.log;
-	const imageInput = options?.imageInput === true;
-	const audioInput = options?.audioInput === true;
+	const gates: DataPartWireGates = {
+		imageInput: options?.imageInput === true,
+		audioInput: options?.audioInput === true,
+	};
 	const out: OpenAIChatMessage[] = [];
 	// Tool-result images pending their synthesized user message. OpenAI
 	// requires every tool message of an assistant tool_calls turn to directly
@@ -288,15 +300,16 @@ export function convertMessages(
 				}
 				toolCalls.push({ id, type: "function", function: { name: part.name, arguments: args } });
 			} else if (isToolResultPart(part)) {
-				toolResults.push({ callId: part.callId, content: collectToolResultContent(part, imageInput, log) });
+				toolResults.push({ callId: part.callId, content: collectToolResultContent(part, gates, log) });
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				// Only user messages carry binary content blocks on the wire.
 				// Assistant history may hold model-generated media (surfaced as
 				// DataParts while streaming); there is no assistant-side wire
-				// shape for it, so the part is dropped while the turn's TEXT is
-				// always kept - moving text into contentBlocks here would hand
-				// it to a branch that only user messages ever drain.
-				const block = role === "user" ? convertDataPartToContentBlock(part, { imageInput, audioInput }) : null;
+				// shape for it, so the seam resolves it to "text" or "none" and
+				// the turn's TEXT is always kept - moving text into contentBlocks
+				// here would hand it to a branch that only user messages drain.
+				const wire = dataPartWireForm(part.mimeType, role === "user" ? "user" : "assistant", gates);
+				const block = convertDataPartToContentBlock(part, wire);
 				if (block) {
 					if (textParts.length > 0) {
 						contentBlocks.push({ type: "text", text: textParts.join("") });
