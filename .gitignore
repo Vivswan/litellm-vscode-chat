@@ -33,10 +33,10 @@ package-lock.json
 .dev-seed.json
 
 # Dedicated persistent profile for the dev launcher's Extension Development
-# Host; scripts/dev.ts wipes it whenever the seed configuration changes
+# Host; scripts/dev/dev.ts wipes it whenever the seed configuration changes
 .dev-profile/
 
-# Runtime-generated LiteLLM proxy config (scripts/litellmConfig.ts); every
+# Runtime-generated LiteLLM proxy config (scripts/stack/litellmConfig.ts); every
 # stack startup path regenerates it
 docker/.generated/
 
