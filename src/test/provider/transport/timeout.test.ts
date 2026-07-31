@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { CONFIG_SECTION, MIN_TIMEOUT_MS, NUMBER_SETTING_SPECS } from "../../shared/settingSpec";
+import { CONFIG_SECTION, MIN_TIMEOUT_MS, NUMBER_SETTING_SPECS } from "../../../shared/settingSpec";
 
 suite("Timeout Configuration", () => {
 	// The extension host registered package.json's contributed configuration;

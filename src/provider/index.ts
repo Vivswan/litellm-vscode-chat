@@ -15,15 +15,15 @@ import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../shared/se
 import { isErrorServerStatus } from "../shared/servers";
 import { getDiscoveryCacheTtl, getTokenDefaults } from "../shared/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/tokenEstimation";
-import { ChatClient, type ServerConnection } from "./chatClient";
 import type { ConfigurationPrompt } from "./config";
 import { ensureServers } from "./config";
 import { DiscoveryCache } from "./discoveryCache";
-import { RequestError } from "./errorMapping";
 import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./groupModels";
 import { attachGroupServer, groupClientId, groupServerLabel, markStale, parseGroupConfiguration } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildModelInfos } from "./registration";
+import { ChatClient, type ServerConnection } from "./transport/chatClient";
+import { RequestError } from "./transport/errorMapping";
 
 /**
  * Rolling status entries and their cached clients are evicted when not

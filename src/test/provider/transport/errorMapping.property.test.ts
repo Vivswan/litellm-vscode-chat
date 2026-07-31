@@ -1,9 +1,14 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { APIConnectionTimeoutError, APIError, APIUserAbortError, AuthenticationError } from "openai";
-import { type MapErrorContext, mapSdkError, RequestError, timeoutMessage } from "../../provider/errorMapping";
-import { MANAGE_COMMAND_TITLE } from "../../shared/commandIds";
-import { resolveFuzzSeed } from "../fuzzStream";
+import {
+	type MapErrorContext,
+	mapSdkError,
+	RequestError,
+	timeoutMessage,
+} from "../../../provider/transport/errorMapping";
+import { MANAGE_COMMAND_TITLE } from "../../../shared/commandIds";
+import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.

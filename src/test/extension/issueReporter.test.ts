@@ -3,7 +3,7 @@ import { APIError } from "openai";
 import * as vscode from "vscode";
 import type { DiagnosticsSnapshot } from "../../extension/issueReporter";
 import { IssueReporter, redactSecrets } from "../../extension/issueReporter";
-import { mapSdkError, RequestError } from "../../provider/errorMapping";
+import { mapSdkError, RequestError } from "../../provider/transport/errorMapping";
 import { expectDefined } from "../testUtils";
 
 suite("IssueReporter", () => {

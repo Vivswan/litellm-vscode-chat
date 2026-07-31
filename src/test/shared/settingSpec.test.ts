@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_MAX_TOKENS_CAP } from "../../provider/request";
+import { DEFAULT_MAX_TOKENS_CAP } from "../../provider/transport/request";
 import type { HeaderScalar } from "../../shared/headers";
 import { HEADER_SCALAR_TYPES } from "../../shared/headers";
 import {

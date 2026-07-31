@@ -1,14 +1,14 @@
 import * as vscode from "vscode";
-import type { DataPartCtor } from "../shared/dataPart";
-import { dataPartCtor, logDataPartProbeErrorOnce, logMissingDataPartSupportOnce } from "../shared/dataPart";
-import { isRecord, tryParseJSONObject } from "../shared/json";
-import { isImageMimeType, isSafeMimeType } from "../shared/mime";
-import type { ThinkingPartCtor } from "../shared/thinkingPart";
+import type { DataPartCtor } from "../../shared/dataPart";
+import { dataPartCtor, logDataPartProbeErrorOnce, logMissingDataPartSupportOnce } from "../../shared/dataPart";
+import { isRecord, tryParseJSONObject } from "../../shared/json";
+import { isImageMimeType, isSafeMimeType } from "../../shared/mime";
+import type { ThinkingPartCtor } from "../../shared/thinkingPart";
 import {
 	logMissingThinkingPartSupportOnce,
 	logThinkingPartProbeErrorOnce,
 	thinkingPartCtor,
-} from "../shared/thinkingPart";
+} from "../../shared/thinkingPart";
 import { streamErrorFrame } from "./errorMapping";
 import type { TextParseResult, TextToolCall } from "./textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "./textToolCallParser";

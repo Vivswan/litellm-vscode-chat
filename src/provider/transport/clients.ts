@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { fingerprint } from "../shared/fingerprint";
+import { fingerprint } from "../../shared/fingerprint";
 
 export interface ServerClientConfig {
 	serverId: string;

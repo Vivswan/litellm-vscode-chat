@@ -1,4 +1,4 @@
-import { isRecord } from "../shared/json";
+import { isRecord } from "../../shared/json";
 
 /**
  * Streaming wire format for /v1/chat/completions SSE chunks, and the lenient

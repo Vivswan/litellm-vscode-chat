@@ -12,7 +12,7 @@ import {
 	RequestError,
 	streamErrorFrame,
 	timeoutMessage,
-} from "../../provider/errorMapping";
+} from "../../../provider/transport/errorMapping";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
@@ -34,7 +34,7 @@ function expectRequestError(mapped: Error, kind: RequestError["kind"]): RequestE
 	return mapped;
 }
 
-suite("provider/errorMapping", () => {
+suite("provider/transport/errorMapping", () => {
 	suite("HTTP status errors", () => {
 		test("401 maps to the authentication message on both surfaces", () => {
 			const err = new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers());

@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { ChatClient } from "../../provider/chatClient";
-import type { LiteLLMModelInfo } from "../../provider/groupModels";
-import { withConfig, withFetch } from "../testUtils";
+import type { LiteLLMModelInfo } from "../../../provider/groupModels";
+import { ChatClient } from "../../../provider/transport/chatClient";
+import { withConfig, withFetch } from "../../testUtils";
 
 function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: string): void; close(): void } {
 	let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -64,7 +64,7 @@ const options = {
 	toolMode: vscode.LanguageModelChatToolMode.Auto,
 } as unknown as vscode.ProvideLanguageModelChatResponseOptions;
 
-suite("provider/chatClient", () => {
+suite("provider/transport/chatClient", () => {
 	// These tests stay on withFetch: they observe interleaved stream delivery
 	// across concurrent requests, AbortSignal wiring, and injected transport
 	// errors, none of which msw handlers can express.

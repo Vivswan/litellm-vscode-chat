@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import * as vscode from "vscode";
-import { StreamProcessor } from "../../provider/streaming";
-import { parseChunk } from "../../provider/wire";
-import type { FuzzEvent } from "../fuzzCorpus";
+import { StreamProcessor } from "../../../provider/transport/streaming";
+import { parseChunk } from "../../../provider/transport/wire";
+import type { FuzzEvent } from "../../fuzzCorpus";
 import {
 	assemble,
 	chunkOf,
@@ -13,7 +13,7 @@ import {
 	PROPERTY_EVENT_KIND_WEIGHTS,
 	resolveFuzzSeed,
 	TAIL_EVENT_KINDS,
-} from "../fuzzStream";
+} from "../../fuzzStream";
 
 /**
  * In-process property fuzzing of StreamProcessor's tool-call accounting: the

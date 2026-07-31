@@ -2,14 +2,14 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { RequestError } from "../../provider/errorMapping";
-import { StreamProcessor } from "../../provider/streaming";
-import type { DataPartCtor } from "../../shared/dataPart";
-import { resetDataPartLogOnce } from "../../shared/dataPart";
-import type { ThinkingPartCtor } from "../../shared/thinkingPart";
-import { resetThinkingPartLogOnce } from "../../shared/thinkingPart";
-import { BUILTIN_SCENARIOS } from "../scenarios";
-import { expectDefined } from "../testUtils";
+import { RequestError } from "../../../provider/transport/errorMapping";
+import { StreamProcessor } from "../../../provider/transport/streaming";
+import type { DataPartCtor } from "../../../shared/dataPart";
+import { resetDataPartLogOnce } from "../../../shared/dataPart";
+import type { ThinkingPartCtor } from "../../../shared/thinkingPart";
+import { resetThinkingPartLogOnce } from "../../../shared/thinkingPart";
+import { BUILTIN_SCENARIOS } from "../../scenarios";
+import { expectDefined } from "../../testUtils";
 
 /** A standalone tool-call ID source with an observable count, mirroring the ChatClient's. */
 function idSource(): { next(): number; readonly count: number } {
@@ -89,7 +89,7 @@ async function playChunks(
 	await stream.processStreamingResponse(sseStream(lines), progress, new vscode.CancellationTokenSource().token);
 }
 
-suite("provider/streaming", () => {
+suite("provider/transport/streaming", () => {
 	test("processDelta emits text content from string delta", async () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const parts: vscode.LanguageModelResponsePart[] = [];
@@ -2315,7 +2315,7 @@ suite("provider/streaming progress funnel", () => {
 		// stream whose only output is its trailers still dropped whatever
 		// reasoning it had).
 		const source = fs.readFileSync(
-			path.resolve(__dirname, "..", "..", "..", "src", "provider", "streaming.ts"),
+			path.resolve(__dirname, "..", "..", "..", "..", "src", "provider", "transport", "streaming.ts"),
 			"utf8"
 		);
 		const calls = source.match(/progress\.report\(/g) ?? [];

@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
-import { type OAuthConfig, OAuthTokenSource, oauthCredentialFingerprint } from "../../provider/auth";
-import { RequestError } from "../../provider/errorMapping";
-import { mswServer, useMsw } from "../mocks/handlers";
+import { type OAuthConfig, OAuthTokenSource, oauthCredentialFingerprint } from "../../../provider/transport/auth";
+import { RequestError } from "../../../provider/transport/errorMapping";
+import { mswServer, useMsw } from "../../mocks/handlers";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
 
@@ -42,7 +42,7 @@ async function expectRequestError(promise: Promise<unknown>, kind: RequestError[
 	assert.fail("expected the promise to reject");
 }
 
-suite("provider/auth", () => {
+suite("provider/transport/auth", () => {
 	useMsw();
 
 	suite("token exchange", () => {
