@@ -627,10 +627,12 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(opus.longContextOutputCost, 37.5);
 			assert.strictEqual(opus.longContextCacheCost, 1);
 			assert.strictEqual(opus.longContextCacheWriteCost, 12.5);
+			assert.strictEqual(opus.priceCategory, "high", "blended (3*5+25)/4 = 10 lands in the high band");
 
 			const pair = expectDefined(byId.get("gpt-5.2"));
 			assert.strictEqual(pair.inputCost, 1.25);
 			assert.strictEqual(pair.outputCost, 10);
+			assert.strictEqual(pair.priceCategory, "medium", "blended (3*1.25+10)/4 = 3.4375 lands in the medium band");
 			// Flat pricing without caching means ALL six optional fields stay
 			// absent, not just a sample of them.
 			assert.strictEqual(pair.cacheCost, undefined, "no cache read cost without advertised caching");
@@ -646,6 +648,7 @@ suite("Docker LiteLLM stack", () => {
 			const scout = expectDefined(byId.get("llama-4-scout"));
 			assert.strictEqual(scout.inputCost, undefined);
 			assert.strictEqual(scout.outputCost, undefined);
+			assert.strictEqual(scout.priceCategory, undefined, "undeclared pricing derives no cost badge");
 		});
 	});
 

@@ -1,11 +1,16 @@
 import * as assert from "node:assert";
+import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../provider";
 import { RequestError } from "../provider/errorMapping";
 import { buildModelInfos } from "../provider/registration";
+import { resolveFuzzSeed } from "./fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "./mocks/handlers";
 import { expectDefined, makeModelInfo, makeProvider, userMessage, withFetch } from "./testUtils";
+
+const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
+const SEED = resolveFuzzSeed();
 
 suite("provider", () => {
 	test("provideLanguageModelChatInformation returns empty array with no configured servers", async () => {
@@ -433,6 +438,7 @@ suite("provider", () => {
 			assert.strictEqual(sole.cacheCost, 0.3);
 			assert.strictEqual(sole.cacheWriteCost, 3.75);
 			assert.strictEqual(sole.pricing, undefined, "the display label stays unset; the numeric fields already render");
+			assert.strictEqual(sole.priceCategory, "medium", "blended (3*3+15)/4 = 6 lands in the medium band");
 			assert.deepStrictEqual(
 				Object.keys(sole).sort(),
 				[
@@ -450,6 +456,7 @@ suite("provider", () => {
 					"maxOutputTokens",
 					"name",
 					"outputCost",
+					"priceCategory",
 					"tooltip",
 					"version",
 				],
@@ -459,6 +466,7 @@ suite("provider", () => {
 			const free = expectDefined(byId.get("free"));
 			assert.strictEqual(free.inputCost, 0, "a zero cost NOT paired with a zero output registers as 0");
 			assert.ok(!("outputCost" in free), "a cost that overflows the per-million conversion is omitted, not Infinity");
+			assert.ok(!("priceCategory" in free), "one-sided pricing is an incomplete signal and derives no category");
 
 			// LiteLLM stamps 0/0 onto undeclared pricing (observed on v1.93), so
 			// the zero PAIR reads as undeclared and drops the whole block - even
@@ -473,6 +481,7 @@ suite("provider", () => {
 				"longContextOutputCost",
 				"longContextCacheCost",
 				"longContextCacheWriteCost",
+				"priceCategory",
 			] as const) {
 				assert.ok(!(key in stamped), `a zero input/output pair must register with no ${key}`);
 			}
@@ -483,10 +492,11 @@ suite("provider", () => {
 				!("outputCost" in expectDefined(byId.get("multi:groq"))),
 				"a malformed string cost on a providers-array entry degrades to absent"
 			);
+			assert.ok(!("priceCategory" in expectDefined(byId.get("multi:groq"))), "input-only pricing derives no category");
 
 			for (const id of ["bare", "multi:cheapest", "multi:fastest"]) {
 				const info = expectDefined(byId.get(id), `missing entry ${id}`);
-				for (const key of ["inputCost", "outputCost", "cacheCost", "cacheWriteCost"] as const) {
+				for (const key of ["inputCost", "outputCost", "cacheCost", "cacheWriteCost", "priceCategory"] as const) {
 					assert.ok(!(key in info), `${id} must not advertise a ${key} its routing does not pin`);
 				}
 			}
@@ -583,6 +593,7 @@ suite("provider", () => {
 					"maxOutputTokens",
 					"name",
 					"outputCost",
+					"priceCategory",
 					"tooltip",
 					"version",
 				],
@@ -614,6 +625,90 @@ suite("provider", () => {
 					assert.ok(!(key in info), `${id} must not advertise a ${key} its routing does not pin`);
 				}
 			}
+		});
+
+		test("priceCategory bands follow the blended base cost, unmoved by long-context tiers", () => {
+			// Symmetric input/output costs make the blend equal the per-million
+			// cost itself ((3x + x) / 4 = x), so each case pins one band boundary
+			// exactly after the per-million conversion.
+			const boundaries: ReadonlyArray<[number, string]> = [
+				[0.99, "low"],
+				[1, "medium"],
+				[7.99, "medium"],
+				[8, "high"],
+				[39.99, "high"],
+				[40, "very_high"],
+			];
+			const { infos } = buildModelInfos(
+				boundaries.map(([perMillion]) => ({
+					id: `m-${perMillion}`,
+					shape: {
+						kind: "deployment" as const,
+						provider: {
+							provider: "openai",
+							status: "ok",
+							input_cost_per_token: perMillion / 1_000_000,
+							output_cost_per_token: perMillion / 1_000_000,
+							// The tier price describes an opt-in regime; it must not move the band.
+							long_context_input_cost_per_token: 1,
+							long_context_output_cost_per_token: 1,
+						},
+					},
+				})),
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				1,
+				() => {},
+				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+			);
+			const byId = new Map(infos.map((i) => [i.id, i]));
+			for (const [perMillion, category] of boundaries) {
+				assert.strictEqual(
+					expectDefined(byId.get(`m-${perMillion}`)).priceCategory,
+					category,
+					`blended ${perMillion} per million`
+				);
+			}
+		});
+
+		test("priceCategory is always one of the four literals the host renders", () => {
+			// The host renders any other string through a capitalized "<Foo> cost"
+			// fallback, so the derivation may only ever emit the known four.
+			const KNOWN = ["low", "medium", "high", "very_high"];
+			const costArb = fc.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true });
+			fc.assert(
+				fc.property(costArb, costArb, (inputPerToken, outputPerToken) => {
+					const { infos } = buildModelInfos(
+						[
+							{
+								id: "m",
+								shape: {
+									kind: "deployment",
+									provider: {
+										provider: "openai",
+										status: "ok",
+										input_cost_per_token: inputPerToken,
+										output_cost_per_token: outputPerToken,
+									},
+								},
+							},
+						],
+						{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+						1,
+						() => {},
+						{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+					);
+					const info = expectDefined(infos[0]);
+					if (info.priceCategory !== undefined) {
+						assert.ok(KNOWN.includes(info.priceCategory), `unknown category ${info.priceCategory}`);
+					}
+					if (info.inputCost !== undefined && info.outputCost !== undefined) {
+						assert.ok(info.priceCategory !== undefined, "a two-sided price always derives a category");
+					} else {
+						assert.ok(!("priceCategory" in info), "no category without both base costs");
+					}
+				}),
+				{ numRuns: NUM_RUNS, seed: SEED }
+			);
 		});
 	});
 });

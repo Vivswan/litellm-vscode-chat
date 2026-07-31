@@ -81,6 +81,7 @@ suite("provider groups", () => {
 		const info = expectDefined(infos[0]);
 		assert.strictEqual(info.inputCost, 3, "attachGroupServer must not drop the pricing fields");
 		assert.strictEqual(info.outputCost, 15);
+		assert.strictEqual(info.priceCategory, "medium", "the derived cost badge survives the group path end to end");
 		assert.strictEqual(info.longContextInputCost, 6, "the tiered cost survives the group path end to end");
 		assert.ok(!("longContextOutputCost" in info), "tier costs the server never reported stay absent");
 		assert.ok(!("cacheCost" in info), "costs the server never reported stay absent");
