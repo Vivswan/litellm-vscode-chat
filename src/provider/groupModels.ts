@@ -1,4 +1,5 @@
 import type { LanguageModelChatInformation } from "vscode";
+import { ThemeIcon } from "vscode";
 import type { NormalizedBaseUrl } from "../shared/baseUrl";
 import { normalizeBaseUrl } from "../shared/baseUrl";
 import { fingerprint } from "../shared/fingerprint";
@@ -233,6 +234,28 @@ export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer)
 			server,
 		},
 	};
+}
+
+/**
+ * Decorate a stale-served model set: a group whose latest silent refresh
+ * failed serves its last known models with the picker's warning icon and a
+ * hover banner instead of vanishing. The signature accepts and returns
+ * AttachedModelInfo only, so decorated copies cannot enter the discovery
+ * cache, the status window, or a dashboard snapshot - those hold
+ * PreAttachModelInfo, and attachment happens on every read, so the next
+ * successful sweep clears the decoration by construction. The banner is a
+ * fixed classification plus timestamp: the failure's display string is
+ * response-derived and must not ride model metadata into hovers.
+ */
+export function markStale(infos: readonly AttachedModelInfo[], lastChecked: string): AttachedModelInfo[] {
+	const warningText = {
+		connectivity: `The server was unreachable at ${lastChecked}; showing the last models it reported.`,
+	};
+	return infos.map((info) => ({
+		...info,
+		statusIcon: new ThemeIcon("warning"),
+		warningText,
+	}));
 }
 
 /**

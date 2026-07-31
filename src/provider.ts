@@ -14,7 +14,13 @@ import type { ConfigurationPrompt } from "./provider/config";
 import { ensureServers } from "./provider/config";
 import { DiscoveryCache } from "./provider/discoveryCache";
 import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./provider/groupModels";
-import { attachGroupServer, groupClientId, groupServerLabel, parseGroupConfiguration } from "./provider/groupModels";
+import {
+	attachGroupServer,
+	groupClientId,
+	groupServerLabel,
+	markStale,
+	parseGroupConfiguration,
+} from "./provider/groupModels";
 import type { ModelRoute } from "./provider/modelCatalog";
 import { buildModelInfos } from "./provider/registration";
 import type { Logger, LogSafeErrorText } from "./shared/logger";
@@ -471,9 +477,19 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// Like the registry sweep: both status renderings are constructed at
 			// this boundary (see statusErrorTexts).
 			const texts = statusErrorTexts(error);
-			this.reportGroupStatus(server, groupServer, silent, { state: "error", ...texts }, []);
+			// The window's last known models ride along with the error status, so
+			// a group that just failed does not lose its last-served set: a silent
+			// refresh returns those models decorated as stale (warning icon plus
+			// hover banner) instead of making them vanish, and consecutive
+			// failures keep re-recording the retained set. The window is the
+			// honest source here - it is this session's live state, unlike the
+			// extension layer's persisted status, which can be a stale prior
+			// session's. Test Connection (non-silent) still throws.
+			const lastChecked = new Date().toISOString();
+			const retained = this._serverStatuses.get(server.id)?.models ?? [];
+			this.reportGroupStatus(server, groupServer, silent, { state: "error", ...texts }, retained);
 			if (silent) {
-				return [];
+				return markStale(attach(retained), lastChecked);
 			}
 			throw error instanceof Error ? error : new Error(texts.error);
 		}

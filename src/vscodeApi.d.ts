@@ -14,14 +14,15 @@
  * once a published @types/vscode declares it.
  *
  * Do not add `capabilities.editTools` here: the host throws for extensions
- * that set it without the chatProvider proposal enabled. `priceCategory` is
- * verified: the host copies it with no proposal check in
- * extHostLanguageModels.ts's $provideLanguageModelChatInfo mapping and
- * renders it vendor-agnostically (the model picker hover's cost badge in
- * modelPickerHover.ts, and the row's ariaDescription in
- * modelPickerItemPrimitives.ts). languageModelPricing's `category` stays
- * excluded deliberately: it renders fine (a hover tag), but LiteLLM's model
- * data cannot honestly populate a capability tier, so do not add it.
+ * that set it without the chatProvider proposal enabled. `priceCategory`,
+ * `statusIcon`, and `warningText` are verified: the host copies them with no
+ * proposal check in extHostLanguageModels.ts's $provideLanguageModelChatInfo
+ * mapping and renders them vendor-agnostically (the model picker hover's
+ * cost badge and warning banner in modelPickerHover.ts, the row icon and
+ * ariaDescription in modelPickerItemPrimitives.ts). languageModelPricing's
+ * `category` stays excluded deliberately: it renders fine (a hover tag), but
+ * LiteLLM's model data cannot honestly populate a capability tier, so do not
+ * add it.
  */
 declare module "vscode" {
 	/**
@@ -112,6 +113,15 @@ declare module "vscode" {
 		 * Displayed in the model picker as a visual indicator of relative cost.
 		 */
 		readonly priceCategory?: string;
+
+		readonly statusIcon?: ThemeIcon;
+
+		/**
+		 * Optional warning text to display in the model picker hover as a warning banner.
+		 * The keys are warning categories (e.g. "data_retention") and the values are markdown strings.
+		 * Unlike degradation warnings, this does not produce a warning icon in the picker list.
+		 */
+		readonly warningText?: Record<string, string>;
 	}
 
 	export interface PrepareLanguageModelChatModelOptions {
