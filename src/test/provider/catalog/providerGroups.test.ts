@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
-import { RequestError } from "../../provider/transport/errorMapping";
-import type { AggregatedStatus } from "../../shared/servers";
+import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
+import { RequestError } from "../../../provider/transport/errorMapping";
+import type { AggregatedStatus } from "../../../shared/servers";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
@@ -14,7 +14,7 @@ import {
 	sseTextResponse,
 	TEST_BASE_URL,
 	useMsw,
-} from "../mocks/handlers";
+} from "../../mocks/handlers";
 import {
 	DEFAULT_DISCOVERY_PAYLOAD,
 	expectDefined,
@@ -23,7 +23,7 @@ import {
 	toHeaderMap,
 	userMessage,
 	withConfig,
-} from "../testUtils";
+} from "../../testUtils";
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
 function groupOptions(configuration: unknown, silent = true): { silent: boolean } {

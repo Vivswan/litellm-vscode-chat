@@ -25,6 +25,7 @@ export default defineConfig({
 				"out/test/fakeStack/*.test.js",
 				"out/test/shared/*.test.js",
 				"out/test/provider/*.test.js",
+				"out/test/provider/catalog/*.test.js",
 				"out/test/provider/transport/*.test.js",
 				"out/test/extension/*.test.js",
 				"out/test/extension/dashboard/*.test.js",

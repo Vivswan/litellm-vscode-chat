@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { ServerModelsSnapshot } from "../provider";
-import { isGroupClientId } from "../provider/groupModels";
+import { isGroupClientId } from "../provider/catalog/groupModels";
 import { normalizeBaseUrl } from "../shared/baseUrl";
 import { CMD, INTERNAL_CMD } from "../shared/commandIds";
 import type { SecretFieldId, SecretLocation } from "../shared/serverEntry";

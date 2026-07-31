@@ -3,7 +3,7 @@ import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../provider";
-import { buildModelInfos } from "../../provider/registration";
+import { buildModelInfos } from "../../provider/catalog/registration";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";

@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import type { AggregatedStatus } from "../../shared/servers";
+import type { AggregatedStatus } from "../../../shared/servers";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
@@ -11,8 +11,8 @@ import {
 	sseTextResponse,
 	TEST_BASE_URL,
 	useMsw,
-} from "../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, toHeaderMap, userMessage } from "../testUtils";
+} from "../../mocks/handlers";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, toHeaderMap, userMessage } from "../../testUtils";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
 

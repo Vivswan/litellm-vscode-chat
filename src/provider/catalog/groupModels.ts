@@ -1,15 +1,15 @@
 import type { LanguageModelChatInformation } from "vscode";
 import { ThemeIcon } from "vscode";
-import type { NormalizedBaseUrl } from "../shared/baseUrl";
-import { normalizeBaseUrl } from "../shared/baseUrl";
-import { fingerprint } from "../shared/fingerprint";
-import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../shared/headers";
-import { isRecord } from "../shared/json";
-import type { OptionalEntryFieldId } from "../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS } from "../shared/serverEntry";
+import type { NormalizedBaseUrl } from "../../shared/baseUrl";
+import { normalizeBaseUrl } from "../../shared/baseUrl";
+import { fingerprint } from "../../shared/fingerprint";
+import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../shared/headers";
+import { isRecord } from "../../shared/json";
+import type { OptionalEntryFieldId } from "../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS } from "../../shared/serverEntry";
+import type { OAuthConfig, VirtualKeyConfig } from "../transport/auth";
+import { oauthCredentialFingerprint } from "../transport/auth";
 import type { OutputLimitSource } from "./schemas";
-import type { OAuthConfig, VirtualKeyConfig } from "./transport/auth";
-import { oauthCredentialFingerprint } from "./transport/auth";
 
 /**
  * Support for VS Code-managed provider groups. The host stores one

@@ -18,7 +18,7 @@
  */
 
 import * as vscode from "vscode";
-import { groupClientId, parseGroupConfiguration } from "../provider/groupModels";
+import { groupClientId, parseGroupConfiguration } from "../provider/catalog/groupModels";
 import { CMD, INTERNAL_CMD, VENDOR_ID } from "../shared/commandIds";
 import { fingerprint } from "../shared/fingerprint";
 import { isRecord, isUnsafeRecordKey } from "../shared/json";

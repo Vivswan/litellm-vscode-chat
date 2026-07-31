@@ -2,7 +2,7 @@ import { fingerprint } from "../../shared/fingerprint";
 import { isValidHeaderValue } from "../../shared/headers";
 import { isRecord } from "../../shared/json";
 import { CONFIG_SECTION } from "../../shared/settingSpec";
-import { DISCOVERY_MAX_RETRIES } from "../discovery";
+import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
 import { RequestError } from "./errorMapping";
 
 /**

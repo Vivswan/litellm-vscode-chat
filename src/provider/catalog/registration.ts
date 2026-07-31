@@ -1,7 +1,7 @@
 import type { LanguageModelChatInformation } from "vscode";
-import { normalizeCostPerToken } from "../shared/numbers";
-import type { ServerWithKey } from "../shared/servers";
-import type { TokenDefaults } from "../shared/settings";
+import { normalizeCostPerToken } from "../../shared/numbers";
+import type { ServerWithKey } from "../../shared/servers";
+import type { TokenDefaults } from "../../shared/settings";
 import type { PreAttachModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildExposedModelId, collapseTokenConstraints, deriveTokenConstraints } from "./modelCatalog";

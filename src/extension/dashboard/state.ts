@@ -11,8 +11,8 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { ServerModelsSnapshot } from "../../provider";
-import type { GroupServer, PreAttachModelInfo } from "../../provider/groupModels";
-import { modelSupportsPromptCaching } from "../../provider/groupModels";
+import type { GroupServer, PreAttachModelInfo } from "../../provider/catalog/groupModels";
+import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
 import { normalizeBaseUrl } from "../../shared/baseUrl";
 import { CMD, INTERNAL_CMD } from "../../shared/commandIds";
 import { fingerprint } from "../../shared/fingerprint";

@@ -8,12 +8,12 @@ import {
 	type PreAttachModelInfo,
 	parseGroupConfiguration,
 	parseModelMetadata,
-} from "../../provider/groupModels";
-import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
-import { oauthCredentialFingerprint } from "../../provider/transport/auth";
-import { normalizeBaseUrl } from "../../shared/baseUrl";
-import { fingerprint } from "../../shared/fingerprint";
-import { expectDefined, makeModelInfo } from "../testUtils";
+} from "../../../provider/catalog/groupModels";
+import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
+import { oauthCredentialFingerprint } from "../../../provider/transport/auth";
+import { normalizeBaseUrl } from "../../../shared/baseUrl";
+import { fingerprint } from "../../../shared/fingerprint";
+import { expectDefined, makeModelInfo } from "../../testUtils";
 
 const OAUTH_FIELDS = {
 	oauthTokenUrl: "http://idp.test/oauth2/token",
@@ -22,7 +22,7 @@ const OAUTH_FIELDS = {
 	oauthScopes: "read write",
 };
 
-suite("provider/groupModels", () => {
+suite("provider/catalog/groupModels", () => {
 	suite("parseGroupConfiguration", () => {
 		test("a full OAuth configuration yields the oauth unit with trimmed fields", () => {
 			const server = expectDefined(

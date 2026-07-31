@@ -7,14 +7,14 @@ import {
 	mapModelInfoEntry,
 	normalizeModelItem,
 	parseModelInfoItem,
-} from "../../provider/discovery";
-import type { LiteLLMProvider, RawModelItem } from "../../provider/schemas";
-import { createServerClient } from "../../provider/transport/clients";
-import { normalizeCostPerToken } from "../../shared/numbers";
-import type { TokenDefaults } from "../../shared/settings";
-import { resolveFuzzSeed } from "../fuzzStream";
-import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { expectDefined } from "../testUtils";
+} from "../../../provider/catalog/discovery";
+import type { LiteLLMProvider, RawModelItem } from "../../../provider/catalog/schemas";
+import { createServerClient } from "../../../provider/transport/clients";
+import { normalizeCostPerToken } from "../../../shared/numbers";
+import type { TokenDefaults } from "../../../shared/settings";
+import { resolveFuzzSeed } from "../../fuzzStream";
+import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
+import { expectDefined } from "../../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.

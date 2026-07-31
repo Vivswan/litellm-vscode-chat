@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { createHash } from "node:crypto";
 import * as vscode from "vscode";
-import { REASONING_EFFORT_SCHEMA } from "../provider/modelConfiguration";
+import { REASONING_EFFORT_SCHEMA } from "../provider/catalog/modelConfiguration";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL, COMMANDS, FALLBACK_TEXT, PNG_SHA256, WAV_SHA256 } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";

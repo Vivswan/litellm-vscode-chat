@@ -1,13 +1,13 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { LiteLLMChatModelProvider } from "../../provider";
-import { DiscoveryCache } from "../../provider/discoveryCache";
-import { groupClientId, type PreAttachModelInfo } from "../../provider/groupModels";
-import { normalizeBaseUrl } from "../../shared/baseUrl";
-import type { AggregatedStatus } from "../../shared/servers";
-import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, withConfig } from "../testUtils";
+import { LiteLLMChatModelProvider } from "../../../provider";
+import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
+import { groupClientId, type PreAttachModelInfo } from "../../../provider/catalog/groupModels";
+import { normalizeBaseUrl } from "../../../shared/baseUrl";
+import type { AggregatedStatus } from "../../../shared/servers";
+import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, withConfig } from "../../testUtils";
 
 /** A manually advanced clock: the cache's one injectable time seam. */
 function makeClock(start = 0): { now: () => number; advance: (ms: number) => void } {
@@ -20,7 +20,7 @@ function makeClock(start = 0): { now: () => number; advance: (ms: number) => voi
 	};
 }
 
-suite("provider/discoveryCache", () => {
+suite("provider/catalog/discoveryCache", () => {
 	test("concurrent fetches for one key share a single load", async () => {
 		const cache = new DiscoveryCache<string>(makeClock().now);
 		let loads = 0;

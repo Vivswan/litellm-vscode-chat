@@ -15,13 +15,19 @@ import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../shared/se
 import { isErrorServerStatus } from "../shared/servers";
 import { getDiscoveryCacheTtl, getTokenDefaults } from "../shared/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/tokenEstimation";
+import { DiscoveryCache } from "./catalog/discoveryCache";
+import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./catalog/groupModels";
+import {
+	attachGroupServer,
+	groupClientId,
+	groupServerLabel,
+	markStale,
+	parseGroupConfiguration,
+} from "./catalog/groupModels";
+import type { ModelRoute } from "./catalog/modelCatalog";
+import { buildModelInfos } from "./catalog/registration";
 import type { ConfigurationPrompt } from "./config";
 import { ensureServers } from "./config";
-import { DiscoveryCache } from "./discoveryCache";
-import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./groupModels";
-import { attachGroupServer, groupClientId, groupServerLabel, markStale, parseGroupConfiguration } from "./groupModels";
-import type { ModelRoute } from "./modelCatalog";
-import { buildModelInfos } from "./registration";
 import { ChatClient, type ServerConnection } from "./transport/chatClient";
 import { RequestError } from "./transport/errorMapping";
 

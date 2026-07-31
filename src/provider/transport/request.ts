@@ -1,8 +1,8 @@
 import { getModelParametersConfig } from "../../shared/settings";
 import type { ToolConfig } from "../../shared/tools";
 import type { OpenAIChatMessage } from "../../shared/wire";
-import type { ModelRoute } from "../modelCatalog";
-import type { ModelConfigurationRequestParams } from "../modelConfiguration";
+import type { ModelRoute } from "../catalog/modelCatalog";
+import type { ModelConfigurationRequestParams } from "../catalog/modelConfiguration";
 
 /**
  * Cap on the fallback max_tokens when neither runtime options nor configured

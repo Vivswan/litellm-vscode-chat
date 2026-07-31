@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
-import { buildModelInfos } from "../../provider/registration";
-import { supportsTools } from "../../provider/schemas";
+import { buildModelInfos } from "../../../provider/catalog/registration";
+import { supportsTools } from "../../../provider/catalog/schemas";
 
-suite("provider/schemas", () => {
+suite("provider/catalog/schemas", () => {
 	suite("supportsTools", () => {
 		test("an explicit false is the only veto", () => {
 			assert.strictEqual(supportsTools({ provider: "openai", status: "ok", supports_tools: false }), false);

@@ -1,13 +1,13 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { mapModelInfoEntry, mergeModelDeployments, parseModelInfoItem } from "../../provider/discovery";
-import { deriveTokenConstraints } from "../../provider/modelCatalog";
-import { buildModelInfos } from "../../provider/registration";
-import type { LiteLLMProvider, ModelInfoFields } from "../../provider/schemas";
-import { supportsTools } from "../../provider/schemas";
-import type { TokenDefaults } from "../../shared/settings";
-import { resolveFuzzSeed } from "../fuzzStream";
-import { expectDefined } from "../testUtils";
+import { mapModelInfoEntry, mergeModelDeployments, parseModelInfoItem } from "../../../provider/catalog/discovery";
+import { deriveTokenConstraints } from "../../../provider/catalog/modelCatalog";
+import { buildModelInfos } from "../../../provider/catalog/registration";
+import type { LiteLLMProvider, ModelInfoFields } from "../../../provider/catalog/schemas";
+import { supportsTools } from "../../../provider/catalog/schemas";
+import type { TokenDefaults } from "../../../shared/settings";
+import { resolveFuzzSeed } from "../../fuzzStream";
+import { expectDefined } from "../../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.

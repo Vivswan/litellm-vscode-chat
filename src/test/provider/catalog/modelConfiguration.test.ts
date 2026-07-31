@@ -4,11 +4,11 @@ import {
 	REASONING_EFFORT_SCHEMA,
 	requestParamsFromModelConfiguration,
 	supportsReasoningEffort,
-} from "../../provider/modelConfiguration";
-import type { LiteLLMProvider } from "../../provider/schemas";
-import { expectDefined } from "../testUtils";
+} from "../../../provider/catalog/modelConfiguration";
+import type { LiteLLMProvider } from "../../../provider/catalog/schemas";
+import { expectDefined } from "../../testUtils";
 
-suite("provider/modelConfiguration", () => {
+suite("provider/catalog/modelConfiguration", () => {
 	suite("reasoning-effort schema", () => {
 		const property = () => expectDefined(REASONING_EFFORT_SCHEMA.properties?.reasoningEffort);
 

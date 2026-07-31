@@ -1,5 +1,5 @@
 import type { LanguageModelConfigurationSchema } from "vscode";
-import { isRecord } from "../shared/json";
+import { isRecord } from "../../shared/json";
 import type { LiteLLMProvider } from "./schemas";
 
 /**
