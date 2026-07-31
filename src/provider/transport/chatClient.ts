@@ -1,32 +1,32 @@
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
-import type { NormalizedBaseUrl } from "../shared/baseUrl";
-import { normalizeBaseUrl } from "../shared/baseUrl";
-import { isRecord } from "../shared/json";
-import type { Logger } from "../shared/logger";
-import { convertMessages } from "../shared/messages";
-import { applyPromptCacheBreakpoints } from "../shared/promptCache";
-import type { ServerWithKey } from "../shared/servers";
+import type { NormalizedBaseUrl } from "../../shared/baseUrl";
+import { normalizeBaseUrl } from "../../shared/baseUrl";
+import { isRecord } from "../../shared/json";
+import type { Logger } from "../../shared/logger";
+import { convertMessages } from "../../shared/messages";
+import { applyPromptCacheBreakpoints } from "../../shared/promptCache";
+import type { ServerWithKey } from "../../shared/servers";
 import {
 	getCustomHeaders,
 	getDiscoveryTimeout,
 	getRequestTimeout,
 	isPromptCachingEnabled,
 	type TokenDefaults,
-} from "../shared/settings";
-import { estimateMessagesTokens, estimateToolTokens } from "../shared/tokenEstimation";
-import { convertTools } from "../shared/tools";
-import { validateRequest } from "../shared/validation";
+} from "../../shared/settings";
+import { estimateMessagesTokens, estimateToolTokens } from "../../shared/tokenEstimation";
+import { convertTools } from "../../shared/tools";
+import { validateRequest } from "../../shared/validation";
+import { resolveServer } from "../config";
+import type { FetchModelsResult } from "../discovery";
+import { fetchModels } from "../discovery";
+import type { GroupServer, LiteLLMModelInfo } from "../groupModels";
+import { groupClientId, parseModelMetadata } from "../groupModels";
+import type { ModelRoute } from "../modelCatalog";
+import { requestParamsFromModelConfiguration } from "../modelConfiguration";
 import { type OAuthConfig, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
-import { resolveServer } from "./config";
-import type { FetchModelsResult } from "./discovery";
-import { fetchModels } from "./discovery";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
-import type { GroupServer, LiteLLMModelInfo } from "./groupModels";
-import { groupClientId, parseModelMetadata } from "./groupModels";
-import type { ModelRoute } from "./modelCatalog";
-import { requestParamsFromModelConfiguration } from "./modelConfiguration";
 import { buildRequestBody, DEFAULT_MAX_TOKENS_CAP, getModelParameters, MAX_TOOLS_PER_REQUEST } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";

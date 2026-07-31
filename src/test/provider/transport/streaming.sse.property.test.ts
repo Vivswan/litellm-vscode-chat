@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import * as vscode from "vscode";
-import { StreamProcessor } from "../../provider/streaming";
-import type { FuzzEvent } from "../fuzzCorpus";
+import { StreamProcessor } from "../../../provider/transport/streaming";
+import type { FuzzEvent } from "../../fuzzCorpus";
 import {
 	assemble,
 	chunkOf,
@@ -11,7 +11,7 @@ import {
 	PROPERTY_EVENT_KIND_WEIGHTS,
 	resolveFuzzSeed,
 	UNICODE_WORDS,
-} from "../fuzzStream";
+} from "../../fuzzStream";
 
 /**
  * Byte-level fuzzing of the SSE transport in processStreamingResponse: line

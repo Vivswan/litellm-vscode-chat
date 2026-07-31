@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { findLongestPrefixMatch, getModelParameters } from "../../provider/request";
+import { findLongestPrefixMatch, getModelParameters } from "../../../provider/transport/request";
 import {
 	CHAT_COMPLETIONS_URL,
 	discoveryHandlers,
@@ -9,7 +9,7 @@ import {
 	sseResponse,
 	TEST_BASE_URL,
 	useMsw,
-} from "../mocks/handlers";
+} from "../../mocks/handlers";
 import {
 	captureRequest,
 	captureRequestBody,
@@ -19,7 +19,7 @@ import {
 	systemMessage,
 	userMessage,
 	withConfig,
-} from "../testUtils";
+} from "../../testUtils";
 
 const modelInfo = makeModelInfo();
 

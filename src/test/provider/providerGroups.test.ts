@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { RequestError } from "../../provider/errorMapping";
 import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
+import { RequestError } from "../../provider/transport/errorMapping";
 import type { AggregatedStatus } from "../../shared/servers";
 import {
 	CHAT_COMPLETIONS_URL,

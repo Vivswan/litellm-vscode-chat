@@ -1,7 +1,7 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
-import { MANAGE_COMMAND_TITLE } from "../shared/commandIds";
-import { errorMessageText } from "../shared/logger";
-import { CONFIG_SECTION } from "../shared/settingSpec";
+import { MANAGE_COMMAND_TITLE } from "../../shared/commandIds";
+import { errorMessageText } from "../../shared/logger";
+import { CONFIG_SECTION } from "../../shared/settingSpec";
 
 export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | "network" | "timeout" | "aborted";
 

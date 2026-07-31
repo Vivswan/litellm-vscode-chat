@@ -1,5 +1,4 @@
 import * as assert from "node:assert";
-import { oauthCredentialFingerprint } from "../../provider/auth";
 import {
 	attachGroupServer,
 	type GroupServer,
@@ -11,6 +10,7 @@ import {
 	parseModelMetadata,
 } from "../../provider/groupModels";
 import { REASONING_EFFORT_SCHEMA } from "../../provider/modelConfiguration";
+import { oauthCredentialFingerprint } from "../../provider/transport/auth";
 import { normalizeBaseUrl } from "../../shared/baseUrl";
 import { fingerprint } from "../../shared/fingerprint";
 import { expectDefined, makeModelInfo } from "../testUtils";

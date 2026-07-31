@@ -1,7 +1,6 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
-import { createServerClient } from "../../provider/clients";
 import {
 	fetchModels,
 	isLiteLLMModelItem,
@@ -10,6 +9,7 @@ import {
 	parseModelInfoItem,
 } from "../../provider/discovery";
 import type { LiteLLMProvider, RawModelItem } from "../../provider/schemas";
+import { createServerClient } from "../../provider/transport/clients";
 import { normalizeCostPerToken } from "../../shared/numbers";
 import type { TokenDefaults } from "../../shared/settings";
 import { resolveFuzzSeed } from "../fuzzStream";

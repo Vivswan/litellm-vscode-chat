@@ -7,9 +7,9 @@ import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../shared/headers";
 import { isRecord } from "../shared/json";
 import type { OptionalEntryFieldId } from "../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS } from "../shared/serverEntry";
-import type { OAuthConfig, VirtualKeyConfig } from "./auth";
-import { oauthCredentialFingerprint } from "./auth";
 import type { OutputLimitSource } from "./schemas";
+import type { OAuthConfig, VirtualKeyConfig } from "./transport/auth";
+import { oauthCredentialFingerprint } from "./transport/auth";
 
 /**
  * Support for VS Code-managed provider groups. The host stores one

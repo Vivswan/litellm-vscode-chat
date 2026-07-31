@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { registerTestCommands, runConnectionTest, runModelSync } from "../../extension/commands";
 import type { ServerRegistry } from "../../extension/serverRegistry";
 import type { ConnectionStatus } from "../../extension/status";
-import { RequestError } from "../../provider/errorMapping";
+import { RequestError } from "../../provider/transport/errorMapping";
 import { Logger, markLogSafe } from "../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { expectDefined, makeServerStatus } from "../testUtils";

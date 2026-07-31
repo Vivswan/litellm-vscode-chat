@@ -1,6 +1,5 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
-import { createServerClient } from "../../provider/clients";
 import {
 	fetchModels,
 	isLiteLLMModelItem,
@@ -9,10 +8,11 @@ import {
 	mergeModelDeployments,
 	parseModelInfoItem,
 } from "../../provider/discovery";
-import { RequestError } from "../../provider/errorMapping";
 import { deriveTokenConstraints } from "../../provider/modelCatalog";
 import { buildModelInfos } from "../../provider/registration";
 import type { LiteLLMModelItem, ModelShape } from "../../provider/schemas";
+import { createServerClient } from "../../provider/transport/clients";
+import { RequestError } from "../../provider/transport/errorMapping";
 import { publicErrorText } from "../../shared/logger";
 import type { TokenDefaults } from "../../shared/settings";
 import {

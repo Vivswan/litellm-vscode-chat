@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import * as vscode from "vscode";
-import { resolveFuzzSeed } from "../fuzzStream";
-import { mswServer, useMsw } from "../mocks/handlers";
-import { captureRequestBody, createConfiguredProvider, makeModelInfo, userMessage, withConfig } from "../testUtils";
+import { resolveFuzzSeed } from "../../fuzzStream";
+import { mswServer, useMsw } from "../../mocks/handlers";
+import { captureRequestBody, createConfiguredProvider, makeModelInfo, userMessage, withConfig } from "../../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();

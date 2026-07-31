@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import type OpenAI from "openai";
-import { createServerClient, ServerClientCache, type ServerClientConfig } from "../../provider/clients";
-import { MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { toHeaderMap } from "../testUtils";
+import { createServerClient, ServerClientCache, type ServerClientConfig } from "../../../provider/transport/clients";
+import { MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
+import { toHeaderMap } from "../../testUtils";
 
 function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig {
 	return {
@@ -35,7 +35,7 @@ async function captureGet(client: OpenAI): Promise<{ url: string; headers: Recor
 	return { url, headers };
 }
 
-suite("provider/clients", () => {
+suite("provider/transport/clients", () => {
 	useMsw();
 
 	suite("createServerClient", () => {

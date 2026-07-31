@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { type TextParseEvent, TextToolCallParser } from "../../provider/textToolCallParser";
-import { resolveFuzzSeed } from "../fuzzStream";
+import { type TextParseEvent, TextToolCallParser } from "../../../provider/transport/textToolCallParser";
+import { resolveFuzzSeed } from "../../fuzzStream";
 
 const BEGIN = "<|tool_call_begin|>";
 const ARG_BEGIN = "<|tool_call_argument_begin|>";

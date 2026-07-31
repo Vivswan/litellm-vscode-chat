@@ -12,8 +12,8 @@ import {
 	type StreamedToolCall,
 	type ThinkingBlock,
 	type ThinkingBlockDelta,
-} from "../../provider/wire";
-import { resolveFuzzSeed } from "../fuzzStream";
+} from "../../../provider/transport/wire";
+import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
