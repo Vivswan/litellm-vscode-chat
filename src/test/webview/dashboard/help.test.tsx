@@ -55,7 +55,7 @@ test("every help string is short, printable ASCII, and free of template interpol
 	for (const [name, text] of entries) {
 		expect(typeof text, name).toBe("string");
 		// A real explanation, not a placeholder - but a tooltip, not a manual.
-		// One or two short sentences; longer text belongs in the README.
+		// One or two short sentences; longer text belongs in the docs.
 		expect(text.length, name).toBeGreaterThan(40);
 		expect(text.length, name).toBeLessThan(220);
 		// Printable ASCII only (no curly quotes, dashes, or control characters).

@@ -2,7 +2,7 @@
  * The single source of truth for the extension's configuration section and
  * the value side of its scalar settings: key names, defaults, and minimums.
  * package.json's contributed configuration mirrors this table
- * (settingSpec.test.ts pins the mirror, README numbers included), the
+ * (settingSpec.test.ts pins the mirror, docs numbers included), the
  * settings readers clamp against it, and the dashboard protocol layers its
  * presentation metadata on top. Pure constants: no vscode, no Node, no zod
  * (the dashboard protocol pulls this module into the webview bundle).

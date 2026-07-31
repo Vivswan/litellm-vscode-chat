@@ -45,12 +45,26 @@ suite("shared/config/commandIds: package.json drift guard", () => {
 		assert.strictEqual(entry?.title, MANAGE_COMMAND_TITLE);
 	});
 
-	test("the README and walkthrough prose name the manage command by its contributed title", () => {
+	test("the docs and walkthrough prose name the manage command by its contributed title", () => {
 		// Presence-only guard: a retitled command must at least reach every doc
 		// that tells the user to run it.
-		for (const file of ["README.md", path.join("assets", "walkthrough", "fine-tune.md")]) {
+		for (const file of [
+			path.join("docs", "getting-started.md"),
+			path.join("docs", "servers.md"),
+			path.join("docs", "troubleshooting.md"),
+			path.join("assets", "walkthrough", "fine-tune.md"),
+		]) {
 			const text = fs.readFileSync(path.join(repoRoot, file), "utf8");
 			assert.ok(text.includes(MANAGE_COMMAND_TITLE), `${file} names the manage command title`);
+		}
+	});
+
+	test("every contributed command title appears in the getting-started commands table", () => {
+		// docs/getting-started.md's Commands table mirrors contributes.commands;
+		// an added or retitled command must reach it.
+		const text = fs.readFileSync(path.join(repoRoot, "docs", "getting-started.md"), "utf8");
+		for (const entry of readPackageJson().contributes.commands) {
+			assert.ok(entry.title !== undefined && text.includes(entry.title), `docs/getting-started.md names "${entry.title}"`);
 		}
 	});
 
