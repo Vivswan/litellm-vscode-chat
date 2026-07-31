@@ -26,7 +26,12 @@ services:
       - "127.0.0.1:${FAKE_OPENAI_PORT:-8090}:8080"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
-      interval: 2s
+      # Fast checks only during startup (start_interval needs Docker 25+;
+      # engines without it fall back to the steady interval, costing one
+      # slower stack start); 30s afterwards keeps the container log quiet.
+      interval: 30s
+      start_interval: 2s
+      start_period: 30s
       timeout: 2s
       retries: 15
 
@@ -72,7 +77,12 @@ services:
           "-c",
           "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')",
         ]
-      interval: 3s
+      # Docker runs the interval FOREVER, not just at startup, and every check
+      # prints an access-log line in the proxy log. start_interval keeps the
+      # startup gate fast (Docker 25+; older engines fall back to the steady
+      # interval); 30s steady-state keeps the dev log readable.
+      interval: 30s
+      start_interval: 3s
       timeout: 5s
       retries: 30
       start_period: 15s
