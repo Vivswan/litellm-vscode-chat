@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { MigrationContext } from "../../../extension/migrations";
+import { legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
 import {
 	getMigratedServerLabels,
 	isGroupMigrationComplete,
@@ -14,14 +15,17 @@ import { Logger } from "../../../shared/logger";
 import {
 	apiKeySecret,
 	GROUP_MIGRATION_COMPLETE_KEY,
+	LEGACY_API_KEY_SECRET,
+	LEGACY_BASE_URL_SECRET,
 	MIGRATED_SERVER_LABELS_KEY,
 	PENDING_GROUP_SUBMISSION_KEY,
 	PENDING_SECRET_DELETIONS_KEY,
 	SEEDED_PROVIDER_GROUPS_KEY,
+	SERVER_REGISTRY_KEY,
 	SKIPPED_MIGRATION_SERVERS_KEY,
 } from "../../../shared/storageKeys";
 import type { FakeExtensionStorage } from "../../testUtils";
-import { makeExtensionStorage } from "../../testUtils";
+import { expectDefined, makeExtensionStorage } from "../../testUtils";
 
 function makeLogger(): { logger: Logger; lines: string[] } {
 	const lines: string[] = [];
@@ -529,7 +533,12 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	test("an orphan whose secret deletion fails lands on the pending list and clears later", async () => {
-		const storage = makeExtensionStorage({ [GROUP_MIGRATION_COMPLETE_KEY]: true });
+		const storage = makeExtensionStorage({
+			[GROUP_MIGRATION_COMPLETE_KEY]: true,
+			// The label map is the orphan's migration record; without it the
+			// cleanup would (correctly) refuse to touch the entry.
+			[MIGRATED_SERVER_LABELS_KEY]: { "http://orphan.test": ["Orphan"] },
+		});
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const server = await registry.addServer("Orphan", "http://orphan.test", "orphan-key");
 		const { logger } = makeLogger();
@@ -720,7 +729,10 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	test("registry entries surviving past a completed migration are cleaned up on activation", async () => {
-		const storage = makeExtensionStorage({ [GROUP_MIGRATION_COMPLETE_KEY]: true });
+		const storage = makeExtensionStorage({
+			[GROUP_MIGRATION_COMPLETE_KEY]: true,
+			[MIGRATED_SERVER_LABELS_KEY]: { "http://orphan.test": ["Orphan"] },
+		});
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		await registry.addServer("Orphan", "http://orphan.test", "orphan-key");
 		const { logger, lines } = makeLogger();
@@ -735,6 +747,97 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.ok(
 			lines.some((l) => l.includes("orphaned")),
 			`Expected an orphan-cleanup log line. Lines: ${lines.join(" | ")}`
+		);
+	});
+
+	test("a surviving entry with no migration record is never deleted after completion", async () => {
+		// The completion flag alone must not authorize deletion: another window
+		// can set it while this window imports a server (the fresh-install
+		// race), and that server has no seeded record and no label mapping.
+		const storage = makeExtensionStorage({ [GROUP_MIGRATION_COMPLETE_KEY]: true });
+		const registry = new ServerRegistry(storage.memento, storage.secrets);
+		const server = await registry.addServer("Default", "http://legacy:4000", "legacy-key");
+		const { logger, lines } = makeLogger();
+		const host = makeFakeHost();
+
+		const completed = await migrate(registry, storage, logger, host.exec);
+
+		assert.strictEqual(completed, false);
+		assert.deepStrictEqual(
+			registry.getServers().map((s) => s.id),
+			[server.id],
+			"the unrecognized entry must survive"
+		);
+		assert.strictEqual(storage.secretStore.get(apiKeySecret(server.id)), "legacy-key");
+		const notice = lines.find((l) => l.includes("no migration record"));
+		assert.ok(notice !== undefined, `expected a count-only notice. Lines: ${lines.join(" | ")}`);
+		assert.ok(!notice.includes("Default") && !notice.includes("legacy"), "the notice must not name the server");
+	});
+
+	test("a skip marker for a server no longer in the registry lifts, unblocking completion", async () => {
+		// The skipped server was deleted via the manage UI, as the skip notice
+		// instructs; its marker must not block the fresh-install completion
+		// forever.
+		const storage = makeExtensionStorage({ [SKIPPED_MIGRATION_SERVERS_KEY]: ["gone1234"] });
+		const ctx: MigrationContext = {
+			globalState: storage.memento,
+			secrets: storage.secrets,
+			registry: new ServerRegistry(storage.memento, storage.secrets),
+			logger: makeLogger().logger,
+		};
+
+		const outcome = await registryToProviderGroupsMigration.run(ctx);
+
+		assert.strictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), undefined, "the stale marker lifts");
+		assert.strictEqual(outcome, "nothing-to-do");
+		assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
+	});
+
+	test("another window's mid-flight legacy import survives a racing fresh-install completion", async () => {
+		const shared = makeExtensionStorage();
+		shared.secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
+		shared.secretStore.set(LEGACY_API_KEY_SECRET, "legacy-key");
+
+		// Window B finishes its pre-registration legacy migration.
+		const bCtx: MigrationContext = {
+			globalState: shared.memento,
+			secrets: shared.secrets,
+			registry: new ServerRegistry(shared.memento, shared.secrets),
+			logger: makeLogger().logger,
+		};
+		assert.strictEqual(await legacySingleServerMigration.run(bCtx), "migrated");
+
+		// Window A raced it: its Memento still serves the pre-import registry
+		// blob (change broadcasts are asynchronous) while its secret reads see
+		// the post-deletion state, so every fresh-install guard passes.
+		const staleMemento = {
+			get: (key: string, defaultValue?: unknown) =>
+				key === SERVER_REGISTRY_KEY ? undefined : shared.memento.get(key, defaultValue),
+			update: (key: string, value: unknown) => shared.memento.update(key, value),
+		} as unknown as vscode.Memento;
+		const aCtx: MigrationContext = {
+			globalState: staleMemento,
+			secrets: shared.secrets,
+			registry: new ServerRegistry(staleMemento, shared.secrets),
+			logger: makeLogger().logger,
+		};
+		await registryToProviderGroupsMigration.run(aCtx);
+		assert.strictEqual(isGroupMigrationComplete(shared.memento), true, "the race must really have happened");
+
+		// Window B's next engine pass sees the flag; without a migration
+		// record for the imported server, cleanup must leave it alone.
+		const { logger, lines } = makeLogger();
+		const host = makeFakeHost();
+		await migrate(bCtx.registry, shared, logger, host.exec);
+
+		const survivors = bCtx.registry.getServers();
+		assert.strictEqual(survivors.length, 1, "the just-imported server must survive the racing completion");
+		const survivor = expectDefined(survivors[0]);
+		assert.strictEqual(survivor.label, "Default");
+		assert.strictEqual(shared.secretStore.get(apiKeySecret(survivor.id)), "legacy-key", "its secret must survive too");
+		assert.ok(
+			lines.some((l) => l.includes("no migration record")),
+			`expected the unrecognized-entry notice. Lines: ${lines.join(" | ")}`
 		);
 	});
 
@@ -822,6 +925,91 @@ suite("extension/migrations/registryToProviderGroups", () => {
 
 			assert.strictEqual(outcome, "migrated");
 			assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
+		});
+	});
+
+	suite("fresh-install completion", () => {
+		function makeMigrationContext(storage: FakeExtensionStorage): MigrationContext {
+			return {
+				globalState: storage.memento,
+				secrets: storage.secrets,
+				registry: new ServerRegistry(storage.memento, storage.secrets),
+				logger: makeLogger().logger,
+			};
+		}
+
+		test("a fresh install with nothing to migrate is marked complete", async () => {
+			const storage = makeExtensionStorage();
+
+			const outcome = await registryToProviderGroupsMigration.run(makeMigrationContext(storage));
+
+			assert.strictEqual(outcome, "nothing-to-do");
+			assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
+		});
+
+		test("an empty registry with legacy secrets is NOT marked complete", async () => {
+			const storage = makeExtensionStorage();
+			storage.secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
+
+			const outcome = await registryToProviderGroupsMigration.run(makeMigrationContext(storage));
+
+			assert.strictEqual(outcome, "in-progress", "pending legacy config keeps the migration open");
+			assert.strictEqual(
+				isGroupMigrationComplete(storage.memento),
+				false,
+				"pending legacy config means this install is not fresh"
+			);
+		});
+
+		test("a pending submission blocks completion even with an empty registry", async () => {
+			// Unlike a stale skip marker, an in-flight submission marker means a
+			// group may exist that no record accounts for yet, so completion
+			// must wait for the interrupted run to be recognized and finished.
+			const storage = makeExtensionStorage({
+				[PENDING_GROUP_SUBMISSION_KEY]: {
+					id: "aaaa1111",
+					name: "Production",
+					baseUrl: "http://prod.test",
+					keyFingerprint: fingerprint("key"),
+				},
+			});
+
+			const outcome = await registryToProviderGroupsMigration.run(makeMigrationContext(storage));
+
+			assert.strictEqual(outcome, "in-progress");
+			assert.strictEqual(isGroupMigrationComplete(storage.memento), false);
+		});
+
+		test("a failed legacy migration cannot lead to the migrated server's deletion as an orphan", async () => {
+			// Activation 1: the (best-effort) legacy migration failed, so the
+			// registry is empty while legacy secrets still exist. Without the
+			// hasLegacyConfig guard, the fresh-install completion would set the
+			// flag here, and activation 2's orphan cleanup would then delete the
+			// just-migrated server and its secret.
+			const storage = makeExtensionStorage();
+			storage.secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
+			storage.secretStore.set(LEGACY_API_KEY_SECRET, "legacy-key");
+
+			await registryToProviderGroupsMigration.run(makeMigrationContext(storage));
+			assert.strictEqual(isGroupMigrationComplete(storage.memento), false);
+
+			// Activation 2: the legacy migration succeeds this time.
+			const ctx = makeMigrationContext(storage);
+			assert.strictEqual(await legacySingleServerMigration.run(ctx), "migrated");
+			assert.strictEqual(ctx.registry.getServers().length, 1);
+
+			// The group migration must now seed the server, not delete it.
+			const { logger, lines } = makeLogger();
+			const host = makeFakeHost();
+			const completed = await migrate(ctx.registry, storage, logger, host.exec);
+
+			assert.strictEqual(completed, true);
+			assert.ok(host.groups.has("Default"), "the recovered legacy server must become a provider group");
+			assert.ok(
+				!lines.some((l) => l.includes("orphaned")),
+				`the server must never take the orphan-cleanup path. Lines: ${lines.join(" | ")}`
+			);
+			assert.deepStrictEqual(ctx.registry.getServers(), []);
 		});
 	});
 });
