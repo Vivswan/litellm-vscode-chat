@@ -4,7 +4,6 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { RequestError } from "../../provider/errorMapping";
 import { StreamProcessor } from "../../provider/streaming";
-import { parseChunk } from "../../provider/wire";
 import type { DataPartCtor } from "../../shared/dataPart";
 import { resetDataPartLogOnce } from "../../shared/dataPart";
 import type { ThinkingPartCtor } from "../../shared/thinkingPart";
@@ -73,6 +72,21 @@ function sseStream(chunks: string[], onEnd?: () => void): ReadableStream<Uint8Ar
 			}
 		},
 	});
+}
+
+/**
+ * Drive chunk objects through the real transport loop, appending [DONE]. The
+ * end-of-stream trailers emit only on the loop's final run, so tests that
+ * assert on them must go through here rather than calling processDelta.
+ */
+async function playChunks(
+	stream: StreamProcessor,
+	chunks: unknown[],
+	progress: vscode.Progress<vscode.LanguageModelResponsePart>
+): Promise<void> {
+	const lines = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n`);
+	lines.push("data: [DONE]\n");
+	await stream.processStreamingResponse(sseStream(lines), progress, new vscode.CancellationTokenSource().token);
 }
 
 suite("provider/streaming", () => {
@@ -786,25 +800,28 @@ suite("provider/streaming refusal and annotations", () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		stream.processDelta(
-			{
-				choices: [
-					{
-						delta: {
-							content: "The sky is blue.",
-							annotations: [
-								{ type: "url_citation", url_citation: { url: "https://example.test/sky", title: "Sky" } },
-								{ type: "url_citation", url_citation: { url: "https://example.test/sky", title: "Sky again" } },
-							],
+		await playChunks(
+			stream,
+			[
+				{
+					choices: [
+						{
+							delta: {
+								content: "The sky is blue.",
+								annotations: [
+									{ type: "url_citation", url_citation: { url: "https://example.test/sky", title: "Sky" } },
+									{ type: "url_citation", url_citation: { url: "https://example.test/sky", title: "Sky again" } },
+								],
+							},
 						},
-					},
-				],
-			},
+					],
+				},
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+				// A replayed finish_reason runs the end-of-stream path again; the trailer must not repeat.
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+			],
 			progress
 		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
-		// The [DONE] line runs the end-of-stream path a second time; the trailer must not repeat.
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
 
 		const text = visibleTextOf(parts);
 		assert.ok(text.includes("The sky is blue."), "Content must still render");
@@ -817,11 +834,14 @@ suite("provider/streaming refusal and annotations", () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		stream.processDelta(
-			{ choices: [{ delta: { content: "text", annotations: [{ type: "url_citation" }] } }] },
+		await playChunks(
+			stream,
+			[
+				{ choices: [{ delta: { content: "text", annotations: [{ type: "url_citation" }] } }] },
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+			],
 			progress
 		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
 
 		assert.equal(visibleTextOf(parts), "text");
 	});
@@ -830,40 +850,41 @@ suite("provider/streaming refusal and annotations", () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		stream.processDelta(
-			{
-				choices: [
-					{
-						delta: {
-							content: "cited",
-							annotations: [
-								{
-									type: "url_citation",
-									url_citation: { url: "https://example.test/a (b)", title: "Line]\nbreak [x]" },
-								},
-							],
+		await playChunks(
+			stream,
+			[
+				{
+					choices: [
+						{
+							delta: {
+								content: "cited",
+								annotations: [
+									{
+										type: "url_citation",
+										url_citation: { url: "https://example.test/a (b)", title: "Line]\nbreak [x]" },
+									},
+								],
+							},
 						},
-					},
-				],
-			},
+					],
+				},
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+			],
 			progress
 		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
 
 		const text = visibleTextOf(parts);
 		assert.ok(text.includes("[Line\\] break \\[x\\]]"), `title must be escaped and newline-flattened, got ${text}`);
 		assert.ok(text.includes("(https://example.test/a%20%28b%29)"), `url must be percent-encoded, got ${text}`);
 	});
 
-	test("chunk-root citations and search_results repeated per chunk dedupe into one titled sources trailer", () => {
+	test("chunk-root citations and search_results repeated per chunk dedupe into one titled sources trailer", async () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
 		const scenario = expectDefined(BUILTIN_SCENARIOS["citations-chunk-level"]);
 		assert.ok(scenario.type === "sse");
-		for (const raw of scenario.chunks) {
-			stream.processDelta(expectDefined(parseChunk(raw)), progress);
-		}
+		await playChunks(stream, [...scenario.chunks], progress);
 
 		const text = visibleTextOf(parts);
 		assert.equal(text.match(/Sources:/g)?.length, 1, "Exactly one sources trailer");
@@ -877,13 +898,14 @@ suite("provider/streaming refusal and annotations", () => {
 		assert.ok(text.includes("[Sky color]"), `got ${text}`);
 	});
 
-	test("delta-level provider_specific_fields.search_results feed the sources trailer", () => {
+	test("delta-level provider_specific_fields.search_results feed the sources trailer", async () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		stream.processDelta(
-			expectDefined(
-				parseChunk({
+		await playChunks(
+			stream,
+			[
+				{
 					choices: [
 						{
 							index: 0,
@@ -895,41 +917,37 @@ suite("provider/streaming refusal and annotations", () => {
 							},
 						},
 					],
-				})
-			),
+				},
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+			],
 			progress
 		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
 
 		const text = visibleTextOf(parts);
 		assert.ok(text.includes("[PSF result](https://example.test/psf)"), `got ${text}`);
 	});
 
-	test("malformed chunk-root source shapes are skipped without aborting the stream", () => {
+	test("malformed chunk-root source shapes are skipped without aborting the stream", async () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		stream.processDelta(
-			expectDefined(
-				parseChunk({
+		await playChunks(
+			stream,
+			[
+				{
 					choices: [{ index: 0, delta: { content: "resilient" } }],
 					citations: [42, null, { url: "https://example.test/object" }, "https://example.test/ok"],
 					search_results: "not-an-array",
-				})
-			),
-			progress
-		);
-		stream.processDelta(
-			expectDefined(
-				parseChunk({
+				},
+				{
 					choices: [],
 					citations: { not: "an array" },
 					search_results: [17, { title: "no url" }, { url: "https://example.test/valid", title: "Valid" }],
-				})
-			),
+				},
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+			],
 			progress
 		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
 
 		const text = visibleTextOf(parts);
 		assert.ok(text.startsWith("resilient"), `the content must survive malformed sources, got ${text}`);
@@ -940,38 +958,29 @@ suite("provider/streaming refusal and annotations", () => {
 		assert.ok(!text.includes("no url"), "a URL-less search result has nothing to cite");
 	});
 
-	test("a titled search result upgrades a self-titled citation URL but never overwrites a real title", () => {
+	test("a titled search result upgrades a self-titled citation URL but never overwrites a real title", async () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		stream.processDelta(
-			expectDefined(
-				parseChunk({
+		await playChunks(
+			stream,
+			[
+				{
 					choices: [{ index: 0, delta: { content: "x" } }],
 					citations: ["https://example.test/a", "https://example.test/b"],
-				})
-			),
-			progress
-		);
-		stream.processDelta(
-			expectDefined(
-				parseChunk({
+				},
+				{
 					choices: [],
 					search_results: [{ url: "https://example.test/a", title: "Title A" }, { url: "https://example.test/b" }],
-				})
-			),
-			progress
-		);
-		stream.processDelta(
-			expectDefined(
-				parseChunk({
+				},
+				{
 					choices: [],
 					search_results: [{ url: "https://example.test/a", title: "Title A later" }],
-				})
-			),
+				},
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+			],
 			progress
 		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
 
 		const text = visibleTextOf(parts);
 		assert.ok(text.includes("[Title A](https://example.test/a)"), `the titled result labels the bare URL, got ${text}`);
@@ -982,29 +991,25 @@ suite("provider/streaming refusal and annotations", () => {
 		);
 	});
 
-	test("an empty-string title is no title: it never labels a source and never blocks an upgrade", () => {
+	test("an empty-string title is no title: it never labels a source and never blocks an upgrade", async () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		stream.processDelta(
-			expectDefined(
-				parseChunk({
+		await playChunks(
+			stream,
+			[
+				{
 					choices: [{ index: 0, delta: { content: "x" } }],
 					search_results: [{ url: "https://example.test/e", title: "" }],
-				})
-			),
-			progress
-		);
-		stream.processDelta(
-			expectDefined(
-				parseChunk({
+				},
+				{
 					choices: [],
 					search_results: [{ url: "https://example.test/e", title: "Real title" }],
-				})
-			),
+				},
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+			],
 			progress
 		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
 
 		const text = visibleTextOf(parts);
 		assert.ok(!text.includes("[]("), `an empty markdown label must never render, got ${text}`);
@@ -1014,36 +1019,34 @@ suite("provider/streaming refusal and annotations", () => {
 		);
 	});
 
-	test("a titled annotation upgrades a bare root citation under the same rule", () => {
+	test("a titled annotation upgrades a bare root citation under the same rule", async () => {
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
-		stream.processDelta(
-			expectDefined(
-				parseChunk({
+		await playChunks(
+			stream,
+			[
+				{
 					choices: [{ index: 0, delta: { content: "x" } }],
 					citations: ["https://example.test/p"],
-				})
-			),
-			progress
-		);
-		stream.processDelta(
-			{
-				choices: [
-					{
-						delta: {
-							content: "y",
-							annotations: [
-								{ type: "url_citation", url_citation: { url: "https://example.test/p", title: "Proper title" } },
-								{ type: "url_citation", url_citation: { url: "https://example.test/q", title: "" } },
-							],
+				},
+				{
+					choices: [
+						{
+							delta: {
+								content: "y",
+								annotations: [
+									{ type: "url_citation", url_citation: { url: "https://example.test/p", title: "Proper title" } },
+									{ type: "url_citation", url_citation: { url: "https://example.test/q", title: "" } },
+								],
+							},
 						},
-					},
-				],
-			},
+					],
+				},
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+			],
 			progress
 		);
-		stream.processDelta({ choices: [{ delta: {}, finish_reason: "stop" }] }, progress);
 
 		const text = visibleTextOf(parts);
 		assert.ok(
@@ -1054,6 +1057,93 @@ suite("provider/streaming refusal and annotations", () => {
 			text.includes("[https://example.test/q](https://example.test/q)"),
 			`an empty annotation title self-titles the URL, got ${text}`
 		);
+	});
+
+	test("sources and titles arriving after finish_reason still land, and the trailer renders after all content", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		await playChunks(
+			stream,
+			[
+				{
+					choices: [{ index: 0, delta: { content: "before" } }],
+					citations: ["https://example.test/late"],
+				},
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+				{
+					choices: [{ index: 0, delta: { content: " after" } }],
+					search_results: [{ url: "https://example.test/late", title: "Late title" }],
+				},
+			],
+			progress
+		);
+
+		const text = visibleTextOf(parts);
+		assert.equal(text.match(/Sources:/g)?.length, 1, `exactly one trailer however late the sources, got ${text}`);
+		assert.ok(
+			text.includes("[Late title](https://example.test/late)"),
+			`a title arriving after finish_reason still upgrades the placeholder, got ${text}`
+		);
+		assert.ok(
+			text.startsWith("before after"),
+			`content streamed after finish_reason still renders before the trailer, got ${text}`
+		);
+		assert.ok(text.endsWith("(https://example.test/late)"), `nothing may render after the trailer, got ${text}`);
+	});
+
+	test("a source arriving after [DONE] still lands in the trailer", async () => {
+		// Mirrors the straggling usage trailer: [DONE] continues the loop, so
+		// the post-loop run is the one that renders the sources.
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"hi"}}],"citations":["https://example.test/early"]}\n',
+			"data: [DONE]\n",
+			'data: {"choices":[],"search_results":[{"url":"https://example.test/straggler","title":"Straggler"}]}\n',
+		]);
+
+		await stream.processStreamingResponse(body, progress, new vscode.CancellationTokenSource().token);
+
+		const text = visibleTextOf(parts);
+		assert.equal(text.match(/Sources:/g)?.length, 1, `got ${text}`);
+		assert.ok(text.includes("https://example.test/early"), `the pre-[DONE] source stays listed, got ${text}`);
+		assert.ok(
+			text.includes("[Straggler](https://example.test/straggler)"),
+			`the post-[DONE] source must not be lost, got ${text}`
+		);
+	});
+
+	test("a cancelled stream emits no sources trailer", async () => {
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+		const source = new vscode.CancellationTokenSource();
+		const body = sseStream(
+			['data: {"choices":[{"delta":{"content":"hi"}}],"citations":["https://example.test/c"]}\n'],
+			() => source.cancel()
+		);
+
+		await stream.processStreamingResponse(body, progress, source.token);
+
+		assert.ok(!visibleTextOf(parts).includes("Sources:"), "a cancelled request ships no trailer");
+	});
+
+	test("a citations-only stream without dropped reasoning resolves with its trailer", async () => {
+		// The trailer never counts as substantive output for the reasoning-only
+		// check, but with nothing dropped there is nothing to report: the
+		// stream resolves as before, and the trailer is the visible response.
+		const stream = new StreamProcessor(idSource(), () => {});
+		const { parts, progress } = collector();
+
+		await playChunks(
+			stream,
+			[{ choices: [], citations: ["https://example.test/only"] }, { choices: [{ delta: {}, finish_reason: "stop" }] }],
+			progress
+		);
+
+		const text = visibleTextOf(parts);
+		assert.equal(text.match(/Sources:/g)?.length, 1, `got ${text}`);
+		assert.ok(text.includes("https://example.test/only"), `got ${text}`);
 	});
 });
 
@@ -1488,25 +1578,28 @@ suite("provider/streaming generated media", () => {
 		assert.equal(dataPartsOf(parts).length, 0);
 	});
 
-	test("the audio part flushes before the citations trailer", () => {
+	test("the audio part flushes before the citations trailer", async () => {
 		const stream = mediaProcessor();
 		const { parts, progress } = collector();
 
-		stream.processDelta(
-			{
-				choices: [
-					{
-						delta: {
-							content: "cited",
-							annotations: [{ type: "url_citation", url_citation: { url: "https://example.test/a", title: "A" } }],
-							audio: { id: "a1", data: "AQID" },
+		await playChunks(
+			stream,
+			[
+				{
+					choices: [
+						{
+							delta: {
+								content: "cited",
+								annotations: [{ type: "url_citation", url_citation: { url: "https://example.test/a", title: "A" } }],
+								audio: { id: "a1", data: "AQID" },
+							},
 						},
-					},
-				],
-			},
+					],
+				},
+				finish,
+			],
 			progress
 		);
-		stream.processDelta(finish, progress);
 
 		const kinds = parts.map((p) => (p instanceof FakeDataPart ? "data" : "text"));
 		assert.deepEqual(kinds, ["text", "data", "text"], "audio flushes between the body text and the sources trailer");
@@ -2169,6 +2262,25 @@ suite("provider/streaming reasoning-only empty responses", () => {
 		assert.strictEqual(logs.filter((l) => l.msg === DROP_LOG).length, 1);
 	});
 
+	test("a reasoning-dropping stream whose only other output is citations throws instead of resolving as sources", async () => {
+		// The Sources trailer is not the response: it must not satisfy the
+		// empty-response check, and the terminal checks run before the trailer
+		// would emit, so the failed request ships no parts at all.
+		const stream = new StreamProcessor(idSource(), () => {}, null);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}],"citations":["https://example.test/cited"]}\n',
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => e instanceof Error && e.message === REASONING_ONLY_MESSAGE
+		);
+		assert.strictEqual(parts.length, 0, "no sources trailer may soften the failure into visible output");
+	});
+
 	test("a request failing on an in-band error frame still logs the drop aggregate", async () => {
 		// The error frame throws out of the transport loop before any
 		// finishStream runs; the cleanup path must still tie the lost reasoning
@@ -2192,19 +2304,22 @@ suite("provider/streaming reasoning-only empty responses", () => {
 });
 
 suite("provider/streaming progress funnel", () => {
-	test("every emission goes through reportPart: progress.report appears exactly twice in the source", () => {
+	test("every emission goes through reportPart: progress.report appears exactly three times in the source", () => {
 		// The empty-response check counts emissions via reportPart; a direct
 		// progress.report call anywhere else would bypass it silently and only
 		// surface as a spurious reasoning-only error, so the funnel is pinned
-		// structurally. Exactly two sites are sanctioned: reportPart itself, and
-		// the end-of-stream usage DataPart, which is bookkeeping and must NOT
-		// count as visible output (a usage-only stream stays an empty response).
+		// structurally. Exactly three sites are sanctioned: reportPart itself,
+		// and the two end-of-stream trailer emissions (the Sources list and the
+		// usage DataPart), which decorate an already-validated response and
+		// must NOT count as substantive output for the reasoning-only check (a
+		// stream whose only output is its trailers still dropped whatever
+		// reasoning it had).
 		const source = fs.readFileSync(
 			path.resolve(__dirname, "..", "..", "..", "src", "provider", "streaming.ts"),
 			"utf8"
 		);
 		const calls = source.match(/progress\.report\(/g) ?? [];
-		assert.strictEqual(calls.length, 2, "part emission goes through reportPart, plus the one usage DataPart site");
+		assert.strictEqual(calls.length, 3, "part emission goes through reportPart, plus the two trailer sites");
 	});
 });
 
@@ -2555,6 +2670,68 @@ suite("provider/streaming usage DataPart", () => {
 			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output")
 		);
 		assert.strictEqual(parts.length, 0, "the failed request emits nothing, usage included");
+	});
+
+	test("reasoning-only plus citations plus a usage trailer: the throw wins and nothing emits", async () => {
+		// The three-way collision: terminal checks run before either trailer,
+		// so the failed request ships neither the Sources list nor the
+		// accounting part.
+		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}],"citations":["https://example.test/cited"]}\n',
+			TRAILER,
+			'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+			"data: [DONE]\n",
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => e instanceof Error && e.message.startsWith("The model produced only reasoning output")
+		);
+		assert.strictEqual(parts.length, 0, "no parts at all: no sources trailer, no usage part");
+	});
+
+	test("a failure surfacing only at EOF still forfeits the usage part", async () => {
+		// No finish_reason and no [DONE]: the post-loop EOF run is the first
+		// end-of-stream run, and its invalid buffered tool call must throw
+		// before the trailers emit.
+		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{\\"a\\":"}}]}}]}\n',
+			TRAILER,
+		]);
+
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			(e: unknown) => e instanceof Error && e.message === "Invalid JSON for tool call"
+		);
+		assert.strictEqual(usagePartsOf(parts).length, 0, "an EOF-only failure ships no usage");
+		assert.strictEqual(parts.length, 0, "nor any other part");
+	});
+
+	test("the sources trailer precedes the usage DataPart at end of stream", async () => {
+		// Citations are chat content, usage is metadata: the visible trailer
+		// renders before the accounting part.
+		const stream = usageProcessor();
+		const { parts, progress } = collector();
+		const body = sseStream([
+			'data: {"choices":[{"delta":{"content":"hi"}}],"citations":["https://example.test/o"]}\n',
+			TRAILER,
+			"data: [DONE]\n",
+		]);
+
+		await stream.processStreamingResponse(body, progress, token());
+
+		assert.strictEqual(usagePartsOf(parts).length, 1);
+		const last = parts[parts.length - 1];
+		assert.ok(last instanceof FakeDataPart && last.mimeType === "usage", "the usage part is the final part");
+		const secondToLast = parts[parts.length - 2];
+		assert.ok(
+			secondToLast instanceof vscode.LanguageModelTextPart && secondToLast.value.includes("Sources:"),
+			"the sources trailer immediately precedes it"
+		);
 	});
 
 	test("the usage log line carries the top-level cache fields as numbers only", () => {

@@ -48,9 +48,11 @@ interface RunResult {
 }
 
 /**
- * Drive every assembled chunk through parseChunk and processDelta, mirroring
- * the transport loop's delta handling (its in-band error-frame guard sits a
- * layer above and is covered by unit and docker tests, not here).
+ * Drive every assembled chunk through parseChunk and processDelta, then run
+ * the post-loop end of stream, mirroring the transport loop's delta handling
+ * plus its final run, where the trailers emit (the loop's in-band
+ * error-frame guard sits a layer above and is covered by unit and docker
+ * tests, not here).
  */
 function runChunks(chunks: unknown[]): RunResult {
 	const processor = new StreamProcessor(idSource(), () => {});
@@ -62,6 +64,7 @@ function runChunks(chunks: unknown[]): RunResult {
 			processor.processDelta(chunk, progress);
 		}
 	}
+	processor.endOfStream(progress);
 	return { parts };
 }
 
