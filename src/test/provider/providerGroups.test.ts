@@ -611,8 +611,8 @@ suite("provider groups", () => {
 			assert.strictEqual(decorated.id, "test-model");
 			assert.strictEqual(expectDefined(decorated.statusIcon).id, "warning");
 			assert.ok(
-				expectDefined(decorated.warningText).connectivity?.includes("showing the last models it reported"),
-				"the hover banner explains the stale serving"
+				expectDefined(decorated.warningText).connectivity?.includes("last successful sync"),
+				"the hover banner is anchored to the last successful sync, not the failure time"
 			);
 
 			// The window records the retained set ALONGSIDE the error status, and

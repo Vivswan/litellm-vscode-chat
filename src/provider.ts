@@ -102,9 +102,10 @@ function statusErrorTexts(reason: unknown): { error: string; logSafeError: LogSa
  * wrapped or logged - passes through unchanged, and 401s keep their auth
  * classification rather than being re-wrapped as anything else. The message
  * is preserved because it renders in the chat UI. The original RequestError
- * rides as `cause` for in-process inspection only: the host RPC serializes
- * just the standard error fields plus `code`, so a consumer on the far side
- * of vscode.lm sees the code and message, never the cause.
+ * rides as `cause` for in-process inspection only: the extension-host
+ * boundary flattens a thrown error to name, message, stack, and code, so the
+ * cause - and with it the RequestError's kind and status - does not survive
+ * to vscode.lm consumers. The surviving contract is the code itself.
  */
 function toLanguageModelError(err: unknown): unknown {
 	if (!(err instanceof RequestError)) {
@@ -536,20 +537,25 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// hover banner) instead of making them vanish. Retention is anchored
 			// to the last SUCCESSFUL discovery, not the last report - failure
 			// reports refresh the entry's timestamp, so without the anchor a
-			// permanently-down server would stay selectable forever. Past the
-			// window the failure serves the empty list, as it always did. The
-			// window is the honest source here - it is this session's live
-			// state, unlike the extension layer's persisted status, which can
-			// be a stale prior session's. Test Connection (non-silent) still
-			// throws.
-			const lastChecked = new Date().toISOString();
+			// permanently-down server would stay selectable forever; the banner
+			// names the same success time, so repeated failures cannot make the
+			// data look freshly checked either. Past the window the failure
+			// serves the empty list, as it always did. The window is the honest
+			// source here - it is this session's live state, unlike the
+			// extension layer's persisted status, which can be a stale prior
+			// session's. Test Connection (non-silent) still throws.
 			const previous = this._serverStatuses.get(server.id);
-			const withinStaleWindow =
-				previous?.lastSuccessAt !== undefined && this._now() - previous.lastSuccessAt <= STATUS_TTL_MS;
-			const retained = withinStaleWindow ? previous.models : [];
-			this.reportGroupStatus(server, groupServer, silent, { state: "error", ...texts }, retained);
-			if (silent) {
-				return markStale(attach(retained), lastChecked);
+			const lastSuccessAt = previous?.lastSuccessAt;
+			if (previous !== undefined && lastSuccessAt !== undefined && this._now() - lastSuccessAt <= STATUS_TTL_MS) {
+				this.reportGroupStatus(server, groupServer, silent, { state: "error", ...texts }, previous.models);
+				if (silent) {
+					return markStale(attach(previous.models), new Date(lastSuccessAt).toLocaleString());
+				}
+			} else {
+				this.reportGroupStatus(server, groupServer, silent, { state: "error", ...texts }, []);
+				if (silent) {
+					return [];
+				}
 			}
 			throw error instanceof Error ? error : new Error(texts.error);
 		}

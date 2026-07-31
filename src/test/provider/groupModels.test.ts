@@ -374,13 +374,14 @@ suite("provider/groupModels", () => {
 
 		test("stamps the warning icon and a connectivity banner on fresh copies, leaving the inputs untouched", () => {
 			const attached = [attachGroupServer(makeModelInfo(), server())];
-			const stale = markStale(attached, "2026-07-30T00:00:00.000Z");
+			const stale = markStale(attached, "1/1/2026, 9:30:00 AM");
 
 			assert.strictEqual(stale.length, 1);
 			const decorated = expectDefined(stale[0]);
 			assert.strictEqual(expectDefined(decorated.statusIcon).id, "warning");
 			assert.deepStrictEqual(decorated.warningText, {
-				connectivity: "The server was unreachable at 2026-07-30T00:00:00.000Z; showing the last models it reported.",
+				connectivity:
+					"The server is unreachable; showing the models from its last successful sync at 1/1/2026, 9:30:00 AM.",
 			});
 			assert.deepStrictEqual(decorated.litellm.server, server(), "the attached server survives the decoration");
 
@@ -394,7 +395,7 @@ suite("provider/groupModels", () => {
 			// decorated (and credential-carrying) copy could be cached or pushed
 			// to the dashboard, and a stale icon would survive a healthy sweep.
 			// @ts-expect-error markStale takes AttachedModelInfo, never the pre-attach registration output
-			const rejected = () => markStale([makeModelInfo()], "2026-07-30T00:00:00.000Z");
+			const rejected = () => markStale([makeModelInfo()], "1/1/2026, 9:30:00 AM");
 			void rejected;
 		});
 	});

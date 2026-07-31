@@ -248,6 +248,33 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[1]?.lastChecked, "2026-07-26T00:00:00.000Z");
 		});
 
+		test("a down server's retained models list under its erroring row without a per-model stale marker", () => {
+			// The provider retains a failed group's last known models in the
+			// status window (bounded by the last successful discovery), so the
+			// snapshot pairs an error status with a non-empty model list. The
+			// dashboard lists those models unmarked, deliberately: the server
+			// row they cite via serverLabel already renders the error and
+			// lastChecked, snapshots carry undecorated pre-attach infos by type
+			// (the picker's ThemeIcon decoration never enters this path), and
+			// the models leave the table with the same ten-minute bound.
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ serverId: "g1", label: "Prod", state: "error", error: "unreachable" }),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+				],
+				makeReader({})
+			);
+
+			assert.strictEqual(state.servers[0]?.state, "error", "the row carries the staleness signal");
+			assert.strictEqual(state.models.length, 1, "the retained models still list");
+			const model = state.models[0];
+			assert.strictEqual(model?.serverLabel, "Prod", "each model row cites the erroring server");
+			assert.ok(!("statusIcon" in (model as object)), "no picker decoration leaks into the dashboard row");
+			assert.ok(!("warningText" in (model as object)), "no picker decoration leaks into the dashboard row");
+		});
+
 		test("declared entries merge with their live group by label and base URL", () => {
 			const state = buildDashboardState(
 				[{ status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", modelCount: 4 }), models: [] }],

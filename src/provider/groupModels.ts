@@ -244,12 +244,14 @@ export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer)
  * cache, the status window, or a dashboard snapshot - those hold
  * PreAttachModelInfo, and attachment happens on every read, so the next
  * successful sweep clears the decoration by construction. The banner is a
- * fixed classification plus timestamp: the failure's display string is
- * response-derived and must not ride model metadata into hovers.
+ * fixed classification plus the LAST SUCCESSFUL sync time: anchoring to the
+ * success means repeated failures cannot make stale data look freshly
+ * checked, and the failure's display string (response-derived text) never
+ * rides model metadata into hovers.
  */
-export function markStale(infos: readonly AttachedModelInfo[], lastChecked: string): AttachedModelInfo[] {
+export function markStale(infos: readonly AttachedModelInfo[], lastSyncedDisplay: string): AttachedModelInfo[] {
 	const warningText = {
-		connectivity: `The server was unreachable at ${lastChecked}; showing the last models it reported.`,
+		connectivity: `The server is unreachable; showing the models from its last successful sync at ${lastSyncedDisplay}.`,
 	};
 	return infos.map((info) => ({
 		...info,
