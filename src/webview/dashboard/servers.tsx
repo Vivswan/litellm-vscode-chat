@@ -34,6 +34,7 @@ import {
 	SERVER_FIELD_HELP,
 } from "./helpText";
 import { ParamGroupsFields } from "./recordEditors";
+import { SlideOver } from "./slideOver";
 import { relativeTime, useNow } from "./time";
 import { postMessage } from "./vscodeApi";
 
@@ -341,6 +342,7 @@ function ServerForm({
 	failures,
 	inlineSecrets,
 	declaredLabels,
+	onUserEdit,
 	onClose,
 	onCancel,
 }: {
@@ -349,8 +351,10 @@ function ServerForm({
 	failures: FailuresByIntent;
 	inlineSecrets: InlineSecretsResponse | undefined;
 	declaredLabels: readonly string[];
+	/** Reports the first user edit; the slide-over's close-with-confirm keys on it. */
+	onUserEdit: () => void;
 	onClose: () => void;
-	/** The Cancel button's close: also clears the section-level failure notice. */
+	/** The Cancel button's close request; routed through the slide-over's discard policy. */
 	onCancel: () => void;
 }) {
 	const [draft, setDraft] = useState<ServerFormDraft>(() => draftFor(target));
@@ -497,13 +501,16 @@ function ServerForm({
 		draft,
 		visibleProblems,
 		disabled: saving,
-		patch: (patch) => setDraft((current) => ({ ...current, ...patch })),
+		patch: (patch) => {
+			onUserEdit();
+			setDraft((current) => ({ ...current, ...patch }));
+		},
 		touch: (field) => setTouched((current) => new Set(current).add(field)),
 	};
 
 	return (
 		<div class="form-card">
-			<h3>{target.kind === "add" ? "Add server" : `Edit ${target.original.label}`}</h3>
+			<h3 id="server-form-title">{target.kind === "add" ? "Add server" : `Edit ${target.original.label}`}</h3>
 			<TextField field="label" placeholder="e.g. Production" props={props} />
 			{renaming && (parse.ok || parse.problems.label === undefined) ? (
 				<p class="hint">
@@ -599,6 +606,8 @@ function AdoptForm({
 	ack,
 	failures,
 	declaredLabels,
+	onUserEdit,
+	onBusyChange,
 	onAdopted,
 	onClose,
 	onCancel,
@@ -607,6 +616,15 @@ function AdoptForm({
 	ack: IntentAck | undefined;
 	failures: FailuresByIntent;
 	declaredLabels: readonly string[];
+	/** Reports the first user edit; the slide-over's close-with-confirm keys on it. */
+	onUserEdit: () => void;
+	/**
+	 * Reports the in-flight adopt: closing then would unmount this form before
+	 * the ack and lose the post-adoption notice (the duplicate-group reminder
+	 * and any missing-credentials caveat), so the slide-over ignores close
+	 * requests while busy.
+	 */
+	onBusyChange: (busy: boolean) => void;
 	/** Called once with the extension's optional caveat when the adoption lands; the parent shows the follow-up notice. */
 	onAdopted: (message: string | undefined) => void;
 	onClose: () => void;
@@ -621,6 +639,9 @@ function AdoptForm({
 	});
 	const [pending, setPending] = useState<string | undefined>(undefined);
 	const saving = pending !== undefined;
+	useEffect(() => {
+		onBusyChange(saving);
+	}, [saving, onBusyChange]);
 	const failure = failures.adoptServer;
 	const failureSeq = failure?.seq;
 	const failureRequestId = failure?.requestId;
@@ -679,7 +700,7 @@ function AdoptForm({
 
 	return (
 		<div class="form-card">
-			<h3>Adopt {server.label}</h3>
+			<h3 id="server-form-title">Adopt {server.label}</h3>
 			<p class="hint">
 				Adopting writes this VS Code-managed group into the litellm-vscode-chat.servers setting, so it becomes editable
 				here. Its credentials are copied inside the extension and never pass through this page.
@@ -694,7 +715,10 @@ function AdoptForm({
 					disabled={saving}
 					aria-invalid={showProblem}
 					aria-describedby={showProblem ? "adopt-label-error" : undefined}
-					onInput={(event) => setLabel(event.currentTarget.value)}
+					onInput={(event) => {
+						onUserEdit();
+						setLabel(event.currentTarget.value);
+					}}
 					onBlur={() => setTouched(true)}
 				/>
 				<span class="hint">
@@ -724,7 +748,10 @@ function AdoptForm({
 								name={`adopt-${field}-where`}
 								checked={locations[field] === "secure"}
 								disabled={saving}
-								onChange={() => setLocations((current) => ({ ...current, [field]: "secure" }))}
+								onChange={() => {
+									onUserEdit();
+									setLocations((current) => ({ ...current, [field]: "secure" }));
+								}}
 							/>
 							secret storage
 						</label>
@@ -734,7 +761,10 @@ function AdoptForm({
 								name={`adopt-${field}-where`}
 								checked={locations[field] === "settings"}
 								disabled={saving}
-								onChange={() => setLocations((current) => ({ ...current, [field]: "settings" }))}
+								onChange={() => {
+									onUserEdit();
+									setLocations((current) => ({ ...current, [field]: "settings" }));
+								}}
 							/>
 							settings (visible)
 						</label>
@@ -860,6 +890,11 @@ export function ServersSection({
 	// The form target survives state pushes (editing continues across a
 	// background refresh); a fresh key forces a clean draft per open.
 	const [form, setForm] = useState<{ target: FormTarget; key: number } | undefined>(undefined);
+	// The slide-over's close policy: a dirty form asks before discarding, a
+	// busy one (adopt in flight) ignores close requests until its ack lands.
+	const [formDirty, setFormDirty] = useState(false);
+	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+	const [formBusy, setFormBusy] = useState(false);
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
 	// The one-time post-adoption notice: the old host-owned group survives (no
 	// removal API), so the user is told plainly why models now appear twice.
@@ -874,12 +909,38 @@ export function ServersSection({
 		// straight from one Edit to another), and the old value should not
 		// outlive its form in webview memory.
 		onClearInlineSecrets();
+		setFormDirty(false);
+		setConfirmingDiscard(false);
+		setFormBusy(false);
 		setForm((current) => ({ target, key: (current?.key ?? 0) + 1 }));
 	};
 
 	const closeForm = () => {
 		setForm(undefined);
+		setFormDirty(false);
+		setConfirmingDiscard(false);
+		setFormBusy(false);
 		onClearInlineSecrets();
+	};
+
+	// Every way out of an open form funnels through here: the form's Cancel,
+	// the slide-over's X, the scrim, and Esc. One policy: ignore while an
+	// intent is in flight, confirm before discarding edits, otherwise close
+	// (dismissing the form's stale failure notice with it).
+	const cancelIntent: DashboardIntentType = form?.target.kind === "adopt" ? "adoptServer" : "saveServerSetting";
+	const discardForm = () => {
+		onDismissFailure(cancelIntent);
+		closeForm();
+	};
+	const requestCloseForm = () => {
+		if (formBusy) {
+			return;
+		}
+		if (formDirty && !confirmingDiscard) {
+			setConfirmingDiscard(true);
+			return;
+		}
+		discardForm();
 	};
 
 	const declaredLabels = servers.filter((server) => server.origin === "declared").map((server) => server.label);
@@ -920,39 +981,44 @@ export function ServersSection({
 				</button>
 			</div>
 			{form !== undefined ? (
-				form.target.kind === "adopt" ? (
-					<AdoptForm
-						key={form.key}
-						server={form.target.server}
-						ack={ack}
-						failures={failures}
-						declaredLabels={declaredLabels}
-						onAdopted={(message) => {
-							setAdoptNotice(
-								`Adopted into the servers setting. The original VS Code-managed group still exists, so its models appear twice until you remove that group in the native editor.${message !== undefined ? ` ${message}` : ""}`
-							);
-						}}
-						onClose={() => setForm(undefined)}
-						onCancel={() => {
-							onDismissFailure("adoptServer");
-							setForm(undefined);
-						}}
-					/>
-				) : (
-					<ServerForm
-						key={form.key}
-						target={form.target}
-						ack={ack}
-						failures={failures}
-						inlineSecrets={inlineSecrets}
-						declaredLabels={declaredLabels}
-						onClose={closeForm}
-						onCancel={() => {
-							onDismissFailure("saveServerSetting");
-							closeForm();
-						}}
-					/>
-				)
+				<SlideOver
+					labelledBy="server-form-title"
+					confirming={confirmingDiscard}
+					onRequestClose={requestCloseForm}
+					onKeepEditing={() => setConfirmingDiscard(false)}
+					onDiscard={discardForm}
+				>
+					{form.target.kind === "adopt" ? (
+						<AdoptForm
+							key={form.key}
+							server={form.target.server}
+							ack={ack}
+							failures={failures}
+							declaredLabels={declaredLabels}
+							onUserEdit={() => setFormDirty(true)}
+							onBusyChange={setFormBusy}
+							onAdopted={(message) => {
+								setAdoptNotice(
+									`Adopted into the servers setting. The original VS Code-managed group still exists, so its models appear twice until you remove that group in the native editor.${message !== undefined ? ` ${message}` : ""}`
+								);
+							}}
+							onClose={closeForm}
+							onCancel={requestCloseForm}
+						/>
+					) : (
+						<ServerForm
+							key={form.key}
+							target={form.target}
+							ack={ack}
+							failures={failures}
+							inlineSecrets={inlineSecrets}
+							declaredLabels={declaredLabels}
+							onUserEdit={() => setFormDirty(true)}
+							onClose={closeForm}
+							onCancel={requestCloseForm}
+						/>
+					)}
+				</SlideOver>
 			) : null}
 			{adoptNotice !== undefined ? (
 				<div class="notice" role="status">

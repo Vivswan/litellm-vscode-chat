@@ -398,6 +398,59 @@ const STYLES = `
 		background: var(--vscode-editorWidget-background, transparent);
 	}
 	.form-card h3 { font-size: 1em; font-weight: 600; margin: 8px 0; }
+
+	/* The server form's slide-over: a scrim over the page and a focus-trapped
+	   panel on the right edge. Elevation is the shadow alone; the one motion
+	   is the panel's 200ms entrance, and it stands down for users who asked
+	   the OS for reduced motion. */
+	.scrim { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.3); }
+	.slide-over {
+		position: fixed;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 41;
+		width: min(460px, 92vw);
+		box-sizing: border-box;
+		overflow-y: auto;
+		padding: 12px 20px 20px;
+		background: var(--vscode-editor-background, var(--vscode-panel-background));
+		box-shadow: -6px 0 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+		animation: slide-in 200ms ease-out;
+	}
+	@keyframes slide-in {
+		from { transform: translateX(32px); opacity: 0; }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.slide-over { animation: none; }
+	}
+	.slide-over .slide-close { position: absolute; top: 12px; right: 12px; }
+	/* Inside the panel the form sheds its card chrome (the panel IS the
+	   surface) and fields stack label-over-control: a 460px panel has no room
+	   for the two-column field grid. */
+	.slide-over .form-card { border: none; border-radius: 0; padding: 0; margin: 0; max-width: none; background: transparent; }
+	.slide-over .form-card h3 { font-size: 1.05em; margin: 4px 24px 12px 0; }
+	.slide-over .field { grid-template-columns: 1fr; }
+	.slide-over .field .hint, .slide-over .field .error, .slide-over .field .secret-where { grid-column: 1; }
+	.slide-over .field .hint { width: auto; max-width: none; }
+	.slide-over .secret-where { flex-wrap: wrap; white-space: normal; }
+	/* The discard confirm pins to the panel's bottom edge so it is in view
+	   wherever the Esc that raised it was pressed. */
+	.discard-confirm {
+		position: sticky;
+		bottom: -20px;
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		flex-wrap: wrap;
+		margin: 16px -20px -20px;
+		padding: 12px 20px;
+		background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+	}
+	.discard-confirm span { font-weight: 600; }
+
+	.icon { display: inline-block; vertical-align: text-bottom; flex: none; }
 	details { margin: 8px 0; }
 	summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
 	details[open] summary { margin-bottom: 4px; }
