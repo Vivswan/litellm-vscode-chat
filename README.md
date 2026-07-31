@@ -398,6 +398,12 @@ The output channel logs:
 - Check your LiteLLM proxy configuration (`litellm_config.yaml`)
 - Run `litellm --config your_config.yaml` to start the proxy with models
 
+**"My embedding or image-generation model is missing from the picker"**
+- Models whose LiteLLM `model_info.mode` names a non-chat endpoint (`embedding`, `image_generation`, `audio_speech`, `audio_transcription`, `rerank`, `moderation`) are left out of the chat picker on purpose, since a chat request to them can only fail; models with no declared mode always register
+
+**"Attached images never reach the model"**
+- Images (attachments, and images replayed from earlier turns) are sent only to models that declare vision support (`supports_vision`) in LiteLLM's model info; on other models the text goes through and the images are dropped, with a note in the "LiteLLM" output channel
+
 **"Authentication failed"**
 - Your server requires an API key
 - Run "Manage LiteLLM Provider" and edit the server to update its API key

@@ -69,7 +69,7 @@ bun run compile            # tsc to out/ (tests run from here)
 bun run bundle             # production bundles (bundle:dev for unminified)
 bun run typecheck          # all three tsconfig projects
 bun run lint               # Biome (lint:types, lint:knip, lint:actions for the others)
-bun run test               # unit + capture host-fidelity suites in the extension host (test:coverage adds the floor)
+bun run test               # webview suite, then unit + activation-production + capture host-fidelity in the extension host (test:coverage adds the floor)
 bun run test:docker        # docker suites + stream fuzzer against a real LiteLLM proxy (--only <labels> runs a subset)
 bun run docker:up          # local LiteLLM proxy + fake OpenAI backend (docker:down, docker:logs)
 bun run generate-config    # print the generated LiteLLM proxy config to stdout (stack startup writes the real file)
@@ -118,4 +118,4 @@ The one exception to the extension-host rule is the webview suite (`src/test/web
 
 ### CI
 
-Repo-owned jobs live in `checks.yml` inside the required all-green gate: the unit and capture host-fidelity suites on three OSes with a Linux coverage floor, the promoted docker-stack suite (docker suites, stream fuzzer, and live host-fidelity against the dockerized proxy, split into two time-balanced shards via `test:docker --only`), an elevated fuzz pass that runs only when the diff touches fuzzer-related paths (skipped otherwise, which the gate counts as green; one unit job plus a sharded docker job), and the format-check workflow (including the packaged-file-list check). `docker-test.yml` is a workflow_dispatch-only wrapper; `nightly-fuzz.yml` runs the docker and property suites at high iteration counts and files `nightly-fuzz` issues with reproduction seeds; `release.yml` publishes the VSIX after release-please cuts a release.
+Repo-owned jobs live in `checks.yml` inside the required all-green gate: the full `bun run test` pass (webview, unit, activation-production, and capture host-fidelity suites) on three OSes with a Linux coverage floor, the promoted docker-stack suite (docker suites, stream fuzzer, and live host-fidelity against the dockerized proxy, split into two time-balanced shards via `test:docker --only`), an elevated fuzz pass that runs only when the diff touches fuzzer-related paths (skipped otherwise, which the gate counts as green; one unit job plus a sharded docker job), and the format-check workflow (including the packaged-file-list check). `docker-test.yml` is a workflow_dispatch-only wrapper; `nightly-fuzz.yml` runs the docker and property suites at high iteration counts and files `nightly-fuzz` issues with reproduction seeds; `release.yml` publishes the VSIX after release-please cuts a release.
