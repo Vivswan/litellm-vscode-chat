@@ -119,9 +119,11 @@ export interface ChatCompletionChunk {
 	model?: string | undefined;
 	choices?: ChunkChoice[] | undefined;
 	/**
-	 * Token usage trailer. The parser proves only that it is a record; it is
-	 * logged wholesale (provider cache accounting fields included), never read
-	 * field by field, so no per-field claims belong here.
+	 * Token usage trailer. The parser proves only that it is a record; the
+	 * stream processor reads the known numeric counts out of it, both for the
+	 * usage log line and for the sanitized end-of-stream usage DataPart, and
+	 * ignores everything else (arbitrary server keys stay out of logs and out
+	 * of the emitted payload).
 	 */
 	usage?: Record<string, unknown> | undefined;
 	/**
