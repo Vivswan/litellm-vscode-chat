@@ -46,7 +46,7 @@ export interface LiteLLMChatModelProviderOptions {
 	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
 	/** Request-time resolver for a declared entry's per-entry modelParameters; see ChatClientOptions. */
 	getEntryModelParameters?:
-		| ((label: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
+		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
 		| undefined;
 	/**
 	 * Gate for refreshes that arrive without a group configuration: while it

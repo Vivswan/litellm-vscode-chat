@@ -38,5 +38,5 @@ export {
 	updateServerSecret,
 } from "./secrets";
 export type { DeclaredServer } from "./setting";
-export { acceptedEntry, parseServersSetting } from "./setting";
+export { acceptedEntry, entryModelParametersFor, parseServersSetting } from "./setting";
 export { createServerSyncEnv, readEntryModelParameters, registerSetServerSecretCommand } from "./vscodeEnv";

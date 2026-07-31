@@ -196,7 +196,7 @@ Server scoping matches by base URL for every server - the `servers` setting, the
 ]
 ```
 
-Entry keys are plain model-ID prefixes (longest match wins; no base-URL scoping - the entry already names its server). Where an entry parameter and a global one match the same model, the entry's value wins for that key and the global setting still supplies the rest. Entries without a label on their provider group - external groups managed only in the native editor - have no per-entry parameters; the global setting applies to them as before.
+Entry keys are plain model-ID prefixes (longest match wins; no base-URL scoping - the entry already names its server). Where an entry parameter and a global one match the same model, the entry's value wins for that key and the global setting still supplies the rest. A request picks up an entry's parameters only when the provider group it runs through matches the entry on both label and base URL; external groups managed only in the native editor, and stale groups left behind by a label or `baseUrl` edit, get only the global setting.
 
 **Parameter precedence**: Runtime options > model picker choices > entry `modelParameters` > global `modelParameters`. Any parameter left unset by all four falls through to your model provider's defaults (`max_tokens` is the exception: the extension always sends one - the output limit your server declares in model info, or at most 4096 when the server declares none).
 
