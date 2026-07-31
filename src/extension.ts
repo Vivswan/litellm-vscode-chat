@@ -1,35 +1,39 @@
 import * as vscode from "vscode";
-import {
-	registerHelpAndFeedbackCommand,
-	registerReportIssueCommand,
-	registerSyncModelsCommand,
-	registerTestCommands,
-	registerTestConnectionCommand,
-} from "./extension/commands";
 import { registerDashboardCommand } from "./extension/dashboard/panel";
 import { consumeDevSeed, createDevSeedEnv } from "./extension/devSeed";
-import { registerDiagnosticsCommand } from "./extension/diagnostics";
-import { createIssueReporterEnv, IssueReporter } from "./extension/issueReporter";
 import type { MigrationContext } from "./extension/migrations";
 import { runMigrations } from "./extension/migrations";
 import { isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
 import {
-	CONFIGURE_NOW_LABEL,
-	createConfigurationPrompt,
-	Notifier,
-	reconfigureAction,
-	showActionableMessage,
-} from "./extension/notifier";
-import { type ManagementUiMode, REGISTRY_SERVED_IN_MODE, registerManageCommand } from "./extension/serverManagement";
-import { ServerRegistry } from "./extension/serverRegistry";
+	type ManagementUiMode,
+	REGISTRY_SERVED_IN_MODE,
+	registerManageCommand,
+} from "./extension/servers/serverManagement";
+import { ServerRegistry } from "./extension/servers/serverRegistry";
 import {
 	createServerSyncEnv,
 	parseServersSetting,
 	readEntryModelParameters,
 	registerSetServerSecretCommand,
 	ServerSyncEngine,
-} from "./extension/serverSync";
-import { StatusBarManager } from "./extension/status";
+} from "./extension/servers/serverSync";
+import {
+	registerHelpAndFeedbackCommand,
+	registerReportIssueCommand,
+	registerSyncModelsCommand,
+	registerTestCommands,
+	registerTestConnectionCommand,
+} from "./extension/ui/commands";
+import { registerDiagnosticsCommand } from "./extension/ui/diagnostics";
+import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
+import {
+	CONFIGURE_NOW_LABEL,
+	createConfigurationPrompt,
+	Notifier,
+	reconfigureAction,
+	showActionableMessage,
+} from "./extension/ui/notifier";
+import { StatusBarManager } from "./extension/ui/status";
 import { LiteLLMChatModelProvider } from "./provider";
 import { CMD, VENDOR_ID } from "./shared/config/commandIds";
 import { CONFIG_SECTION } from "./shared/config/settingSpec";

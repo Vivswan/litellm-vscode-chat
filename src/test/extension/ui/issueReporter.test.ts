@@ -1,10 +1,10 @@
 import * as assert from "node:assert";
 import { APIError } from "openai";
 import * as vscode from "vscode";
-import type { DiagnosticsSnapshot } from "../../extension/issueReporter";
-import { IssueReporter, redactSecrets } from "../../extension/issueReporter";
-import { mapSdkError, RequestError } from "../../provider/transport/errorMapping";
-import { expectDefined } from "../testUtils";
+import type { DiagnosticsSnapshot } from "../../../extension/ui/issueReporter";
+import { IssueReporter, redactSecrets } from "../../../extension/ui/issueReporter";
+import { mapSdkError, RequestError } from "../../../provider/transport/errorMapping";
+import { expectDefined } from "../../testUtils";
 
 suite("IssueReporter", () => {
 	const MAX_SAFE_URL_LENGTH = 8000;

@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import type { MigrationContext } from "../../../extension/migrations";
 import { hasLegacyConfig, legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
-import { ServerRegistry } from "../../../extension/serverRegistry";
+import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import {
 	apiKeySecret,
 	LEGACY_API_KEY_SECRET,

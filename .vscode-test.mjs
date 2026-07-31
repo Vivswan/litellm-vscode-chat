@@ -45,6 +45,8 @@ export default defineConfig({
 				"out/test/extension/*.test.js",
 				"out/test/extension/dashboard/*.test.js",
 				"out/test/extension/migrations/*.test.js",
+				"out/test/extension/servers/*.test.js",
+				"out/test/extension/ui/*.test.js",
 			],
 			mocha: {
 				ui: "tdd",

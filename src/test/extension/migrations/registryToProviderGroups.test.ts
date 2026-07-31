@@ -9,7 +9,7 @@ import {
 	migrateServersToProviderGroups,
 	registryToProviderGroupsMigration,
 } from "../../../extension/migrations/registryToProviderGroups";
-import { ServerRegistry } from "../../../extension/serverRegistry";
+import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { MODEL_PARAMETERS_SETTING_KEY } from "../../../shared/config/settings";
 import {

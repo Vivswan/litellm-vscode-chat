@@ -7,7 +7,7 @@ import {
 	LEGACY_CLEANUP_PENDING_KEY,
 } from "../../shared/config/storageKeys";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
-import { ServerRegistry } from "../serverRegistry";
+import { ServerRegistry } from "../servers/serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 /**

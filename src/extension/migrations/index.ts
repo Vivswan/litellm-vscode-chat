@@ -1,6 +1,6 @@
 import type * as vscode from "vscode";
 import type { Logger } from "../../shared/logger";
-import type { ServerRegistry } from "../serverRegistry";
+import type { ServerRegistry } from "../servers/serverRegistry";
 import { labelScopedModelParametersMigration } from "./labelScopedModelParameters";
 import { legacySingleServerMigration } from "./legacySingleServer";
 import { registryToProviderGroupsMigration } from "./registryToProviderGroups";

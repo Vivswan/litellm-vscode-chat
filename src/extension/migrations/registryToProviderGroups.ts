@@ -14,7 +14,7 @@ import {
 import type { Logger } from "../../shared/logger";
 import type { ServerWithKey } from "../../shared/servers";
 import { fingerprint, fingerprintSchema } from "../../shared/util/fingerprint";
-import type { ServerRegistry } from "../serverRegistry";
+import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 import { getMigratedServerLabels, labelScopedModelParametersMigration } from "./labelScopedModelParameters";
 import { hasLegacyConfig } from "./legacySingleServer";

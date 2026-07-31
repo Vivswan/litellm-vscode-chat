@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { migrateServersToProviderGroups } from "../../extension/migrations/registryToProviderGroups";
+import { migrateServersToProviderGroups } from "../../../extension/migrations/registryToProviderGroups";
 import {
 	canMutateRegistry,
 	EXTENSION_SETTINGS_FILTER,
@@ -8,12 +8,12 @@ import {
 	type ManagementUiMode,
 	registerManageCommand,
 	warnAboutOrphanedModelParameters,
-} from "../../extension/serverManagement";
-import { ServerRegistry } from "../../extension/serverRegistry";
-import { Logger } from "../../shared/logger";
-import { expectDefined, makeExtensionStorage, withConfig } from "../testUtils";
+} from "../../../extension/servers/serverManagement";
+import { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import { Logger } from "../../../shared/logger";
+import { expectDefined, makeExtensionStorage, withConfig } from "../../testUtils";
 
-suite("extension/serverManagement", () => {
+suite("extension/servers/serverManagement", () => {
 	// The activated extension already owns the litellm.manage command IDs, so
 	// every suite below captures the handlers through a stubbed registerCommand
 	// and invokes them directly.

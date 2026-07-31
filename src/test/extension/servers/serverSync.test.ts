@@ -1,7 +1,12 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { readInlineSecretValues } from "../../extension/dashboard/intents";
-import type { DeclaredServer, SecretStore, ServerSyncEnv, StoredServerSecrets } from "../../extension/serverSync";
+import { readInlineSecretValues } from "../../../extension/dashboard/intents";
+import type {
+	DeclaredServer,
+	SecretStore,
+	ServerSyncEnv,
+	StoredServerSecrets,
+} from "../../../extension/servers/serverSync";
 import {
 	acceptedEntry,
 	buildGroupArgs,
@@ -15,13 +20,13 @@ import {
 	SECRETS_READ_FAILED_MESSAGE,
 	ServerSyncEngine,
 	updateServerSecret,
-} from "../../extension/serverSync";
-import { groupClientId, parseGroupConfiguration } from "../../provider/catalog/groupModels";
-import { CMD } from "../../shared/config/commandIds";
-import { serverSecretsKey } from "../../shared/config/storageKeys";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
-import { fingerprint } from "../../shared/util/fingerprint";
-import { expectDefined, withConfig } from "../testUtils";
+} from "../../../extension/servers/serverSync";
+import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
+import { CMD } from "../../../shared/config/commandIds";
+import { serverSecretsKey } from "../../../shared/config/storageKeys";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { fingerprint } from "../../../shared/util/fingerprint";
+import { expectDefined, withConfig } from "../../testUtils";
 
 function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {
 	const values = new Map(Object.entries(initial));
@@ -93,7 +98,7 @@ function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServer
 	return recorded;
 }
 
-suite("extension/serverSync", () => {
+suite("extension/servers/serverSync", () => {
 	suite("parseServersSetting", () => {
 		test("keeps usable entries and reports the unusable ones", () => {
 			const { entries, problems } = parseServersSetting([
