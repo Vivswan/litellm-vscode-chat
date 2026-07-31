@@ -23,7 +23,9 @@ export const GROUP_MIGRATION_COMPLETE_KEY = "litellm.groupMigrationComplete";
  * globalState: records of groups already seeded into VS Code ({ id, name,
  * label, baseUrl, keyFingerprint }), persisted after each success so a retried
  * migration never re-submits a group the host accepted. Cleared when the
- * migration completes.
+ * migration completes. Owned by
+ * src/extension/migrations/registryToProviderGroups.ts, like every group
+ * migration key below.
  */
 export const SEEDED_PROVIDER_GROUPS_KEY = "litellm.seededProviderGroups";
 

@@ -109,7 +109,13 @@ async function migrateLegacySingleServer(ctx: MigrationContext): Promise<Migrati
 	return "migrated";
 }
 
-/** Moves the pre-registry single-server secrets into a "Default" registry entry. */
+/**
+ * Moves the pre-registry single-server secrets into a "Default" registry entry.
+ *
+ * Migrates away from: the single-server secret pair of v0.2.2 and earlier
+ * (the server registry shipped in v0.2.3). Deletable once installs that old
+ * are judged extinct.
+ */
 export const legacySingleServerMigration: ExtensionMigration = {
 	state: "legacy-single-server",
 	description: "Migrated legacy single-server config to server registry",
