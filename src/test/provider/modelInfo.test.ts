@@ -178,6 +178,29 @@ suite("provider/model info and fallback", () => {
 		assert.equal(modelEntry.capabilities.imageInput, true);
 	});
 
+	test("supports_audio_input rides the litellm metadata as the audio conversion gate", async () => {
+		mswServer.use(
+			...discoveryHandlers({
+				data: [
+					{
+						model_name: "omni",
+						model_info: { id: "omni", supports_function_calling: true, supports_audio_input: true },
+					},
+					{ model_name: "text-only", model_info: { id: "text-only", supports_function_calling: true } },
+				],
+			})
+		);
+
+		const provider = makeProvider(TEST_BASE_URL);
+		const infos = await provider.provideLanguageModelChatInformation(
+			{ silent: true },
+			new vscode.CancellationTokenSource().token
+		);
+
+		assert.strictEqual(expectDefined(infos.find((i) => i.id === "omni")).litellm.supportsAudioInput, true);
+		assert.strictEqual(expectDefined(infos.find((i) => i.id === "text-only")).litellm.supportsAudioInput, false);
+	});
+
 	test("family follows litellm_provider from model/info and falls back to litellm without it", async () => {
 		mswServer.use(
 			...discoveryHandlers({

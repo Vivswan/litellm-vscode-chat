@@ -494,6 +494,23 @@ suite("provider/discovery", () => {
 			);
 		});
 
+		test("supports_audio_input maps into the model's input modalities", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () =>
+					HttpResponse.json({
+						data: [
+							{ model_name: "audio-model", model_info: { supports_audio_input: true } },
+							{ model_name: "text-model", model_info: { supports_audio_input: false } },
+						],
+					})
+				)
+			);
+
+			const { models } = await fetchModels(request());
+			assert.deepStrictEqual(expectDefined(models[0]).architecture?.input_modalities, ["audio"]);
+			assert.strictEqual(expectDefined(models[1]).architecture, undefined, "an explicit false adds no modality");
+		});
+
 		test("an all-blocked model/info payload yields no models and never falls back to /v1/models", async () => {
 			let modelsEndpointCalled = false;
 			mswServer.use(

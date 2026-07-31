@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { convertMessages } from "../../shared/messages";
 import { validateRequest } from "../../shared/validation";
 import { resolveFuzzSeed } from "../fuzzStream";
+import { expectDefined } from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
@@ -91,7 +92,7 @@ suite("shared/messages convertMessages properties", () => {
 			fc.property(fc.array(eventArb, { minLength: 1, maxLength: 8 }), (events) => {
 				const messages = buildMessages(events);
 				validateRequest(messages);
-				const converted = convertMessages(messages) as WireMessage[];
+				const converted = convertMessages(messages, { imageInput: true }) as WireMessage[];
 				for (const wireMessage of converted) {
 					assert.ok(
 						["system", "user", "assistant", "tool"].includes(wireMessage.role),
@@ -106,7 +107,7 @@ suite("shared/messages convertMessages properties", () => {
 	test("every tool result references an earlier assistant tool call", () => {
 		fc.assert(
 			fc.property(fc.array(eventArb, { maxLength: 8 }), (events) => {
-				const converted = convertMessages(buildMessages(events)) as WireMessage[];
+				const converted = convertMessages(buildMessages(events), { imageInput: true }) as WireMessage[];
 				const seenCallIds = new Set<string>();
 				for (const wireMessage of converted) {
 					for (const call of wireMessage.tool_calls ?? []) {
@@ -145,7 +146,9 @@ suite("shared/messages convertMessages properties", () => {
 				const parts = isImageFlags.map((isImage, i) =>
 					isImage ? new vscode.LanguageModelDataPart(PNG_DATA, "image/png") : new vscode.LanguageModelTextPart(`t${i} `)
 				);
-				const converted = convertMessages([message(vscode.LanguageModelChatMessageRole.User, parts)]) as WireMessage[];
+				const converted = convertMessages([message(vscode.LanguageModelChatMessageRole.User, parts)], {
+					imageInput: true,
+				}) as WireMessage[];
 				const [userMessage] = converted;
 				assert.ok(userMessage, "conversion must produce a message");
 				if (!isImageFlags.includes(true)) {
@@ -163,6 +166,29 @@ suite("shared/messages convertMessages properties", () => {
 					.join("")
 					.replace(/t+/g, "t");
 				assert.strictEqual(kinds, expected, "text/image ordering must be preserved");
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
+	test("without imageInput no image_url block is ever produced and the text survives", () => {
+		fc.assert(
+			fc.property(fc.array(fc.boolean(), { minLength: 1, maxLength: 6 }), (isImageFlags) => {
+				const parts = isImageFlags.map((isImage, i) =>
+					isImage ? new vscode.LanguageModelDataPart(PNG_DATA, "image/png") : new vscode.LanguageModelTextPart(`t${i} `)
+				);
+				const converted = convertMessages([message(vscode.LanguageModelChatMessageRole.User, parts)]) as WireMessage[];
+				assert.ok(
+					!JSON.stringify(converted).includes("image_url"),
+					"a non-vision model must never receive an image block"
+				);
+				const expectedText = isImageFlags.flatMap((isImage, i) => (isImage ? [] : [`t${i} `])).join("");
+				const [userMessage] = converted;
+				if (expectedText) {
+					assert.strictEqual(expectDefined(userMessage).content, expectedText, "the text survives the image drop");
+				} else {
+					assert.strictEqual(userMessage, undefined, "an image-only message has nothing left to send");
+				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);

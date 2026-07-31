@@ -128,7 +128,7 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const out = convertMessages(messages, { imageInput: true });
 		assert.equal(out.length, 1);
 		const first = expectDefined(out[0]);
 		assert.equal(first.role, "user");
@@ -165,7 +165,7 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const out = convertMessages(messages, { imageInput: true });
 		assert.equal(out.length, 1);
 		const content = expectDefined(out[0]).content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
@@ -183,7 +183,7 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const out = convertMessages(messages, { imageInput: true });
 		const content = expectDefined(out[0]).content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 1);
@@ -202,7 +202,7 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const out = convertMessages(messages, { imageInput: true });
 		const content = expectDefined(out[0]).content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 3);
@@ -220,7 +220,7 @@ suite("shared/messages", () => {
 				name: undefined,
 			},
 		];
-		const out = convertMessages(messages);
+		const out = convertMessages(messages, { imageInput: true });
 		const content = expectDefined(out[0]).content as Array<{ type: string }>;
 		assert.ok(Array.isArray(content));
 		assert.equal(content.length, 3);
@@ -229,6 +229,52 @@ suite("shared/messages", () => {
 		assert.equal(expectDefined(content[1]).type, "image_url");
 		assert.equal(expectDefined(content[2]).type, "text");
 		assert.equal((expectDefined(content[2]) as unknown as { text: string }).text, "after");
+	});
+
+	test("user-message images drop with the no-wire-mapping log when the model lacks imageInput", () => {
+		const logged: { message: string; data?: unknown }[] = [];
+		const img = new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
+		const out = convertMessages(
+			[
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("look:"), img],
+					name: undefined,
+				},
+			],
+			{ log: (message, data) => logged.push({ message, data }) }
+		);
+		const first = expectDefined(out[0]);
+		assert.strictEqual(first.content, "look:", "the text survives; no image block reaches a non-vision model");
+		assert.deepEqual(expectDefined(logged[0]).data, { role: "user", mimeType: "image/png" });
+	});
+
+	test("an image-bearing history replays to a non-vision model without image blocks", () => {
+		// The model-switch case: the history carries images the previous
+		// (vision) model accepted; the new model must not receive them.
+		const img = () => new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
+		const history: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("what is this?"), img()],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelTextPart("A red pixel.")],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("and now?"), img()],
+				name: undefined,
+			},
+		];
+		const out = convertMessages(history);
+		assert.equal(out.length, 3, "every turn keeps its text");
+		assert.ok(!JSON.stringify(out).includes("image_url"), "no image block may reach the wire");
+		assert.strictEqual(expectDefined(out[0]).content, "what is this?");
+		assert.strictEqual(expectDefined(out[2]).content, "and now?");
 	});
 
 	test("decodes text/json LanguageModelDataPart as text", () => {
@@ -394,6 +440,212 @@ suite("shared/messages", () => {
 		const first = expectDefined(out[0]);
 		assert.equal(first.role, "system");
 		assert.strictEqual(first.content, "you are helpful");
+	});
+
+	suite("tool-result images", () => {
+		const LEAD_IN = "Images returned by the tool calls above:";
+
+		function assistantToolCalls(...callIds: string[]): vscode.LanguageModelChatMessage {
+			return {
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: callIds.map((id) => new vscode.LanguageModelToolCallPart(id, "screenshot", {})),
+				name: undefined,
+			};
+		}
+
+		function toolResultMessage(callId: string, resultParts: unknown[]): vscode.LanguageModelChatMessage {
+			return {
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelToolResultPart(callId, resultParts as vscode.LanguageModelTextPart[])],
+				name: undefined,
+			};
+		}
+
+		function png(): vscode.LanguageModelDataPart {
+			return new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
+		}
+
+		test("the tool message keeps flat text; the images ride one user message after it", () => {
+			const out = convertMessages(
+				[
+					assistantToolCalls("call_img"),
+					toolResultMessage("call_img", [
+						new vscode.LanguageModelTextPart("before"),
+						png(),
+						new vscode.LanguageModelTextPart("after"),
+					]),
+				],
+				{ imageInput: true }
+			) as unknown as Array<Record<string, unknown>>;
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "tool", "user"],
+				"the synthesized image message follows the turn's tool message"
+			);
+			const toolMsg = expectDefined(out[1]);
+			assert.strictEqual(toolMsg.tool_call_id, "call_img", "tool-call pairing must survive");
+			assert.strictEqual(toolMsg.content, "beforeafter", "tool content stays the flattened text on every provider");
+			const imageMsg = expectDefined(out[2]).content as Array<Record<string, unknown>>;
+			assert.deepEqual(
+				imageMsg.map((b) => b.type),
+				["text", "image_url"]
+			);
+			assert.deepEqual(imageMsg[0], { type: "text", text: LEAD_IN }, "the lead-in is a fixed string");
+			const imageBlock = imageMsg[1] as { image_url: { url: string } };
+			assert.ok(imageBlock.image_url.url.startsWith("data:image/png;base64,"));
+		});
+
+		test("images from all tool results of a turn collect into one message after the last tool message", () => {
+			// One host message carrying both results, and the split-across-host-
+			// messages shape, must both keep OpenAI's pairing rule: nothing
+			// between the assistant tool_calls message and its tool messages.
+			const shapes: vscode.LanguageModelChatMessage[][] = [
+				[
+					assistantToolCalls("call_a", "call_b"),
+					{
+						role: vscode.LanguageModelChatMessageRole.User,
+						content: [
+							new vscode.LanguageModelToolResultPart("call_a", [png()]),
+							new vscode.LanguageModelToolResultPart("call_b", [png()]),
+						],
+						name: undefined,
+					},
+				],
+				[
+					assistantToolCalls("call_a", "call_b"),
+					toolResultMessage("call_a", [png()]),
+					toolResultMessage("call_b", [png()]),
+				],
+			];
+			for (const messages of shapes) {
+				const out = convertMessages(messages, { imageInput: true }) as unknown as Array<Record<string, unknown>>;
+				assert.deepEqual(
+					out.map((m) => m.role),
+					["assistant", "tool", "tool", "user"],
+					"exactly one image message, after the final tool message, never interleaved"
+				);
+				const imageMsg = expectDefined(out[3]).content as Array<{ type: string }>;
+				assert.deepEqual(
+					imageMsg.map((b) => b.type),
+					["text", "image_url", "image_url"]
+				);
+			}
+		});
+
+		test("a trailing tool turn still flushes its image message at end of history", () => {
+			const out = convertMessages([assistantToolCalls("call_img"), toolResultMessage("call_img", [png()])], {
+				imageInput: true,
+			}) as unknown as Array<Record<string, unknown>>;
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "tool", "user"]
+			);
+		});
+
+		test("the image message flushes before the next assistant turn in replayed history", () => {
+			const out = convertMessages(
+				[
+					assistantToolCalls("call_img"),
+					toolResultMessage("call_img", [png()]),
+					{
+						role: vscode.LanguageModelChatMessageRole.Assistant,
+						content: [new vscode.LanguageModelTextPart("I see a red pixel.")],
+						name: undefined,
+					},
+				],
+				{ imageInput: true }
+			) as unknown as Array<Record<string, unknown>>;
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "tool", "user", "assistant"],
+				"the image message lands between the tool turn and the next assistant turn"
+			);
+		});
+
+		test("without imageInput the image drops with the existing log and no message is synthesized", () => {
+			const logged: string[] = [];
+			const out = convertMessages(
+				[
+					assistantToolCalls("call_img"),
+					toolResultMessage("call_img", [new vscode.LanguageModelTextPart("text only"), png()]),
+				],
+				{ log: (m) => logged.push(m) }
+			) as unknown as Array<Record<string, unknown>>;
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "tool"]
+			);
+			assert.strictEqual(expectDefined(out[1]).content, "text only");
+			assert.ok(
+				logged.some((m) => m.includes("Tool returned image data")),
+				`the drop must stay observable, got: ${logged.join(" | ")}`
+			);
+		});
+
+		test("a text-only tool result synthesizes nothing even for a vision model", () => {
+			const out = convertMessages(
+				[assistantToolCalls("call_img"), toolResultMessage("call_img", [new vscode.LanguageModelTextPart("plain")])],
+				{ imageInput: true }
+			) as unknown as Array<Record<string, unknown>>;
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "tool"]
+			);
+			assert.strictEqual(expectDefined(out[1]).content, "plain");
+		});
+	});
+
+	suite("audio input", () => {
+		function userWithAudio(mime: string): vscode.LanguageModelChatMessage[] {
+			const clip = new vscode.LanguageModelDataPart(new Uint8Array([0x52, 0x49, 0x46, 0x46]), mime);
+			return [
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelTextPart("transcribe this:"), clip],
+					name: undefined,
+				},
+			];
+		}
+
+		test("audio/wav and audio/mpeg DataParts become input_audio blocks for audio-capable models", () => {
+			for (const [mime, format] of [
+				["audio/wav", "wav"],
+				["audio/vnd.wave", "wav"],
+				["audio/mpeg", "mp3"],
+				["audio/mp3", "mp3"],
+			] as const) {
+				const out = convertMessages(userWithAudio(mime), { audioInput: true });
+				const content = expectDefined(out[0]).content as unknown as Array<Record<string, unknown>>;
+				assert.ok(Array.isArray(content), `${mime} must convert to array content`);
+				assert.deepEqual(
+					content.map((b) => b.type),
+					["text", "input_audio"]
+				);
+				const audioBlock = content[1] as { input_audio: { data: string; format: string } };
+				assert.strictEqual(audioBlock.input_audio.format, format, `${mime} maps to ${format}`);
+				assert.strictEqual(audioBlock.input_audio.data, Buffer.from([0x52, 0x49, 0x46, 0x46]).toString("base64"));
+			}
+		});
+
+		test("audio DataParts drop with the no-wire-mapping log when the model lacks audio input", () => {
+			const logged: { message: string; data?: unknown }[] = [];
+			const out = convertMessages(userWithAudio("audio/wav"), {
+				log: (message, data) => logged.push({ message, data }),
+			});
+			const first = expectDefined(out[0]);
+			assert.strictEqual(first.content, "transcribe this:", "the text survives, the clip drops");
+			assert.deepEqual(expectDefined(logged[0]).data, { role: "user", mimeType: "audio/wav" });
+		});
+
+		test("audio types outside the wire vocabulary drop even for audio-capable models", () => {
+			const logged: { message: string; data?: unknown }[] = [];
+			const out = convertMessages(userWithAudio("audio/ogg"), {
+				audioInput: true,
+				log: (message, data) => logged.push({ message, data }),
+			});
+			assert.strictEqual(expectDefined(out[0]).content, "transcribe this:");
+			assert.deepEqual(expectDefined(logged[0]).data, { role: "user", mimeType: "audio/ogg" });
+		});
 	});
 
 	suite("thinking block replay", () => {

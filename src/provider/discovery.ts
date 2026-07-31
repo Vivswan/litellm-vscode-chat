@@ -203,6 +203,9 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
 	if (item.model_info?.supports_pdf_input === true) {
 		inputModalities.push("pdf");
 	}
+	if (item.model_info?.supports_audio_input === true) {
+		inputModalities.push("audio");
+	}
 
 	return { id: item.modelId, provider, inputModalities };
 }
