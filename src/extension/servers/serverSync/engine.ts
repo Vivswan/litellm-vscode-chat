@@ -11,7 +11,7 @@ import { groupClientId, parseGroupConfiguration } from "../../../provider/catalo
 import { VENDOR_ID } from "../../../shared/config/commandIds";
 import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
-import { fingerprint, legacyUnsaltedFingerprint } from "../../../shared/util/fingerprint";
+import { fingerprint } from "../../../shared/util/fingerprint";
 import type { StoredServerSecrets } from "./secrets";
 import { inlineSecretValues } from "./secrets";
 import type { DeclaredServer, EntryModelParameters } from "./setting";
@@ -80,8 +80,10 @@ export interface ServerSyncEnv {
 	confirmFingerprintsDurable(): Promise<boolean>;
 	/**
 	 * The persisted fingerprint map: read to seed the engine's in-memory
-	 * session map (see ServerSyncEngine.fingerprints), and re-read on the
-	 * duplicate-rejection path as positive confirmation only.
+	 * session map (see ServerSyncEngine.fingerprints), and re-read per entry
+	 * presence-only: as positive confirmation on the duplicate-rejection
+	 * path, and as the preservation fallback when a pass leaves an entry
+	 * unsynced (see carryLastGood).
 	 */
 	getFingerprints(): Readonly<Record<string, string>>;
 	setFingerprints(map: Readonly<Record<string, string>>): Promise<void>;
@@ -125,28 +127,16 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
  * The fingerprint of one entry's group args as this version persists it:
  * salted, over the frozen JSON rendering buildGroupArgs documents. The
  * unsalted-fingerprint migration recomputes stored records through this same
- * function, so the two can never drift.
+ * function, so the two can never drift. The engine compares stored records
+ * against this rendering ONLY: records persisted by pre-salt versions are the
+ * unsaltedSyncFingerprints migration's to recognize and rewrite (it runs
+ * pre-registration, before the first pass seeds from the store), so a pass
+ * that still meets one is inside a failed-migration window and the entry
+ * degrades to the visible name-conflict classification below - carried, never
+ * overwritten - until the next successful migration run heals it.
  */
 export function groupArgsFingerprint(args: Record<string, string>): string {
 	return fingerprint(JSON.stringify(args));
-}
-
-/**
- * The renderings pre-salt extension versions persisted for the same args,
- * newest first: unsalted with the label (v0.3.x), and unsalted without it
- * (versions before `label` joined buildGroupArgs - adding it changed every
- * fingerprint at once, and the host cannot update an existing group, so
- * without acceptance every healthy pre-label entry would wedge on a
- * permanent name-conflict error). A stored fingerprint matching either is
- * the same proof of "the live group holds this entry's content" - minus, for
- * the label-less form, the label an add-only host can never receive
- * retroactively - and the matching paths upgrade the record to
- * groupArgsFingerprint on the spot, so each shim runs once per entry.
- * Comparison-only; nothing may persist these renderings.
- */
-export function legacyGroupArgsFingerprints(args: Record<string, string>): readonly string[] {
-	const { label: _label, ...legacyArgs } = args;
-	return [legacyUnsaltedFingerprint(JSON.stringify(args)), legacyUnsaltedFingerprint(JSON.stringify(legacyArgs))];
 }
 
 function secretLocations(entry: DeclaredServer, stored: StoredServerSecrets): Record<SecretFieldId, SecretLocation> {
@@ -246,10 +236,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 * The session's authoritative fingerprint map: seeded from the persisted
 	 * store on the first pass, maintained in memory from then on, and written
 	 * through for the next session only - decisions never trust store
-	 * re-reads, with ONE exception: the duplicate-rejection path may take a
-	 * fresh read as positive confirmation that another window already synced
-	 * the same configuration (see syncPass; matches are safe, absences prove
-	 * nothing). The monkey fuzzer caught why blind re-reads wedge entries: an
+	 * re-reads, with two presence-only exceptions: the duplicate-rejection
+	 * path may take a fresh read as positive confirmation that another window
+	 * already synced the same configuration (see syncPass), and a pass that
+	 * leaves an entry unsynced preserves a store record the session map has
+	 * never seen instead of dropping it at the pass-end write (see
+	 * carryLastGood). In both, presence and matches are safe, absences prove
+	 * nothing. The monkey fuzzer caught why anything more wedges entries: an
 	 * awaited globalState.update can be reverted moments later by a stale
 	 * value from the storage layer (the whole key came back as its previous
 	 * version), and a pass that trusts that read re-adds its own group, takes
@@ -344,6 +337,35 @@ export class ServerSyncEngine implements vscode.Disposable {
 		}
 	}
 
+	/**
+	 * Carry the record for an entry this pass leaves unsynced: this window's
+	 * last-known-good, or, when the session map has never seen the label, the
+	 * store's record - presence-only, the same asymmetry the duplicate path's
+	 * confirmation leans on (a stale read can only under-report, never invent,
+	 * so a present record is some window's proof of the live group's content,
+	 * while an absence proves nothing). Without the carry the pass-end
+	 * whole-key write would destroy the only copy; for a legacy-form record
+	 * that copy is the only proof the unsaltedSyncFingerprints migration can
+	 * still rewrite. The caller supplies its own single store read, so no
+	 * branch ever takes two reads that could disagree. The preserved record
+	 * goes into the session map at once so a later entry's write-through
+	 * cannot re-clobber it mid-pass, and into `next` so the pass-end write
+	 * keeps it.
+	 */
+	private carryLastGood(
+		label: string,
+		previous: Readonly<Record<string, string>>,
+		next: Record<string, string>,
+		storeRecord: string | undefined
+	): void {
+		const lastGood = previous[label] ?? storeRecord;
+		if (lastGood === undefined) {
+			return;
+		}
+		next[label] = lastGood;
+		this.fingerprints = { ...this.fingerprints, [label]: lastGood };
+	}
+
 	private async syncPass(force: boolean): Promise<void> {
 		const { entries, problems } = parseServersSetting(this.env.readServersSetting());
 		for (const problem of problems) {
@@ -393,19 +415,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 			const args = buildGroupArgs(entry, stored);
 			const printed = groupArgsFingerprint(args);
-			// The renderings pre-salt and pre-label sessions persisted for this
-			// same content; accepted wherever a stored fingerprint proves the live
-			// group's content, and upgraded to `printed` on the spot.
-			const legacyPrinted = legacyGroupArgsFingerprints(args);
 			const retryState = this.retry.get(entry.label);
 			if (secretsUnreadable) {
 				// Without the real secrets the fingerprint is not meaningful, so no
 				// host call and no retry bookkeeping (the stored retry state stays
 				// put on purpose); last-known-good carries.
-				const lastGood = previous[entry.label];
-				if (lastGood !== undefined) {
-					next[entry.label] = lastGood;
-				}
+				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (!saltDurable) {
 				// The same skip for a different unreadable secret: fingerprints
 				// computed under an unconfirmed salt cannot be recognized by any
@@ -415,13 +430,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// the stored salt, syncs normally.
 				syncError = SALT_UNAVAILABLE_MESSAGE;
 				syncErrorClass = "secretsUnreadable";
-				const lastGood = previous[entry.label];
-				if (lastGood !== undefined) {
-					next[entry.label] = lastGood;
-				}
+				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (
 				!force &&
-				(previous[entry.label] === printed || legacyPrinted.includes(previous[entry.label] ?? "")) &&
+				previous[entry.label] === printed &&
 				!(retryState?.kind === "upsertFailed" && retryState.fingerprint === printed)
 			) {
 				next[entry.label] = printed;
@@ -439,10 +451,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// carried so a later revert of the entry can still match it.
 				syncError = GROUP_UPDATE_UNAVAILABLE_MESSAGE;
 				syncErrorClass = "blocked";
-				const lastGood = previous[entry.label];
-				if (lastGood !== undefined) {
-					next[entry.label] = lastGood;
-				}
+				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else if (!(await this.confirmSaltDurable())) {
 				// Re-confirmed immediately before the irreversible host call, not
 				// just at pass start: a store mutation mid-pass must stop further
@@ -451,10 +460,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// pass-level pause above.
 				syncError = SALT_UNAVAILABLE_MESSAGE;
 				syncErrorClass = "secretsUnreadable";
-				const lastGood = previous[entry.label];
-				if (lastGood !== undefined) {
-					next[entry.label] = lastGood;
-				}
+				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 			} else {
 				try {
 					await this.env.addProviderGroup(args);
@@ -479,24 +485,21 @@ export class ServerSyncEngine implements vscode.Disposable {
 					});
 				} catch (error) {
 					if (isDuplicateGroupError(error)) {
-						// The session map first; failing that, ONE fresh store read as
-						// POSITIVE confirmation only. The servers setting is machine-
-						// scoped and globalState is shared, so another window's engine
-						// may have added this exact configuration and persisted its
-						// fingerprint - a record this window's seed-once map predates.
-						// The asymmetry is load-bearing: the stale-read failure mode
-						// the in-memory map guards against can only UNDER-report (an
-						// older map), never invent a matching fingerprint, so a match
-						// proves the live group holds exactly these args while an
-						// absence proves nothing. The legacy renderings confirm too: a
-						// pre-salt or pre-label session's record describes the same
-						// content.
+						// The session map first; failing that, ONE fresh store read,
+						// used presence-only twice: as POSITIVE confirmation here, and
+						// as the carry's preservation fallback on the not-confirmed
+						// path below (the same read serves both, so the two can never
+						// disagree). The servers setting is machine-scoped and
+						// globalState is shared, so another window's engine may have
+						// added this exact configuration and persisted its fingerprint
+						// - a record this window's seed-once map predates. The
+						// asymmetry is load-bearing: the stale-read failure mode the
+						// in-memory map guards against can only UNDER-report (an older
+						// map), never invent a matching fingerprint, so a match proves
+						// the live group holds exactly these args while an absence
+						// proves nothing.
 						const storeRecord = this.env.getFingerprints()[entry.label];
-						const confirmed =
-							previous[entry.label] === printed ||
-							storeRecord === printed ||
-							legacyPrinted.includes(previous[entry.label] ?? "") ||
-							legacyPrinted.includes(storeRecord ?? "");
+						const confirmed = previous[entry.label] === printed || storeRecord === printed;
 						if (confirmed) {
 							// Under an add-only host (no upsert), "the group already
 							// exists" for a confirmed configuration IS the synced steady
@@ -521,10 +524,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 							// map) so unforced passes keep the error without hammering and
 							// a forced pass retries after the user removes the stale group
 							// natively.
-							const lastGood = previous[entry.label];
-							if (lastGood !== undefined) {
-								next[entry.label] = lastGood;
-							}
+							this.carryLastGood(entry.label, previous, next, storeRecord);
 							this.retry.set(entry.label, { kind: "blocked", fingerprint: printed });
 							syncError = GROUP_UPDATE_UNAVAILABLE_MESSAGE;
 							syncErrorClass = "blocked";
@@ -544,10 +544,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 						// and the log: the command carried resolved secrets, and a host
 						// that echoes its arguments would leak them into public issue
 						// reports.
-						const lastGood = previous[entry.label];
-						if (lastGood !== undefined) {
-							next[entry.label] = lastGood;
-						}
+						this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
 						this.retry.set(entry.label, { kind: "upsertFailed", fingerprint: printed });
 						syncError = GROUP_UPSERT_FAILED_MESSAGE;
 						syncErrorClass = "upsertFailed";

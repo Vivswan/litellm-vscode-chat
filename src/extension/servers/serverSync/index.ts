@@ -27,7 +27,6 @@ export {
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
 	GROUP_UPSERT_FAILED_MESSAGE,
 	groupArgsFingerprint,
-	legacyGroupArgsFingerprints,
 	SALT_UNAVAILABLE_MESSAGE,
 	SECRETS_READ_FAILED_MESSAGE,
 	ServerSyncEngine,

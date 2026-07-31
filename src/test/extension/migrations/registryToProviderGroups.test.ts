@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import type { FingerprintSaltSession } from "../../../extension/fingerprintSalt";
 import type { MigrationContext } from "../../../extension/migrations";
 import { getMigratedServerLabels } from "../../../extension/migrations/labelScopedModelParameters";
+import { legacyUnsaltedFingerprint } from "../../../extension/migrations/legacyFingerprint";
 import { legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
 import {
 	isGroupMigrationComplete,
@@ -27,7 +28,7 @@ import {
 	SKIPPED_MIGRATION_SERVERS_KEY,
 } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
-import { fingerprint, legacyUnsaltedFingerprint } from "../../../shared/util/fingerprint";
+import { fingerprint } from "../../../shared/util/fingerprint";
 import type { FakeExtensionStorage } from "../../testUtils";
 import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 

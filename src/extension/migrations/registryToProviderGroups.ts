@@ -13,11 +13,12 @@ import {
 } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { ServerWithKey } from "../../shared/servers";
-import { fingerprint, fingerprintSchema, legacyUnsaltedFingerprint } from "../../shared/util/fingerprint";
+import { fingerprint, fingerprintSchema } from "../../shared/util/fingerprint";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 import { getMigratedServerLabels, labelScopedModelParametersMigration } from "./labelScopedModelParameters";
+import { legacyUnsaltedFingerprint } from "./legacyFingerprint";
 import { hasLegacyConfig } from "./legacySingleServer";
 
 /**
