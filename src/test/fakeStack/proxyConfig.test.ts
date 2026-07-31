@@ -2,7 +2,13 @@ import * as assert from "node:assert";
 import { COMMAND_SIGIL } from "./commands";
 import type { FakeModel } from "./models";
 import { FAKE_MODELS } from "./models";
-import { assertUniqueNames, consolidatedModelEntry, costLiteral, generateConfig } from "./proxyConfig";
+import {
+	assertUniqueNames,
+	consolidatedModelEntry,
+	costLiteral,
+	generateConfig,
+	parseCopilotCatalog,
+} from "./proxyConfig";
 
 /**
  * Pins the generated proxy config's load-bearing emission properties on
@@ -70,6 +76,98 @@ suite("fakeStack proxyConfig emission", () => {
 		const withKeys = generateConfig({ realProviders: false }, () => "sk-anything");
 		assert.ok(!withKeys.includes("model_name: openai/*"));
 		assert.ok(!withKeys.includes('model_name: "*"'));
+		assert.ok(!withKeys.includes("litellm_settings:"), "no expansion flag without wildcard routes");
+	});
+
+	test("a set key emits its wildcard route plus the expansion flag", () => {
+		const real = generateConfig({ realProviders: true, copilotModels: [] }, (name) =>
+			name === "OPENAI_API_KEY" ? "sk-real" : ""
+		);
+		assert.ok(real.includes("  - model_name: openai/*"), "wildcard route emitted");
+		assert.ok(!real.includes("model_name: anthropic/*"), "keyless providers stay out");
+		assert.ok(
+			real.includes("litellm_settings:\n  check_provider_endpoint: true"),
+			"wildcards come with live-catalog expansion"
+		);
+	});
+
+	test("the bare * passthrough alone does not enable the expansion flag", () => {
+		const real = generateConfig({ realProviders: true, copilotModels: [] }, (name) =>
+			name === "LITELLM_WILDCARD_ALL" ? "1" : ""
+		);
+		assert.ok(real.includes('  - model_name: "*"'), "bare passthrough emitted");
+		assert.ok(!real.includes("litellm_settings:"), "no provider endpoint to expand");
+	});
+
+	test("real mode without keys emits neither wildcards nor the expansion flag", () => {
+		const real = generateConfig({ realProviders: true, copilotModels: [] });
+		assert.ok(!real.includes("model_name: openai/*"));
+		assert.ok(!real.includes("litellm_settings:"));
+	});
+
+	test("copilot models emit explicit routes with modes from the catalog", () => {
+		const real = generateConfig({
+			realProviders: true,
+			copilotModels: [
+				{ id: "claude-opus-5", type: "chat", supportedEndpoints: ["/chat/completions", "/v1/messages"] },
+				{ id: "text-embedding-3-small", type: "embeddings", supportedEndpoints: [] },
+				{ id: "gpt-5.4-mini", type: "chat", supportedEndpoints: ["/responses", "ws:/responses"] },
+				{ id: "gpt-5.3-codex", type: "chat", supportedEndpoints: ["/chat/completions", "/responses"] },
+				{ id: "legacy-default", type: "chat", supportedEndpoints: [] },
+			],
+		});
+		assert.ok(
+			real.includes(
+				"  - model_name: github_copilot/claude-opus-5\n    litellm_params:\n      model: github_copilot/claude-opus-5\n"
+			),
+			"chat model emitted"
+		);
+		for (const chatOnly of ["claude-opus-5", "gpt-5.3-codex", "legacy-default"]) {
+			assert.ok(
+				!new RegExp(`model: github_copilot/${chatOnly.replace(/[.]/g, "\\.")}\\n {4}model_info:`).test(real),
+				`${chatOnly} carries no mode (chat endpoint available)`
+			);
+		}
+		assert.ok(
+			real.includes("      model: github_copilot/text-embedding-3-small\n    model_info:\n      mode: embedding"),
+			"embeddings type maps to litellm's embedding mode"
+		);
+		assert.ok(
+			real.includes("      model: github_copilot/gpt-5.4-mini\n    model_info:\n      mode: responses"),
+			"a responses-only endpoint set maps to mode responses despite type chat"
+		);
+	});
+
+	test("a copilot id outside the safe alphabet is rejected by the emission", () => {
+		assert.throws(
+			() =>
+				generateConfig({
+					realProviders: true,
+					copilotModels: [{ id: "bad id\nmodel_name: pwned", type: "chat", supportedEndpoints: [] }],
+				}),
+			/must match/
+		);
+	});
+
+	test("parseCopilotCatalog drops malformed entries instead of throwing", () => {
+		for (const hostile of [null, 42, "nope", {}, { data: "not-a-list" }, { data: null }]) {
+			assert.deepStrictEqual(parseCopilotCatalog(hostile), { models: [], rejected: [] });
+		}
+		const parsed = parseCopilotCatalog({
+			data: [
+				{ id: "claude-opus-5", capabilities: { type: "chat" }, supported_endpoints: ["/chat/completions", 7] },
+				{ id: "bad id\nmodel_name: pwned" },
+				{ id: 42 },
+				{ id: "bare-entry" },
+				{ id: "typed-oddly", capabilities: { type: 9 }, supported_endpoints: "not-a-list" },
+			],
+		});
+		assert.deepStrictEqual(parsed.rejected, ["bad id\nmodel_name: pwned", "<non-string id>"]);
+		assert.deepStrictEqual(parsed.models, [
+			{ id: "claude-opus-5", type: "chat", supportedEndpoints: ["/chat/completions"] },
+			{ id: "bare-entry", type: "chat", supportedEndpoints: [] },
+			{ id: "typed-oddly", type: "chat", supportedEndpoints: [] },
+		]);
 	});
 
 	test("the catalog shape is pinned: exactly 8 entries across 7 aliases", () => {

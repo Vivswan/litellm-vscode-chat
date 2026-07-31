@@ -344,6 +344,7 @@
 		"docker:logs": "bun scripts/compose.ts logs -f",
 		"dev": "bun scripts/dev.ts",
 		"generate-config": "bun scripts/generate-litellm-config.ts",
+		"copilot-login": "bun scripts/copilot-login.ts",
 		"test": "bun run compile && bun run bundle:dev && vscode-test --label unit --label host-fidelity",
 		"test:coverage": "bun run compile && bun run bundle:dev && vscode-test --label unit --label host-fidelity --coverage && bun scripts/check-coverage.ts",
 		"test:docker": "bun scripts/docker-test.ts"

@@ -10,6 +10,9 @@ services:
     working_dir: /app
     volumes:
       - .:/app:ro
+      # Mask the Copilot token dir out of the repo mount: this container has
+      # no business reading a credential.
+      - /app/docker/.copilot-token
     environment:
       # Explicit rather than relying on the server's default; must stay equal
       # to FAKE_BACKEND_PORT in src/test/fakeStack/proxyConfig.ts (as must the
@@ -36,6 +39,10 @@ services:
       # runtime. scripts/compose.ts and scripts/docker-test.ts regenerate the
       # config inside it before every start.
       - ./docker/.generated:/app/generated:ro
+      # GitHub Copilot device-flow login, seeded by `bun run copilot-login`;
+      # read-only, with the provider's short-lived key cache redirected to
+      # container-local /tmp via GITHUB_COPILOT_API_KEY_FILE below.
+      - ./docker/.copilot-token:/copilot-token:ro
     ports:
       # Loopback only: with real provider keys in .env, an exposed proxy
       # would let anyone on the network spend those credentials.
@@ -47,7 +54,12 @@ services:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-test-1234}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GITHUB_API_KEY: ${GITHUB_API_KEY:-}
+      GITHUB_COPILOT_TOKEN_DIR: /copilot-token
+      # Absolute, so the authenticator's os.path.join resolves it OUTSIDE the
+      # read-only token dir; the cache is per-container and disposable. A
+      # version-coupled bet on the image tag above: it relies on the
+      # authenticator joining this value without validating it.
+      GITHUB_COPILOT_API_KEY_FILE: /tmp/github-copilot-api-key.json
       # DEBUG mirrors litellm's own unset default (getenv fallback in
       # litellm/_logging.py); an empty value would crash the proxy at boot
       # (getattr(logging, "")). Set ERROR or INFO to quiet the proxy log.

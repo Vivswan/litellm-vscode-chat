@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseEnvFile, STACK_DEFAULTS } from "./envFile";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
-import { FAKE_BACKEND_PORT, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
+import { COPILOT_TOKEN_DIR, FAKE_BACKEND_PORT, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
 
 /**
  * Drift guards for the docker stack's non-TypeScript mirrors. The constants
@@ -101,7 +101,7 @@ suite("stack drift guard: docker-compose.yml", () => {
 			assert.ok(!Object.hasOwn(passthrough, name), `duplicate litellm passthrough for ${name}`);
 			passthrough[name] = match[2] ?? "";
 		}
-		assert.ok(REAL_PROVIDERS.length >= 3, "REAL_PROVIDERS names the provider key set");
+		assert.ok(REAL_PROVIDERS.length >= 2, "REAL_PROVIDERS names the provider key set");
 		for (const { envVar } of REAL_PROVIDERS) {
 			assert.ok(Object.hasOwn(passthrough, envVar), `the litellm service does not pass ${envVar} through`);
 			assert.strictEqual(passthrough[envVar], "", `${envVar} passes through with an empty default`);
@@ -109,6 +109,26 @@ suite("stack drift guard: docker-compose.yml", () => {
 		// The generated config always ends in master_key: os.environ/LITELLM_MASTER_KEY.
 		assert.ok(Object.hasOwn(passthrough, "LITELLM_MASTER_KEY"), "the litellm service must keep LITELLM_MASTER_KEY");
 		assert.strictEqual(passthrough.LITELLM_MASTER_KEY, STACK_DEFAULTS.LITELLM_MASTER_KEY);
+	});
+
+	test("every compose restatement of the copilot token dir matches COPILOT_TOKEN_DIR", () => {
+		// copilot-login seeds COPILOT_TOKEN_DIR on the host; compose cannot
+		// import the constant, so its copies would otherwise drift silently:
+		// the login would seed a directory nothing mounts, tests stay green,
+		// and the stack just has no github_copilot routes.
+		const litellm = serviceBlock("litellm");
+		assert.ok(litellm.includes(`- ./${COPILOT_TOKEN_DIR}:/copilot-token:ro`), "litellm mounts the token dir read-only");
+		assert.ok(litellm.includes("GITHUB_COPILOT_TOKEN_DIR: /copilot-token"), "the authenticator env names the mount");
+		assert.match(
+			litellm,
+			/GITHUB_COPILOT_API_KEY_FILE: \/\S+/,
+			"the key cache redirects to an absolute container-local path (escapes the read-only mount)"
+		);
+		const fakeOpenai = serviceBlock("fake-openai");
+		assert.ok(
+			fakeOpenai.includes(`- /app/${COPILOT_TOKEN_DIR}`),
+			"fake-openai masks the token dir out of its repo mount"
+		);
 	});
 });
 
