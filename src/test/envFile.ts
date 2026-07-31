@@ -14,7 +14,7 @@
 
 /**
  * The docker stack's default connection settings, one per compose variable.
- * docker-compose.yml restates each as a `${VAR:-default}` fallback (compose
+ * docker/docker-compose.yml restates each as a `${VAR:-default}` fallback (compose
  * cannot import TypeScript), and .env.example and the README restate them as
  * prose; src/test/stackDrift.test.ts pins all three mirrors. The scripts and
  * docker suites take their fallbacks from here, so a rotated default changes

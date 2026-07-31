@@ -65,7 +65,7 @@ function run(label: string, cmd: string[], extraEnv?: Record<string, string>): v
 // Installed before the stack starts, so Ctrl+C at any later point (bundling,
 // the host launch, the log follow) tears the stack down instead of leaving it
 // running. The handler is upgraded once log-following starts.
-const composeCli = join(root, "scripts", "compose.ts");
+const composeCli = join(root, "scripts", "stack", "compose.ts");
 // knip parses literal child_process argument arrays and reported the compose
 // subcommands here ("logs", "down") as unlisted binaries; building the argv
 // through a helper keeps the call sites opaque to that scan.

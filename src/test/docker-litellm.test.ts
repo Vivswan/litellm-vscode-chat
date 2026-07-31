@@ -22,7 +22,7 @@ import { expectDefined } from "./testUtils";
  * Docker-stack test suite.
  *
  * Drives the extension through the real VS Code LM API against the dockerized
- * LiteLLM proxy (docker-compose.yml). The consolidated fake models (realistic
+ * LiteLLM proxy (docker/docker-compose.yml). The consolidated fake models (realistic
  * aliases over fake- upstreams, src/test/fakeStack/models.ts) are the primary
  * surface: response shapes are selected with the %play command against
  * gpt-5.2-mini, and every other command drives its own behavior.

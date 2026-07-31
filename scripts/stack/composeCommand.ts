@@ -2,9 +2,13 @@
 //
 // Resolves which compose CLI to use, keeping the docker stack runnable under
 // both Docker and Podman: an explicit COMPOSE_CMD wins, then `docker compose`,
-// then `podman compose`.
+// then `podman compose`. The compose file lives in docker/, but the project
+// directory stays the repo root so .env resolution and the compose file's
+// relative bind mounts keep resolving from there.
 
 import { spawnSync } from "node:child_process";
+
+const COMPOSE_FILE_ARGS = ["-f", "docker/docker-compose.yml", "--project-directory", "."];
 
 function probes(candidate: string[]): boolean {
 	const [command, ...args] = candidate;
@@ -18,14 +22,14 @@ function probes(candidate: string[]): boolean {
 export function resolveComposeCommand(): string[] {
 	const override = process.env.COMPOSE_CMD?.trim();
 	if (override) {
-		return override.split(/\s+/);
+		return [...override.split(/\s+/), ...COMPOSE_FILE_ARGS];
 	}
 	for (const candidate of [
 		["docker", "compose"],
 		["podman", "compose"],
 	]) {
 		if (probes(candidate)) {
-			return candidate;
+			return [...candidate, ...COMPOSE_FILE_ARGS];
 		}
 	}
 	console.error(
