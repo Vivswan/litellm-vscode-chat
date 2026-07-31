@@ -64,7 +64,10 @@ suite("shared/config/commandIds: package.json drift guard", () => {
 		// an added or retitled command must reach it.
 		const text = fs.readFileSync(path.join(repoRoot, "docs", "getting-started.md"), "utf8");
 		for (const entry of readPackageJson().contributes.commands) {
-			assert.ok(entry.title !== undefined && text.includes(entry.title), `docs/getting-started.md names "${entry.title}"`);
+			assert.ok(
+				entry.title !== undefined && text.includes(entry.title),
+				`docs/getting-started.md names "${entry.title}"`
+			);
 		}
 	});
 
