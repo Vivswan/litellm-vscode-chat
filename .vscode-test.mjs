@@ -48,6 +48,22 @@ export default defineConfig({
 			launchArgs: launchArgsFor("unit"),
 		},
 		{
+			// Its own label and host: the file calls the compiled activate() with a
+			// fake Production-mode context, which registers the real litellm.*
+			// command IDs - it can never share a host with the activated extension.
+			// It lives in its own directory because the installed @vscode/test-cli
+			// ignores "!" negations in files globs (the unit label's negations
+			// above are aspirational; those suites self-skip without their env).
+			label: "activation-production",
+			files: "out/test/activation/production.test.js",
+			mocha: {
+				ui: "tdd",
+				timeout: 30000,
+				color: true,
+			},
+			launchArgs: launchArgsFor("activation-production"),
+		},
+		{
 			label: "host-fidelity",
 			files: "out/test/host-fidelity.test.js",
 			mocha: {
