@@ -168,7 +168,9 @@ function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
 	// price (one-sided pricing is an incomplete signal) and derive from the
 	// base tier only: the longContext* costs describe an opt-in regime, not
 	// the headline cost. The converted values are already rounded to six
-	// decimals, so String() renders them without float noise.
+	// decimals, so String() renders them without float noise; a positive cost
+	// too small for that unit has rounded to 0 above, and the label mirrors
+	// the numeric field's 0 rather than inventing a smaller unit.
 	if (fields.inputCost !== undefined && fields.outputCost !== undefined) {
 		fields.priceCategory = priceCategoryFor(fields.inputCost, fields.outputCost);
 		fields.pricing = `$${fields.inputCost} in / $${fields.outputCost} out per 1M tokens`;

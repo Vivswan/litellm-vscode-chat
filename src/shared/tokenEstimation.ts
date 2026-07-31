@@ -43,6 +43,23 @@ export function estimatePartTokens(part: unknown, options: TokenEstimationOption
 		}
 		return total;
 	}
+	// Prompt-TSX parts transmit as their string value or, for object values,
+	// their JSON serialization (extractPromptTsxText in messages.ts); the
+	// estimate counts that same rendering. A string value would also hit the
+	// generic fallback below, but an object value would otherwise score 0.
+	if (part instanceof vscode.LanguageModelPromptTsxPart) {
+		if (typeof part.value === "string") {
+			return Math.ceil(part.value.length / CHARS_PER_TOKEN);
+		}
+		if (part.value !== undefined && part.value !== null) {
+			try {
+				return Math.ceil(JSON.stringify(part.value).length / CHARS_PER_TOKEN);
+			} catch {
+				return 0;
+			}
+		}
+		return 0;
+	}
 	// Thinking parts (a proposed API class) reach here as unrecognized objects
 	// carrying a string value; their text plus any replayed signature or
 	// redacted payload is serialized onto the wire, so it counts.
