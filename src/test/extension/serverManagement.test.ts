@@ -259,6 +259,8 @@ suite("extension/serverManagement", () => {
 
 		interface WalkResult {
 			registry: ServerRegistry;
+			/** The registry contents right after seeding, for no-mutation assertions. */
+			seeded: { id: string; label: string; baseUrl: string }[];
 			/** The options each showInputBox call received, in prompt order. */
 			inputOptions: vscode.InputBoxOptions[];
 			/** Every quick pick shown: its options and the items offered. */
@@ -294,6 +296,7 @@ suite("extension/serverManagement", () => {
 				await registry.addServer(label, baseUrl, apiKey);
 			}
 			const logger = new Logger({ info: () => {}, error: () => {} });
+			const seeded = registry.getServers().map(({ id, label, baseUrl }) => ({ id, label, baseUrl }));
 			const handler = captureManageHandlers(
 				registry,
 				logger,
@@ -303,6 +306,7 @@ suite("extension/serverManagement", () => {
 
 			const result: WalkResult = {
 				registry,
+				seeded,
 				inputOptions: [],
 				quickPicks: [],
 				infoToasts: [],
@@ -679,8 +683,13 @@ suite("extension/serverManagement", () => {
 				assert.ok(expectDefined(errors[0]).includes("Manage Language Models"), expectDefined(errors[0]));
 				assert.deepStrictEqual(run.quickPicks, [], "the legacy quick pick would edit dead configuration");
 				assert.deepStrictEqual(run.inputOptions, []);
+				// Full no-mutation proof: same entry count, ids, labels, and URLs
+				// as the moment after seeding, and the key survives untouched.
+				assert.deepStrictEqual(
+					run.registry.getServers().map(({ id, label, baseUrl }) => ({ id, label, baseUrl })),
+					run.seeded
+				);
 				const server = expectDefined(run.registry.getServers()[0]);
-				assert.strictEqual(server.label, "Prod");
 				assert.strictEqual(await run.registry.getApiKey(server.id), "k");
 			} finally {
 				(vscode.window as Record<string, unknown>).showErrorMessage = origError;

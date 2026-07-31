@@ -52,8 +52,11 @@ export default defineConfig({
 			// fake Production-mode context, which registers the real litellm.*
 			// command IDs - it can never share a host with the activated extension.
 			// It lives in its own directory because the installed @vscode/test-cli
-			// ignores "!" negations in files globs (the unit label's negations
-			// above are aspirational; those suites self-skip without their env).
+			// ignores "!" negations in files globs. The unit label's negations
+			// above are therefore dead: the docker suites self-skip without their
+			// env, but host-fidelity's CAPTURE suite actually runs under the unit
+			// label too (only the live suite skips), duplicating its execution -
+			// a follow-up cleanup should restructure those files like this one.
 			label: "activation-production",
 			files: "out/test/activation/production.test.js",
 			mocha: {

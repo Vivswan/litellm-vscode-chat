@@ -568,6 +568,14 @@ export interface AssembledStream {
 	chunks: unknown[];
 	expectedText: string;
 	expectedToolCalls: ExpectedToolCall[];
+	/**
+	 * Thinking text the stream must surface as thinking parts, joined in
+	 * stream order. Empty when no event declares an expectation, in which case
+	 * the oracle skips the thinking assertion (the random generators do not
+	 * declare one; deterministic corpus entries do, so deleting reasoning
+	 * extraction fails their replay instead of resolving quietly empty).
+	 */
+	expectedThinking: string;
 }
 
 export function assemble(events: FuzzEvent[]): AssembledStream {
@@ -575,6 +583,7 @@ export function assemble(events: FuzzEvent[]): AssembledStream {
 	const expectedToolCalls: ExpectedToolCall[] = [];
 	const citations = new Map<string, string>();
 	let expectedText = "";
+	let expectedThinking = "";
 	let hintInserted = false;
 
 	for (const event of events) {
@@ -590,6 +599,9 @@ export function assemble(events: FuzzEvent[]): AssembledStream {
 		if (event.tools) {
 			expectedToolCalls.push(...event.tools);
 		}
+		if (event.thinking) {
+			expectedThinking += event.thinking;
+		}
 		if (event.citation && !citations.has(event.citation.url)) {
 			citations.set(event.citation.url, event.citation.title);
 		}
@@ -601,5 +613,5 @@ export function assemble(events: FuzzEvent[]): AssembledStream {
 		const lines = Array.from(citations.entries()).map(([url, title]) => `- [${title}](${url})`);
 		expectedText += `\n\nSources:\n${lines.join("\n")}`;
 	}
-	return { chunks, expectedText, expectedToolCalls };
+	return { chunks, expectedText, expectedToolCalls, expectedThinking };
 }

@@ -53,7 +53,11 @@ const NO_SECRETS: Readonly<Record<SecretFieldId, SecretLocation>> = {
 };
 
 export function makeDeclaredServer(overrides: Partial<DeclaredServer> = {}): DeclaredServer {
-	return {
+	// The base literal is fully typed against the protocol, so a drifted or
+	// renamed required field fails compilation here. Only the merge itself is
+	// cast: spreading a Partial over the state/error discriminated union is
+	// beyond what the checker can prove.
+	const base: DeclaredServer = {
 		origin: "declared",
 		label: "Prod",
 		baseUrl: "http://localhost:4000",
@@ -62,8 +66,8 @@ export function makeDeclaredServer(overrides: Partial<DeclaredServer> = {}): Dec
 		hasOAuth: false,
 		state: "ok",
 		config: { secrets: NO_SECRETS },
-		...overrides,
-	} as DeclaredServer;
+	};
+	return { ...base, ...overrides } as DeclaredServer;
 }
 
 /** A declared server whose secret fields live in the given locations. */
@@ -79,7 +83,7 @@ export function declaredWithSecrets(
 }
 
 export function makeExternalServer(overrides: Partial<ExternalServer> = {}): ExternalServer {
-	return {
+	const base: ExternalServer = {
 		origin: "external",
 		label: "Copilot",
 		baseUrl: "http://copilot.example:4000",
@@ -88,8 +92,8 @@ export function makeExternalServer(overrides: Partial<ExternalServer> = {}): Ext
 		hasOAuth: false,
 		state: "ok",
 		adoptHandle: "handle-abc123",
-		...overrides,
-	} as ExternalServer;
+	};
+	return { ...base, ...overrides } as ExternalServer;
 }
 
 export function makeModel(overrides: Partial<DashboardModel> = {}): DashboardModel {
