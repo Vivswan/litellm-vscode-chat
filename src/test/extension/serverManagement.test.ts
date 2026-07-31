@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { migrateServersToProviderGroups } from "../../extension/groupMigration";
+import { migrateServersToProviderGroups } from "../../extension/migrations/registryToProviderGroups";
 import {
 	canMutateRegistry,
 	EXTENSION_SETTINGS_FILTER,

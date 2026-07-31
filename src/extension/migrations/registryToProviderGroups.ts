@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import { z } from "zod";
-import { MANAGE_COMMAND_TITLE, VENDOR_ID } from "../shared/commandIds";
-import { fingerprint, fingerprintSchema } from "../shared/fingerprint";
-import type { Logger } from "../shared/logger";
-import type { ServerWithKey } from "../shared/servers";
+import { MANAGE_COMMAND_TITLE, VENDOR_ID } from "../../shared/commandIds";
+import { fingerprint, fingerprintSchema } from "../../shared/fingerprint";
+import type { Logger } from "../../shared/logger";
+import type { ServerWithKey } from "../../shared/servers";
 import {
 	apiKeySecret,
 	GROUP_MIGRATION_COMPLETE_KEY,
@@ -12,8 +12,9 @@ import {
 	PENDING_SECRET_DELETIONS_KEY,
 	SEEDED_PROVIDER_GROUPS_KEY,
 	SKIPPED_MIGRATION_SERVERS_KEY,
-} from "../shared/storageKeys";
-import type { ServerRegistry } from "./serverRegistry";
+} from "../../shared/storageKeys";
+import type { ServerRegistry } from "../serverRegistry";
+import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 
 /**
  * Internal host action that validates a { vendor, name, baseUrl, apiKey }
@@ -529,3 +530,25 @@ async function cleanUpOrphanedServers(
 		}
 	}
 }
+
+/**
+ * The migration engine above must keep running until every user's registry
+ * has drained: it reruns across activations by design (deferred host
+ * submissions, pending secret deletions, orphan cleanup), so this wrapper
+ * only maps its result onto the runner's outcomes.
+ */
+export const registryToProviderGroupsMigration: ExtensionMigration = {
+	state: "registry-to-provider-groups",
+	description: "Migrated the server registry to VS Code provider groups",
+	phase: "post-registration",
+	async run(ctx: MigrationContext): Promise<MigrationOutcome> {
+		const completed = await migrateServersToProviderGroups(ctx.registry, ctx.globalState, ctx.secrets, ctx.logger);
+		if (completed) {
+			return "migrated";
+		}
+		if (isGroupMigrationComplete(ctx.globalState)) {
+			return "nothing-to-do";
+		}
+		return ctx.registry.getServers().length > 0 ? "in-progress" : "nothing-to-do";
+	},
+};
