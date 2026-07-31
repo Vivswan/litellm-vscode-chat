@@ -935,13 +935,21 @@ suite("Docker LiteLLM stack", () => {
 				new vscode.LanguageModelTextPart(`${COMMAND_SIGIL}attachments`),
 			]);
 			const text = extractText(await send("gpt-5.2", [message]));
-			// Pinned from observation: the extension forwards data parts based on
-			// the request content, not the capability flags - capability gating
-			// is the HOST's job (the picker hides attachment affordances), so the
-			// wire still carries the image_url block.
+			// Pinned from the capability gate in shared/messages.ts: image
+			// DataParts convert only for models whose registration carries
+			// imageInput, so on a non-vision model the image drops before the
+			// wire (with a classification log) and the surviving text rides as
+			// plain string content - the drop replacement, not a block array.
+			const survivingText = Buffer.from(`${COMMAND_SIGIL}attachments`, "utf8");
 			assert.ok(
-				text.includes(`kind=image_url mime=image/png bytes=${PNG_DATA.length}`),
-				`observed contract changed; got: ${text}`
+				text.includes(`kind=text mime=- bytes=${survivingText.length} sha256=${sha256Hex(survivingText)}`),
+				`the message text must survive the image drop byte-identically; got: ${text}`
+			);
+			assert.ok(!text.includes("kind=image_url"), `no image block may reach a non-vision model; got: ${text}`);
+			const body = await lastForwardedRequest();
+			assert.ok(
+				!JSON.stringify(body).includes("image_url"),
+				"the raw request body must be image-free end to end, not just the classified report"
 			);
 		});
 	});
