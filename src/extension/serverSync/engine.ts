@@ -1,42 +1,21 @@
 /**
- * The declarative server sync: litellm-vscode-chat.servers is the settings
- * side's source of truth for servers, and this module keeps VS Code's
- * provider groups in step with it. Each entry is registered through the
- * host's add-only lm.addLanguageModelsProviderGroup command, with its secret
- * fields resolved as inline-in-settings value first, then the label's
- * SecretStorage blob, then absent. The command rejects an existing name and
- * the host has no update or removal command (hostGroupCommand.test.ts pins
- * this), so the engine treats a duplicate rejection for an unchanged entry
- * as the synced steady state and surfaces an actionable error when an entry
- * changed underneath its existing group.
- *
- * The engine takes its effects as an injected environment, so everything but
- * the last-mile vscode wiring (createServerSyncEnv, the palette command) is
- * unit-testable. Errors are logged, never thrown into activation, and no log
- * line ever carries a secret: labels, base URLs, and has-credential booleans
- * at most.
+ * The sync engine: builds the provider-group arguments for each declared
+ * entry, drives the host's add-only group command, and owns the fingerprint
+ * and retry bookkeeping that keeps duplicate rejections readable. Effects
+ * arrive through the injected ServerSyncEnv, so everything here is
+ * unit-testable without vscode.
  */
 
-import * as vscode from "vscode";
-import { groupClientId, parseGroupConfiguration } from "../provider/catalog/groupModels";
-import { CMD, INTERNAL_CMD, VENDOR_ID } from "../shared/commandIds";
-import { fingerprint } from "../shared/fingerprint";
-import { isRecord, isUnsafeRecordKey } from "../shared/json";
-import type { Logger } from "../shared/logger";
-import type {
-	NonSecretOptionalFields,
-	OptionalEntryFieldId,
-	OptionalEntryFields,
-	SecretFieldId,
-	SecretLocation,
-} from "../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../shared/serverEntry";
-import { CONFIG_SECTION } from "../shared/settingSpec";
-import { SERVERS_SETTING_KEY } from "../shared/settings";
-import { SERVER_SYNC_FINGERPRINTS_KEY, serverSecretsKey } from "../shared/storageKeys";
-
-/** One parsed servers-setting entry: label and baseUrl usable, other fields present only with usable text. */
-export type DeclaredServer = { readonly label: string; readonly baseUrl: string } & OptionalEntryFields;
+import type * as vscode from "vscode";
+import { groupClientId, parseGroupConfiguration } from "../../provider/catalog/groupModels";
+import { VENDOR_ID } from "../../shared/commandIds";
+import { fingerprint } from "../../shared/fingerprint";
+import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import type { StoredServerSecrets } from "./secrets";
+import { inlineSecretValues } from "./secrets";
+import type { DeclaredServer } from "./setting";
+import { parseServersSetting } from "./setting";
 
 /** The non-secret view of a declared server the dashboard renders; secret values stay out. */
 export interface DeclaredServerView extends NonSecretOptionalFields {
@@ -54,169 +33,6 @@ export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly expectedClientId?: string | undefined;
 	/** The label's last upsert failure, cleared by the next success. */
 	readonly syncError?: string | undefined;
-}
-
-function usableString(value: unknown): string | undefined {
-	if (typeof value !== "string") {
-		return undefined;
-	}
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
- * Parse the raw setting value. Entries without a usable label or baseUrl,
- * with a reserved label, or with a label an earlier entry already used are
- * skipped and reported; everything the sync engine acts on comes out of here.
- */
-export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; problems: string[] } {
-	if (raw === undefined || raw === null) {
-		return { entries: [], problems: [] };
-	}
-	if (!Array.isArray(raw)) {
-		return { entries: [], problems: ["the servers setting is not an array"] };
-	}
-	const problems: string[] = [];
-	return { entries: acceptEntries(raw, problems).map(({ entry }) => entry), problems };
-}
-
-/**
- * The accepted entries with their raw-array indices: the single place the
- * acceptance rules live, so parseServersSetting and acceptedEntry cannot
- * disagree about which raw entry a label resolves to.
- */
-function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: number; entry: DeclaredServer }[] {
-	const accepted: { index: number; entry: DeclaredServer }[] = [];
-	const seen = new Set<string>();
-	raw.forEach((item: unknown, index) => {
-		const reject = (why: string) => problems?.push(`entry ${index + 1} ${why}`);
-		if (!isRecord(item)) {
-			reject("is not an object");
-			return;
-		}
-		const record = item;
-		const label = usableString(record.label);
-		const baseUrl = usableString(record.baseUrl);
-		if (label === undefined || baseUrl === undefined) {
-			reject("is missing a label or baseUrl");
-			return;
-		}
-		if (isUnsafeRecordKey(label)) {
-			reject("uses a reserved label");
-			return;
-		}
-		if (seen.has(label)) {
-			reject("repeats an earlier entry's label; the first entry wins");
-			return;
-		}
-		seen.add(label);
-		const entry: { label: string; baseUrl: string } & { -readonly [K in OptionalEntryFieldId]?: string } = {
-			label,
-			baseUrl,
-		};
-		for (const { id } of OPTIONAL_ENTRY_FIELDS) {
-			const value = usableString(record[id]);
-			if (value !== undefined) {
-				entry[id] = value;
-			}
-		}
-		accepted.push({ index, entry });
-	});
-	return accepted;
-}
-
-/**
- * The entry parseServersSetting accepts for `label`, with its raw-array
- * index, or undefined when it accepts none. The dashboard's per-entry reads
- * and writes (the edit form's inline-value prefill, the save target) resolve
- * through this so they act on exactly the entry the dashboard row describes:
- * a rejected same-label sibling earlier in the array (no usable baseUrl, say)
- * cannot shadow the accepted entry, and a label the parser rejects outright
- * (a reserved name, a never-declared junk entry) resolves to nothing. The
- * returned entry is the parsed view - usable fields only, trimmed - so
- * callers consume what the sync engine would read, not the raw record.
- */
-export function acceptedEntry(raw: unknown, label: string): { index: number; entry: DeclaredServer } | undefined {
-	if (!Array.isArray(raw)) {
-		return undefined;
-	}
-	const wanted = label.trim();
-	return acceptEntries(raw).find(({ entry }) => entry.label === wanted);
-}
-
-/** The secure-side secrets of one label, as the SecretStorage blob holds them. */
-export type StoredServerSecrets = Partial<Readonly<Record<SecretFieldId, string>>>;
-
-/** The slice of vscode.SecretStorage the sync path uses; injectable for tests. */
-export interface SecretStore {
-	get(key: string): Thenable<string | undefined>;
-	store(key: string, value: string): Thenable<void>;
-	delete(key: string): Thenable<void>;
-}
-
-export async function readServerSecrets(secrets: SecretStore, label: string): Promise<StoredServerSecrets> {
-	const raw = await secrets.get(serverSecretsKey(label));
-	if (raw === undefined) {
-		return {};
-	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return {};
-	}
-	if (typeof parsed !== "object" || parsed === null) {
-		return {};
-	}
-	const blob: { -readonly [K in SecretFieldId]?: string } = {};
-	for (const field of SECRET_FIELD_IDS) {
-		const value = (parsed as Record<string, unknown>)[field];
-		if (typeof value === "string" && value.length > 0) {
-			blob[field] = value;
-		}
-	}
-	return blob;
-}
-
-/** Write one secret field of a label's blob; undefined deletes the field, an empty blob deletes the key. */
-export async function updateServerSecret(
-	secrets: SecretStore,
-	label: string,
-	field: SecretFieldId,
-	value: string | undefined
-): Promise<void> {
-	const blob = { ...(await readServerSecrets(secrets, label)) };
-	if (value === undefined) {
-		delete blob[field];
-	} else {
-		blob[field] = value;
-	}
-	if (Object.keys(blob).length === 0) {
-		await secrets.delete(serverSecretsKey(label));
-		return;
-	}
-	await secrets.store(serverSecretsKey(label), JSON.stringify(blob));
-}
-
-/**
- * Copy a label's whole blob to another label (the additive half of a rename);
- * a no-op when the source holds nothing. The caller deletes the source only
- * after the settings write that depends on the copy has landed.
- */
-export async function copyServerSecrets(secrets: SecretStore, fromLabel: string, toLabel: string): Promise<void> {
-	if (fromLabel === toLabel) {
-		return;
-	}
-	const blob = await readServerSecrets(secrets, fromLabel);
-	if (Object.keys(blob).length === 0) {
-		return;
-	}
-	await secrets.store(serverSecretsKey(toLabel), JSON.stringify(blob));
-}
-
-/** Delete a label's whole blob. */
-export async function deleteServerSecrets(secrets: SecretStore, label: string): Promise<void> {
-	await secrets.delete(serverSecretsKey(label));
 }
 
 /** Everything the engine touches, injected; createServerSyncEnv builds the real one. */
@@ -237,27 +53,6 @@ export interface ServerSyncEnv {
 	notifyRemoved(labels: readonly string[]): void;
 	log(message: string, data?: unknown): void;
 	logError(message: string, error: unknown): void;
-}
-
-/**
- * The inline (in-settings) secret values of a parsed entry: THE rule for
- * "this field is stored inline in the servers setting", and inline values
- * outrank the label's SecretStorage blob. One home, several consumers, so
- * they cannot drift: buildGroupArgs resolves each secret through it,
- * secretLocations reports "settings" exactly for its keys, the dashboard's
- * edit-form prefill (readInlineSecretValues) returns exactly it, and the
- * Set Server Secret palette warns about a dormant stored value exactly when
- * it holds the field. Values are secrets: never log or push them.
- */
-export function inlineSecretValues(entry: DeclaredServer): Readonly<Partial<Record<SecretFieldId, string>>> {
-	const values: { -readonly [K in SecretFieldId]?: string } = {};
-	for (const field of SECRET_FIELD_IDS) {
-		const value = entry[field];
-		if (value !== undefined) {
-			values[field] = value;
-		}
-	}
-	return values;
 }
 
 /**
@@ -656,104 +451,4 @@ export class ServerSyncEngine implements vscode.Disposable {
 			this.env.notifyRemoved(removed);
 		}
 	}
-}
-
-/** The real environment: workspace configuration, SecretStorage, globalState, and the host command. */
-export function createServerSyncEnv(context: vscode.ExtensionContext, logger: Logger): ServerSyncEnv {
-	return {
-		readServersSetting: () => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
-		readSecrets: (label) => readServerSecrets(context.secrets, label),
-		addProviderGroup: (args) => vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", args),
-		getFingerprints: () => context.globalState.get<Record<string, string>>(SERVER_SYNC_FINGERPRINTS_KEY) ?? {},
-		setFingerprints: async (map) => {
-			await context.globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, map);
-		},
-		notifyRemoved: (labels) => {
-			const list = labels.join(", ");
-			void vscode.window
-				.showInformationMessage(
-					`Removed from the servers setting: ${list}. VS Code keeps the provider group; remove it in the native Manage Language Models editor.`,
-					"Open native editor"
-				)
-				.then((choice) => {
-					if (choice === "Open native editor") {
-						void vscode.commands.executeCommand(INTERNAL_CMD.manageServers);
-					}
-				});
-		},
-		log: (message, data) => logger.log(message, data),
-		logError: (message, error) => logger.error(message, error),
-	};
-}
-
-/** Palette display copy per secret field; UI strings stay out of the shared descriptor. */
-const SECRET_PALETTE_LABELS: Readonly<Record<SecretFieldId, string>> = {
-	apiKey: "API key",
-	oauthClientSecret: "OAuth client secret",
-	virtualKeyValue: "Virtual key value",
-};
-
-/**
- * The palette path for keeping secrets out of settings.json without the
- * dashboard: pick a declared server, pick the secret field, enter the value
- * masked. An empty value removes the stored secret.
- */
-export function registerSetServerSecretCommand(
-	context: vscode.ExtensionContext,
-	engine: ServerSyncEngine,
-	logger: Logger
-): void {
-	context.subscriptions.push(
-		vscode.commands.registerCommand(CMD.setServerSecret, async () => {
-			const { entries } = parseServersSetting(
-				vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY)
-			);
-			if (entries.length === 0) {
-				void vscode.window.showInformationMessage(
-					`No servers declared in the ${CONFIG_SECTION}.${SERVERS_SETTING_KEY} setting yet. Add one there or in the dashboard first.`
-				);
-				return;
-			}
-			const entryPick = await vscode.window.showQuickPick(
-				entries.map((entry) => ({ label: entry.label, description: entry.baseUrl, entry })),
-				{ title: "LiteLLM: Set Server Secret", placeHolder: "Which server?" }
-			);
-			if (entryPick === undefined) {
-				return;
-			}
-			const fieldPick = await vscode.window.showQuickPick(
-				// Ids come from the descriptor so a new secret field cannot be
-				// silently unreachable here; the Record makes a missing label a
-				// compile error.
-				SECRET_FIELD_IDS.map((field) => ({ label: SECRET_PALETTE_LABELS[field], field })),
-				{ title: "LiteLLM: Set Server Secret", placeHolder: "Which secret?" }
-			);
-			if (fieldPick === undefined) {
-				return;
-			}
-			const value = await vscode.window.showInputBox({
-				title: `${fieldPick.label} for ${entryPick.label}`,
-				prompt: "Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value.",
-				password: true,
-			});
-			if (value === undefined) {
-				return;
-			}
-			await updateServerSecret(context.secrets, entryPick.label, fieldPick.field, value.length > 0 ? value : undefined);
-			logger.log("Server secret updated from the palette", {
-				label: entryPick.label,
-				field: fieldPick.field,
-				cleared: value.length === 0,
-			});
-			if (value.length > 0 && inlineSecretValues(entryPick.entry)[fieldPick.field] !== undefined) {
-				// Inline settings values outrank the stored blob (the same
-				// inlineSecretValues rule buildGroupArgs resolves through), so the
-				// just-stored secret stays dormant until the inline one is removed.
-				void vscode.window.showWarningMessage(
-					`"${entryPick.label}" also sets ${fieldPick.field} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.`
-				);
-			}
-			engine.requestSync();
-		})
-	);
 }
