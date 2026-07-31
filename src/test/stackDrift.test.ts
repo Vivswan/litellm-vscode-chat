@@ -151,11 +151,14 @@ suite("stack drift guard: README", () => {
 	});
 
 	test("the host-fidelity example command targets the stack defaults and the playback model", () => {
-		// Anchored to the command itself (the value under guard), so the
-		// surrounding prose is free to change; only the documented invocation's
-		// arguments are pinned.
-		const match = /bun run host-fidelity-test -- http:\/\/localhost:(\d+) (\S+) (\S+)/.exec(read("README.md"));
-		assert.ok(match, "README.md shows the host-fidelity example command against the stack");
+		// Anchored to the env assignments themselves (the values under guard),
+		// so the surrounding prose is free to change; only the documented
+		// invocation's arguments are pinned.
+		const match =
+			/LITELLM_REAL_BASE_URL=http:\/\/localhost:(\d+) LITELLM_REAL_API_KEY=(\S+) LITELLM_REAL_MODEL=(\S+)/.exec(
+				read("README.md")
+			);
+		assert.ok(match, "README.md shows the live host-fidelity invocation against the stack");
 		assert.strictEqual(match[1], STACK_DEFAULTS.LITELLM_PORT, "host-fidelity example port");
 		assert.strictEqual(match[2], STACK_DEFAULTS.LITELLM_MASTER_KEY, "host-fidelity example key");
 		assert.strictEqual(match[3], PLAYBACK_MODEL.alias, "host-fidelity example model");

@@ -94,6 +94,7 @@ try {
 	if (runHostFidelity) {
 		console.log("\nRunning the host-fidelity live suite against the stack...");
 		run("vscode-test --config .vscode-test.mjs --label host-fidelity", {
+			LITELLM_REAL_LIVE: "1",
 			LITELLM_REAL_BASE_URL: baseUrl,
 			LITELLM_REAL_API_KEY: masterKey,
 			LITELLM_REAL_MODEL: PLAYBACK_MODEL.alias,

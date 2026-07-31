@@ -28,15 +28,19 @@ import { expectDefined } from "./testUtils";
  *   1. Capture mode (default): backed by a deterministic local capture server.
  *      Validates the full host pipeline including message conversion,
  *      modelOptions filtering, and streaming response handling.
- *   2. Live mode: when LITELLM_REAL_BASE_URL is set, runs smoke tests
- *      against a real LiteLLM server through the host API.
+ *   2. Live mode: when LITELLM_REAL_LIVE=1, runs smoke tests against the
+ *      real LiteLLM server named by LITELLM_REAL_BASE_URL through the host
+ *      API. Live mode is an explicit opt-in: ambient LITELLM_REAL_* vars in
+ *      a developer's shell must never silently turn `bun run test` (and
+ *      every pre-commit run) into a live run with the capture suites
+ *      collapsed to skip stubs.
  */
 
 const REAL_BASE_URL = process.env.LITELLM_REAL_BASE_URL || "";
 const REAL_API_KEY = process.env.LITELLM_REAL_API_KEY ?? "";
 const REAL_MODEL_ID = process.env.LITELLM_REAL_MODEL || "";
 const REAL_TIMEOUT = Number(process.env.LITELLM_REAL_TIMEOUT) || 0;
-const IS_LIVE = !!REAL_BASE_URL;
+const IS_LIVE = process.env.LITELLM_REAL_LIVE === "1";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -978,9 +982,9 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 
 suite("Host-Fidelity Tests (live)", () => {
 	if (!IS_LIVE) {
-		test("SKIPPED: set LITELLM_REAL_BASE_URL to run live host-fidelity tests", () => {
+		test("SKIPPED: set LITELLM_REAL_LIVE=1 to run live host-fidelity tests", () => {
 			console.log(
-				"Set LITELLM_REAL_BASE_URL, LITELLM_REAL_API_KEY, and optionally LITELLM_REAL_MODEL to run live host-fidelity tests."
+				"Set LITELLM_REAL_LIVE=1 with LITELLM_REAL_BASE_URL, LITELLM_REAL_API_KEY, and optionally LITELLM_REAL_MODEL to run live host-fidelity tests."
 			);
 		});
 		return;
@@ -991,6 +995,11 @@ suite("Host-Fidelity Tests (live)", () => {
 
 	suiteSetup(async function () {
 		this.timeout(REAL_TIMEOUT || 30000);
+
+		assert.ok(
+			REAL_BASE_URL,
+			"LITELLM_REAL_LIVE=1 requires LITELLM_REAL_BASE_URL; set it to the live server's base URL or unset LITELLM_REAL_LIVE"
+		);
 
 		await ensureActivated();
 		await clearServers();

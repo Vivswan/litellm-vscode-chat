@@ -17,20 +17,12 @@ on:
   workflow_call:
 
 jobs:
-  # Unit suite on all three OSes; the Linux leg also enforces the
-  # source-line coverage floor.
+  # Unit suite plus the capture-mode host-fidelity suite on all three OSes;
+  # the Linux leg also enforces the source-line coverage floor.
   test:
     uses: ./.github/workflows/test-reusable.yml
     with:
       os: 'matrix'
-
-  # Promoted from its burn-in workflow after a long green streak on main:
-  # drives the real chat API against the capture server.
-  host-fidelity:
-    uses: ./.github/workflows/test-reusable.yml
-    with:
-      os: 'ubuntu-latest'
-      suite: 'host-fidelity'
 
   # Promoted from its burn-in workflow after a long green streak on main:
   # docker suite, stream fuzzer, and live host-fidelity against the

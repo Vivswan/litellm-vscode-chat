@@ -305,11 +305,24 @@ bun run generate-config  # print the generated LiteLLM config to stdout (never w
 
 The stack also works with Podman: the scripts try `docker compose` first, then `podman compose`, and `COMPOSE_CMD` overrides the choice. The compose provider must support `up --wait`; Podman with the docker-compose provider does, while older `podman-compose` releases may not. On SELinux hosts, change the bind mounts in `docker-compose.yml` from `:ro` to `:ro,z`. Always start the stack through `bun run docker:up` (or `dev` / `test:docker`): those paths generate `docker/.generated/litellm-config.yaml` first. Invoking `docker compose up` directly is unsupported - without the generation step the read-only directory mount materializes empty and the litellm container exits on a missing config.
 
-The existing host-fidelity suite can target the stack too:
+The host-fidelity suite runs against a built-in capture server as part of `bun run test`; to point it at the stack (or any live server) instead, opt in with `LITELLM_REAL_LIVE=1` and set its connection variables:
 
 ```bash
-bun run host-fidelity-test -- http://localhost:4000 sk-test-1234 gpt-5.2-mini
+bun run compile && bun run bundle:dev && \
+  LITELLM_REAL_LIVE=1 LITELLM_REAL_BASE_URL=http://localhost:4000 LITELLM_REAL_API_KEY=sk-test-1234 LITELLM_REAL_MODEL=gpt-5.2-mini \
+  bunx vscode-test --config .vscode-test.mjs --label host-fidelity
 ```
+
+On Windows PowerShell:
+
+```powershell
+bun run compile; bun run bundle:dev
+$env:LITELLM_REAL_LIVE = "1"; $env:LITELLM_REAL_BASE_URL = "http://localhost:4000"
+$env:LITELLM_REAL_API_KEY = "sk-test-1234"; $env:LITELLM_REAL_MODEL = "gpt-5.2-mini"
+bunx vscode-test --config .vscode-test.mjs --label host-fidelity
+```
+
+Without `LITELLM_REAL_LIVE=1` the other `LITELLM_REAL_*` variables are ignored, so exporting them in your shell never turns a regular test run live.
 
 ### Status Bar Indicator
 
