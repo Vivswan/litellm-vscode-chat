@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { DOCKER_TEST_LABELS } from "./dockerTestLabels";
 import { parseEnvFile, STACK_DEFAULTS } from "./envFile";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { COPILOT_TOKEN_DIR, FAKE_BACKEND_PORT, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
@@ -197,5 +198,69 @@ suite("stack drift guard: .env.example", () => {
 			assert.ok(Object.hasOwn(values, envVar), `.env.example does not template ${envVar}`);
 			assert.strictEqual(values[envVar], "", `${envVar} ships empty (no key, no wildcard route)`);
 		}
+	});
+});
+
+suite("stack drift guard: checks.yml docker shards", () => {
+	/**
+	 * The shard matrices in checks.yml restate the orchestrator's label set
+	 * as quoted comma-separated strings the workflow cannot import. The
+	 * orchestrator exits 2 on an unknown label, but only when that shard
+	 * actually runs; these guards catch a rename or a new suite at unit-test
+	 * time instead. Same block-anchoring approach as the compose guards.
+	 */
+	function jobBlock(name: string): string {
+		const match = new RegExp(`^  ${name}:\\n((?:(?:    .*)?\\n)*)`, "m").exec(read(".github/workflows/checks.yml"));
+		assert.ok(match, `checks.yml declares a "${name}" job`);
+		const body = match[1] as string;
+		assert.ok(body.trim() !== "", `the "${name}" job block is not empty`);
+		return body;
+	}
+
+	/** Each matrix entry as its list of labels, in matrix order. */
+	function shardLabels(job: string): string[][] {
+		const list = /^ +labels:\n((?: +- '[^'\n]*'\n)+)/m.exec(jobBlock(job));
+		assert.ok(list, `the "${job}" job declares a quoted labels matrix`);
+		return [...(list[1] as string).matchAll(/- '([^'\n]*)'/g)].map((match) =>
+			(match[1] as string).split(",").map((label) => label.trim())
+		);
+	}
+
+	test("every label in the docker-stack and fuzz-docker matrices is one the orchestrator knows", () => {
+		const known: ReadonlySet<string> = new Set(DOCKER_TEST_LABELS);
+		for (const job of ["docker-stack", "fuzz-docker"]) {
+			const shards = shardLabels(job);
+			assert.ok(shards.length >= 2, `the "${job}" matrix declares at least two shards`);
+			for (const shard of shards) {
+				for (const label of shard) {
+					assert.ok(known.has(label), `checks.yml ${job} matrix lists unknown label "${label}"`);
+				}
+			}
+		}
+	});
+
+	test("the docker-stack shards cover the full label set exactly once", () => {
+		const sharded = shardLabels("docker-stack").flat().sort();
+		assert.deepStrictEqual(sharded, [...DOCKER_TEST_LABELS].sort(), "docker-stack shard union");
+	});
+
+	test("the docker-stack shards are wired through docker-only", () => {
+		// Without this line each shard's input resolves to '' and the reusable
+		// workflow falls back to the full sequential run: every shard green,
+		// every leg run twice, nothing to notice but the wall clock.
+		assert.match(
+			jobBlock("docker-stack"),
+			/^ +docker-only: \$\{\{ matrix\.labels \}\}$/m,
+			"checks.yml docker-stack passes matrix.labels through the docker-only input"
+		);
+	});
+
+	test("the fuzz-docker shards cover exactly the seeded fuzz labels", () => {
+		// The docker legs that draw a replay seed and take an iteration
+		// budget. The membership test above catches a rename; this catches a
+		// deleted shard, which would silently end that leg's elevated pass in
+		// the gate while every other guard stays green.
+		const sharded = shardLabels("fuzz-docker").flat().sort();
+		assert.deepStrictEqual(sharded, ["docker-conversation", "docker-fuzz", "docker-monkey"], "fuzz-docker shard union");
 	});
 });
