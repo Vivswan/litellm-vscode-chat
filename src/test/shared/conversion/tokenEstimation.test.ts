@@ -154,6 +154,28 @@ suite("shared/conversion/tokenEstimation", () => {
 		);
 	});
 
+	test("bare strings and unknown objects in a tool result price the text conversion transmits", () => {
+		// collectToolResultContent appends a bare string verbatim and
+		// JSON-stringifies entries no other branch recognizes; both ship as
+		// tool-result text, so both price by the chars/4 rule instead of zero.
+		const raw = "raw tool output ".repeat(8);
+		const unknown = { status: "ok", rows: [1, 2, 3] };
+		const content: unknown[] = [raw, unknown];
+		const part = new vscode.LanguageModelToolResultPart("call-1", content as vscode.LanguageModelTextPart[]);
+		assert.strictEqual(
+			estimatePartTokens(part, fullMultimodal),
+			Math.ceil(raw.length / CHARS_PER_TOKEN) + Math.ceil(JSON.stringify(unknown).length / CHARS_PER_TOKEN)
+		);
+	});
+
+	test('an entry with no JSON rendering prices the "undefined" literal conversion transmits', () => {
+		// JSON.stringify returns undefined for a bare function; conversion's
+		// `text +=` coerces that to the literal "undefined" on the wire.
+		const content: unknown[] = [() => {}];
+		const part = new vscode.LanguageModelToolResultPart("call-1", content as vscode.LanguageModelTextPart[]);
+		assert.strictEqual(estimatePartTokens(part, fullMultimodal), Math.ceil("undefined".length / CHARS_PER_TOKEN));
+	});
+
 	test("prompt-tsx parts count what conversion transmits, object values included", () => {
 		const objectValue = { node: { text: "rendered prompt fragment" } };
 		const tsx = new vscode.LanguageModelPromptTsxPart(objectValue);
