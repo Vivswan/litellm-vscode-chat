@@ -1,0 +1,17 @@
+{
+	"extends": "../../webview/tsconfig.json",
+	"compilerOptions": {
+		"types": [
+			"bun"
+		],
+		"jsx": "react-jsx",
+		"jsxImportSource": "preact"
+	},
+	"include": [
+		"./**/*",
+		"../../webview/**/*",
+		"../../extension/dashboard/protocol.ts",
+		"../../extension/dashboard/serverForm.ts",
+		"../../extension/dashboard/recordDraft.ts"
+	]
+}

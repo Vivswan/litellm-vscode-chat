@@ -4,6 +4,7 @@
 		"src/extension.ts",
 		"src/webview/dashboard/index.tsx",
 		"src/test/**/*.test.ts",
+		"src/test/**/*.test.tsx",
 		"src/test/testUtils.ts",
 		"src/test/capture-server.ts",
 		"scripts/*.ts",

@@ -326,7 +326,7 @@
 		"bundle": "bun scripts/esbuild.mts --production && bun scripts/generate-third-party-notices.ts",
 		"bundle:dev": "bun scripts/esbuild.mts",
 		"bundle:watch": "bun scripts/esbuild.mts --watch",
-		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p src/webview && tsc --noEmit -p tsconfig.scripts.json",
+		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p src/webview && tsc --noEmit -p src/test/webview && tsc --noEmit -p tsconfig.scripts.json",
 		"setup-env": "bash scripts/setup-env.sh",
 		"setup-env:verify": "bash scripts/setup-env.sh --verify",
 		"setup-env:full": "bash scripts/setup-env.sh --full",
@@ -345,8 +345,9 @@
 		"dev": "bun scripts/dev.ts",
 		"generate-config": "bun scripts/generate-litellm-config.ts",
 		"copilot-login": "bun scripts/copilot-login.ts",
-		"test": "bun run compile && bun run bundle:dev && vscode-test --label unit --label host-fidelity",
-		"test:coverage": "bun run compile && bun run bundle:dev && vscode-test --label unit --label host-fidelity --coverage && bun scripts/check-coverage.ts",
+		"test": "bun run test:webview && bun run compile && bun run bundle:dev && vscode-test --label unit --label host-fidelity",
+		"test:coverage": "bun run test:webview && bun run compile && bun run bundle:dev && vscode-test --label unit --label host-fidelity --coverage && bun scripts/check-coverage.ts",
+		"test:webview": "bun test src/test/webview",
 		"test:docker": "bun scripts/docker-test.ts"
 	},
 	"dependencies": {
@@ -356,6 +357,8 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.5",
+		"@happy-dom/global-registrator": "^20.11.1",
+		"@types/bun": "^1.3.14",
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^26.1.1",
 		"@types/vscode": "^1.125.0",
