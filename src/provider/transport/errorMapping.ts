@@ -1,6 +1,8 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
+import { LanguageModelError } from "vscode";
 import { MANAGE_COMMAND_TITLE } from "../../shared/commandIds";
-import { errorMessageText } from "../../shared/logger";
+import type { LogSafeErrorText } from "../../shared/logger";
+import { errorMessageText, markLogSafe, publicErrorText } from "../../shared/logger";
 import { CONFIG_SECTION } from "../../shared/settingSpec";
 
 export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | "network" | "timeout" | "aborted";
@@ -43,6 +45,54 @@ export interface MapErrorContext {
 	surface: "chat" | "discovery";
 	baseUrl: string;
 	timeoutMs: number;
+}
+
+/**
+ * Both renderings of a failed fetch for the error status: `error` renders
+ * directly in the status bar and toasts, `logSafeError` is what log lines
+ * carry (see ServerStatusError). An empty message (new Error("")) is
+ * classified here, at the boundary that constructs the status.
+ */
+export function statusErrorTexts(reason: unknown): { error: string; logSafeError: LogSafeErrorText } {
+	const display = errorMessageText(reason);
+	const logSafe = publicErrorText(reason);
+	return {
+		error: display.length > 0 ? display : "Unknown error",
+		logSafeError: logSafe.length > 0 ? logSafe : markLogSafe("Unknown error"),
+	};
+}
+
+/**
+ * Wrap a classified transport failure in the stable LanguageModelError so
+ * vscode.lm consumers can branch on the documented codes (NoPermissions for a
+ * rejected key, Blocked for a rate limit, NotFound for a model the proxy no
+ * longer serves) instead of matching message text. Only the taxonomy-backed
+ * cases map; everything else - including CancellationError, which is never
+ * wrapped or logged - passes through unchanged, and 401s keep their auth
+ * classification rather than being re-wrapped as anything else. The message
+ * is preserved because it renders in the chat UI. The original RequestError
+ * rides as `cause` for in-process inspection only: the extension-host
+ * boundary flattens a thrown error to name, message, stack, and code, so the
+ * cause - and with it the RequestError's kind and status - does not survive
+ * to vscode.lm consumers. The surviving contract is the code itself.
+ */
+export function toLanguageModelError(err: unknown): unknown {
+	if (!(err instanceof RequestError)) {
+		return err;
+	}
+	let wrapped: Error | undefined;
+	if (err.kind === "auth") {
+		wrapped = LanguageModelError.NoPermissions(err.message);
+	} else if (err.status === 404) {
+		wrapped = LanguageModelError.NotFound(err.message);
+	} else if (err.status === 429) {
+		wrapped = LanguageModelError.Blocked(err.message);
+	}
+	if (wrapped === undefined) {
+		return err;
+	}
+	wrapped.cause = err;
+	return wrapped;
 }
 
 const AUTH_MESSAGE = `Authentication failed: Your LiteLLM server requires an API key. Please run the "${MANAGE_COMMAND_TITLE}" command to configure your API key.`;
