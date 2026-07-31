@@ -130,7 +130,12 @@ test("under the threshold every row renders with no scrollport", () => {
 
 test("the row's copy action writes the model ID to the clipboard and flashes a check", async () => {
 	const written: string[] = [];
-	const clipboard = { writeText: (text: string) => (written.push(text), Promise.resolve()) };
+	const clipboard = {
+		writeText: (text: string) => {
+			written.push(text);
+			return Promise.resolve();
+		},
+	};
 	Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
 
 	const root = mount(<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} />);
