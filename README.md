@@ -43,7 +43,7 @@ Configuration lives in two interchangeable places: the dashboard (a GUI over all
 
 ### Dashboard
 
-"LiteLLM: Open Dashboard" opens one panel with everything on it: a status strip (overall connection state, server and model counts, last sync), the server list with an inline add/edit form, every discovered model with a filter box, token limits, pricing, and capability badges, and the extension's settings as editable form controls.
+"LiteLLM: Open Dashboard" opens one panel with everything on it, under a status strip (overall connection state, server and model counts, last sync) and three tabs: the server list, whose add/edit form opens in a side panel; every discovered model in a sortable, filterable table with token limits, pricing, and capability notes; and the extension's settings as editable form controls.
 
 The dashboard is a view over the same stores the rest of the extension uses. Settings edits write to your VS Code settings (to the scope where the value is already set, otherwise to user settings), and the buttons run the same commands the Command Palette offers. Server edits write the `litellm-vscode-chat.servers` setting described below; for each secret field the form lets you choose between VS Code secret storage (the default) and an inline settings value. Secrets in secret storage never render back into the dashboard - for them the form shows where the value lives, not what it is. Inline values do prefill the edit form, masked behind a Show toggle: they already sit in plain text in your settings.json, so the form reveals nothing the Settings editor does not. Header values are settings, not secrets: they show up exactly as they do in the Settings editor, so keep secret headers in User scope rather than workspace scope.
 
