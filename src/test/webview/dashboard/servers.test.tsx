@@ -60,6 +60,19 @@ test("Test connection and Show diagnostics disable with zero servers and post th
 	]);
 });
 
+test("with no servers the guided start renders and its call to action opens the add form", () => {
+	const root = mountSection([]);
+	const start = root.querySelector(".empty-start");
+	expect(start).not.toBeNull();
+	expect(start?.querySelector("h3")?.textContent).toBe("Connect LiteLLM to Copilot Chat");
+	// Three concrete steps, no bare table.
+	expect(start?.querySelectorAll("ol li").length).toBe(3);
+	expect(root.querySelector("table.servers")).toBeNull();
+
+	fireClick(buttonByText(root, "Add your first server"));
+	expect(root.querySelector(".slide-over .form-card")).not.toBeNull();
+});
+
 test("a noticed entry renders the params-inactive badge and the remedy paragraph", () => {
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", notice: "entry-params-inactive" }),

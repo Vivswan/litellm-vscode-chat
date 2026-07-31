@@ -33,6 +33,7 @@ import {
 	HELP_SERVERS_SECTION,
 	SERVER_FIELD_HELP,
 } from "./helpText";
+import { IconAdd } from "./icons";
 import { ParamGroupsFields } from "./recordEditors";
 import { SlideOver } from "./slideOver";
 import { relativeTime, useNow } from "./time";
@@ -562,7 +563,7 @@ function ServerForm({
 						})
 					}
 				>
-					Add model prefix
+					<IconAdd /> Add model prefix
 				</button>
 			</details>
 			<p class="hint">
@@ -965,7 +966,7 @@ export function ServersSection({
 			</h2>
 			<div class="toolbar">
 				<button type="button" onClick={() => openForm({ kind: "add" })}>
-					Add server
+					<IconAdd /> Add server
 				</button>
 				<button
 					type="button"
@@ -1082,13 +1083,19 @@ export function ServersSection({
 				</div>
 			) : null}
 			{noServers ? (
-				<div class="empty-block">
-					<p>No servers yet.</p>
+				<div class="empty-start">
+					<h3>Connect LiteLLM to Copilot Chat</h3>
 					<p class="hint">
-						Add server opens an inline form; the entry lands in the litellm-vscode-chat.servers user setting and syncs
-						to VS Code automatically. API keys can stay in VS Code secret storage instead of the settings file. Models
-						appear below after the first sync.
+						Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.
 					</p>
+					<ol>
+						<li>Enter the server's URL - for a local proxy that is usually http://localhost:4000.</li>
+						<li>Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.</li>
+						<li>Save. Models sync automatically and show up under Models.</li>
+					</ol>
+					<button type="button" onClick={() => openForm({ kind: "add" })}>
+						Add your first server
+					</button>
 				</div>
 			) : (
 				<div class="table-scroll">
