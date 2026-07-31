@@ -14,6 +14,25 @@
 
 import type { ComponentChildren } from "preact";
 import { useId } from "preact/hooks";
+import type { DocsUrl } from "./docsLinks";
+import { IconLinkExternal } from "./icons";
+
+/**
+ * A quiet "learn more" anchor beside a section title or inside a notice,
+ * pointing at a docs page on GitHub. The href type admits only the docsLinks
+ * constants, so no call site can pass a built string. The webview host opens
+ * plain anchors externally, so no message plumbing and no CSP grant are
+ * involved. Icon-only unless children supply visible text; the aria-label
+ * carries the destination either way.
+ */
+export function DocsLink({ href, label, children }: { href: DocsUrl; label: string; children?: ComponentChildren }) {
+	return (
+		<a class="docs-link" href={href} aria-label={label}>
+			{children}
+			<IconLinkExternal />
+		</a>
+	);
+}
 
 /**
  * A hover tip over non-interactive inline content (badges, table cells),

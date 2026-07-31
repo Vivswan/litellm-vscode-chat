@@ -3,7 +3,8 @@ import type { HeaderScalar, ScopedRecordSetting } from "../../extension/dashboar
 import { formatHeaderValue, formatJsonValue, SETTING_SCOPE_LABELS } from "../../extension/dashboard/protocol";
 import type { GroupProblems, PrefixGroup } from "../../extension/dashboard/recordDraft";
 import { parseGroups, parseHeaderRows, toGroups, toHeaderRows } from "../../extension/dashboard/recordDraft";
-import { Help } from "./help";
+import { DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
+import { DocsLink, Help } from "./help";
 import {
 	HELP_CUSTOM_HEADERS_SECTION,
 	HELP_MODEL_PARAMETER_NAME,
@@ -236,7 +237,8 @@ export function ModelParametersEditor({
 	return (
 		<section>
 			<h3>
-				Model parameters <Help text={HELP_MODEL_PARAMETERS_SECTION} />
+				Model parameters <Help text={HELP_MODEL_PARAMETERS_SECTION} />{" "}
+				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label="Open the model parameters guide" />
 			</h3>
 			<p class="hint">
 				Request parameters sent per model prefix (longest prefix wins). Values are JSON: 0.2, true, "text", ["stop"].

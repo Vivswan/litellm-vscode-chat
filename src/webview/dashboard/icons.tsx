@@ -40,6 +40,13 @@ export function IconAdd() {
 	return <Svg path="M8.5 3v4.5H13v1H8.5V13h-1V8.5H3v-1h4.5V3h1z" />;
 }
 
+/** Codicon link-external: marks anchors that leave the webview for GitHub. */
+export function IconLinkExternal() {
+	return (
+		<Svg path="M1.5 1H6v1H2v12h12v-4h1v4.5l-.5.5h-13l-.5-.5v-13l.5-.5zM15 1.5V8h-1V2.707L7.243 9.465l-.707-.708L13.292 2H8V1h6.5l.5.5z" />
+	);
+}
+
 export function IconTrash() {
 	return (
 		<Svg path="M6 2h4v1h4v1h-1v9.5L11.5 15h-7L3 13.5V4H2V3h4V2zm-2 2v9.09l.91.91h6.18l.91-.91V4H4zm2 2h1v6H6V6zm3 0h1v6H9V6z" />

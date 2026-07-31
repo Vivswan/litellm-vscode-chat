@@ -76,7 +76,7 @@ suite("extension/ui/commands", () => {
 		try {
 			await vscode.commands.executeCommand("litellm.helpAndFeedback");
 			assert.ok(openedUri, "Should open a URL");
-			assert.ok(expectDefined(openedUri).includes("quick-start"), "Should open docs URL");
+			assert.ok(expectDefined(openedUri).includes("docs/getting-started"), "Should open docs URL");
 		} finally {
 			mock.restore();
 		}

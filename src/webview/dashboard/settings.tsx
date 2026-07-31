@@ -17,7 +17,8 @@ import {
 	SETTING_SCOPE_LABELS,
 } from "../../extension/dashboard/protocol";
 import type { FailuresByIntent } from "./app";
-import { Help } from "./help";
+import { DOCS_LINK_SETTINGS } from "./docsLinks";
+import { DocsLink, Help } from "./help";
 import { HELP_SETTINGS_SECTION, SETTING_ROW_HELP } from "./helpText";
 import { HeadersEditor, ModelParametersEditor } from "./recordEditors";
 import { postMessage } from "./vscodeApi";
@@ -282,6 +283,7 @@ export function SettingsSection({ settings, failures }: { settings: DashboardSet
 		<section>
 			<h2>
 				Settings <Help text={HELP_SETTINGS_SECTION} />
+				<DocsLink href={DOCS_LINK_SETTINGS} label="Open the settings guide" />
 			</h2>
 			<div class="toolbar">
 				<button
