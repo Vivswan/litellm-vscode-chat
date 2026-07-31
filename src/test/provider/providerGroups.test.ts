@@ -533,6 +533,72 @@ suite("provider groups", () => {
 		assert.strictEqual(serverStatus.label, "litellm.test:8080");
 	});
 
+	test("a failing silent refresh serves the last known models flagged stale; a healthy sweep clears the flag", async () => {
+		const provider = makeProvider();
+		let fail = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+
+		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+			const healthy = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.strictEqual(healthy.length, 1);
+			assert.ok(!("statusIcon" in expectDefined(healthy[0])), "a healthy sweep carries no decoration");
+
+			fail = true;
+			const stale = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.strictEqual(stale.length, 1, "the last known models must not vanish on a silent failure");
+			const decorated = expectDefined(stale[0]);
+			assert.strictEqual(decorated.id, "test-model");
+			assert.strictEqual(expectDefined(decorated.statusIcon).id, "warning");
+			assert.ok(
+				expectDefined(decorated.warningText).connectivity?.includes("showing the last models it reported"),
+				"the hover banner explains the stale serving"
+			);
+
+			// The window records the retained set ALONGSIDE the error status, and
+			// the snapshot the dashboard reads stays undecorated pre-attach data.
+			const snapshot = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
+			assert.strictEqual(snapshot.models.length, 1, "the retained models ride with the error status");
+			assert.ok(!("statusIcon" in expectDefined(snapshot.models[0])), "snapshots stay undecorated");
+
+			fail = false;
+			const recovered = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.strictEqual(recovered.length, 1);
+			assert.ok(!("statusIcon" in expectDefined(recovered[0])), "recovery clears the decoration by construction");
+			assert.ok(!("warningText" in expectDefined(recovered[0])), "recovery clears the banner by construction");
+		});
+	});
+
+	test("a non-silent group failure still throws even when a last known model set exists", async () => {
+		const provider = makeProvider();
+		let fail = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+
+		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+			fail = true;
+			await assert.rejects(
+				provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }, false), cancellation()),
+				(e: unknown) => e instanceof Error,
+				"Test Connection must surface the failure, stale set or not"
+			);
+		});
+	});
+
 	test("the group-agnostic refresh returns no models once the registry gate closes", async () => {
 		const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, { grouplessRegistryEnabled: () => false });
 

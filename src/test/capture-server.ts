@@ -31,6 +31,12 @@ const MODEL_INFO = {
 				supports_tool_choice: true,
 				supports_prompt_caching: false,
 				supports_vision: true,
+				// Declared pricing makes every capture run register a model
+				// carrying the numeric cost fields plus the derived priceCategory
+				// through the real host, pinning that the host accepts them
+				// (the capabilities.editTools throw is the precedent).
+				input_cost_per_token: 0.00000125,
+				output_cost_per_token: 0.00001,
 			},
 		},
 	],

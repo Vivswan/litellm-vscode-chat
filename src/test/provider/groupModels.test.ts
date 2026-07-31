@@ -5,6 +5,7 @@ import {
 	type GroupServer,
 	groupClientId,
 	type LiteLLMModelInfo,
+	markStale,
 	type PreAttachModelInfo,
 	parseGroupConfiguration,
 	parseModelMetadata,
@@ -365,6 +366,36 @@ suite("provider/groupModels", () => {
 				},
 			} as unknown as LiteLLMModelInfo;
 			assert.strictEqual(parseModelMetadata(model).server, undefined);
+		});
+	});
+
+	suite("markStale", () => {
+		const server = () => expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
+
+		test("stamps the warning icon and a connectivity banner on fresh copies, leaving the inputs untouched", () => {
+			const attached = [attachGroupServer(makeModelInfo(), server())];
+			const stale = markStale(attached, "2026-07-30T00:00:00.000Z");
+
+			assert.strictEqual(stale.length, 1);
+			const decorated = expectDefined(stale[0]);
+			assert.strictEqual(expectDefined(decorated.statusIcon).id, "warning");
+			assert.deepStrictEqual(decorated.warningText, {
+				connectivity: "The server was unreachable at 2026-07-30T00:00:00.000Z; showing the last models it reported.",
+			});
+			assert.deepStrictEqual(decorated.litellm.server, server(), "the attached server survives the decoration");
+
+			const input = expectDefined(attached[0]);
+			assert.ok(!("statusIcon" in input), "decoration happens on copies; the input must stay clean");
+			assert.ok(!("warningText" in input), "decoration happens on copies; the input must stay clean");
+		});
+
+		test("accepts attached copies only, so decorated objects cannot enter the cache or snapshot paths", () => {
+			// Those paths hold PreAttachModelInfo; if markStale accepted it, a
+			// decorated (and credential-carrying) copy could be cached or pushed
+			// to the dashboard, and a stale icon would survive a healthy sweep.
+			// @ts-expect-error markStale takes AttachedModelInfo, never the pre-attach registration output
+			const rejected = () => markStale([makeModelInfo()], "2026-07-30T00:00:00.000Z");
+			void rejected;
 		});
 	});
 });
