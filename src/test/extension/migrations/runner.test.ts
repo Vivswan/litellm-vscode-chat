@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "../../../extension/migrations";
-import { runMigrations } from "../../../extension/migrations";
+import { MIGRATIONS, runMigrations } from "../../../extension/migrations";
 import { ServerRegistry } from "../../../extension/serverRegistry";
 import { Logger } from "../../../shared/logger";
 import { expectDefined, makeExtensionStorage } from "../../testUtils";
@@ -29,7 +29,7 @@ function synthetic(
 	run: (ctx: MigrationContext) => Promise<MigrationOutcome>,
 	description = `did ${state}`
 ): ExtensionMigration {
-	return { state, description, phase, run };
+	return { state, description, sourceRelease: "0.0.0", phase, run };
 }
 
 suite("extension/migrations/runner", () => {
@@ -106,7 +106,7 @@ suite("extension/migrations/runner", () => {
 		]);
 	});
 
-	test("logs the description on 'migrated' and stays silent otherwise", async () => {
+	test("logs the description and source release on 'migrated' and stays silent otherwise", async () => {
 		const { ctx, lines } = makeContext();
 
 		await runMigrations("pre-registration", ctx, [
@@ -115,6 +115,29 @@ suite("extension/migrations/runner", () => {
 			synthetic("partial", "pre-registration", async () => "in-progress", "must never appear either"),
 		]);
 
-		assert.deepStrictEqual(lines, ["moved the legacy state forward"]);
+		assert.deepStrictEqual(lines, ["moved the legacy state forward (away from v0.0.0 state)"]);
+	});
+
+	test("MIGRATIONS is ordered chronologically by sourceRelease", () => {
+		// Ties keep registration order, so non-decreasing releases are the whole
+		// contract; the array cannot drift when a new migration lands mid-list.
+		const parse = (release: string): number[] => {
+			assert.match(release, /^\d+\.\d+\.\d+$/, `sourceRelease "${release}" must be a plain semver triple`);
+			return release.split(".").map(Number);
+		};
+		for (let i = 1; i < MIGRATIONS.length; i++) {
+			const previous = expectDefined(MIGRATIONS[i - 1]);
+			const current = expectDefined(MIGRATIONS[i]);
+			const a = parse(previous.sourceRelease);
+			const b = parse(current.sourceRelease);
+			const laterThanNext =
+				expectDefined(a[0]) > expectDefined(b[0]) ||
+				(a[0] === b[0] && expectDefined(a[1]) > expectDefined(b[1])) ||
+				(a[0] === b[0] && a[1] === b[1] && expectDefined(a[2]) > expectDefined(b[2]));
+			assert.ok(
+				!laterThanNext,
+				`"${previous.state}" (v${previous.sourceRelease}) is registered before "${current.state}" (v${current.sourceRelease}) but migrates away from a later release`
+			);
+		}
 	});
 });
