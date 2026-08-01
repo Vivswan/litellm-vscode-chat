@@ -304,7 +304,7 @@ export function DiagnosticsSection({
 					/>
 					<FeedbackRow
 						action={
-							<DocsLink href={DOCS_LINK_GETTING_STARTED} label="Documentation - the getting-started guide">
+							<DocsLink href={DOCS_LINK_GETTING_STARTED} label={l10n.t("Documentation - the getting-started guide")}>
 								<IconBook /> {l10n.t("Documentation")}
 							</DocsLink>
 						}

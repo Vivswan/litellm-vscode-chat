@@ -24,4 +24,4 @@
 
 ## 参与贡献
 
-- [Development](../development.md) (English) - 从源码构建, 以及用于针对真实 LiteLLM 代理测试的本地 Docker 栈。
+- [开发](../development.md) (English) - 从源码构建, 以及用于针对真实 LiteLLM 代理测试的本地 Docker 栈。
