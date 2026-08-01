@@ -112,9 +112,9 @@ export type DashboardServer = DashboardServerBase &
 
 /**
  * The overall configuration verdict, shared by the dashboard hero and the
- * diagnostics dialog so their headline judgement cannot drift. Each surface
- * renders it differently (the hero as a colored word, the dialog as a line
- * with model counts and the first error), but the classification itself lives
+ * Diagnostics tab so their headline judgement cannot drift. Each surface
+ * renders it differently (the hero as a colored word, the tab as a line with
+ * model counts and the first error), but the classification itself lives
  * here once. Only real failures count as failures: declared entries a
  * discovery pass has not reached yet stay neutral.
  */
@@ -138,15 +138,23 @@ export function classifyOverall(servers: readonly Pick<DashboardServer, "state">
 }
 
 /**
- * The verdict as one sentence. Shared like classifyOverall, and for the same
- * reason: the dashboard's Diagnostics tab and the Show Diagnostics dialog
- * both render it, and what users paste into issues must not depend on which
- * surface they copied from.
+ * The verdict as one sentence, the headline of the Diagnostics tab (which is
+ * what litellm.showDiagnostics opens). Shared like classifyOverall and pinned
+ * by tests: this line is what users paste into issue reports, so its wording
+ * must not depend on which surface they copied from. The legacy registry
+ * (pre-migration installs and test mode) is real configuration even though it
+ * contributes no server rows, so it overrides the bare not-configured claim.
  */
-export function overallStatusText(servers: readonly DashboardServer[], modelCount: number): string {
+export function overallStatusText(
+	servers: readonly DashboardServer[],
+	modelCount: number,
+	legacyServerCount = 0
+): string {
 	switch (classifyOverall(servers)) {
 		case "not-configured":
-			return "Not configured";
+			return legacyServerCount > 0
+				? `Legacy registry only (${legacyServerCount} ${legacyServerCount === 1 ? "server" : "servers"})`
+				: "Not configured";
 		case "error": {
 			// The verdict guarantees at least one error-state server; the fallback
 			// only satisfies the type checker, which cannot see that.
@@ -171,7 +179,7 @@ export function overallStatusText(servers: readonly DashboardServer[], modelCoun
 const ENTRY_PARAMS_INACTIVE_TEXT =
 	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); remove the group in the native Manage Language Models editor and run Sync Models Now, or save the entry under a new label";
 
-/** One server's diagnostics outcome line; shared between the tab and the dialog like overallStatusText. */
+/** One server's diagnostics outcome line, pinned by tests like overallStatusText. */
 export function serverOutcomeText(server: DashboardServer): string {
 	// The notice rides alongside whatever the state line says: a noticed row
 	// is usually healthy ("ok"), which is exactly why it needs calling out.
@@ -442,7 +450,26 @@ export interface DashboardState {
 	readonly servers: readonly DashboardServer[];
 	readonly models: readonly DashboardModel[];
 	readonly settings: DashboardSettings;
+	/**
+	 * Legacy-registry servers (pre-migration installs and test mode) with no
+	 * server row of their own; 0 once the registry is empty or every entry
+	 * also surfaces as a live row. Labels and URLs stay extension-side: the
+	 * Diagnostics tab only states the count.
+	 */
+	readonly legacyServerCount: number;
 }
+
+/**
+ * The dashboard's top-level sections, one tab each. Servers and models share
+ * the overview tab (they are one workflow: connect a server, see its models);
+ * the settings form and the Diagnostics page get pages of their own. Declared
+ * here because deep links cross the boundary: the extension's focusSection
+ * message names a tab by ID (litellm.showDiagnostics lands on "diagnostics"),
+ * and the webview's tab bar renders exactly this list.
+ */
+export const DASHBOARD_SECTION_IDS = ["overview", "settings", "diagnostics"] as const;
+
+export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];
 
 /**
  * Extension-to-webview messages: full state pushes (the webview never holds
@@ -455,6 +482,16 @@ export interface DashboardState {
  */
 export type ExtensionToWebviewMessage =
 	| { readonly type: "state"; readonly state: DashboardState }
+	| {
+			/**
+			 * Switch the page to a section: the deep link litellm.showDiagnostics
+			 * uses to land on the Diagnostics tab. The panel sends it after the
+			 * webview's ready handshake when the dashboard was opened with a
+			 * target section, or directly when the page is already live.
+			 */
+			readonly type: "focusSection";
+			readonly section: DashboardSectionId;
+	  }
 	| {
 			/**
 			 * The answer to a readInlineSecrets request: the entry's secret values
@@ -513,6 +550,7 @@ type AckedIntentType = Extract<WebviewToExtensionMessage, { requestId: string }>
  */
 const EXTENSION_MESSAGE_TYPES: Readonly<Record<ExtensionToWebviewMessage["type"], true>> = {
 	state: true,
+	focusSection: true,
 	inlineSecrets: true,
 	intentSucceeded: true,
 	intentFailed: true,

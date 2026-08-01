@@ -454,10 +454,25 @@ export function readDashboardSettings(reader: SettingsReader): DashboardSettings
 	};
 }
 
+/**
+ * Legacy-registry servers with no server row of their own. After a sweep a
+ * registry server can also surface as an external snapshot row (same base
+ * URL); only the registry servers without such a row count, so the same
+ * server is never stated twice.
+ */
+function countUnlistedLegacyServers(
+	servers: readonly DashboardServer[],
+	legacyServers: readonly { readonly baseUrl: string }[]
+): number {
+	const shown = new Set(servers.map((server) => normalizeBaseUrl(server.baseUrl)));
+	return legacyServers.filter((server) => !shown.has(normalizeBaseUrl(server.baseUrl))).length;
+}
+
 export function buildDashboardState(
 	snapshots: readonly ServerModelsSnapshot[],
 	reader: SettingsReader,
-	declared: readonly DeclaredServerView[] = []
+	declared: readonly DeclaredServerView[] = [],
+	legacyServers: readonly { readonly baseUrl: string }[] = []
 ): DashboardState {
 	const labeled = labeledSnapshots(snapshots);
 	const { servers, snapshotLabels } = buildServers(labeled, declared);
@@ -471,6 +486,7 @@ export function buildDashboardState(
 			)
 			.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.name.localeCompare(b.name)),
 		settings: readDashboardSettings(reader),
+		legacyServerCount: countUnlistedLegacyServers(servers, legacyServers),
 	};
 }
 

@@ -17,9 +17,19 @@ import { CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
+import type { SecretFieldId, SecretLocation } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../shared/webviewPaths";
+import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
-import { copyServerSecrets, deleteServerSecrets, readServerSecrets, updateServerSecret } from "../servers/serverSync";
+import {
+	copyServerSecrets,
+	deleteServerSecrets,
+	inlineSecretValues,
+	parseServersSetting,
+	readServerSecrets,
+	updateServerSecret,
+} from "../servers/serverSync";
 import { resolveAdoptableCredentials } from "./adopt";
 import { buildDashboardHtml } from "./html";
 import { webviewMessageSchema } from "./intentSchema";
@@ -30,7 +40,7 @@ import {
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "./intents";
-import type { ExtensionToWebviewMessage } from "./protocol";
+import type { DashboardSectionId, ExtensionToWebviewMessage } from "./protocol";
 import type { SettingsReader } from "./state";
 import { buildDashboardState, resolveConfiguredScope, resolveUpdateScope } from "./state";
 
@@ -56,6 +66,8 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	createPanel(): DashboardPanel;
 	getSnapshots(): readonly ServerModelsSnapshot[];
 	getDeclaredServers(): readonly DeclaredServerView[];
+	/** The legacy registry's servers, reduced to base URLs; see DashboardState.legacyServerCount. */
+	getLegacyServers(): readonly { readonly baseUrl: string }[];
 	settingsReader(): SettingsReader;
 	log(message: string, data?: unknown): void;
 	logError(message: string, error: unknown): void;
@@ -80,14 +92,35 @@ export class DashboardController implements vscode.Disposable {
 	 * to the chain itself (outcomes matter only to injectMessageForTest).
 	 */
 	private _messageChain: Promise<unknown> = Promise.resolve();
+	/**
+	 * The deep-link target of the latest open call, held until the page proves
+	 * it can receive messages. Delivery is gated on the generation match below
+	 * because a loading or reloading page silently drops posts: a not-yet-ready
+	 * page keeps the target pending and the ready handshake flushes it.
+	 * Consumed once, so a later reload cannot replay a stale jump.
+	 */
+	private _pendingFocusSection: DashboardSectionId | undefined;
+	/**
+	 * The current page's generation, bumped whenever the page is torn down or
+	 * replaced: the panel hides (without retainContextWhenHidden the page dies
+	 * hidden and reloads on reveal) or the panel is disposed.
+	 * _readyGeneration records the generation whose ready handshake completed
+	 * - each handshake is judged against the generation current when it
+	 * ARRIVED, so one handled late, after its page died, cannot vouch for the
+	 * next page. The page is provably listening only while the two match.
+	 */
+	private _pageGeneration = 0;
+	private _readyGeneration: number | undefined;
 
 	constructor(private readonly env: DashboardControllerEnv) {}
 
-	/** Open the dashboard, or bring the existing panel to the front. */
-	open(): void {
+	/** Open the dashboard, or bring the existing panel to the front, optionally landing on a section. */
+	open(section?: DashboardSectionId): void {
+		this._pendingFocusSection = section;
 		if (this._panel !== undefined) {
 			this._panel.reveal();
 			this.pushState();
+			this.flushPendingFocus();
 			return;
 		}
 		const panel = this.env.createPanel();
@@ -102,6 +135,8 @@ export class DashboardController implements vscode.Disposable {
 				// this push covers hosts that restore the page without reloading).
 				if (panel.visible) {
 					this.pushState();
+				} else {
+					this._pageGeneration += 1;
 				}
 			}),
 			panel.onDidDispose(() => {
@@ -135,10 +170,13 @@ export class DashboardController implements vscode.Disposable {
 	 * The one enqueue path for every message, webview-posted or injected: the
 	 * outcome joins the serialized chain, and the chain's rejection handler
 	 * (which also marks the outcome promise handled for fire-and-forget
-	 * callers) logs the failure.
+	 * callers) logs the failure. The page generation is captured at arrival,
+	 * not at handling: the chain may drain a message after the page that sent
+	 * it died, and a late ready must not vouch for the next page.
 	 */
 	private enqueueMessage(raw: unknown): Promise<DashboardMessageOutcome> {
-		const outcome = this._messageChain.then(() => this.handleMessage(raw));
+		const arrivalGeneration = this._pageGeneration;
+		const outcome = this._messageChain.then(() => this.handleMessage(raw, arrivalGeneration));
 		this._messageChain = outcome.then(
 			() => undefined,
 			(error) => {
@@ -158,6 +196,8 @@ export class DashboardController implements vscode.Disposable {
 			subscription.dispose();
 		}
 		this._panel = undefined;
+		this._pendingFocusSection = undefined;
+		this._pageGeneration += 1;
 	}
 
 	private pushState(): void {
@@ -166,18 +206,37 @@ export class DashboardController implements vscode.Disposable {
 		}
 		this.postToPanel({
 			type: "state",
-			state: buildDashboardState(this.env.getSnapshots(), this.env.settingsReader(), this.env.getDeclaredServers()),
+			state: buildDashboardState(
+				this.env.getSnapshots(),
+				this.env.settingsReader(),
+				this.env.getDeclaredServers(),
+				this.env.getLegacyServers()
+			),
 		});
 	}
 
-	private async handleMessage(raw: unknown): Promise<DashboardMessageOutcome> {
+	/** Deliver the pending deep-link focus, once, and only to a page that has proven it is listening. */
+	private flushPendingFocus(): void {
+		if (this._pendingFocusSection === undefined || this._readyGeneration !== this._pageGeneration) {
+			return;
+		}
+		const section = this._pendingFocusSection;
+		this._pendingFocusSection = undefined;
+		this.postToPanel({ type: "focusSection", section });
+	}
+
+	private async handleMessage(raw: unknown, arrivalGeneration: number): Promise<DashboardMessageOutcome> {
 		const parsed = webviewMessageSchema.safeParse(raw);
 		if (!parsed.success) {
 			this.env.log("Ignoring malformed dashboard message", { issues: parsed.error.issues });
 			return "ignored-malformed";
 		}
 		if (parsed.data.type === "ready") {
+			if (arrivalGeneration === this._pageGeneration) {
+				this._readyGeneration = arrivalGeneration;
+			}
 			this.pushState();
+			this.flushPendingFocus();
 			return "ok";
 		}
 		if (parsed.data.type === "readInlineSecrets") {
@@ -285,21 +344,54 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 }
 
 /**
- * Register litellm.openDashboard and keep the panel in sync with the stores:
- * configuration changes re-push directly; provider status changes arrive via
- * the returned controller's refresh(), called from the status fan-out in
- * extension.ts, and server sync passes via the engine's onDidSync hook.
+ * DeclaredServerView equivalents straight from the setting, for the window
+ * right after activation when the sync engine's first pass has not landed
+ * yet. Secret locations reflect only what the setting itself can prove: an
+ * inline value (per the sync engine's own inlineSecretValues rule) reads as
+ * "settings", anything else as "none" (a secure blob may exist, but checking
+ * it is async and state pushes carry locations, never values).
+ */
+export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
+	return parseServersSetting(raw).entries.map((entry) => {
+		const inline = inlineSecretValues(entry);
+		const secrets = {} as Record<SecretFieldId, SecretLocation>;
+		for (const field of SECRET_FIELD_IDS) {
+			secrets[field] = inline[field] !== undefined ? "settings" : "none";
+		}
+		return { label: entry.label, baseUrl: entry.baseUrl, ...pickNonSecretOptionalFields(entry), secrets };
+	});
+}
+
+/**
+ * Register litellm.openDashboard and litellm.showDiagnostics (the deep link
+ * to the Diagnostics tab; the palette entry and notification actions run it)
+ * and keep the panel in sync with the stores: configuration changes re-push
+ * directly; provider status changes arrive via the returned controller's
+ * refresh(), called from the status fan-out in extension.ts, and server sync
+ * passes via the engine's onDidSync hook.
  */
 export function registerDashboardCommand(
 	context: vscode.ExtensionContext,
 	provider: LiteLLMChatModelProvider,
 	logger: Logger,
-	syncEngine: ServerSyncEngine
+	syncEngine: ServerSyncEngine,
+	registry: ServerRegistry
 ): DashboardController {
 	const controller = new DashboardController({
 		createPanel: () => createRealPanel(context.extensionUri),
 		getSnapshots: () => provider.getServerSnapshots(),
-		getDeclaredServers: () => syncEngine.getDeclared(),
+		getDeclaredServers: () => {
+			// The engine's declared view is authoritative once a pass has run;
+			// right after activation it is still empty, so the setting fills in.
+			const declared = syncEngine.getDeclared();
+			if (declared.length > 0) {
+				return declared;
+			}
+			return declaredViewsFromSetting(
+				vscode.workspace.getConfiguration(CONFIG_SECTION).get<unknown>(SERVERS_SETTING_KEY)
+			);
+		},
+		getLegacyServers: () => registry.getServers(),
 		settingsReader: () => {
 			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 			return {
@@ -350,6 +442,7 @@ export function registerDashboardCommand(
 	});
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.openDashboard, () => controller.open()),
+		vscode.commands.registerCommand(CMD.showDiagnostics, () => controller.open("diagnostics")),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration(CONFIG_SECTION)) {
 				controller.refresh();

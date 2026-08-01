@@ -333,8 +333,10 @@ const STYLES = `
 	   and hints render selectable prose (this tab is where users copy state
 	   from when asking for help); each feedback row is one action plus its
 	   muted one-liner. */
-	.diag-servers { list-style: none; padding: 0; margin: 8px 0 12px; }
-	.diag-servers li { margin: 4px 0; }
+	.diag-facts, .diag-servers { list-style: none; padding: 0; margin: 8px 0 12px; }
+	.diag-facts li, .diag-servers li { margin: 4px 0; }
+	/* The facts list separates its hint with literal text (the block is copied
+	   whole into reports), so it needs no CSS gap. */
 	.diag-servers li .hint, .diag-verdict .hint, .feedback-links li .hint { margin-left: 8px; }
 	.diag-actions { margin: 8px 0 4px; }
 	.feedback-links { list-style: none; padding: 0; margin: 8px 0; }

@@ -51,7 +51,7 @@ Everything the extension can do on demand is a Command Palette command (`Ctrl+Sh
 | LiteLLM: Open Dashboard | The [dashboard](dashboard.md) panel: servers, models, and settings in one place |
 | LiteLLM: Test Connection | Connects to each server and reports the model count or the exact error |
 | LiteLLM: Sync Models Now | Refreshes the model lists immediately, bypassing the [discovery cache](settings.md#model-list-caching) |
-| LiteLLM: Show Diagnostics | Per-server connection state, model counts, errors, and the last check time |
+| LiteLLM: Show Diagnostics | Opens the dashboard's [Diagnostics tab](dashboard.md#diagnostics): per-server connection state, model counts, errors, and the last check time |
 | LiteLLM: Set Server Secret | Stores a server's API key, OAuth client secret, or virtual key in [secret storage](servers.md#secrets-and-secret-storage) |
 | LiteLLM: Report Issue | Opens a prefilled GitHub issue; see [what it collects](troubleshooting.md#reporting-an-issue) |
 | LiteLLM: Help & Feedback | Shortcuts to the documentation, bug reports, and feature requests |

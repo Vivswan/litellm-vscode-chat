@@ -2,7 +2,7 @@
  * Relative-time rendering for the status pills and the hero's last-sync
  * stamp. Rounded to the coarsest unit that still reads as current ("just
  * now", "5 min ago", "2 h ago"): the dashboard answers "is this fresh?", not
- * "when exactly?" - Show Diagnostics carries the precise timestamps.
+ * "when exactly?" - the Diagnostics tab carries the precise timestamp.
  */
 
 import { useEffect, useState } from "preact/hooks";

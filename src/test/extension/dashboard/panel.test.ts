@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { DashboardControllerEnv, DashboardPanel } from "../../../extension/dashboard/panel";
-import { DashboardController } from "../../../extension/dashboard/panel";
+import { DashboardController, declaredViewsFromSetting } from "../../../extension/dashboard/panel";
 import type { ExtensionToWebviewMessage } from "../../../extension/dashboard/protocol";
 import type { SettingsReader } from "../../../extension/dashboard/state";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
@@ -66,6 +66,8 @@ interface Harness {
 	loggedMessages: [string, unknown][];
 	settingsValues: Record<string, unknown>;
 	serversSetting: unknown[];
+	/** The legacy registry's servers, as getLegacyServers reports them. */
+	legacyServers: { baseUrl: string }[];
 	/** When set, every updateSetting call rejects with this error. */
 	failUpdates?: Error;
 	/** When set, storeServerSecret rejects with this error on deletes (value === undefined). */
@@ -94,6 +96,7 @@ function makeHarness(): Harness {
 		},
 		getSnapshots: () => [{ status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] }],
 		getDeclaredServers: () => [],
+		getLegacyServers: () => harness.legacyServers,
 		settingsReader: () => reader,
 		updateSetting: async (key, value) => {
 			if (harness.failUpdates !== undefined) {
@@ -151,6 +154,7 @@ function makeHarness(): Harness {
 		loggedMessages,
 		settingsValues,
 		serversSetting: [],
+		legacyServers: [],
 	};
 	return harness;
 }
@@ -199,6 +203,164 @@ suite("extension/dashboard/panel", () => {
 		await settle();
 
 		assert.strictEqual(fake.posted.length, before + 1);
+	});
+
+	suite("the diagnostics deep link (open with a target section)", () => {
+		function focusMessages(fake: FakePanel): Extract<ExtensionToWebviewMessage, { type: "focusSection" }>[] {
+			return (fake.posted as ExtensionToWebviewMessage[]).filter((message) => message.type === "focusSection");
+		}
+
+		test("a fresh panel gets the focus after the ready handshake, exactly once", async () => {
+			const harness = makeHarness();
+			harness.controller.open("diagnostics");
+			const fake = harness.panels[0];
+			assert.ok(fake);
+			assert.deepStrictEqual(focusMessages(fake), [], "a page that has not signaled ready gets no focus yet");
+
+			fake.receiveMessage({ type: "ready" });
+			await settle();
+
+			assert.deepStrictEqual(focusMessages(fake), [{ type: "focusSection", section: "diagnostics" }]);
+			const last = fake.posted.at(-1) as ExtensionToWebviewMessage;
+			assert.strictEqual(last.type, "focusSection", "the focus lands after the handshake's state push");
+
+			// A later reload must not replay the consumed deep link.
+			fake.receiveMessage({ type: "ready" });
+			await settle();
+			assert.strictEqual(focusMessages(fake).length, 1);
+		});
+
+		test("a panel whose page already completed the handshake gets the focus immediately", async () => {
+			const harness = makeHarness();
+			harness.controller.open();
+			const fake = harness.panels[0];
+			assert.ok(fake);
+			fake.receiveMessage({ type: "ready" });
+			await settle();
+
+			harness.controller.open("diagnostics");
+
+			const last = fake.posted.at(-1) as ExtensionToWebviewMessage;
+			assert.deepStrictEqual(last, { type: "focusSection", section: "diagnostics" });
+			assert.strictEqual(harness.panels.length, 1, "the deep link reveals the existing panel");
+		});
+
+		test("a deep link racing the initial page load waits for the ready handshake", async () => {
+			const harness = makeHarness();
+			harness.controller.open();
+			const fake = harness.panels[0];
+			assert.ok(fake);
+
+			// The page is still loading (no ready yet): an immediate post would
+			// be dropped on the floor, so the focus must stay pending.
+			harness.controller.open("diagnostics");
+			assert.deepStrictEqual(focusMessages(fake), []);
+
+			fake.receiveMessage({ type: "ready" });
+			await settle();
+			assert.deepStrictEqual(focusMessages(fake), [{ type: "focusSection", section: "diagnostics" }]);
+		});
+
+		test("a hidden panel defers the focus to the reload's own ready handshake", async () => {
+			const harness = makeHarness();
+			harness.controller.open();
+			const fake = harness.panels[0];
+			assert.ok(fake);
+			fake.receiveMessage({ type: "ready" });
+			await settle();
+			fake.setVisible(false);
+
+			harness.controller.open("diagnostics");
+			assert.deepStrictEqual(focusMessages(fake), [], "a hidden page would drop the message");
+
+			// Revealing re-fires the view state, but the torn-down page reloads:
+			// only its own ready proves it can receive the focus.
+			fake.setVisible(true);
+			assert.deepStrictEqual(focusMessages(fake), []);
+			fake.receiveMessage({ type: "ready" });
+			await settle();
+			assert.deepStrictEqual(focusMessages(fake), [{ type: "focusSection", section: "diagnostics" }]);
+		});
+
+		test("a ready that outlives its page cannot vouch for the next page or eat its focus", async () => {
+			const harness = makeHarness();
+			harness.controller.open();
+			const fake = harness.panels[0];
+			assert.ok(fake);
+
+			// The handshake is queued but the page dies (panel hidden) before the
+			// serialized chain drains it; the reloaded page has not spoken yet.
+			fake.receiveMessage({ type: "ready" });
+			fake.setVisible(false);
+			await settle();
+
+			harness.controller.open("diagnostics");
+			assert.deepStrictEqual(focusMessages(fake), [], "the stale handshake must not stand in for the reloading page");
+
+			fake.setVisible(true);
+			fake.receiveMessage({ type: "ready" });
+			await settle();
+			assert.deepStrictEqual(focusMessages(fake), [{ type: "focusSection", section: "diagnostics" }]);
+		});
+
+		test("a plain open cancels a pending focus: the latest open call defines the target", async () => {
+			const harness = makeHarness();
+			harness.controller.open();
+			const fake = harness.panels[0];
+			assert.ok(fake);
+			fake.setVisible(false);
+			harness.controller.open("diagnostics");
+
+			harness.controller.open();
+			fake.setVisible(true);
+			fake.receiveMessage({ type: "ready" });
+			await settle();
+
+			assert.deepStrictEqual(focusMessages(fake), [], "the user asked for the dashboard, not the old deep link");
+		});
+	});
+
+	test("state pushes count legacy registry servers that have no row of their own", () => {
+		const harness = makeHarness();
+		harness.legacyServers = [
+			{ baseUrl: "http://old.test" },
+			// Same host as the live snapshot (modulo the trailing slash): it
+			// already renders as a server row, so it must not count again.
+			{ baseUrl: "http://prod.test/" },
+		];
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		assert.strictEqual(lastState(fake).state.legacyServerCount, 1);
+	});
+
+	suite("declaredViewsFromSetting", () => {
+		test("maps accepted entries with setting-provable secret locations only", () => {
+			const views = declaredViewsFromSetting([
+				{ label: "Inline", baseUrl: "http://a.test", apiKey: "sk-inline" },
+				{ label: "Bare", baseUrl: "http://b.test", virtualKeyHeader: "x-vk" },
+			]);
+
+			assert.strictEqual(views.length, 2);
+			assert.strictEqual(views[0]?.label, "Inline");
+			assert.strictEqual(views[0]?.baseUrl, "http://a.test");
+			assert.deepStrictEqual(views[0]?.secrets, {
+				apiKey: "settings",
+				oauthClientSecret: "none",
+				virtualKeyValue: "none",
+			});
+			// A secure blob may exist for Bare, but the setting cannot prove it,
+			// so the synchronous fallback reads "none".
+			assert.deepStrictEqual(views[1]?.secrets, { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" });
+			assert.strictEqual(views[1]?.virtualKeyHeader, "x-vk");
+			assert.ok(!JSON.stringify(views).includes("sk-inline"), "the view carries locations, never values");
+		});
+
+		test("junk settings read as empty", () => {
+			assert.deepStrictEqual(declaredViewsFromSetting("not an array"), []);
+			assert.deepStrictEqual(declaredViewsFromSetting([{ label: 42 }]), []);
+		});
 	});
 
 	test("a setting intent reaches updateSetting; malformed messages are ignored without effects", async () => {

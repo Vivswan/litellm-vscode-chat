@@ -129,6 +129,23 @@ test("clicking a tab switches the visible panel and aria-selected follows", () =
 	expect(panel(root, "settings").hidden).toBe(true);
 });
 
+test("a focusSection push switches the active tab: the litellm.showDiagnostics deep link", () => {
+	const root = mountApp();
+	pushToWebview({ type: "focusSection", section: "diagnostics" });
+
+	expect(panel(root, "diagnostics").hidden).toBe(false);
+	expect(panel(root, "overview").hidden).toBe(true);
+	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
+});
+
+test("a focusSection push naming an unknown section is dropped instead of blanking every panel", () => {
+	const root = mountApp();
+	pushToWebview({ type: "focusSection", section: "definitely-not-a-section" });
+
+	expect(panel(root, "overview").hidden).toBe(false);
+	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("true");
+});
+
 test("arrow keys move selection with wrap-around; Home and End jump", () => {
 	const root = mountApp();
 	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
