@@ -1,5 +1,7 @@
 # Servers
 
+English | [简体中文](zh-cn/servers.md) | [繁體中文](zh-tw/servers.md)
+
 The extension connects to any number of LiteLLM servers at once and aggregates their models into one picker list. Servers are declared in a single setting; each entry's secrets can live inline in the settings file or in VS Code's encrypted secret storage.
 
 ## The servers setting

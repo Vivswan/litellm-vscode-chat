@@ -1,5 +1,7 @@
 # Getting started
 
+English | [简体中文](zh-cn/getting-started.md) | [繁體中文](zh-tw/getting-started.md)
+
 Install the extension, point it at a LiteLLM proxy, and its models show up in GitHub Copilot Chat's model picker. This page covers that first setup and where each kind of configuration lives afterwards.
 
 ## Requirements

@@ -1,5 +1,7 @@
 # Dashboard
 
+English | [简体中文](zh-cn/dashboard.md) | [繁體中文](zh-tw/dashboard.md)
+
 "LiteLLM: Open Dashboard" opens one panel with everything on it: servers, discovered models, and the extension's settings, under a status strip showing the overall connection state. It is a view over the same stores the rest of the extension uses, so anything you do here you could equally do through VS Code settings and commands; the dashboard just puts it in one place.
 
 ## Layout

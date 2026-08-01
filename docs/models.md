@@ -1,5 +1,7 @@
 # Models and capabilities
 
+English | [简体中文](zh-cn/models.md) | [繁體中文](zh-tw/models.md)
+
 The extension reads each server's model info and registers what it finds with Copilot Chat: the model's token limits, pricing, and capability flags all come from there. Capabilities decide what a model is offered for (tools, images, reasoning); they never change what the extension asks a model to do, which is [Model parameters](model-parameters.md)' job.
 
 ## What registers

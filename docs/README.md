@@ -1,5 +1,7 @@
 # LiteLLM Provider for GitHub Copilot Chat: documentation
 
+English | [简体中文](zh-cn/README.md) | [繁體中文](zh-tw/README.md)
+
 ## Getting started
 
 - [Getting started](getting-started.md) - install, the first server, the walkthrough, and where each kind of configuration lives.

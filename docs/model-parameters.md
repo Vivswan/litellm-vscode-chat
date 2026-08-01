@@ -1,5 +1,7 @@
 # Model parameters
 
+English | [简体中文](zh-cn/model-parameters.md) | [繁體中文](zh-tw/model-parameters.md)
+
 The extension never decides request parameters for you: beyond the fields it owns (model, messages, streaming plumbing, `max_tokens`, and tool wiring), only parameters you set somewhere reach LiteLLM, and they reach it unchanged. This page covers the places you can set them and how they combine when several match the same request.
 
 ## The pass-through contract
