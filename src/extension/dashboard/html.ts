@@ -584,6 +584,30 @@ const STYLES = `
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: 0.9em;
 	}
+	/* The always-sent fields render as code chips on one labeled line, and the
+	   caveats as labeled definition pairs: fixed explanations are structure
+	   here, never stacked prose paragraphs. */
+	.params-inspector .params-fixed {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 6px;
+		align-items: baseline;
+		margin: 8px 0;
+	}
+	.params-inspector code {
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 0.9em;
+		background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.15));
+		padding: 1px 5px;
+		border-radius: 3px;
+	}
+	.params-caveat-label {
+		font-size: 0.8em;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--vscode-descriptionForeground);
+	}
 	/* The max_tokens derivation: always present, so it renders as a footer
 	   band clearly distinct from the parameter table above it - a stray
 	   unstyled paragraph there reads like a collapsed table row. It keeps the
@@ -596,7 +620,14 @@ const STYLES = `
 		border-radius: 3px;
 		background: var(--vscode-editorWidget-background, transparent);
 	}
-	.params-inspector .params-caveats { border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2)); margin-top: 12px; padding-top: 4px; }
+	.params-inspector .params-caveats {
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		margin-top: 12px;
+		padding-top: 8px;
+	}
+	.params-inspector .params-caveats div { margin: 4px 0; }
+	.params-inspector .params-caveats dt { display: inline; }
+	.params-inspector .params-caveats dd { display: inline; margin: 0 0 0 8px; }
 
 	.form-card {
 		max-width: 640px;
@@ -876,8 +907,8 @@ const STYLES = `
 		background: var(--vscode-editorWidget-background, transparent);
 	}
 	.notice p { margin: 4px 0; }
-	.notice ol.notice-steps { margin: 4px 0; padding-left: 20px; }
-	.notice ol.notice-steps li { margin: 2px 0; }
+	ol.notice-steps { margin: 4px 0; padding-left: 20px; }
+	ol.notice-steps li { margin: 2px 0; }
 	.notice .toolbar { margin: 8px 0 0; }
 	.skeleton { border-radius: 3px; background: var(--vscode-foreground); opacity: 0.12; }
 

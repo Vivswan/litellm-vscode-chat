@@ -37,17 +37,27 @@ const SKIP_REASON_TEXT = {
 	"provider-owned": "not sent: a provider-owned request field, never overridable",
 } as const;
 
-/** The max_tokens derivation, one sentence per branch of the request path's fallback chain. */
-function maxTokensText(maxTokens: ProjectedMaxTokens, entryLabel: string): string {
+/** The request fields the extension itself owns; rendered as chips, never prose. */
+const ALWAYS_SENT_FIELDS = ["model", "messages", "stream", "stream_options", "max_tokens"] as const;
+
+/** The max_tokens derivation, split into the value and one short reason per branch. */
+function maxTokensParts(maxTokens: ProjectedMaxTokens, entryLabel: string): { value: number; reason: string } {
 	switch (maxTokens.source) {
 		case "configured":
-			return maxTokens.configuredSource !== undefined
-				? `max_tokens ${maxTokens.value} - set by ${sourceName(maxTokens.configuredSource, entryLabel)}`
-				: `max_tokens ${maxTokens.value} - set in configuration`;
+			return {
+				value: maxTokens.value,
+				reason:
+					maxTokens.configuredSource !== undefined
+						? `set by ${sourceName(maxTokens.configuredSource, entryLabel)}`
+						: "set in configuration",
+			};
 		case "declared":
-			return `max_tokens ${maxTokens.value} - the server's declared output limit, sent as-is because nothing you configured sets max_tokens`;
+			return { value: maxTokens.value, reason: "the server's declared output limit (nothing configured sets it)" };
 		case "capped-default":
-			return `max_tokens ${maxTokens.value} - min(${DEFAULT_MAX_TOKENS_CAP}, the model's max output tokens), because the output limit is a default, not server-declared`;
+			return {
+				value: maxTokens.value,
+				reason: `min(${DEFAULT_MAX_TOKENS_CAP}, model max) - the limit is a default, not server-declared`,
+			};
 	}
 }
 
@@ -128,10 +138,13 @@ export function ParamsInspector({
 					{model.rawId} on {model.serverLabel}
 					{scope !== undefined ? ` (${scope.baseUrlScope})` : ""}
 				</p>
-				<p class="hint">
-					Always sent: model, messages, stream, stream_options, max_tokens - and tools with tool_choice when the request
-					carries tools. These are the extension's own fields; configuration cannot override them.
-				</p>
+				<div class="params-fixed">
+					<span class="params-caveat-label">Always sent</span>
+					{ALWAYS_SENT_FIELDS.map((field) => (
+						<code key={field}>{field}</code>
+					))}
+					<span class="hint">+ tools, tool_choice with tools; not overridable</span>
+				</div>
 				{projection.rows.length > 0 ? (
 					<table class="params">
 						<thead>
@@ -148,15 +161,13 @@ export function ParamsInspector({
 						</tbody>
 					</table>
 				) : empty ? (
-					<p class="hint params-empty">
-						No configured parameters match this model, so only the always-sent fields go out.
-					</p>
+					<p class="hint params-empty">No configured parameters match this model.</p>
 				) : null}
 				{projection.replacedUnscoped !== undefined ? (
 					<div class="params-replaced">
 						<p class="hint">
-							Not applied: Settings - {projection.replacedUnscoped.key}. A server-scoped key matched, and a scoped match
-							replaces the whole unscoped record, key collisions or not.
+							Not applied - Settings {projection.replacedUnscoped.key}: a server-scoped match replaces the whole
+							unscoped record.
 						</p>
 						<ul>
 							{Object.entries(projection.replacedUnscoped.record).map(([name, value]) => (
@@ -167,19 +178,22 @@ export function ParamsInspector({
 						</ul>
 					</div>
 				) : null}
-				<p class="params-max-tokens">{maxTokensText(projection.maxTokens, entryLabel)}</p>
-				<div class="params-caveats">
-					<p class="hint">
-						Runtime options - what the chat client (Copilot, or another extension calling the model) sets on the request
-						itself - override any forwarded parameter above and cannot be known ahead of the request.
-					</p>
+				<p class="params-max-tokens">
+					<code>max_tokens {maxTokensParts(projection.maxTokens, entryLabel).value}</code>
+					<span class="hint"> {maxTokensParts(projection.maxTokens, entryLabel).reason}</span>
+				</p>
+				<dl class="params-caveats">
+					<div>
+						<dt class="params-caveat-label">Runtime options</dt>
+						<dd class="hint">Set per request by the chat client; they override every row above.</dd>
+					</div>
 					{model.reasoning ? (
-						<p class="hint">
-							This model's Configure Model pick (reasoning effort) also overrides these rows for reasoning_effort. VS
-							Code stores that pick on its side, so it cannot be shown here.
-						</p>
+						<div>
+							<dt class="params-caveat-label">Picker: reasoning effort</dt>
+							<dd class="hint">Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.</dd>
+						</div>
 					) : null}
-				</div>
+				</dl>
 			</div>
 		</SlideOver>
 	);

@@ -85,13 +85,16 @@ test("a noticed entry renders the params-inactive badge and the remedy paragraph
 	// Native title attributes do not render in the webview host; the detail
 	// rides the CSS hover tip next to the badge instead.
 	const tip = badge?.closest(".tip-wrap")?.querySelector(".help-tip");
-	expect(tip?.textContent).toContain("run Sync Models Now");
+	expect(tip?.textContent).toContain("The banner below has the fix");
 
 	const paragraph = root.querySelector("p.state-warn");
 	expect(paragraph?.textContent).toContain("Prod");
 	expect(paragraph?.textContent).not.toContain("Quiet");
 	expect(paragraph?.textContent).toContain("per-server model parameters are not applied");
-	expect(paragraph?.textContent).toContain("run Sync Models Now");
+	// The remedy renders as numbered steps under the lead line, not prose.
+	const banner = root.querySelector(".banner-warn");
+	expect(banner?.textContent).toContain("run Sync Models Now");
+	expect(banner?.querySelectorAll("ol.notice-steps li").length).toBe(2);
 });
 
 test("without a notice, no params-inactive badge or paragraph renders", () => {
@@ -457,10 +460,10 @@ test("the external badge tip renders the provenance classification, or the hones
 		.filter((el) => el.textContent?.trim() === "external")
 		.map((el) => el.closest(".tip-wrap")?.querySelector(".help-tip")?.textContent ?? "");
 	expect(tips.length).toBe(3);
-	const removedTip = tips.find((tip) => tip.includes('"Old" was removed'));
-	expect(removedTip).toContain("Left behind");
-	const renamedTip = tips.find((tip) => tip.includes('renamed to "Fresh"'));
-	expect(renamedTip).toContain("Left behind");
+	const removedTip = tips.find((tip) => tip.includes('removed entry "Old"'));
+	expect(removedTip).toContain("Leftover");
+	const renamedTip = tips.find((tip) => tip.includes('renaming "Renamed" to "Fresh"'));
+	expect(renamedTip).toContain("Leftover");
 	const defaultTip = tips.find((tip) => tip.includes("predates"));
 	expect(defaultTip).toContain("added outside this extension");
 });
