@@ -582,11 +582,21 @@ for (const file of extensionLogFiles()) {
 	}
 }
 
+// Anything after the script name is handed to the `code` invocation, so
+// `bun run dev -- --locale=zh-cn` launches a localized dev host. bun run
+// forwards the extra args; a leading literal "--" separator is dropped when
+// one survives forwarding.
+const passthroughArgs = process.argv.slice(2);
+if (passthroughArgs[0] === "--") {
+	passthroughArgs.shift();
+}
+
 run("opening the Extension Development Host", [
 	"code",
 	"--new-window",
 	`--user-data-dir=${profileDir}`,
 	`--extensionDevelopmentPath=${root}`,
+	...passthroughArgs,
 ]);
 console.log("[dev] window launched; the seed configures the server on activation");
 
