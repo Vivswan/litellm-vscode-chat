@@ -1,6 +1,6 @@
 # This file is managed by Vivswan/repo-platform.
 # Copier uses it to track the template source and version - do not delete.
-_commit: d97a355
+_commit: '8816965'
 _src_path: gh:Vivswan/repo-platform
 channel: staging
 description: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM.
@@ -19,4 +19,5 @@ modules:
 private: false
 project_name: LiteLLM VSCode Chat
 project_slug: litellm-vscode-chat
+release_auto_publish: true
 topics: ai,bun,copilot-chat,litellm,llm,typescript,vscode-extension
