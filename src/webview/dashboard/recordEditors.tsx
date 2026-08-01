@@ -1,8 +1,15 @@
 import { useEffect, useState } from "preact/hooks";
-import type { HeaderScalar, ScopedRecordSetting } from "../../extension/dashboard/protocol";
-import { formatHeaderValue, formatJsonValue, SETTING_SCOPE_LABELS } from "../../extension/dashboard/protocol";
-import type { GroupProblems, PrefixGroup } from "../../extension/dashboard/recordDraft";
-import { parseGroups, parseHeaderRows, toGroups, toHeaderRows } from "../../extension/dashboard/recordDraft";
+import type { DashboardModel, HeaderScalar, ScopedRecordSetting } from "../../extension/dashboard/protocol";
+import { SETTING_SCOPE_LABELS } from "../../extension/dashboard/protocol";
+import type { GroupProblems, HeaderRow, PrefixGroup, RowFieldProblem } from "../../extension/dashboard/recordDraft";
+import {
+	groupsFromJsonText,
+	headerRowsFromJsonText,
+	parseGroups,
+	parseHeaderRowsDetailed,
+	toGroups,
+	toHeaderRows,
+} from "../../extension/dashboard/recordDraft";
 import { DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import {
@@ -15,15 +22,26 @@ import {
 import { IconAdd, IconTrash } from "./icons";
 import { postMessage } from "./vscodeApi";
 
+/** How long the "Saved" note lingers after the reflecting push; toast-scale, and any new edit clears it early. */
+const SAVED_NOTICE_MS = 4000;
+
+/**
+ * Where a draft is in its apply lifecycle. "applying" is the window between
+ * Apply and the store push that reflects the write; "saved" is the transient
+ * confirmation right after that push drops the draft.
+ */
+type DraftPhase = "idle" | "dirty" | "applying" | "saved";
+
 /**
  * Both editors here follow one draft-and-apply model: rows are edited
  * locally, validated on every keystroke, and written back to configuration
  * only through Apply, so the object settings never pass through an invalid
  * intermediate shape. With no draft the store value renders directly; a
- * dirty draft wins until Apply or Reset. An applied draft keeps rendering
+ * dirty draft wins until Apply or Discard. An applied draft keeps rendering
  * (no flicker back to the pre-apply value) until either the store push that
- * reflects the write arrives (which drops it) or the extension reports the
- * write failed (which returns it to a dirty, retryable state).
+ * reflects the write arrives (which drops it and shows the transient Saved
+ * note) or the extension reports the write failed (which returns it to a
+ * dirty, retryable state).
  */
 function useDraftRows<T>(
 	external: T,
@@ -31,33 +49,61 @@ function useDraftRows<T>(
 ): {
 	rows: T;
 	dirty: boolean;
+	phase: DraftPhase;
 	update: (next: T) => void;
 	apply: () => void;
 	reset: () => void;
 } {
 	const externalKey = JSON.stringify(external);
 	const [draft, setDraft] = useState<{ rows: T; applied: boolean; baseKey: string } | undefined>(undefined);
+	const [saved, setSaved] = useState(false);
 	const failureSeq = failure?.seq;
 
 	useEffect(() => {
 		if (draft?.applied === true && externalKey !== draft.baseKey) {
 			setDraft(undefined);
+			setSaved(true);
 		}
 	}, [draft, externalKey]);
+
+	useEffect(() => {
+		if (!saved) {
+			return undefined;
+		}
+		const timer = setTimeout(() => setSaved(false), SAVED_NOTICE_MS);
+		return () => clearTimeout(timer);
+	}, [saved]);
 
 	// A reported write failure re-opens the applied draft for editing.
 	useEffect(() => {
 		if (failureSeq !== undefined) {
+			setSaved(false);
 			setDraft((current) => (current?.applied === true ? { ...current, applied: false } : current));
 		}
 	}, [failureSeq]);
 
+	const phase: DraftPhase = draft === undefined ? (saved ? "saved" : "idle") : draft.applied ? "applying" : "dirty";
 	return {
 		rows: draft?.rows ?? external,
-		dirty: draft !== undefined && !draft.applied,
-		update: (next) => setDraft({ rows: next, applied: false, baseKey: externalKey }),
-		apply: () => setDraft((current) => (current === undefined ? undefined : { ...current, applied: true })),
-		reset: () => setDraft(undefined),
+		// A draft whose rows match the store is not dirty: applying it would
+		// write a no-op the store never reflects, stranding the applying phase
+		// (the scalar rows' unchanged-posts-nothing rule, in draft form).
+		dirty: draft !== undefined && !draft.applied && JSON.stringify(draft.rows) !== externalKey,
+		phase,
+		update: (next) => {
+			setSaved(false);
+			setDraft({ rows: next, applied: false, baseKey: externalKey });
+		},
+		// Applying re-baselines against the external state as of the click:
+		// a push that arrived while the draft was dirty must not count as the
+		// one reflecting this write, or the draft would drop the moment Apply
+		// lands and render the concurrent value as "Saved".
+		apply: () =>
+			setDraft((current) => (current === undefined ? undefined : { ...current, applied: true, baseKey: externalKey })),
+		reset: () => {
+			setSaved(false);
+			setDraft(undefined);
+		},
 	};
 }
 
@@ -71,8 +117,18 @@ export interface IntentFailure {
 	readonly requestId?: string | undefined;
 }
 
+/**
+ * Names the scope this editor writes and the seam between the tab's two save
+ * models: the scalar rows above commit each change on its own (numbers on
+ * blur or Enter, checkboxes on toggle), these rows only via Apply.
+ */
 function ScopeNote({ scoped }: { scoped: ScopedRecordSetting<unknown> }) {
-	return <p class="hint">Editing {SETTING_SCOPE_LABELS[scoped.editScope]} settings.</p>;
+	return (
+		<p class="hint">
+			Editing {SETTING_SCOPE_LABELS[scoped.editScope]} settings. Rows here apply together via the Apply button; the
+			plain settings above save each change on its own.
+		</p>
+	);
 }
 
 function FailureNote({ failure, dirty }: { failure: IntentFailure | undefined; dirty: boolean }) {
@@ -80,6 +136,24 @@ function FailureNote({ failure, dirty }: { failure: IntentFailure | undefined; d
 		return null;
 	}
 	return <p class="error">Saving failed: {failure.message} Your edits are kept; fix them and Apply again.</p>;
+}
+
+/**
+ * The Apply outcome next to the button it reports on. The status element is
+ * always mounted (empty between phases) so the live region exists before the
+ * announcement lands in it.
+ */
+function ApplyStatus({ phase }: { phase: DraftPhase }) {
+	return (
+		<span class={phase === "saved" ? "apply-status saved" : "apply-status"} role="status">
+			{phase === "applying" ? "Applying..." : phase === "saved" ? "Saved" : ""}
+		</span>
+	);
+}
+
+/** The other-scope records, rendered as the same disabled grid the edit scope uses, never as prose. */
+function OtherScopeNote({ scope }: { scope: keyof typeof SETTING_SCOPE_LABELS }) {
+	return <p class="hint">Set in {SETTING_SCOPE_LABELS[scope]} settings - edit there.</p>;
 }
 
 /**
@@ -97,17 +171,40 @@ export function ParamGroupsFields({
 	groups,
 	problems,
 	disabled,
+	readOnly,
 	prefixPlaceholder,
 	prefixHelp,
+	prefixListId,
+	paramNameListId,
 	onChange,
+	onEnter,
 }: {
 	groups: readonly PrefixGroup[];
 	problems: readonly GroupProblems[];
 	disabled?: boolean;
+	/** Render as a static display: inputs disabled, add/remove actions gone (the other-scope records). */
+	readOnly?: boolean;
 	prefixPlaceholder: string;
 	prefixHelp: string;
+	/** Datalist IDs for the prefix and parameter-name inputs; the owning editor renders the lists. */
+	prefixListId?: string;
+	paramNameListId?: string;
 	onChange: (next: PrefixGroup[]) => void;
+	/** Enter in a row input; the editors apply the draft when it parses clean. */
+	onEnter?: () => void;
 }) {
+	const inert = disabled === true || readOnly === true;
+	// No Enter-apply on an input that carries a datalist: Enter also accepts
+	// the highlighted suggestion, and the keydown outruns the input event that
+	// commits it, so applying there would post the half-typed value.
+	const onKeyDown =
+		onEnter === undefined
+			? undefined
+			: (event: KeyboardEvent) => {
+					if (event.key === "Enter") {
+						onEnter();
+					}
+				};
 	const patchGroup = (index: number, patch: Partial<PrefixGroup>) => {
 		onChange(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
 	};
@@ -121,21 +218,26 @@ export function ParamGroupsFields({
 							<input
 								type="text"
 								class={`key${problems[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
+								aria-invalid={problems[groupIndex]?.prefix !== undefined}
 								placeholder={prefixPlaceholder}
 								value={group.prefix}
-								disabled={disabled}
+								disabled={inert}
+								list={prefixListId}
 								onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
+								onKeyDown={prefixListId === undefined ? onKeyDown : undefined}
 							/>
 							<Help text={prefixHelp} />
 						</span>
-						<button
-							type="button"
-							class="quiet"
-							disabled={disabled}
-							onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
-						>
-							<IconTrash /> Remove prefix
-						</button>
+						{readOnly === true ? null : (
+							<button
+								type="button"
+								class="quiet"
+								disabled={disabled}
+								onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
+							>
+								<IconTrash /> Remove prefix
+							</button>
+						)}
 						{problems[groupIndex]?.prefix !== undefined ? (
 							<span class="error">{problems[groupIndex]?.prefix}</span>
 						) : null}
@@ -146,10 +248,12 @@ export function ParamGroupsFields({
 								<span class="cell key">
 									<input
 										type="text"
-										class="key"
+										class={`key${problems[groupIndex]?.params[paramIndex]?.field === "name" ? " invalid" : ""}`}
+										aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
 										placeholder="Parameter, e.g. temperature"
 										value={param.key}
-										disabled={disabled}
+										disabled={inert}
+										list={paramNameListId}
 										onInput={(event) =>
 											patchGroup(groupIndex, {
 												params: group.params.map((p, i) =>
@@ -157,16 +261,18 @@ export function ParamGroupsFields({
 												),
 											})
 										}
+										onKeyDown={paramNameListId === undefined ? onKeyDown : undefined}
 									/>
 									<Help text={HELP_MODEL_PARAMETER_NAME} />
 								</span>
 								<span class="cell value">
 									<input
 										type="text"
-										class={`value${problems[groupIndex]?.params[paramIndex] === undefined ? "" : " invalid"}`}
+										class={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
+										aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
 										placeholder="JSON value, e.g. 0.2"
 										value={param.valueText}
-										disabled={disabled}
+										disabled={inert}
 										onInput={(event) =>
 											patchGroup(groupIndex, {
 												params: group.params.map((p, i) =>
@@ -174,36 +280,160 @@ export function ParamGroupsFields({
 												),
 											})
 										}
+										onKeyDown={onKeyDown}
 									/>
 									<Help text={HELP_MODEL_PARAMETER_VALUE} />
 								</span>
-								<button
-									type="button"
-									class="quiet"
-									disabled={disabled}
-									onClick={() => patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })}
-								>
-									<IconTrash /> Remove
-								</button>
+								{readOnly === true ? null : (
+									<button
+										type="button"
+										class="quiet"
+										disabled={disabled}
+										onClick={() => patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })}
+									>
+										<IconTrash /> Remove
+									</button>
+								)}
 								{problems[groupIndex]?.params[paramIndex] !== undefined ? (
-									<span class="error">{problems[groupIndex]?.params[paramIndex]}</span>
+									<span class="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
 								) : null}
 							</div>
 						))}
 					</div>
-					<button
-						type="button"
-						class="secondary"
-						disabled={disabled}
-						onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
-					>
-						<IconAdd /> Add parameter
-					</button>
+					{readOnly === true ? null : (
+						<button
+							type="button"
+							class="secondary"
+							disabled={disabled}
+							onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
+						>
+							<IconAdd /> Add parameter
+						</button>
+					)}
 				</div>
 			))}
 		</>
 	);
 }
+
+/**
+ * The header rows grid, ParamGroupsFields' flat sibling: presentational, with
+ * problems field-aligned from parseHeaderRowsDetailed so only the offending
+ * input renders invalid. readOnly renders the other-scope records as the same
+ * grid, minus the row actions.
+ */
+function HeaderRowsFields({
+	rows,
+	problems,
+	readOnly,
+	onChange,
+	onEnter,
+}: {
+	rows: readonly HeaderRow[];
+	problems: readonly (RowFieldProblem | undefined)[];
+	readOnly?: boolean;
+	onChange: (next: HeaderRow[]) => void;
+	onEnter?: () => void;
+}) {
+	const onKeyDown =
+		onEnter === undefined
+			? undefined
+			: (event: KeyboardEvent) => {
+					if (event.key === "Enter") {
+						onEnter();
+					}
+				};
+	const patchRow = (index: number, patch: Partial<HeaderRow>) => {
+		onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+	};
+	return (
+		<div class="rows">
+			{rows.map((row, index) => (
+				<div class="row" key={index}>
+					<input
+						type="text"
+						class={`key${problems[index]?.field === "name" ? " invalid" : ""}`}
+						aria-invalid={problems[index]?.field === "name"}
+						placeholder="Header, e.g. x-litellm-api-key"
+						value={row.name}
+						disabled={readOnly}
+						onInput={(event) => patchRow(index, { name: event.currentTarget.value })}
+						onKeyDown={onKeyDown}
+					/>
+					<input
+						type="text"
+						class={`value${problems[index]?.field === "value" ? " invalid" : ""}`}
+						aria-invalid={problems[index]?.field === "value"}
+						placeholder="Value"
+						value={row.valueText}
+						disabled={readOnly}
+						onInput={(event) => patchRow(index, { valueText: event.currentTarget.value })}
+						onKeyDown={onKeyDown}
+					/>
+					{readOnly === true ? null : (
+						<button type="button" class="quiet" onClick={() => onChange(rows.filter((_, i) => i !== index))}>
+							<IconTrash /> Remove
+						</button>
+					)}
+					{problems[index] !== undefined ? <span class="error">{problems[index]?.message}</span> : null}
+				</div>
+			))}
+		</div>
+	);
+}
+
+/**
+ * The Edit-as-JSON side door's textarea state: the text being edited plus the
+ * snapshot it started from, so "changed at all" needs no re-parse.
+ */
+interface JsonDraft {
+	readonly text: string;
+	readonly base: string;
+}
+
+function seededJson(value: unknown): JsonDraft {
+	const text = JSON.stringify(value, null, 2) ?? "{}";
+	return { text, base: text };
+}
+
+/**
+ * JSON.stringify with object keys sorted at every level (by code unit - a
+ * total order, unlike locale collation), so records that differ only in key
+ * order compare equal. Gates Apply on a real value change: a no-op write
+ * produces no store change and would strand the applying phase.
+ */
+function canonicalKey(value: unknown): string {
+	return (
+		JSON.stringify(value, (_key, inner: unknown) =>
+			inner !== null && typeof inner === "object" && !Array.isArray(inner)
+				? Object.fromEntries(
+						Object.entries(inner as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+					)
+				: inner
+		) ?? ""
+	);
+}
+
+/**
+ * Hand-curated, mirroring the "Common parameters" list in
+ * docs/model-parameters.md: the extension has no canonical parameter
+ * inventory (pass-through by design; only reasoning_effort is schema-declared),
+ * so these are suggestions, never a restriction.
+ */
+const COMMON_PARAMETER_NAMES = [
+	"max_tokens",
+	"temperature",
+	"top_p",
+	"frequency_penalty",
+	"presence_penalty",
+	"stop",
+	"response_format",
+	"reasoning_effort",
+	"seed",
+] as const;
+
+const MODEL_PREFIX_LIST_ID = "model-parameters-prefix-options";
+const PARAM_NAME_LIST_ID = "model-parameters-name-options";
 
 /**
  * Structured editor for litellm-vscode-chat.modelParameters, the
@@ -213,9 +443,12 @@ export function ParamGroupsFields({
  */
 export function ModelParametersEditor({
 	scoped,
+	models,
 	failure,
 }: {
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+	/** The discovered models, feeding the prefix input's suggestions. */
+	models: readonly DashboardModel[];
 	failure: IntentFailure | undefined;
 }) {
 	const draft = useDraftRows(toGroups(scoped.value), failure);
@@ -225,15 +458,49 @@ export function ModelParametersEditor({
 	// never assemble differently.
 	const parse = parseGroups(groups);
 	const problems = parse.ok ? [] : parse.problems;
+	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
+	const jsonParse = json === undefined ? undefined : groupsFromJsonText(json.text);
+	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
 
+	// A JSON view without a live draft follows the store like the rows do.
+	// Any draft - dirty or applied - pins it: a dirty one because the text is
+	// (or seeded) the user's, an applied one because resyncing before the
+	// reflecting push would flash the pre-apply value back into the textarea.
+	const externalJsonText = JSON.stringify(scoped.value, null, 2) ?? "{}";
+	const draftPhase = draft.phase;
+	useEffect(() => {
+		if (draftPhase === "dirty" || draftPhase === "applying") {
+			return;
+		}
+		setJson((current) =>
+			current !== undefined && current.text === current.base && current.text !== externalJsonText
+				? { text: externalJsonText, base: externalJsonText }
+				: current
+		);
+	}, [externalJsonText, draftPhase]);
+
+	// Apply needs a real value change on top of a dirty draft: rows can differ
+	// in spelling ("1e1" vs "10") while assembling to the record already stored,
+	// and writing that no-op would strand the applying phase.
+	const changed = parse.ok && canonicalKey(parse.value) !== canonicalKey(scoped.value);
+	const canApply = draft.dirty && changed && !jsonBlocked;
 	const apply = () => {
-		if (!parse.ok) {
+		if (!parse.ok || !canApply) {
 			return;
 		}
 		postMessage({ type: "setModelParameters", value: parse.value });
 		draft.apply();
+		// The applied text becomes the JSON baseline; only edits after it count as discardable again.
+		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
+	};
+	const discard = () => {
+		draft.reset();
+		if (json !== undefined) {
+			setJson(seededJson(scoped.value));
+		}
 	};
 
+	const modelIds = Array.from(new Set(models.map((model) => model.id)));
 	return (
 		<section>
 			<h3>
@@ -244,41 +511,103 @@ export function ModelParametersEditor({
 				Request parameters sent per model prefix (longest prefix wins). Values are JSON: 0.2, true, "text", ["stop"].
 			</p>
 			<ScopeNote scoped={scoped} />
-			{groups.length === 0 ? <p class="empty">No model parameters configured in this scope.</p> : null}
-			<ParamGroupsFields
-				groups={groups}
-				problems={problems}
-				prefixPlaceholder="Model prefix, e.g. gpt-4 or http://host:4000/gpt-4"
-				prefixHelp={HELP_MODEL_PARAMETER_PREFIX}
-				onChange={(next) => draft.update(next)}
-			/>
+			<datalist id={MODEL_PREFIX_LIST_ID}>
+				{modelIds.map((id) => (
+					<option key={id} value={id} />
+				))}
+			</datalist>
+			<datalist id={PARAM_NAME_LIST_ID}>
+				{COMMON_PARAMETER_NAMES.map((name) => (
+					<option key={name} value={name} />
+				))}
+			</datalist>
+			{json !== undefined ? (
+				<div class="record-json">
+					<textarea
+						rows={10}
+						aria-label="Model parameters as JSON"
+						aria-invalid={jsonBlocked}
+						value={json.text}
+						onInput={(event) => {
+							const text = event.currentTarget.value;
+							setJson((current) => (current === undefined ? current : { ...current, text }));
+							const parsed = groupsFromJsonText(text);
+							if (parsed.ok) {
+								draft.update(parsed.rows);
+							}
+						}}
+					/>
+					{jsonParse !== undefined && !jsonParse.ok ? <p class="error">{jsonParse.problem}</p> : null}
+				</div>
+			) : (
+				<>
+					{groups.length === 0 ? <p class="empty">No model parameters configured in this scope.</p> : null}
+					<ParamGroupsFields
+						groups={groups}
+						problems={problems}
+						prefixPlaceholder="Model prefix, e.g. gpt-4 or http://host:4000/gpt-4"
+						prefixHelp={HELP_MODEL_PARAMETER_PREFIX}
+						prefixListId={MODEL_PREFIX_LIST_ID}
+						paramNameListId={PARAM_NAME_LIST_ID}
+						onChange={(next) => draft.update(next)}
+						onEnter={apply}
+					/>
+				</>
+			)}
 			<FailureNote failure={failure} dirty={draft.dirty} />
 			<div class="toolbar">
+				{json === undefined ? (
+					<button
+						type="button"
+						class="secondary"
+						onClick={() => draft.update([...groups, { prefix: "", params: [{ key: "", valueText: "" }] }])}
+					>
+						<IconAdd /> Add model prefix
+					</button>
+				) : null}
+				<button type="button" disabled={!canApply} onClick={apply}>
+					Apply
+				</button>
 				<button
 					type="button"
 					class="secondary"
-					onClick={() => draft.update([...groups, { prefix: "", params: [{ key: "", valueText: "" }] }])}
+					disabled={!draft.dirty && !(json !== undefined && json.text !== json.base)}
+					aria-label="Discard the unapplied model parameter edits"
+					onClick={discard}
 				>
-					<IconAdd /> Add model prefix
+					Discard
 				</button>
-				<button type="button" disabled={!draft.dirty || !parse.ok} onClick={apply}>
-					Apply
-				</button>
-				<button type="button" class="secondary" disabled={!draft.dirty} onClick={() => draft.reset()}>
-					Reset
-				</button>
+				{json === undefined ? (
+					<button
+						type="button"
+						class="quiet"
+						disabled={!parse.ok}
+						onClick={() => {
+							if (parse.ok) {
+								setJson(seededJson(parse.value));
+							}
+						}}
+					>
+						Edit as JSON
+					</button>
+				) : (
+					<button type="button" class="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+						Edit as rows
+					</button>
+				)}
+				<ApplyStatus phase={draft.phase} />
 			</div>
 			{scoped.otherScopes.map((other) => (
-				<div class="group" key={other.scope}>
-					<p class="hint">Also set in {SETTING_SCOPE_LABELS[other.scope]} settings (read-only here):</p>
-					{Object.entries(other.value).map(([prefix, params]) => (
-						<p key={prefix}>
-							{prefix}:{" "}
-							{Object.entries(params)
-								.map(([key, paramValue]) => `${key} = ${formatJsonValue(paramValue)}`)
-								.join(", ")}
-						</p>
-					))}
+				<div class="other-scope" key={other.scope}>
+					<OtherScopeNote scope={other.scope} />
+					<ParamGroupsFields
+						groups={toGroups(other.value)}
+						problems={[]}
+						readOnly
+						prefixPlaceholder=""
+						prefixHelp={HELP_MODEL_PARAMETER_PREFIX}
+						onChange={() => undefined}
+					/>
 				</div>
 			))}
 		</section>
@@ -300,19 +629,44 @@ export function HeadersEditor({
 	const draft = useDraftRows(toHeaderRows(scoped.value), failure);
 	const rows = draft.rows;
 	// One parse per keystroke, like the model-parameters editor above.
-	const parse = parseHeaderRows(rows);
+	const parse = parseHeaderRowsDetailed(rows);
 	const problems = parse.ok ? [] : parse.problems;
+	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
+	const jsonParse = json === undefined ? undefined : headerRowsFromJsonText(json.text);
+	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
 
-	const patchRow = (index: number, patch: Partial<(typeof rows)[number]>) => {
-		draft.update(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-	};
+	// A JSON view without a live draft follows the store; any draft pins it,
+	// as in the model-parameters editor above.
+	const externalJsonText = JSON.stringify(scoped.value, null, 2) ?? "{}";
+	const draftPhase = draft.phase;
+	useEffect(() => {
+		if (draftPhase === "dirty" || draftPhase === "applying") {
+			return;
+		}
+		setJson((current) =>
+			current !== undefined && current.text === current.base && current.text !== externalJsonText
+				? { text: externalJsonText, base: externalJsonText }
+				: current
+		);
+	}, [externalJsonText, draftPhase]);
 
+	// Apply needs a real value change on top of a dirty draft; see the model-parameters editor above.
+	const changed = parse.ok && canonicalKey(parse.value) !== canonicalKey(scoped.value);
+	const canApply = draft.dirty && changed && !jsonBlocked;
 	const apply = () => {
-		if (!parse.ok) {
+		if (!parse.ok || !canApply) {
 			return;
 		}
 		postMessage({ type: "setHeaders", value: parse.value });
 		draft.apply();
+		// The applied text becomes the JSON baseline; only edits after it count as discardable again.
+		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
+	};
+	const discard = () => {
+		draft.reset();
+		if (json !== undefined) {
+			setJson(seededJson(scoped.value));
+		}
 	};
 
 	return (
@@ -322,51 +676,73 @@ export function HeadersEditor({
 			</h3>
 			<p class="hint">Sent with every LiteLLM request. Prefer User settings for values that are secrets.</p>
 			<ScopeNote scoped={scoped} />
-			{rows.length === 0 ? <p class="empty">No custom headers configured in this scope.</p> : null}
-			<div class="rows">
-				{rows.map((row, index) => (
-					<div class="row" key={index}>
-						<input
-							type="text"
-							class={`key${problems[index] === undefined ? "" : " invalid"}`}
-							placeholder="Header, e.g. x-litellm-api-key"
-							value={row.name}
-							onInput={(event) => patchRow(index, { name: event.currentTarget.value })}
-						/>
-						<input
-							type="text"
-							class="value"
-							placeholder="Value"
-							value={row.valueText}
-							onInput={(event) => patchRow(index, { valueText: event.currentTarget.value })}
-						/>
-						<button type="button" class="quiet" onClick={() => draft.update(rows.filter((_, i) => i !== index))}>
-							<IconTrash /> Remove
-						</button>
-						{problems[index] !== undefined ? <span class="error">{problems[index]}</span> : null}
-					</div>
-				))}
-			</div>
+			{json !== undefined ? (
+				<div class="record-json">
+					<textarea
+						rows={8}
+						aria-label="Custom headers as JSON"
+						aria-invalid={jsonBlocked}
+						value={json.text}
+						onInput={(event) => {
+							const text = event.currentTarget.value;
+							setJson((current) => (current === undefined ? current : { ...current, text }));
+							const parsed = headerRowsFromJsonText(text);
+							if (parsed.ok) {
+								draft.update(parsed.rows);
+							}
+						}}
+					/>
+					{jsonParse !== undefined && !jsonParse.ok ? <p class="error">{jsonParse.problem}</p> : null}
+				</div>
+			) : (
+				<>
+					{rows.length === 0 ? <p class="empty">No custom headers configured in this scope.</p> : null}
+					<HeaderRowsFields rows={rows} problems={problems} onChange={(next) => draft.update(next)} onEnter={apply} />
+				</>
+			)}
 			<FailureNote failure={failure} dirty={draft.dirty} />
 			<div class="toolbar">
-				<button type="button" class="secondary" onClick={() => draft.update([...rows, { name: "", valueText: "" }])}>
-					<IconAdd /> Add header
-				</button>
-				<button type="button" disabled={!draft.dirty || !parse.ok} onClick={apply}>
+				{json === undefined ? (
+					<button type="button" class="secondary" onClick={() => draft.update([...rows, { name: "", valueText: "" }])}>
+						<IconAdd /> Add header
+					</button>
+				) : null}
+				<button type="button" disabled={!canApply} onClick={apply}>
 					Apply
 				</button>
-				<button type="button" class="secondary" disabled={!draft.dirty} onClick={() => draft.reset()}>
-					Reset
+				<button
+					type="button"
+					class="secondary"
+					disabled={!draft.dirty && !(json !== undefined && json.text !== json.base)}
+					aria-label="Discard the unapplied header edits"
+					onClick={discard}
+				>
+					Discard
 				</button>
+				{json === undefined ? (
+					<button
+						type="button"
+						class="quiet"
+						disabled={!parse.ok}
+						onClick={() => {
+							if (parse.ok) {
+								setJson(seededJson(parse.value));
+							}
+						}}
+					>
+						Edit as JSON
+					</button>
+				) : (
+					<button type="button" class="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+						Edit as rows
+					</button>
+				)}
+				<ApplyStatus phase={draft.phase} />
 			</div>
 			{scoped.otherScopes.map((other) => (
-				<div class="group" key={other.scope}>
-					<p class="hint">Also set in {SETTING_SCOPE_LABELS[other.scope]} settings (read-only here):</p>
-					{Object.entries(other.value).map(([name, headerValue]) => (
-						<p key={name}>
-							{name} = {formatHeaderValue(headerValue)}
-						</p>
-					))}
+				<div class="other-scope" key={other.scope}>
+					<OtherScopeNote scope={other.scope} />
+					<HeaderRowsFields rows={toHeaderRows(other.value)} problems={[]} readOnly onChange={() => undefined} />
 				</div>
 			))}
 		</section>

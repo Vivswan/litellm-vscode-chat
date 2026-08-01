@@ -66,7 +66,7 @@ suite("extension/dashboard/recordDraft", () => {
 
 			const problems = parsedProblems(parseGroups(groups));
 			assert.ok(problems[0]?.prefix?.includes("reserved"));
-			assert.ok(problems[0]?.params[0]?.includes("reserved"));
+			assert.ok(problems[0]?.params[0]?.message.includes("reserved"));
 		});
 
 		test("hostile rows are refused without mutating a prototype", () => {

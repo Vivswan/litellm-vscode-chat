@@ -2,6 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type {
 	BooleanSettingId,
+	DashboardModel,
 	DashboardSettings,
 	NumberSettingId,
 	NumberSettingSpec,
@@ -313,7 +314,15 @@ function ScalarScopeNote({ settings }: { settings: DashboardSettings }) {
 	);
 }
 
-export function SettingsSection({ settings, failures }: { settings: DashboardSettings; failures: FailuresByIntent }) {
+export function SettingsSection({
+	settings,
+	models,
+	failures,
+}: {
+	settings: DashboardSettings;
+	models: readonly DashboardModel[];
+	failures: FailuresByIntent;
+}) {
 	const placed = new Set<string>(SETTING_GROUPS.flatMap((group) => [...group.numbers, ...group.booleans]));
 	const otherNumbers = NUMBER_SETTING_IDS.filter((id) => !placed.has(id));
 	const otherBooleans = BOOLEAN_SETTING_IDS.filter((id) => !placed.has(id));
@@ -341,7 +350,7 @@ export function SettingsSection({ settings, failures }: { settings: DashboardSet
 					<SettingGroup title="Other" numbers={otherNumbers} booleans={otherBooleans} settings={settings} />
 				) : null}
 			</div>
-			<ModelParametersEditor scoped={settings.modelParameters} failure={failures.setModelParameters} />
+			<ModelParametersEditor scoped={settings.modelParameters} models={models} failure={failures.setModelParameters} />
 			<HeadersEditor scoped={settings.headers} failure={failures.setHeaders} />
 		</section>
 	);

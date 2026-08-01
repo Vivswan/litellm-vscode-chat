@@ -46,7 +46,7 @@ function rowOf(input: HTMLElement): HTMLElement {
 }
 
 test("a below-minimum draft stays calm until blur reveals it; commit posts nothing; a valid draft posts once; unchanged posts nothing", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const input = settingInput(root, "defaultMaxOutputTokens");
 
 	// Mid-typing, an honest below-minimum draft raises no error yet...
@@ -74,7 +74,7 @@ test("a below-minimum draft stays calm until blur reveals it; commit posts nothi
 });
 
 test("Enter reveals a bound error like blur does; parse errors show live per keystroke", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const input = settingInput(root, "requestTimeout");
 
 	fireInput(input, "500");
@@ -112,7 +112,7 @@ test("isBoundViolation classifies exactly parseNumberDraft's minimum-bound rejec
 });
 
 test("aria-invalid and the error's aria-describedby wiring follow the displayed error, not the raw verdict", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const input = settingInput(root, "requestTimeout");
 
 	// While a bound error is held back, assistive tech hears a valid field.
@@ -128,7 +128,7 @@ test("aria-invalid and the error's aria-describedby wiring follow the displayed 
 });
 
 test("Enter commits a valid draft like blur does", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const input = settingInput(root, "discoveryTimeout");
 	fireInput(input, "45000");
 	fireKeyDown(input, "Enter");
@@ -139,7 +139,7 @@ test("clearing nullable defaultMaxInputTokens posts null only when a value was s
 	const configured = makeSettings({
 		numbers: { ...makeSettings().numbers, defaultMaxInputTokens: 4096 },
 	});
-	const root = mount(<SettingsSection settings={configured} failures={{}} />);
+	const root = mount(<SettingsSection settings={configured} models={[]} failures={{}} />);
 	const input = settingInput(root, "defaultMaxInputTokens");
 	expect(input.value).toBe("4096");
 	fireInput(input, "");
@@ -148,7 +148,7 @@ test("clearing nullable defaultMaxInputTokens posts null only when a value was s
 
 	// Already unset: clearing again writes nothing.
 	resetPosted();
-	const unsetRoot = mount(<SettingsSection settings={makeSettings()} failures={{}} />);
+	const unsetRoot = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const unsetInput = settingInput(unsetRoot, "defaultMaxInputTokens");
 	fireInput(unsetInput, "");
 	fireBlur(unsetInput);
@@ -203,7 +203,7 @@ test("Reset renders only on configured rows, carries the scope-naming accessible
 			booleans: base.configuredScopes.booleans,
 		},
 	});
-	const root = mount(<SettingsSection settings={settings} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
 
 	const resets = Array.from(root.querySelectorAll("button.reset"));
 	expect(resets.length).toBe(1);
@@ -216,7 +216,7 @@ test("Reset renders only on configured rows, carries the scope-naming accessible
 });
 
 test("the boolean checkbox posts setBooleanSetting with the toggled value", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const checkbox = settingInput(root, "maskApiKeyInput");
 	expect(checkbox.checked).toBe(true);
 	fireCheck(checkbox, false);
@@ -227,7 +227,7 @@ test("ms equivalence hints: 90000 reads as clock units, TTL 0 as its zero meanin
 	const settings = makeSettings({
 		numbers: { ...makeSettings().numbers, requestTimeout: 90000, discoveryCacheTtl: 0 },
 	});
-	const root = mount(<SettingsSection settings={settings} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
 
 	expect(rowOf(settingInput(root, "requestTimeout")).querySelector(".setting-equiv")?.textContent).toBe("= 1 min 30 s");
 	expect(rowOf(settingInput(root, "discoveryCacheTtl")).querySelector(".setting-equiv")?.textContent).toBe(
@@ -252,7 +252,7 @@ test("a modified row names its scope in the head; number rows add the default; c
 			booleans: { ...base.configuredScopes.booleans, maskApiKeyInput: "global" },
 		},
 	});
-	const root = mount(<SettingsSection settings={settings} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
 
 	const noteOf = (id: string) => rowOf(settingInput(root, id)).querySelector(".setting-modified-note");
 	expect(noteOf("requestTimeout")?.textContent).toBe("Modified in Workspace settings (default: 300000)");
@@ -269,7 +269,7 @@ test("a modified row names its scope in the head; number rows add the default; c
 });
 
 test("the nullable input spells out its empty reading, and the cache row's label needs no acronym", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	expect(settingInput(root, "defaultMaxInputTokens").getAttribute("placeholder")).toBe("derived from context length");
 	// Non-nullable inputs carry no placeholder: empty is invalid there, never derived.
 	expect(settingInput(root, "defaultContextLength").getAttribute("placeholder")).toBeNull();
@@ -279,7 +279,7 @@ test("the nullable input spells out its empty reading, and the cache row's label
 });
 
 test("settings-row help glyphs are named for their setting, so a button list is not a column of bare Helps", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const glyphOf = (id: string) => rowOf(settingInput(root, id)).querySelector("button.help");
 	expect(glyphOf("requestTimeout")?.getAttribute("aria-label")).toBe("Help: Request timeout");
 	expect(glyphOf("promptCaching.enabled")?.getAttribute("aria-label")).toBe("Help: Prompt caching");
