@@ -13,7 +13,7 @@ import {
 	thinkingPartCtor,
 } from "../../../shared/conversion/thinkingPart";
 import { tryParseJSONObject } from "../../../shared/util/json";
-import { streamErrorFrame } from "../errorMapping";
+import { localizedError, streamErrorFrame } from "../errorMapping";
 import type { TextParseResult, TextToolCall } from "../textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "../textToolCallParser";
 import type { ChatCompletionChunk, ChunkAudio, ChunkDelta, ChunkSearchResult, ToolCallBuffer } from "../wire";
@@ -23,7 +23,12 @@ import type { AudioBuffer } from "./media";
 import { audioMimeForFormat, decodeBase64DataUrl, decodeBase64Strict } from "./media";
 import { sseFrames } from "./sse";
 import type { DroppedReasoning, ThinkingContent } from "./thinking";
-import { extractThinking, freshDroppedReasoning, REASONING_ONLY_RESPONSE_MESSAGE } from "./thinking";
+import {
+	extractThinking,
+	freshDroppedReasoning,
+	REASONING_ONLY_RESPONSE_MESSAGE,
+	reasoningOnlyResponseMessage,
+} from "./thinking";
 import { knownUsageCounts, usageDataPartPayload } from "./usage";
 
 /**
@@ -700,7 +705,7 @@ export class StreamProcessor {
 		this.logDroppedReasoningAggregate();
 
 		if (invalidCount > 0 && finishedNormally) {
-			throw new Error("Invalid JSON for tool call");
+			throw localizedError(vscode.l10n.t("Invalid JSON for tool call"), "Invalid JSON for tool call");
 		}
 
 		// A normally-finished stream that emitted nothing but did drop reasoning
@@ -715,7 +720,7 @@ export class StreamProcessor {
 			!this._req.droppedReasoning.threw
 		) {
 			this._req.droppedReasoning.threw = true;
-			throw new Error(REASONING_ONLY_RESPONSE_MESSAGE);
+			throw localizedError(reasoningOnlyResponseMessage(), REASONING_ONLY_RESPONSE_MESSAGE);
 		}
 
 		// One rule for the end-of-stream trailers (the Sources list, then the

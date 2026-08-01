@@ -1,10 +1,11 @@
 import type OpenAI from "openai";
+import { l10n } from "vscode";
 import type { TokenDefaults } from "../../shared/config/settings";
 import { errorMessageText } from "../../shared/logger";
 import { isRecord } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
-import { mapSdkError, RequestError, timeoutMessage } from "../transport/errorMapping";
+import { mapSdkError, RequestError, timeoutRequestError } from "../transport/errorMapping";
 import { collapseTokenConstraints } from "./modelCatalog";
 import type {
 	LiteLLMArchitecture,
@@ -345,6 +346,13 @@ function extractDataArray(parsed: unknown): unknown[] {
 }
 
 /**
+ * The English classification both unparseable-payload sites record instead
+ * of their (localized, snippet-embedding) messages; the /v1/models fallback
+ * rethrow keys on it rather than matching message text.
+ */
+const UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION = "RequestError(http, unparseable models response body)";
+
+/**
  * The SDK only parses JSON when the response advertises a JSON content type;
  * anything else arrives as a string. Servers that return JSON with a missing
  * or wrong content-type header worked with the old response.json() transport,
@@ -361,10 +369,10 @@ function coerceJsonPayload(value: unknown, baseUrl: string): unknown {
 		// (response-derived), so the classification keeps it off public
 		// surfaces while the user-facing message keeps the diagnostic value.
 		throw new RequestError(
-			`Failed to parse LiteLLM models response from ${baseUrl}: ${errorMessageText(error)}`,
+			l10n.t("Failed to parse LiteLLM models response from {0}: {1}", baseUrl, errorMessageText(error)),
 			"http",
 			{
-				logClassification: "RequestError(http, unparseable models response body)",
+				logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
 			}
 		);
 	}
@@ -557,18 +565,22 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		);
 	} catch (error) {
 		if (timeoutSignal.aborted) {
-			throw new RequestError(timeoutMessage(errorContext), "timeout", { cause: error });
+			throw timeoutRequestError(errorContext, error);
 		}
-		if (error instanceof Error && error.message.startsWith("Failed to parse LiteLLM models response")) {
+		if (error instanceof RequestError && error.logClassification === UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION) {
 			throw error;
 		}
 		if (error instanceof SyntaxError) {
 			// The SDK's own response.json() on a malformed application/json body:
 			// same leak shape as coerceJsonPayload, same classification.
-			throw new RequestError(`Failed to parse LiteLLM models response from ${baseUrl}: ${error.message}`, "http", {
-				cause: error,
-				logClassification: "RequestError(http, unparseable models response body)",
-			});
+			throw new RequestError(
+				l10n.t("Failed to parse LiteLLM models response from {0}: {1}", baseUrl, error.message),
+				"http",
+				{
+					cause: error,
+					logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
+				}
+			);
 		}
 		throw mapSdkError(error, errorContext);
 	}

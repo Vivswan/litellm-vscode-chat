@@ -1,3 +1,4 @@
+import { l10n } from "vscode";
 import type { ChunkChoice, ChunkDelta, ThinkingBlock, ThinkingBlockDelta } from "../wire";
 
 export interface ThinkingContent {
@@ -64,10 +65,19 @@ export function extractThinking(choice: ChunkChoice, delta: ChunkDelta | undefin
  * construct. A thrown error rather than a fallback text part: text parts
  * round-trip into replayed chat history, and an error surfaces in the chat UI
  * and flows through the provider boundary's single-point logging. Static
- * string only; nothing response-derived.
+ * string only; nothing response-derived. The English constant is the log
+ * side (the issue-report buffer records it); the lazy function is the
+ * display side, resolved through the l10n bundle at throw time.
  */
 export const REASONING_ONLY_RESPONSE_MESSAGE =
 	"The model produced only reasoning output, which this version of VS Code could not display: the LanguageModelThinkingPart API is missing or failed. Update VS Code to a version that supports thinking parts, or use a model that returns final text.";
+
+/** Lazy so the display string resolves through the l10n bundle at throw time, not module load. */
+export function reasoningOnlyResponseMessage(): string {
+	return l10n.t(
+		"The model produced only reasoning output, which this version of VS Code could not display: the LanguageModelThinkingPart API is missing or failed. Update VS Code to a version that supports thinking parts, or use a model that returns final text."
+	);
+}
 
 /**
  * Per-request aggregate of reasoning dropped because no thinking part could
