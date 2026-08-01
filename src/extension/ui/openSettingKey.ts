@@ -118,7 +118,7 @@ export function registerOpenSettingKeyCommand(context: vscode.ExtensionContext, 
 				});
 			} catch {
 				logger.log("Open user settings.json failed");
-				void vscode.window.showErrorMessage("LiteLLM: Could not open the user settings.json.");
+				void vscode.window.showErrorMessage(vscode.l10n.t("LiteLLM: Could not open the user settings.json."));
 			}
 		})
 	);

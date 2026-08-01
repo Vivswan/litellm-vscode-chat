@@ -70,7 +70,7 @@ export async function applyTestServerDraft(
 		// resolves nothing and the probe would test a different configuration
 		// than the one the form shows.
 		throw new DashboardValidationError(
-			"The entry being edited no longer exists in the servers setting; close the form and retry"
+			vscode.l10n.t("The entry being edited no longer exists in the servers setting; close the form and retry")
 		);
 	}
 	const existing = sources.accepted?.entry;
@@ -99,16 +99,16 @@ export async function applyTestServerDraft(
 	// FAIL for a configuration the saved entry would never send.
 	const oauthExtras = oauthClientSecret !== undefined || oauthScopes !== undefined;
 	if ((oauthClientId !== undefined || oauthExtras) && oauthTokenUrl === undefined) {
-		throw new DashboardValidationError("oauthTokenUrl: OAuth needs the token URL and client ID");
+		throw new DashboardValidationError(vscode.l10n.t("oauthTokenUrl: OAuth needs the token URL and client ID"));
 	}
 	if ((oauthTokenUrl !== undefined || oauthExtras) && oauthClientId === undefined) {
-		throw new DashboardValidationError("oauthClientId: OAuth needs the token URL and client ID");
+		throw new DashboardValidationError(vscode.l10n.t("oauthClientId: OAuth needs the token URL and client ID"));
 	}
 	if (virtualKeyHeader !== undefined && virtualKeyValue === undefined) {
-		throw new DashboardValidationError("virtualKeyValue: enter the key sent in this header");
+		throw new DashboardValidationError(vscode.l10n.t("virtualKeyValue: enter the key sent in this header"));
 	}
 	if (virtualKeyHeader === undefined && virtualKeyValue !== undefined) {
-		throw new DashboardValidationError("virtualKeyHeader: name the header that carries the key");
+		throw new DashboardValidationError(vscode.l10n.t("virtualKeyHeader: name the header that carries the key"));
 	}
 
 	const connection: DraftConnection = {

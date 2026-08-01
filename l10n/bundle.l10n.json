@@ -38,6 +38,7 @@
 		]
 	},
 	"A language models group named \"{0}\" already exists, so server \"{1}\" was not migrated. Review the group in the language models UI, then remove the legacy server via \"{2}\".": "A language models group named \"{0}\" already exists, so server \"{1}\" was not migrated. Review the group in the language models UI, then remove the legacy server via \"{2}\".",
+	"A previously stored secret under this label ({0}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.": "A previously stored secret under this label ({0}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.",
 	"A server with this label already exists": "A server with this label already exists",
 	"API key": "API key",
 	"An entry with this label already exists": "An entry with this label already exists",
@@ -49,6 +50,8 @@
 	"Click for diagnostics": "Click for diagnostics",
 	"Configure Now": "Configure Now",
 	"Configured servers have not reported any models\nClick to open the dashboard and check the configuration": "Configured servers have not reported any models\nClick to open the dashboard and check the configuration",
+	"Connected - 1 model": "Connected - 1 model",
+	"Connected - {0} models": "Connected - {0} models",
 	"Connection failed\n{0}\nClick for details": "Connection failed\n{0}\nClick for details",
 	"Connection state and per-server details": "Connection state and per-server details",
 	"Default context length": "Default context length",
@@ -105,6 +108,7 @@
 	"LiteLLM: Connection successful! Found 1 model.": "LiteLLM: Connection successful! Found 1 model.",
 	"LiteLLM: Connection successful! Found {0} models.": "LiteLLM: Connection successful! Found {0} models.",
 	"LiteLLM: Could not open the provider groups file (User/{0}). It may not exist yet - VS Code creates it with the first provider group - or it lives on the desktop profile, out of reach of this window.": "LiteLLM: Could not open the provider groups file (User/{0}). It may not exist yet - VS Code creates it with the first provider group - or it lives on the desktop profile, out of reach of this window.",
+	"LiteLLM: Could not open the user settings.json.": "LiteLLM: Could not open the user settings.json.",
 	"LiteLLM: Edit Server - API Key": "LiteLLM: Edit Server - API Key",
 	"LiteLLM: Edit Server - Base URL": "LiteLLM: Edit Server - Base URL",
 	"LiteLLM: Edit Server - Label": "LiteLLM: Edit Server - Label",
@@ -137,7 +141,9 @@
 	"My LiteLLM Server": "My LiteLLM Server",
 	"Name the header that carries the key": "Name the header that carries the key",
 	"Names this server in the model picker, e.g. Team proxy. Renaming a saved entry creates a new group under the new name.": "Names this server in the model picker, e.g. Team proxy. Renaming a saved entry creates a new group under the new name.",
+	"No hidden group matches this identity; it may already be visible": "No hidden group matches this identity; it may already be visible",
 	"No servers declared in the {0} setting yet. Add one there or in the dashboard first.": "No servers declared in the {0} setting yet. Add one there or in the dashboard first.",
+	"No servers setting entry has this label; the server is managed outside the setting": "No servers setting entry has this label; the server is managed outside the setting",
 	"Not a duration - use ms, s, m, or h/Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
 		"message": "Not a duration - use ms, s, m, or h",
 		"comment": [
@@ -197,13 +203,20 @@
 	"The OAuth 2.0 token endpoint, e.g. https://login.example.com/oauth/token. With a client ID, the extension fetches short-lived bearer tokens and refreshes them itself.": "The OAuth 2.0 token endpoint, e.g. https://login.example.com/oauth/token. With a client ID, the extension fetches short-lived bearer tokens and refreshes them itself.",
 	"The OAuth client ID; works together with the token URL.": "The OAuth client ID; works together with the token URL.",
 	"The OAuth client secret. Leave empty for public clients issued without one.": "The OAuth client secret. Leave empty for public clients issued without one.",
+	"The adoption failed, and removing a copied secret again also failed. Re-add a server under this label with the dashboard form, then edit the entry to remove the leftover secret.": "The adoption failed, and removing a copied secret again also failed. Re-add a server under this label with the dashboard form, then edit the entry to remove the leftover secret.",
+	"The change was not applied; see the LiteLLM output log.": "The change was not applied; see the LiteLLM output log.",
+	"The entry being edited no longer exists in the servers setting; close the form and retry": "The entry being edited no longer exists in the servers setting; close the form and retry",
 	"The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.": "The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.",
 	"The header that carries a gateway virtual key, e.g. x-litellm-api-key; set the value below with it. Naming Authorization hands it that whole header and no OAuth token is fetched.": "The header that carries a gateway virtual key, e.g. x-litellm-api-key; set the value below with it. Naming Authorization hands it that whole header and no OAuth token is fetched.",
 	"The key sent in that header on every request to this server.": "The key sent in that header on every request to this server.",
+	"The live group's credentials could not be read, so none were copied; edit the server to set them.": "The live group's credentials could not be read, so none were copied; edit the server to set them.",
 	"The request body key, e.g. temperature, top_p, or stop. Provider-owned fields like model and messages cannot be set, and keys starting with _ are skipped.": "The request body key, e.g. temperature, top_p, or stop. Provider-owned fields like model and messages cannot be set, and keys starting with _ are skipped.",
+	"The save failed, and restoring a stored secret to its previous value also failed. Check the secret with LiteLLM: Set Server Secret.": "The save failed, and restoring a stored secret to its previous value also failed. Check the secret with LiteLLM: Set Server Secret.",
+	"The server entry was saved, but removing the stored secret failed. Edit the server and retry, or use LiteLLM: Set Server Secret to remove it.": "The server entry was saved, but removing the stored secret failed. Edit the server and retry, or use LiteLLM: Set Server Secret to remove it.",
 	"The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path.": "The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path.",
 	"The value cannot be sent as an HTTP header": "The value cannot be sent as an HTTP header",
 	"This label is a reserved name and cannot be used": "This label is a reserved name and cannot be used",
+	"This row does not resolve to a hideable VS Code provider group: it may have been adopted or removed, or it is a legacy-registry server (remove those with the {0} command)": "This row does not resolve to a hideable VS Code provider group: it may have been adopted or removed, or it is a legacy-registry server (remove those with the {0} command)",
 	"This value cannot be sent as an HTTP header": "This value cannot be sent as an HTTP header",
 	"Timeouts, caching, headers, model parameters": "Timeouts, caching, headers, model parameters",
 	"URL must start with http:// or https://": "URL must start with http:// or https://",
@@ -227,6 +240,7 @@
 	"Which server?": "Which server?",
 	"Workspace": "Workspace",
 	"Workspace folder": "Workspace folder",
+	"baseUrl: not a usable http(s) URL": "baseUrl: not a usable http(s) URL",
 	"derived from context length": "derived from context length",
 	"derived/Shown as the built-in default of a setting whose value is computed per model rather than configured.": {
 		"message": "derived",
@@ -241,6 +255,9 @@
 			"Abbreviation for hours in durations like '1 h 30 min'."
 		]
 	},
+	"label: an entry with this label already exists": "label: an entry with this label already exists",
+	"label: enter a label": "label: enter a label",
+	"label: reserved name": "label: reserved name",
 	"min/Abbreviation for minutes (not minimum) in durations like '5 min'.": {
 		"message": "min",
 		"comment": [
@@ -253,6 +270,8 @@
 			"Abbreviation for milliseconds; unit suffix after duration inputs."
 		]
 	},
+	"oauthClientId: OAuth needs the token URL and client ID": "oauthClientId: OAuth needs the token URL and client ID",
+	"oauthTokenUrl: OAuth needs the token URL and client ID": "oauthTokenUrl: OAuth needs the token URL and client ID",
 	"s/Abbreviation for seconds in durations like '90 s'.": {
 		"message": "s",
 		"comment": [
@@ -265,6 +284,8 @@
 			"Unit suffix after token-count inputs; LLM tokens."
 		]
 	},
+	"virtualKeyHeader: name the header that carries the key": "virtualKeyHeader: name the header that carries the key",
+	"virtualKeyValue: enter the key sent in this header": "virtualKeyValue: enter the key sent in this header",
 	"{0} for {1}": "{0} for {1}",
 	"{0} models available": "{0} models available",
 	"{0} models available from {1} servers": "{0} models available from {1} servers",
