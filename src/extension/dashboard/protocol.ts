@@ -238,6 +238,8 @@ export type NumberSettingSpec = NumberSettingValueSpec & {
 	readonly unit: "ms" | "tokens";
 	/** What a configured 0 means, when 0 is legal and has a special reading (the cache TTL). */
 	readonly zeroMeaning?: string;
+	/** The empty field's hint on a nullable setting: what being unset means, e.g. "derived from context length". */
+	readonly placeholder?: string;
 };
 
 /**
@@ -266,6 +268,7 @@ export const NUMBER_SETTINGS = {
 		label: "Default max input tokens",
 		description: "Leave empty to derive it as context length minus output tokens.",
 		unit: "tokens",
+		placeholder: "derived from context length",
 	},
 	requestTimeout: {
 		...NUMBER_SETTING_SPECS.requestTimeout,
@@ -281,7 +284,7 @@ export const NUMBER_SETTINGS = {
 	},
 	discoveryCacheTtl: {
 		...NUMBER_SETTING_SPECS.discoveryCacheTtl,
-		label: "Discovery cache TTL",
+		label: "Discovery cache lifetime",
 		description: "How long discovered model lists are reused; 0 asks the server on every refresh.",
 		unit: "ms",
 		zeroMeaning: "every refresh",
@@ -289,6 +292,31 @@ export const NUMBER_SETTINGS = {
 } as const satisfies Record<NumberSettingId, NumberSettingSpec>;
 
 export const NUMBER_SETTING_IDS = Object.keys(NUMBER_SETTINGS) as readonly NumberSettingId[];
+
+/**
+ * What a modified number row shows as the setting's built-in default. The one
+ * null default (defaultMaxInputTokens) has no number to show - its effective
+ * value is computed per model at request time - so it reads "derived", never
+ * an invented number.
+ */
+export function defaultDisplay(id: NumberSettingId): string {
+	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
+	return spec.default === null ? "derived" : String(spec.default);
+}
+
+/**
+ * Whether a draft parseNumberDraft rejected failed only the minimum bound: it
+ * reads as a finite number, just one below spec.minimum. The form keeps these
+ * quiet until the field blurs (typing the 5 of 5000 passes through honest
+ * below-minimum values), while true parse failures stay live. Reads the text
+ * with the same trim-and-Number rules as parseNumberDraft and must stay
+ * consistent with it; the settings-form tests pin both classifications.
+ */
+export function isBoundViolation(id: NumberSettingId, text: string): boolean {
+	const trimmed = text.trim();
+	const value = Number(trimmed);
+	return trimmed.length > 0 && Number.isFinite(value) && value < NUMBER_SETTINGS[id].minimum;
+}
 
 /** One boolean setting as the dashboard renders it: the shared value spec plus this module's presentation. */
 type BooleanSettingSpec = BooleanSettingValueSpec & {

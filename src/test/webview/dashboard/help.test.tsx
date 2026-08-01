@@ -125,9 +125,10 @@ test("every help glyph renders a tooltip element wired as its accessible descrip
 	expect(glyphs.length).toBeGreaterThan(15);
 	const tipIds = new Set<string>();
 	for (const glyph of glyphs) {
-		// The trigger is named "Help"; the long text is its description, not
+		// The trigger is named "Help", or "Help: <what it explains>" where one
+		// page shows many; the long text is its description, not
 		// its name, and no native title competes with the rendered tooltip.
-		expect(glyph.getAttribute("aria-label")).toBe("Help");
+		expect(glyph.getAttribute("aria-label")).toMatch(/^Help(: .+)?$/);
 		expect(glyph.hasAttribute("title")).toBe(false);
 		expect(glyph.tabIndex).toBe(0);
 		expect((glyph.textContent ?? "").trim()).toBe("?");

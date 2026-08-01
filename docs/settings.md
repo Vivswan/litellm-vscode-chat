@@ -1,6 +1,6 @@
 # Settings
 
-Every `litellm-vscode-chat.*` setting, with its default and what it does. Open them with `Ctrl+,` / `Cmd+,` and search "litellm-vscode-chat", or edit the same values as form controls on the [dashboard](dashboard.md)'s Settings tab.
+Every `litellm-vscode-chat.*` setting, with its default and what it does. Open them with `Ctrl+,` / `Cmd+,` and search "litellm-vscode-chat", or edit the same values as form controls on the [dashboard](dashboard.md)'s Settings tab. A dashboard row you have configured says where its value lives ("Modified in User settings") and, on number rows, the setting's built-in default; Reset removes the value from that scope, letting the next scope's value or the default show through.
 
 ## Reference
 
