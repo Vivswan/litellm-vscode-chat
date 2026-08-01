@@ -531,8 +531,8 @@ export function ModelParametersEditor({
 	const modelIds = Array.from(new Set(models.map((model) => model.id)));
 	return (
 		<section hidden={hidden}>
-			<h3>
-				{MODEL_PARAMETERS_TITLE} <Help text={HELP_MODEL_PARAMETERS_SECTION} />{" "}
+			<h3 class="head-with-icons">
+				{MODEL_PARAMETERS_TITLE} <Help text={HELP_MODEL_PARAMETERS_SECTION} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label="Open the model parameters guide" />
 				<HeadingRevealButton title={MODEL_PARAMETERS_TITLE} settingId="modelParameters" />
 			</h3>
@@ -703,7 +703,7 @@ export function HeadersEditor({
 
 	return (
 		<section hidden={hidden}>
-			<h3>
+			<h3 class="head-with-icons">
 				{HEADERS_TITLE} <Help text={HELP_CUSTOM_HEADERS_SECTION} />
 				<HeadingRevealButton title={HEADERS_TITLE} settingId="headers" />
 			</h3>
