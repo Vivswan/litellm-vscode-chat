@@ -37,16 +37,19 @@ export const MANAGE_COMMAND_TITLE = "Manage LiteLLM Provider";
  * (the dashboard, or the legacy quick pick before migration), and
  * openGroupsFile opens the host's provider-groups JSON directly - the one
  * place a leftover provider group can be deleted, since no editor UI for it
- * is sanctioned - and openOutput shows the extension's output channel (the
- * dashboard Diagnostics tab's Open-output-log action). The palette shows
- * only the manage hub (see registerManageCommand). The litellm._test.*
- * harness commands are deliberately not mapped here: they are
- * test-mode-only, and their ids double as oracle strings in the suites.
+ * is sanctioned. openOutput shows the extension's output channel (the
+ * dashboard Diagnostics tab's Open-output-log action), and openSettingKey
+ * opens the user settings.json at one litellm-vscode-chat.* key (the
+ * dashboard's revealSetting intent). The palette shows only the manage hub
+ * (see registerManageCommand). The litellm._test.* harness commands are
+ * deliberately not mapped here: they are test-mode-only, and their ids
+ * double as oracle strings in the suites.
  */
 export const INTERNAL_CMD = {
 	manageServers: "litellm.manageServers",
 	openGroupsFile: "litellm.openGroupsFile",
 	openOutput: "litellm.openOutput",
+	openSettingKey: "litellm.openSettingKey",
 } as const;
 
 /** Any command ID this extension registers, contributed or internal. */

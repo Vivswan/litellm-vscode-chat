@@ -14,6 +14,7 @@ import {
 	DASHBOARD_COMMAND_IDS,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	NUMBER_SETTING_IDS,
+	REVEALABLE_SETTING_IDS,
 	SECRET_FIELD_IDS,
 } from "./protocol";
 
@@ -81,6 +82,10 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 	z.strictObject({
 		type: z.literal("resetSetting"),
 		setting: asEnum([...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS]),
+	}),
+	z.strictObject({
+		type: z.literal("revealSetting"),
+		setting: asEnum(REVEALABLE_SETTING_IDS),
 	}),
 	z.strictObject({
 		type: z.literal("setModelParameters"),

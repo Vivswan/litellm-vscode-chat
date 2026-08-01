@@ -333,6 +333,12 @@ export async function executeDashboardIntent(
 			// standing while removing a hidden lower-scope one.
 			await env.removeSetting(intent.setting);
 			return undefined;
+		case "revealSetting":
+			// The schema already pinned the setting to REVEALABLE_SETTING_IDS
+			// (only known ids cross the boundary); the command resolves the full
+			// "litellm-vscode-chat.<key>" itself and is best-effort by design.
+			await env.executeCommand(INTERNAL_CMD.openSettingKey, intent.setting);
+			return undefined;
 		case "setModelParameters": {
 			const problem = validateModelParametersRecord(intent.value);
 			if (problem !== undefined) {

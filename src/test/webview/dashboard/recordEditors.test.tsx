@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../webview/dashboard/app";
 import { HELP_MODEL_PARAMETER_PREFIX } from "../../../webview/dashboard/helpText";
+import { SettingsSection } from "../../../webview/dashboard/settings";
 import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
@@ -516,4 +517,46 @@ test("Edit as JSON on headers: scalar-only values, and Discard reseeds the texta
 	expect(postedMessages).toEqual([]);
 	expect(JSON.parse(textarea().value)).toEqual({ "x-keep": "v" });
 	expect((buttonByText(section(), "Discard") as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("each editor heading carries a settings.json jump posting revealSetting with its record key", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+
+	const jumpOf = (heading: string) => sectionByHeading(root, heading).querySelector("button.reveal-json");
+	const paramsJump = jumpOf("Model parameters");
+	expect(paramsJump?.getAttribute("aria-label")).toBe("Open Model parameters in settings.json");
+	resetPosted();
+	fireClick(paramsJump as HTMLButtonElement);
+	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "modelParameters" }]);
+
+	const headersJump = jumpOf("Custom headers");
+	expect(headersJump?.getAttribute("aria-label")).toBe("Open Custom headers in settings.json");
+	resetPosted();
+	fireClick(headersJump as HTMLButtonElement);
+	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "headers" }]);
+});
+
+test("the settings filter hides an editor with a dirty draft via hidden, and the draft applies after unhiding", () => {
+	const root = mount(<SettingsSection settings={settingsWithHeaders({})} models={[]} failures={{}} />);
+	const section = () => sectionByHeading(root, "Custom headers");
+
+	// A half-typed header draft...
+	fireClick(buttonByText(section(), "Add header"));
+	const inputs = section().querySelectorAll("input");
+	fireInput(inputs[0] as HTMLInputElement, "x-draft");
+	fireInput(inputs[1] as HTMLInputElement, "survives");
+
+	// ...is hidden by a non-matching filter, never unmounted...
+	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+	fireInput(filter, "no such setting");
+	expect(section().hidden).toBe(true);
+	expect((section().querySelectorAll("input")[0] as HTMLInputElement).value).toBe("x-draft");
+
+	// ...and works untouched once the filter clears: Apply posts the draft.
+	fireInput(filter, "");
+	expect(section().hidden).toBe(false);
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedMessages).toEqual([{ type: "setHeaders", value: { "x-draft": "survives" } }]);
 });

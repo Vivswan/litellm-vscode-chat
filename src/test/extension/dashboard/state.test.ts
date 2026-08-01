@@ -1611,6 +1611,10 @@ suite("extension/dashboard/state", () => {
 				{ type: "setBooleanSetting", setting: "promptCaching.enabled", value: false },
 				{ type: "resetSetting", setting: "requestTimeout" },
 				{ type: "resetSetting", setting: "maskApiKeyInput" },
+				{ type: "revealSetting", setting: "requestTimeout" },
+				{ type: "revealSetting", setting: "promptCaching.enabled" },
+				{ type: "revealSetting", setting: "modelParameters" },
+				{ type: "revealSetting", setting: "headers" },
 				{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, stop: ["\n"] } } },
 				{ type: "setHeaders", value: { "x-key": "v", "x-n": 2, "x-b": true } },
 				{
@@ -1678,6 +1682,12 @@ suite("extension/dashboard/state", () => {
 				{ type: "setBooleanSetting", setting: "promptCaching.enabled", value: "true" },
 				{ type: "resetSetting", setting: "notASetting" },
 				{ type: "resetSetting", setting: "requestTimeout", value: 1 },
+				// revealSetting: only classification-listed ids cross - never the
+				// servers setting (secrets live there) or arbitrary key text.
+				{ type: "revealSetting", setting: "servers" },
+				{ type: "revealSetting", setting: "litellm-vscode-chat.requestTimeout" },
+				{ type: "revealSetting" },
+				{ type: "revealSetting", setting: "requestTimeout", extra: 1 },
 				{ type: "setHeaders", value: { "x-bad": { nested: true } } },
 				{ type: "executeCommand", command: "workbench.action.terminal.sendSequence" },
 				{ type: "ready", extra: 1 },
@@ -1996,6 +2006,21 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(recorded.removals, ["requestTimeout", "maskApiKeyInput"]);
 			assert.deepStrictEqual(recorded.updates, []);
 			assert.deepStrictEqual(recorded.commands, []);
+		});
+
+		test("revealSetting executes the internal open-setting command with the bare key as its argument", async () => {
+			const recorded = makeEnv();
+			await executeDashboardIntent({ type: "revealSetting", setting: "requestTimeout" }, recorded.env);
+			await executeDashboardIntent({ type: "revealSetting", setting: "modelParameters" }, recorded.env);
+
+			assert.deepStrictEqual(recorded.commands, [
+				["litellm.openSettingKey", "requestTimeout"],
+				["litellm.openSettingKey", "modelParameters"],
+			]);
+			// A jump reads; it must never write or sync anything.
+			assert.deepStrictEqual(recorded.updates, []);
+			assert.deepStrictEqual(recorded.removals, []);
+			assert.strictEqual(recorded.syncRequests, 0);
 		});
 
 		test("setModelParameters and setHeaders write the whole record", async () => {
@@ -3322,9 +3347,54 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(parseNumberDraft("defaultMaxInputTokens", "  "), {
 				kind: "clear",
 			});
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "soon"), { kind: "invalid", problem: "Not a number" });
+			// ms settings read drafts under the duration grammar, so their junk
+			// verdict names the grammar; token settings keep the plain reading.
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "soon"), {
+				kind: "invalid",
+				problem: "Not a duration - use ms, s, m, or h",
+			});
+			assert.deepStrictEqual(parseNumberDraft("defaultMaxOutputTokens", "soon"), {
+				kind: "invalid",
+				problem: "Not a number",
+			});
 			assert.strictEqual(parseNumberDraft("requestTimeout", "999").kind, "invalid", "below the 1000 minimum");
 			assert.deepStrictEqual(parseNumberDraft("discoveryCacheTtl", "0"), { kind: "value", value: 0 });
+		});
+
+		test("parseNumberDraft: the duration grammar on ms settings - suffixes scale, bare numbers stay ms", () => {
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "1500ms"), { kind: "value", value: 1500 });
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "90s"), { kind: "value", value: 90000 });
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "5m"), { kind: "value", value: 300000 });
+			assert.deepStrictEqual(parseNumberDraft("discoveryCacheTtl", "1h"), { kind: "value", value: 3600000 });
+			// Case-insensitive, whitespace-tolerant, fractional prefixes allowed.
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", " 5 M "), { kind: "value", value: 300000 });
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "1.5h"), { kind: "value", value: 5400000 });
+			// Suffixed values commit whole milliseconds: sub-ms precision in a
+			// duration string is noise, and fractional timeouts are unusable.
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "1.0005s"), { kind: "value", value: 1001 });
+			// A suffix needs a number, and a suffixed value still honors the bound.
+			assert.strictEqual(parseNumberDraft("requestTimeout", "ms").kind, "invalid");
+			assert.strictEqual(parseNumberDraft("requestTimeout", "h").kind, "invalid");
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "500ms"), {
+				kind: "invalid",
+				problem: "Must be at least 1000",
+			});
+			// Unit typos are grammar errors, never silent guesses.
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "5 min"), {
+				kind: "invalid",
+				problem: "Not a duration - use ms, s, m, or h",
+			});
+			assert.strictEqual(parseNumberDraft("requestTimeout", "5d").kind, "invalid");
+			// A product that overflows to Infinity is as unwritable as junk.
+			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "9e307h"), {
+				kind: "invalid",
+				problem: "Not a duration - use ms, s, m, or h",
+			});
+			// Token settings know no suffixes: "5m" tokens is a typo, not 300000.
+			assert.deepStrictEqual(parseNumberDraft("defaultMaxOutputTokens", "5m"), {
+				kind: "invalid",
+				problem: "Not a number",
+			});
 		});
 
 		/** The hint the settings form shows for a draft: parse once, then the equivalence of the committed value. */
@@ -3341,6 +3411,11 @@ suite("extension/dashboard/state", () => {
 				["3599999", "= ~59 min 59 s"],
 				["3600000", "= 1 h"],
 				["3661000", "= ~1 h 1 min"],
+				// Duration-grammar drafts feed the same one parse, so the hint
+				// echoes the suffixed spelling back in clock units.
+				["90s", "= 1 min 30 s"],
+				["5m", "= 5 min"],
+				["1.5h", "= 1 h 30 min"],
 			];
 			for (const [draft, expected] of cases) {
 				assert.strictEqual(equivalenceOfDraft("requestTimeout", draft), expected, `draft ${draft}`);
