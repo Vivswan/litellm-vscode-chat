@@ -9,7 +9,7 @@ import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serv
 import type { ServerConfig, ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import type { DashboardServer } from "../dashboard/protocol";
-import { classifyOverall } from "../dashboard/protocol";
+import { latestCheckedMs, overallStatusText, serverOutcomeText } from "../dashboard/protocol";
 import { buildDashboardState } from "../dashboard/state";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DeclaredServerView } from "../servers/serverSync";
@@ -79,72 +79,20 @@ export async function buildDiagnosticsSnapshot(
 }
 
 /**
- * The dialog's overall verdict. The classification is shared with the
- * dashboard hero (classifyOverall in the protocol module), so the two cannot
- * drift; this only renders each verdict as the dialog's line, with model
- * counts and the first error.
- */
-function overallStatusText(servers: readonly DashboardServer[], modelCount: number): string {
-	switch (classifyOverall(servers)) {
-		case "not-configured":
-			return "Not configured";
-		case "error": {
-			// The verdict guarantees at least one error-state server; the fallback
-			// only satisfies the type checker, which cannot see that.
-			const firstError = servers.find((server) => server.state === "error")?.error ?? "Unknown error";
-			return `Error: ${firstError}`;
-		}
-		case "degraded":
-			return `Degraded (${modelCount} models, some servers failed)`;
-		case "waiting":
-			return "Waiting for first sync";
-		case "connected":
-			return `Connected (${modelCount} models)`;
-	}
-}
-
-/**
- * The dialog's rendering of the entry-params-inactive classification. Fixed
- * text derived from the classification alone (no user or response content):
- * "my per-entry parameters do nothing" is exactly what lands in issue
- * reports, so the dialog must name it where users collect diagnostics.
- */
-const ENTRY_PARAMS_INACTIVE_TEXT =
-	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); remove the group in the native Manage Language Models editor and run Sync Models Now, or save the entry under a new label";
-
-function serverOutcomeText(server: DashboardServer): string {
-	// The notice rides alongside whatever the state line says: a noticed row
-	// is usually healthy ("ok"), which is exactly why it needs calling out.
-	const noticeSuffix = server.notice === "entry-params-inactive" ? ` - ${ENTRY_PARAMS_INACTIVE_TEXT}` : "";
-	switch (server.state) {
-		case "ok":
-			// A reachable server can still carry an error: a declared entry whose
-			// group upsert failed while an already-live group keeps serving.
-			return server.error !== undefined
-				? `OK (${server.modelCount} models) - ${server.error}${noticeSuffix}`
-				: `OK (${server.modelCount} models)${noticeSuffix}`;
-		case "error":
-			return `Error: ${server.error}${noticeSuffix}`;
-		case "unchecked":
-			return `Not checked yet${noticeSuffix}`;
-	}
-}
-
-/**
  * The dialog body, built from the merged declared-plus-live server rows so
- * its numbers always agree with the dashboard hero. The legacy registry
- * (test mode and pre-migration installs) gets its own line only while it
- * still holds entries.
+ * its numbers always agree with the dashboard hero, on the shared renderers
+ * (overallStatusText, serverOutcomeText from the protocol module) so its
+ * lines always agree with the dashboard's Diagnostics tab. The legacy
+ * registry (test mode and pre-migration installs) gets its own line only
+ * while it still holds entries.
  */
 function buildDiagnosticsMessage(
 	servers: readonly DashboardServer[],
 	modelCount: number,
 	legacyServers: readonly ServerConfig[]
 ): string {
-	const checkedTimes = servers
-		.map((server) => (server.lastChecked === undefined ? Number.NaN : new Date(server.lastChecked).getTime()))
-		.filter((time) => !Number.isNaN(time));
-	const lastCheckedText = checkedTimes.length > 0 ? new Date(Math.max(...checkedTimes)).toLocaleString() : "Never";
+	const checkedMs = latestCheckedMs(servers);
+	const lastCheckedText = checkedMs === undefined ? "Never" : new Date(checkedMs).toLocaleString();
 
 	const lines = [
 		"LiteLLM Diagnostics",

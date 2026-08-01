@@ -127,3 +127,15 @@ test("Sync models disables with zero servers and posts the executeCommand intent
 	fireClick(button);
 	expect(postedMessages).toEqual([{ type: "executeCommand", command: "syncModels" }]);
 });
+
+test("the page header carries one quiet Report-a-bug action that posts the reportIssue command", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+
+	const button = root.querySelector(".page-head button") as HTMLButtonElement;
+	expect((button.textContent ?? "").trim()).toBe("Report a bug");
+	expect(button.classList.contains("quiet")).toBe(true);
+	resetPosted();
+	fireClick(button);
+	expect(postedMessages).toEqual([{ type: "executeCommand", command: "reportIssue" }]);
+});

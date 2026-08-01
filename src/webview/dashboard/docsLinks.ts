@@ -9,6 +9,8 @@
  */
 
 export const DOCS_LINK_SERVERS = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/servers.md";
+export const DOCS_LINK_GETTING_STARTED =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/getting-started.md";
 export const DOCS_LINK_SERVER_FORM =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/servers.md#entry-fields";
 export const DOCS_LINK_MODELS = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/models.md";
@@ -21,6 +23,7 @@ export const DOCS_LINK_PARAMS_INACTIVE =
 /** The only values a docs anchor may carry; DocsLink's href is typed to it. */
 export type DocsUrl =
 	| typeof DOCS_LINK_SERVERS
+	| typeof DOCS_LINK_GETTING_STARTED
 	| typeof DOCS_LINK_SERVER_FORM
 	| typeof DOCS_LINK_MODELS
 	| typeof DOCS_LINK_SETTINGS

@@ -137,6 +137,67 @@ export function classifyOverall(servers: readonly Pick<DashboardServer, "state">
 	return "connected";
 }
 
+/**
+ * The verdict as one sentence. Shared like classifyOverall, and for the same
+ * reason: the dashboard's Diagnostics tab and the Show Diagnostics dialog
+ * both render it, and what users paste into issues must not depend on which
+ * surface they copied from.
+ */
+export function overallStatusText(servers: readonly DashboardServer[], modelCount: number): string {
+	switch (classifyOverall(servers)) {
+		case "not-configured":
+			return "Not configured";
+		case "error": {
+			// The verdict guarantees at least one error-state server; the fallback
+			// only satisfies the type checker, which cannot see that.
+			const firstError = servers.find((server) => server.state === "error")?.error ?? "Unknown error";
+			return `Error: ${firstError}`;
+		}
+		case "degraded":
+			return `Degraded (${modelCount} models, some servers failed)`;
+		case "waiting":
+			return "Waiting for first sync";
+		case "connected":
+			return `Connected (${modelCount} models)`;
+	}
+}
+
+/**
+ * The entry-params-inactive classification as diagnostics prose. Fixed text
+ * derived from the classification alone (no user or response content):
+ * "my per-entry parameters do nothing" is exactly what lands in issue
+ * reports, so every diagnostics surface must name it the same way.
+ */
+const ENTRY_PARAMS_INACTIVE_TEXT =
+	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); remove the group in the native Manage Language Models editor and run Sync Models Now, or save the entry under a new label";
+
+/** One server's diagnostics outcome line; shared between the tab and the dialog like overallStatusText. */
+export function serverOutcomeText(server: DashboardServer): string {
+	// The notice rides alongside whatever the state line says: a noticed row
+	// is usually healthy ("ok"), which is exactly why it needs calling out.
+	const noticeSuffix = server.notice === "entry-params-inactive" ? ` - ${ENTRY_PARAMS_INACTIVE_TEXT}` : "";
+	switch (server.state) {
+		case "ok":
+			// A reachable server can still carry an error: a declared entry whose
+			// group upsert failed while an already-live group keeps serving.
+			return server.error !== undefined
+				? `OK (${server.modelCount} models) - ${server.error}${noticeSuffix}`
+				: `OK (${server.modelCount} models)${noticeSuffix}`;
+		case "error":
+			return `Error: ${server.error}${noticeSuffix}`;
+		case "unchecked":
+			return `Not checked yet${noticeSuffix}`;
+	}
+}
+
+/** The most recent lastChecked across the servers, as epoch milliseconds; undefined while nothing was checked. */
+export function latestCheckedMs(servers: readonly Pick<DashboardServer, "lastChecked">[]): number | undefined {
+	const times = servers
+		.map((server) => (server.lastChecked === undefined ? Number.NaN : new Date(server.lastChecked).getTime()))
+		.filter((time) => !Number.isNaN(time));
+	return times.length > 0 ? Math.max(...times) : undefined;
+}
+
 /** One registered model, reduced to display facts. Costs are USD per million tokens, as registration converted them. */
 export interface DashboardModel {
 	readonly id: string;
@@ -497,6 +558,7 @@ export const DASHBOARD_COMMAND_IDS = [
 	"testConnection",
 	"showDiagnostics",
 	"openSettings",
+	"reportIssue",
 ] as const;
 
 export type DashboardCommandId = (typeof DASHBOARD_COMMAND_IDS)[number];

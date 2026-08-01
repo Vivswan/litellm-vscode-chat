@@ -51,15 +51,11 @@ test("the toolbar renders only once a server exists, and its buttons post their 
 	const empty = mountSection([]);
 	expect(empty.querySelector(".toolbar")).toBeNull();
 
+	// Test connection and the diagnostics view live on the Diagnostics tab;
+	// the toolbar keeps only the server-editing entry points.
 	const populated = mountSection([makeDeclaredServer()]);
-	fireClick(buttonByText(populated, "Test connection"));
-	fireClick(buttonByText(populated, "Show diagnostics"));
 	fireClick(buttonByText(populated, "Open native editor"));
-	expect(postedMessages).toEqual([
-		{ type: "executeCommand", command: "testConnection" },
-		{ type: "executeCommand", command: "showDiagnostics" },
-		{ type: "executeCommand", command: "manageServers" },
-	]);
+	expect(postedMessages).toEqual([{ type: "executeCommand", command: "manageServers" }]);
 });
 
 test("with no servers the guided start renders and its call to action opens the add form", () => {

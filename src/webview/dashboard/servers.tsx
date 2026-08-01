@@ -516,7 +516,16 @@ function ServerForm({
 			onUserEdit();
 			setDraft((current) => ({ ...current, ...patch }));
 		},
-		touch: (field) => setTouched((current) => new Set(current).add(field)),
+		touch: (field) => {
+			// An empty field stays quiet on blur: brushing focus past it toward
+			// Cancel must not repaint the form mid-click (the inserted error line
+			// moves the buttons under the pointer). A required-but-empty field
+			// surfaces on Save, which marks every field touched.
+			if (!fieldHasContent(draft, field)) {
+				return;
+			}
+			setTouched((current) => new Set(current).add(field));
+		},
 	};
 
 	return (
@@ -1037,20 +1046,6 @@ export function ServersSection({
 				<div class="toolbar">
 					<button type="button" onClick={() => openForm({ kind: "add" })}>
 						<IconAdd /> Add server
-					</button>
-					<button
-						type="button"
-						class="secondary"
-						onClick={() => postMessage({ type: "executeCommand", command: "testConnection" })}
-					>
-						Test connection
-					</button>
-					<button
-						type="button"
-						class="secondary"
-						onClick={() => postMessage({ type: "executeCommand", command: "showDiagnostics" })}
-					>
-						Show diagnostics
 					</button>
 					<button
 						type="button"

@@ -6,8 +6,14 @@ import type {
 	DashboardState,
 	ExtensionToWebviewMessage,
 } from "../../extension/dashboard/protocol";
-import { classifyOverall, failuresAfterStatePush, isExtensionMessageType } from "../../extension/dashboard/protocol";
-import { IconClose } from "./icons";
+import {
+	classifyOverall,
+	failuresAfterStatePush,
+	isExtensionMessageType,
+	latestCheckedMs,
+} from "../../extension/dashboard/protocol";
+import { DiagnosticsSection } from "./diagnostics";
+import { IconBug, IconClose } from "./icons";
 import { ModelsSection } from "./models";
 import type { IntentFailure } from "./recordEditors";
 import { ServersSection } from "./servers";
@@ -18,14 +24,16 @@ import { postMessage } from "./vscodeApi";
 /**
  * The dashboard's top-level sections, one tab each. Servers and models share
  * the overview tab (they are one workflow: connect a server, see its models);
- * only the settings form gets a page of its own.
+ * the settings form and the Diagnostics page (connection summary plus
+ * feedback) get pages of their own.
  */
-const SECTION_IDS = ["overview", "settings"] as const;
+const SECTION_IDS = ["overview", "settings", "diagnostics"] as const;
 type SectionId = (typeof SECTION_IDS)[number];
 
 const SECTION_LABELS: Record<SectionId, string> = {
 	overview: "Servers & Models",
 	settings: "Settings",
+	diagnostics: "Diagnostics",
 };
 
 /**
@@ -150,13 +158,8 @@ function overallState(servers: readonly DashboardServer[]): Overall {
 }
 
 function lastSync(servers: readonly DashboardServer[], now: number): string | undefined {
-	const times = servers
-		.map((server) => (server.lastChecked === undefined ? Number.NaN : new Date(server.lastChecked).getTime()))
-		.filter((time) => !Number.isNaN(time));
-	if (times.length === 0) {
-		return undefined;
-	}
-	return relativeTime(new Date(Math.max(...times)).toISOString(), now);
+	const checkedMs = latestCheckedMs(servers);
+	return checkedMs === undefined ? undefined : relativeTime(new Date(checkedMs).toISOString(), now);
 }
 
 /** The at-a-glance strip the status bar click promises: overall state, counts, last sync, and Sync. */
@@ -383,7 +386,16 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		failures.setNumberSetting ?? failures.setBooleanSetting ?? failures.resetSetting ?? failures.executeCommand;
 	return (
 		<main>
-			<h1>LiteLLM Dashboard</h1>
+			<div class="page-head">
+				<h1>LiteLLM Dashboard</h1>
+				<button
+					type="button"
+					class="quiet"
+					onClick={() => postMessage({ type: "executeCommand", command: "reportIssue" })}
+				>
+					<IconBug /> Report a bug
+				</button>
+			</div>
 			<p class="hint">Servers, models, and settings in one place; edits land in your VS Code settings.</p>
 			<StatusHero state={state} now={now} />
 			{scalarFailure !== undefined ? <p class="error">The last change did not apply: {scalarFailure.message}</p> : null}
@@ -413,6 +425,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			</SectionPanel>
 			<SectionPanel section="settings" active={section}>
 				<SettingsSection settings={state.settings} failures={failures} />
+			</SectionPanel>
+			<SectionPanel section="diagnostics" active={section}>
+				<DiagnosticsSection servers={state.servers} modelCount={state.models.length} now={now} />
 			</SectionPanel>
 			<ToastHost toasts={toasts} durationMs={toastDurationMs} onDismiss={dismissToast} />
 		</main>
