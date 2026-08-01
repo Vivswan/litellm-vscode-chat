@@ -42,6 +42,8 @@ knip.json
 
 # Repository docs and release automation (not needed at runtime)
 docs/**
+# Localized READMEs are repository docs; the Marketplace listing stays English
+README.zh-*.md
 AGENTS.md
 CLAUDE.md
 ACKNOWLEDGMENTS.md

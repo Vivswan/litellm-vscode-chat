@@ -48,6 +48,9 @@ jobs:
       - name: Type-aware promise linting
         run: bun run lint:types
 
+      - name: Check the localization catalogs
+        run: bun run l10n:check
+
       - name: Verify @types/vscode does not exceed engines.vscode
         run: |
           node -e "
@@ -86,7 +89,7 @@ jobs:
           # denylist only catches leaks someone predicted (the repo-tooling
           # files it missed shipped in a VSIX before anyone noticed). Anything
           # new must be added here deliberately, including new asset types.
-          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js)$|^assets/.+\.(png|md)$'
+          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js)$|^assets/.+\.(png|md)$|^package\.nls(\.[\w-]+)?\.json$|^l10n/bundle\.l10n(\.[\w-]+)?\.json$'
           if echo "$listing" | grep -Ev "$allowed"; then
             echo "::error::vsce would package files outside the allowed set (matches above)"
             exit 1
@@ -97,6 +100,17 @@ jobs:
           fi
           if ! echo "$listing" | grep -qx 'dist/webview/dashboard.js'; then
             echo "::error::dist/webview/dashboard.js is missing from the packaged file list"
+            exit 1
+          fi
+          # The localization catalogs must ship: without package.nls.json the
+          # host renders raw %key% placeholders, and without the English
+          # bundle vscode.l10n and the webview injection have nothing to read.
+          if ! echo "$listing" | grep -qx 'package.nls.json'; then
+            echo "::error::package.nls.json is missing from the packaged file list"
+            exit 1
+          fi
+          if ! echo "$listing" | grep -qx 'l10n/bundle.l10n.json'; then
+            echo "::error::l10n/bundle.l10n.json is missing from the packaged file list"
             exit 1
           fi
           # The webview suite renders source .tsx, never the esbuild output, so

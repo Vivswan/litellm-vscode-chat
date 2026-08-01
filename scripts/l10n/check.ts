@@ -1,6 +1,6 @@
 /**
- * The l10n gate (pre-commit; the CI step lands with the checks.yml work):
- * fails when the committed English bundle is not byte-identical to a fresh
+ * The l10n gate (pre-commit, and CI's format-check job inside the all-green
+ * gate): fails when the committed English bundle is not byte-identical to a fresh
  * extraction, when a localized string is resolved at module scope, when a
  * translation file's key set drifts from its English reference, when a
  * translated value's {0}-style placeholders differ from the English value's,
@@ -13,6 +13,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+// The typography and placeholder helpers are shared with the guard suites
+// under src/test; they live there because the extension-host tsconfig cannot
+// compile imports from scripts/ (see src/test/util/l10n.ts).
+import { bannedTypography, placeholderCounts } from "../../src/test/util/l10n";
 import {
 	BUNDLE_PATH,
 	type BundleFile,
@@ -170,15 +174,6 @@ async function checkModuleScopeLocalization(): Promise<void> {
 	}
 }
 
-/** The multiset of {0}/{1}-style placeholders in one message. */
-function placeholderCounts(message: string): Map<string, number> {
-	const counts = new Map<string, number>();
-	for (const match of message.matchAll(/\{\d+\}/g)) {
-		counts.set(match[0], (counts.get(match[0]) ?? 0) + 1);
-	}
-	return counts;
-}
-
 /** (b) + (c) One translation file against its English reference: equal key sets, matching placeholders. */
 function checkAgainstReference(
 	file: string,
@@ -207,22 +202,7 @@ function checkAgainstReference(
 	}
 }
 
-/**
- * (d) Banned typography: a fast local subset; the repo-platform
- * check-typography action in CI is authoritative. Fullwidth and halfwidth
- * forms (the halfwidth marks are look-alikes of the sanctioned fullwidth
- * ones, and this scan is the real gate for them), no-break/typographic/
- * ideographic spaces, invisible and bidi controls, soft hyphen, curly
- * quotes, ellipsis, dashes, and the minus/multiplication/division signs.
- * CJK ideographs and the sanctioned CJK punctuation are not in the ranges.
- * Built per call: a shared /g regex would carry lastIndex across .test()
- * callers.
- */
-function bannedTypography(): RegExp {
-	return /[\u00A0\u00AD\u00D7\u00F7\u2000-\u200F\u2010-\u2015\u2018-\u201F\u2026\u2028-\u202F\u2060\u2066-\u2069\u2212\u3000\uFEFF\uFF01-\uFF9F\uFFE0-\uFFE6]/gu;
-}
-
-/** Scan decoded keys and values (raw-JSON scans miss \u-escaped offenders); report each offending key. */
+/** (d) Scan decoded keys and values (raw-JSON scans miss \u-escaped offenders); report each offending key. */
 function checkTypography(file: string, table: Record<string, string>): void {
 	for (const [key, value] of Object.entries(table)) {
 		const offenders = new Set<string>();
