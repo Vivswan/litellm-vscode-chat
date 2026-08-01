@@ -490,6 +490,27 @@ const STYLES = `
 		margin: 8px 0;
 		background: var(--vscode-editorWidget-background, transparent);
 	}
+	/* The record editors' Apply outcome, next to the button it reports on. */
+	.apply-status { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+	.apply-status.saved { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+	/* Another scope's record, rendered with the same row grid but inert. */
+	.other-scope { margin: 12px 0 0; }
+	.other-scope > .hint { margin: 0 0 2px; }
+	/* The Edit-as-JSON side door: one textarea in place of the rows. */
+	.record-json textarea {
+		width: 100%;
+		box-sizing: border-box;
+		resize: vertical;
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: inherit;
+		color: var(--vscode-input-foreground);
+		background: var(--vscode-input-background);
+		border: 1px solid var(--vscode-input-border, transparent);
+		border-radius: 2px;
+		padding: 4px 8px;
+	}
+	.record-json textarea:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+	.record-json .error { font-size: 0.9em; margin: 4px 0; }
 
 	.form-card {
 		max-width: 640px;

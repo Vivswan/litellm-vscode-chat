@@ -433,7 +433,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				) : null}
 			</SectionPanel>
 			<SectionPanel section="settings" active={section}>
-				<SettingsSection settings={state.settings} failures={failures} />
+				<SettingsSection settings={state.settings} models={state.models} failures={failures} />
 			</SectionPanel>
 			<SectionPanel section="diagnostics" active={section}>
 				<DiagnosticsSection

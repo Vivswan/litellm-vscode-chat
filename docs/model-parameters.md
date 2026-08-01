@@ -38,7 +38,7 @@ Override request parameters for specific models with the `litellm-vscode-chat.mo
 
 Common parameters: `max_tokens`, `temperature`, `top_p`, `frequency_penalty`, `presence_penalty`, `stop`, `response_format`, `reasoning_effort`, `seed`, and any other parameter your LiteLLM deployment and model provider accept.
 
-The native settings GUI cannot edit object settings, so the [dashboard](dashboard.md) gives this setting a row editor; you can also edit the JSON directly in settings.json.
+The native settings GUI cannot edit object settings, so the [dashboard](dashboard.md) gives this setting a row editor: prefix fields suggest your discovered model IDs, an Edit as JSON toggle accepts a pasted record, and edits land only when you press Apply. You can also edit the JSON directly in settings.json.
 
 ## Prefix matching and server scoping
 
