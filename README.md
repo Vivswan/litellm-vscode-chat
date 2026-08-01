@@ -6,6 +6,8 @@
 [![CI](https://github.com/Vivswan/litellm-vscode-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/Vivswan/litellm-vscode-chat/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/Vivswan/litellm-vscode-chat)](LICENSE)
 
+English | [简体中文](README.zh-cn.md) | [繁體中文](README.zh-tw.md)
+
 Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://docs.litellm.ai).
 
 ## Features
