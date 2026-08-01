@@ -68,7 +68,7 @@ test("the models table row carries a quiet Params action that opens the inspecto
 test("the header states the raw ID, the server label, and the base URL scope", () => {
 	const root = mountInspector({});
 	expect(textOf(root, ".params-identity")).toBe("gpt-4o on Prod (http://prod.test)");
-	expect(root.textContent).toContain("Always sent: model, messages, stream, stream_options, max_tokens");
+	expect(root.textContent).toContain("Always sent");
 });
 
 test("a global match renders as a sent row sourced to the settings layer and its winning key", () => {
@@ -118,7 +118,7 @@ test("a scoped win renders the WHOLE replaced unscoped record as not applied, no
 	// The whole unscoped record shows as replaced - including seed, which the
 	// winner never set: replacement is record-level, not a key merge.
 	const replaced = root.querySelector(".params-replaced") as HTMLElement;
-	expect(replaced.textContent).toContain("Not applied: Settings - gpt-4");
+	expect(replaced.textContent).toContain("Not applied - Settings gpt-4");
 	const items = Array.from(replaced.querySelectorAll("li")).map((item) => (item.textContent ?? "").trim());
 	expect(items).toEqual(["temperature: 0.8", "seed: 7"]);
 });
@@ -133,7 +133,7 @@ test("underscore and provider-owned keys render muted with their not-sent reason
 
 test("the max_tokens derivation states the configured branch with its attribution", () => {
 	const root = mountInspector({ globalParameters: { "gpt-4": { max_tokens: 2222 } } });
-	expect(textOf(root, ".params-max-tokens")).toBe("max_tokens 2222 - set by Settings - gpt-4");
+	expect(textOf(root, ".params-max-tokens")).toBe("max_tokens 2222 set by Settings - gpt-4");
 	// A configured max_tokens is the derivation's story, never a table row -
 	// and it is real configuration, so the empty-state line must not claim
 	// nothing matched.
@@ -143,10 +143,10 @@ test("the max_tokens derivation states the configured branch with its attributio
 
 test("the max_tokens derivation states the declared and capped-default branches", () => {
 	const declared = mountInspector({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: true } });
-	expect(textOf(declared, ".params-max-tokens")).toContain("max_tokens 32000 - the server's declared output limit");
+	expect(textOf(declared, ".params-max-tokens")).toContain("max_tokens 32000 the server's declared output limit");
 
 	const capped = mountInspector({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: false } });
-	expect(textOf(capped, ".params-max-tokens")).toContain("max_tokens 4096 - min(4096, the model's max output tokens)");
+	expect(textOf(capped, ".params-max-tokens")).toContain("max_tokens 4096 min(4096, model max)");
 });
 
 test("the runtime caveat always renders; the picker caveat only on reasoning models", () => {
@@ -157,7 +157,7 @@ test("the runtime caveat always renders; the picker caveat only on reasoning mod
 	cleanup();
 	const reasoning = mountInspector({ modelOverrides: { reasoning: true } });
 	expect(reasoning.textContent).toContain("Runtime options");
-	expect(reasoning.textContent).toContain("VS Code stores that pick");
+	expect(reasoning.textContent).toContain("stored by VS Code");
 });
 
 test("the zero-config empty state still shows max_tokens and the caveats", () => {

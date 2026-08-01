@@ -203,7 +203,7 @@ test("an in-flight adopt refuses close requests with a visible notice until its 
 	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: posted.requestId });
 	expect(root.querySelector(".slide-over")).toBeNull();
 	// The post-adoption notice survives the close.
-	expect(root.textContent).toContain("its models appear twice");
+	expect(root.textContent).toContain("Models appear twice");
 });
 
 test("focus falls back to the combined tab when the opener unmounted with the form open", () => {

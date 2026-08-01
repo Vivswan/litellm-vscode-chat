@@ -124,12 +124,12 @@ type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
 function externalTip(server: ExternalDashboardServer): string {
 	const provenance = server.provenance;
 	if (provenance?.kind === "removed-entry-leftover") {
-		return `Left behind when the entry "${provenance.removedLabel}" was removed from the servers setting. Remove hides its models; to delete the group itself, open the models file (chatLanguageModels.json), remove its object, and reload the window.`;
+		return `Leftover of the removed entry "${provenance.removedLabel}". Remove hides its models; deleting its object from the models file erases it.`;
 	}
 	if (provenance?.kind === "rename-leftover") {
-		return `Left behind when "${provenance.oldLabel}" was renamed to "${provenance.newLabel}". Its models appear under both names until you delete this group from the models file (chatLanguageModels.json) and reload the window.`;
+		return `Leftover of renaming "${provenance.oldLabel}" to "${provenance.newLabel}". Its models show under both names until its object is deleted from the models file.`;
 	}
-	return "No entry in the servers setting: added outside this extension, or it predates this extension's tracking. Edit adopts it into the setting.";
+	return "No entry in the servers setting: added outside this extension, or predates its tracking. Edit adopts it.";
 }
 
 /**
@@ -646,11 +646,11 @@ function ServerForm({
 			{target.kind === "edit" && !renaming ? (
 				<details class="fine-print">
 					<summary>Changing the URL or credentials?</summary>
-					<p class="hint">
-						Saving stores the change, but VS Code keeps using the old connection details until they are replaced: remove
-						this server's object from the models file (chatLanguageModels.json), reload the window, then run Sync Models
-						Now.
-					</p>
+					<p class="hint">Saving stores the change, but VS Code keeps using the old connection details until:</p>
+					<ol class="notice-steps hint">
+						<li>You remove this server's object from the models file (chatLanguageModels.json).</li>
+						<li>You reload the window, then run Sync Models Now.</li>
+					</ol>
 				</details>
 			) : null}
 			{collides ? <p class="hint">An entry with this label already exists; saving replaces it.</p> : null}
@@ -934,8 +934,8 @@ function AdoptForm({
 				</div>
 			))}
 			<p class="hint">
-				The original group is not removed (VS Code offers no way to); its models appear twice until you delete its
-				object from the models file and reload the window.
+				VS Code cannot remove the original group: its models appear twice until its object is deleted from the models
+				file.
 			</p>
 			<div class="toolbar">
 				<button type="button" disabled={saving} onClick={adopt}>
@@ -1021,7 +1021,7 @@ function ServerRow({
 					</HoverTip>
 				) : null}
 				{server.notice === "entry-params-inactive" ? (
-					<HoverTip tip="This entry's per-server model parameters are not applied: the provider group serving it does not carry this entry's labeled identity (it predates entry labels or a rename). Delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now - or save the entry under a new label - to activate them.">
+					<HoverTip tip="Per-server model parameters are not applied: the group serving this entry predates its label or a rename. The banner below has the fix.">
 						<span class="badge state-warn">params inactive</span>
 					</HoverTip>
 				) : null}
@@ -1300,7 +1300,7 @@ export function ServersSection({
 							}}
 							onAdopted={(message) => {
 								setAdoptNotice(
-									`Adopted into the servers setting. The original VS Code-managed group still exists, so its models appear twice until you delete its object from the models file and reload the window.${message !== undefined ? ` ${message}` : ""}`
+									`Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window.${message !== undefined ? ` ${message}` : ""}`
 								);
 							}}
 							onClose={closeForm}
@@ -1485,14 +1485,16 @@ export function ServersSection({
 							.filter((server) => server.notice === "entry-params-inactive")
 							.map((server) => server.label)
 							.join(", ")}
-						: per-server model parameters are not applied because the provider group does not carry the entry's labeled
-						identity (it predates entry labels or a rename). Delete the group's object from the models file
-						(chatLanguageModels.json), reload the window, and run Sync Models Now - or save the entry under a new label
-						- to activate them.{" "}
+						: per-server model parameters are not applied (the group serving the entry predates its label or a rename).
+						To activate them:{" "}
 						<DocsLink href={DOCS_LINK_PARAMS_INACTIVE} label="Learn more in the troubleshooting guide">
 							Learn more
 						</DocsLink>
 					</p>
+					<ol class="notice-steps">
+						<li>Delete the group's object from the models file (chatLanguageModels.json).</li>
+						<li>Reload the window, then run Sync Models Now - or save the entry under a new label instead.</li>
+					</ol>
 				</div>
 			) : null}
 		</section>
