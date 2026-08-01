@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.4.2](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.1...v0.4.2) (2026-08-01)
+
+
+### Features
+
+* **i18n:** add the localization foundation ([df7c27b](https://github.com/Vivswan/litellm-vscode-chat/commit/df7c27bc1639b0a58606fa126c24d9c2564fb13c))
+* **i18n:** add the Simplified Chinese translation ([98ebeaf](https://github.com/Vivswan/litellm-vscode-chat/commit/98ebeaf2b00ee34b2e8291d52fb8608169a73b56))
+* **i18n:** add the Traditional Chinese translation ([cef60d7](https://github.com/Vivswan/litellm-vscode-chat/commit/cef60d738187c202e1a6102a2a391cd49d888a7c))
+* **i18n:** externalize the manifest strings to package.nls ([8c256b8](https://github.com/Vivswan/litellm-vscode-chat/commit/8c256b830f4b53366fcb12d0466d73a1cc3ace11))
+* **i18n:** gate the localization files in CI and packaging ([f44123b](https://github.com/Vivswan/litellm-vscode-chat/commit/f44123b34aec6dbbec10cf4e7700a0415970a86d))
+* **i18n:** localize the dashboard webview strings ([ed12f2a](https://github.com/Vivswan/litellm-vscode-chat/commit/ed12f2a67e64c6b65a0c73983a30f22d69c15e6c))
+* **i18n:** localize the extension-host UI strings ([8b7baa2](https://github.com/Vivswan/litellm-vscode-chat/commit/8b7baa24316d312734360215c74cb0a69111c0ca))
+* **i18n:** localize the params inspector ([43b2634](https://github.com/Vivswan/litellm-vscode-chat/commit/43b2634a551f9816f3ffa093f625675d67a470ae))
+* **i18n:** localize the provider-layer error messages ([2f03453](https://github.com/Vivswan/litellm-vscode-chat/commit/2f0345329e80e70aa8f26a5eedfd2751f0db113e))
+
+
+### Bug Fixes
+
+* **dashboard:** drop ghost rows for groups deleted from the models file ([756732d](https://github.com/Vivswan/litellm-vscode-chat/commit/756732d696b7a457ad84311941531b14763bde95))
+* **dashboard:** even heading-icon spacing and duration-idiom default notes ([96a20d4](https://github.com/Vivswan/litellm-vscode-chat/commit/96a20d40b663f774705b057ba0fd4071896a032b))
+* **dashboard:** finish the two-surface sweep - the models file replaces the native editor ([f511901](https://github.com/Vivswan/litellm-vscode-chat/commit/f51190167895a43f4e125743d95d909bbb4b2b98))
+* **dashboard:** fit the models table and make Params discoverable ([d9bc934](https://github.com/Vivswan/litellm-vscode-chat/commit/d9bc934ee6834e09b262ee78e8e5a7bbd0ff093f))
+* **dashboard:** give the record editors feedback, structure, and speed ([4947e8e](https://github.com/Vivswan/litellm-vscode-chat/commit/4947e8eae85ce4193a8afb9e4fbd82c4708250b9))
+* **dashboard:** keep the slide-over scrim dim under the pointer ([460c992](https://github.com/Vivswan/litellm-vscode-chat/commit/460c99205e2df1c7ca3cf27b1aba139f4cf523b2))
+* **dashboard:** make removing a server hide its leftover provider group ([6c0d807](https://github.com/Vivswan/litellm-vscode-chat/commit/6c0d8070f30ae0df3d987e8460e35a4b58de32bb))
+* **dashboard:** make the params inspector self-contained with a model facts grid ([dac385a](https://github.com/Vivswan/litellm-vscode-chat/commit/dac385a786ae8f0cc1e7774557e1537a2d7000e8))
+* **dashboard:** replace the inspector's prose blocks with structure ([eb4f715](https://github.com/Vivswan/litellm-vscode-chat/commit/eb4f715ab6c5a4eae3499857aa2b071218559481))
+* **dashboard:** route every configuration dialog to the dashboard ([85e748b](https://github.com/Vivswan/litellm-vscode-chat/commit/85e748b46e6d939b1e10a4f67bbd0d009c586947))
+* **dashboard:** settings field ergonomics - durations, filter, settings.json jump ([ef63447](https://github.com/Vivswan/litellm-vscode-chat/commit/ef63447869cf721833c53f3e3b5a77ea27f41165))
+* **dashboard:** show each model's effective request parameters ([5bc937d](https://github.com/Vivswan/litellm-vscode-chat/commit/5bc937d1cb16aa807d6d7b5e02b5e4e27f327553))
+* **dashboard:** show scope and defaults on settings rows, calm the validation ([af9b6a7](https://github.com/Vivswan/litellm-vscode-chat/commit/af9b6a78841f2c3d86d7105a09a70f30ae58c92f))
+* **dashboard:** structure the Diagnostics tab and make its actions real ([ebec169](https://github.com/Vivswan/litellm-vscode-chat/commit/ebec16908900b567fee6c63d0f2b4ef829e41aae))
+* **dashboard:** test a server's connection from the form before saving ([d745fce](https://github.com/Vivswan/litellm-vscode-chat/commit/d745fce78d8f5485850df18995868e5a8a512bba))
+* **dev:** recover the dev profile when its seeded group was deleted ([11204f8](https://github.com/Vivswan/litellm-vscode-chat/commit/11204f8546c42279b3e31904f6b047f1b3f7966f))
+* **fuzz:** upload nightly failure reports from the hidden .fuzz-failures dir ([#220](https://github.com/Vivswan/litellm-vscode-chat/issues/220)) ([e3b95f6](https://github.com/Vivswan/litellm-vscode-chat/commit/e3b95f64d56d31328704e6baec697783037eabaa))
+* **i18n:** harden the CI gates after review ([7099a80](https://github.com/Vivswan/litellm-vscode-chat/commit/7099a800bbc0c15e8dd76a221efb6f3366683a11))
+* **i18n:** harden the l10n foundation after review ([b08b6ae](https://github.com/Vivswan/litellm-vscode-chat/commit/b08b6ae4e09baf479138006389e0778984414097))
+* **i18n:** keep the copied diagnostics timestamp English and localize the tab chrome ([1b0960d](https://github.com/Vivswan/litellm-vscode-chat/commit/1b0960d71e455b4989ee5bf97940b1a1e3a12ed4))
+* **i18n:** keep the field-ID prefixes outside the localized message bodies ([4c4a232](https://github.com/Vivswan/litellm-vscode-chat/commit/4c4a2323650bc982458fbe66ce8f8be4a2390398))
+* **i18n:** keep the output channel's stack print English for mirrored errors ([e2f8234](https://github.com/Vivswan/litellm-vscode-chat/commit/e2f8234d4ce9e9a0c3a0a23b8a2d660e8de41bcc))
+* **i18n:** keep the pasted diagnostics block English and harden the l10n gate ([9079d7b](https://github.com/Vivswan/litellm-vscode-chat/commit/9079d7bbdc08d25c3a34c91af505324ce066d73d))
+* **i18n:** keep the provider error log surfaces English behind the localized display ([5f06560](https://github.com/Vivswan/litellm-vscode-chat/commit/5f06560e4160300af5263428fbf5e0b4a8c63248))
+* **i18n:** localize the review-caught host-side dashboard strings ([8f3a2c8](https://github.com/Vivswan/litellm-vscode-chat/commit/8f3a2c8595fc189b5fce4c90908ee16aacb4d8ba))
+* **i18n:** parse module-scope localization offenses with the TypeScript AST ([6c632d8](https://github.com/Vivswan/litellm-vscode-chat/commit/6c632d8f05cc8a21dae11c62abc5d72697d42929))
+* **i18n:** polish the Simplified Chinese translation ([f9e46d6](https://github.com/Vivswan/litellm-vscode-chat/commit/f9e46d6068eb7e119d137df7163d3aca33bb72f5))
+* **i18n:** polish the Traditional Chinese translation ([c381aa9](https://github.com/Vivswan/litellm-vscode-chat/commit/c381aa9f2851db67148891632a920c7f7a625553))
+* **readme:** move Marketplace badges to vsmarketplacebadges.dev ([022c2bd](https://github.com/Vivswan/litellm-vscode-chat/commit/022c2bd4d41a3458785172191a117bc5db9e5682))
+* **release:** attach the VSIX before the GitHub release becomes immutable ([ac595de](https://github.com/Vivswan/litellm-vscode-chat/commit/ac595ded8f2ace5c96a0960228b0b2a31dbd971b))
+* **servers:** prove a removal before tombstoning, and align the suites ([560ea53](https://github.com/Vivswan/litellm-vscode-chat/commit/560ea53e8ac67221ae25b8b335f86e36d97a6412))
+* **servers:** stale-read-proof removal tombstones and identity ledger ([#220](https://github.com/Vivswan/litellm-vscode-chat/issues/220)) ([739b70e](https://github.com/Vivswan/litellm-vscode-chat/commit/739b70e947508a4b241efa6d0cfdcc977cc81e46))
+* **servers:** state the tombstone journal's cross-window contract plainly ([#220](https://github.com/Vivswan/litellm-vscode-chat/issues/220)) ([53432fa](https://github.com/Vivswan/litellm-vscode-chat/commit/53432fa27982d1764f14275e939ab3437d6f5dec))
+
 ## [0.4.1](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.0...v0.4.1) (2026-08-01)
 
 
