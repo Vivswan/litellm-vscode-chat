@@ -1,5 +1,7 @@
 # Troubleshooting
 
+English | [简体中文](zh-cn/troubleshooting.md) | [繁體中文](zh-tw/troubleshooting.md)
+
 The extension puts its state where you can see it: a status bar item for the connection at a glance, the dashboard's Diagnostics tab for the details, and an output channel for the full log. This page covers those tools, issue reporting and privacy, timeout and retry semantics, the common failure cases, cleanup when uninstalling, and notes on migrations from older versions.
 
 ## Status bar
