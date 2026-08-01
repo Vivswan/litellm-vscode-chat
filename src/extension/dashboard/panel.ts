@@ -19,6 +19,7 @@ import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
 import type { SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../shared/webviewPaths";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
 import type { ServerRegistry } from "../servers/serverRegistry";
@@ -103,6 +104,11 @@ export interface DashboardControllerEnv extends IntentEnvironment {
  */
 export type DashboardMessageOutcome = "ok" | "validation-error" | "ignored-malformed";
 
+/** One observed group identity as a set key, normalized exactly like the tombstone store's identities. */
+function observedIdentityKey(label: string, baseUrl: string): string {
+	return `${label}\n${normalizeBaseUrl(baseUrl)}`;
+}
+
 export class DashboardController implements vscode.Disposable {
 	private _panel: DashboardPanel | undefined;
 	private readonly _panelSubscriptions: vscode.Disposable[] = [];
@@ -121,6 +127,15 @@ export class DashboardController implements vscode.Disposable {
 	 * Consumed once, so a later reload cannot replay a stale jump.
 	 */
 	private _pendingFocusSection: DashboardSectionId | undefined;
+	/**
+	 * Group identities (label + normalized base URL) observed alive at some
+	 * point this session, accumulated from every state push's snapshots.
+	 * Session-sticky on purpose: snapshots age out of the status window after
+	 * minutes, but a suppressed group the host still holds must keep its
+	 * hidden-groups row all session, while a group deleted from the models
+	 * file before this session never reports and must not show a ghost row.
+	 */
+	private readonly _observedGroupIdentities = new Set<string>();
 	/**
 	 * The current page's generation, bumped whenever the page is torn down or
 	 * replaced: the panel hides (without retainContextWhenHidden the page dies
@@ -242,16 +257,23 @@ export class DashboardController implements vscode.Disposable {
 		if (this._panel === undefined) {
 			return;
 		}
+		const snapshots = this.env.getSnapshots();
+		for (const snapshot of snapshots) {
+			if (this.env.isGroupSnapshot(snapshot.status.serverId)) {
+				this._observedGroupIdentities.add(observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl));
+			}
+		}
 		this.postToPanel({
 			type: "state",
 			state: buildDashboardState(
-				this.env.getSnapshots(),
+				snapshots,
 				this.env.settingsReader(),
 				this.env.getDeclaredServers(),
 				this.env.getLegacyServers(),
 				this.env.getRemovedGroups(),
 				(serverId) => this.env.isGroupSnapshot(serverId),
-				(serverId) => this.env.resolveEntryParameters(serverId)
+				(serverId) => this.env.resolveEntryParameters(serverId),
+				(label, baseUrl) => this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl))
 			),
 		});
 	}

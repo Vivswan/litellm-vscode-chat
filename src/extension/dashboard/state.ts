@@ -588,14 +588,28 @@ export function buildDashboardState(
 	 * The default (nothing resolves) is right only where no declared entry can
 	 * carry parameters.
 	 */
-	resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined = () => undefined
+	resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined = () => undefined,
+	/**
+	 * Whether a tombstoned identity's group was observed alive at some point
+	 * this session (a session-sticky set the panel accumulates from group
+	 * snapshots - suppressed groups still report, deleted groups never do).
+	 * Gates the hidden-groups line only: a tombstone whose group the host no
+	 * longer holds is a ghost, and offering Unhide for it would reference
+	 * nothing. The default shows everything, which is right for tests that
+	 * never age groups out.
+	 */
+	wasGroupObserved: (label: string, baseUrl: string) => boolean = () => true
 ): DashboardState {
 	const labeled = labeledSnapshots(snapshots);
 	const { servers, snapshotLabels } = buildServers(labeled, declared, removedGroups, isGroupSnapshot);
 	// The hidden-groups line renders from the tombstones themselves, not from
 	// live snapshots: an unhide must stay offered even after the suppressed
-	// group's snapshot ages out of the status window.
+	// group's snapshot ages out of the status window mid-session. The
+	// session-sticky observation gate handles the other direction - a group
+	// deleted from the models file before this session started never reports,
+	// so its tombstone would otherwise linger as an unhidable ghost.
 	const hiddenGroups: HiddenGroup[] = removedGroups.tombstones
+		.filter((identity) => wasGroupObserved(identity.label, identity.baseUrl))
 		.map((identity) => ({ label: identity.label, baseUrl: identity.baseUrl }))
 		.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
 	// One request scope per snapshot, keyed positionally within this push
