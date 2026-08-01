@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.3](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.2...v0.4.3) (2026-08-01)
+
+
+### Bug Fixes
+
+* **i18n:** localize the diagnostics documentation link aria-label ([f3ec351](https://github.com/Vivswan/litellm-vscode-chat/commit/f3ec3512d30b7fb6cdde7f31421ac0a62de334c7))
+* **i18n:** localize the diagnostics feedback link labels ([fe2380d](https://github.com/Vivswan/litellm-vscode-chat/commit/fe2380da67cbb6d2cacdeec89a69ab8ae4af80dd))
+
 ## [0.4.2](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.1...v0.4.2) (2026-08-01)
 
 
