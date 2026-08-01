@@ -467,6 +467,67 @@ suite("extension/ui/commands", () => {
 		});
 	});
 
+	// The groups-file deep link: leftover provider groups can only be deleted
+	// by editing the host's chatLanguageModels.json, so the command must land
+	// on exactly that file - and fail with guidance, never a bare throw, on
+	// hosts that cannot reach it.
+	suite("open groups file command", () => {
+		test("litellm.openGroupsFile is registered on activation", async () => {
+			const commands = await vscode.commands.getCommands(true);
+			assert.ok(commands.includes("litellm.openGroupsFile"), "the groups-file command must be registered");
+		});
+
+		test("resolves chatLanguageModels.json two levels above global storage and shows it", async () => {
+			const opened: vscode.Uri[] = [];
+			let shown = 0;
+			const origOpen = vscode.workspace.openTextDocument;
+			const origShow = vscode.window.showTextDocument;
+			(vscode.workspace as Record<string, unknown>).openTextDocument = async (uri: vscode.Uri) => {
+				opened.push(uri);
+				return {} as vscode.TextDocument;
+			};
+			(vscode.window as Record<string, unknown>).showTextDocument = async () => {
+				shown += 1;
+				return {} as vscode.TextEditor;
+			};
+			try {
+				await vscode.commands.executeCommand("litellm.openGroupsFile");
+			} finally {
+				(vscode.workspace as Record<string, unknown>).openTextDocument = origOpen;
+				(vscode.window as Record<string, unknown>).showTextDocument = origShow;
+			}
+			assert.strictEqual(opened.length, 1);
+			const uri = expectDefined(opened[0]);
+			assert.ok(uri.path.endsWith("/chatLanguageModels.json"), uri.path);
+			// globalStorage/<extension-id> sits under the profile's User
+			// directory; a path still inside globalStorage means the ".."
+			// segments were not applied.
+			assert.ok(!uri.path.includes("globalStorage"), uri.path);
+			assert.strictEqual(shown, 1, "the document must be shown in an editor tab");
+		});
+
+		test("a failing open reports the friendly groups-file error instead of throwing", async () => {
+			const errors: string[] = [];
+			const origOpen = vscode.workspace.openTextDocument;
+			const origError = vscode.window.showErrorMessage;
+			(vscode.workspace as Record<string, unknown>).openTextDocument = async () => {
+				throw new Error("cannot open the resource");
+			};
+			(vscode.window as Record<string, unknown>).showErrorMessage = async (message: string) => {
+				errors.push(message);
+				return undefined;
+			};
+			try {
+				await vscode.commands.executeCommand("litellm.openGroupsFile");
+			} finally {
+				(vscode.workspace as Record<string, unknown>).openTextDocument = origOpen;
+				(vscode.window as Record<string, unknown>).showErrorMessage = origError;
+			}
+			assert.strictEqual(errors.length, 1);
+			assert.ok(expectDefined(errors[0]).includes("chatLanguageModels.json"), expectDefined(errors[0]));
+		});
+	});
+
 	suite("test-only mutation commands", () => {
 		teardown(async () => {
 			await vscode.commands.executeCommand("litellm._test.clearServers");

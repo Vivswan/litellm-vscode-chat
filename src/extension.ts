@@ -21,6 +21,7 @@ import {
 } from "./extension/servers/serverSync";
 import {
 	registerHelpAndFeedbackCommand,
+	registerOpenGroupsFileCommand,
 	registerReportIssueCommand,
 	registerSyncModelsCommand,
 	registerTestCommands,
@@ -68,10 +69,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
 	const isMigrated = () => isGroupMigrationComplete(context.globalState);
 	// The management UI mode is also the registry-liveness truth (see
-	// REGISTRY_SERVED_IN_MODE): the native provider-group UI once the registry
-	// is migrated (no fallback: the quick pick would edit configuration nothing
-	// serves anymore) or was never populated (with the quick pick as fallback),
-	// and always the legacy flows in test mode.
+	// REGISTRY_SERVED_IN_MODE): the dashboard once the registry is migrated
+	// (the quick pick would edit configuration nothing serves anymore) or was
+	// never populated, and always the legacy flows in test mode.
 	const getManagementUiMode = (): ManagementUiMode => {
 		if (testMode) {
 			return "legacy";
@@ -234,6 +234,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	// Help & Feedback command
 	registerHelpAndFeedbackCommand(context);
+
+	// Groups-file deep link: notices about leftover provider groups open the
+	// host's chatLanguageModels.json directly, the one place a group can be
+	// deleted (no editor UI for it is sanctioned).
+	registerOpenGroupsFileCommand(context, logger);
 
 	// Report Issue command
 	registerReportIssueCommand(

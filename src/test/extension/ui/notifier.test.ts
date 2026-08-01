@@ -289,7 +289,7 @@ suite("extension/ui/notifier", () => {
 		assert.strictEqual(toasts.length, 2, "a healthy refresh between failures re-arms the toast");
 	});
 
-	test("Configure Now routes to the server editor, not the hub menu", async () => {
+	test("Configure Now opens the dashboard, not the hub menu or a native editor", async () => {
 		const executed: string[] = [];
 		const origExecute = vscode.commands.executeCommand;
 		(vscode.commands as Record<string, unknown>).executeCommand = async (command: string) => {
@@ -300,7 +300,7 @@ suite("extension/ui/notifier", () => {
 		} finally {
 			(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
 		}
-		assert.deepStrictEqual(executed, ["litellm.manageServers"]);
+		assert.deepStrictEqual(executed, ["litellm.openDashboard"]);
 	});
 
 	suite("createConfigurationPrompt", () => {
@@ -322,7 +322,7 @@ suite("extension/ui/notifier", () => {
 			assert.deepStrictEqual(toast.buttons, ["Configure Now", "Learn More"]);
 		});
 
-		test("Configure Now runs the manage flow and reports completion", async () => {
+		test("Configure Now opens the dashboard and reports completion", async () => {
 			const executed: string[] = [];
 			const origError = vscode.window.showErrorMessage;
 			const origExecute = vscode.commands.executeCommand;
@@ -337,7 +337,7 @@ suite("extension/ui/notifier", () => {
 				(vscode.window as Record<string, unknown>).showErrorMessage = origError;
 				(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
 			}
-			assert.deepStrictEqual(executed, ["litellm.manageServers"]);
+			assert.deepStrictEqual(executed, ["litellm.openDashboard"]);
 		});
 	});
 });

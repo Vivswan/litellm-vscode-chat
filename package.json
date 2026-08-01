@@ -173,12 +173,12 @@
 					{
 						"id": "litellm.walkthrough.connectServer",
 						"title": "Connect your LiteLLM server",
-						"description": "Add your server in VS Code's Manage Language Models editor: pick LiteLLM as the provider, then enter the base URL and, if your server needs one, an API key.\n[Open Manage Language Models](command:workbench.action.chat.manage)",
+						"description": "Add your server in the LiteLLM dashboard: enter a label, the base URL and, if your server needs one, an API key.\n[Open the Dashboard](command:litellm.openDashboard)",
 						"media": {
 							"markdown": "assets/walkthrough/connect-server.md"
 						},
 						"completionEvents": [
-							"onCommand:workbench.action.chat.manage"
+							"onCommand:litellm.openDashboard"
 						]
 					},
 					{
@@ -235,7 +235,7 @@
 					"type": "array",
 					"scope": "machine",
 					"default": [],
-					"markdownDescription": "LiteLLM servers, declared as settings. Machine-scoped: this lives in your user settings only (workspaces cannot override it, and Settings Sync does not carry it to other machines). Each entry syncs to a VS Code language-model provider group automatically, so servers can be managed here or in the LiteLLM dashboard without touching the native editor. The `label` is the entry's identity: renaming it creates a new provider group, and removing an entry cannot remove its group (VS Code offers no API for that; use the native Manage Language Models editor). Secret fields (`apiKey`, `oauthClientSecret`, `virtualKeyValue`) may be written inline here - visible in settings files - or omitted and stored in VS Code secret storage instead, via the dashboard or the 'LiteLLM: Set Server Secret' command. Inline values take precedence over stored ones.",
+					"markdownDescription": "LiteLLM servers, declared as settings. Machine-scoped: this lives in your user settings only (workspaces cannot override it, and Settings Sync does not carry it to other machines). Each entry syncs to a VS Code language-model provider group automatically, so servers can be managed here or in the LiteLLM dashboard. The `label` is the entry's identity: renaming it creates a new provider group, and removing an entry cannot remove its group (VS Code offers no API for that; to delete a leftover group, remove its object from the JSON array in the profile's `User/chatLanguageModels.json`, then reload the window). Secret fields (`apiKey`, `oauthClientSecret`, `virtualKeyValue`) may be written inline here - visible in settings files - or omitted and stored in VS Code secret storage instead, via the dashboard or the 'LiteLLM: Set Server Secret' command. Inline values take precedence over stored ones.",
 					"items": {
 						"type": "object",
 						"required": [

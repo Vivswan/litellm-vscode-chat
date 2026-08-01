@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CMD, MANAGE_COMMAND_TITLE } from "../../shared/config/commandIds";
+import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import type { Logger } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
@@ -132,11 +132,9 @@ export async function runConnectionTest(
 				]);
 				break;
 			case "not-configured":
-				void showActionableMessage(
-					"error",
-					`LiteLLM: No servers configured. Please run '${MANAGE_COMMAND_TITLE}' first.`,
-					[reconfigureAction(CONFIGURE_NOW_LABEL)]
-				);
+				void showActionableMessage("error", "LiteLLM: No servers configured. Add one in the LiteLLM dashboard.", [
+					reconfigureAction(CONFIGURE_NOW_LABEL),
+				]);
 				break;
 			default:
 				void showActionableMessage("warning", "LiteLLM: Connection status is unavailable; try again in a moment.", [
@@ -223,11 +221,9 @@ export async function runModelSync(
 				break;
 			case "not-configured":
 				logger.log("Model sync found no configured servers");
-				void showActionableMessage(
-					"error",
-					`LiteLLM: No servers configured. Please run '${MANAGE_COMMAND_TITLE}' first.`,
-					[reconfigureAction(CONFIGURE_NOW_LABEL)]
-				);
+				void showActionableMessage("error", "LiteLLM: No servers configured. Add one in the LiteLLM dashboard.", [
+					reconfigureAction(CONFIGURE_NOW_LABEL),
+				]);
 				break;
 			default:
 				logger.log("Model sync finished without a settled connection status");
@@ -275,6 +271,52 @@ export function registerReportIssueCommand(
 				issueReporter
 			);
 			await issueReporter.openIssue(snapshot);
+		})
+	);
+}
+
+/** The host's provider-groups file, relative to the profile's User directory. */
+const GROUPS_FILE_NAME = "chatLanguageModels.json";
+
+/**
+ * Where VS Code keeps the provider groups: `<profile User dir>/chatLanguageModels.json`.
+ * Derived from the extension's global storage location instead of any OS
+ * path: `globalStorage/<extension-id>` always sits directly under the
+ * profile's User directory (default and named profiles alike), so the file
+ * is two levels up. Uri.joinPath normalizes the ".." segments. Best-effort
+ * by necessity: VS Code exposes no API for this file, and a profile
+ * configured to inherit its language models from another profile keeps the
+ * governing file in that other profile's directory.
+ */
+function resolveGroupsFileUri(globalStorageUri: vscode.Uri): vscode.Uri {
+	return vscode.Uri.joinPath(globalStorageUri, "..", "..", GROUPS_FILE_NAME);
+}
+
+/**
+ * Open the host's provider-groups JSON in an editor tab: the one place a
+ * leftover provider group can be deleted (VS Code offers no removal API, and
+ * no editor UI for it is sanctioned - users get the dashboard or plain
+ * files). The failure toast covers both ways the open can fail: the file
+ * does not exist yet, or this window cannot reach the desktop profile that
+ * holds it (remote and web hosts keep their storage elsewhere). The log line
+ * stays classification-only: the resolved path embeds the local user name
+ * and the log buffer feeds public issue reports.
+ */
+export function registerOpenGroupsFileCommand(context: vscode.ExtensionContext, logger: Logger): void {
+	context.subscriptions.push(
+		vscode.commands.registerCommand(INTERNAL_CMD.openGroupsFile, async () => {
+			const uri = resolveGroupsFileUri(context.globalStorageUri);
+			try {
+				const document = await vscode.workspace.openTextDocument(uri);
+				await vscode.window.showTextDocument(document, { preview: false });
+			} catch {
+				logger.log("Provider-groups file could not be opened");
+				void vscode.window.showErrorMessage(
+					`LiteLLM: Could not open the provider groups file (User/${GROUPS_FILE_NAME}). ` +
+						"It may not exist yet - VS Code creates it with the first provider group - or it lives on the " +
+						"desktop profile, out of reach of this window."
+				);
+			}
 		})
 	);
 }
