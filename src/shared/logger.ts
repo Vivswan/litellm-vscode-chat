@@ -146,12 +146,35 @@ export function publicErrorStack(error: unknown): string | undefined {
 	}
 }
 
-/** The raw stack for the output channel, total: instanceof and the stack getter can both throw on hostile proxies. */
-function rawErrorStack(error: unknown): string | undefined {
+/**
+ * The stack for the output channel, total: instanceof and the stack getter
+ * can both throw on hostile proxies. The channel stays English, so a
+ * mirrored error's stack has its `${name}: ${message}` prefix stripped BY
+ * LENGTH (publicErrorStack's technique) and replaced with the English
+ * mirror; a stack that does not start with the exact prefix fails closed to
+ * the mirror line alone rather than printing a possibly-localized first
+ * line. Unmirrored errors keep their raw stack - their message is English
+ * already.
+ */
+function channelErrorStack(error: unknown): string | undefined {
 	try {
-		return error instanceof Error && typeof error.stack === "string" && error.stack.length > 0
-			? error.stack
-			: undefined;
+		if (!(error instanceof Error) || typeof error.stack !== "string" || error.stack.length === 0) {
+			return undefined;
+		}
+		const english = englishMessageOf(error);
+		if (english === undefined) {
+			return error.stack;
+		}
+		const replacement = `${error.name}: ${english}`;
+		const prefix = `${error.name}: ${error.message}`;
+		if (!error.stack.startsWith(prefix)) {
+			return replacement;
+		}
+		const frames = error.stack
+			.slice(prefix.length)
+			.split("\n")
+			.filter((line) => /^\s+at /.test(line));
+		return [replacement, ...frames].join("\n");
 	} catch {
 		return undefined;
 	}
@@ -194,7 +217,7 @@ export class Logger {
 		// buffer opens public issues, so it takes the classification when the
 		// error carries one.
 		this.recorder?.appendLog(`[${new Date().toISOString()}] ERROR: ${message}: ${publicErrorText(error)}`);
-		const stack = rawErrorStack(error);
+		const stack = channelErrorStack(error);
 		if (stack !== undefined) {
 			this.output.error(`Stack trace: ${stack}`);
 		}

@@ -175,6 +175,37 @@ suite("shared/logger", () => {
 		assert.match(expectDefined(sinks.bufferLines[0]), /^\[.+\] ERROR: Chat request failed: ENGLISH$/);
 	});
 
+	test("the channel's stack line swaps a mirrored error's message prefix for the English form, keeping the frames", () => {
+		// The Stack trace: print is channel output too, and V8 bakes the
+		// (possibly localized) message into the stack's first line; the same
+		// length-strip publicErrorStack uses keeps the channel English.
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const err = Object.assign(new Error("LOCALIZED"), { englishMessage: "ENGLISH" });
+
+		logger.error("Chat request failed", err);
+
+		const stackLine = expectDefined(sinks.errorLines[1]);
+		assert.ok(stackLine.startsWith("Stack trace: Error: ENGLISH"), stackLine);
+		assert.ok(!stackLine.includes("LOCALIZED"), "the localized message must not reach the channel's stack print");
+		assert.match(stackLine, /\n\s+at /, "the real call frames must be kept");
+	});
+
+	test("a mirrored stack without the exact message prefix fails closed to the English line alone", () => {
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const err = Object.assign(new Error("LOCALIZED"), { englishMessage: "ENGLISH" });
+		err.stack = "Mangled: LOCALIZED elsewhere\n    at real (x.ts:1:1)";
+
+		logger.error("Chat request failed", err);
+
+		assert.strictEqual(
+			expectDefined(sinks.errorLines[1]),
+			"Stack trace: Error: ENGLISH",
+			"an unrecognized stack shape must not leak a possibly-localized first line"
+		);
+	});
+
 	test("a hostile englishMessage getter falls back to the message text", () => {
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);
