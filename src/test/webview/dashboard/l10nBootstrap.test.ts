@@ -54,3 +54,16 @@ test("malformed injections are rejected wholesale and the configured bundle surv
 		expect(l10n.t("Manage LiteLLM Provider")).toBe("translated-title");
 	}
 });
+
+test("prototype-polluting keys are dropped while honest keys still configure", () => {
+	// JSON.parse creates an own "__proto__" property, matching what a hostile
+	// injected payload would carry.
+	window.__l10nBundle = JSON.parse('{"__proto__": "polluted", "Manage LiteLLM Provider": "safe-title"}');
+	bootstrapL10n();
+
+	expect(l10n.t("Manage LiteLLM Provider")).toBe("safe-title");
+	// The dropped key resolves like any absent key, and nothing leaked into
+	// the object prototype.
+	expect(l10n.t("__proto__")).toBe("__proto__");
+	expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+});

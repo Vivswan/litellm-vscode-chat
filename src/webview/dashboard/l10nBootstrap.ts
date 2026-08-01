@@ -7,7 +7,7 @@
  * English message.
  */
 import * as l10n from "@vscode/l10n";
-import { isRecord } from "../../extension/dashboard/protocol";
+import { isRecord, isUnsafeRecordKey } from "../../extension/dashboard/protocol";
 
 declare global {
 	interface Window {
@@ -23,6 +23,11 @@ function parseBundle(value: unknown): Record<string, string> | undefined {
 	}
 	const bundle: Record<string, string> = {};
 	for (const [key, entry] of Object.entries(value)) {
+		if (isUnsafeRecordKey(key)) {
+			// __proto__-class keys cannot be honest l10n keys; drop them rather
+			// than trust assignment to silently no-op.
+			continue;
+		}
 		if (typeof entry !== "string") {
 			return undefined;
 		}
