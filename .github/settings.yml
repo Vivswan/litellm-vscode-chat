@@ -11,8 +11,12 @@
 
 repository:
   description: "Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by LiteLLM."
+  # homepage, topics, and private are always declared, even when empty or
+  # public: the apply manages only declared keys, so this keeps it healing
+  # out-of-band edits (an empty value declares-and-clears).
   homepage: "https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat"
   topics: "ai,bun,copilot-chat,litellm,llm,typescript,vscode-extension"
+  private: false
   has_issues: true
   has_wiki: false
   has_projects: false
