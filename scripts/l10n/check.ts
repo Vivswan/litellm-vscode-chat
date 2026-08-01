@@ -1,8 +1,9 @@
 /**
  * The l10n gate (pre-commit, and CI's format-check job inside the all-green
  * gate): fails when the committed English bundle is not byte-identical to a fresh
- * extraction, when a localized string is resolved at module scope, when a
- * translation file's key set drifts from its English reference, when a
+ * extraction, when one message is minted under two different bundle keys
+ * (a forked comment form), when a localized string is resolved at module
+ * scope, when a translation file's key set drifts from its English reference, when a
  * translated value's {0}-style placeholders differ from the English value's,
  * when a translated value drops or rewrites a preserved token (a $(codicon),
  * a command:<id> occurrence, or a markdown link target),
@@ -191,6 +192,37 @@ const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegE
 	{ what: "command IDs", pattern: /command:[A-Za-z0-9_.-]+/g },
 	{ what: "markdown link targets", pattern: /\]\(([^()\s]+)\)/g },
 ];
+
+/**
+ * No two bundle keys may share one base message. The repo rule is that a
+ * repeated message uses the identical t() form (plain, or {message, comment}
+ * with the same comment) at every occurrence; editing the comment at only one
+ * of a repeated message's call sites silently forks the key, and the fork
+ * only surfaces as an untranslated string at runtime. This catches the fork
+ * at the gate: a bare key plus a composite "message/comment" key, or two
+ * composites with different comments, for the same message.
+ */
+function checkBaseMessageCollisions(bundle: BundleFile): void {
+	const keysByMessage = new Map<string, string[]>();
+	for (const [key, value] of Object.entries(bundle)) {
+		const message = bundleMessage(value);
+		const keys = keysByMessage.get(message);
+		if (keys === undefined) {
+			keysByMessage.set(message, [key]);
+		} else {
+			keys.push(key);
+		}
+	}
+	for (const [message, keys] of keysByMessage) {
+		if (keys.length > 1) {
+			fail(
+				`${rel(BUNDLE_PATH)}: message ${JSON.stringify(message)} is minted under ${keys.length} keys ` +
+					`(${keys.map((key) => JSON.stringify(key)).join(", ")}); use the identical t() form ` +
+					"(same comment, or none) at every occurrence of a repeated message."
+			);
+		}
+	}
+}
 
 /** The multiset of one token family's occurrences in one message. */
 function tokenCounts(message: string, pattern: RegExp): Map<string, number> {
@@ -396,6 +428,9 @@ function checkManifestCoverage(state: ManifestNlsState): void {
 
 async function main(): Promise<void> {
 	const englishBundle = await checkExtractionDrift();
+	if (englishBundle !== undefined) {
+		checkBaseMessageCollisions(englishBundle);
+	}
 	await checkModuleScopeLocalization();
 	const manifestState = await resolveManifestNlsState();
 	await checkTranslationFiles(englishBundle, manifestState.kind === "externalized" ? manifestState.nls : undefined);
