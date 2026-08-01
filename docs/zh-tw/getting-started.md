@@ -1,6 +1,6 @@
-[English](../getting-started.md) | [简体中文](../zh-cn/getting-started.md) | 繁體中文
-
 # 入門指南
+
+[English](../getting-started.md) | [简体中文](../zh-cn/getting-started.md) | 繁體中文
 
 安裝延伸模組, 將它指向 LiteLLM Proxy, 其模型就會出現在 GitHub Copilot Chat 的模型選擇器中。本頁涵蓋這段初次設定, 以及之後各類設定存放在哪裡。
 
@@ -8,11 +8,11 @@
 
 - **VS Code 1.129.0 或更新版本**, 並已安裝 GitHub Copilot Chat 延伸模組且完成登入。本延伸模組是接入 Copilot 的聊天檢視, 少了它就沒有聊天介面, 也沒有模型選擇器。
 - **一個運作中的 LiteLLM Proxy**, 自架或雲端皆可。LiteLLM Proxy 是一台在單一 OpenAI 相容端點背後匯集多家 LLM 提供者的伺服器; 如果您還沒有, LiteLLM 官方的 [Proxy 快速入門](https://docs.litellm.ai/docs/proxy/quick_start)只要幾個命令就能在本機啟動一個。
-- **一把 LiteLLM API 金鑰**, 如果您的 Proxy 需要驗證: 通常是 `sk-...` 形式的值, 可能是 Proxy 設定中的主金鑰, 也可能是由 Proxy 管理者核發的[虛擬金鑰](servers.md#虛擬金鑰)。
+- **一把 LiteLLM API 金鑰**, 如果您的 Proxy 需要驗證: 通常是 `sk-...` 形式的值, 可能是 Proxy 設定中的主金鑰, 也可能是由 Proxy 營運者核發的[虛擬金鑰](servers.md#虛擬金鑰)。
   - 如果伺服器由公司營運, 請詢問其管理員。
   - 不確定您的伺服器是否需要金鑰? 需要時, 「LiteLLM: 測試連線」會回報驗證錯誤。
 
-本儲存庫也附帶一個可指令碼化的本機 Proxy 供試用; 請參閱[開發](../development.md)。
+本儲存庫也附帶一個可指令碼化的本機 Proxy 供試用; 請參閱[開發](../development.md) (English)。
 
 ## 第一個伺服器
 
@@ -65,7 +65,7 @@ LiteLLM 狀態列項目 (右下角) 一眼呈現連線狀態; 執行「LiteLLM: 
 ## 更進一步
 
 - [伺服器](servers.md) - 多伺服器、祕密與祕密儲存體、OAuth、虛擬金鑰, 以及採用在延伸模組之外新增的伺服器
-- [模型與功能](models.md) - 註冊哪些模型、功能閘控、多模態輸入與輸出、推理、來源與 token 用量
+- [模型與功能](models.md) - 註冊哪些模型、功能閘控、多模態輸入與輸出、思考、來源與 token 用量
 - [模型參數](model-parameters.md) - 針對各模型傳送 `temperature` 或 `reasoning_effort` 之類的請求參數, 以及延伸模組如何決定送上線路的內容
 - [設定](settings.md) - 每個設定及其預設值: token 上限、逾時、快取、標頭
 - [儀表板](dashboard.md) - 儀表板面板各部分的功能

@@ -1,6 +1,6 @@
-[English](../troubleshooting.md) | [简体中文](../zh-cn/troubleshooting.md) | 繁體中文
-
 # 疑難排解
+
+[English](../troubleshooting.md) | [简体中文](../zh-cn/troubleshooting.md) | 繁體中文
 
 延伸模組把狀態放在您看得到的地方: 狀態列項目一眼呈現連線、儀表板的診斷分頁提供細節、輸出通道提供完整記錄。本頁涵蓋這些工具、問題回報與隱私、逾時與重試語意、常見的失敗情況、解除安裝時的清理, 以及舊版本的移轉說明。
 

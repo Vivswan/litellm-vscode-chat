@@ -1,6 +1,6 @@
-[English](../model-parameters.md) | [简体中文](../zh-cn/model-parameters.md) | 繁體中文
-
 # 模型參數
+
+[English](../model-parameters.md) | [简体中文](../zh-cn/model-parameters.md) | 繁體中文
 
 延伸模組絕不替您決定請求參數: 除了它擁有的欄位 (模型、訊息、串流管線、`max_tokens` 與工具接線) 之外, 只有您在某處設定的參數會送達 LiteLLM, 而且原封不動地送達。本頁涵蓋可以設定參數的各個位置, 以及多處同時比對到同一個請求時它們如何組合。
 
@@ -111,7 +111,7 @@
 - 「Provider default」(初始狀態) 不送出任何值, 交由您的提供者決定。
 - 每個推理模型的選單都一樣, 因為 LiteLLM 只回報哪些模型接受 `reasoning_effort`, 不回報各自接受哪些值。若您挑了模型拒絕的等級 (例如在只到 High 的模型上選 Extra High), 請求會以伺服器自己的錯誤訊息失敗; 換一個等級再試即可。
 
-temperature 刻意留在 `modelParameters` 中自由設定: 選擇器的「設定模型」(Configure Model) 選單只能呈現固定選項, 所以延伸模組不在那裡加入 temperature 預設檔。
+temperature 刻意留在 `modelParameters` 中自由設定: 選擇器的「設定模型」(Configure Model) 選單只能呈現固定選項, 所以延伸模組不在那裡加入 temperature 預設集。
 
 ## 優先順序
 

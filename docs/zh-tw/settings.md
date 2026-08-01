@@ -1,6 +1,6 @@
-[English](../settings.md) | [简体中文](../zh-cn/settings.md) | 繁體中文
-
 # 設定
+
+[English](../settings.md) | [简体中文](../zh-cn/settings.md) | 繁體中文
 
 每個 `litellm-vscode-chat.*` 設定, 及其預設值與作用。用 `Ctrl+,` / `Cmd+,` 開啟設定並搜尋 "litellm-vscode-chat", 或在[儀表板](dashboard.md)的設定分頁以表單控制項編輯相同的值。您已設定過的儀表板列會標明其值存放在哪裡 (「已在使用者設定中修改」), 數字列還會標明設定的內建預設值; 「重設」會移除該範圍的值, 讓下一個範圍的值或預設值生效。
 

@@ -1,6 +1,6 @@
-[English](../models.md) | [简体中文](../zh-cn/models.md) | 繁體中文
-
 # 模型與功能
+
+[English](../models.md) | [简体中文](../zh-cn/models.md) | 繁體中文
 
 延伸模組讀取每個伺服器的模型資訊, 並把讀到的內容註冊給 Copilot Chat: 模型的 token 上限、價格與功能旗標全都來自那裡。功能決定模型被提供來做什麼 (工具、圖片、推理); 它們永遠不改變延伸模組要求模型做什麼, 那是[模型參數](model-parameters.md)的職責。
 
@@ -36,7 +36,7 @@
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中有 `reasoning_effort` (明確的 `supports_reasoning: false` 優先) | 選擇器中的「Thinking Effort」控制項; 參閱[模型參數](model-parameters.md#模型選擇器中的推理程度) |
 | 提示快取 | `supports_prompt_caching` | 是否放置快取中斷點; 參閱[設定](settings.md#提示快取) |
 
-伺服器端的錯誤旗標值得在那一側修正: 延伸模組雙向信任宣告, 提供已宣告的, 也保留未宣告的。
+伺服器端的錯誤旗標值得在那一側修正: 延伸模組雙向信任宣告, 提供已宣告的, 未宣告的則不提供。
 
 ## 多模態輸入
 
@@ -51,11 +51,11 @@
 
 工具結果會轉送文字, 在視覺模型上再加上圖片。助理歷史中的二進位內容沒有線路格式; 重播時只有文字存留。
 
-## 推理、來源、生成媒體與 token 用量
+## 思考、來源、生成媒體與 token 用量
 
 除了純文字, 回覆中 (或關於回覆) 還可能回來四種東西:
 
-- **推理。** 串流推理內容的模型 (thinking 區塊、`reasoning_content` 差量) 會在支援 thinking-part API 的 VS Code 版本上, 即時顯示在 Copilot 的思考 UI 中。在沒有該 API 的版本上, 推理會被捨棄並在輸出通道留下說明, 而只包含推理的回覆會以要求您更新 VS Code 的錯誤失敗; 參閱[疑難排解](troubleshooting.md#常見問題)。
+- **思考。** 串流推理內容的模型 (thinking 區塊、`reasoning_content` 差量) 會在支援 thinking-part API 的 VS Code 版本上, 即時顯示在 Copilot 的思考 UI 中。在沒有該 API 的版本上, 推理會被捨棄並在輸出通道留下說明, 而只包含推理的回覆會以要求您更新 VS Code 的錯誤失敗; 參閱[疑難排解](troubleshooting.md#常見問題)。
 - **來源。** LiteLLM 路由回傳引文或搜尋結果的模型 (啟用網頁搜尋的路由), 會在回覆結尾得到依 URL 去重的來源清單。
 - **生成媒體。** 在聊天中生成媒體的模型會把它串流回覆中: 生成的圖片隨到隨顯示, 生成的音訊以每段語句一個剪輯送達, 其逐字稿以一般文字串流。延伸模組無法解碼, 或 VS Code 版本無法顯示的媒體, 會被捨棄並在輸出通道留下說明。
 - **Token 用量。** 每個請求都會向伺服器要求 token 用量, 回傳的計數 (提示、完成、總計, 加上伺服器有回報時的快取與推理 token 明細) 會交給 Copilot 的用量顯示。只從回應中取用這些已知的數字計數; 原始用量記錄絕不整批轉送或記入記錄。
