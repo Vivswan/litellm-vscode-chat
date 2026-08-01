@@ -589,6 +589,14 @@ const STYLES = `
 		background: var(--vscode-editor-background, var(--vscode-panel-background));
 		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
 	}
+	/* The draft-connection test's inline outcome, in the same footer row as
+	   the buttons that produced it; explicitly selectable so an error message
+	   can be copied into an issue or a terminal. */
+	.test-result {
+		font-size: 0.9em;
+		user-select: text;
+		overflow-wrap: anywhere;
+	}
 	/* The discard confirm pins to the panel's bottom edge so it is in view
 	   wherever the Esc that raised it was pressed. */
 	.discard-confirm {

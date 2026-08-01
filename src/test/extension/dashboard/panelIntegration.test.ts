@@ -205,6 +205,32 @@ suite("extension/dashboard/panelIntegration", () => {
 		assert.strictEqual(await inject({ type: "executeCommand", command: "syncModels" }), "ok");
 	});
 
+	test("testServerDraft runs the real probe read-only: an unreachable draft fails the intent and mutates nothing", async function () {
+		this.timeout(20000);
+		// Port 1 on loopback refuses immediately, so the real discovery path
+		// (throwaway ChatClient, real fetch) fails fast without leaving a
+		// half-open socket for msw-guarded suites to trip on. What this proves
+		// is the env wiring end to end: schema, keep-resolution against the real
+		// stores, the probe, and the outcome class - with zero writes.
+		const before = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
+		const outcome = await inject({
+			type: "testServerDraft",
+			server: { label: "PanelIT-Probe", baseUrl: "http://127.0.0.1:1" },
+			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
+			requestId: "pi-test-1",
+		});
+		assert.strictEqual(outcome, "validation-error", "an unreachable draft must fail its own intent, not throw");
+		const after = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
+		assert.deepStrictEqual(after, before, "a probe must never touch the servers setting");
+		assert.deepStrictEqual(await declared(), [], "a probe must never create a declared view");
+
+		// And the schema boundary still refuses a directive-free draft outright.
+		assert.strictEqual(
+			await inject({ type: "testServerDraft", server: { label: "P", baseUrl: "http://x" }, requestId: "pi-test-2" }),
+			"ignored-malformed"
+		);
+	});
+
 	test("adoptServer with no matching host group still saves the entry instead of failing the intent", async function () {
 		this.timeout(20000);
 		const outcome = await inject({

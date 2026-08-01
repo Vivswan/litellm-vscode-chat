@@ -303,6 +303,61 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 }
 
 /**
+ * The fields whose edit invalidates a draft-connection test result: the base
+ * URL, every credential input (value, storage choice, or remove mark), and
+ * the OAuth text fields. A stale PASS on edited credentials is worse than no
+ * result, so the form clears the result when any of these change; the label
+ * and the model-parameter rows do not touch the connection and keep it.
+ */
+export const CONNECTION_FIELDS: readonly ServerFormField[] = [
+	"baseUrl",
+	"apiKey",
+	"oauthTokenUrl",
+	"oauthClientId",
+	"oauthClientSecret",
+	"oauthScopes",
+	"virtualKeyHeader",
+	"virtualKeyValue",
+];
+
+/** The testServerDraft intent body a connection-clean draft parses to; the webview adds only the requestId. */
+interface ServerTestIntent {
+	readonly server: SaveServerPayload;
+	readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
+	readonly replaceLabel?: string | undefined;
+}
+
+export type ServerTestParse =
+	| { readonly ok: true; readonly intent: ServerTestIntent }
+	| { readonly ok: false; readonly problems: ServerFormProblems };
+
+/**
+ * Parse a draft into the testServerDraft intent, or the connection-relevant
+ * problems that block it. One probe must test exactly what a save would send,
+ * so this reuses parseServerForm wholesale rather than re-deriving any rule:
+ * the parse runs on the draft with a placeholder label and no parameter rows,
+ * which by construction leaves exactly the CONNECTION_FIELDS problems - a
+ * missing or colliding label and broken parameter rows do not gate a probe.
+ * The assembled intent carries the draft's real trimmed label (it addresses
+ * "keep" resolution extension-side, including an orphan secret blob a fresh
+ * label would inherit) and the edited entry's label as replaceLabel.
+ */
+export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFormContext = {}): ServerTestParse {
+	const parse = parseServerForm({ ...draft, label: "draft", modelParameters: [] });
+	if (!parse.ok) {
+		return { ok: false, problems: parse.problems };
+	}
+	return {
+		ok: true,
+		intent: {
+			server: { ...parse.intent.server, label: draft.label.trim() },
+			secrets: parse.intent.secrets,
+			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
+		},
+	};
+}
+
+/**
  * The adopt form's label rule: the same constraints the full form applies,
  * plus a hard collision refusal (adoption always creates a new entry, never
  * replaces one). The extension re-checks the same rules on the intent.

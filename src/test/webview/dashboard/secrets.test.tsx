@@ -270,6 +270,53 @@ test("a typed secret leaves the page only as a directive: set, keep for untouche
 	expectNowhere(SENTINEL, TYPED);
 });
 
+test("a draft-connection test carries the typed secret only in its intent; both outcomes render value-free", () => {
+	const root = mount(<App />);
+	const server = declaredWithSecrets({ apiKey: "settings" });
+	pushToWebview(statePush(makeState({ servers: [server] })));
+	openEdit(root);
+	pushToWebview({ type: "inlineSecrets", requestId: readInlineRequest().requestId, values: { apiKey: SENTINEL } });
+	expectOnlyInApiKeyInput(SENTINEL);
+
+	// An untouched prefill tests as keep: the value goes nowhere, the
+	// extension re-reads it from the setting itself.
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const kept = lastPosted() as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	expect(kept.type).toBe("testServerDraft");
+	expect(kept.secrets.apiKey).toEqual({ action: "keep" });
+	expectOnlyInApiKeyInput(SENTINEL);
+
+	// The success notice is extension-composed classification text; rendering
+	// it must not surface any secret.
+	pushToWebview({
+		type: "intentSucceeded",
+		intentType: "testServerDraft",
+		requestId: kept.requestId,
+		message: "Connected - 3 models",
+	});
+	expectOnlyInApiKeyInput(SENTINEL);
+
+	// A typed value rides the intent as a set directive (webview -> extension
+	// only) and a failure outcome renders without echoing it back.
+	fireInput(apiKeyInput(root), TYPED);
+	expectNowhere(SENTINEL);
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const set = lastPosted() as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	expect(set.secrets.apiKey).toEqual({ action: "set", location: "settings", value: TYPED });
+	expectOnlyInApiKeyInput(TYPED);
+	pushToWebview({
+		type: "intentFailed",
+		intentType: "testServerDraft",
+		message: "401 Unauthorized from the server",
+		kind: "validation",
+		requestId: set.requestId,
+	});
+	expect(root.querySelector(".test-result")?.textContent).toContain("401 Unauthorized");
+	expectOnlyInApiKeyInput(TYPED);
+});
+
 test("relocating an untouched prefill to secure storage posts set with the prefilled value, not keep", () => {
 	const root = mount(<App />);
 	const server = declaredWithSecrets({ apiKey: "settings" });

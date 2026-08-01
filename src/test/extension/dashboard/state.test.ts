@@ -12,6 +12,7 @@ import {
 	validateModelParametersRecord,
 	validateNumberSetting,
 	validateSaveServerSetting,
+	validateTestServerDraft,
 } from "../../../extension/dashboard/intents";
 import type { NumberSettingId } from "../../../extension/dashboard/protocol";
 import {
@@ -35,8 +36,10 @@ import {
 	resolveConfiguredScope,
 	resolveUpdateScope,
 } from "../../../extension/dashboard/state";
+import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
+import { RequestError } from "../../../provider/transport/errorMapping";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
 
@@ -121,6 +124,10 @@ interface RecordedEnv {
 	/** What resolveExternalGroup returns; every call is recorded in externalLookups. */
 	externalGroup?: { label: string; baseUrl: string };
 	externalLookups: [string, string][];
+	/** Every probeDraftConnection call's resolved connection; probeResult/probeError shape the outcome. */
+	probes: DraftConnection[];
+	probeResult: number;
+	probeError?: Error;
 	/** Every hideGroup call. */
 	hidden: { label: string; baseUrl: string }[];
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
@@ -144,6 +151,8 @@ function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		syncRequests: 0,
 		adoptionLookups: [],
 		externalLookups: [],
+		probes: [],
+		probeResult: 0,
 		hidden: [],
 		unhidden: [],
 		unhideResult: true,
@@ -228,6 +237,13 @@ function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			unhideGroup: async (identity) => {
 				recorded.unhidden.push({ ...identity });
 				return recorded.unhideResult;
+			},
+			probeDraftConnection: async (connection) => {
+				recorded.probes.push(connection);
+				if (recorded.probeError !== undefined) {
+					throw recorded.probeError;
+				}
+				return recorded.probeResult;
 			},
 			log: (message, data) => {
 				recorded.logs.push([message, data]);
@@ -1455,6 +1471,19 @@ suite("extension/dashboard/state", () => {
 					requestId: "req-2",
 				},
 				{ type: "removeServerSetting", label: "Prod", requestId: "req-3" },
+				{
+					type: "testServerDraft",
+					server: { label: "", baseUrl: "http://prod.test", oauthTokenUrl: "https://idp.test/token" },
+					secrets: KEEP_ALL,
+					requestId: "req-t",
+				},
+				{
+					type: "testServerDraft",
+					server: { label: "Prod", baseUrl: "http://prod.test" },
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-1" } },
+					replaceLabel: "Prod",
+					requestId: "req-t2",
+				},
 				{ type: "readInlineSecrets", label: "Prod", requestId: "req-inline" },
 				{
 					type: "adoptServer",
@@ -1518,6 +1547,23 @@ suite("extension/dashboard/state", () => {
 				{ type: "removeServerSetting", requestId: "r" },
 				{ type: "removeServerSetting", label: 4, requestId: "r" },
 				{ type: "removeServerSetting", label: "P" },
+				// testServerDraft: the save payload's strictness verbatim - no inline
+				// secret fields on the server object, no unknown fields riding along.
+				{ type: "testServerDraft", server: { label: "P", baseUrl: "http://x" }, requestId: "r" },
+				{ type: "testServerDraft", server: { label: "P", baseUrl: "http://x" }, secrets: KEEP_ALL },
+				{
+					type: "testServerDraft",
+					server: { label: "P", baseUrl: "http://x", apiKey: "inline-not-allowed-here" },
+					secrets: KEEP_ALL,
+					requestId: "r",
+				},
+				{
+					type: "testServerDraft",
+					server: { label: "P", baseUrl: "http://x" },
+					secrets: KEEP_ALL,
+					requestId: "r",
+					extra: 1,
+				},
 				// readInlineSecrets: label and requestId only, nothing rides along.
 				{ type: "readInlineSecrets", requestId: "r" },
 				{ type: "readInlineSecrets", label: "P" },
@@ -2599,6 +2645,199 @@ suite("extension/dashboard/state", () => {
 					/Re-add a server under this label/.test(error.message)
 			);
 			assert.strictEqual(recorded.syncRequests, 1, "the unrestored secret must still reach the sync engine");
+		});
+	});
+
+	suite("executeDashboardIntent: testServerDraft", () => {
+		const draftTest = (
+			recorded: RecordedEnv,
+			partial: Partial<Extract<DashboardIntent, { type: "testServerDraft" }>> = {}
+		): Promise<string | undefined> =>
+			executeDashboardIntent(
+				{
+					type: "testServerDraft",
+					server: { label: "Prod", baseUrl: "http://prod.test" },
+					secrets: KEEP_ALL,
+					requestId: "req-t1",
+					...partial,
+				},
+				recorded.env
+			);
+
+		test("validateTestServerDraft: connection rules apply, label rules do not", () => {
+			// The probe cares about the connection only: an empty or reserved
+			// label must not block it (the button gates on the base URL alone).
+			assert.strictEqual(validateTestServerDraft({ label: "", baseUrl: "http://x" }, KEEP_ALL), undefined);
+			assert.strictEqual(validateTestServerDraft({ label: "__proto__", baseUrl: "http://x" }, KEEP_ALL), undefined);
+			assert.notStrictEqual(validateTestServerDraft({ label: "Prod", baseUrl: "" }, KEEP_ALL), undefined);
+			assert.notStrictEqual(validateTestServerDraft({ label: "Prod", baseUrl: "not a url" }, KEEP_ALL), undefined);
+			assert.notStrictEqual(
+				validateTestServerDraft({ label: "Prod", baseUrl: "http://x", oauthTokenUrl: "idp.test/token" }, KEEP_ALL),
+				undefined
+			);
+			assert.notStrictEqual(
+				validateTestServerDraft({ label: "Prod", baseUrl: "http://x", virtualKeyHeader: "bad header" }, KEEP_ALL),
+				undefined
+			);
+			assert.notStrictEqual(
+				validateTestServerDraft(
+					{ label: "Prod", baseUrl: "http://x" },
+					{ ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "" } }
+				),
+				undefined,
+				"an empty set-value must be a clear, not a set"
+			);
+			const problem = validateTestServerDraft(
+				{ label: "Prod", baseUrl: "http://x" },
+				{ ...KEEP_ALL, virtualKeyValue: { action: "set", location: "secure", value: "vk-secret\n" } }
+			);
+			assert.ok(problem !== undefined);
+			assert.ok(!problem.includes("vk-secret"), problem);
+		});
+
+		test("a set directive probes the typed value; nothing is written, stored, or synced", async () => {
+			const recorded = makeEnv([]);
+			const notice = await draftTest(recorded, {
+				secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-draft" } },
+			});
+
+			assert.deepStrictEqual(recorded.probes, [{ baseUrl: "http://prod.test", apiKey: "sk-draft" }]);
+			assert.strictEqual(notice, "Connected - 0 models");
+			// The no-mutation contract: a probe leaves every store untouched.
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.secretOps, []);
+			assert.deepStrictEqual(recorded.updates, []);
+			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		test("the success notice is static classification plus count, singular and plural", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeResult = 1;
+			assert.strictEqual(await draftTest(recorded), "Connected - 1 model");
+			recorded.probeResult = 12;
+			assert.strictEqual(await draftTest(recorded), "Connected - 12 models");
+		});
+
+		test("keep while editing resolves inline from the accepted entry and secure from the stored blob", async () => {
+			// Inline wins over a secure copy for apiKey (the sync engine's rule);
+			// the OAuth client secret has no inline value and comes from storage.
+			const recorded = makeEnv([
+				{ label: "Shadow", apiKey: "sk-shadow" },
+				{
+					label: "Prod",
+					baseUrl: "http://old.test",
+					apiKey: "sk-inline",
+					oauthTokenUrl: "http://idp.test/token",
+					oauthClientId: "client-1",
+				},
+			]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-stale-secure", oauthClientSecret: "oa-secret" });
+			await draftTest(recorded, {
+				server: {
+					label: "Prod",
+					baseUrl: "http://new.test",
+					oauthTokenUrl: "http://idp.test/token",
+					oauthClientId: "client-1",
+					oauthScopes: "read write",
+				},
+				replaceLabel: "Prod",
+			});
+
+			assert.deepStrictEqual(recorded.probes, [
+				{
+					baseUrl: "http://new.test",
+					apiKey: "sk-inline",
+					oauth: {
+						tokenUrl: "http://idp.test/token",
+						clientId: "client-1",
+						clientSecret: "oa-secret",
+						scopes: "read write",
+					},
+				},
+			]);
+		});
+
+		test("a fresh label inherits an orphan secure blob for keep, exactly as a save would", async () => {
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-orphan" });
+			await draftTest(recorded);
+
+			assert.deepStrictEqual(recorded.probes, [{ baseUrl: "http://prod.test", apiKey: "sk-orphan" }]);
+		});
+
+		test("clear probes without the credential even when one is stored", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-inline" }]);
+			await draftTest(recorded, {
+				secrets: { ...KEEP_ALL, apiKey: { action: "clear" } },
+				replaceLabel: "Prod",
+			});
+
+			assert.deepStrictEqual(recorded.probes, [{ baseUrl: "http://prod.test", apiKey: "" }]);
+			assert.deepStrictEqual(recorded.secretOps, [], "clear on a test deletes nothing");
+		});
+
+		test("the virtual key pair rides the probe; partial pairs are refused before it", async () => {
+			const recorded = makeEnv([]);
+			await draftTest(recorded, {
+				server: { label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" },
+				secrets: { ...KEEP_ALL, virtualKeyValue: { action: "set", location: "secure", value: "vk-1" } },
+			});
+			assert.deepStrictEqual(recorded.probes, [
+				{ baseUrl: "http://prod.test", apiKey: "", virtualKey: { header: "x-vk", value: "vk-1" } },
+			]);
+
+			await assert.rejects(
+				draftTest(recorded, { server: { label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" } }),
+				/virtualKeyValue/
+			);
+			await assert.rejects(
+				draftTest(recorded, {
+					secrets: { ...KEEP_ALL, virtualKeyValue: { action: "set", location: "secure", value: "vk-1" } },
+				}),
+				/virtualKeyHeader/
+			);
+			await assert.rejects(
+				draftTest(recorded, { server: { label: "Prod", baseUrl: "http://prod.test", oauthClientId: "client-1" } }),
+				/oauthTokenUrl/
+			);
+			await assert.rejects(
+				draftTest(recorded, {
+					server: { label: "Prod", baseUrl: "http://prod.test", oauthTokenUrl: "http://idp.test/token" },
+				}),
+				/oauthClientId/
+			);
+			assert.strictEqual(recorded.probes.length, 1, "refused pairings never reach the probe");
+		});
+
+		test("an unusable base URL is refused before the probe runs", async () => {
+			const recorded = makeEnv([]);
+			await assert.rejects(draftTest(recorded, { server: { label: "Prod", baseUrl: "not a url" } }), /baseUrl/);
+			assert.deepStrictEqual(recorded.probes, []);
+		});
+
+		test("editing an entry that vanished is refused like the save path", async () => {
+			const recorded = makeEnv([]);
+			await assert.rejects(draftTest(recorded, { replaceLabel: "Gone" }), /no longer exists/);
+			assert.deepStrictEqual(recorded.probes, []);
+		});
+
+		test("a transport RequestError surfaces its user-facing message as a validation failure, unlogged", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeError = new RequestError("Network Error: Unable to reach the LiteLLM server", "network");
+			await assert.rejects(draftTest(recorded), (error: unknown) => {
+				assert.ok(error instanceof Error);
+				assert.strictEqual(error.name, "DashboardValidationError");
+				assert.strictEqual(error.message, "Network Error: Unable to reach the LiteLLM server");
+				return true;
+			});
+			// Error ownership: the intent layer maps, the panel boundary logs.
+			assert.deepStrictEqual(recorded.logs, []);
+		});
+
+		test("an unexpected non-transport error is rethrown as-is for the boundary's generic handling", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeError = new TypeError("boom");
+			await assert.rejects(draftTest(recorded), (error: unknown) => error instanceof TypeError);
 		});
 	});
 
