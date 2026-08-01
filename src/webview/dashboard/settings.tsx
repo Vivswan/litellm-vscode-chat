@@ -4,13 +4,16 @@ import type {
 	BooleanSettingId,
 	DashboardSettings,
 	NumberSettingId,
+	NumberSettingSpec,
 	SettingScope,
 } from "../../extension/dashboard/protocol";
 import {
 	BOOLEAN_SETTING_IDS,
 	BOOLEAN_SETTINGS,
+	defaultDisplay,
 	draftSyncKey,
 	equivalence,
+	isBoundViolation,
 	NUMBER_SETTING_IDS,
 	NUMBER_SETTINGS,
 	parseNumberDraft,
@@ -87,6 +90,24 @@ function ResetButton({
 }
 
 /**
+ * The muted annotation a configured row wears in its head, matching the
+ * native Settings editor's "Modified in:" idiom: the accent bar says that a
+ * value is set, this says where - and, on number rows, what the setting's
+ * built-in default is (the value that applies once no scope sets one; a
+ * reset may first reveal another scope's value on the way there). Appended
+ * after the title inside the head, so appearing or disappearing never
+ * shifts the row's text (the accent gutter is reserved separately).
+ */
+function ModifiedNote({ scope, defaultText }: { scope: SettingScope; defaultText?: string }) {
+	const where = `Modified in ${SETTING_SCOPE_LABELS[scope]} settings`;
+	return (
+		<span class="setting-modified-note">
+			{defaultText === undefined ? where : `${where} (default: ${defaultText})`}
+		</span>
+	);
+}
+
+/**
  * A number setting edited as draft text and committed on blur or Enter, so
  * half-typed values never reach the configuration. The draft is parsed once
  * per keystroke (parseNumberDraft), and the error display, the commit, and
@@ -94,6 +115,12 @@ function ResetButton({
  * time: a valid draft must never render as invalid, and the equivalence hint
  * must stay live while the user types their way out of a rejected value. An
  * external state push resets the draft to the store's value.
+ *
+ * One display exception to the live verdict: a minimum-bound rejection stays
+ * quiet until the field first blurs (or Enter tries to commit), because
+ * typing the 5 of 5000 honestly passes below the bound. The parse itself is
+ * unchanged - an invalid draft still never commits - and the blurred latch
+ * re-arms on every external resync.
  */
 function NumberField({
 	id,
@@ -104,8 +131,9 @@ function NumberField({
 	value: number | null;
 	configuredScope: SettingScope | null;
 }) {
-	const spec = NUMBER_SETTINGS[id];
+	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
 	const [text, setText] = useState(value === null ? "" : String(value));
+	const [blurred, setBlurred] = useState(false);
 	const help = SETTING_ROW_HELP[id];
 
 	// Keyed on draftSyncKey, not on the value alone: a successful reset of a
@@ -114,10 +142,12 @@ function NumberField({
 	const syncKey = draftSyncKey(value, configuredScope);
 	useEffect(() => {
 		setText(value === null ? "" : String(value));
+		setBlurred(false);
 	}, [syncKey]);
 
 	const parse = parseNumberDraft(id, text);
-	const error = parse.kind === "invalid" ? parse.problem : undefined;
+	const suppressed = parse.kind === "invalid" && !blurred && isBoundViolation(id, text);
+	const error = parse.kind === "invalid" && !suppressed ? parse.problem : undefined;
 	const commit = () => {
 		if (parse.kind === "invalid") {
 			return;
@@ -132,6 +162,12 @@ function NumberField({
 			postMessage({ type: "setNumberSetting", setting: id, value: parse.value });
 		}
 	};
+	// Blur and Enter both mean "done typing": commit a valid draft, and let a
+	// held-back bound error show from here on.
+	const settle = () => {
+		setBlurred(true);
+		commit();
+	};
 
 	const inputId = `setting-${id}`;
 	const unitId = `${inputId}-unit`;
@@ -143,7 +179,8 @@ function NumberField({
 				<label class="setting-title" for={inputId}>
 					{spec.label}
 				</label>
-				{help !== undefined ? <Help text={help} /> : null}
+				{help !== undefined ? <Help text={help} name={`Help: ${spec.label}`} /> : null}
+				{configuredScope !== null ? <ModifiedNote scope={configuredScope} defaultText={defaultDisplay(id)} /> : null}
 			</div>
 			<p class="setting-desc">{spec.description}</p>
 			<div class="setting-control">
@@ -155,12 +192,12 @@ function NumberField({
 					aria-invalid={error !== undefined}
 					aria-describedby={error === undefined ? unitId : `${unitId} ${errorId}`}
 					value={text}
-					placeholder={spec.nullable ? "derived" : undefined}
+					placeholder={spec.placeholder}
 					onInput={(event) => setText(event.currentTarget.value)}
-					onBlur={commit}
+					onBlur={settle}
 					onKeyDown={(event) => {
 						if (event.key === "Enter") {
-							commit();
+							settle();
 						}
 					}}
 				/>
@@ -200,7 +237,8 @@ function BooleanField({
 		<SettingRow modified={configuredScope !== null}>
 			<div class="setting-head">
 				<span class="setting-title">{spec.label}</span>
-				{help !== undefined ? <Help text={help} /> : null}
+				{help !== undefined ? <Help text={help} name={`Help: ${spec.label}`} /> : null}
+				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
 			</div>
 			<div class="setting-control">
 				<label class="setting-check" for={inputId}>

@@ -403,11 +403,22 @@ const STYLES = `
 	.setting-row.modified::before {
 		background: var(--vscode-settings-modifiedItemIndicator, var(--vscode-focusBorder));
 	}
-	.setting-head { display: flex; align-items: center; gap: 6px; }
+	.setting-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 	.setting-title { display: block; font-weight: 600; }
+	/* The modified annotation appends after the title, so appearing never
+	   moves the row's text; nowrap keeps "Modified in ... (default: ...)"
+	   dropping to the next line whole when the head runs out of room. */
+	.setting-modified-note {
+		color: var(--vscode-descriptionForeground);
+		font-size: 0.85em;
+		font-weight: 400;
+		white-space: nowrap;
+	}
 	.setting-desc { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin: 2px 0 0; }
 	.setting-control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-	.setting-control input[type="number"] { width: 130px; appearance: textfield; }
+	/* Wide enough for the nullable field's "derived from context length"
+	   placeholder to read whole, not just for the digits. */
+	.setting-control input[type="number"] { width: 200px; appearance: textfield; }
 	/* Plain fields like the native Settings editor: no spin buttons popping in
 	   on hover/focus and compressing the value. */
 	.setting-control input[type="number"]::-webkit-outer-spin-button,

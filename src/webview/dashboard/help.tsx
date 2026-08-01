@@ -4,8 +4,11 @@
  * Native title tooltips do not reliably render inside VS Code's webview host
  * and never show on keyboard focus, so the tip is a real element toggled by
  * CSS (hover on the wrapper, focus-visible on the button). The trigger stays
- * a real button so focus reaches it without a mouse; it is named "Help" and
- * the tip is wired to it as its accessible description (aria-describedby on
+ * a real button so focus reaches it without a mouse; it is named "Help" (a
+ * caller with many glyphs on one page may pass a distinguishing `name`, e.g.
+ * "Help: Request timeout", so a screen reader's button list is not a column
+ * of identical entries) and the tip is wired to it as its accessible
+ * description (aria-describedby on
  * the button, role="tooltip" on the tip), so assistive tech reads the same
  * text the tooltip shows. It performs no action; the text is the whole point.
  * `below` flips the tip under the trigger for triggers near the top of the
@@ -105,13 +108,13 @@ export function HoverTip({
 	);
 }
 
-export function Help({ text, below }: { text: string; below?: boolean }) {
+export function Help({ text, name, below }: { text: string; name?: string; below?: boolean }) {
 	const id = useId();
 	const { style, place } = useTipCoords(below === true);
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: the handlers only measure for tip placement; the interactivity stays on the inner Help button
 		<span class={below === true ? "help-wrap below" : "help-wrap"} onMouseEnter={place} onFocusIn={place}>
-			<button type="button" class="help" aria-label="Help" aria-describedby={id}>
+			<button type="button" class="help" aria-label={name ?? "Help"} aria-describedby={id}>
 				?
 			</button>
 			<span class="help-tip" role="tooltip" id={id} style={style}>
