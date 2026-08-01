@@ -585,7 +585,9 @@ for (const file of extensionLogFiles()) {
 // Anything after the script name is handed to the `code` invocation, so
 // `bun run dev -- --locale=zh-cn` launches a localized dev host. bun run
 // forwards the extra args; a leading literal "--" separator is dropped when
-// one survives forwarding.
+// one survives forwarding. Note that --locale only takes effect when the
+// matching VS Code language pack is installed in the user's real extensions
+// directory; without it the host stays English.
 const passthroughArgs = process.argv.slice(2);
 if (passthroughArgs[0] === "--") {
 	passthroughArgs.shift();

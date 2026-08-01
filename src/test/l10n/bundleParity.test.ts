@@ -1,8 +1,9 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { manageCommandTitle } from "../../shared/config/commandIds";
+import { CMD } from "../../shared/config/commandIds";
 import { bannedTypography, placeholderCounts } from "../util/l10n";
+import { resolveNls } from "../util/nls";
 
 /**
  * Layer two of the l10n parity scheme (scripts/l10n/check.ts is layer one,
@@ -154,20 +155,30 @@ suite("l10n drift guard: manage-command title", () => {
 	 * title messages interpolate (the bundle's translation). The manifest key
 	 * names belong to the externalization work and may change, so this guard
 	 * finds the manage command's nls key(s) by English VALUE, not by name;
-	 * the one coupling constant is the English title itself, obtained from
-	 * manageCommandTitle() (unconfigured hosts return the l10n.t literal,
-	 * which is also the bundle key on both sides).
+	 * the one coupling constant is the English title itself, read from
+	 * package.json's litellm.manage contribution and resolved through
+	 * package.nls.json. Deliberately NOT manageCommandTitle(): on a
+	 * non-English test host that returns a translated value and the compare
+	 * would mislead.
 	 */
 	test("per locale, the package.nls manage-command title equals the bundle's translation", () => {
 		if (!fs.existsSync(englishNlsPath)) {
 			return; // Manifest not externalized yet; nothing to compare.
 		}
-		const englishTitle = manageCommandTitle();
+		const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
+			contributes?: { commands?: { command?: string; title?: string }[] };
+		};
+		const manageTitle = (manifest.contributes?.commands ?? []).find((entry) => entry.command === CMD.manage)?.title;
+		assert.ok(
+			manageTitle !== undefined && manageTitle !== "",
+			`package.json contributes a ${CMD.manage} command with a title`
+		);
+		const englishTitle = resolveNls(manageTitle);
 		const englishNls = messagesOf(englishNlsPath);
 		const titleKeys = Object.keys(englishNls).filter((key) => englishNls[key] === englishTitle);
 		assert.ok(
 			titleKeys.length > 0,
-			`package.nls.json defines no key valued ${JSON.stringify(englishTitle)}; the manage-command title must be externalized (or manageCommandTitle() drifted from the manifest)`
+			`package.nls.json defines no key valued ${JSON.stringify(englishTitle)}; the manage-command title must be externalized`
 		);
 		const bundles = bundleLocales();
 		for (const [locale, nlsFile] of nlsLocales()) {
