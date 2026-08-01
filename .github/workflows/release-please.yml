@@ -2,11 +2,16 @@
 # Local edits may be replaced during template updates.
 #
 # The release-please machinery: cuts releases by accumulating conventional
-# commits on main into a release PR; merging that PR tags and publishes the
-# release. Called from the repo-owned release.yml pipeline, downstream of
-# the all-green gate, so releases and release-PR refreshes only happen on a
-# green main. Repo-specific jobs before/after the release belong in
-# release.yml, wired to the outputs below.
+# commits on main into a release PR. GitHub releases are immutable once
+# published (the tag and assets freeze, a late upload gets HTTP 422), so
+# the generated release-please-config.json sets `draft` +
+# `force-tag-creation`: merging the release PR creates a DRAFT release with
+# its tag already forced at the merge SHA, and the repo-owned release.yml
+# pipeline mutates the draft (asset uploads, note edits) and publishes it
+# as its last job. Config and pipeline are both repo-owned, so a repo
+# generated before the draft flow keeps publishing directly. Called from
+# release.yml downstream of the all-green gate, so releases and release-PR
+# refreshes only happen on a green main.
 #
 # Without the REPO_PLATFORM_TOKEN secret the release PR is created by the
 # default GITHUB_TOKEN and needs a close/reopen to run its checks.
@@ -17,10 +22,10 @@ on:
   workflow_call:
     outputs:
       release_created:
-        description: "'true' when this run just published a release"
+        description: "'true' when this run just cut a release"
         value: ${{ jobs.release-please.outputs.release_created }}
       tag_name:
-        description: The tag of the release that was just published
+        description: The tag of the release that was just cut (a draft-flow config forces the tag at creation, so it is checkout-able before publication)
         value: ${{ jobs.release-please.outputs.tag_name }}
 
 # The effective token comes from the calling job; declaring the needs here
