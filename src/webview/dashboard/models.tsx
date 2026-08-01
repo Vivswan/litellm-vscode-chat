@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { DashboardModel } from "../../extension/dashboard/protocol";
+import type { DashboardModel, ModelParametersRecord, RequestScope } from "../../extension/dashboard/protocol";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { HELP_MODELS_SECTION } from "./helpText";
 import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
+import { ParamsInspector } from "./paramsInspector";
 
 function formatTokens(count: number): string {
 	return count.toLocaleString();
@@ -167,6 +168,8 @@ export function ModelsSection({
 	models,
 	serverCount,
 	scope,
+	requestScopes,
+	modelParameters,
 }: {
 	models: readonly DashboardModel[];
 	serverCount: number;
@@ -176,14 +179,42 @@ export function ModelsSection({
 	 * object so a scope without a working clear cannot be expressed.
 	 */
 	scope?: { readonly label: string; readonly onClear: () => void } | undefined;
+	/** Per-snapshot request scopes for the effective-parameters inspector, keyed by DashboardModel.scopeKey. */
+	requestScopes: Readonly<Record<string, RequestScope>>;
+	/** The scope-merged modelParameters setting, as the request path reads it. */
+	modelParameters: ModelParametersRecord;
 }) {
 	const [filter, setFilter] = useState("");
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
 	const [scrollTop, setScrollTop] = useState(0);
 	const [copied, setCopied] = useState<string | undefined>(undefined);
 	const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
+	// The inspected row's identity (not the model object): every state push
+	// rebuilds the models array, and the open inspector must follow the fresh
+	// values or close when its row leaves the list. scopeKey is part of the
+	// identity because it is what distinguishes two snapshots whose rows could
+	// otherwise render the same ID under the same display label - matching on
+	// it keeps the inspector on the exact snapshot whose action was clicked.
+	const [inspecting, setInspecting] = useState<{ id: string; serverLabel: string; scopeKey: string } | undefined>(
+		undefined
+	);
 	const scrollRef = useRef<HTMLElement>(null);
 	const copySeq = useRef(0);
+
+	const inspected =
+		inspecting === undefined
+			? undefined
+			: models.find(
+					(model) =>
+						model.id === inspecting.id &&
+						model.serverLabel === inspecting.serverLabel &&
+						model.scopeKey === inspecting.scopeKey
+				);
+	useEffect(() => {
+		if (inspecting !== undefined && inspected === undefined) {
+			setInspecting(undefined);
+		}
+	}, [inspecting, inspected]);
 
 	// Re-measure after every render: the guarded set makes this settle in one
 	// extra pass when the theme's font size changes the real row height.
@@ -246,7 +277,7 @@ export function ModelsSection({
 		: 0;
 	const end = windowed ? Math.min(sorted.length, start + windowSize) : sorted.length;
 	const visible = sorted.slice(start, end);
-	const columns = 6 + (showServerColumn ? 1 : 0);
+	const columns = 7 + (showServerColumn ? 1 : 0);
 
 	return (
 		// The id anchors the servers table's model-count links: App scrolls and
@@ -308,6 +339,7 @@ export function ModelsSection({
 									<SortHeader label="Output tokens" sortKey="output" sort={sort} numeric onSort={toggleSort} />
 									<SortHeader label="Pricing ($/M)" sortKey="price" sort={sort} numeric onSort={toggleSort} />
 									<th>Capabilities</th>
+									<th>{/* params */}</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -350,6 +382,20 @@ export function ModelsSection({
 												</HoverTip>
 											</td>
 											<td class="caps">{capabilities(model)}</td>
+											<td class="actions">
+												{/* A quiet text action, not an icon: "Params" says what opens,
+												    and the uniform row height survives (no taller chrome). */}
+												<button
+													type="button"
+													class="quiet params-action"
+													aria-label={`Show effective parameters for ${model.name} on ${model.serverLabel}`}
+													onClick={() =>
+														setInspecting({ id: model.id, serverLabel: model.serverLabel, scopeKey: model.scopeKey })
+													}
+												>
+													Params
+												</button>
+											</td>
 										</tr>
 									);
 								})}
@@ -366,6 +412,14 @@ export function ModelsSection({
 						</table>
 					</section>
 					{sorted.length === 0 ? <p class="empty">No models match the filter.</p> : null}
+					{inspected !== undefined ? (
+						<ParamsInspector
+							model={inspected}
+							scope={requestScopes[inspected.scopeKey]}
+							globalParameters={modelParameters}
+							onClose={() => setInspecting(undefined)}
+						/>
+					) : null}
 				</>
 			)}
 		</section>

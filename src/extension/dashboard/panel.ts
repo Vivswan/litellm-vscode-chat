@@ -28,6 +28,7 @@ import {
 	deleteServerSecrets,
 	inlineSecretValues,
 	parseServersSetting,
+	readEntryModelParameters,
 	readServerSecrets,
 	updateServerSecret,
 } from "../servers/serverSync";
@@ -42,7 +43,7 @@ import {
 	readInlineSecretValues,
 } from "./intents";
 import type { DashboardSectionId, ExtensionToWebviewMessage } from "./protocol";
-import type { RemovedGroupsView, SettingsReader } from "./state";
+import type { EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
 import { buildDashboardState, resolveConfiguredScope, resolveUpdateScope } from "./state";
 import { createDraftConnectionProbe } from "./testDraftConnection";
 
@@ -86,6 +87,8 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	getRemovedGroups(): RemovedGroupsView;
 	/** Whether a snapshot belongs to a provider group (vs the legacy registry); see buildDashboardState. */
 	isGroupSnapshot(serverId: string): boolean;
+	/** The request path's per-entry modelParameters resolution for a snapshot's server; see entryParametersResolver. */
+	resolveEntryParameters(serverId: string): EntryParametersResolution | undefined;
 	settingsReader(): SettingsReader;
 	log(message: string, data?: unknown): void;
 	logError(message: string, error: unknown): void;
@@ -247,7 +250,8 @@ export class DashboardController implements vscode.Disposable {
 				this.env.getDeclaredServers(),
 				this.env.getLegacyServers(),
 				this.env.getRemovedGroups(),
-				(serverId) => this.env.isGroupSnapshot(serverId)
+				(serverId) => this.env.isGroupSnapshot(serverId),
+				(serverId) => this.env.resolveEntryParameters(serverId)
 			),
 		});
 	}
@@ -381,6 +385,34 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 }
 
 /**
+ * The dashboard's request-scope seam: what the request path would resolve as
+ * a snapshot server's per-entry modelParameters. Deliberately composed from
+ * the request path's own pieces - the group lookup the chat path's attached
+ * server comes from, and the same (label, baseUrl) resolver call chat
+ * requests make (readEntryModelParameters in production) - NOT from the
+ * stricter labeled-identity join behind the entry-params-inactive notice: a
+ * group with rotated credentials still carries the entry's label and URL, so
+ * requests through it still receive the entry's parameters, and the
+ * inspector must say so. Unlabeled groups and registry snapshots resolve to
+ * nothing, matching the request path exactly.
+ */
+export function entryParametersResolver(
+	// Structurally GroupServer's label and baseUrl; unbranded because the
+	// resolver (entryModelParametersFor) normalizes the URL itself.
+	getGroupServer: (serverId: string) => { readonly label?: string | undefined; readonly baseUrl: string } | undefined,
+	getEntryModelParameters: (label: string, baseUrl: string) => EntryParametersResolution["entryParameters"] | undefined
+): (serverId: string) => EntryParametersResolution | undefined {
+	return (serverId) => {
+		const group = getGroupServer(serverId);
+		if (group?.label === undefined) {
+			return undefined;
+		}
+		const entryParameters = getEntryModelParameters(group.label, group.baseUrl);
+		return entryParameters !== undefined ? { entryLabel: group.label, entryParameters } : undefined;
+	};
+}
+
+/**
  * DeclaredServerView equivalents straight from the setting, for the window
  * right after activation when the sync engine's first pass has not landed
  * yet. Secret locations reflect only what the setting itself can prove: an
@@ -439,6 +471,12 @@ export function registerDashboardCommand(
 			})),
 		}),
 		isGroupSnapshot: (serverId) => provider.getGroupServer(serverId) !== undefined,
+		// The exact resolver chat requests use (activation wires the provider's
+		// getEntryModelParameters to the same readEntryModelParameters).
+		resolveEntryParameters: entryParametersResolver(
+			(serverId) => provider.getGroupServer(serverId),
+			readEntryModelParameters
+		),
 		settingsReader: () => {
 			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 			return {

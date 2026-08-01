@@ -11,6 +11,17 @@
  * from workspace configuration; nothing here is persisted anywhere.
  */
 
+// The effective-values inspector renders through the same resolution the
+// request path runs; the webview may import only this module, so the pure
+// functions are re-exported here (the isValidHeaderName precedent).
+export type {
+	EffectiveParameterRow,
+	ModelParametersRecord,
+	ParameterSourceRef,
+	ProjectedMaxTokens,
+	ShadowedParameterValue,
+} from "../../shared/config/parameterResolution";
+export { DEFAULT_MAX_TOKENS_CAP, projectEffectiveParameters } from "../../shared/config/parameterResolution";
 export type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 export type { NonSecretOptionalFieldId, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 export { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
@@ -242,11 +253,22 @@ export function latestCheckedMs(servers: readonly Pick<DashboardServer, "lastChe
 /** One registered model, reduced to display facts. Costs are USD per million tokens, as registration converted them. */
 export interface DashboardModel {
 	readonly id: string;
+	/**
+	 * The model ID as the server knows it: what a request's `model` field and a
+	 * modelParameters prefix match against. Differs from `id` only on
+	 * legacy-registry multi-server registrations, where `id` carries a server
+	 * namespace.
+	 */
+	readonly rawId: string;
+	/** Key into DashboardState.requestScopes for this model's serving server; push-local, never persisted. */
+	readonly scopeKey: string;
 	readonly name: string;
 	readonly family: string;
 	readonly serverLabel: string;
 	readonly maxInputTokens: number;
 	readonly maxOutputTokens: number;
+	/** Whether the server declared the output limit; gates the request's max_tokens cap (see resolveMaxTokens). */
+	readonly outputLimitDeclared: boolean;
 	readonly inputCost?: number | undefined;
 	readonly outputCost?: number | undefined;
 	readonly cacheReadCost?: number | undefined;
@@ -484,6 +506,13 @@ export interface ScopedRecordSetting<V> {
 	readonly value: Readonly<Record<string, V>>;
 	/** Non-empty records held by other scopes, read-only in the dashboard. */
 	readonly otherScopes: readonly { readonly scope: SettingScope; readonly value: Readonly<Record<string, V>> }[];
+	/**
+	 * The scope-merged record exactly as the request path reads it (the same
+	 * normalization applied to WorkspaceConfiguration.get's effective value).
+	 * Read-only display truth for the effective-values inspector; the editors
+	 * above keep editing single scopes.
+	 */
+	readonly effective: Readonly<Record<string, V>>;
 }
 
 /** The settings snapshot the dashboard renders. Scalars are the effective values; records are per-scope. */
@@ -507,6 +536,24 @@ export interface DashboardSettings {
 	readonly headers: ScopedRecordSetting<HeaderScalar>;
 }
 
+/**
+ * What the request path would resolve for requests through one server: the
+ * base-URL scope its modelParameters matching runs under, and - when a
+ * declared entry's label and base URL both match the live group, resolved by
+ * the SAME production resolver requests use - that entry's label and its own
+ * modelParameters. Keyed per snapshot in DashboardState.requestScopes
+ * (push-local keys): a label-keyed scope would misattribute entry parameters
+ * across same-label duplicate snapshots.
+ */
+export interface RequestScope {
+	/** The server's normalized base URL, as scoped modelParameters keys match it. */
+	readonly baseUrlScope: string;
+	/** The declared entry the request path resolves for this server, when one matches by label and base URL. */
+	readonly entryLabel?: string | undefined;
+	/** That entry's own modelParameters record. */
+	readonly entryParameters?: EntryModelParametersPayload | undefined;
+}
+
 export interface DashboardState {
 	readonly servers: readonly DashboardServer[];
 	/**
@@ -516,6 +563,8 @@ export interface DashboardState {
 	 */
 	readonly hiddenGroups: readonly HiddenGroup[];
 	readonly models: readonly DashboardModel[];
+	/** Per-snapshot request scopes, keyed by DashboardModel.scopeKey; see RequestScope. */
+	readonly requestScopes: Readonly<Record<string, RequestScope>>;
 	readonly settings: DashboardSettings;
 	/**
 	 * Legacy-registry servers (pre-migration installs and test mode) with no

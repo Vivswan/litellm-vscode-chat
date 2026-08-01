@@ -1,9 +1,14 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { DashboardControllerEnv, DashboardPanel } from "../../../extension/dashboard/panel";
-import { DashboardController, declaredViewsFromSetting } from "../../../extension/dashboard/panel";
+import {
+	DashboardController,
+	declaredViewsFromSetting,
+	entryParametersResolver,
+} from "../../../extension/dashboard/panel";
 import type { ExtensionToWebviewMessage } from "../../../extension/dashboard/protocol";
-import type { SettingsReader } from "../../../extension/dashboard/state";
+import type { EntryParametersResolution, SettingsReader } from "../../../extension/dashboard/state";
+import { entryModelParametersFor } from "../../../extension/servers/serverSync";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
 
 interface FakePanel {
@@ -68,6 +73,8 @@ interface Harness {
 	serversSetting: unknown[];
 	/** The legacy registry's servers, as getLegacyServers reports them. */
 	legacyServers: { baseUrl: string }[];
+	/** What resolveEntryParameters answers per snapshot server ID. */
+	entryResolutions: Record<string, EntryParametersResolution>;
 	/** When set, every updateSetting call rejects with this error. */
 	failUpdates?: Error;
 	/** When set, storeServerSecret rejects with this error on deletes (value === undefined). */
@@ -101,6 +108,7 @@ function makeHarness(): Harness {
 		getLegacyServers: () => harness.legacyServers,
 		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
 		isGroupSnapshot: () => true,
+		resolveEntryParameters: (serverId) => harness.entryResolutions[serverId],
 		settingsReader: () => reader,
 		updateSetting: async (key, value) => {
 			if (harness.failUpdates !== undefined) {
@@ -166,6 +174,7 @@ function makeHarness(): Harness {
 		settingsValues,
 		serversSetting: [],
 		legacyServers: [],
+		entryResolutions: {},
 	};
 	return harness;
 }
@@ -947,6 +956,82 @@ suite("extension/dashboard/panel", () => {
 				"ok"
 			);
 			assert.deepStrictEqual(harness.serversSetting, [], "the removal ran after the save it was queued behind");
+		});
+	});
+
+	suite("request scopes in the pushed state", () => {
+		test("the env's entry resolution rides the snapshot's request scope into the push", () => {
+			const harness = makeHarness();
+			const entryParameters = { "gpt-4": { temperature: 0.2 } };
+			// makeServerStatus defaults to serverId "srv1".
+			harness.entryResolutions.srv1 = { entryLabel: "Prod", entryParameters };
+			harness.controller.open();
+
+			const fake = harness.panels[0];
+			assert.ok(fake);
+			const state = lastState(fake).state;
+			const model = state.models[0];
+			assert.ok(model !== undefined);
+			assert.deepStrictEqual(state.requestScopes[model.scopeKey], {
+				baseUrlScope: "http://prod.test",
+				entryLabel: "Prod",
+				entryParameters,
+			});
+		});
+	});
+
+	suite("entryParametersResolver", () => {
+		const setting = [
+			{
+				label: "Team A",
+				baseUrl: "http://prod.test",
+				modelParameters: { "gpt-4": { temperature: 0.2 } },
+			},
+			{ label: "No Params", baseUrl: "http://prod.test" },
+		];
+		const resolver = (groups: Record<string, { label?: string; baseUrl: string }>) =>
+			entryParametersResolver(
+				(serverId) => groups[serverId],
+				(label, baseUrl) => entryModelParametersFor(setting, label, baseUrl)
+			);
+
+		test("a labeled group at the entry's URL resolves the entry's parameters", () => {
+			const resolve = resolver({ g1: { label: "Team A", baseUrl: "http://prod.test" } });
+			assert.deepStrictEqual(resolve("g1"), {
+				entryLabel: "Team A",
+				entryParameters: { "gpt-4": { temperature: 0.2 } },
+			});
+		});
+
+		test("a rotated-credentials group still resolves: the lookup is by snapshot server ID, the match by label and URL", () => {
+			// Rotating a group's credentials mints a new fingerprinted server ID,
+			// so the strict labeled-identity join (the entry-params-inactive
+			// notice) fails - but the request path matches label plus URL only,
+			// and requests through the rotated group DO receive the entry's
+			// parameters. The inspector must agree with the request path, not
+			// with the notice.
+			const resolve = resolver({
+				"group:labeled:rotated-fingerprint:http://prod.test": { label: "Team A", baseUrl: "http://prod.test" },
+			});
+			assert.deepStrictEqual(resolve("group:labeled:rotated-fingerprint:http://prod.test"), {
+				entryLabel: "Team A",
+				entryParameters: { "gpt-4": { temperature: 0.2 } },
+			});
+		});
+
+		test("unlabeled groups, unknown server IDs, and label matches at another URL resolve to nothing", () => {
+			const resolve = resolver({
+				unlabeled: { baseUrl: "http://prod.test" },
+				elsewhere: { label: "Team A", baseUrl: "http://elsewhere.test" },
+			});
+			assert.strictEqual(resolve("unlabeled"), undefined);
+			assert.strictEqual(resolve("elsewhere"), undefined, "a label at another URL proves nothing");
+			assert.strictEqual(resolve("missing"), undefined);
+		});
+
+		test("an entry without modelParameters resolves to nothing, like the request path", () => {
+			const resolve = resolver({ g1: { label: "No Params", baseUrl: "http://prod.test" } });
+			assert.strictEqual(resolve("g1"), undefined);
 		});
 	});
 });

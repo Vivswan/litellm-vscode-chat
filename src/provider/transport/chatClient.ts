@@ -26,7 +26,7 @@ import { resolveServer } from "../config";
 import { type OAuthConfig, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
 import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
-import { buildRequestBody, DEFAULT_MAX_TOKENS_CAP, getModelParameters, MAX_TOOLS_PER_REQUEST } from "./request";
+import { buildRequestBody, getModelParameters, MAX_TOOLS_PER_REQUEST, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
 
@@ -332,18 +332,16 @@ export class ChatClient {
 				: undefined;
 		const modelParams = getModelParameters(model.id, this._modelRoutes, connection.serverScopes, entryModelParameters);
 
-		let maxTokens: number;
-		if (typeof options.modelOptions?.max_tokens === "number") {
-			maxTokens = options.modelOptions.max_tokens;
-		} else if (typeof modelParams.max_tokens === "number") {
-			maxTokens = modelParams.max_tokens;
-		} else if (metadata.outputLimitSource === "provider") {
-			// The server declared this limit, so it is honored as-is; the cap
-			// below only guards the defaults-derived guess.
-			maxTokens = model.maxOutputTokens;
-		} else {
-			maxTokens = Math.min(DEFAULT_MAX_TOKENS_CAP, model.maxOutputTokens);
-		}
+		// The one home of the fallback chain is resolveMaxTokens (shared with the
+		// dashboard's inspector): runtime option, configured parameter, the
+		// server-declared limit honored as-is, else the cap over the
+		// defaults-derived guess.
+		const { value: maxTokens } = resolveMaxTokens({
+			runtimeMaxTokens: options.modelOptions?.max_tokens,
+			configuredMaxTokens: modelParams.max_tokens,
+			maxOutputTokens: model.maxOutputTokens,
+			outputLimitDeclared: metadata.outputLimitSource === "provider",
+		});
 
 		const requestBody = buildRequestBody({
 			rawModelId: connection.rawModelId,

@@ -430,6 +430,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						scope={
 							serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
 						}
+						requestScopes={state.requestScopes}
+						modelParameters={state.settings.modelParameters.effective}
 					/>
 				) : null}
 			</SectionPanel>

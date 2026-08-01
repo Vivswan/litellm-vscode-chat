@@ -39,7 +39,7 @@ test("clicking a header sorts ascending, again descending, and aria-sort tracks 
 		makeModel({ id: "c", name: "Charlie", maxInputTokens: 100 }),
 		makeModel({ id: "a", name: "Alpha", maxInputTokens: 300 }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={1} />);
+	const root = mount(<ModelsSection models={models} serverCount={1} requestScopes={{}} modelParameters={{}} />);
 	expect(firstColumn(root)).toEqual(["Bravo", "Charlie", "Alpha"]);
 
 	const modelHeader = headerButton(root, "Model");
@@ -64,7 +64,7 @@ test("models without a price sort last in both directions", () => {
 		makeModel({ id: "cheap", name: "Cheap", inputCost: 1 }),
 		makeModel({ id: "dear", name: "Dear", inputCost: 10 }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={1} />);
+	const root = mount(<ModelsSection models={models} serverCount={1} requestScopes={{}} modelParameters={{}} />);
 	const price = headerButton(root, "Pricing ($/M)");
 	fireClick(price);
 	expect(firstColumn(root)).toEqual(["Cheap", "Dear", "Unpriced"]);
@@ -86,7 +86,9 @@ function scrollTo(container: HTMLElement, top: number): void {
 }
 
 test("past the threshold the table windows: spacers stand in for off-screen rows and scrolling moves the window", () => {
-	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} />);
+	const root = mount(
+		<ModelsSection models={manyModels(200)} serverCount={1} requestScopes={{}} modelParameters={{}} />
+	);
 	const container = root.querySelector(".table-scroll") as HTMLElement;
 	expect(container.classList.contains("windowed")).toBe(true);
 
@@ -113,7 +115,9 @@ test("past the threshold the table windows: spacers stand in for off-screen rows
 });
 
 test("sorting while scrolled deep re-fills the window from the new order without leaving range", () => {
-	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} />);
+	const root = mount(
+		<ModelsSection models={manyModels(200)} serverCount={1} requestScopes={{}} modelParameters={{}} />
+	);
 	const container = root.querySelector(".table-scroll") as HTMLElement;
 	scrollTo(container, 26 * 150);
 	expect(firstColumn(root)).toContain("Model 150");
@@ -132,7 +136,9 @@ test("sorting while scrolled deep re-fills the window from the new order without
 });
 
 test("a filter that shrinks the list under a deep scroll clamps the window back into range", () => {
-	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} />);
+	const root = mount(
+		<ModelsSection models={manyModels(200)} serverCount={1} requestScopes={{}} modelParameters={{}} />
+	);
 	const container = root.querySelector(".table-scroll") as HTMLElement;
 	scrollTo(container, 26 * 150);
 
@@ -143,19 +149,26 @@ test("a filter that shrinks the list under a deep scroll clamps the window back 
 });
 
 test("under the threshold every row renders with no scrollport", () => {
-	const root = mount(<ModelsSection models={manyModels(50)} serverCount={1} />);
+	const root = mount(<ModelsSection models={manyModels(50)} serverCount={1} requestScopes={{}} modelParameters={{}} />);
 	expect(firstColumn(root).length).toBe(50);
 	expect((root.querySelector(".table-scroll") as HTMLElement).classList.contains("windowed")).toBe(false);
 	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(0);
 });
 
-test("the copy button lives inside the model-name cell and no trailing actions column exists", () => {
+test("the copy button lives inside the model-name cell; the trailing column holds only the Params action", () => {
 	// The copy action moved from a trailing actions column into the first
 	// cell, beside the name it copies; the header row and every data row must
-	// agree on the column set, with Capabilities as the true last column.
-	const root = mount(<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} />);
+	// agree on the column set, with the quiet Params action as the last column.
+	const root = mount(
+		<ModelsSection
+			models={[makeModel({ id: "gpt-4o", name: "Omni" })]}
+			serverCount={1}
+			requestScopes={{}}
+			modelParameters={{}}
+		/>
+	);
 	const headers = Array.from(root.querySelectorAll("thead th")).map((th) => (th.textContent ?? "").trim());
-	expect(headers).toEqual(["Model", "Family", "Input tokens", "Output tokens", "Pricing ($/M)", "Capabilities"]);
+	expect(headers).toEqual(["Model", "Family", "Input tokens", "Output tokens", "Pricing ($/M)", "Capabilities", ""]);
 
 	const row = root.querySelector("tbody tr") as HTMLElement;
 	const cells = Array.from(row.querySelectorAll("td"));
@@ -164,9 +177,11 @@ test("the copy button lives inside the model-name cell and no trailing actions c
 	expect(nameCell.classList.contains("model-name")).toBe(true);
 	expect(nameCell.textContent).toContain("Omni");
 	expect(nameCell.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']")).not.toBeNull();
-	// The last cell is capabilities text; the copy button is the row's only control.
-	expect((cells[cells.length - 1] as HTMLElement).classList.contains("caps")).toBe(true);
-	expect(row.querySelectorAll("button").length).toBe(1);
+	// The last cell carries the Params action; copy and Params are the row's only controls.
+	const lastCell = cells[cells.length - 1] as HTMLElement;
+	expect(lastCell.classList.contains("actions")).toBe(true);
+	expect(lastCell.querySelector("button.params-action")).not.toBeNull();
+	expect(row.querySelectorAll("button").length).toBe(2);
 });
 
 test("spacer colSpan tracks the rendered column count with and without the Server column", () => {
@@ -177,14 +192,16 @@ test("spacer colSpan tracks the rendered column count with and without the Serve
 	// the boundary exactly - and windowing brings the trailing spacer with it.
 	const spacerCell = (root: HTMLElement) => root.querySelector("tbody tr.spacer td") as HTMLTableCellElement;
 
-	const single = mount(<ModelsSection models={manyModels(51)} serverCount={1} />);
+	const single = mount(
+		<ModelsSection models={manyModels(51)} serverCount={1} requestScopes={{}} modelParameters={{}} />
+	);
 	expect((single.querySelector(".table-scroll") as HTMLElement).classList.contains("windowed")).toBe(true);
-	expect(single.querySelectorAll("thead th").length).toBe(6);
-	expect(spacerCell(single).colSpan).toBe(6);
+	expect(single.querySelectorAll("thead th").length).toBe(7);
+	expect(spacerCell(single).colSpan).toBe(7);
 
-	const dual = mount(<ModelsSection models={manyModels(51)} serverCount={2} />);
-	expect(dual.querySelectorAll("thead th").length).toBe(7);
-	expect(spacerCell(dual).colSpan).toBe(7);
+	const dual = mount(<ModelsSection models={manyModels(51)} serverCount={2} requestScopes={{}} modelParameters={{}} />);
+	expect(dual.querySelectorAll("thead th").length).toBe(8);
+	expect(spacerCell(dual).colSpan).toBe(8);
 });
 
 test("the row's copy action writes the model ID to the clipboard and flashes a check", async () => {
@@ -197,7 +214,14 @@ test("the row's copy action writes the model ID to the clipboard and flashes a c
 	};
 	Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
 
-	const root = mount(<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} />);
+	const root = mount(
+		<ModelsSection
+			models={[makeModel({ id: "gpt-4o", name: "Omni" })]}
+			serverCount={1}
+			requestScopes={{}}
+			modelParameters={{}}
+		/>
+	);
 	const copy = root.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']") as HTMLButtonElement;
 	expect(copy).not.toBeNull();
 	fireClick(copy);
@@ -213,7 +237,7 @@ test("one raw model ID on two servers renders two rows with distinct accessible 
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Prod" }),
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Staging" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={2} />);
+	const root = mount(<ModelsSection models={models} serverCount={2} requestScopes={{}} modelParameters={{}} />);
 	const button = (server: string) =>
 		root.querySelector(`button[aria-label='Copy model ID gpt-4o from ${server}']`) as HTMLButtonElement;
 	expect(button("Prod")).not.toBeNull();

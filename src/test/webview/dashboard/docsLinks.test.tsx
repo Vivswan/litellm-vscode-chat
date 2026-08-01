@@ -100,7 +100,12 @@ function fullState() {
 		servers: [declaredWithSecrets({ apiKey: "secure" })],
 		models: [makeModel()],
 		settings: makeSettings({
-			modelParameters: { editScope: "global", value: { "gpt-4": { temperature: 0.2 } }, otherScopes: [] },
+			modelParameters: {
+				editScope: "global",
+				value: { "gpt-4": { temperature: 0.2 } },
+				otherScopes: [],
+				effective: { "gpt-4": { temperature: 0.2 } },
+			},
 		}),
 	});
 }

@@ -46,6 +46,17 @@ Every model your servers report, as registered with Copilot Chat, in a sortable 
 
 Where the table's columns come from, what each capability gates, and why a model might be missing are covered in [Models and capabilities](models.md).
 
+### Effective parameters
+
+Each row's quiet Params action (visible on hover) opens a side panel answering one question: what would a request to this model actually carry?
+
+- The table lists every configured parameter that matches the model, its value, and which layer set it - `Server entry "Team A" - gpt-4` or `Settings - gpt-4`, naming the winning prefix key. Where a higher layer overrode a lower one, the losing value shows struck through underneath.
+- When a server-scoped settings key wins, the whole unscoped record it replaced is listed as "Not applied" - scoped keys replace the record outright rather than merging with it (see [prefix matching](model-parameters.md#prefix-matching-and-server-scoping)).
+- Keys the extension refuses to forward (provider-owned fields, keys starting with `_`) render muted with the reason.
+- A `max_tokens` line is always present, stating the value and where it came from: your configuration, the server's declared output limit, or the capped default.
+
+The panel renders from the same resolution code the request path runs, so it cannot drift from real requests. Two things it honestly cannot show: runtime options the chat client sets on each request (they override any forwarded parameter listed), and a reasoning model's Configure Model pick, which VS Code stores on its side.
+
 ## Settings
 
 The Settings tab renders the same settings the native Settings editor shows, as form rows with their defaults and a Reset action.
