@@ -396,7 +396,10 @@ export async function executeDashboardIntent(
 		case "hideExternalServer": {
 			const baseUrl = intent.baseUrl.trim();
 			if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
-				throw new DashboardValidationError(vscode.l10n.t("baseUrl: not a usable http(s) URL"));
+				// The "fieldId:" prefix stays an ASCII identifier outside the
+				// translation: sectionFailureText matches it against the internal
+				// field names to route the failure onto the right form section.
+				throw new DashboardValidationError(`baseUrl: ${vscode.l10n.t("not a usable http(s) URL")}`);
 			}
 			// Resolution binds the opaque handle to a group that is external
 			// RIGHT NOW: a stale or forged intent cannot tombstone a declared
@@ -415,7 +418,7 @@ export async function executeDashboardIntent(
 		}
 		case "unhideServer": {
 			if (intent.label.trim().length === 0) {
-				throw new DashboardValidationError(vscode.l10n.t("label: enter a label"));
+				throw new DashboardValidationError(`label: ${vscode.l10n.t("enter a label")}`);
 			}
 			// The identity is echoed back verbatim (no trimming): the webview
 			// sends exactly what the HiddenGroup row carried.

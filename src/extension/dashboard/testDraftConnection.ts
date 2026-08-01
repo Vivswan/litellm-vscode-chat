@@ -99,16 +99,19 @@ export async function applyTestServerDraft(
 	// FAIL for a configuration the saved entry would never send.
 	const oauthExtras = oauthClientSecret !== undefined || oauthScopes !== undefined;
 	if ((oauthClientId !== undefined || oauthExtras) && oauthTokenUrl === undefined) {
-		throw new DashboardValidationError(vscode.l10n.t("oauthTokenUrl: OAuth needs the token URL and client ID"));
+		// The "fieldId:" prefix stays an ASCII identifier outside the
+		// translation: sectionFailureText matches it against the internal field
+		// names to route the failure onto the right form section.
+		throw new DashboardValidationError(`oauthTokenUrl: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 	if ((oauthTokenUrl !== undefined || oauthExtras) && oauthClientId === undefined) {
-		throw new DashboardValidationError(vscode.l10n.t("oauthClientId: OAuth needs the token URL and client ID"));
+		throw new DashboardValidationError(`oauthClientId: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 	if (virtualKeyHeader !== undefined && virtualKeyValue === undefined) {
-		throw new DashboardValidationError(vscode.l10n.t("virtualKeyValue: enter the key sent in this header"));
+		throw new DashboardValidationError(`virtualKeyValue: ${vscode.l10n.t("enter the key sent in this header")}`);
 	}
 	if (virtualKeyHeader === undefined && virtualKeyValue !== undefined) {
-		throw new DashboardValidationError(vscode.l10n.t("virtualKeyHeader: name the header that carries the key"));
+		throw new DashboardValidationError(`virtualKeyHeader: ${vscode.l10n.t("name the header that carries the key")}`);
 	}
 
 	const connection: DraftConnection = {

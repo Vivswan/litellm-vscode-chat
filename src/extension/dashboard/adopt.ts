@@ -136,18 +136,21 @@ export async function applyAdoptServer(
 ): Promise<string | undefined> {
 	const label = intent.label.trim();
 	if (label.length === 0) {
-		throw new DashboardValidationError(vscode.l10n.t("label: enter a label"));
+		// The "fieldId:" prefix stays an ASCII identifier outside the
+		// translation: sectionFailureText matches it against the internal field
+		// names to route the failure onto the right form section.
+		throw new DashboardValidationError(`label: ${vscode.l10n.t("enter a label")}`);
 	}
 	if (isUnsafeRecordKey(label)) {
-		throw new DashboardValidationError(vscode.l10n.t("label: reserved name"));
+		throw new DashboardValidationError(`label: ${vscode.l10n.t("reserved name")}`);
 	}
 	const baseUrl = intent.baseUrl.trim();
 	if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
-		throw new DashboardValidationError(vscode.l10n.t("baseUrl: not a usable http(s) URL"));
+		throw new DashboardValidationError(`baseUrl: ${vscode.l10n.t("not a usable http(s) URL")}`);
 	}
 	const entries = rawServerEntries(env.readServersSetting());
 	if (acceptedEntry(entries, label) !== undefined) {
-		throw new DashboardValidationError(vscode.l10n.t("label: an entry with this label already exists"));
+		throw new DashboardValidationError(`label: ${vscode.l10n.t("an entry with this label already exists")}`);
 	}
 
 	const credentials = env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);

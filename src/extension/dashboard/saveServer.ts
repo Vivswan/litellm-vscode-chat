@@ -152,7 +152,11 @@ export async function applySaveServerSetting(
 	}
 	const renaming = targetLabel !== label;
 	if (renaming && acceptedEntry(entries, label) !== undefined) {
-		throw new DashboardValidationError(vscode.l10n.t("label: an entry with this label already exists"));
+		// The "fieldId:" prefix is what sectionFailureText matches against the
+		// internal field names to route the failure onto the right form section,
+		// so it stays an ASCII identifier outside the translation; only the body
+		// localizes. Same rule for every field-prefixed message below.
+		throw new DashboardValidationError(`label: ${vscode.l10n.t("an entry with this label already exists")}`);
 	}
 
 	const mode: SaveMode =
@@ -212,19 +216,19 @@ export async function applySaveServerSetting(
 	// the token URL and client ID pair.
 	const oauthExtras = planResolves(plans.oauthClientSecret) || newEntry.oauthScopes !== undefined;
 	if ((newEntry.oauthClientId !== undefined || oauthExtras) && newEntry.oauthTokenUrl === undefined) {
-		throw new DashboardValidationError(vscode.l10n.t("oauthTokenUrl: OAuth needs the token URL and client ID"));
+		throw new DashboardValidationError(`oauthTokenUrl: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 	if ((newEntry.oauthTokenUrl !== undefined || oauthExtras) && newEntry.oauthClientId === undefined) {
-		throw new DashboardValidationError(vscode.l10n.t("oauthClientId: OAuth needs the token URL and client ID"));
+		throw new DashboardValidationError(`oauthClientId: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 
 	// The virtual key pair is both-or-neither, like the form enforces.
 	const virtualKeyResolves = planResolves(plans.virtualKeyValue);
 	if (newEntry.virtualKeyHeader !== undefined && !virtualKeyResolves) {
-		throw new DashboardValidationError(vscode.l10n.t("virtualKeyValue: enter the key sent in this header"));
+		throw new DashboardValidationError(`virtualKeyValue: ${vscode.l10n.t("enter the key sent in this header")}`);
 	}
 	if (newEntry.virtualKeyHeader === undefined && virtualKeyResolves) {
-		throw new DashboardValidationError(vscode.l10n.t("virtualKeyHeader: name the header that carries the key"));
+		throw new DashboardValidationError(`virtualKeyHeader: ${vscode.l10n.t("name the header that carries the key")}`);
 	}
 
 	// Phases 1 and 2 as one guarded unit: the additive secret operations (a
