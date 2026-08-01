@@ -1,8 +1,8 @@
 # LiteLLM Provider for GitHub Copilot Chat
 
-[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/vivswan.litellm-vscode-chat?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/vivswan.litellm-vscode-chat)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
-[![Rating](https://img.shields.io/visual-studio-marketplace/stars/vivswan.litellm-vscode-chat)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat&ssr=false#review-details)
+[![Marketplace](https://vsmarketplacebadges.dev/version/vivswan.litellm-vscode-chat.svg)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
+[![Installs](https://vsmarketplacebadges.dev/installs/vivswan.litellm-vscode-chat.svg)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
+[![Rating](https://vsmarketplacebadges.dev/rating-short/vivswan.litellm-vscode-chat.svg)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat&ssr=false#review-details)
 [![CI](https://github.com/Vivswan/litellm-vscode-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/Vivswan/litellm-vscode-chat/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/Vivswan/litellm-vscode-chat)](LICENSE)
 

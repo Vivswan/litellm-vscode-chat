@@ -8,6 +8,7 @@
 .codex/*
 !.codex/hooks.json
 .worktrees/
+.impeccable/
 
 # IDEs and editors
 .idea/
