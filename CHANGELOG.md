@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.1](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.0...v0.4.1) (2026-08-01)
+
+
+### Bug Fixes
+
+* **dashboard:** add a Diagnostics tab and polish the webview surfaces ([abc99f6](https://github.com/Vivswan/litellm-vscode-chat/commit/abc99f6f2180a625c33d274b68e1a84ff309b00c))
+* **dashboard:** open diagnostics in the dashboard instead of a dialog ([4efcc7c](https://github.com/Vivswan/litellm-vscode-chat/commit/4efcc7ce8f5974ae7fe46cf7fa113e442dcfb9b3))
+* **dashboard:** sweep the seams the post-merge integration review found ([b3aea9f](https://github.com/Vivswan/litellm-vscode-chat/commit/b3aea9f5f3a891a613f25d8d7344e54c9bb96720))
+* keep repo tooling files out of the VSIX and allowlist the package check ([668c8bd](https://github.com/Vivswan/litellm-vscode-chat/commit/668c8bd4d5b73c6d0329b18e7e04d5a4517376dc))
+* **marketplace:** sharpen the listing metadata and add README badges ([6661a63](https://github.com/Vivswan/litellm-vscode-chat/commit/6661a6373c3876be736dc3a8bb3a15f2567907ca))
+* **tests:** pin tooltip placement, models-table structure, and the blur guard ([84e9e6c](https://github.com/Vivswan/litellm-vscode-chat/commit/84e9e6ce8782240ca86b63ab74c02426678c2c31))
+
 ## [0.4.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.3.1...v0.4.0) (2026-07-31)
 
 
