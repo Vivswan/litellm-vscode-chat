@@ -139,6 +139,11 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"diagnosticsReportText",
 	"modelParametersTitle",
 	"headersTitle",
+	"sourceName",
+	"skipReasonText",
+	"cachePricing",
+	"longContextPricing",
+	"maxTokensParts",
 ];
 
 /**
