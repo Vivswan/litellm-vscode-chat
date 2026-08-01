@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { ConfigurationPrompt } from "../../provider/config";
-import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
+import { CMD } from "../../shared/config/commandIds";
 import type { AggregatedStatus } from "../../shared/servers";
 import { isErrorServerStatus } from "../../shared/servers";
 import { GITHUB_DOCS_URL } from "../../shared/util/links";
@@ -11,9 +11,10 @@ export interface MessageAction {
 }
 
 /**
- * The label every button that promises the server editor shares; such a
- * button must route to reconfigureAction (or, for the raw showErrorMessage
- * path below, INTERNAL_CMD.manageServers), never to the hub menu.
+ * The label every button that promises configuration shares; such a button
+ * must route to reconfigureAction (or, for the raw showErrorMessage path
+ * below, CMD.openDashboard directly), landing on the dashboard's Servers &
+ * Models view - never on the hub menu or a native editor.
  */
 export const CONFIGURE_NOW_LABEL = "Configure Now";
 
@@ -36,7 +37,7 @@ export async function showActionableMessage(
 }
 
 export function reconfigureAction(label = "Reconfigure"): MessageAction {
-	return { label, run: () => void vscode.commands.executeCommand(INTERNAL_CMD.manageServers) };
+	return { label, run: () => void vscode.commands.executeCommand(CMD.openDashboard) };
 }
 
 export function reportIssueAction(label = "Report Issue"): MessageAction {
@@ -81,7 +82,7 @@ export function createConfigurationPrompt(hasConfiguredServers: () => boolean): 
 				"Learn More"
 			);
 			if (choice === CONFIGURE_NOW_LABEL) {
-				await vscode.commands.executeCommand(INTERNAL_CMD.manageServers);
+				await vscode.commands.executeCommand(CMD.openDashboard);
 				return true;
 			}
 			if (choice === "Learn More") {

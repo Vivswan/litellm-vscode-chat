@@ -32,14 +32,19 @@ export const MANAGE_COMMAND_TITLE = "Manage LiteLLM Provider";
 
 /**
  * User-facing commands registered at runtime but kept out of
- * contributes.commands on purpose: manageServers is the direct route to the
- * server editor for buttons that promise configuration, while the palette
- * shows only the manage hub (see registerManageCommand). The litellm._test.*
- * harness commands are deliberately not mapped here: they are
- * test-mode-only, and their ids double as oracle strings in the suites.
+ * contributes.commands on purpose: manageServers is the server-management
+ * route the hub's server entry and the dashboard's manage intent share
+ * (the dashboard, or the legacy quick pick before migration), and
+ * openGroupsFile opens the host's provider-groups JSON directly - the one
+ * place a leftover provider group can be deleted, since no editor UI for it
+ * is sanctioned. The palette shows only the manage hub (see
+ * registerManageCommand). The litellm._test.* harness commands are
+ * deliberately not mapped here: they are test-mode-only, and their ids
+ * double as oracle strings in the suites.
  */
 export const INTERNAL_CMD = {
 	manageServers: "litellm.manageServers",
+	openGroupsFile: "litellm.openGroupsFile",
 } as const;
 
 /** Any command ID this extension registers, contributed or internal. */

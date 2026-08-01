@@ -56,7 +56,7 @@ export function canMutateRegistry(getUiMode: () => ManagementUiMode): boolean {
 	}
 	if (!REGISTRY_SERVED_IN_MODE[getUiMode()]) {
 		void vscode.window.showInformationMessage(
-			`LiteLLM servers are now managed in VS Code's language models UI. Re-run "${MANAGE_COMMAND_TITLE}" to open it.`
+			`LiteLLM servers are now managed in the LiteLLM dashboard. Re-run "${MANAGE_COMMAND_TITLE}" to open it.`
 		);
 		return false;
 	}
@@ -276,19 +276,18 @@ async function manageServerFlow(
 	}
 }
 
-/** Opens the Models Management editor, where VS Code manages provider groups. */
-const NATIVE_MANAGE_MODELS_COMMAND = "workbench.action.chat.manage";
-
 /** Settings-view filter that narrows to this extension's settings. */
 export const EXTENSION_SETTINGS_FILTER = "@ext:vivswan.litellm-vscode-chat";
 
 /**
  * Which UI the hub's server entry opens. "legacy" is the quick-pick server
- * flow. "nativePreferred" tries the native Manage Models UI and falls back to
- * the quick pick (fresh installs: the registry is still live, so servers
- * added there are served and migrated later). "nativeRequired" never falls
- * back: after the migration the registry is no longer served, so the quick
- * pick would edit dead configuration.
+ * flow over the registry. The other two open the dashboard's Servers & Models
+ * view; their names date from when they targeted the native editor and are
+ * kept because they still encode the real split - whether the legacy registry
+ * is served (see REGISTRY_SERVED_IN_MODE). "nativePreferred" means the
+ * registry is still live (fresh installs: servers added there are served and
+ * migrated later), "nativeRequired" means the migration retired it, so the
+ * quick pick would edit dead configuration.
  */
 export type ManagementUiMode = "legacy" | "nativePreferred" | "nativeRequired";
 
@@ -302,7 +301,7 @@ interface HubItem extends vscode.QuickPickItem {
 
 const HUB_ITEMS: readonly HubItem[] = [
 	{
-		label: "$(server) Manage Language Models",
+		label: "$(server) Manage Servers",
 		description: "Servers, API keys, and which models are enabled",
 		action: "servers",
 	},
@@ -349,10 +348,10 @@ const HUB_ITEMS: readonly HubItem[] = [
 ];
 
 /**
- * The hub's server entry: the native provider-group editor where the mode
- * allows it, otherwise the legacy quick-pick flows over the registry (see
- * ManagementUiMode). Test Connection and Sync Models are not repeated in the
- * legacy list; the hub the user just came from carries both.
+ * The hub's server entry: the dashboard's Servers & Models view where the
+ * mode allows it, otherwise the legacy quick-pick flows over the registry
+ * (see ManagementUiMode). Test Connection and Sync Models are not repeated in
+ * the legacy list; the hub the user just came from carries both.
  */
 async function openServerManagement(
 	registry: ServerRegistry,
@@ -361,20 +360,8 @@ async function openServerManagement(
 ): Promise<void> {
 	const mode = getUiMode();
 	if (mode !== "legacy") {
-		try {
-			await vscode.commands.executeCommand(NATIVE_MANAGE_MODELS_COMMAND);
-			return;
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			if (mode === "nativeRequired") {
-				logger.log(`Language-model management UI unavailable (${message})`);
-				void vscode.window.showErrorMessage(
-					"LiteLLM servers are managed in VS Code's Manage Language Models UI, which could not be opened. Update VS Code or check that GitHub Copilot Chat is enabled."
-				);
-				return;
-			}
-			logger.log(`Language-model management UI unavailable (${message}); using the server quick pick`);
-		}
+		await vscode.commands.executeCommand(CMD.openDashboard);
+		return;
 	}
 
 	const servers = registry.getServers();
@@ -412,12 +399,12 @@ async function openServerManagement(
 
 /**
  * litellm.manage is the extension's front door: a hub quick pick that routes
- * to the native server editor and the individually registered commands. It
- * holds no logic of its own beyond the server entry's UI-mode handling.
+ * to the server-management surface and the individually registered commands.
+ * It holds no logic of its own beyond the server entry's UI-mode handling.
  *
- * litellm.manageServers is the direct route to the server editor for buttons
- * that promise configuration ("Configure Now", "Manage Servers"): those must
- * not land a user on the hub menu. It stays out of package.json's
+ * litellm.manageServers is the direct route to server management for callers
+ * that promise configuration (the dashboard's manage intent): those must not
+ * land a user on the hub menu. It stays out of package.json's
  * contributes.commands, so the palette shows only the hub.
  */
 export function registerManageCommand(

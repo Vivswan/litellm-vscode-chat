@@ -82,7 +82,7 @@ suite("extension/servers/serverManagement", () => {
 			const run = await runHub(undefined);
 			const labels = run.itemLabels.map((label) => label.replace(/^\$\([^)]+\) /, ""));
 			assert.deepStrictEqual(labels, [
-				"Manage Language Models",
+				"Manage Servers",
 				"Open Dashboard",
 				"Sync Models Now",
 				"Test Connection",
@@ -99,9 +99,9 @@ suite("extension/servers/serverManagement", () => {
 			assert.deepStrictEqual(run.executed, []);
 		});
 
-		test("Manage Language Models opens the native editor", async () => {
-			const run = await runHub("Manage Language Models");
-			assert.deepStrictEqual(run.executed, [{ command: "workbench.action.chat.manage", args: [] }]);
+		test("Manage Servers opens the dashboard, not a native editor", async () => {
+			const run = await runHub("Manage Servers");
+			assert.deepStrictEqual(run.executed, [{ command: "litellm.openDashboard", args: [] }]);
 		});
 
 		test("Open Settings filters the settings view to this extension", async () => {
@@ -130,20 +130,15 @@ suite("extension/servers/serverManagement", () => {
 	suite("server-entry routing", () => {
 		interface ManageRun {
 			executed: string[];
-			errorMessages: string[];
 			hubOpened: boolean;
 			serverListOpened: boolean;
 			inputBoxOpened: boolean;
 		}
 
 		// "hub" selects the hub's server entry; "direct" invokes the unlisted
-		// litellm.manageServers command that configuration buttons use. Both
-		// exercise the mode-dependent native-vs-legacy logic behind the entry.
-		async function runManageCommand(
-			mode: ManagementUiMode,
-			nativeUiFails: boolean,
-			entry: "hub" | "direct" = "hub"
-		): Promise<ManageRun> {
+		// litellm.manageServers command the dashboard's manage intent uses. Both
+		// exercise the mode-dependent dashboard-vs-legacy logic behind the entry.
+		async function runManageCommand(mode: ManagementUiMode, entry: "hub" | "direct" = "hub"): Promise<ManageRun> {
 			const storage = makeExtensionStorage();
 			const registry = new ServerRegistry(storage.memento, storage.secrets);
 			const logger = new Logger({ info: () => {}, error: () => {} });
@@ -151,24 +146,15 @@ suite("extension/servers/serverManagement", () => {
 
 			const run: ManageRun = {
 				executed: [],
-				errorMessages: [],
 				hubOpened: false,
 				serverListOpened: false,
 				inputBoxOpened: false,
 			};
 			const origExecute = vscode.commands.executeCommand;
-			const origError = vscode.window.showErrorMessage;
 			const origQuickPick = vscode.window.showQuickPick;
 			const origInputBox = vscode.window.showInputBox;
 			(vscode.commands as Record<string, unknown>).executeCommand = async (commandId: string) => {
 				run.executed.push(commandId);
-				if (nativeUiFails) {
-					throw new Error("command 'workbench.action.chat.manage' not found");
-				}
-			};
-			(vscode.window as Record<string, unknown>).showErrorMessage = async (message: string) => {
-				run.errorMessages.push(message);
-				return undefined;
 			};
 			(vscode.window as Record<string, unknown>).showQuickPick = async (
 				items: { label: string; action?: string }[]
@@ -189,61 +175,48 @@ suite("extension/servers/serverManagement", () => {
 				await (entry === "hub" ? handlers.manage() : handlers.manageServers());
 			} finally {
 				(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
-				(vscode.window as Record<string, unknown>).showErrorMessage = origError;
 				(vscode.window as Record<string, unknown>).showQuickPick = origQuickPick;
 				(vscode.window as Record<string, unknown>).showInputBox = origInputBox;
 			}
 			return run;
 		}
 
-		test("nativeRequired shows an error and never opens the legacy flow when the native UI fails", async () => {
-			const run = await runManageCommand("nativeRequired", true);
+		test("nativeRequired opens the dashboard and never the legacy flow", async () => {
+			const run = await runManageCommand("nativeRequired");
 
-			assert.deepStrictEqual(run.executed, ["workbench.action.chat.manage"]);
-			assert.strictEqual(run.errorMessages.length, 1);
-			const errorMessage = expectDefined(run.errorMessages[0]);
-			assert.ok(errorMessage.includes("Manage Language Models"), errorMessage);
+			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
 			assert.strictEqual(run.serverListOpened, false, "the quick pick edits configuration nothing serves");
 			assert.strictEqual(run.inputBoxOpened, false, "the add-server flow edits configuration nothing serves");
 		});
 
-		test("nativePreferred falls back to the legacy flow when the native UI fails", async () => {
-			const run = await runManageCommand("nativePreferred", true);
+		test("nativePreferred opens the dashboard; the registry quick pick is legacy-only", async () => {
+			const run = await runManageCommand("nativePreferred");
 
-			assert.deepStrictEqual(run.executed, ["workbench.action.chat.manage"]);
-			assert.deepStrictEqual(run.errorMessages, []);
-			assert.strictEqual(run.inputBoxOpened, true, "an empty registry drops into the add-server flow");
-		});
-
-		test("a working native UI opens without touching the legacy flow", async () => {
-			const run = await runManageCommand("nativeRequired", false);
-
-			assert.deepStrictEqual(run.executed, ["workbench.action.chat.manage"]);
-			assert.deepStrictEqual(run.errorMessages, []);
+			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
 			assert.strictEqual(run.serverListOpened, false);
 			assert.strictEqual(run.inputBoxOpened, false);
 		});
 
-		test("legacy mode never invokes the native UI", async () => {
-			const run = await runManageCommand("legacy", false);
+		test("legacy mode opens the legacy flow without the dashboard", async () => {
+			const run = await runManageCommand("legacy");
 
 			assert.deepStrictEqual(run.executed, []);
 			assert.strictEqual(run.inputBoxOpened, true, "an empty registry drops into the add-server flow");
 		});
 
-		test("litellm.manageServers opens the native editor without showing the hub", async () => {
-			const run = await runManageCommand("nativeRequired", false, "direct");
+		test("litellm.manageServers opens the dashboard without showing the hub", async () => {
+			const run = await runManageCommand("nativeRequired", "direct");
 
-			assert.deepStrictEqual(run.executed, ["workbench.action.chat.manage"]);
-			assert.strictEqual(run.hubOpened, false, "configuration buttons must not land on the hub menu");
+			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
+			assert.strictEqual(run.hubOpened, false, "configuration routes must not land on the hub menu");
 			assert.strictEqual(run.serverListOpened, false);
 		});
 
 		test("litellm.manageServers drops into the legacy add flow without showing the hub", async () => {
-			const run = await runManageCommand("legacy", false, "direct");
+			const run = await runManageCommand("legacy", "direct");
 
 			assert.deepStrictEqual(run.executed, []);
-			assert.strictEqual(run.hubOpened, false, "configuration buttons must not land on the hub menu");
+			assert.strictEqual(run.hubOpened, false, "configuration routes must not land on the hub menu");
 			assert.strictEqual(run.inputBoxOpened, true, "an empty registry drops into the add-server flow");
 		});
 	});
@@ -284,7 +257,6 @@ suite("extension/servers/serverManagement", () => {
 			/** The warning-dialog answer; a function may flip state before answering. */
 			warningResponse?: string | undefined | ((message: string) => string | undefined);
 			mode?: ManagementUiMode | (() => ManagementUiMode);
-			nativeUiFails?: boolean;
 		}
 
 		/** Drive litellm.manageServers through stubbed window UI; every stub restores in finally. */
@@ -355,9 +327,6 @@ suite("extension/servers/serverManagement", () => {
 			};
 			(vscode.commands as Record<string, unknown>).executeCommand = async (commandId: string) => {
 				result.executed.push(commandId);
-				if (plan.nativeUiFails) {
-					throw new Error("command 'workbench.action.chat.manage' not found");
-				}
 			};
 			try {
 				await handler();
@@ -599,7 +568,7 @@ suite("extension/servers/serverManagement", () => {
 			assert.strictEqual(await run.registry.getApiKey(server.id), "k");
 		});
 
-		test("a migration completing while the add prompts are open aborts the write with the language-models-UI notice", async () => {
+		test("a migration completing while the add prompts are open aborts the write with the dashboard notice", async () => {
 			let migrated = false;
 			const run = await runServerWalk({
 				mode: () => (migrated ? "nativeRequired" : "legacy"),
@@ -615,7 +584,7 @@ suite("extension/servers/serverManagement", () => {
 				],
 			});
 			assert.deepStrictEqual(run.registry.getServers(), [], "the just-migrated registry must not be written");
-			const notices = run.infoToasts.filter((toast) => toast.message.includes("language models UI"));
+			const notices = run.infoToasts.filter((toast) => toast.message.includes("dashboard"));
 			assert.strictEqual(notices.length, 1);
 		});
 
@@ -656,80 +625,49 @@ suite("extension/servers/serverManagement", () => {
 			assert.strictEqual(remove.registry.getServers().length, 1, "the migrated registry must not be mutated");
 		});
 
-		test("nativePreferred's fallback lets a fresh-install add complete without tripping the mutation guard", async () => {
-			const run = await runServerWalk({
-				mode: "nativePreferred",
-				nativeUiFails: true,
-				inputs: ["Prod", "http://localhost:4000", "sk-key"],
-			});
-			assert.deepStrictEqual(run.executed, ["workbench.action.chat.manage"]);
-			const server = expectDefined(run.registry.getServers()[0], "the fresh-install add must store the server");
-			assert.strictEqual(server.label, "Prod");
+		test("nativePreferred opens the dashboard and never prompts, leaving the registry untouched", async () => {
+			const run = await runServerWalk({ seed: [["Prod", "http://prod", ""]], mode: "nativePreferred" });
+			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
+			assert.deepStrictEqual(run.quickPicks, [], "the legacy list must not open beside the dashboard");
+			assert.deepStrictEqual(run.inputOptions, []);
 			assert.deepStrictEqual(
-				run.infoToasts.filter((toast) => toast.message.includes("language models UI")),
-				[],
-				"nativePreferred must not read as a retired registry"
+				run.registry.getServers().map(({ id, label, baseUrl }) => ({ id, label, baseUrl })),
+				run.seeded
 			);
 		});
 
-		test("nativePreferred with a working native UI never opens the legacy list; its fallback shows the populated list", async () => {
-			const native = await runServerWalk({ seed: [["Prod", "http://prod", ""]], mode: "nativePreferred" });
-			assert.deepStrictEqual(native.executed, ["workbench.action.chat.manage"]);
-			assert.deepStrictEqual(native.quickPicks, [], "the legacy list must not open beside the native UI");
-
-			const fallback = await runServerWalk({
-				seed: [["Prod", "http://prod", ""]],
-				mode: "nativePreferred",
-				nativeUiFails: true,
-				picks: [undefined],
-			});
-			assert.deepStrictEqual(fallback.executed, ["workbench.action.chat.manage"]);
-			const list = expectDefined(fallback.quickPicks[0], "the fallback must open the server list, not the add flow");
-			assert.ok(list.items.some((item) => item.label === "$(server) Prod"));
-			assert.deepStrictEqual(fallback.inputOptions, [], "a populated registry must not drop into the add flow");
-		});
-
-		test("nativeRequired with a failing native UI surfaces the error and leaves a populated registry untouched", async () => {
-			const errors: string[] = [];
-			const origError = vscode.window.showErrorMessage;
-			(vscode.window as Record<string, unknown>).showErrorMessage = async (message: string) => {
-				errors.push(message);
-				return undefined;
-			};
-			try {
-				const run = await runServerWalk({
-					seed: [["Prod", "http://prod", "k"]],
-					mode: "nativeRequired",
-					nativeUiFails: true,
-				});
-				assert.deepStrictEqual(run.executed, ["workbench.action.chat.manage"]);
-				assert.strictEqual(errors.length, 1);
-				assert.ok(expectDefined(errors[0]).includes("Manage Language Models"), expectDefined(errors[0]));
-				assert.deepStrictEqual(run.quickPicks, [], "the legacy quick pick would edit dead configuration");
-				assert.deepStrictEqual(run.inputOptions, []);
-				// Full no-mutation proof: same entry count, ids, labels, and URLs
-				// as the moment after seeding, and the key survives untouched.
-				assert.deepStrictEqual(
-					run.registry.getServers().map(({ id, label, baseUrl }) => ({ id, label, baseUrl })),
-					run.seeded
-				);
-				const server = expectDefined(run.registry.getServers()[0]);
-				assert.strictEqual(await run.registry.getApiKey(server.id), "k");
-			} finally {
-				(vscode.window as Record<string, unknown>).showErrorMessage = origError;
-			}
+		test("nativeRequired opens the dashboard and leaves a populated registry untouched", async () => {
+			const run = await runServerWalk({ seed: [["Prod", "http://prod", "k"]], mode: "nativeRequired" });
+			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
+			assert.deepStrictEqual(run.quickPicks, [], "the legacy quick pick would edit dead configuration");
+			assert.deepStrictEqual(run.inputOptions, []);
+			// Full no-mutation proof: same entry count, ids, labels, and URLs
+			// as the moment after seeding, and the key survives untouched.
+			assert.deepStrictEqual(
+				run.registry.getServers().map(({ id, label, baseUrl }) => ({ id, label, baseUrl })),
+				run.seeded
+			);
+			const server = expectDefined(run.registry.getServers()[0]);
+			assert.strictEqual(await run.registry.getApiKey(server.id), "k");
 		});
 	});
 
 	suite("walkthrough contribution", () => {
-		test("the Open Settings button carries the same filter the hub uses", () => {
+		interface WalkthroughStep {
+			id: string;
+			description: string;
+			completionEvents?: string[];
+		}
+
+		function walkthroughSteps(): WalkthroughStep[] {
 			const extension = expectDefined(vscode.extensions.getExtension("vivswan.litellm-vscode-chat"));
-			const walkthroughs = (
-				extension.packageJSON as {
-					contributes: { walkthroughs: { steps: { id: string; description: string }[] }[] };
-				}
-			).contributes.walkthroughs;
-			const steps = expectDefined(walkthroughs[0]).steps;
+			const walkthroughs = (extension.packageJSON as { contributes: { walkthroughs: { steps: WalkthroughStep[] }[] } })
+				.contributes.walkthroughs;
+			return expectDefined(walkthroughs[0]).steps;
+		}
+
+		test("the Open Settings button carries the same filter the hub uses", () => {
+			const steps = walkthroughSteps();
 			const fineTune = expectDefined(steps.find((step) => step.id === "litellm.walkthrough.fineTune"));
 
 			// The walkthrough renderer parses the link as a URI and JSON-decodes
@@ -743,10 +681,20 @@ suite("extension/servers/serverManagement", () => {
 			const args: unknown = JSON.parse(decodeURIComponent(expectDefined(match[1])));
 			assert.deepStrictEqual(args, [EXTENSION_SETTINGS_FILTER]);
 		});
+
+		test("the connect-server step's button and completion event open the dashboard", () => {
+			const steps = walkthroughSteps();
+			const connect = expectDefined(steps.find((step) => step.id === "litellm.walkthrough.connectServer"));
+
+			// The dashboard is the configuration surface; no walkthrough button
+			// may point at a native editor.
+			assert.ok(connect.description.includes("(command:litellm.openDashboard)"), connect.description);
+			assert.deepStrictEqual(connect.completionEvents, ["onCommand:litellm.openDashboard"]);
+		});
 	});
 
 	suite("canMutateRegistry", () => {
-		test("refuses with a pointer to the native UI once the migration completed", async () => {
+		test("refuses with a pointer to the dashboard once the migration completed", async () => {
 			const messages: string[] = [];
 			const origInfo = vscode.window.showInformationMessage;
 			(vscode.window as Record<string, unknown>).showInformationMessage = async (message: string) => {
@@ -772,7 +720,7 @@ suite("extension/servers/serverManagement", () => {
 				);
 				assert.strictEqual(messages.length, 1);
 				const notice = expectDefined(messages[0]);
-				assert.ok(notice.includes("language models UI"), notice);
+				assert.ok(notice.includes("dashboard"), notice);
 			} finally {
 				(vscode.window as Record<string, unknown>).showInformationMessage = origInfo;
 			}
