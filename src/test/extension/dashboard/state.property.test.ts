@@ -21,6 +21,7 @@ import {
 	type HeaderScalar,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	NUMBER_SETTING_IDS,
+	REVEALABLE_SETTING_IDS,
 	SECRET_FIELD_IDS,
 	type WebviewToExtensionMessage,
 } from "../../../extension/dashboard/protocol";
@@ -89,6 +90,10 @@ const validMessageArbs: Readonly<Record<WebviewToExtensionMessage["type"], fc.Ar
 	resetSetting: fc.record({
 		type: fc.constant("resetSetting"),
 		setting: fc.constantFrom(...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS),
+	}),
+	revealSetting: fc.record({
+		type: fc.constant("revealSetting"),
+		setting: fc.constantFrom(...REVEALABLE_SETTING_IDS),
 	}),
 	setModelParameters: fc.record({
 		type: fc.constant("setModelParameters"),

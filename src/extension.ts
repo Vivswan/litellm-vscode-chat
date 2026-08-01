@@ -35,6 +35,7 @@ import {
 	reconfigureAction,
 	showActionableMessage,
 } from "./extension/ui/notifier";
+import { registerOpenSettingKeyCommand } from "./extension/ui/openSettingKey";
 import { StatusBarManager } from "./extension/ui/status";
 import { LiteLLMChatModelProvider } from "./provider";
 import { CMD, VENDOR_ID } from "./shared/config/commandIds";
@@ -239,6 +240,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// host's chatLanguageModels.json directly, the one place a group can be
 	// deleted (no editor UI for it is sanctioned).
 	registerOpenGroupsFileCommand(context, logger);
+
+	// Settings.json deep link: the dashboard's per-setting jump (revealSetting).
+	registerOpenSettingKeyCommand(context, logger);
 
 	// Report Issue command
 	registerReportIssueCommand(

@@ -467,8 +467,11 @@ const STYLES = `
 	.setting-desc { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin: 2px 0 0; }
 	.setting-control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 	/* Wide enough for the nullable field's "derived from context length"
-	   placeholder to read whole, not just for the digits. */
-	.setting-control input[type="number"] { width: 200px; appearance: textfield; }
+	   placeholder to read whole, not just for the digits. Duration fields are
+	   type="text" (the s/m/h suffixes need letters) and share the width so a
+	   grammar change never shifts the column. */
+	.setting-control input[type="number"], .setting-control input[type="text"] { width: 200px; }
+	.setting-control input[type="number"] { appearance: textfield; }
 	/* Plain fields like the native Settings editor: no spin buttons popping in
 	   on hover/focus and compressing the value. */
 	.setting-control input[type="number"]::-webkit-outer-spin-button,
@@ -497,6 +500,12 @@ const STYLES = `
 	   reaches it from the field it resets. */
 	.setting-row .reset { visibility: hidden; }
 	.setting-row:hover .reset, .setting-row:focus-within .reset { visibility: visible; }
+	/* The settings.json jump beside each row title follows the Reset idiom
+	   (visibility, not display, so the head never reflows); on the record
+	   editors' h3 headings it rests visible, like the docs links there. */
+	.setting-row .reveal-json { visibility: hidden; padding: 0 4px; }
+	.setting-row:hover .reveal-json, .setting-row:focus-within .reveal-json { visibility: visible; }
+	h3 .reveal-json { padding: 0 4px; }
 
 	.badge {
 		display: inline-block;

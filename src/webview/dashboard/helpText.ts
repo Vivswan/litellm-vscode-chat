@@ -96,11 +96,12 @@ export const SETTING_ROW_HELP: Partial<Record<NumberSettingId | BooleanSettingId
 		"Usually left empty: the input budget is then context length minus max output tokens. Setting it pins the " +
 		"input limit for every model, overriding even server-declared ones.",
 	requestTimeout:
-		"A hard bound on the whole chat call, streaming included. Requests are never retried, so raise it if long " +
-		"runs get cut off.",
+		"A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never " +
+		"retried, so raise it if long runs get cut off.",
+	discoveryTimeout: "A hard bound on one model-list fetch; type 30s, 1m, or plain ms.",
 	discoveryCacheTtl:
-		"How long discovered model lists are reused; 0 asks the server on every refresh. Sync Models Now always " +
-		"refreshes immediately.",
+		"How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models " +
+		"Now always refreshes immediately.",
 	"promptCaching.enabled":
 		"On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns " +
 		"instead of re-sending the whole history at full price.",

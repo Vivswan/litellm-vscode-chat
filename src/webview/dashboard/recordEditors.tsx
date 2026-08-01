@@ -19,8 +19,33 @@ import {
 	HELP_MODEL_PARAMETER_VALUE,
 	HELP_MODEL_PARAMETERS_SECTION,
 } from "./helpText";
-import { IconAdd, IconTrash } from "./icons";
+import { IconAdd, IconBraces, IconTrash } from "./icons";
 import { postMessage } from "./vscodeApi";
+
+/**
+ * The two editors' headings, exported so the settings form's filter matches
+ * an editor by exactly the title it renders (the scalar rows' label rule).
+ */
+export const MODEL_PARAMETERS_TITLE = "Model parameters";
+export const HEADERS_TITLE = "Custom headers";
+
+/**
+ * The record editors' settings.json jump, the settings form's RevealButton
+ * on an editor heading: rests visible like the docs link beside it (an h3 has
+ * no hover band to reveal from).
+ */
+function HeadingRevealButton({ title, settingId }: { title: string; settingId: "modelParameters" | "headers" }) {
+	return (
+		<button
+			type="button"
+			class="quiet reveal-json"
+			aria-label={`Open ${title} in settings.json`}
+			onClick={() => postMessage({ type: "revealSetting", setting: settingId })}
+		>
+			<IconBraces />
+		</button>
+	);
+}
 
 /** How long the "Saved" note lingers after the reflecting push; toast-scale, and any new edit clears it early. */
 const SAVED_NOTICE_MS = 4000;
@@ -445,11 +470,14 @@ export function ModelParametersEditor({
 	scoped,
 	models,
 	failure,
+	hidden,
 }: {
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
 	/** The discovered models, feeding the prefix input's suggestions. */
 	models: readonly DashboardModel[];
 	failure: IntentFailure | undefined;
+	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
+	hidden?: boolean;
 }) {
 	const draft = useDraftRows(toGroups(scoped.value), failure);
 	const groups = draft.rows;
@@ -502,10 +530,11 @@ export function ModelParametersEditor({
 
 	const modelIds = Array.from(new Set(models.map((model) => model.id)));
 	return (
-		<section>
+		<section hidden={hidden}>
 			<h3>
-				Model parameters <Help text={HELP_MODEL_PARAMETERS_SECTION} />{" "}
+				{MODEL_PARAMETERS_TITLE} <Help text={HELP_MODEL_PARAMETERS_SECTION} />{" "}
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label="Open the model parameters guide" />
+				<HeadingRevealButton title={MODEL_PARAMETERS_TITLE} settingId="modelParameters" />
 			</h3>
 			<p class="hint">
 				Request parameters sent per model prefix (longest prefix wins). Values are JSON: 0.2, true, "text", ["stop"].
@@ -622,9 +651,12 @@ export function ModelParametersEditor({
 export function HeadersEditor({
 	scoped,
 	failure,
+	hidden,
 }: {
 	scoped: ScopedRecordSetting<HeaderScalar>;
 	failure: IntentFailure | undefined;
+	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
+	hidden?: boolean;
 }) {
 	const draft = useDraftRows(toHeaderRows(scoped.value), failure);
 	const rows = draft.rows;
@@ -670,9 +702,10 @@ export function HeadersEditor({
 	};
 
 	return (
-		<section>
+		<section hidden={hidden}>
 			<h3>
-				Custom headers <Help text={HELP_CUSTOM_HEADERS_SECTION} />
+				{HEADERS_TITLE} <Help text={HELP_CUSTOM_HEADERS_SECTION} />
+				<HeadingRevealButton title={HEADERS_TITLE} settingId="headers" />
 			</h3>
 			<p class="hint">Sent with every LiteLLM request. Prefer User settings for values that are secrets.</p>
 			<ScopeNote scoped={scoped} />

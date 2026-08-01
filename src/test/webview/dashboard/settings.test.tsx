@@ -97,11 +97,43 @@ test("Enter reveals a bound error like blur does; parse errors show live per key
 
 test("isBoundViolation classifies exactly parseNumberDraft's minimum-bound rejections, for every setting", () => {
 	// The drift guard the display gating leans on: the two functions read the
-	// draft with the same trim-and-Number rules, so "invalid because of the
-	// minimum" and isBoundViolation must agree on every draft. Covers empties,
-	// whitespace, unparsable text, non-finite numbers, and values on both
-	// sides of every configured minimum (0, 1, and 1000).
-	const drafts = ["", "  ", "soon", "NaN", "Infinity", "1e999", "-5", "0", "0.5", "1", "999", "1000", " 300000 "];
+	// draft with the same grammar (durations included on ms settings), so
+	// "invalid because of the minimum" and isBoundViolation must agree on
+	// every draft. Covers empties, whitespace, unparsable text, non-finite
+	// numbers, values on both sides of every configured minimum (0, 1, and
+	// 1000), and the duration grammar's suffixes, typos, and bare suffixes.
+	const drafts = [
+		"",
+		"  ",
+		"soon",
+		"NaN",
+		"Infinity",
+		"1e999",
+		"-5",
+		"0",
+		"0.5",
+		"1",
+		"999",
+		"1000",
+		" 300000 ",
+		"500ms",
+		"999ms",
+		"1000ms",
+		"0.5s",
+		"1s",
+		"90s",
+		"5m",
+		" 5 M ",
+		"1.5h",
+		"-1s",
+		"0s",
+		"ms",
+		"h",
+		"5 min",
+		"5d",
+		"1e999s",
+		"9e307h",
+	];
 	for (const id of NUMBER_SETTING_IDS) {
 		for (const draft of drafts) {
 			const parse = parseNumberDraft(id, draft);
@@ -286,4 +318,184 @@ test("settings-row help glyphs are named for their setting, so a button list is 
 	// Call sites that pass no name keep the bare default: the section heading.
 	const sectionGlyph = root.querySelector("h2 button.help");
 	expect(sectionGlyph?.getAttribute("aria-label")).toBe("Help");
+});
+
+test("ms fields are text inputs (the duration suffixes need letters); token fields stay number inputs", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	for (const id of ["requestTimeout", "discoveryTimeout", "discoveryCacheTtl"]) {
+		const input = settingInput(root, id);
+		expect(input.getAttribute("type"), id).toBe("text");
+		// min is a number-input constraint; the duration grammar owns the bound.
+		expect(input.getAttribute("min"), id).toBeNull();
+	}
+	for (const id of ["defaultMaxOutputTokens", "defaultContextLength", "defaultMaxInputTokens"]) {
+		expect(settingInput(root, id).getAttribute("type"), id).toBe("number");
+		expect(settingInput(root, id).getAttribute("min"), id).not.toBeNull();
+	}
+});
+
+test("a duration draft commits its millisecond value, with the equivalence hint live while typing", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const input = settingInput(root, "requestTimeout");
+
+	fireInput(input, "5m");
+	expect(rowOf(input).querySelector(".setting-equiv")?.textContent).toBe("= 5 min");
+	// "5m" IS the stored 300000, so committing it posts nothing (the
+	// unchanged-posts-nothing rule sees through the spelling)...
+	fireKeyDown(input, "Enter");
+	expect(postedMessages).toEqual([]);
+
+	// ...while a real change posts the milliseconds the suffix scales to.
+	fireInput(input, "90s");
+	expect(rowOf(input).querySelector(".setting-equiv")?.textContent).toBe("= 1 min 30 s");
+	fireKeyDown(input, "Enter");
+	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "requestTimeout", value: 90000 }]);
+
+	// A draft spelling the stored value differently ("90s" over 90000) still
+	// counts as unchanged once committed: same value, no second post.
+	resetPosted();
+	const stored = makeSettings({ numbers: { ...makeSettings().numbers, requestTimeout: 90000 } });
+	const storedRoot = mount(<SettingsSection settings={stored} models={[]} failures={{}} />);
+	const storedInput = settingInput(storedRoot, "requestTimeout");
+	fireInput(storedInput, "90s");
+	fireBlur(storedInput);
+	expect(postedMessages).toEqual([]);
+});
+
+test("a unit typo reads as a live grammar error; a below-bound duration stays calm until blur", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const input = settingInput(root, "discoveryTimeout");
+
+	// A suffixed value below the bound is an honest mid-typing state ("500ms"
+	// on the way to "1500ms"), so it keeps the blur gate plain numbers get.
+	// This runs before any settle: the first blur arms the reveal latch.
+	fireInput(input, "500ms");
+	expect(rowOf(input).textContent).not.toContain("Must be at least");
+	fireBlur(input);
+	expect(rowOf(input).textContent).toContain("Must be at least 1000");
+	expect(postedMessages).toEqual([]);
+
+	// Typos never wait for blur: the grammar verdict tracks every keystroke.
+	fireInput(input, "5 min");
+	expect(rowOf(input).textContent).toContain("Not a duration - use ms, s, m, or h");
+	fireKeyDown(input, "Enter");
+	expect(postedMessages).toEqual([]);
+
+	fireInput(input, "45s");
+	fireBlur(input);
+	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "discoveryTimeout", value: 45000 }]);
+});
+
+/** The <section> whose h3 heading starts with the title (the heading also carries its glyphs). */
+function editorSection(root: ParentNode, heading: string): HTMLElement {
+	const section = Array.from(root.querySelectorAll("section")).find((candidate) =>
+		(candidate.querySelector("h3")?.textContent ?? "").trim().startsWith(heading)
+	);
+	if (!(section instanceof HTMLElement)) {
+		throw new Error(`no section titled ${heading}`);
+	}
+	return section;
+}
+
+test("the filter hides rows by label or description match and collapses emptied groups, all via hidden", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const filter = root.querySelector<HTMLInputElement>(".filterbar input");
+	if (filter === null) {
+		throw new Error("no filter input");
+	}
+	expect(filter.getAttribute("placeholder")).toBe("Filter settings, e.g. timeout");
+
+	fireInput(filter, "timeout");
+	// Label matches survive; pure misses hide.
+	expect(rowOf(settingInput(root, "requestTimeout")).hidden).toBe(false);
+	expect(rowOf(settingInput(root, "discoveryTimeout")).hidden).toBe(false);
+	expect(rowOf(settingInput(root, "defaultMaxInputTokens")).hidden).toBe(true);
+	expect(rowOf(settingInput(root, "maskApiKeyInput")).hidden).toBe(true);
+	// A group with no visible rows collapses whole, heading included; the
+	// hiding is the hidden attribute, never an unmount (the rows above were
+	// still queryable).
+	const groupOf = (id: string) => rowOf(settingInput(root, id)).closest(".settings-group") as HTMLElement;
+	expect(groupOf("requestTimeout").hidden).toBe(false);
+	expect(groupOf("maskApiKeyInput").hidden).toBe(true);
+	// Neither record editor talks about timeouts.
+	expect(editorSection(root, "Model parameters").hidden).toBe(true);
+	expect(editorSection(root, "Custom headers").hidden).toBe(true);
+
+	// Descriptions match too: only the request timeout's mentions the chat call.
+	fireInput(filter, "chat completion");
+	expect(rowOf(settingInput(root, "requestTimeout")).hidden).toBe(false);
+	expect(rowOf(settingInput(root, "discoveryTimeout")).hidden).toBe(true);
+
+	// Clearing the filter restores everything.
+	fireInput(filter, "");
+	expect(rowOf(settingInput(root, "maskApiKeyInput")).hidden).toBe(false);
+	expect(groupOf("maskApiKeyInput").hidden).toBe(false);
+	expect(editorSection(root, "Custom headers").hidden).toBe(false);
+});
+
+test("the filter matches the record editors by their key names (nested parameter names included) and titles", () => {
+	const settings = makeSettings({
+		modelParameters: {
+			editScope: "global",
+			value: { "gpt-4": { temperature: 0.2 } },
+			otherScopes: [],
+			effective: { "gpt-4": { temperature: 0.2 } },
+		},
+		headers: {
+			editScope: "global",
+			value: { "x-litellm-api-key": "v" },
+			otherScopes: [],
+			effective: { "x-litellm-api-key": "v" },
+		},
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+
+	// A header name keeps the headers editor; the parameters editor goes.
+	fireInput(filter, "litellm-api");
+	expect(editorSection(root, "Custom headers").hidden).toBe(false);
+	expect(editorSection(root, "Model parameters").hidden).toBe(true);
+
+	// A nested parameter name keeps the parameters editor.
+	fireInput(filter, "temperature");
+	expect(editorSection(root, "Model parameters").hidden).toBe(false);
+	expect(editorSection(root, "Custom headers").hidden).toBe(true);
+
+	// The editor's own title matches like a scalar row's label does.
+	fireInput(filter, "custom head");
+	expect(editorSection(root, "Custom headers").hidden).toBe(false);
+});
+
+test("zero hits show the no-match line, and a dirty draft survives being filtered away and back", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+	const input = settingInput(root, "requestTimeout");
+
+	// A half-typed (and even rejected) draft...
+	fireInput(input, "5x");
+	fireInput(filter, "no such setting");
+	expect(root.textContent).toContain("No settings match the filter.");
+	expect(rowOf(input).hidden).toBe(true);
+
+	// ...survives the round trip: hidden, never unmounted.
+	fireInput(filter, "");
+	expect(root.textContent).not.toContain("No settings match the filter.");
+	expect(input.value).toBe("5x");
+	expect(postedMessages).toEqual([]);
+});
+
+test("every scalar row carries a settings.json jump that posts revealSetting with its id", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+
+	const jumpOf = (id: string) => rowOf(settingInput(root, id)).querySelector("button.reveal-json");
+	const numberJump = jumpOf("requestTimeout");
+	expect(numberJump?.getAttribute("aria-label")).toBe("Open Request timeout in settings.json");
+	fireClick(numberJump as HTMLButtonElement);
+	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "requestTimeout" }]);
+
+	resetPosted();
+	const booleanJump = jumpOf("promptCaching.enabled");
+	expect(booleanJump?.getAttribute("aria-label")).toBe("Open Prompt caching in settings.json");
+	fireClick(booleanJump as HTMLButtonElement);
+	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "promptCaching.enabled" }]);
 });

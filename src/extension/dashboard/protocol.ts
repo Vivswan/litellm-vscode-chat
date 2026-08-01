@@ -377,6 +377,69 @@ export const NUMBER_SETTINGS = {
 
 export const NUMBER_SETTING_IDS = Object.keys(NUMBER_SETTINGS) as readonly NumberSettingId[];
 
+/** Millisecond multipliers for the duration grammar's unit suffixes. */
+const DURATION_SUFFIX_MS: Readonly<Record<string, number>> = {
+	ms: 1,
+	s: 1000,
+	m: 60000,
+	h: 3600000,
+};
+
+/**
+ * A duration draft as milliseconds: "1500ms", "90s", "5m", "1h" (suffixes
+ * case-insensitive, whitespace before the suffix allowed), or a bare number
+ * meaning milliseconds as before. Undefined for everything else - a bare
+ * suffix, a junk prefix, a non-finite number - so the form renders one
+ * grammar error. Module-private on purpose: every consumer reads durations
+ * through parseNumberDraft's single verdict (isBoundViolation included, via
+ * draftValue below).
+ */
+function parseDurationDraftMs(text: string): number | undefined {
+	const trimmed = text.trim();
+	const match = /^(.*?)(ms|s|m|h)$/i.exec(trimmed);
+	if (match === null) {
+		// No suffix: the bare-number-is-ms reading. Number("") is 0, so the
+		// empty draft must never reach this helper unguarded (draftValue and
+		// parseNumberDraft both handle it first).
+		const bare = trimmed.length === 0 ? Number.NaN : Number(trimmed);
+		return Number.isFinite(bare) ? bare : undefined;
+	}
+	const prefix = match[1] ?? "";
+	const suffix = (match[2] ?? "").toLowerCase();
+	if (prefix.trim().length === 0) {
+		return undefined;
+	}
+	const value = Number(prefix);
+	if (!Number.isFinite(value)) {
+		return undefined;
+	}
+	const scaled = value * (DURATION_SUFFIX_MS[suffix] ?? Number.NaN);
+	// The scaling can overflow ("9e307h"); a non-finite product is as
+	// unwritable as a non-finite prefix and must not read as a valid draft.
+	// Finite products round to whole milliseconds: "1.0005s" means 1001 ms,
+	// and sub-millisecond precision in a duration string is never intent.
+	return Number.isFinite(scaled) ? Math.round(scaled) : undefined;
+}
+
+/**
+ * One draft's numeric reading under the field's grammar: the duration grammar
+ * on ms-unit settings, plain trim-and-Number elsewhere. Undefined when the
+ * text has no reading (empty included). The single value extraction behind
+ * parseNumberDraft AND isBoundViolation, so the two can never disagree about
+ * what a draft is worth.
+ */
+function draftValue(id: NumberSettingId, text: string): number | undefined {
+	const trimmed = text.trim();
+	if (trimmed.length === 0) {
+		return undefined;
+	}
+	if (NUMBER_SETTINGS[id].unit === "ms") {
+		return parseDurationDraftMs(trimmed);
+	}
+	const value = Number(trimmed);
+	return Number.isFinite(value) ? value : undefined;
+}
+
 /**
  * What a modified number row shows as the setting's built-in default. The one
  * null default (defaultMaxInputTokens) has no number to show - its effective
@@ -390,16 +453,16 @@ export function defaultDisplay(id: NumberSettingId): string {
 
 /**
  * Whether a draft parseNumberDraft rejected failed only the minimum bound: it
- * reads as a finite number, just one below spec.minimum. The form keeps these
- * quiet until the field blurs (typing the 5 of 5000 passes through honest
- * below-minimum values), while true parse failures stay live. Reads the text
- * with the same trim-and-Number rules as parseNumberDraft and must stay
- * consistent with it; the settings-form tests pin both classifications.
+ * reads as a finite number under the field's grammar (durations included),
+ * just one below spec.minimum. The form keeps these quiet until the field
+ * blurs (typing the 5 of 5000 passes through honest below-minimum values),
+ * while true parse failures stay live. Reads the draft through the same
+ * draftValue extraction parseNumberDraft uses, so the two classifications
+ * cannot drift; the settings-form tests pin both.
  */
 export function isBoundViolation(id: NumberSettingId, text: string): boolean {
-	const trimmed = text.trim();
-	const value = Number(trimmed);
-	return trimmed.length > 0 && Number.isFinite(value) && value < NUMBER_SETTINGS[id].minimum;
+	const value = draftValue(id, text);
+	return value !== undefined && value < NUMBER_SETTINGS[id].minimum;
 }
 
 /** One boolean setting as the dashboard renders it: the shared value spec plus this module's presentation. */
@@ -423,6 +486,22 @@ export const BOOLEAN_SETTINGS = {
 } as const satisfies Record<BooleanSettingId, BooleanSettingSpec>;
 
 export const BOOLEAN_SETTING_IDS = Object.keys(BOOLEAN_SETTINGS) as readonly BooleanSettingId[];
+
+/**
+ * The settings the revealSetting intent may name: exactly what the Settings
+ * tab renders rows or editors for - the scalars plus the two record settings.
+ * A classification list, not free text: only these ids cross the webview
+ * boundary, and the extension resolves each to "litellm-vscode-chat.<id>"
+ * itself.
+ */
+export type RevealableSettingId = NumberSettingId | BooleanSettingId | "modelParameters" | "headers";
+
+export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = [
+	...NUMBER_SETTING_IDS,
+	...BOOLEAN_SETTING_IDS,
+	"modelParameters",
+	"headers",
+];
 
 const DURATION_UNITS: readonly (readonly [number, string])[] = [
 	[3600000, "h"],
@@ -455,7 +534,9 @@ function formatDuration(ms: number): string | undefined {
  * One number-setting draft parsed once: rejected with the reason to render,
  * an empty draft that clears a nullable setting, or the committed value. The
  * error display, the commit, and the equivalence hint all read this one
- * parse, so a keystroke is judged exactly once.
+ * parse, so a keystroke is judged exactly once. ms-unit settings read drafts
+ * through the duration grammar (parseDurationDraftMs): unit suffixes on top
+ * of the bare-number-is-ms reading, with unit typos as parse errors.
  */
 export type NumberDraftParse =
 	| { readonly kind: "invalid"; readonly problem: string }
@@ -468,9 +549,12 @@ export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraft
 	if (trimmed.length === 0) {
 		return spec.nullable ? { kind: "clear" } : { kind: "invalid", problem: "Enter a number" };
 	}
-	const value = Number(trimmed);
-	if (!Number.isFinite(value)) {
-		return { kind: "invalid", problem: "Not a number" };
+	const value = draftValue(id, text);
+	if (value === undefined) {
+		return {
+			kind: "invalid",
+			problem: spec.unit === "ms" ? "Not a duration - use ms, s, m, or h" : "Not a number",
+		};
 	}
 	if (value < spec.minimum) {
 		return { kind: "invalid", problem: `Must be at least ${spec.minimum}` };
@@ -782,6 +866,8 @@ export type WebviewToExtensionMessage =
 	| { readonly type: "setBooleanSetting"; readonly setting: BooleanSettingId; readonly value: boolean }
 	/** Remove the setting from the highest-precedence scope that sets it; the next scope's value or the default shows through. */
 	| { readonly type: "resetSetting"; readonly setting: NumberSettingId | BooleanSettingId }
+	/** Open the user settings.json at "litellm-vscode-chat.<setting>"; only ids from REVEALABLE_SETTING_IDS cross. */
+	| { readonly type: "revealSetting"; readonly setting: RevealableSettingId }
 	| { readonly type: "setModelParameters"; readonly value: Record<string, Record<string, unknown>> }
 	| { readonly type: "setHeaders"; readonly value: Record<string, HeaderScalar> }
 	| {
