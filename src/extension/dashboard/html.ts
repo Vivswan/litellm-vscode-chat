@@ -117,6 +117,10 @@ const STYLES = `
 
 	table { border-collapse: collapse; width: 100%; margin: 8px 0; }
 	.table-scroll { overflow-x: auto; }
+	/* The models scrollport is a section (a labelled, focusable region), so
+	   the generic section top margin would open a stray 32px gap between the
+	   filter bar and the table; the table's own 8px rhythm is the intent. */
+	section.table-scroll { margin-top: 0; }
 	/* Long model lists render windowed inside their own scrollport at the
 	   bottom of the combined page. The cap keeps the whole scrollport on
 	   screen once the page has scrolled the models heading up to the sticky
@@ -579,6 +583,12 @@ const STYLES = `
 		padding: 0;
 		cursor: default;
 	}
+	/* The scrim is a button (Esc-and-click-to-close semantics), so the generic
+	   button:hover rule outranks .scrim by one specificity point and would
+	   fade the whole page to opaque hover-blue the moment the pointer rests
+	   on it - which is immediately, since the button that opened the panel
+	   sits under it. */
+	button.scrim:hover { background: rgba(0, 0, 0, 0.45); }
 	.slide-over {
 		position: fixed;
 		top: 0;
@@ -702,6 +712,10 @@ const STYLES = `
 		border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
 		background: var(--vscode-inputValidation-errorBackground, transparent);
 	}
+	/* The tinted background plus border already carry the severity; red text
+	   on the red errorBackground computes near 4:1 in Dark+ - marginal at
+	   this size - so the banner's body stays on the plain foreground. */
+	.banner-error, .banner-error .error { color: var(--vscode-foreground); }
 	.banner-warn {
 		border-color: var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground));
 		background: var(--vscode-inputValidation-warningBackground, transparent);
