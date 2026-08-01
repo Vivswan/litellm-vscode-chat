@@ -58,6 +58,17 @@ test("renders one row per model with formatted tokens, pricing, capabilities, an
 		"USD per million tokens, cache read $0.257, cache write $3.13, long-context tier: $5 in, $20 out, cache read $0.5, cache write $6.25"
 	);
 
+	// The capabilities cell truncates with a CSS ellipsis, so its tip must
+	// carry the full list, focus-reachable (the trimmed tail is invisible
+	// without a pointer): the wrapper joins the Tab order and names the tip
+	// as its description. A model with no capabilities renders no tip shell.
+	const capsWrap = rows[0]?.querySelector("td.caps .tip-wrap") as HTMLElement;
+	const capsTip = capsWrap.querySelector(".help-tip") as HTMLElement;
+	expect(capsTip.textContent).toBe("tools, vision, caching, reasoning");
+	expect(capsWrap.getAttribute("tabindex")).toBe("0");
+	expect(capsWrap.getAttribute("aria-describedby")).toBe(capsTip.id);
+	expect(rows[1]?.querySelector("td.caps .tip-wrap")).toBeNull();
+
 	const bareCells = Array.from(rows[1]?.querySelectorAll("td") ?? []).map((cell) =>
 		(cell.querySelector(".tip-wrap > span")?.textContent ?? cell.textContent ?? "").trim()
 	);

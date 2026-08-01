@@ -127,9 +127,10 @@ const STYLES = `
 	   tab bar: the chrome above and below it (tab bar, heading, filter bar,
 	   page padding) measures a bit over 11em at the default font, and the
 	   em unit keeps the budget honest when the host font or zoom grows it.
-	   The floor keeps the scrollport usable in short windows. The fixed row
-	   height is what makes the scroll arithmetic exact, and the sticky
-	   header keeps the sort controls reachable mid-list. */
+	   The floor keeps the scrollport usable in short windows. The sticky
+	   header keeps the sort controls reachable mid-list; the fixed row height
+	   that makes the scroll arithmetic exact lives on table.models below,
+	   shared with the non-windowed path. */
 	.table-scroll.windowed {
 		max-height: max(280px, calc(100vh - 13em));
 		overflow-y: auto;
@@ -142,8 +143,14 @@ const STYLES = `
 		z-index: 1;
 		background: var(--vscode-editor-background, var(--vscode-panel-background));
 	}
-	.table-scroll.windowed tbody tr:not(.spacer) { height: 26px; }
-	.table-scroll.windowed tbody td { padding-top: 0; padding-bottom: 0; white-space: nowrap; }
+	/* Every models table shares one single-line rhythm, windowed or not:
+	   nowrap cells at a fixed 26px row height, so pricing never breaks
+	   mid-expression and row heights cannot vary with wrapping. The height
+	   doubles as the windowing arithmetic's anchor (the component measures
+	   the first rendered row, 26px as the fallback), so both render paths
+	   must keep the same rule. */
+	table.models tbody tr:not(.spacer) { height: 26px; }
+	table.models tbody td { padding-top: 0; padding-bottom: 0; white-space: nowrap; }
 	th button.sort {
 		background: transparent;
 		border: none;
@@ -191,8 +198,33 @@ const STYLES = `
 	   entry point) sits where every row's Edit sits, and is the last thing a
 	   narrow viewport's horizontal scroll loses instead of the first. */
 	td.actions { white-space: nowrap; }
+	/* The models table's column budget: the default table must fit the 960px
+	   main column with no horizontal scroll (scroll stays only as a fallback
+	   for extreme content). Right padding tighter than the generic 12px, none
+	   at all on the trailing action column, and an ellipsis cap on the two
+	   free-text columns; the capabilities tip carries the full list, and a
+	   trimmed name stays whole in the DOM and the inspector's heading. The
+	   inline-blocks align bottom because a baseline-aligned box with hidden
+	   overflow would ride up off the row's shared baseline. */
+	table.models th, table.models td { padding-right: 8px; }
+	table.models th:last-child, table.models td:last-child { padding-right: 0; }
 	/* The models table's name cell keeps its copy action on the name's line. */
 	td.model-name { white-space: nowrap; }
+	.model-name-text {
+		display: inline-block;
+		max-width: 17em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		vertical-align: bottom;
+	}
+	td.caps .tip-wrap { max-width: 100%; }
+	.caps-text {
+		display: inline-block;
+		max-width: 10em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		vertical-align: bottom;
+	}
 
 	.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; align-items: center; }
 	button {
@@ -525,10 +557,9 @@ const STYLES = `
 
 	/* The effective-parameters inspector (the models table's Params slide-over):
 	   read-only prose and one small table, muted where a value is not sent.
-	   The row action itself stays invisible until its row is hovered or holds
-	   focus, like the copy-ID icon, so the table keeps its quiet fleet look. */
-	button.params-action { opacity: 0; transition: opacity 120ms ease-out; }
-	tr:hover button.params-action, tr:focus-within button.params-action, button.params-action:focus-visible { opacity: 1; }
+	   The row's Params action keeps the quiet chrome but stays visible at
+	   rest: it is the inspector's only entry point, and a hover-revealed
+	   control at the table's right edge is undiscoverable. */
 	.params-inspector h3 { display: flex; align-items: center; gap: 8px; margin: 4px 24px 4px 0; }
 	.params-inspector .params-identity { overflow-wrap: anywhere; }
 	.params-inspector table.params td, .params-inspector table.params th { padding-right: 10px; }
@@ -553,7 +584,18 @@ const STYLES = `
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: 0.9em;
 	}
-	.params-inspector .params-max-tokens { margin: 12px 0 8px; }
+	/* The max_tokens derivation: always present, so it renders as a footer
+	   band clearly distinct from the parameter table above it - a stray
+	   unstyled paragraph there reads like a collapsed table row. It keeps the
+	   full foreground (the value always goes out; muting it would demote the
+	   one line every request obeys). */
+	.params-inspector .params-max-tokens {
+		margin: 12px 0 8px;
+		padding: 6px 10px;
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		border-radius: 3px;
+		background: var(--vscode-editorWidget-background, transparent);
+	}
 	.params-inspector .params-caveats { border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2)); margin-top: 12px; padding-top: 4px; }
 
 	.form-card {
@@ -839,17 +881,24 @@ const STYLES = `
 	.notice .toolbar { margin: 8px 0 0; }
 	.skeleton { border-radius: 3px; background: var(--vscode-foreground); opacity: 0.12; }
 
-	@media (max-width: 500px) {
-		.field { grid-template-columns: 1fr; }
-		.field .hint, .field .error, .field .secret-where, .field .secret-remove { grid-column: 1; }
-		.field .hint { width: auto; max-width: none; }
-		.secret-where { flex-wrap: wrap; white-space: normal; }
-		.row { grid-template-columns: 1fr; }
-		.row input.key, .row input.value, .row button, .row .error { grid-column: 1; }
-		.row .cell.key, .row .cell.value { grid-column: 1; }
+	/* Narrow panels drop columns instead of demanding a horizontal scroll
+	   toward off-screen actions. Media queries, not element observation: the
+	   webview panel IS the viewport (the 960px main column only ever shrinks
+	   with it), and the happy-dom suite could not measure widths anyway. Each
+	   breakpoint is the width where the remaining column set stops fitting
+	   the main column (viewport minus the body's 48px padding), from the
+	   budget above: full set ~945px, then ~670, ~480, ~350. */
+	@media (max-width: 1000px) {
+		/* The most derivable columns go first: family is an ID prefix and the
+		   token limits are capability detail, while pricing and capabilities
+		   are what the table is scanned for. */
+		table.models .col-family, table.models .col-input, table.models .col-output { display: none; }
+	}
+	@media (max-width: 780px) {
+		table.models .model-name-text { max-width: 14em; }
 		/* The servers table stacks into card-style blocks: rows carry actions
 		   with no other route, so they must be reachable without horizontal
-		   scrolling. */
+		   scrolling, and 780px is where the full row set stops fitting. */
 		table.servers, table.servers tbody, table.servers tr, table.servers td { display: block; }
 		table.servers thead { display: none; }
 		table.servers tr {
@@ -866,6 +915,22 @@ const STYLES = `
 			content: attr(data-label) ": ";
 			color: var(--vscode-descriptionForeground);
 		}
+	}
+	@media (max-width: 670px) {
+		table.models .col-caps { display: none; }
+	}
+	@media (max-width: 560px) {
+		table.models .col-price { display: none; }
+		table.models .model-name-text { max-width: 12em; }
+	}
+	@media (max-width: 500px) {
+		.field { grid-template-columns: 1fr; }
+		.field .hint, .field .error, .field .secret-where, .field .secret-remove { grid-column: 1; }
+		.field .hint { width: auto; max-width: none; }
+		.secret-where { flex-wrap: wrap; white-space: normal; }
+		.row { grid-template-columns: 1fr; }
+		.row input.key, .row input.value, .row button, .row .error { grid-column: 1; }
+		.row .cell.key, .row .cell.value { grid-column: 1; }
 	}
 `;
 
