@@ -213,6 +213,30 @@ suite("provider/transport/auth", () => {
 			assert.strictEqual(error.status, 502);
 		});
 
+		test("a status outside the credential and 5xx sets fails immediately through the catch-all http branch", async () => {
+			// 404 is neither a credential rejection (400/401/403) nor retryable
+			// (5xx), so it exercises the catch-all throw; expectRequestError pins
+			// its English mirror against the display message like every other site.
+			let attempts = 0;
+			mswServer.use(
+				http.post(TOKEN_URL, () => {
+					attempts += 1;
+					return HttpResponse.json({ error: "not_found" }, { status: 404 });
+				})
+			);
+			const source = new OAuthTokenSource();
+
+			const error = await expectRequestError(source.getToken(oauthConfig(), 5000), "http");
+
+			assert.strictEqual(attempts, 1, "a non-5xx failure must not be retried");
+			assert.strictEqual(error.status, 404);
+			assert.ok(
+				error.message.includes(`OAuth token request to ${TOKEN_URL} failed: 404 (not_found)`),
+				`unexpected message: ${error.message}`
+			);
+			assert.strictEqual(error.logClassification, "RequestError(http, status 404, oauth token endpoint)");
+		});
+
 		test("a response without an access_token fails as malformed without a retry", async () => {
 			let attempts = 0;
 			mswServer.use(
