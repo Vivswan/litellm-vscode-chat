@@ -152,6 +152,16 @@ const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string;
 		flagged: false,
 	},
 	{
+		name: "object-literal method (deferred body)",
+		source: 'const OBJ = {\n\trun() {\n\t\treturn l10n.t("x");\n\t},\n};\n',
+		flagged: false,
+	},
+	{
+		name: "object-literal get accessor (deferred body)",
+		source: 'const OBJ = {\n\tget label() {\n\t\treturn l10n.t("x");\n\t},\n};\n',
+		flagged: false,
+	},
+	{
 		name: "plain exported function",
 		source: 'export function g(): string {\n\treturn l10n.t("y");\n}\n',
 		flagged: false,

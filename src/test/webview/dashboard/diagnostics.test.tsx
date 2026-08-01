@@ -163,7 +163,8 @@ test("the summary block stands alone: server count and the absolute last-checked
 	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
 	expect(panel.textContent).toContain("Servers configured: 2");
 	// The absolute timestamp is the copyable fact; the relative echo rides
-	// beside it in the same literal line, exactly as Copy diagnostics emits it.
+	// beside it in the same literal line. Copy diagnostics emits its own
+	// English ISO rendering instead.
 	const absolute = new Date(lastChecked).toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	expect(panel.textContent).toMatch(new RegExp(`Last checked: ${absolute} \\((\\d+ (min|h|d) ago|just now)\\)`));
 });
@@ -262,13 +263,15 @@ test("Copy diagnostics puts the rendered block on the clipboard as plain text an
 	fireClick(button);
 
 	// The exact plain-text format: the verdict, the facts, and one line per
-	// server through serverOutcomeText - the same lines the tab renders, and
-	// nothing beyond them.
+	// server through serverOutcomeText - nothing beyond them. The copied block
+	// is fully English by policy, timestamp included: a plain ISO instant with
+	// no localized relative echo, where the on-screen facts line keeps the
+	// locale-shaped absolute time plus "(5 min ago)".
 	expect(written).toEqual([
 		[
 			"Degraded (2 models, some servers failed)",
 			"Servers configured: 2",
-			`Last checked: ${new Date(lastChecked).toLocaleString()} (5 min ago)`,
+			`Last checked: ${new Date(lastChecked).toISOString()}`,
 			"Legacy registry servers: 1",
 			"Prod (http://localhost:4000): OK (2 models)",
 			"Broken (http://localhost:4001): Error: connect ECONNREFUSED",
