@@ -633,13 +633,18 @@ export class ServerSyncEngine implements vscode.Disposable {
 		// could not accept it": a label any raw entry still carries (malformed
 		// mid-edit, or a duplicate) is present, not removed, so no event may
 		// fire for it - a tombstone written for a present entry would suppress
-		// a group the user did not remove. A setting whose CONTAINER is
-		// malformed (not an array, mid-edit) proves nothing about any label, so
-		// presence is unknowable and everything reads as present: no removals,
-		// all records carried. Detection still keys on the fingerprint map: a
-		// record is the evidence a group was (probably) created for the label,
-		// so an entry that never synced leaves no shell and raises no event.
-		const settingParseable = rawSetting === undefined || rawSetting === null || Array.isArray(rawSetting);
+		// a group the user did not remove. Removal proof also needs the
+		// CONTAINER to be currently valid, and only an array is: the setting
+		// declares an array schema with a [] default, and the production read
+		// falls back to that default, so a real "remove everything" arrives as
+		// an empty array. An undefined, null, or otherwise non-array value is
+		// a malformed or partial state (a mid-edit settings.json, a stale
+		// read) that proves nothing about any label, so presence is unknowable
+		// and everything reads as present: no removals, all records carried.
+		// Detection still keys on the fingerprint map: a record is the
+		// evidence a group was (probably) created for the label, so an entry
+		// that never synced leaves no shell and raises no event.
+		const settingParseable = Array.isArray(rawSetting);
 		const rawLabels = settingParseable ? rawDeclaredLabels(rawSetting) : undefined;
 		const labelStillPresent = (label: string) =>
 			currentLabels.has(label) || rawLabels === undefined || rawLabels.has(label);
@@ -672,9 +677,14 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 		}
 		// Per-label retry state is pruned with its entry; the map is keyed by
-		// user-controlled labels and would otherwise grow without bound.
+		// user-controlled labels and would otherwise grow without bound. Pruned
+		// by PRESENCE (the same rule the record carries above use), never by
+		// this pass's acceptance: a mid-edit entry or an unreadable container
+		// must not erase an upsertFailed marker - its loss would read the
+		// restored entry's carried fingerprint as in-sync and silently skip
+		// the retry that failure still needs.
 		for (const label of [...this.retry.keys()]) {
-			if (!currentLabels.has(label)) {
+			if (!labelStillPresent(label)) {
 				this.retry.delete(label);
 			}
 		}

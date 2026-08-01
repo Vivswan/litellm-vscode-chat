@@ -440,12 +440,52 @@ suite("extension/servers/serverSync", () => {
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"]);
 			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://prod.test" });
 
-			// Clearing the setting for real IS explicit removal of every entry.
+			// undefined and null prove nothing either: the setting declares an
+			// array schema with a [] default and the production read falls back
+			// to it, so a non-array here is a malformed or partial state, never
+			// how a real "remove everything" arrives. Tombstoning on it would
+			// suppress groups the user did not remove.
 			recorded.setting = undefined;
+			await engine.syncNow();
+			recorded.setting = null;
+			await engine.syncNow();
+			assert.deepStrictEqual(recordedEvents(recorded), []);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"]);
+
+			// Clearing the setting for real IS explicit removal of every entry,
+			// and it arrives as the schema's empty array.
+			recorded.setting = [];
 			await engine.syncNow();
 			assert.deepStrictEqual(recordedEvents(recorded), [
 				{ kind: "removed", label: "Prod", baseUrl: "http://prod.test" },
 			]);
+		});
+
+		test("a malformed-container pass cannot erase a pending upsert retry", async () => {
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1);
+
+			// The next forced add fails outright (the live group may have been
+			// removed natively), leaving the upsertFailed marker that must send
+			// this exact configuration back to the host.
+			recorded.failLabels.add("Prod");
+			await engine.syncNow(true);
+			assert.strictEqual(engine.getDeclared()[0]?.syncErrorClass, "upsertFailed");
+
+			// A mid-edit container proves nothing about the entry: it is present,
+			// not removed, so the pending retry must survive exactly like the
+			// fingerprint and ledger records do - erasing it would read the
+			// restored entry's carried fingerprint as in-sync and skip the retry.
+			recorded.setting = null;
+			await engine.syncNow();
+
+			recorded.setting = [{ label: "Prod", baseUrl: "http://prod.test" }];
+			recorded.failLabels.delete("Prod");
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 2, "the restored entry retries the failed add");
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "the retry heals the entry");
 		});
 
 		test("a rejected label's carry also accepts another window's store record, presence-only", async () => {

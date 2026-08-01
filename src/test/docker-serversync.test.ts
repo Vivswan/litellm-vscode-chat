@@ -371,8 +371,8 @@ suite("Docker server sync", () => {
 		assert.strictEqual(reverted.syncError, undefined, "reverting to the live group's content clears the error");
 	});
 
-	test("scenario 7: removing an entry keeps the group's models but drops the declared view", async function () {
-		this.timeout(90000);
+	test("scenario 7: removing an entry hides the surviving group's models; re-declaring restores them", async function () {
+		this.timeout(120000);
 		await writeServersSetting(readServersSetting().filter((entry) => entry.label !== LABEL_STORED));
 		await syncNow();
 		const views = await getDeclared();
@@ -380,10 +380,40 @@ suite("Docker server sync", () => {
 			views.every((view) => view.label !== LABEL_STORED),
 			"the declared views must drop the removed label"
 		);
-		// No programmatic group removal exists, so the host keeps serving the
-		// removed entry's models; proxyGroups still counts its group.
-		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
-		assert.ok(countModels(models, ALIAS) >= proxyGroups, "provider groups survive their setting entry's removal");
+		// No programmatic group removal exists, so the host keeps the group;
+		// the removal tombstone makes the provider answer it with zero models.
+		// Exactly one fewer serving group pins the tombstone's precision both
+		// ways: the removed group must go dark, and the other same-URL groups
+		// (same host, different labels) must keep serving. Asserted across a
+		// settle window (the host ingests model lists asynchronously, so the
+		// first matching poll could be a transient on the way further down):
+		// a tombstone that suppressed any sibling would settle below this
+		// count and fail here.
+		await waitForHostModels(
+			60000,
+			(models) => countModels(models, ALIAS) === proxyGroups - 1,
+			`exactly ${proxyGroups - 1} proxy-backed group(s) to expose ${ALIAS} (the tombstoned group serving none)`
+		);
+		const settleDeadline = Date.now() + 2500;
+		while (Date.now() < settleDeadline) {
+			const settled = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
+			assert.strictEqual(
+				countModels(settled, ALIAS),
+				proxyGroups - 1,
+				"only the removed entry's group may lose its models"
+			);
+			await new Promise((resolve) => setTimeout(resolve, 250));
+		}
+		// Re-declaring the identity clears the tombstone. The re-add itself is
+		// refused by the add-only host (the removed label's fingerprint was
+		// pruned with the entry), which must not matter: the models returning
+		// without a successful add is also the proof the host group survived
+		// the removal, and the stored secret is picked up again.
+		await declareServer({ label: LABEL_STORED, baseUrl: BASE_URL });
+		await waitForProxyGroupCount(proxyGroups);
+		const view = await declaredFor(LABEL_STORED);
+		assert.strictEqual(view.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE, "the re-add hits the add-only rejection");
+		assert.strictEqual(view.secrets.apiKey, "secure", "the re-added label reads its kept SecretStorage blob");
 	});
 
 	test("scenario 8: two same-URL entries each send their own per-entry model parameters", async function () {
