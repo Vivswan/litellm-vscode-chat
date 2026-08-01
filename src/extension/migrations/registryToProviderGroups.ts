@@ -299,7 +299,12 @@ async function submitGroupSeed(
 			await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
 			await markSkipped(
 				current.id,
-				`A language models group named "${record.name}" already exists, so server "${current.label}" was not migrated. Review the group in the language models UI, then remove the legacy server via "${manageCommandTitle()}".`
+				vscode.l10n.t(
+					'A language models group named "{0}" already exists, so server "{1}" was not migrated. Review the group in the language models UI, then remove the legacy server via "{2}".',
+					record.name,
+					current.label,
+					manageCommandTitle()
+				)
 			);
 			return "skipped";
 		}
@@ -411,7 +416,7 @@ export async function migrateServersToProviderGroups(
 			// The toast names the server so the user can act; the log line stays
 			// classification-only because it feeds the public issue-report buffer.
 			logger.log("Provider-group migration skipped a server; it stays in the registry for manual review");
-			void vscode.window.showWarningMessage(`LiteLLM: ${notice}`);
+			void vscode.window.showWarningMessage(vscode.l10n.t("LiteLLM: {0}", notice));
 		};
 
 		for (const server of snapshot) {
@@ -440,7 +445,11 @@ export async function migrateServersToProviderGroups(
 				} else {
 					await markSkipped(
 						server.id,
-						`Server "${current.label}" changed after it was migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "${manageCommandTitle()}".`
+						vscode.l10n.t(
+							'Server "{0}" changed after it was migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "{1}".',
+							current.label,
+							manageCommandTitle()
+						)
 					);
 				}
 				continue;
@@ -480,7 +489,11 @@ export async function migrateServersToProviderGroups(
 			} else {
 				await markSkipped(
 					server.id,
-					`Server "${afterSeed.label}" changed while it was being migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "${manageCommandTitle()}".`
+					vscode.l10n.t(
+						'Server "{0}" changed while it was being migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "{1}".',
+						afterSeed.label,
+						manageCommandTitle()
+					)
 				);
 			}
 		}

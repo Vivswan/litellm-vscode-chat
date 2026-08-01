@@ -284,47 +284,61 @@ export class StatusBarManager {
 		const current = this._connectionStatus;
 		switch (current.state) {
 			case "not-configured":
-				this._statusBarItem.text = "$(warning) LiteLLM";
-				this._statusBarItem.tooltip = "Not configured - click to set up";
+				this._statusBarItem.text = vscode.l10n.t("$(warning) LiteLLM");
+				this._statusBarItem.tooltip = vscode.l10n.t("Not configured - click to set up");
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
 				break;
 			case "connecting":
 				if (current.attention) {
-					this._statusBarItem.text = "$(warning) LiteLLM";
-					this._statusBarItem.tooltip =
-						"Configured servers have not reported any models\nClick to open the dashboard and check the configuration";
+					this._statusBarItem.text = vscode.l10n.t("$(warning) LiteLLM");
+					this._statusBarItem.tooltip = vscode.l10n.t(
+						"Configured servers have not reported any models\nClick to open the dashboard and check the configuration"
+					);
 					this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
 				} else {
-					this._statusBarItem.text = "$(loading~spin) LiteLLM";
-					this._statusBarItem.tooltip = "Waiting for the configured servers to report...";
+					this._statusBarItem.text = vscode.l10n.t("$(loading~spin) LiteLLM");
+					this._statusBarItem.tooltip = vscode.l10n.t("Waiting for the configured servers to report...");
 					this._statusBarItem.backgroundColor = undefined;
 				}
 				break;
 			case "loading":
-				this._statusBarItem.text = "$(loading~spin) LiteLLM";
-				this._statusBarItem.tooltip = "Fetching models...";
+				this._statusBarItem.text = vscode.l10n.t("$(loading~spin) LiteLLM");
+				this._statusBarItem.tooltip = vscode.l10n.t("Fetching models...");
 				this._statusBarItem.backgroundColor = undefined;
 				break;
 			case "connected": {
 				const count = current.totalModels;
 				const serverCount = current.serverStatuses.length;
-				const serverText = serverCount > 1 ? ` from ${serverCount} servers` : "";
-				this._statusBarItem.text = `$(check) LiteLLM (${count})`;
-				this._statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available${serverText}\nClick for diagnostics`;
+				const available =
+					serverCount > 1
+						? count === 1
+							? vscode.l10n.t("1 model available from {0} servers", serverCount)
+							: vscode.l10n.t("{0} models available from {1} servers", count, serverCount)
+						: count === 1
+							? vscode.l10n.t("1 model available")
+							: vscode.l10n.t("{0} models available", count);
+				this._statusBarItem.text = vscode.l10n.t("$(check) LiteLLM ({0})", count);
+				this._statusBarItem.tooltip = `${available}\n${vscode.l10n.t("Click for diagnostics")}`;
 				this._statusBarItem.backgroundColor = undefined;
 				break;
 			}
 			case "degraded": {
 				const count = current.totalModels;
 				const failedCount = current.serverStatuses.filter(isErrorServerStatus).length;
-				this._statusBarItem.text = `$(warning) LiteLLM (${count})`;
-				this._statusBarItem.tooltip = `${count} model${count === 1 ? "" : "s"} available\n${failedCount} server${failedCount === 1 ? "" : "s"} unreachable\nClick for diagnostics`;
+				const available =
+					count === 1 ? vscode.l10n.t("1 model available") : vscode.l10n.t("{0} models available", count);
+				const unreachable =
+					failedCount === 1
+						? vscode.l10n.t("1 server unreachable")
+						: vscode.l10n.t("{0} servers unreachable", failedCount);
+				this._statusBarItem.text = vscode.l10n.t("$(warning) LiteLLM ({0})", count);
+				this._statusBarItem.tooltip = `${available}\n${unreachable}\n${vscode.l10n.t("Click for diagnostics")}`;
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
 				break;
 			}
 			case "error":
-				this._statusBarItem.text = "$(error) LiteLLM";
-				this._statusBarItem.tooltip = `Connection failed\n${current.error}\nClick for details`;
+				this._statusBarItem.text = vscode.l10n.t("$(error) LiteLLM");
+				this._statusBarItem.tooltip = vscode.l10n.t("Connection failed\n{0}\nClick for details", current.error);
 				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
 				break;
 		}
@@ -385,7 +399,8 @@ export class StatusBarManager {
 			this.logger.log("Warning: All servers returned 0 models");
 			void this.updateStatusBar({
 				state: "error",
-				error: "Servers returned 0 models",
+				// Display localizes; the log-safe rendering stays English by policy.
+				error: vscode.l10n.t("Servers returned 0 models"),
 				logSafeError: markLogSafe("Servers returned 0 models"),
 				serverStatuses,
 				totalModels: 0,

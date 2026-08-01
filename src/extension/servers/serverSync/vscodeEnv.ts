@@ -21,10 +21,8 @@ import type { EntryModelParameters } from "./setting";
 import { entryModelParametersFor, parseServersSetting } from "./setting";
 
 /** The one button every removal notice carries: it opens the models file, where group deletion actually lives. */
-const OPEN_GROUPS_FILE_LABEL = "Open Models File";
-
 const openGroupsFileAction = () => ({
-	label: OPEN_GROUPS_FILE_LABEL,
+	label: vscode.l10n.t("Open Models File"),
 	run: () => void vscode.commands.executeCommand(INTERNAL_CMD.openGroupsFile),
 });
 
@@ -54,14 +52,24 @@ function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 		const labels = quoted(hidden);
 		const message =
 			hidden.length === 1
-				? `Removed ${labels} from the servers setting; its models are hidden. VS Code still keeps a provider group named ${labels}. To delete it: 1) open the models file and remove the ${labels} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.`
-				: `Removed ${labels} from the servers setting; their models are hidden. VS Code still keeps a provider group for each. To delete them: 1) open the models file and remove the ${labels} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.`;
+				? vscode.l10n.t(
+						"Removed {0} from the servers setting; its models are hidden. VS Code still keeps a provider group named {0}. To delete it: 1) open the models file and remove the {0} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
+						labels
+					)
+				: vscode.l10n.t(
+						"Removed {0} from the servers setting; their models are hidden. VS Code still keeps a provider group for each. To delete them: 1) open the models file and remove the {0} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
+						labels
+					);
 		void showActionableMessage("info", message, [openGroupsFileAction()]);
 	}
 	for (const event of renamed) {
 		void showActionableMessage(
 			"info",
-			`Renamed "${event.oldLabel}" to "${event.newLabel}". VS Code keeps the old group "${event.oldLabel}" and its models. To delete it: 1) open the models file and remove the "${event.oldLabel}" object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now. A rename made directly in settings.json does not carry the old label's stored secrets; set them again for "${event.newLabel}" (a dashboard rename copies them).`,
+			vscode.l10n.t(
+				'Renamed "{0}" to "{1}". VS Code keeps the old group "{0}" and its models. To delete it: 1) open the models file and remove the "{0}" object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now. A rename made directly in settings.json does not carry the old label\'s stored secrets; set them again for "{1}" (a dashboard rename copies them).',
+				event.oldLabel,
+				event.newLabel
+			),
 			[openGroupsFileAction()]
 		);
 	}
@@ -69,8 +77,14 @@ function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 		const labels = quoted(untracked);
 		const message =
 			untracked.length === 1
-				? `Removed ${labels} from the servers setting. VS Code keeps the provider group and its models. To delete it: 1) open the models file and remove the ${labels} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.`
-				: `Removed ${labels} from the servers setting. VS Code keeps their provider groups and models. To delete them: 1) open the models file and remove the ${labels} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.`;
+				? vscode.l10n.t(
+						"Removed {0} from the servers setting. VS Code keeps the provider group and its models. To delete it: 1) open the models file and remove the {0} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
+						labels
+					)
+				: vscode.l10n.t(
+						"Removed {0} from the servers setting. VS Code keeps their provider groups and models. To delete them: 1) open the models file and remove the {0} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
+						labels
+					);
 		void showActionableMessage("info", message, [openGroupsFileAction()]);
 	}
 }
@@ -205,12 +219,19 @@ export function readEntryModelParameters(label: string, baseUrl: string): EntryM
 	return entryModelParametersFor(raw, label, baseUrl);
 }
 
-/** Palette display copy per secret field; UI strings stay out of the shared descriptor. */
-const SECRET_PALETTE_LABELS: Readonly<Record<SecretFieldId, string>> = {
-	apiKey: "API key",
-	oauthClientSecret: "OAuth client secret",
-	virtualKeyValue: "Virtual key value",
-};
+/**
+ * Palette display copy per secret field; UI strings stay out of the shared
+ * descriptor. Resolved per call so the labels localize after l10n.config; the
+ * Record keeps a missing label a compile error.
+ */
+function secretPaletteLabel(field: SecretFieldId): string {
+	const labels: Readonly<Record<SecretFieldId, string>> = {
+		apiKey: vscode.l10n.t("API key"),
+		oauthClientSecret: vscode.l10n.t("OAuth client secret"),
+		virtualKeyValue: vscode.l10n.t("Virtual key value"),
+	};
+	return labels[field];
+}
 
 /**
  * The palette path for keeping secrets out of settings.json without the
@@ -229,13 +250,16 @@ export function registerSetServerSecretCommand(
 			);
 			if (entries.length === 0) {
 				void vscode.window.showInformationMessage(
-					`No servers declared in the ${CONFIG_SECTION}.${SERVERS_SETTING_KEY} setting yet. Add one there or in the dashboard first.`
+					vscode.l10n.t(
+						"No servers declared in the {0} setting yet. Add one there or in the dashboard first.",
+						`${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`
+					)
 				);
 				return;
 			}
 			const entryPick = await vscode.window.showQuickPick(
 				entries.map((entry) => ({ label: entry.label, description: entry.baseUrl, entry })),
-				{ title: "LiteLLM: Set Server Secret", placeHolder: "Which server?" }
+				{ title: vscode.l10n.t("LiteLLM: Set Server Secret"), placeHolder: vscode.l10n.t("Which server?") }
 			);
 			if (entryPick === undefined) {
 				return;
@@ -244,15 +268,17 @@ export function registerSetServerSecretCommand(
 				// Ids come from the descriptor so a new secret field cannot be
 				// silently unreachable here; the Record makes a missing label a
 				// compile error.
-				SECRET_FIELD_IDS.map((field) => ({ label: SECRET_PALETTE_LABELS[field], field })),
-				{ title: "LiteLLM: Set Server Secret", placeHolder: "Which secret?" }
+				SECRET_FIELD_IDS.map((field) => ({ label: secretPaletteLabel(field), field })),
+				{ title: vscode.l10n.t("LiteLLM: Set Server Secret"), placeHolder: vscode.l10n.t("Which secret?") }
 			);
 			if (fieldPick === undefined) {
 				return;
 			}
 			const value = await vscode.window.showInputBox({
-				title: `${fieldPick.label} for ${entryPick.label}`,
-				prompt: "Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value.",
+				title: vscode.l10n.t("{0} for {1}", fieldPick.label, entryPick.label),
+				prompt: vscode.l10n.t(
+					"Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value."
+				),
 				password: true,
 			});
 			if (value === undefined) {
@@ -269,7 +295,11 @@ export function registerSetServerSecretCommand(
 				// inlineSecretValues rule buildGroupArgs resolves through), so the
 				// just-stored secret stays dormant until the inline one is removed.
 				void vscode.window.showWarningMessage(
-					`"${entryPick.label}" also sets ${fieldPick.field} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.`
+					vscode.l10n.t(
+						'"{0}" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.',
+						entryPick.label,
+						fieldPick.field
+					)
 				);
 			}
 			engine.requestSync();
