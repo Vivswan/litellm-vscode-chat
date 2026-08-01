@@ -133,7 +133,7 @@ function buildServer(
 	} as const;
 	return status.state === "ok"
 		? { ...base, state: "ok", modelCount: status.modelCount }
-		: { ...base, state: "error", modelCount: 0, error: status.error };
+		: { ...base, state: "error", modelCount: 0, error: status.error, errorEnglish: status.logSafeError };
 }
 
 /**
@@ -224,20 +224,25 @@ export function joinDeclared(
  * is the entry's OLD configuration, and the remove-and-resync instruction
  * must show. A reachable group keeps its live state, though - the surfaces
  * render the error text alongside the live facts (diagnostics'
- * serverOutcomeText, the dashboard's per-server error list).
+ * serverOutcomeText, the dashboard's per-server error list). `errorEnglish`
+ * carries the transport error's log-safe English rendering exactly when the
+ * row's error IS the transport error; a sync error has no separate English
+ * mirror, so it carries none.
  */
 function declaredOutcome(
 	status: ServerStatus | undefined,
 	syncError: string | undefined
 ):
-	| { state: "ok"; modelCount: number; error?: string | undefined }
-	| { state: "error"; modelCount: number; error: string }
+	| { state: "ok"; modelCount: number; error?: string | undefined; errorEnglish?: string | undefined }
+	| { state: "error"; modelCount: number; error: string; errorEnglish?: string | undefined }
 	| { state: "unchecked"; modelCount: number } {
 	if (status?.state === "ok") {
 		return { state: "ok", modelCount: status.modelCount, error: syncError };
 	}
 	if (status?.state === "error") {
-		return { state: "error", modelCount: 0, error: syncError ?? status.error };
+		return syncError !== undefined
+			? { state: "error", modelCount: 0, error: syncError }
+			: { state: "error", modelCount: 0, error: status.error, errorEnglish: status.logSafeError };
 	}
 	return syncError !== undefined
 		? { state: "error", modelCount: 0, error: syncError }

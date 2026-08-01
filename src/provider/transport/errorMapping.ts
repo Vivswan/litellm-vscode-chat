@@ -12,26 +12,33 @@ export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | 
  * branch without matching on message text; the message itself stays the
  * user-facing string surfaced in the chat UI and the status callback.
  *
- * `logClassification` is an explicit PER-CONSTRUCTION-SITE opt-in, never
- * derived from `kind`: it is the English, log-safe rendering that public
- * surfaces (the issue-report buffer and the latest-error prefill; see
- * shared/logger.ts) record instead of the message. A site whose message
- * embeds response-derived text (an HTTP error body, an IdP's
- * error_description) must pass a classification-only rendering; a site
- * whose template-only message localizes for display passes the full English
- * template instead, so issues keep their diagnostic value in every locale.
- * Each site's string should be distinct enough that maintainers can tell
- * the failure modes apart in an issue without the body.
+ * Two English renderings ride alongside the (possibly localized) message,
+ * both explicit PER-CONSTRUCTION-SITE opt-ins, never derived from `kind`:
+ *
+ * - `logClassification`: the terse classification-only rendering that PUBLIC
+ *   surfaces (the issue-report buffer and the latest-error prefill; see
+ *   shared/logger.ts) record instead of the message. A site whose message
+ *   embeds response-derived text (an HTTP error body, an IdP's
+ *   error_description) must pass one; each site's string should be distinct
+ *   enough that maintainers can tell the failure modes apart in an issue
+ *   without the body.
+ * - `englishMessage`: the full English mirror of a localized display
+ *   message, response-derived detail included. The output channel renders it
+ *   instead of the message (the channel stays English by policy), and the
+ *   public surfaces fall back to it when no classification applies, so a
+ *   template-only site keeps its text useful in issues in every locale.
+ *   Every site whose message goes through l10n.t must pass one.
  */
 export class RequestError extends Error {
 	readonly kind: RequestErrorKind;
 	readonly status?: number | undefined;
 	readonly logClassification?: string;
+	readonly englishMessage?: string;
 
 	constructor(
 		message: string,
 		kind: RequestErrorKind,
-		options?: { status?: number; cause?: unknown; logClassification?: string }
+		options?: { status?: number; cause?: unknown; logClassification?: string; englishMessage?: string }
 	) {
 		super(message, { cause: options?.cause });
 		this.name = "RequestError";
@@ -39,6 +46,9 @@ export class RequestError extends Error {
 		this.status = options?.status;
 		if (options?.logClassification !== undefined) {
 			this.logClassification = options.logClassification;
+		}
+		if (options?.englishMessage !== undefined) {
+			this.englishMessage = options.englishMessage;
 		}
 	}
 }
@@ -99,9 +109,9 @@ export function toLanguageModelError(err: unknown): unknown {
 
 /**
  * Lazy so the l10n bundle lookup and the interpolated manage-command title
- * both resolve at 401 time, not module load. The paired *_LOG_MESSAGE
- * constant is the English rendering the issue-report buffer records instead
- * of the (possibly localized) display message.
+ * both resolve at 401 time, not module load. The paired *_ENGLISH constant
+ * is the English mirror the output channel and the issue-report buffer
+ * record instead of the (possibly localized) display message.
  */
 function authMessage(): string {
 	return l10n.t(
@@ -111,7 +121,7 @@ function authMessage(): string {
 }
 
 /** English mirror of authMessage; "Manage LiteLLM Provider" is the palette title package.json contributes. */
-const AUTH_LOG_MESSAGE =
+const AUTH_MESSAGE_ENGLISH =
 	'Authentication failed: Your LiteLLM server requires an API key. Please run the "Manage LiteLLM Provider" command to configure your API key.';
 
 /** Lazy for the same reason as authMessage: the display string resolves through the l10n bundle at 401 time. */
@@ -121,8 +131,8 @@ function upstreamAuthMessage(): string {
 	);
 }
 
-/** English mirror of upstreamAuthMessage for the issue-report buffer. */
-const UPSTREAM_AUTH_LOG_MESSAGE =
+/** English mirror of upstreamAuthMessage. */
+const UPSTREAM_AUTH_MESSAGE_ENGLISH =
 	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.";
 
 /**
@@ -164,27 +174,27 @@ export function timeoutMessage(ctx: MapErrorContext): string {
 			);
 }
 
-/** English mirror of timeoutMessage: what the issue-report buffer records (issueReporter.test.ts pins the English form). */
+/** English mirror of timeoutMessage: what the English-by-policy log surfaces record (issueReporter.test.ts pins the English form). */
 function englishTimeoutMessage(ctx: MapErrorContext): string {
 	return ctx.surface === "chat"
 		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.requestTimeout" setting if your model needs more time.`
 		: `LiteLLM model discovery timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.discoveryTimeout" setting if your server needs more time.`;
 }
 
-/** One constructor for every timed-out call, so a throw site cannot forget the display/log split. */
+/** One constructor for every timed-out call, so a throw site cannot forget the display/English split. */
 export function timeoutRequestError(ctx: MapErrorContext, cause: unknown): RequestError {
-	return new RequestError(timeoutMessage(ctx), "timeout", { cause, logClassification: englishTimeoutMessage(ctx) });
+	return new RequestError(timeoutMessage(ctx), "timeout", { cause, englishMessage: englishTimeoutMessage(ctx) });
 }
 
 /**
  * A plain Error whose display message may be localized: `english` rides as
- * the logClassification, so the issue-report buffer and the latest-error
- * prefill (see shared/logger.ts) keep the English rendering whatever the
- * display locale. For the transport sites that throw plain Errors rather
- * than classified RequestErrors.
+ * the englishMessage mirror, so the output channel, the issue-report buffer,
+ * and the latest-error prefill (see shared/logger.ts) keep the English
+ * rendering whatever the display locale. For the transport sites that throw
+ * plain Errors rather than classified RequestErrors.
  */
 export function localizedError(display: string, english: string): Error {
-	return Object.assign(new Error(display), { logClassification: english });
+	return Object.assign(new Error(display), { englishMessage: english });
 }
 
 interface ChainLink {
@@ -224,15 +234,13 @@ function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
  * so the RequestError carries none.
  */
 export function streamErrorFrame(error: Record<string, unknown>): RequestError {
-	return new RequestError(
-		`${l10n.t("LiteLLM API error: the stream reported an error")}\n${JSON.stringify({ error })}`,
-		"http",
-		{
-			// The re-serialized envelope is response-derived; the distinct
-			// classification keeps a mid-stream death recognizable in an issue.
-			logClassification: "RequestError(http, in-band stream error frame)",
-		}
-	);
+	const envelope = JSON.stringify({ error });
+	return new RequestError(`${l10n.t("LiteLLM API error: the stream reported an error")}\n${envelope}`, "http", {
+		// The re-serialized envelope is response-derived; the distinct
+		// classification keeps a mid-stream death recognizable in an issue.
+		logClassification: "RequestError(http, in-band stream error frame)",
+		englishMessage: `LiteLLM API error: the stream reported an error\n${envelope}`,
+	});
 }
 
 /**
@@ -262,21 +270,34 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				? new RequestError(upstreamAuthMessage(), "auth", {
 						status: 401,
 						cause: err,
-						logClassification: UPSTREAM_AUTH_LOG_MESSAGE,
+						englishMessage: UPSTREAM_AUTH_MESSAGE_ENGLISH,
 					})
-				: new RequestError(authMessage(), "auth", { status: 401, cause: err, logClassification: AUTH_LOG_MESSAGE });
+				: new RequestError(authMessage(), "auth", { status: 401, cause: err, englishMessage: AUTH_MESSAGE_ENGLISH });
 		}
 		const text = errorBodyText(err);
 		const suffix = text ? `\n${text}` : "";
 		const message =
 			ctx.surface === "chat"
-				? `${l10n.t("LiteLLM API error: {0}", err.status)}${suffix}`
-				: `${l10n.t("Failed to fetch LiteLLM models: {0}", err.status)}${suffix}`;
+				? `${l10n.t({
+						message: "LiteLLM API error: {0}",
+						args: [err.status],
+						comment: ["{0} is the HTTP status code the server answered with"],
+					})}${suffix}`
+				: `${l10n.t({
+						message: "Failed to fetch LiteLLM models: {0}",
+						args: [err.status],
+						comment: ["{0} is the HTTP status code the server answered with"],
+					})}${suffix}`;
+		const englishMessage =
+			ctx.surface === "chat"
+				? `LiteLLM API error: ${err.status}${suffix}`
+				: `Failed to fetch LiteLLM models: ${err.status}${suffix}`;
 		return new RequestError(message, "http", {
 			status: err.status,
 			cause: err,
 			// The message embeds the response body (errorBodyText above).
 			logClassification: `RequestError(http, status ${err.status})`,
+			englishMessage,
 		});
 	}
 
@@ -287,7 +308,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof APIUserAbortError) {
 		return new RequestError(l10n.t("Request was aborted."), "aborted", {
 			cause: err,
-			logClassification: "Request was aborted.",
+			englishMessage: "Request was aborted.",
 		});
 	}
 
@@ -307,7 +328,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				"certificate",
 				{
 					cause: err,
-					logClassification: `SSL Certificate Error: The SSL certificate for ${ctx.baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`,
+					englishMessage: `SSL Certificate Error: The SSL certificate for ${ctx.baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`,
 				}
 			);
 		}
@@ -322,7 +343,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				"certificate",
 				{
 					cause: err,
-					logClassification: `SSL Certificate Error: There is an issue with the SSL certificate for ${ctx.baseUrl}. Error: ${certMessage}`,
+					englishMessage: `SSL Certificate Error: There is an issue with the SSL certificate for ${ctx.baseUrl}. Error: ${certMessage}`,
 				}
 			);
 		}
@@ -335,7 +356,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				"connection",
 				{
 					cause: err,
-					logClassification: `Connection Error: Unable to connect to ${ctx.baseUrl}. Please check that the server is running and the URL is correct.`,
+					englishMessage: `Connection Error: Unable to connect to ${ctx.baseUrl}. Please check that the server is running and the URL is correct.`,
 				}
 			);
 		}
@@ -348,7 +369,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			ctx.surface === "chat"
 				? `Network Error: Unable to reach ${ctx.baseUrl}. ${detail}`
 				: `Network Error: Failed to fetch models from ${ctx.baseUrl}. ${detail}`;
-		return new RequestError(message, "network", { cause: err, logClassification: english });
+		return new RequestError(message, "network", { cause: err, englishMessage: english });
 	}
 
 	// A socket that dies AFTER headers surfaces from the body reader, not from
@@ -379,7 +400,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				ctx.surface === "chat"
 					? `Network Error: The connection to ${ctx.baseUrl} was closed before the response completed. ${detail}`
 					: `Network Error: Failed to fetch models from ${ctx.baseUrl}. ${detail}`;
-			return new RequestError(message, "network", { cause: err, logClassification: english });
+			return new RequestError(message, "network", { cause: err, englishMessage: english });
 		}
 	}
 

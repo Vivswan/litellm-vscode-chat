@@ -82,9 +82,15 @@
 	"Enter the server URL": "Enter the server URL",
 	"Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.": "Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.",
 	"Expected an object of parameters, e.g. {\"temperature\": 0.2}": "Expected an object of parameters, e.g. {\"temperature\": 0.2}",
-	"Failed to fetch LiteLLM models: {0}": "Failed to fetch LiteLLM models: {0}",
+	"Failed to fetch LiteLLM models: {0}/{0} is the HTTP status code the server answered with": {
+		"message": "Failed to fetch LiteLLM models: {0}",
+		"comment": [
+			"{0} is the HTTP status code the server answered with"
+		]
+	},
 	"Failed to parse LiteLLM models response from {0}: {1}": "Failed to parse LiteLLM models response from {0}: {1}",
-	"Failed to parse OAuth token response from {0}: {1}": "Failed to parse OAuth token response from {0}: {1}",
+	"Failed to parse OAuth token response from {0}: expected JSON with a non-empty \"access_token\".": "Failed to parse OAuth token response from {0}: expected JSON with a non-empty \"access_token\".",
+	"Failed to parse OAuth token response from {0}: the access token contains characters that are not valid in an HTTP header.": "Failed to parse OAuth token response from {0}: the access token contains characters that are not valid in an HTTP header.",
 	"Fetching models...": "Fetching models...",
 	"Fix the model parameter rows": "Fix the model parameter rows",
 	"HTTP headers added to every request sent to LiteLLM, e.g. x-litellm-api-key for a gateway. Keep secret values in User settings, not Workspace settings.": "HTTP headers added to every request sent to LiteLLM, e.g. x-litellm-api-key for a gateway. Keep secret values in User settings, not Workspace settings.",
@@ -103,7 +109,12 @@
 	"Learn More": "Learn More",
 	"Leave empty to derive it as context length minus output tokens.": "Leave empty to derive it as context length minus output tokens.",
 	"LiteLLM API error: the stream reported an error": "LiteLLM API error: the stream reported an error",
-	"LiteLLM API error: {0}": "LiteLLM API error: {0}",
+	"LiteLLM API error: {0}/{0} is the HTTP status code the server answered with": {
+		"message": "LiteLLM API error: {0}",
+		"comment": [
+			"{0} is the HTTP status code the server answered with"
+		]
+	},
 	"LiteLLM is not configured. Set up your connection to use this provider.": "LiteLLM is not configured. Set up your connection to use this provider.",
 	"LiteLLM model discovery timed out after {0}ms. Increase the \"{1}.discoveryTimeout\" setting if your server needs more time.": "LiteLLM model discovery timed out after {0}ms. Increase the \"{1}.discoveryTimeout\" setting if your server needs more time.",
 	"LiteLLM request timed out after {0}ms. Increase the \"{1}.requestTimeout\" setting if your model needs more time.": "LiteLLM request timed out after {0}ms. Increase the \"{1}.requestTimeout\" setting if your model needs more time.",
@@ -180,7 +191,12 @@
 	"OAuth needs the token URL and client ID": "OAuth needs the token URL and client ID",
 	"OAuth scopes": "OAuth scopes",
 	"OAuth token URL": "OAuth token URL",
-	"OAuth token request to {0} failed: {1}": "OAuth token request to {0} failed: {1}",
+	"OAuth token request to {0} failed: {1}/{1} is the HTTP status code, followed by the identity provider's error detail when present": {
+		"message": "OAuth token request to {0} failed: {1}",
+		"comment": [
+			"{1} is the HTTP status code, followed by the identity provider's error detail when present"
+		]
+	},
 	"OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.discoveryTimeout\" setting if your identity provider needs more time.": "OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.discoveryTimeout\" setting if your identity provider needs more time.",
 	"On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns instead of re-sending the whole history at full price.": "On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns instead of re-sending the whole history at full price.",
 	"Open Chat": "Open Chat",
@@ -279,7 +295,6 @@
 	"enter a label": "enter a label",
 	"enter the key sent in this header": "enter the key sent in this header",
 	"every refresh": "every refresh",
-	"expected JSON with a non-empty \"access_token\".": "expected JSON with a non-empty \"access_token\".",
 	"h/Abbreviation for hours in durations like '1 h 30 min'.": {
 		"message": "h",
 		"comment": [
@@ -307,7 +322,6 @@
 			"Abbreviation for seconds in durations like '90 s'."
 		]
 	},
-	"the access token contains characters that are not valid in an HTTP header.": "the access token contains characters that are not valid in an HTTP header.",
 	"tokens/Unit suffix after token-count inputs; LLM tokens.": {
 		"message": "tokens",
 		"comment": [

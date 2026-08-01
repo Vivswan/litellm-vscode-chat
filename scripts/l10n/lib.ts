@@ -123,6 +123,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"timeoutMessage",
 	"timeoutRequestError",
 	"upstreamAuthMessage",
+	"statusErrorTexts",
 ];
 
 /**

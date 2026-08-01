@@ -37,6 +37,11 @@ async function expectRequestError(promise: Promise<unknown>, kind: RequestError[
 	} catch (error) {
 		assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
 		assert.strictEqual(error.kind, kind);
+		// Every auth.ts construction site localizes its display message and
+		// must carry the full English mirror. Under the test host's English
+		// fallback the two coincide, so a drifted mirror (or a site that
+		// forgot one) fails every test that lands here.
+		assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
 		return error;
 	}
 	assert.fail("expected the promise to reject");

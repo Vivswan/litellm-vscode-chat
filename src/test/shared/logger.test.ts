@@ -140,6 +140,57 @@ suite("shared/logger", () => {
 		);
 	});
 
+	test("a localized message defers to its English mirror on the channel, and to the classification in the buffer", () => {
+		// The seam every localized transport error rides: the display message
+		// (possibly translated) reaches only the chat UI; the output channel
+		// renders the full English mirror, and the issue-report buffer records
+		// the terse classification when one exists.
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const err = Object.assign(new Error("LOCALIZED"), {
+			englishMessage: "ENGLISH",
+			logClassification: "RequestError(http, status 503)",
+		});
+		delete err.stack;
+
+		logger.error("Chat request failed", err);
+
+		assert.deepStrictEqual(sinks.errorLines, ["Chat request failed: ENGLISH"], "the channel line stays English");
+		assert.match(
+			expectDefined(sinks.bufferLines[0]),
+			/^\[.+\] ERROR: Chat request failed: RequestError\(http, status 503\)$/,
+			"the buffer keeps its classification-first behavior"
+		);
+	});
+
+	test("a localized message without a classification lands its English mirror in both the channel and the buffer", () => {
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const err = Object.assign(new Error("LOCALIZED"), { englishMessage: "ENGLISH" });
+		delete err.stack;
+
+		logger.error("Chat request failed", err);
+
+		assert.deepStrictEqual(sinks.errorLines, ["Chat request failed: ENGLISH"]);
+		assert.match(expectDefined(sinks.bufferLines[0]), /^\[.+\] ERROR: Chat request failed: ENGLISH$/);
+	});
+
+	test("a hostile englishMessage getter falls back to the message text", () => {
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+		const err = new Error("boom");
+		Object.defineProperty(err, "englishMessage", {
+			get() {
+				throw new Error("hostile getter");
+			},
+		});
+
+		logger.error("failed", err);
+
+		assert.deepStrictEqual(sinks.errorLines.slice(0, 1), ["failed: boom"]);
+		assert.ok(expectDefined(sinks.bufferLines[0]).endsWith("ERROR: failed: boom"));
+	});
+
 	test("a hostile logClassification getter falls back to the message text", () => {
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);
@@ -244,6 +295,24 @@ suite("shared/logger public renderings", () => {
 		const classified = Object.assign(new Error("secret body"), { logClassification: "RequestError(http, status 502)" });
 		assert.strictEqual(publicErrorText(classified), "RequestError(http, status 502)");
 		assert.strictEqual(publicErrorText(new Error("template text")), "template text");
+	});
+
+	test("publicErrorText ranks classification over English mirror over message", () => {
+		const both = Object.assign(new Error("LOCALIZED"), {
+			logClassification: "RequestError(http, status 502)",
+			englishMessage: "ENGLISH",
+		});
+		assert.strictEqual(publicErrorText(both), "RequestError(http, status 502)");
+		const mirrorOnly = Object.assign(new Error("LOCALIZED"), { englishMessage: "ENGLISH" });
+		assert.strictEqual(publicErrorText(mirrorOnly), "ENGLISH");
+	});
+
+	test("publicErrorStack replaces a mirrored error's message line with the English form, keeping the frames", () => {
+		const err = Object.assign(new Error("LOCALIZED"), { englishMessage: "ENGLISH" });
+		const stack = expectDefined(publicErrorStack(err));
+		assert.ok(stack.startsWith("Error: ENGLISH"), stack);
+		assert.ok(!stack.includes("LOCALIZED"), "the localized display message must not reach the public stack");
+		assert.match(stack, /\n\s+at /, "the real call frames must be kept");
 	});
 
 	test("publicErrorStack strips the message BY LENGTH: frame-shaped body lines never survive", () => {
