@@ -1,7 +1,7 @@
 {
 	"name": "litellm-vscode-chat",
-	"displayName": "LiteLLM Provider for GitHub Copilot Chat",
-	"description": "Use 100+ LLMs in GitHub Copilot Chat through your LiteLLM proxy: streaming, tool calling, vision, reasoning, and multiple servers. Works with OpenAI, Anthropic, Gemini, Bedrock, Azure, Ollama, and any OpenAI-compatible endpoint.",
+	"displayName": "%litellm.displayName%",
+	"description": "%litellm.description%",
 	"version": "0.4.1",
 	"publisher": "vivswan",
 	"license": "MIT",
@@ -71,58 +71,58 @@
 		"languageModelChatProviders": [
 			{
 				"vendor": "litellm",
-				"displayName": "LiteLLM",
+				"displayName": "%litellm.provider.displayName%",
 				"configuration": {
 					"properties": {
 						"baseUrl": {
 							"type": "string",
-							"title": "Base URL",
-							"description": "LiteLLM server URL, e.g. http://localhost:4000",
+							"title": "%litellm.provider.baseUrl.title%",
+							"description": "%litellm.provider.baseUrl.description%",
 							"format": "uri"
 						},
 						"label": {
 							"type": "string",
-							"title": "Label",
-							"description": "Optional label identifying the litellm-vscode-chat.servers entry this group mirrors. The extension's server sync sets it; it gives groups that share a base URL and credentials distinct identities."
+							"title": "%litellm.provider.label.title%",
+							"description": "%litellm.provider.label.description%"
 						},
 						"apiKey": {
 							"type": "string",
 							"secret": true,
-							"title": "API Key",
-							"description": "LiteLLM API key. Leave empty for servers without authentication."
+							"title": "%litellm.provider.apiKey.title%",
+							"description": "%litellm.provider.apiKey.description%"
 						},
 						"oauthTokenUrl": {
 							"type": "string",
 							"format": "uri",
-							"title": "OAuth Token URL",
-							"description": "OAuth2 token endpoint for client-credentials authentication, e.g. https://idp.example.com/oauth2/token. Set this together with the client ID to authenticate with a short-lived bearer token instead of a static API key."
+							"title": "%litellm.provider.oauthTokenUrl.title%",
+							"description": "%litellm.provider.oauthTokenUrl.description%"
 						},
 						"oauthClientId": {
 							"type": "string",
-							"title": "OAuth Client ID",
-							"description": "Client ID for the OAuth2 client-credentials grant. Required together with the token URL."
+							"title": "%litellm.provider.oauthClientId.title%",
+							"description": "%litellm.provider.oauthClientId.description%"
 						},
 						"oauthClientSecret": {
 							"type": "string",
 							"secret": true,
-							"title": "OAuth Client Secret",
-							"description": "Client secret for the OAuth2 client-credentials grant. Leave empty for public clients."
+							"title": "%litellm.provider.oauthClientSecret.title%",
+							"description": "%litellm.provider.oauthClientSecret.description%"
 						},
 						"oauthScopes": {
 							"type": "string",
-							"title": "OAuth Scopes",
-							"description": "Space-separated scopes to request with the token, e.g. \"litellm.read litellm.write\". Leave empty to request none."
+							"title": "%litellm.provider.oauthScopes.title%",
+							"description": "%litellm.provider.oauthScopes.description%"
 						},
 						"virtualKeyHeader": {
 							"type": "string",
-							"title": "Virtual Key Header",
-							"description": "Name of a custom header carrying a LiteLLM virtual key, e.g. x-litellm-api-key. Sent on every request to this server when both the header and its value are set."
+							"title": "%litellm.provider.virtualKeyHeader.title%",
+							"description": "%litellm.provider.virtualKeyHeader.description%"
 						},
 						"virtualKeyValue": {
 							"type": "string",
 							"secret": true,
-							"title": "Virtual Key Value",
-							"description": "The virtual key sent in the header named above."
+							"title": "%litellm.provider.virtualKeyValue.title%",
+							"description": "%litellm.provider.virtualKeyValue.description%"
 						}
 					},
 					"required": [
@@ -134,47 +134,47 @@
 		"commands": [
 			{
 				"command": "litellm.manage",
-				"title": "Manage LiteLLM Provider"
+				"title": "%litellm.command.manage.title%"
 			},
 			{
 				"command": "litellm.openDashboard",
-				"title": "LiteLLM: Open Dashboard"
+				"title": "%litellm.command.openDashboard.title%"
 			},
 			{
 				"command": "litellm.testConnection",
-				"title": "LiteLLM: Test Connection"
+				"title": "%litellm.command.testConnection.title%"
 			},
 			{
 				"command": "litellm.syncModels",
-				"title": "LiteLLM: Sync Models Now"
+				"title": "%litellm.command.syncModels.title%"
 			},
 			{
 				"command": "litellm.showDiagnostics",
-				"title": "LiteLLM: Show Diagnostics"
+				"title": "%litellm.command.showDiagnostics.title%"
 			},
 			{
 				"command": "litellm.helpAndFeedback",
-				"title": "LiteLLM: Help & Feedback"
+				"title": "%litellm.command.helpAndFeedback.title%"
 			},
 			{
 				"command": "litellm.setServerSecret",
-				"title": "LiteLLM: Set Server Secret"
+				"title": "%litellm.command.setServerSecret.title%"
 			},
 			{
 				"command": "litellm.reportIssue",
-				"title": "LiteLLM: Report Issue"
+				"title": "%litellm.command.reportIssue.title%"
 			}
 		],
 		"walkthroughs": [
 			{
 				"id": "litellm.gettingStarted",
-				"title": "Get started with LiteLLM for Copilot Chat",
-				"description": "Connect a LiteLLM server and use its models in GitHub Copilot Chat.",
+				"title": "%litellm.walkthrough.title%",
+				"description": "%litellm.walkthrough.description%",
 				"steps": [
 					{
 						"id": "litellm.walkthrough.connectServer",
-						"title": "Connect your LiteLLM server",
-						"description": "Add your server in the LiteLLM dashboard: enter a label, the base URL and, if your server needs one, an API key.\n[Open the Dashboard](command:litellm.openDashboard)",
+						"title": "%litellm.walkthrough.connectServer.title%",
+						"description": "%litellm.walkthrough.connectServer.description%",
 						"media": {
 							"markdown": "assets/walkthrough/connect-server.md"
 						},
@@ -184,8 +184,8 @@
 					},
 					{
 						"id": "litellm.walkthrough.pickModel",
-						"title": "Pick a LiteLLM model in chat",
-						"description": "Open Copilot Chat and click the model picker at the bottom of the chat input. Models from your LiteLLM server are listed under the name you gave it.\n[Open Copilot Chat](command:workbench.action.chat.open)",
+						"title": "%litellm.walkthrough.pickModel.title%",
+						"description": "%litellm.walkthrough.pickModel.description%",
 						"media": {
 							"markdown": "assets/walkthrough/pick-model.md"
 						},
@@ -195,8 +195,8 @@
 					},
 					{
 						"id": "litellm.walkthrough.configureModel",
-						"title": "Configure per-model options",
-						"description": "Select a LiteLLM model that supports reasoning, then click the \"Thinking Effort\" label next to the model name in the chat input. \"Provider default\" sends nothing and leaves the choice to your provider.",
+						"title": "%litellm.walkthrough.configureModel.title%",
+						"description": "%litellm.walkthrough.configureModel.description%",
 						"media": {
 							"markdown": "assets/walkthrough/configure-model.md"
 						},
@@ -206,8 +206,8 @@
 					},
 					{
 						"id": "litellm.walkthrough.verifyConnection",
-						"title": "Verify the connection",
-						"description": "Run a connection test to check every configured server and count the models it serves.\n[Test Connection](command:litellm.testConnection)",
+						"title": "%litellm.walkthrough.verifyConnection.title%",
+						"description": "%litellm.walkthrough.verifyConnection.description%",
 						"media": {
 							"markdown": "assets/walkthrough/verify-connection.md"
 						},
@@ -217,8 +217,8 @@
 					},
 					{
 						"id": "litellm.walkthrough.fineTune",
-						"title": "Fine-tune the extension",
-						"description": "Timeouts, model list caching, prompt caching, custom headers, and per-model request parameters live in the extension settings.\n[Open Settings](command:workbench.action.openSettings?%5B%22@ext:vivswan.litellm-vscode-chat%22%5D)",
+						"title": "%litellm.walkthrough.fineTune.title%",
+						"description": "%litellm.walkthrough.fineTune.description%",
 						"media": {
 							"markdown": "assets/walkthrough/fine-tune.md"
 						},
@@ -230,13 +230,13 @@
 			}
 		],
 		"configuration": {
-			"title": "LiteLLM VS Code Chat",
+			"title": "%litellm.config.title%",
 			"properties": {
 				"litellm-vscode-chat.servers": {
 					"type": "array",
 					"scope": "machine",
 					"default": [],
-					"markdownDescription": "LiteLLM servers, declared as settings. Machine-scoped: this lives in your user settings only (workspaces cannot override it, and Settings Sync does not carry it to other machines). Each entry syncs to a VS Code language-model provider group automatically, so servers can be managed here or in the LiteLLM dashboard. The `label` is the entry's identity: renaming it creates a new provider group, and removing an entry cannot remove its group (VS Code offers no API for that; to delete a leftover group, remove its object from the JSON array in the profile's `User/chatLanguageModels.json`, then reload the window). Secret fields (`apiKey`, `oauthClientSecret`, `virtualKeyValue`) may be written inline here - visible in settings files - or omitted and stored in VS Code secret storage instead, via the dashboard or the 'LiteLLM: Set Server Secret' command. Inline values take precedence over stored ones.",
+					"markdownDescription": "%litellm.config.servers.description%",
 					"items": {
 						"type": "object",
 						"required": [
@@ -247,48 +247,48 @@
 						"properties": {
 							"label": {
 								"type": "string",
-								"description": "Display name and identity of the server; the provider group is named after it."
+								"description": "%litellm.config.servers.label.description%"
 							},
 							"baseUrl": {
 								"type": "string",
 								"format": "uri",
-								"description": "LiteLLM server URL, e.g. http://localhost:4000."
+								"description": "%litellm.config.servers.baseUrl.description%"
 							},
 							"apiKey": {
 								"type": "string",
-								"description": "LiteLLM API key, inline. Omit to keep it in secret storage instead, or for servers without authentication."
+								"description": "%litellm.config.servers.apiKey.description%"
 							},
 							"oauthTokenUrl": {
 								"type": "string",
 								"format": "uri",
-								"description": "OAuth2 token endpoint for client-credentials authentication. Set together with the client ID."
+								"description": "%litellm.config.servers.oauthTokenUrl.description%"
 							},
 							"oauthClientId": {
 								"type": "string",
-								"description": "Client ID for the OAuth2 client-credentials grant. Required together with the token URL."
+								"description": "%litellm.config.servers.oauthClientId.description%"
 							},
 							"oauthClientSecret": {
 								"type": "string",
-								"description": "OAuth client secret, inline. Omit to keep it in secret storage instead, or for public clients."
+								"description": "%litellm.config.servers.oauthClientSecret.description%"
 							},
 							"oauthScopes": {
 								"type": "string",
-								"description": "Space-separated scopes to request with the token. Leave out to request none."
+								"description": "%litellm.config.servers.oauthScopes.description%"
 							},
 							"virtualKeyHeader": {
 								"type": "string",
-								"description": "Name of a custom header carrying a LiteLLM virtual key, e.g. x-litellm-api-key."
+								"description": "%litellm.config.servers.virtualKeyHeader.description%"
 							},
 							"virtualKeyValue": {
 								"type": "string",
-								"description": "The virtual key sent in the header named above, inline. Omit to keep it in secret storage instead."
+								"description": "%litellm.config.servers.virtualKeyValue.description%"
 							},
 							"modelParameters": {
 								"type": "object",
 								"additionalProperties": {
 									"type": "object"
 								},
-								"description": "Request parameters for models served through this entry, keyed by model ID prefix with the longest prefix winning - the same shape as the global litellm-vscode-chat.modelParameters, scoped to this one entry. This is how to target one of two entries sharing a base URL. Where both settings match a model, the entry's parameters win key by key; runtime options and the model picker's per-model configuration override both."
+								"description": "%litellm.config.servers.modelParameters.description%"
 							}
 						}
 					}
@@ -297,13 +297,13 @@
 					"type": "number",
 					"default": 16000,
 					"minimum": 1,
-					"description": "Default maximum output tokens when not provided by model info"
+					"description": "%litellm.config.defaultMaxOutputTokens.description%"
 				},
 				"litellm-vscode-chat.defaultContextLength": {
 					"type": "number",
 					"default": 128000,
 					"minimum": 1,
-					"description": "Default context length when not provided by model info"
+					"description": "%litellm.config.defaultContextLength.description%"
 				},
 				"litellm-vscode-chat.defaultMaxInputTokens": {
 					"type": [
@@ -312,17 +312,17 @@
 					],
 					"default": null,
 					"minimum": 1,
-					"description": "Default maximum input tokens (if null, calculated as contextLength - maxOutputTokens)"
+					"description": "%litellm.config.defaultMaxInputTokens.description%"
 				},
 				"litellm-vscode-chat.promptCaching.enabled": {
 					"type": "boolean",
 					"default": true,
-					"description": "Enable prompt caching for supported models (currently Anthropic Claude). Places cache breakpoints on the tool definitions, the system prompt, the first user message, and the last text-bearing message of the conversation, so agent sessions reuse the cached prefix instead of re-paying for the whole history every turn. Only affects models that advertise prompt caching support."
+					"description": "%litellm.config.promptCaching.enabled.description%"
 				},
 				"litellm-vscode-chat.modelParameters": {
 					"type": "object",
 					"default": {},
-					"description": "Model-specific request parameters to customize API behavior. Supports max_tokens, temperature, top_p, frequency_penalty, presence_penalty, stop, etc. Uses longest prefix matching (e.g., 'gpt-4' matches 'gpt-4-turbo:openai'). To scope parameters to a specific server, prefix with the server's base URL (e.g., 'http://localhost:4000/gpt-4'). Server-scoped entries take priority over unscoped ones. To target one declared entry exactly (two litellm-vscode-chat.servers entries can share a base URL), set modelParameters on that entry instead; entry parameters override this setting. Only parameters you set are sent; the extension never injects defaults.",
+					"description": "%litellm.config.modelParameters.description%",
 					"additionalProperties": {
 						"type": "object"
 					}
@@ -330,7 +330,7 @@
 				"litellm-vscode-chat.headers": {
 					"type": "object",
 					"default": {},
-					"description": "Custom HTTP headers to include with all LiteLLM requests (model discovery and chat completions). Useful for API gateways that require headers like x-litellm-api-key. If values contain secrets, prefer User settings (not workspace settings) to avoid accidental commits.",
+					"description": "%litellm.config.headers.description%",
 					"additionalProperties": {
 						"type": [
 							"string",
@@ -342,25 +342,25 @@
 				"litellm-vscode-chat.maskApiKeyInput": {
 					"type": "boolean",
 					"default": true,
-					"description": "Mask the API key input field when configuring. Disable to see the key as you type."
+					"description": "%litellm.config.maskApiKeyInput.description%"
 				},
 				"litellm-vscode-chat.requestTimeout": {
 					"type": "number",
 					"default": 300000,
 					"minimum": 1000,
-					"description": "Request timeout in milliseconds for chat completion requests. Default is 300000ms (5 minutes). Increase this value if you're experiencing timeout errors with long-running requests."
+					"description": "%litellm.config.requestTimeout.description%"
 				},
 				"litellm-vscode-chat.discoveryTimeout": {
 					"type": "number",
 					"default": 30000,
 					"minimum": 1000,
-					"description": "Request timeout in milliseconds for model discovery requests. Default is 30000ms (30 seconds)."
+					"description": "%litellm.config.discoveryTimeout.description%"
 				},
 				"litellm-vscode-chat.discoveryCacheTtl": {
 					"type": "number",
 					"default": 3600000,
 					"minimum": 0,
-					"description": "How long, in milliseconds, discovered model lists are reused before the server is asked again. Default is 3600000 (1 hour). Higher values avoid repeated discovery requests when VS Code re-resolves providers in bursts, but models added or removed on the server take up to this long to appear; lower values pick up server-side changes sooner at the cost of more requests. Set to 0 to ask the server on every refresh (simultaneous refreshes still share one request). Run 'LiteLLM: Sync Models Now' to refresh immediately regardless of this setting."
+					"description": "%litellm.config.discoveryCacheTtl.description%"
 				}
 			}
 		}

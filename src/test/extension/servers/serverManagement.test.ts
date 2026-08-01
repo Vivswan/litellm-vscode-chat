@@ -12,6 +12,7 @@ import {
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { Logger } from "../../../shared/logger";
 import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage, withConfig } from "../../testUtils";
+import { resolveNls } from "../../util/nls";
 
 suite("extension/servers/serverManagement", () => {
 	// The activated extension already owns the litellm.manage command IDs, so
@@ -663,7 +664,13 @@ suite("extension/servers/serverManagement", () => {
 			const extension = expectDefined(vscode.extensions.getExtension("vivswan.litellm-vscode-chat"));
 			const walkthroughs = (extension.packageJSON as { contributes: { walkthroughs: { steps: WalkthroughStep[] }[] } })
 				.contributes.walkthroughs;
-			return expectDefined(walkthroughs[0]).steps;
+			// The host localizes the manifest's %key% references before exposing
+			// packageJSON; resolveNls passes resolved strings through and covers
+			// a host that hands back the raw manifest.
+			return expectDefined(walkthroughs[0]).steps.map((step) => ({
+				...step,
+				description: resolveNls(step.description),
+			}));
 		}
 
 		test("the Open Settings button carries the same filter the hub uses", () => {
