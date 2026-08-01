@@ -14,7 +14,7 @@
 
 - 透過統一的 API 存取 100 多個 LLM (OpenAI、Anthropic、Google、AWS、Azure 等)
 - 多伺服器支援: 同時連線多個 LiteLLM 伺服器並彙總模型
-- 在會回報具備工具能力之各提供者路由的閘道上, 以 `cheapest` 與 `fastest` 模式自動選擇提供者 ([詳細資料](docs/models.md))
+- 以 `cheapest` 與 `fastest` 模式自動選擇提供者, 適用於會回報各提供者工具能力路由的閘道 ([詳細資料](docs/models.md))
 - 多模態輸入 (視覺、PDF/文件附件、文字/JSON 資料) 與產生的影像/音訊輸出
 - 串流、函式呼叫與思考/推理 token
 - 廣泛的模型選項傳遞 (`response_format`、`reasoning_effort`、`seed` 等)
