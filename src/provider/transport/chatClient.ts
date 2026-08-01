@@ -25,7 +25,7 @@ import { requestParamsFromModelConfiguration } from "../catalog/modelConfigurati
 import { resolveServer } from "../config";
 import { type OAuthConfig, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
-import { mapSdkError, RequestError, timeoutMessage } from "./errorMapping";
+import { localizedError, mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
 import { buildRequestBody, getModelParameters, MAX_TOOLS_PER_REQUEST, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
@@ -240,7 +240,10 @@ export class ChatClient {
 		if (route) {
 			const server = await resolveServer(route.serverId, this.getServers);
 			if (!server) {
-				throw new Error(`Server "${route.serverLabel}" is no longer configured`);
+				throw localizedError(
+					vscode.l10n.t('Server "{0}" is no longer configured', route.serverLabel),
+					`Server "${route.serverLabel}" is no longer configured`
+				);
 			}
 			return {
 				serverId: server.id,
@@ -265,7 +268,11 @@ export class ChatClient {
 				virtualKey: undefined,
 			};
 		}
-		throw new Error(
+		throw localizedError(
+			vscode.l10n.t(
+				'Model "{0}" is not registered with any configured server. Refresh the model list and try again.',
+				model.id
+			),
 			`Model "${model.id}" is not registered with any configured server. Refresh the model list and try again.`
 		);
 	}
@@ -294,7 +301,10 @@ export class ChatClient {
 		const toolConfig = convertTools(options);
 
 		if (options.tools && options.tools.length > MAX_TOOLS_PER_REQUEST) {
-			throw new Error(`Cannot have more than ${MAX_TOOLS_PER_REQUEST} tools per request.`);
+			throw localizedError(
+				vscode.l10n.t("Cannot have more than {0} tools per request.", MAX_TOOLS_PER_REQUEST),
+				`Cannot have more than ${MAX_TOOLS_PER_REQUEST} tools per request.`
+			);
 		}
 
 		const { messages: openaiMessages, tools: cachedTools } =
@@ -306,7 +316,12 @@ export class ChatClient {
 		const toolTokenCount = estimateToolTokens(toolConfig?.tools);
 		const tokenLimit = Math.max(1, model.maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {
-			throw new Error(
+			throw localizedError(
+				vscode.l10n.t(
+					"Message exceeds token limit (estimated {0} tokens, limit {1}).",
+					inputTokenCount + toolTokenCount,
+					tokenLimit
+				),
 				`Message exceeds token limit (estimated ${inputTokenCount + toolTokenCount} tokens, limit ${tokenLimit}).`
 			);
 		}
@@ -398,7 +413,7 @@ export class ChatClient {
 				.asResponse();
 
 			if (!response.body) {
-				throw new Error("No response body from LiteLLM API");
+				throw localizedError(vscode.l10n.t("No response body from LiteLLM API"), "No response body from LiteLLM API");
 			}
 
 			// The user-set audio.format parameter (when a modality-audio request
@@ -413,7 +428,7 @@ export class ChatClient {
 				throw new vscode.CancellationError();
 			}
 			if (timeoutSignal.aborted) {
-				throw new RequestError(timeoutMessage(errorContext), "timeout", { cause: err });
+				throw timeoutRequestError(errorContext, err);
 			}
 			const mapped = mapSdkError(err, errorContext);
 			this.invalidateRejectedToken(connection.oauth, mapped, sentOAuthToken);

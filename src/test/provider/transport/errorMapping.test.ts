@@ -7,11 +7,13 @@ import {
 	AuthenticationError,
 } from "openai";
 import {
+	localizedError,
 	type MapErrorContext,
 	mapSdkError,
 	RequestError,
 	streamErrorFrame,
 	timeoutMessage,
+	timeoutRequestError,
 } from "../../../provider/transport/errorMapping";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
@@ -333,6 +335,60 @@ suite("provider/transport/errorMapping", () => {
 		test("streamErrorFrame carries its own distinct classification", () => {
 			const err = streamErrorFrame({ message: "upstream died" });
 			assert.strictEqual(err.logClassification, "RequestError(http, in-band stream error frame)");
+		});
+	});
+
+	suite("display/log split (localized display, English logs)", () => {
+		test("template-only mapSdkError sites record an English logClassification identical to the English display", () => {
+			// Under the test host's English fallback, l10n.t returns the English
+			// template, so the localized display message and the hand-written
+			// English log rendering must be the same string. A mismatch here
+			// means a site's English mirror drifted from its t() literal.
+			const upstream401 = {
+				message: "litellm.AuthenticationError: AnthropicException - upstream key missing",
+				type: null,
+			};
+			const cases: Error[] = [
+				mapSdkError(new APIConnectionTimeoutError(), chatCtx),
+				mapSdkError(new APIConnectionTimeoutError(), discoveryCtx),
+				mapSdkError(new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()), chatCtx),
+				mapSdkError(new AuthenticationError(401, upstream401, undefined, new Headers()), chatCtx),
+				mapSdkError(new APIUserAbortError(), chatCtx),
+				mapSdkError(
+					connectionError(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })),
+					chatCtx
+				),
+				mapSdkError(connectionError(new Error("certificate has expired")), chatCtx),
+				mapSdkError(connectionError(new Error("self-signed certificate")), chatCtx),
+				mapSdkError(connectionError(new Error("socket hang up")), chatCtx),
+				mapSdkError(connectionError(new Error("socket hang up")), discoveryCtx),
+				mapSdkError(
+					Object.assign(new TypeError("terminated"), {
+						cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
+					}),
+					chatCtx
+				),
+			];
+			for (const mapped of cases) {
+				const classified = mapped as Error & { logClassification?: string };
+				assert.strictEqual(classified.logClassification, mapped.message, mapped.message);
+			}
+		});
+
+		test("timeoutRequestError carries the display message, the cause, and the English log rendering", () => {
+			const cause = new Error("boom");
+			const err = timeoutRequestError(chatCtx, cause);
+			assert.strictEqual(err.kind, "timeout");
+			assert.strictEqual(err.cause, cause);
+			assert.strictEqual(err.message, timeoutMessage(chatCtx));
+			// English fallback: the two renderings coincide.
+			assert.strictEqual(err.logClassification, timeoutMessage(chatCtx));
+		});
+
+		test("localizedError pairs the display message with its English log rendering", () => {
+			const err = localizedError("display text", "english text") as Error & { logClassification?: string };
+			assert.strictEqual(err.message, "display text");
+			assert.strictEqual(err.logClassification, "english text");
 		});
 	});
 });

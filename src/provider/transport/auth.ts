@@ -1,3 +1,4 @@
+import { l10n } from "vscode";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { isValidHeaderValue } from "../../shared/util/headers";
@@ -186,9 +187,18 @@ function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
 
 function timeoutError(tokenUrl: string, timeoutMs: number, cause?: unknown): RequestError {
 	return new RequestError(
-		`OAuth token request to ${tokenUrl} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discoveryTimeout" setting if your identity provider needs more time.`,
+		l10n.t(
+			'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.discoveryTimeout" setting if your identity provider needs more time.',
+			tokenUrl,
+			timeoutMs,
+			CONFIG_SECTION
+		),
 		"timeout",
-		{ cause }
+		{
+			cause,
+			// The English rendering for the issue-report buffer; the display message localizes.
+			logClassification: `OAuth token request to ${tokenUrl} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discoveryTimeout" setting if your identity provider needs more time.`,
+		}
 	);
 }
 
@@ -221,8 +231,21 @@ function oauthErrorDetail(payload: string, clientSecret: string): string {
 	return "";
 }
 
-function malformedTokenResponse(tokenUrl: string, reason: string): RequestError {
-	return new RequestError(`Failed to parse OAuth token response from ${tokenUrl}: ${reason}`, "http");
+/** A malformed-token-response reason in both renderings: localized for display, English for the log side. */
+interface MalformedReason {
+	display: string;
+	english: string;
+}
+
+function malformedTokenResponse(tokenUrl: string, reason: MalformedReason): RequestError {
+	return new RequestError(
+		l10n.t("Failed to parse OAuth token response from {0}: {1}", tokenUrl, reason.display),
+		"http",
+		{
+			// The English rendering for the issue-report buffer; the display message localizes.
+			logClassification: `Failed to parse OAuth token response from ${tokenUrl}: ${reason.english}`,
+		}
+	);
 }
 
 /**
@@ -249,13 +272,16 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 		parsed = undefined;
 	}
 	if (!isRecord(parsed) || typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
-		throw malformedTokenResponse(tokenUrl, `expected JSON with a non-empty "access_token".`);
+		throw malformedTokenResponse(tokenUrl, {
+			display: l10n.t('expected JSON with a non-empty "access_token".'),
+			english: `expected JSON with a non-empty "access_token".`,
+		});
 	}
 	if (!isValidHeaderValue(parsed.access_token)) {
-		throw malformedTokenResponse(
-			tokenUrl,
-			"the access token contains characters that are not valid in an HTTP header."
-		);
+		throw malformedTokenResponse(tokenUrl, {
+			display: l10n.t("the access token contains characters that are not valid in an HTTP header."),
+			english: "the access token contains characters that are not valid in an HTTP header.",
+		});
 	}
 	return { accessToken: parsed.access_token, expiresInSeconds: tokenLifetimeSeconds(parsed) };
 }
@@ -327,16 +353,24 @@ async function exchangeClientCredentials(
 		const { status } = response;
 		const detail = oauthErrorDetail(payload, config.clientSecret);
 		if (status >= 500) {
-			lastFailure = new RequestError(`OAuth token request to ${config.tokenUrl} failed: ${status}${detail}`, "http", {
-				status,
-				// `detail` quotes the IdP's error/error_description (response-derived).
-				logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-			});
+			lastFailure = new RequestError(
+				l10n.t("OAuth token request to {0} failed: {1}", config.tokenUrl, `${status}${detail}`),
+				"http",
+				{
+					status,
+					// `detail` quotes the IdP's error/error_description (response-derived).
+					logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
+				}
+			);
 			continue;
 		}
 		if (status === 400 || status === 401 || status === 403) {
 			throw new RequestError(
-				`OAuth authentication failed: the token endpoint at ${config.tokenUrl} rejected the client credentials (${status}${detail}). Check the OAuth client ID, client secret, and scopes in the provider configuration.`,
+				l10n.t(
+					"OAuth authentication failed: the token endpoint at {0} rejected the client credentials ({1}). Check the OAuth client ID, client secret, and scopes in the provider configuration.",
+					config.tokenUrl,
+					`${status}${detail}`
+				),
 				"auth",
 				{
 					status,
@@ -345,10 +379,14 @@ async function exchangeClientCredentials(
 				}
 			);
 		}
-		throw new RequestError(`OAuth token request to ${config.tokenUrl} failed: ${status}${detail}`, "http", {
-			status,
-			logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-		});
+		throw new RequestError(
+			l10n.t("OAuth token request to {0} failed: {1}", config.tokenUrl, `${status}${detail}`),
+			"http",
+			{
+				status,
+				logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
+			}
+		);
 	}
 
 	if (lastFailure instanceof RequestError) {
@@ -356,8 +394,15 @@ async function exchangeClientCredentials(
 	}
 	const detail = lastFailure instanceof Error ? ` ${lastFailure.message}` : "";
 	throw new RequestError(
-		`Network Error: Unable to reach the OAuth token endpoint at ${config.tokenUrl}. Please check that the URL is correct and the identity provider is reachable.${detail}`,
+		`${l10n.t(
+			"Network Error: Unable to reach the OAuth token endpoint at {0}. Please check that the URL is correct and the identity provider is reachable.",
+			config.tokenUrl
+		)}${detail}`,
 		"network",
-		{ cause: lastFailure }
+		{
+			cause: lastFailure,
+			// The English rendering for the issue-report buffer; the display message localizes.
+			logClassification: `Network Error: Unable to reach the OAuth token endpoint at ${config.tokenUrl}. Please check that the URL is correct and the identity provider is reachable.${detail}`,
+		}
 	);
 }

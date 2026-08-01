@@ -118,6 +118,11 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"parseServerFormForTest",
 	"validateAdoptLabel",
 	"sectionFailureText",
+	"authMessage",
+	"reasoningOnlyResponseMessage",
+	"timeoutMessage",
+	"timeoutRequestError",
+	"upstreamAuthMessage",
 ];
 
 /**
