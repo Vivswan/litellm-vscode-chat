@@ -82,9 +82,13 @@ jobs:
           touch logs/ci-proof.log coverage/ci-proof.json
           listing="$(bunx vsce ls)"
           echo "$listing"
-          forbidden='^(out/|src/|node_modules/|scripts/|docker/|docs/|logs/|coverage/|\.github/|\.husky/|\.dev-profile/)|^(bun\.lock|biome\.json|AGENTS\.md|CLAUDE\.md|\.vscode-test\.mjs)$|\.ts$|\.map$'
-          if echo "$listing" | grep -E "$forbidden"; then
-            echo "::error::vsce would package files that must stay out of the VSIX (matches above)"
+          # Allowlist, not denylist: the package is 13 known files, and a
+          # denylist only catches leaks someone predicted (the repo-tooling
+          # files it missed shipped in a VSIX before anyone noticed). Anything
+          # new must be added here deliberately, including new asset types.
+          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js)$|^assets/.+\.(png|md)$'
+          if echo "$listing" | grep -Ev "$allowed"; then
+            echo "::error::vsce would package files outside the allowed set (matches above)"
             exit 1
           fi
           if ! echo "$listing" | grep -qx 'dist/extension.js'; then
@@ -116,10 +120,6 @@ jobs:
           done
           if ! echo "$listing" | grep -qx 'ThirdPartyNotices.txt'; then
             echo "::error::ThirdPartyNotices.txt is missing from the packaged file list"
-            exit 1
-          fi
-          if echo "$listing" | grep -E '^dist/' | grep -vx 'dist/extension.js' | grep -vx 'dist/webview/dashboard.js'; then
-            echo "::error::unexpected files under dist/ would be packaged (matches above)"
             exit 1
           fi
           echo "Packaged file list is clean ($(echo "$listing" | wc -l | tr -d ' ') files)"
