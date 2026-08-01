@@ -1172,6 +1172,32 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Gone", baseUrl: "http://gone.test" }]);
 		});
 
+		test("a tombstone whose group was never observed this session is a ghost and stays off the hidden line", () => {
+			// The user can delete a tombstoned group from the models file directly;
+			// after the restart the host never calls for it, so offering Unhide
+			// would reference nothing. The panel's session-sticky observation set
+			// feeds this gate; the observed identity keeps its row even with no
+			// live snapshot in this push (snapshot aging must not flap it off).
+			const state = buildDashboardState(
+				[],
+				makeReader({}),
+				[],
+				[],
+				{
+					tombstones: [
+						{ label: "Ghost", baseUrl: "http://ghost.test" },
+						{ label: "Seen", baseUrl: "http://seen.test" },
+					],
+					origins: [],
+				},
+				() => true,
+				() => undefined,
+				(label) => label === "Seen"
+			);
+
+			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Seen", baseUrl: "http://seen.test" }]);
+		});
+
 		test("a registry-backed snapshot is never suppressed and its row is not hideable", () => {
 			// In test mode (and pre-migration) the legacy registry contributes
 			// external-looking rows; the registry sweep would keep serving their
