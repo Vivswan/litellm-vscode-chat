@@ -14,7 +14,7 @@
 
 - 透過統一的 API 存取 100 多個 LLM (OpenAI、Anthropic、Google、AWS、Azure 等)
 - 多伺服器支援: 同時連線多個 LiteLLM 伺服器並彙總模型
-- 以 `cheapest` 與 `fastest` 模式自動選擇提供者, 適用於會回報各提供者工具能力路由的閘道 ([詳細資料](docs/models.md))
+- 以 `cheapest` 與 `fastest` 模式自動選擇提供者, 適用於會回報各提供者工具能力路由的閘道 ([詳細資料](docs/zh-tw/models.md))
 - 多模態輸入 (視覺、PDF/文件附件、文字/JSON 資料) 與產生的影像/音訊輸出
 - 串流、函式呼叫與思考/推理 token
 - 廣泛的模型選項傳遞 (`response_format`、`reasoning_effort`、`seed` 等)
@@ -48,14 +48,14 @@
 
 ## 文件
 
-- [快速入門](docs/getting-started.md) - 第一個伺服器、逐步解說、命令, 以及各項設定的位置
-- [伺服器](docs/servers.md) - 多伺服器、祕密與祕密儲存體、OAuth、虛擬金鑰、採用外部伺服器
-- [模型與功能](docs/models.md) - 會註冊哪些模型、功能門檻、多模態輸入與輸出、用量回報
-- [模型參數](docs/model-parameters.md) - 各模型請求參數、前置詞比對、優先順序、推理程度
-- [設定](docs/settings.md) - 每個設定與其預設值: token 上限、逾時、快取、標頭
-- [儀表板](docs/dashboard.md) - 面板的索引標籤、伺服器表單與記錄編輯器
-- [疑難排解](docs/troubleshooting.md) - 診斷、問題回報、常見問題、隱私權、解除安裝清理、移轉注意事項
-- [開發](docs/development.md) - 從原始碼建置與本機 Docker 測試堆疊
+- [快速入門](docs/zh-tw/getting-started.md) - 第一個伺服器、逐步解說、命令, 以及各項設定的位置
+- [伺服器](docs/zh-tw/servers.md) - 多伺服器、祕密與祕密儲存體、OAuth、虛擬金鑰、採用外部伺服器
+- [模型與功能](docs/zh-tw/models.md) - 會註冊哪些模型、功能門檻、多模態輸入與輸出、用量回報
+- [模型參數](docs/zh-tw/model-parameters.md) - 各模型請求參數、前置詞比對、優先順序、推理程度
+- [設定](docs/zh-tw/settings.md) - 每個設定與其預設值: token 上限、逾時、快取、標頭
+- [儀表板](docs/zh-tw/dashboard.md) - 面板的索引標籤、伺服器表單與記錄編輯器
+- [疑難排解](docs/zh-tw/troubleshooting.md) - 診斷、問題回報、常見問題、隱私權、解除安裝清理、移轉注意事項
+- [開發](docs/development.md) (English) - 從原始碼建置與本機 Docker 測試堆疊
 
 ## 開發
 
@@ -74,7 +74,7 @@ bun run compile
 
 ## 資源
 
-- [隱私權與資料](docs/troubleshooting.md#privacy-and-data)
+- [隱私權與資料](docs/zh-tw/troubleshooting.md#隱私與資料)
 - [LiteLLM 文件](https://docs.litellm.ai)
 - [VS Code Chat Provider API](https://code.visualstudio.com/api/extension-guides/ai/language-model-chat-provider)
 - [回報問題](https://github.com/Vivswan/litellm-vscode-chat/issues)
