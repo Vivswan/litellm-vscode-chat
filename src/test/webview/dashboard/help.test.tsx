@@ -25,7 +25,7 @@ import {
 	SETTING_ROW_HELP,
 } from "../../../webview/dashboard/helpText";
 import { declaredWithSecrets, makeModel, makeSettings, makeState, statePush } from "../fixtures";
-import { buttonByText, cleanup, fireClick, mount, pushToWebview, resetPosted } from "../harness";
+import { buttonByText, cleanup, fireClick, fireMouseEnter, mount, pushToWebview, resetPosted } from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -109,7 +109,6 @@ test("every help glyph renders a tooltip element wired as its accessible descrip
 	pushToWebview(statePush(fullState()));
 	// Open the edit form so the server form's field help renders too.
 	fireClick(buttonByText(root, "Edit"));
-
 	const glyphs = helps(document);
 	// Sections (Servers, Models, Settings, Model parameters, Custom headers)
 	// plus form fields; the exact count is asserted per component below.
@@ -236,4 +235,25 @@ test("settings rows show help only where the one-line description is not enough"
 	const plain = rowFor("defaultContextLength");
 	expect(plain).not.toBeNull();
 	expect(helps(plain as ParentNode).length).toBe(0);
+});
+
+test("a shown tip pins itself with fixed coordinates, so scroll containers cannot clip it", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(fullState()));
+
+	// Before any hover the tip has no inline placement: the stylesheet's
+	// absolute positioning is the resting default.
+	const wrap = root.querySelector(".help-wrap") as HTMLElement;
+	const tip = wrap.querySelector(".help-tip") as HTMLElement;
+	expect(tip.style.position).toBe("");
+
+	// Hover measures the trigger and re-anchors the tip to the viewport;
+	// fixed positioning is what escapes the tables' overflow clipping. One
+	// vertical side pins to the trigger's edge, the other stands down
+	// (which is which depends on the wrapper's above/below placement).
+	fireMouseEnter(wrap);
+	expect(tip.style.position).toBe("fixed");
+	expect([tip.style.top, tip.style.bottom]).toContain("auto");
+	expect([tip.style.top, tip.style.bottom].some((edge) => edge.endsWith("px"))).toBe(true);
+	expect(tip.style.left.endsWith("px")).toBe(true);
 });

@@ -70,10 +70,10 @@ function visibleModelNames(root: ParentNode): string[] {
 	);
 }
 
-test("two tabs render without count badges, the combined view selected by default, and panels wired by aria", () => {
+test("three tabs render without count badges, the combined view selected by default, and panels wired by aria", () => {
 	const root = mountApp();
 	const tabs = Array.from(root.querySelectorAll("[role='tab']"));
-	expect(tabs.map((t) => (t.textContent ?? "").trim())).toEqual(["Servers & Models", "Settings"]);
+	expect(tabs.map((t) => (t.textContent ?? "").trim())).toEqual(["Servers & Models", "Settings", "Diagnostics"]);
 	// No count badges on the tabs: the hero directly above carries the server
 	// and model totals, so the tab labels stay plain text.
 	expect(root.querySelectorAll(".tabs .count").length).toBe(0);
@@ -85,8 +85,9 @@ test("two tabs render without count badges, the combined view selected by defaul
 	expect(overview.getAttribute("aria-selected")).toBe("true");
 	expect(overview.tabIndex).toBe(0);
 	expect(tab(root, "Settings").tabIndex).toBe(-1);
+	expect(tab(root, "Diagnostics").tabIndex).toBe(-1);
 
-	for (const section of ["overview", "settings"]) {
+	for (const section of ["overview", "settings", "diagnostics"]) {
 		const pane = panel(root, section);
 		expect(pane.getAttribute("role")).toBe("tabpanel");
 		expect(pane.getAttribute("aria-labelledby")).toBe(`tab-${section}`);
@@ -135,13 +136,15 @@ test("arrow keys move selection with wrap-around; Home and End jump", () => {
 	fireKeyDown(tablist, "ArrowRight");
 	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowRight");
+	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
+	fireKeyDown(tablist, "ArrowRight");
 	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowLeft");
-	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
+	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "Home");
 	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "End");
-	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
+	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
 });
 
 test("section-local state survives a round trip through another tab", () => {

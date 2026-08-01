@@ -71,6 +71,12 @@ export function fireBlur(element: HTMLElement): void {
 	});
 }
 
+export function fireMouseEnter(element: HTMLElement): void {
+	void act(() => {
+		element.dispatchEvent(new Event("mouseenter"));
+	});
+}
+
 export function fireClick(element: HTMLElement): void {
 	void act(() => {
 		element.click();

@@ -187,6 +187,8 @@ const STYLES = `
 	   entry point) sits where every row's Edit sits, and is the last thing a
 	   narrow viewport's horizontal scroll loses instead of the first. */
 	td.actions { white-space: nowrap; }
+	/* The models table's name cell keeps its copy action on the name's line. */
+	td.model-name { white-space: nowrap; }
 
 	.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; align-items: center; }
 	button {
@@ -316,6 +318,41 @@ const STYLES = `
 		text-decoration: none;
 	}
 	a.docs-link:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
+	/* The page header: the title with one quiet Report-a-bug action on its
+	   right, so filing an issue is reachable from anywhere on the page. The
+	   title keeps h1's top margin; align-items end keeps the action on the
+	   title's baseline band rather than floating above it. */
+	.page-head {
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: 12px;
+	}
+	.page-head h1 { margin-bottom: 0; }
+	/* The Diagnostics tab's connection block and feedback rows. Outcome lines
+	   and hints render selectable prose (this tab is where users copy state
+	   from when asking for help); each feedback row is one action plus its
+	   muted one-liner. */
+	.diag-servers { list-style: none; padding: 0; margin: 8px 0 12px; }
+	.diag-servers li { margin: 4px 0; }
+	.diag-servers li .hint, .diag-verdict .hint, .feedback-links li .hint { margin-left: 8px; }
+	.diag-actions { margin: 8px 0 4px; }
+	.feedback-links { list-style: none; padding: 0; margin: 8px 0; }
+	.feedback-links li { margin: 8px 0; }
+	/* A button that reads like the anchors beside it (Report a bug posts an
+	   intent, so it cannot be an anchor); still a real button for focus and
+	   keyboard activation. */
+	button.linkish {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 0;
+		border: none;
+		background: none;
+		color: var(--vscode-textLink-foreground);
+		font-size: inherit;
+	}
+	button.linkish:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; background: none; }
 	/* Hover tips over non-interactive inline content (badges, status pills):
 	   the same tip element, revealed by hovering the wrapper. Extra detail
 	   only; anything load-bearing also renders as visible text. */
@@ -326,10 +363,6 @@ const STYLES = `
 	/* Triggers in the page's top band (the first section heading) flip the
 	   tip below them; above would clip against the top of the document. */
 	.help-wrap.below .help-tip { bottom: auto; top: calc(100% + 6px); }
-	/* Value-column glyphs sit near the content's right edge; anchoring the
-	   tip's right edge there grows it leftward instead of forcing a
-	   horizontal scrollbar while it is shown. */
-	.row .cell.value .help-tip { left: auto; right: -8px; }
 
 	/* The settings form follows the native Settings editor's row anatomy:
 	   semibold title, muted description, control below. Titles, descriptions,
@@ -459,13 +492,14 @@ const STYLES = `
 	   panel on the right edge. Elevation is the shadow alone; the one motion
 	   is the panel's 200ms entrance, and it stands down for users who asked
 	   the OS for reduced motion. */
-	/* The scrim dims per theme: widget-shadow is the host's own layering
-	   color (heavier in dark themes, lighter in light ones). */
+	/* The scrim dims at a fixed alpha: theme widget-shadow values range from
+	   translucent black to fully opaque accent colors, so keying the scrim to
+	   the token either vanishes or paints a solid wall depending on theme. */
 	.scrim {
 		position: fixed;
 		inset: 0;
 		z-index: 40;
-		background: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
+		background: rgba(0, 0, 0, 0.45);
 		border: none;
 		border-radius: 0;
 		padding: 0;
@@ -482,7 +516,7 @@ const STYLES = `
 		overflow-y: auto;
 		padding: 12px 20px 20px;
 		background: var(--vscode-editor-background, var(--vscode-panel-background));
-		box-shadow: -6px 0 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+		box-shadow: -6px 0 16px rgba(0, 0, 0, 0.35);
 		animation: slide-in 200ms ease-out;
 	}
 	@keyframes slide-in {
@@ -496,10 +530,13 @@ const STYLES = `
 	   surface) and fields stack label-over-control: a 460px panel has no room
 	   for the two-column field grid. */
 	.slide-over .form-card { border: none; border-radius: 0; padding: 0; margin: 0; max-width: none; background: transparent; }
-	.slide-over .form-card h3 { font-size: 1.05em; margin: 4px 24px 12px 0; }
-	.slide-over .field { grid-template-columns: 1fr; }
+	.slide-over .form-card h3 { font-size: 1.05em; margin: 4px 24px 16px 0; }
+	/* The 460px panel breathes more than the inline card: taller gaps between
+	   the stacked fields and the collapsed groups keep the column scannable. */
+	.slide-over .field { grid-template-columns: 1fr; margin: 14px 0; gap: 6px 12px; }
 	.slide-over .field .hint, .slide-over .field .error, .slide-over .field .secret-where, .slide-over .field .secret-remove { grid-column: 1; }
 	.slide-over .field .hint { width: auto; max-width: none; }
+	.slide-over details { margin: 16px 0; }
 	.slide-over .secret-where { flex-wrap: wrap; white-space: normal; }
 	/* The form's Save/Cancel row pins to the panel's bottom edge, so the
 	   commit action never scrolls out of a long form. */

@@ -4,8 +4,8 @@
 
 ## Layout
 
-- A status strip on top: overall connection state, server and model counts, last sync, and a Sync models button.
-- Two tabs. Servers and models share the first, since they are one workflow: connect a server, see its models. The second holds the extension's settings as editable form controls.
+- A status strip on top: overall connection state, server and model counts, last sync, and a Sync models button. A quiet Report a bug action sits beside the title and opens a GitHub issue pre-filled with version, platform, and recent logs.
+- Three tabs. Servers and models share the first, since they are one workflow: connect a server, see its models. The second holds the extension's settings as editable form controls. The third is Diagnostics: a connection summary plus the feedback and documentation links.
 - Settings edits write to your VS Code settings (to the scope where the value is already set, otherwise to user settings), and the buttons run the same commands the Command Palette offers.
 
 ## Servers
@@ -54,3 +54,11 @@ The Settings tab renders the same settings the native Settings editor shows, as 
 - Model parameter values are JSON (`0.2`, `true`, `"text"`, `["stop"]`); invalid input is flagged and Apply stays disabled until every row parses.
 - Because VS Code merges object settings across scopes, each record editor works on one scope at a time (the one your edits write to) and lists entries from other scopes read only, so applying a change never copies user-scope values into workspace files.
 - Header values are settings, not secrets: they show up exactly as they do in the Settings editor, so keep secret headers in User scope rather than workspace scope.
+
+## Diagnostics
+
+The Diagnostics tab gathers the support surfaces:
+
+- A connection summary: the same verdict the status strip shows, with one outcome line per server ("OK (12 models)", the error text otherwise) and a Test connection button.
+- Report a bug opens a GitHub issue pre-filled with version, platform, and recent logs - the same action as the header button.
+- Request a feature, Rate this extension, Documentation, and the GitHub repository are plain links.

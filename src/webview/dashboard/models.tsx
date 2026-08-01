@@ -246,7 +246,7 @@ export function ModelsSection({
 		: 0;
 	const end = windowed ? Math.min(sorted.length, start + windowSize) : sorted.length;
 	const visible = sorted.slice(start, end);
-	const columns = 7 + (showServerColumn ? 1 : 0);
+	const columns = 6 + (showServerColumn ? 1 : 0);
 
 	return (
 		// The id anchors the servers table's model-count links: App scrolls and
@@ -308,7 +308,6 @@ export function ModelsSection({
 									<SortHeader label="Output tokens" sortKey="output" sort={sort} numeric onSort={toggleSort} />
 									<SortHeader label="Pricing ($/M)" sortKey="price" sort={sort} numeric onSort={toggleSort} />
 									<th>Capabilities</th>
-									<th>{/* row actions */}</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -324,7 +323,20 @@ export function ModelsSection({
 									const rowId = `${model.serverLabel}/${model.id}`;
 									return (
 										<tr key={start + index} aria-rowindex={windowed ? start + index + 2 : undefined}>
-											<td>{model.name}</td>
+											<td class="model-name">
+												{model.name}
+												{/* Beside the name because the name is what it copies. The
+												    server label keeps the accessible name unique when one raw
+												    ID is registered through several servers. */}
+												<button
+													type="button"
+													class="quiet icon-action"
+													aria-label={`Copy model ID ${model.id} from ${model.serverLabel}`}
+													onClick={() => copyId(model, rowId)}
+												>
+													{copied === rowId ? <IconCheck /> : <IconCopy />}
+												</button>
+											</td>
 											<td>{model.family}</td>
 											{showServerColumn ? <td>{model.serverLabel}</td> : null}
 											<td class="num">{formatTokens(model.maxInputTokens)}</td>
@@ -338,18 +350,6 @@ export function ModelsSection({
 												</HoverTip>
 											</td>
 											<td class="caps">{capabilities(model)}</td>
-											<td class="actions">
-												{/* The server label keeps the accessible name unique when one
-												    raw ID is registered through several servers. */}
-												<button
-													type="button"
-													class="quiet icon-action"
-													aria-label={`Copy model ID ${model.id} from ${model.serverLabel}`}
-													onClick={() => copyId(model, rowId)}
-												>
-													{copied === rowId ? <IconCheck /> : <IconCopy />}
-												</button>
-											</td>
 										</tr>
 									);
 								})}
