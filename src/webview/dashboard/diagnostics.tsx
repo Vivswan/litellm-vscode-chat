@@ -17,6 +17,7 @@
  * which the webview host opens itself.
  */
 
+import * as l10n from "@vscode/l10n";
 import type { ComponentChildren } from "preact";
 import { Fragment } from "preact";
 import { useRef, useState } from "preact/hooks";
@@ -85,7 +86,7 @@ function ExternalRow({
 function lastCheckedText(servers: readonly DashboardServer[], now: number): string {
 	const checkedMs = latestCheckedMs(servers);
 	if (checkedMs === undefined) {
-		return "Never";
+		return l10n.t("Never");
 	}
 	const absolute = new Date(checkedMs).toLocaleString();
 	const ago = relativeTime(new Date(checkedMs).toISOString(), now);
@@ -105,26 +106,29 @@ function lastCheckedText(servers: readonly DashboardServer[], now: number): stri
  * while the on-screen grid keeps the localized error.
  */
 function withEnglishError(server: DashboardServer): DashboardServer {
-	if (server.state === "error" && server.errorEnglish !== undefined) {
-		return { ...server, error: server.errorEnglish };
-	}
-	if (server.state === "ok" && server.errorEnglish !== undefined) {
+	if (server.state !== "unchecked" && server.errorEnglish !== undefined) {
 		return { ...server, error: server.errorEnglish };
 	}
 	return server;
 }
 
+/**
+ * The copied block is fully English, timestamp included: where the on-screen
+ * facts list renders the localized absolute-plus-relative reading, the copy
+ * path emits "Never" or the plain ISO instant, so a pasted issue report never
+ * carries translated text or a locale-shaped date.
+ */
 function diagnosticsReportText(
 	servers: readonly DashboardServer[],
 	modelCount: number,
-	legacyServerCount: number,
-	now: number
+	legacyServerCount: number
 ): string {
 	const copyServers = servers.map(withEnglishError);
+	const checkedMs = latestCheckedMs(copyServers);
 	const lines = [
 		overallStatusText(copyServers, modelCount, legacyServerCount),
 		`Servers configured: ${copyServers.length}`,
-		`Last checked: ${lastCheckedText(copyServers, now)}`,
+		`Last checked: ${checkedMs === undefined ? "Never" : new Date(checkedMs).toISOString()}`,
 	];
 	if (legacyServerCount > 0) {
 		lines.push(`Legacy registry servers: ${legacyServerCount}`);
@@ -138,7 +142,7 @@ function diagnosticsReportText(
 /** A row's last-checked cell: relative ("is this fresh?"); the facts list above carries the precise overall time. */
 function rowChecked(server: DashboardServer, now: number): string {
 	if (server.lastChecked === undefined) {
-		return "Never";
+		return l10n.t("Never");
 	}
 	return relativeTime(server.lastChecked, now) ?? "-";
 }
@@ -155,11 +159,11 @@ function OutcomeGrid({ servers, now }: { servers: readonly DashboardServer[]; no
 		<table class="diag-grid">
 			<thead>
 				<tr>
-					<th>Server</th>
-					<th>Status</th>
-					<th class="num">Models</th>
-					<th>Last checked</th>
-					<th>URL</th>
+					<th>{l10n.t("Server")}</th>
+					<th>{l10n.t("Status")}</th>
+					<th class="num">{l10n.t("Models")}</th>
+					<th>{l10n.t("Last checked")}</th>
+					<th>{l10n.t("URL")}</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -221,7 +225,7 @@ export function DiagnosticsSection({
 	const copyDiagnostics = () => {
 		// Clipboard write is fire-and-forget; the check mark is the only
 		// feedback (the models table's copy action sets the precedent).
-		navigator.clipboard?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount, now)).catch(() => {});
+		navigator.clipboard?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount)).catch(() => {});
 		setCopied(true);
 		const seq = ++copySeq.current;
 		setTimeout(() => {
@@ -233,13 +237,14 @@ export function DiagnosticsSection({
 	return (
 		<>
 			<section aria-labelledby="diagnostics-title">
-				<h2 id="diagnostics-title">Diagnostics</h2>
+				<h2 id="diagnostics-title">{l10n.t("Diagnostics")}</h2>
 				<p class="diag-verdict">{overallStatusText(servers, modelCount, legacyServerCount)}</p>
 				<ul class="diag-facts">
 					<li>Servers configured: {servers.length}</li>
-					{/* One literal string, not CSS-spaced fragments: the line is meant
-					    to be copied whole into a report, and Copy diagnostics renders
-					    exactly the same text. */}
+					{/* One literal string, not CSS-spaced fragments, so the line
+					    selects and copies whole. Copy diagnostics emits its own English
+					    rendering of the same fact (ISO timestamp, no relative echo);
+					    only this on-screen line is localized. */}
 					<li>Last checked: {lastCheckedText(servers, now)}</li>
 					{/* The legacy registry (pre-migration installs and test mode)
 					    holds servers no row lists; the count keeps the copyable block
@@ -256,22 +261,22 @@ export function DiagnosticsSection({
 						disabled={servers.length === 0 && legacyServerCount === 0}
 						onClick={() => postMessage({ type: "executeCommand", command: "testConnection" })}
 					>
-						<IconPlug /> Test connection
+						<IconPlug /> {l10n.t("Test connection")}
 					</button>
 					<button
 						type="button"
 						class="secondary"
 						onClick={() => postMessage({ type: "executeCommand", command: "openOutput" })}
 					>
-						<IconOutput /> Open output log
+						<IconOutput /> {l10n.t("Open output log")}
 					</button>
 					<button type="button" class="secondary" onClick={copyDiagnostics}>
-						{copied ? <IconCheck /> : <IconCopy />} Copy diagnostics
+						{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
 					</button>
 				</div>
 			</section>
 			<section aria-labelledby="diagnostics-feedback-title">
-				<h2 id="diagnostics-feedback-title">Feedback &amp; links</h2>
+				<h2 id="diagnostics-feedback-title">{l10n.t("Feedback & links")}</h2>
 				<ul class="feedback-links">
 					<FeedbackRow
 						action={
@@ -283,19 +288,19 @@ export function DiagnosticsSection({
 								<IconBug /> Report a bug
 							</button>
 						}
-						hint="Opens a GitHub issue pre-filled with version, platform, and recent logs."
+						hint={l10n.t("Opens a GitHub issue pre-filled with version, platform, and recent logs.")}
 					/>
 					<ExternalRow
 						href={FEEDBACK_LINK_FEATURE_REQUEST}
 						icon={<IconLightbulb />}
 						label="Request a feature"
-						hint="Suggest an improvement as a GitHub issue."
+						hint={l10n.t("Suggest an improvement as a GitHub issue.")}
 					/>
 					<ExternalRow
 						href={FEEDBACK_LINK_RATE}
 						icon={<IconStar />}
 						label="Rate this extension"
-						hint="Leave a review on the Visual Studio Marketplace."
+						hint={l10n.t("Leave a review on the Visual Studio Marketplace.")}
 					/>
 					<FeedbackRow
 						action={
@@ -303,13 +308,13 @@ export function DiagnosticsSection({
 								<IconBook /> Documentation
 							</DocsLink>
 						}
-						hint="The getting-started guide, with the rest of the docs one click away."
+						hint={l10n.t("The getting-started guide, with the rest of the docs one click away.")}
 					/>
 					<ExternalRow
 						href={FEEDBACK_LINK_REPOSITORY}
 						icon={<IconRepo />}
 						label="GitHub repository"
-						hint="Source code, releases, and issues."
+						hint={l10n.t("Source code, releases, and issues.")}
 					/>
 				</ul>
 			</section>

@@ -156,7 +156,8 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
  * of the top-level statements (no deep scope analysis): variable
  * initializers are searched through object/array literals, templates,
  * as/satisfies wrappers, and immediately-invoked functions, while a
- * function-valued initializer defers its body and passes; top-level
+ * function-valued initializer defers its body and passes; object-literal
+ * methods and accessors defer like arrow properties, and top-level
  * expression statements are searched the same way.
  */
 export function moduleScopeL10nOffenses(contents: string, fileName: string): number[] {
@@ -206,6 +207,9 @@ export function moduleScopeL10nOffenses(contents: string, fileName: string): num
 			ts.isArrowFunction(node) ||
 			ts.isFunctionExpression(node) ||
 			ts.isFunctionDeclaration(node) ||
+			ts.isMethodDeclaration(node) ||
+			ts.isGetAccessorDeclaration(node) ||
+			ts.isSetAccessorDeclaration(node) ||
 			ts.isClassDeclaration(node) ||
 			ts.isClassExpression(node)
 		) {
