@@ -528,6 +528,23 @@ suite("extension/ui/commands", () => {
 		});
 	});
 
+	// The dashboard Diagnostics tab's Open-output-log action: an internal
+	// command that shows the extension's output channel. Registered alongside
+	// litellm.testConnection, whose registration holds the channel; the
+	// channel instance itself lives in a closure, so the unit host pins the
+	// registration and the execution path (the intents allow-list test pins
+	// the dashboard mapping onto this ID).
+	suite("open output command", () => {
+		test("litellm.openOutput is registered on activation", async () => {
+			const commands = await vscode.commands.getCommands(true);
+			assert.ok(commands.includes("litellm.openOutput"), "the open-output command must be registered");
+		});
+
+		test("executing it resolves (the handler is a bare channel show)", async () => {
+			await vscode.commands.executeCommand("litellm.openOutput");
+		});
+	});
+
 	suite("test-only mutation commands", () => {
 		teardown(async () => {
 			await vscode.commands.executeCommand("litellm._test.clearServers");

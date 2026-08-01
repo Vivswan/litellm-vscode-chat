@@ -365,18 +365,32 @@ const STYLES = `
 		gap: 12px;
 	}
 	.page-head h1 { margin-bottom: 0; }
-	/* The Diagnostics tab's connection block and feedback rows. Outcome lines
-	   and hints render selectable prose (this tab is where users copy state
-	   from when asking for help); each feedback row is one action plus its
-	   muted one-liner. */
-	.diag-facts, .diag-servers { list-style: none; padding: 0; margin: 8px 0 12px; }
-	.diag-facts li, .diag-servers li { margin: 4px 0; }
-	/* The facts list separates its hint with literal text (the block is copied
-	   whole into reports), so it needs no CSS gap. */
-	.diag-servers li .hint, .feedback-links li .hint { margin-left: 8px; }
-	.diag-actions { margin: 8px 0 4px; }
+	/* The Diagnostics tab's connection block and feedback rows. The facts and
+	   the outcome grid render selectable prose (this tab is where users copy
+	   state from when asking for help); each feedback row is one action plus
+	   its muted one-liner. */
+	.diag-facts { list-style: none; padding: 0; margin: 8px 0 12px; }
+	.diag-facts li { margin: 4px 0; }
+	/* The outcome grid: one compact row per server, hugging its content
+	   instead of the generic full-width table rule. A row's error or
+	   params-inactive warning spans beneath it as its own line; rows followed
+	   by such a note drop their rule (.no-rule) so each server group reads as
+	   one block. No hover band: the grid is prose to read and copy, not a
+	   control surface. */
+	table.diag-grid { width: auto; }
+	.diag-grid th, .diag-grid td { padding-right: 20px; }
+	.diag-grid th:last-child, .diag-grid td:last-child { padding-right: 0; }
+	.diag-grid tbody tr:hover { background: transparent; }
+	.diag-grid tr.no-rule td { border-bottom: none; }
+	.diag-grid tr.diag-note td { padding: 0 0 5px 12px; }
+	.diag-grid tr.diag-note.error td { color: var(--vscode-errorForeground); }
+	.diag-grid tr.diag-note.warn td { color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow)); }
+	.diag-url { font-family: var(--vscode-editor-font-family); font-size: 0.95em; word-break: break-all; }
+	.diag-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+	.diag-actions button { display: inline-flex; align-items: center; gap: 5px; }
 	.feedback-links { list-style: none; padding: 0; margin: 8px 0; }
 	.feedback-links li { margin: 8px 0; }
+	.feedback-links li .hint { margin-left: 8px; }
 	/* A button that reads like the anchors beside it (Report a bug posts an
 	   intent, so it cannot be an anchor); still a real button for focus and
 	   keyboard activation. */

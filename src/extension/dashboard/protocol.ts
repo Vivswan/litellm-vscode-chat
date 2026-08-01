@@ -223,23 +223,52 @@ export function overallStatusText(
 const ENTRY_PARAMS_INACTIVE_TEXT =
 	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
 
-/** One server's diagnostics outcome line, pinned by tests like overallStatusText. */
-export function serverOutcomeText(server: DashboardServer): string {
-	// The notice rides alongside whatever the state line says: a noticed row
-	// is usually healthy ("ok"), which is exactly why it needs calling out.
-	const noticeSuffix = server.notice === "entry-params-inactive" ? ` - ${ENTRY_PARAMS_INACTIVE_TEXT}` : "";
+/**
+ * serverOutcomeText decomposed, for surfaces that render the pieces
+ * separately (the Diagnostics tab's outcome grid): the status verdict, the
+ * model-count clause an "ok" line carries, the error the row carries, and the
+ * params-inactive warning. The one-line form composes exactly these parts
+ * (protocol.test.ts pins the equality), so a grid cell and the copied line
+ * cannot drift apart in wording.
+ */
+export interface ServerOutcomeParts {
+	/** The verdict as a Status cell shows it. */
+	readonly status: "OK" | "Error" | "Not checked yet";
+	/** The model-count clause an "ok" line parenthesizes ("3 models"); absent on other states. */
+	readonly models?: string | undefined;
+	/**
+	 * The row's error: an "error" state's message, or the sync failure an "ok"
+	 * row can still carry (a declared entry whose group upsert failed while an
+	 * already-live group keeps serving).
+	 */
+	readonly error?: string | undefined;
+	/** The entry-params-inactive warning, fixed classification text. */
+	readonly notice?: string | undefined;
+}
+
+export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts {
+	const notice = server.notice === "entry-params-inactive" ? ENTRY_PARAMS_INACTIVE_TEXT : undefined;
 	switch (server.state) {
 		case "ok":
-			// A reachable server can still carry an error: a declared entry whose
-			// group upsert failed while an already-live group keeps serving.
-			return server.error !== undefined
-				? `OK (${server.modelCount} models) - ${server.error}${noticeSuffix}`
-				: `OK (${server.modelCount} models)${noticeSuffix}`;
+			return { status: "OK", models: `${server.modelCount} models`, error: server.error, notice };
 		case "error":
-			return `Error: ${server.error}${noticeSuffix}`;
+			return { status: "Error", error: server.error, notice };
 		case "unchecked":
-			return `Not checked yet${noticeSuffix}`;
+			return { status: "Not checked yet", notice };
 	}
+}
+
+/** One server's diagnostics outcome line, pinned by tests like overallStatusText. */
+export function serverOutcomeText(server: DashboardServer): string {
+	const parts = serverOutcomeParts(server);
+	// "OK (2 models) - <sync error>" vs "Error: <error>": the error joins an
+	// OK line as an aside and an Error line as its object.
+	const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
+	const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
+	// The notice rides alongside whatever the state line says: a noticed row
+	// is usually healthy ("ok"), which is exactly why it needs calling out.
+	const notice = parts.notice === undefined ? "" : ` - ${parts.notice}`;
+	return `${status}${error}${notice}`;
 }
 
 /** The most recent lastChecked across the servers, as epoch milliseconds; undefined while nothing was checked. */
@@ -715,6 +744,7 @@ export const DASHBOARD_COMMAND_IDS = [
 	"testConnection",
 	"openSettings",
 	"reportIssue",
+	"openOutput",
 ] as const;
 
 export type DashboardCommandId = (typeof DASHBOARD_COMMAND_IDS)[number];

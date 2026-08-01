@@ -2,25 +2,47 @@
  * The Diagnostics tab: the connection summary and the feedback surfaces in
  * one place; the litellm.showDiagnostics command deep-links here through the
  * panel's focusSection message. The summary renders the protocol module's
- * shared diagnostics renderers (overallStatusText, serverOutcomeText) over
+ * shared diagnostics renderers (overallStatusText, serverOutcomeParts) over
  * the same pushed state the overview hero reads, so the tab and the hero
- * cannot drift, and it stands alone as a copyable block: verdict, server
- * count, absolute last-checked time, legacy-registry leftovers, and one
- * outcome line per server. Test connection and Report a bug post the
- * executeCommand intent because the work is extension-side (the issue
+ * cannot drift: the facts list carries the verdict, counts, and absolute
+ * last-checked time, and the outcome grid shows one row per server with its
+ * error or params-inactive warning spanning beneath it. Copy diagnostics
+ * puts the same facts on the clipboard as plain text (composed here from
+ * pushed state only, which carries no secret values by construction), with
+ * each server's line rendered by serverOutcomeText - the exact string the
+ * grid decomposes. Test connection, Open output log, and Report a bug post
+ * executeCommand intents because the work is extension-side (the issue
  * reporter attaches version, platform, and recent logs on its own); the
  * external pages are plain anchors on literal constants (feedbackLinks.ts),
  * which the webview host opens itself.
  */
 
 import type { ComponentChildren } from "preact";
+import { Fragment } from "preact";
+import { useRef, useState } from "preact/hooks";
 import type { DashboardServer } from "../../extension/dashboard/protocol";
-import { latestCheckedMs, overallStatusText, serverOutcomeText } from "../../extension/dashboard/protocol";
+import {
+	latestCheckedMs,
+	overallStatusText,
+	serverOutcomeParts,
+	serverOutcomeText,
+} from "../../extension/dashboard/protocol";
 import { DOCS_LINK_GETTING_STARTED } from "./docsLinks";
 import type { FeedbackUrl } from "./feedbackLinks";
 import { FEEDBACK_LINK_FEATURE_REQUEST, FEEDBACK_LINK_RATE, FEEDBACK_LINK_REPOSITORY } from "./feedbackLinks";
 import { DocsLink } from "./help";
-import { IconBook, IconBug, IconLightbulb, IconLinkExternal, IconPlug, IconRepo, IconStar } from "./icons";
+import {
+	IconBook,
+	IconBug,
+	IconCheck,
+	IconCopy,
+	IconLightbulb,
+	IconLinkExternal,
+	IconOutput,
+	IconPlug,
+	IconRepo,
+	IconStar,
+} from "./icons";
 import { relativeTime } from "./time";
 import { postMessage } from "./vscodeApi";
 
@@ -59,6 +81,115 @@ function ExternalRow({
 	);
 }
 
+/** The overall last-checked reading: the absolute time with its relative echo, as the facts list renders it. */
+function lastCheckedText(servers: readonly DashboardServer[], now: number): string {
+	const checkedMs = latestCheckedMs(servers);
+	if (checkedMs === undefined) {
+		return "Never";
+	}
+	const absolute = new Date(checkedMs).toLocaleString();
+	const ago = relativeTime(new Date(checkedMs).toISOString(), now);
+	return ago === undefined ? absolute : `${absolute} (${ago})`;
+}
+
+/**
+ * The whole connection block as plain text, for the Copy diagnostics action:
+ * the verdict, the facts list, and one outcome line per server - exactly the
+ * facts the tab renders, composed from pushed state only (which carries no
+ * secret values by construction; see the storage invariants). Per-server
+ * lines go through serverOutcomeText, the same shared renderer the grid
+ * decomposes, so the copied wording cannot drift from the rendered one.
+ */
+function diagnosticsReportText(
+	servers: readonly DashboardServer[],
+	modelCount: number,
+	legacyServerCount: number,
+	now: number
+): string {
+	const lines = [
+		overallStatusText(servers, modelCount, legacyServerCount),
+		`Servers configured: ${servers.length}`,
+		`Last checked: ${lastCheckedText(servers, now)}`,
+	];
+	if (legacyServerCount > 0) {
+		lines.push(`Legacy registry servers: ${legacyServerCount}`);
+	}
+	for (const server of servers) {
+		lines.push(`${server.label} (${server.baseUrl}): ${serverOutcomeText(server)}`);
+	}
+	return lines.join("\n");
+}
+
+/** A row's last-checked cell: relative ("is this fresh?"); the facts list above carries the precise overall time. */
+function rowChecked(server: DashboardServer, now: number): string {
+	if (server.lastChecked === undefined) {
+		return "Never";
+	}
+	return relativeTime(server.lastChecked, now) ?? "-";
+}
+
+/**
+ * The per-server outcome grid. Each server is one compact row; a row's error
+ * and its params-inactive warning span beneath it as their own lines, so the
+ * columns stay scannable while the details stay selectable. Wording comes
+ * from serverOutcomeParts, the decomposition serverOutcomeText itself
+ * composes; only the layout lives here.
+ */
+function OutcomeGrid({ servers, now }: { servers: readonly DashboardServer[]; now: number }) {
+	return (
+		<table class="diag-grid">
+			<thead>
+				<tr>
+					<th>Server</th>
+					<th>Status</th>
+					<th class="num">Models</th>
+					<th>Last checked</th>
+					<th>URL</th>
+				</tr>
+			</thead>
+			<tbody>
+				{servers.map((server) => {
+					const parts = serverOutcomeParts(server);
+					const tone = parts.status === "Error" ? "tone-error" : parts.status === "OK" ? "tone-ok" : "tone-muted";
+					const notes: { kind: "error" | "warn"; text: string }[] = [];
+					if (parts.error !== undefined) {
+						notes.push({ kind: "error", text: parts.error });
+					}
+					if (parts.notice !== undefined) {
+						notes.push({ kind: "warn", text: parts.notice });
+					}
+					return (
+						<Fragment key={`${server.label} ${server.baseUrl}`}>
+							{/* Rows followed by a note drop their rule so the group reads
+							    as one server; the group's last row draws it. */}
+							<tr class={notes.length > 0 ? "no-rule" : undefined}>
+								<td>{server.label}</td>
+								<td>
+									<span class={`pill ${tone}`}>
+										<span class="dot" />
+										{parts.status}
+									</span>
+								</td>
+								<td class="num">{server.modelCount}</td>
+								<td>{rowChecked(server, now)}</td>
+								<td class="diag-url">{server.baseUrl}</td>
+							</tr>
+							{notes.map((note, index) => (
+								<tr
+									key={note.kind}
+									class={index < notes.length - 1 ? `diag-note ${note.kind} no-rule` : `diag-note ${note.kind}`}
+								>
+									<td colSpan={5}>{note.text}</td>
+								</tr>
+							))}
+						</Fragment>
+					);
+				})}
+			</tbody>
+		</table>
+	);
+}
+
 export function DiagnosticsSection({
 	servers,
 	modelCount,
@@ -70,8 +201,20 @@ export function DiagnosticsSection({
 	legacyServerCount: number;
 	now: number;
 }) {
-	const checkedMs = latestCheckedMs(servers);
-	const lastCheckedAgo = checkedMs === undefined ? undefined : relativeTime(new Date(checkedMs).toISOString(), now);
+	const [copied, setCopied] = useState(false);
+	const copySeq = useRef(0);
+	const copyDiagnostics = () => {
+		// Clipboard write is fire-and-forget; the check mark is the only
+		// feedback (the models table's copy action sets the precedent).
+		navigator.clipboard?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount, now)).catch(() => {});
+		setCopied(true);
+		const seq = ++copySeq.current;
+		setTimeout(() => {
+			if (copySeq.current === seq) {
+				setCopied(false);
+			}
+		}, 1500);
+	};
 	return (
 		<>
 			<section aria-labelledby="diagnostics-title">
@@ -79,34 +222,16 @@ export function DiagnosticsSection({
 				<p class="diag-verdict">{overallStatusText(servers, modelCount, legacyServerCount)}</p>
 				<ul class="diag-facts">
 					<li>Servers configured: {servers.length}</li>
-					<li>
-						Last checked:{" "}
-						{checkedMs === undefined ? (
-							"Never"
-						) : (
-							<>
-								{new Date(checkedMs).toLocaleString()}
-								{/* A literal space and parentheses, not CSS spacing: the line
-								    is meant to be copied whole into a report. */}
-								{lastCheckedAgo !== undefined ? <span class="hint"> ({lastCheckedAgo})</span> : null}
-							</>
-						)}
-					</li>
+					{/* One literal string, not CSS-spaced fragments: the line is meant
+					    to be copied whole into a report, and Copy diagnostics renders
+					    exactly the same text. */}
+					<li>Last checked: {lastCheckedText(servers, now)}</li>
 					{/* The legacy registry (pre-migration installs and test mode)
 					    holds servers no row lists; the count keeps the copyable block
 					    honest about them. */}
 					{legacyServerCount > 0 ? <li>Legacy registry servers: {legacyServerCount}</li> : null}
 				</ul>
-				{servers.length > 0 ? (
-					<ul class="diag-servers">
-						{servers.map((server) => (
-							<li key={`${server.label} ${server.baseUrl}`}>
-								<strong>{server.label}</strong>: {serverOutcomeText(server)}
-								<span class="hint">{server.baseUrl}</span>
-							</li>
-						))}
-					</ul>
-				) : null}
+				{servers.length > 0 ? <OutcomeGrid servers={servers} now={now} /> : null}
 				<div class="diag-actions">
 					<button
 						type="button"
@@ -118,8 +243,17 @@ export function DiagnosticsSection({
 					>
 						<IconPlug /> Test connection
 					</button>
+					<button
+						type="button"
+						class="secondary"
+						onClick={() => postMessage({ type: "executeCommand", command: "openOutput" })}
+					>
+						<IconOutput /> Open output log
+					</button>
+					<button type="button" class="secondary" onClick={copyDiagnostics}>
+						{copied ? <IconCheck /> : <IconCopy />} Copy diagnostics
+					</button>
 				</div>
-				<p class="hint">Check the LiteLLM output channel for detailed logs.</p>
 			</section>
 			<section aria-labelledby="diagnostics-feedback-title">
 				<h2 id="diagnostics-feedback-title">Feedback &amp; links</h2>

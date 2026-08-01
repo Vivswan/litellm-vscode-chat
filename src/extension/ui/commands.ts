@@ -156,7 +156,11 @@ export function registerTestConnectionCommand(
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.testConnection, () =>
 			runConnectionTest(provider, statusBar, outputChannel, logger)
-		)
+		),
+		// The dashboard Diagnostics tab's Open-output-log action (the openOutput
+		// intent). Registered here because this is the registration that already
+		// holds the output channel; same behavior as the toasts' View Output.
+		vscode.commands.registerCommand(INTERNAL_CMD.openOutput, () => outputChannel.show())
 	);
 }
 

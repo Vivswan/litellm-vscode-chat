@@ -4,6 +4,7 @@ import {
 	classifyOverall,
 	latestCheckedMs,
 	overallStatusText,
+	serverOutcomeParts,
 	serverOutcomeText,
 } from "../../../extension/dashboard/protocol";
 
@@ -99,6 +100,29 @@ suite("extension/dashboard/protocol renderers", () => {
 			const line = serverOutcomeText(declaredServer({ modelCount: 2, notice: "entry-params-inactive" }));
 			assert.ok(line.startsWith("OK (2 models) - per-entry modelParameters are not applied"), line);
 			assert.ok(line.includes("run Sync Models Now"), line);
+		});
+
+		test("the one-line form is exactly the composition of serverOutcomeParts", () => {
+			// The Diagnostics grid renders the decomposed parts; the pinned line
+			// is what lands in issue reports. Re-deriving one from the other here
+			// means neither surface can drift in wording.
+			const cases: DashboardServer[] = [
+				declaredServer({ modelCount: 3 }),
+				declaredServer({ modelCount: 2, error: "upsert refused" }),
+				declaredServer({ state: "error", error: "connection refused" }),
+				declaredServer({ state: "unchecked" }),
+				declaredServer({ modelCount: 2, notice: "entry-params-inactive" }),
+				declaredServer({ modelCount: 2, error: "upsert refused", notice: "entry-params-inactive" }),
+				declaredServer({ state: "error", error: "connection refused", notice: "entry-params-inactive" }),
+				declaredServer({ state: "unchecked", notice: "entry-params-inactive" }),
+			];
+			for (const server of cases) {
+				const parts = serverOutcomeParts(server);
+				const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
+				const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
+				const notice = parts.notice === undefined ? "" : ` - ${parts.notice}`;
+				assert.strictEqual(serverOutcomeText(server), `${status}${error}${notice}`);
+			}
 		});
 	});
 
