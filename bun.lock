@@ -6,7 +6,7 @@
       "name": "litellm-vscode-chat",
       "dependencies": {
         "@vscode/l10n": "^0.0.18",
-        "openai": "^6.48.0",
+        "openai": "^6.49.0",
         "preact": "^10.29.7",
         "zod": "^4.4.3",
       },
