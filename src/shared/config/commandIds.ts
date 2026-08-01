@@ -4,8 +4,11 @@
  * (commandIds.test.ts pins the package.json mirror). The provider layer's
  * "litellm" strings are a different concept - a provider-name and model-family
  * fallback that happens to share the spelling - and deliberately stay literal
- * over there. Pure constants: no vscode, no Node.
+ * over there. No vscode, no Node; localization goes through @vscode/l10n so
+ * the host, the provider layer, and the webview can all resolve the title.
  */
+
+import * as l10n from "@vscode/l10n";
 
 /** The vendor this extension registers with the language-model host; provider groups carry it. */
 export const VENDOR_ID = "litellm";
@@ -26,9 +29,12 @@ export const CMD = {
  * CMD.manage's palette title, exactly as package.json contributes it
  * (commandIds.test.ts pins the mirror). User-facing messages that tell the
  * user to run the command interpolate this so they always name what the
- * palette really shows.
+ * palette really shows. A function, not a constant: it must resolve through
+ * the l10n bundle at call time, after l10n.config has run.
  */
-export const MANAGE_COMMAND_TITLE = "Manage LiteLLM Provider";
+export function manageCommandTitle(): string {
+	return l10n.t("Manage LiteLLM Provider");
+}
 
 /**
  * User-facing commands registered at runtime but kept out of

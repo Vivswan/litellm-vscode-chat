@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { CommandId } from "../../shared/config/commandIds";
-import { CMD, INTERNAL_CMD, MANAGE_COMMAND_TITLE } from "../../shared/config/commandIds";
+import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
 	getMaskApiKeyInput,
@@ -56,7 +56,7 @@ export function canMutateRegistry(getUiMode: () => ManagementUiMode): boolean {
 	}
 	if (!REGISTRY_SERVED_IN_MODE[getUiMode()]) {
 		void vscode.window.showInformationMessage(
-			`LiteLLM servers are now managed in the LiteLLM dashboard. Re-run "${MANAGE_COMMAND_TITLE}" to open it.`
+			`LiteLLM servers are now managed in the LiteLLM dashboard. Re-run "${manageCommandTitle()}" to open it.`
 		);
 		return false;
 	}

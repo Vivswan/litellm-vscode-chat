@@ -74,6 +74,9 @@
 						"noRestrictedImports": {
 							"level": "error",
 							"options": {
+								"paths": {
+									"@vscode/l10n": "Provider code runs in the host; localize with vscode.l10n.t so @vscode/l10n-dev extraction and the host bundle stay in sync."
+								},
 								"patterns": [
 									{
 										"group": [
@@ -82,6 +85,28 @@
 										"message": "The provider layer must not import from src/extension; move shared code to src/shared."
 									}
 								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"src/extension/**",
+				"!src/extension/dashboard/protocol.ts",
+				"!src/extension/dashboard/recordDraft.ts",
+				"!src/extension/dashboard/serverForm.ts"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"@vscode/l10n": "Extension code runs in the host; localize with vscode.l10n.t. Only the dashboard-shared modules (protocol, recordDraft, serverForm) use @vscode/l10n because the webview also imports them."
+								}
 							}
 						}
 					}

@@ -1,7 +1,8 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CMD, INTERNAL_CMD, MANAGE_COMMAND_TITLE, VENDOR_ID } from "../../../shared/config/commandIds";
+import { CMD, INTERNAL_CMD, manageCommandTitle, VENDOR_ID } from "../../../shared/config/commandIds";
+import { resolveNls } from "../../util/nls";
 
 /**
  * Drift guards between the shared command-ID map and package.json: the
@@ -38,11 +39,12 @@ suite("shared/config/commandIds: package.json drift guard", () => {
 		}
 	});
 
-	test("the manage command is contributed under MANAGE_COMMAND_TITLE", () => {
-		// User-facing messages interpolate the constant when telling the user to
+	test("the manage command is contributed under manageCommandTitle()", () => {
+		// User-facing messages interpolate the title when telling the user to
 		// run the command, so it must be exactly what the palette shows.
 		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.manage);
-		assert.strictEqual(entry?.title, MANAGE_COMMAND_TITLE);
+		assert.ok(entry?.title !== undefined, "the manage command is contributed with a title");
+		assert.strictEqual(resolveNls(entry.title), manageCommandTitle());
 	});
 
 	test("the docs and walkthrough prose name the manage command by its contributed title", () => {
@@ -55,7 +57,7 @@ suite("shared/config/commandIds: package.json drift guard", () => {
 			path.join("assets", "walkthrough", "fine-tune.md"),
 		]) {
 			const text = fs.readFileSync(path.join(repoRoot, file), "utf8");
-			assert.ok(text.includes(MANAGE_COMMAND_TITLE), `${file} names the manage command title`);
+			assert.ok(text.includes(manageCommandTitle()), `${file} names the manage command title`);
 		}
 	});
 
