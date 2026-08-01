@@ -1,9 +1,11 @@
 /**
  * The l10n bootstrap seam: bootstrapL10n reads the bundle the extension's
  * HTML shell injected and configures @vscode/l10n before the first render.
- * @vscode/l10n's configuration is module-global and sticky, so the
- * unconfigured-fallback tests run first and the afterAll resets to an empty
- * bundle for whatever runs later in the process.
+ * @vscode/l10n's configuration is module-global and sticky, so ordering is
+ * load-bearing: the unconfigured-fallback case runs first, the rejection
+ * cases run after a successful configuration (proving a bad injection cannot
+ * clobber it), and the afterAll resets to an empty bundle for whatever runs
+ * later in the process.
  */
 import { afterAll, expect, test } from "bun:test";
 import * as l10n from "@vscode/l10n";
@@ -22,13 +24,6 @@ test("without an injected bundle t() falls back to the inline English message", 
 	expect(l10n.t("{0} models", 3)).toBe("3 models");
 });
 
-test("a malformed injected bundle is ignored", () => {
-	window.__l10nBundle = { "Manage LiteLLM Provider": 42 };
-	bootstrapL10n();
-
-	expect(l10n.t("Manage LiteLLM Provider")).toBe("Manage LiteLLM Provider");
-});
-
 test("an injected bundle configures t() to resolve translations", () => {
 	window.__l10nBundle = {
 		"Manage LiteLLM Provider": "translated-title",
@@ -40,4 +35,22 @@ test("an injected bundle configures t() to resolve translations", () => {
 	expect(l10n.t("{0} models", 3)).toBe("models: 3");
 	// A key outside the bundle still falls back to its inline message.
 	expect(l10n.t("Not in the bundle")).toBe("Not in the bundle");
+});
+
+test("malformed injections are rejected wholesale and the configured bundle survives", () => {
+	const badBundles: unknown[] = [
+		{ "Manage LiteLLM Provider": 42 },
+		// The {message, comment} shape is legal only in the generated English
+		// reference; an injected bundle must be flat strings.
+		{ "Manage LiteLLM Provider": { message: "clobbered", comment: ["c"] } },
+		["Manage LiteLLM Provider"],
+		"Manage LiteLLM Provider",
+		null,
+	];
+	for (const bad of badBundles) {
+		window.__l10nBundle = bad;
+		bootstrapL10n();
+
+		expect(l10n.t("Manage LiteLLM Provider")).toBe("translated-title");
+	}
 });

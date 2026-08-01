@@ -21,11 +21,14 @@ const SEED = resolveFuzzSeed();
  * map to one of the two fixed classification strings, never to text derived
  * from the response body.
  *
- * AUTH_MESSAGE and UPSTREAM_AUTH_MESSAGE are not exported by the source, so
- * the expected strings are mirrored here; the AUTH_MESSAGE mirror is built
- * from the same manageCommandTitle() helper the source interpolates.
+ * authMessage and UPSTREAM_AUTH_MESSAGE are not exported by the source, so
+ * the expected strings are mirrored here; the authMessage mirror is built
+ * from the same manageCommandTitle() helper the source interpolates, lazily
+ * for the same reason (it must resolve after any l10n configuration).
  */
-const AUTH_MESSAGE = `Authentication failed: Your LiteLLM server requires an API key. Please run the "${manageCommandTitle()}" command to configure your API key.`;
+function authMessage(): string {
+	return `Authentication failed: Your LiteLLM server requires an API key. Please run the "${manageCommandTitle()}" command to configure your API key.`;
+}
 
 const UPSTREAM_AUTH_MESSAGE =
 	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.";
@@ -137,10 +140,10 @@ suite("provider/errorMapping properties", () => {
 				assert.strictEqual(mapped.kind, "auth");
 				assert.strictEqual(mapped.status, 401);
 				assert.ok(
-					mapped.message === AUTH_MESSAGE || mapped.message === UPSTREAM_AUTH_MESSAGE,
+					mapped.message === authMessage() || mapped.message === UPSTREAM_AUTH_MESSAGE,
 					`401 must map to a fixed auth message, got: ${mapped.message}`
 				);
-				assert.strictEqual(mapped.message, authCase.expected === "upstream" ? UPSTREAM_AUTH_MESSAGE : AUTH_MESSAGE);
+				assert.strictEqual(mapped.message, authCase.expected === "upstream" ? UPSTREAM_AUTH_MESSAGE : authMessage());
 				assert.ok(
 					!mapped.message.includes("SECRET_MARKER_"),
 					"response-derived text must never reach the mapped message"
@@ -156,7 +159,7 @@ suite("provider/errorMapping properties", () => {
 				const body = { message: `${mention}${marker}`, type: "auth_error", param: "None", code: "401" };
 				const mapped = mapSdkError(auth401(body), ctx);
 				assert.ok(mapped instanceof RequestError, `expected RequestError, got ${mapped.name}`);
-				assert.strictEqual(mapped.message, AUTH_MESSAGE);
+				assert.strictEqual(mapped.message, authMessage());
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);

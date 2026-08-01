@@ -91,4 +91,12 @@ suite("extension/dashboard/html", () => {
 		assert.ok(!body.includes("\u2028") && !body.includes("\u2029"), "line separators must be escaped");
 		assert.deepStrictEqual(JSON.parse(body), { "</script><script>": "x\u2028y\u2029z</style>" });
 	});
+
+	test("an empty bundle still renders the inline script (defined means injected)", () => {
+		// Only undefined suppresses the script; {} rides through so the host's
+		// and the page's notion of "a bundle was provided" cannot diverge.
+		const html = buildDashboardHtml({ ...options, l10nBundle: {} });
+
+		assert.ok(html.includes(`<script nonce="${options.nonce}">window.__l10nBundle = {};</script>`), html);
+	});
 });

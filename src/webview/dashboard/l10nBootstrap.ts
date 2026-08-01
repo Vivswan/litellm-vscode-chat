@@ -7,7 +7,7 @@
  * English message.
  */
 import * as l10n from "@vscode/l10n";
-import { z } from "zod";
+import { isRecord } from "../../extension/dashboard/protocol";
 
 declare global {
 	interface Window {
@@ -16,12 +16,25 @@ declare global {
 	}
 }
 
-const bundleSchema = z.record(z.string(), z.string());
+/** The injected value as a flat string-to-string table, or undefined for any other shape. */
+function parseBundle(value: unknown): Record<string, string> | undefined {
+	if (!isRecord(value)) {
+		return undefined;
+	}
+	const bundle: Record<string, string> = {};
+	for (const [key, entry] of Object.entries(value)) {
+		if (typeof entry !== "string") {
+			return undefined;
+		}
+		bundle[key] = entry;
+	}
+	return bundle;
+}
 
 /** Read and validate the injected bundle; configure @vscode/l10n only when it holds one. */
 export function bootstrapL10n(): void {
-	const parsed = bundleSchema.safeParse(window.__l10nBundle);
-	if (parsed.success) {
-		l10n.config({ contents: parsed.data });
+	const bundle = parseBundle(window.__l10nBundle);
+	if (bundle !== undefined) {
+		l10n.config({ contents: bundle });
 	}
 }

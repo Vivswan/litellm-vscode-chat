@@ -25,7 +25,7 @@ function escapeHtml(value: string): string {
 
 /**
  * JSON hardened for an inline script body: "<" cannot open "</script>" or
- * "<!--", and U+2028/U+2029 are valid JSON but not valid JS string literals.
+ * "<!--"; U+2028/U+2029 are escaped for defense-in-depth.
  */
 function inlineScriptJson(value: Readonly<Record<string, string>>): string {
 	return JSON.stringify(value)

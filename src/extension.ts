@@ -1,8 +1,8 @@
-import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { registerDashboardCommand } from "./extension/dashboard/panel";
 import { consumeDevSeed, createDevSeedEnv } from "./extension/devSeed";
 import { loadFingerprintSalt } from "./extension/fingerprintSalt";
+import { configureSharedL10n } from "./extension/l10nConfig";
 import type { MigrationContext } from "./extension/migrations";
 import { runMigrations } from "./extension/migrations";
 import { isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
@@ -49,12 +49,9 @@ import type { AggregatedStatus } from "./shared/servers";
 import { GITHUB_DOCS_URL } from "./shared/util/links";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-	// Shared modules localize through @vscode/l10n (they cannot import vscode);
-	// feed them the host-resolved bundle before anything renders a string.
-	// Under English the bundle is undefined and t() returns its inline message.
-	if (vscode.l10n.bundle !== undefined) {
-		l10n.config({ contents: vscode.l10n.bundle });
-	}
+	// Before anything renders a string: shared modules localize through
+	// @vscode/l10n and need the host bundle (see extension/l10nConfig.ts).
+	configureSharedL10n();
 
 	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
 	const vscodeVersion = vscode.version;
