@@ -363,38 +363,38 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 			return {
 				label: l10n.t("Default max output tokens"),
 				description: l10n.t("Used when the server does not report a limit."),
-				unit: l10n.t("tokens"),
+				unit: l10n.t({ message: "tokens", comment: ["Unit suffix after token-count inputs; LLM tokens."] }),
 			};
 		case "defaultContextLength":
 			return {
 				label: l10n.t("Default context length"),
 				description: l10n.t("Used when the server does not report a context window."),
-				unit: l10n.t("tokens"),
+				unit: l10n.t({ message: "tokens", comment: ["Unit suffix after token-count inputs; LLM tokens."] }),
 			};
 		case "defaultMaxInputTokens":
 			return {
 				label: l10n.t("Default max input tokens"),
 				description: l10n.t("Leave empty to derive it as context length minus output tokens."),
-				unit: l10n.t("tokens"),
+				unit: l10n.t({ message: "tokens", comment: ["Unit suffix after token-count inputs; LLM tokens."] }),
 				placeholder: l10n.t("derived from context length"),
 			};
 		case "requestTimeout":
 			return {
 				label: l10n.t("Request timeout"),
 				description: l10n.t("Hard bound for one chat completion call."),
-				unit: l10n.t("ms"),
+				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
 		case "discoveryTimeout":
 			return {
 				label: l10n.t("Discovery timeout"),
 				description: l10n.t("Hard bound for one model discovery call."),
-				unit: l10n.t("ms"),
+				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
 		case "discoveryCacheTtl":
 			return {
 				label: l10n.t("Discovery cache lifetime"),
 				description: l10n.t("How long discovered model lists are reused; 0 asks the server on every refresh."),
-				unit: l10n.t("ms"),
+				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("every refresh"),
 			};
 	}
@@ -478,7 +478,10 @@ function draftValue(id: NumberSettingId, text: string): number | undefined {
 export function defaultDisplay(id: NumberSettingId): string {
 	const spec = NUMBER_SETTING_SPECS[id];
 	if (spec.default === null) {
-		return l10n.t("derived");
+		return l10n.t({
+			message: "derived",
+			comment: ["Shown as the built-in default of a setting whose value is computed per model rather than configured."],
+		});
 	}
 	if (NUMBER_SETTING_UNITS[id] === "ms") {
 		const duration = formatDuration(spec.default);
@@ -562,9 +565,9 @@ function formatDuration(ms: number): { label: string; exact: boolean } | undefin
 		return undefined;
 	}
 	const units: readonly (readonly [number, string])[] = [
-		[3600000, l10n.t("h")],
-		[60000, l10n.t("min")],
-		[1000, l10n.t("s")],
+		[3600000, l10n.t({ message: "h", comment: ["Abbreviation for hours in durations like '1 h 30 min'."] })],
+		[60000, l10n.t({ message: "min", comment: ["Abbreviation for minutes (not minimum) in durations like '5 min'."] })],
+		[1000, l10n.t({ message: "s", comment: ["Abbreviation for seconds in durations like '90 s'."] })],
 	];
 	const parts: string[] = [];
 	let rest = ms;
@@ -602,7 +605,12 @@ export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraft
 		return {
 			kind: "invalid",
 			problem:
-				NUMBER_SETTING_UNITS[id] === "ms" ? l10n.t("Not a duration - use ms, s, m, or h") : l10n.t("Not a number"),
+				NUMBER_SETTING_UNITS[id] === "ms"
+					? l10n.t({
+							message: "Not a duration - use ms, s, m, or h",
+							comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+						})
+					: l10n.t("Not a number"),
 		};
 	}
 	if (value < spec.minimum) {
