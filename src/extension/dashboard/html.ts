@@ -506,6 +506,9 @@ const STYLES = `
 	.setting-row .reveal-json { visibility: hidden; padding: 0 4px; }
 	.setting-row:hover .reveal-json, .setting-row:focus-within .reveal-json { visibility: visible; }
 	h3 .reveal-json { padding: 0 4px; }
+	/* The record editors' headings space their trailing icons (help, docs,
+	   settings.json jump) at the same 8px rhythm the section h2s use. */
+	h3.head-with-icons { display: flex; align-items: center; gap: 8px; }
 
 	.badge {
 		display: inline-block;

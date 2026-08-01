@@ -444,11 +444,24 @@ function draftValue(id: NumberSettingId, text: string): number | undefined {
  * What a modified number row shows as the setting's built-in default. The one
  * null default (defaultMaxInputTokens) has no number to show - its effective
  * value is computed per model at request time - so it reads "derived", never
- * an invented number.
+ * an invented number. Millisecond defaults speak the same duration idiom as
+ * the field's equivalence hint ("5 min", not "300000"), so the two read
+ * consistently side by side - but only when the duration is exact: a "~"
+ * approximation would misstate what the default actually is, so those fall
+ * back to the raw number.
  */
 export function defaultDisplay(id: NumberSettingId): string {
 	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
-	return spec.default === null ? "derived" : String(spec.default);
+	if (spec.default === null) {
+		return "derived";
+	}
+	if (spec.unit === "ms") {
+		const duration = formatDuration(spec.default);
+		if (duration !== undefined && duration.exact) {
+			return duration.label;
+		}
+	}
+	return String(spec.default);
 }
 
 /**
@@ -511,10 +524,12 @@ const DURATION_UNITS: readonly (readonly [number, string])[] = [
 
 /**
  * A millisecond count as humans read clocks: "5 min", "1 h 30 min". At most
- * two units; a truncated remainder gets a "~" instead of false precision.
- * Sub-second values return undefined (they already read as milliseconds).
+ * two units; a truncated remainder gets a "~" instead of false precision,
+ * with `exact` saying which happened so callers that cannot tolerate an
+ * approximation (the default note) need not sniff the label. Sub-second
+ * values return undefined (they already read as milliseconds).
  */
-function formatDuration(ms: number): string | undefined {
+function formatDuration(ms: number): { label: string; exact: boolean } | undefined {
 	if (!Number.isInteger(ms) || ms < 1000) {
 		return undefined;
 	}
@@ -527,7 +542,7 @@ function formatDuration(ms: number): string | undefined {
 			rest -= count * size;
 		}
 	}
-	return `${rest > 0 ? "~" : ""}${parts.join(" ")}`;
+	return { label: `${rest > 0 ? "~" : ""}${parts.join(" ")}`, exact: rest === 0 };
 }
 
 /**
@@ -579,7 +594,7 @@ export function equivalence(id: NumberSettingId, value: number): string | undefi
 		return spec.zeroMeaning === undefined ? undefined : `= ${spec.zeroMeaning}`;
 	}
 	const duration = formatDuration(value);
-	return duration === undefined ? undefined : `= ${duration}`;
+	return duration === undefined ? undefined : `= ${duration.label}`;
 }
 
 /**

@@ -632,8 +632,8 @@ function ServerForm({
 		<div class="form-card">
 			{/* The dialog's accessible name is the title span alone, so the
 			    docs anchor's own label never leaks into it. */}
-			<h3>
-				<span id="server-form-title">{target.kind === "add" ? "Add server" : `Edit ${target.original.label}`}</span>{" "}
+			<h3 class="head-with-icons">
+				<span id="server-form-title">{target.kind === "add" ? "Add server" : `Edit ${target.original.label}`}</span>
 				<DocsLink href={DOCS_LINK_SERVER_FORM} label="Open the server fields guide" />
 			</h3>
 			<TextField field="label" placeholder="e.g. Production" props={props} />

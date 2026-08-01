@@ -287,7 +287,8 @@ test("a modified row names its scope in the head; number rows add the default; c
 	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
 
 	const noteOf = (id: string) => rowOf(settingInput(root, id)).querySelector(".setting-modified-note");
-	expect(noteOf("requestTimeout")?.textContent).toBe("Modified in Workspace settings (default: 300000)");
+	// The ms default reads in the duration idiom, matching the field's hint.
+	expect(noteOf("requestTimeout")?.textContent).toBe("Modified in Workspace settings (default: 5 min)");
 	// The one null spec default is derived per model at request time; the note
 	// says so instead of inventing a number.
 	expect(noteOf("defaultMaxInputTokens")?.textContent).toBe("Modified in Workspace folder settings (default: derived)");
