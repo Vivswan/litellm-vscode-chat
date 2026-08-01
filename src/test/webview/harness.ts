@@ -71,6 +71,26 @@ export function fireBlur(element: HTMLElement): void {
 	});
 }
 
+/**
+ * Pin an element's measured geometry. happy-dom performs no layout, so
+ * getBoundingClientRect always returns zeros; placement tests substitute
+ * realistic geometry on the trigger before dispatching the hover or focus
+ * event that measures it. right/width/x/y are derived; the placement code
+ * only reads left, top, and bottom.
+ */
+export function stubBoundingRect(element: HTMLElement, rect: { left: number; top: number; bottom: number }): void {
+	const full = {
+		...rect,
+		right: rect.left,
+		width: 0,
+		height: rect.bottom - rect.top,
+		x: rect.left,
+		y: rect.top,
+		toJSON: () => ({}),
+	};
+	element.getBoundingClientRect = () => full as DOMRect;
+}
+
 export function fireMouseEnter(element: HTMLElement): void {
 	void act(() => {
 		element.dispatchEvent(new Event("mouseenter"));

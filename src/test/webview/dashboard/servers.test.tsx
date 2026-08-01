@@ -13,6 +13,7 @@ import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "..
 import {
 	buttonByText,
 	cleanup,
+	fireBlur,
 	fireClick,
 	fireInput,
 	inputByLabel,
@@ -145,6 +146,58 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	expect(saved.type).toBe("saveServerSetting");
 	expect(saved.replaceLabel).toBe("Prod");
 	expect(saved.server.modelParameters).toEqual({ "gpt-4": { temperature: 0.9 } });
+});
+
+test("blur alone paints no problem on an empty field, and blurring content is what makes a touch stick", () => {
+	// The touch guard: brushing focus past a pristine empty field (toward
+	// Cancel, say) must not repaint the form mid-click - an inserted error
+	// line would move the buttons under the pointer.
+	const root = mountSection([]);
+	fireClick(buttonByText(root, "Add your first server"));
+	const label = inputByLabel(root, "Label");
+
+	fireBlur(label);
+	expect(root.textContent).not.toContain("Enter a label");
+	expect(root.textContent).not.toContain("Cannot save");
+	expect(label.getAttribute("aria-invalid")).toBe("false");
+
+	// Typing, thinking better of it, and clearing before any blur returns the
+	// field to pristine: blur on the emptied field still paints nothing.
+	fireInput(label, "P");
+	fireInput(label, "");
+	fireBlur(label);
+	expect(root.textContent).not.toContain("Enter a label");
+	expect(root.textContent).not.toContain("Cannot save");
+
+	// Content alone makes a field's problem visible, before any blur.
+	const baseUrl = inputByLabel(root, "Base URL");
+	fireInput(baseUrl, "not a url");
+	expect(root.textContent).toContain("Must be a usable http(s) URL");
+	expect(baseUrl.getAttribute("aria-invalid")).toBe("true");
+
+	// Blurring the field while it holds content is what marks it touched:
+	// clearing it afterwards swaps in the empty-field problem instead of
+	// going quiet the way the never-blurred Label above did.
+	fireBlur(baseUrl);
+	fireInput(baseUrl, "");
+	expect(root.textContent).toContain("Enter the server URL");
+	expect(baseUrl.getAttribute("aria-invalid")).toBe("true");
+});
+
+test("Save on the empty form touches every field: both required-field problems surface at once", () => {
+	// Required-but-empty fields stay quiet on blur, so Save is the moment
+	// they all speak up: not just the first blocking field, every one.
+	const root = mountSection([]);
+	fireClick(buttonByText(root, "Add your first server"));
+
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages).toEqual([]);
+	expect(root.textContent).toContain("Enter a label");
+	expect(root.textContent).toContain("Enter the server URL");
+	// The summary names the first blocking field in form order.
+	expect(root.textContent).toContain("Cannot save: fix Label");
+	expect(inputByLabel(root, "Label").getAttribute("aria-invalid")).toBe("true");
+	expect(inputByLabel(root, "Base URL").getAttribute("aria-invalid")).toBe("true");
 });
 
 test("remove is two-step: Remove arms the row, Confirm posts removeServerSetting with a fresh requestId, Cancel disarms", () => {

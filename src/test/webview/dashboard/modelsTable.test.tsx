@@ -149,6 +149,44 @@ test("under the threshold every row renders with no scrollport", () => {
 	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(0);
 });
 
+test("the copy button lives inside the model-name cell and no trailing actions column exists", () => {
+	// The copy action moved from a trailing actions column into the first
+	// cell, beside the name it copies; the header row and every data row must
+	// agree on the column set, with Capabilities as the true last column.
+	const root = mount(<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} />);
+	const headers = Array.from(root.querySelectorAll("thead th")).map((th) => (th.textContent ?? "").trim());
+	expect(headers).toEqual(["Model", "Family", "Input tokens", "Output tokens", "Pricing ($/M)", "Capabilities"]);
+
+	const row = root.querySelector("tbody tr") as HTMLElement;
+	const cells = Array.from(row.querySelectorAll("td"));
+	expect(cells.length).toBe(headers.length);
+	const nameCell = cells[0] as HTMLElement;
+	expect(nameCell.classList.contains("model-name")).toBe(true);
+	expect(nameCell.textContent).toContain("Omni");
+	expect(nameCell.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']")).not.toBeNull();
+	// The last cell is capabilities text; the copy button is the row's only control.
+	expect((cells[cells.length - 1] as HTMLElement).classList.contains("caps")).toBe(true);
+	expect(row.querySelectorAll("button").length).toBe(1);
+});
+
+test("spacer colSpan tracks the rendered column count with and without the Server column", () => {
+	// The spacer's one cell must span every rendered column or the table's
+	// layout shears; the count changes with the Server column, so both sides
+	// of serverCount > 1 are pinned. 51 rows is one past the 50-row
+	// threshold - together with the 50-row full-render test above this pins
+	// the boundary exactly - and windowing brings the trailing spacer with it.
+	const spacerCell = (root: HTMLElement) => root.querySelector("tbody tr.spacer td") as HTMLTableCellElement;
+
+	const single = mount(<ModelsSection models={manyModels(51)} serverCount={1} />);
+	expect((single.querySelector(".table-scroll") as HTMLElement).classList.contains("windowed")).toBe(true);
+	expect(single.querySelectorAll("thead th").length).toBe(6);
+	expect(spacerCell(single).colSpan).toBe(6);
+
+	const dual = mount(<ModelsSection models={manyModels(51)} serverCount={2} />);
+	expect(dual.querySelectorAll("thead th").length).toBe(7);
+	expect(spacerCell(dual).colSpan).toBe(7);
+});
+
 test("the row's copy action writes the model ID to the clipboard and flashes a check", async () => {
 	const written: string[] = [];
 	const clipboard = {
