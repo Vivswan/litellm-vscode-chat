@@ -456,5 +456,20 @@ suite("extension/dashboard/serverForm", () => {
 				"Saving the server failed: toString: reserved name"
 			);
 		});
+
+		test("a translated message body behind the ASCII field prefix still routes to the field", () => {
+			// The intent boundary localizes only the body of a field-prefixed
+			// message; the "fieldId:" prefix stays an untranslated ASCII
+			// identifier, so the promotion must keep recognizing the field no
+			// matter what language the body arrives in.
+			assert.strictEqual(
+				sectionFailureText("Saving the server failed:", "label: 此标签的条目已存在"),
+				"Label: 此标签的条目已存在"
+			);
+			assert.strictEqual(
+				sectionFailureText("Adopting the server failed:", "baseUrl: 不是可用的位址"),
+				"Base URL: 不是可用的位址"
+			);
+		});
 	});
 });

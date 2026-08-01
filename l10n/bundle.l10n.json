@@ -240,7 +240,7 @@
 	"Which server?": "Which server?",
 	"Workspace": "Workspace",
 	"Workspace folder": "Workspace folder",
-	"baseUrl: not a usable http(s) URL": "baseUrl: not a usable http(s) URL",
+	"an entry with this label already exists": "an entry with this label already exists",
 	"derived from context length": "derived from context length",
 	"derived/Shown as the built-in default of a setting whose value is computed per model rather than configured.": {
 		"message": "derived",
@@ -248,6 +248,8 @@
 			"Shown as the built-in default of a setting whose value is computed per model rather than configured."
 		]
 	},
+	"enter a label": "enter a label",
+	"enter the key sent in this header": "enter the key sent in this header",
 	"every refresh": "every refresh",
 	"h/Abbreviation for hours in durations like '1 h 30 min'.": {
 		"message": "h",
@@ -255,9 +257,6 @@
 			"Abbreviation for hours in durations like '1 h 30 min'."
 		]
 	},
-	"label: an entry with this label already exists": "label: an entry with this label already exists",
-	"label: enter a label": "label: enter a label",
-	"label: reserved name": "label: reserved name",
 	"min/Abbreviation for minutes (not minimum) in durations like '5 min'.": {
 		"message": "min",
 		"comment": [
@@ -270,8 +269,9 @@
 			"Abbreviation for milliseconds; unit suffix after duration inputs."
 		]
 	},
-	"oauthClientId: OAuth needs the token URL and client ID": "oauthClientId: OAuth needs the token URL and client ID",
-	"oauthTokenUrl: OAuth needs the token URL and client ID": "oauthTokenUrl: OAuth needs the token URL and client ID",
+	"name the header that carries the key": "name the header that carries the key",
+	"not a usable http(s) URL": "not a usable http(s) URL",
+	"reserved name": "reserved name",
 	"s/Abbreviation for seconds in durations like '90 s'.": {
 		"message": "s",
 		"comment": [
@@ -284,8 +284,6 @@
 			"Unit suffix after token-count inputs; LLM tokens."
 		]
 	},
-	"virtualKeyHeader: name the header that carries the key": "virtualKeyHeader: name the header that carries the key",
-	"virtualKeyValue: enter the key sent in this header": "virtualKeyValue: enter the key sent in this header",
 	"{0} for {1}": "{0} for {1}",
 	"{0} models available": "{0} models available",
 	"{0} models available from {1} servers": "{0} models available from {1} servers",
