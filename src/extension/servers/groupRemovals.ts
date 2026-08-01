@@ -106,20 +106,76 @@ function sameIdentity(a: GroupIdentity, label: string, baseUrl: string): boolean
 }
 
 /**
- * The store over the two Memento regions. Writes go through update() and are
- * awaited by callers; `onDidChange` fires after any tombstone change (never
- * for provenance alone) so the wiring can make the host re-resolve groups -
- * that is what makes a hidden group's models leave the picker, and an
- * unhidden group's models return.
+ * The store over the two Memento regions. Reads and mutations answer from the
+ * session journal (see below) with persistence best-effort underneath;
+ * `onDidChange` fires after any effective tombstone change (never for
+ * provenance alone) so the wiring can make the host re-resolve groups - that
+ * is what makes a hidden group's models leave the picker, and an unhidden
+ * group's models return.
  */
 export class GroupRemovalStore {
 	/** Fired after every tombstone mutation; assigned by the activation wiring. */
 	onDidChange: (() => void) | undefined;
+	/** Reports a failed best-effort persist (log-only); assigned by the activation wiring. */
+	onPersistError: ((error: unknown) => void) | undefined;
+
+	/**
+	 * The session's own mutations, journaled over the stored lists, guarding
+	 * against the same observed hazard as the sync engine's fingerprint
+	 * session map: an awaited globalState update can be reverted moments later
+	 * by a stale value from the storage layer. The nightly monkey fuzzer
+	 * caught removals losing their suppression exactly that way (#220): a
+	 * stale re-read inside a read-modify-write dropped an earlier tombstone,
+	 * and the provider's isTombstoned read missed a just-written one, so a
+	 * removed group's models never left the host list. Every read applies the
+	 * journal over a fresh store read - this session's adds and removes always
+	 * win (so a reverted store can neither un-hide a removed group nor
+	 * resurrect a cleared tombstone), while another window's records still
+	 * ride through underneath. Every persist writes the journaled view, so a
+	 * failed or reverted write self-heals on the next mutation (and, like
+	 * every log-only persist in this codebase, a failure with no later
+	 * mutation costs the NEXT session the record - never this one). Known
+	 * residual, same as every whole-key Memento write in this codebase: two
+	 * windows mutating concurrently can overwrite each other's latest write,
+	 * and a sticky journal op keeps this window's answer until its next
+	 * persist - per-window session state stays correct, and each window
+	 * re-persists its own ops.
+	 */
+	private tombstoneOps = new Map<string, { op: "add" | "remove"; identity: GroupIdentity }>();
+	private provenanceOps = new Map<string, OrphanedGroupRecord>();
 
 	constructor(private readonly memento: RemovalMemento) {}
 
+	private static opKey(label: string, baseUrl: string): string {
+		return `${label}\n${normalizeBaseUrl(baseUrl)}`;
+	}
+
+	/**
+	 * Best-effort persistence: the journal is the session truth and every
+	 * persist rewrites the whole journaled view, so a failure costs nothing a
+	 * later mutation cannot restore - it is reported, never thrown, keeping
+	 * callers' user-facing outcomes aligned with the effective (journal)
+	 * state.
+	 */
+	private async persist(key: string, value: unknown): Promise<void> {
+		try {
+			await this.memento.update(key, value);
+		} catch (error) {
+			this.onPersistError?.(error);
+		}
+	}
+
 	tombstones(): readonly GroupIdentity[] {
-		return parseIdentityList(this.memento.get(REMOVED_GROUP_TOMBSTONES_KEY));
+		const stored = parseIdentityList(this.memento.get(REMOVED_GROUP_TOMBSTONES_KEY));
+		const list = stored.filter(
+			(identity) => this.tombstoneOps.get(GroupRemovalStore.opKey(identity.label, identity.baseUrl))?.op !== "remove"
+		);
+		for (const { op, identity } of this.tombstoneOps.values()) {
+			if (op === "add" && !list.some((existing) => sameIdentity(existing, identity.label, identity.baseUrl))) {
+				list.push(identity);
+			}
+		}
+		return list;
 	}
 
 	/** Whether the user explicitly removed this group; the provider-side suppression predicate. */
@@ -127,28 +183,30 @@ export class GroupRemovalStore {
 		return this.tombstones().some((identity) => sameIdentity(identity, label, baseUrl));
 	}
 
-	/** Record one explicit removal. Idempotent; the identity is stored normalized. */
+	/** Record one explicit removal. Idempotent; the identity is journaled and stored normalized. */
 	async addTombstone(identity: GroupIdentity): Promise<void> {
-		const current = this.tombstones();
-		if (current.some((existing) => sameIdentity(existing, identity.label, identity.baseUrl))) {
-			return;
+		const changed = !this.isTombstoned(identity.label, identity.baseUrl);
+		this.tombstoneOps.set(GroupRemovalStore.opKey(identity.label, identity.baseUrl), {
+			op: "add",
+			identity: { label: identity.label, baseUrl: normalizeBaseUrl(identity.baseUrl) },
+		});
+		if (changed) {
+			this.onDidChange?.();
 		}
-		await this.memento.update(REMOVED_GROUP_TOMBSTONES_KEY, [
-			...current,
-			{ label: identity.label, baseUrl: normalizeBaseUrl(identity.baseUrl) },
-		]);
-		this.onDidChange?.();
+		await this.persist(REMOVED_GROUP_TOMBSTONES_KEY, this.tombstones());
 	}
 
 	/** The explicit un-hide. Resolves true when a tombstone matched and was removed. */
 	async removeTombstone(identity: GroupIdentity): Promise<boolean> {
-		const current = this.tombstones();
-		const kept = current.filter((existing) => !sameIdentity(existing, identity.label, identity.baseUrl));
-		if (kept.length === current.length) {
+		if (!this.isTombstoned(identity.label, identity.baseUrl)) {
 			return false;
 		}
-		await this.memento.update(REMOVED_GROUP_TOMBSTONES_KEY, kept);
+		this.tombstoneOps.set(GroupRemovalStore.opKey(identity.label, identity.baseUrl), {
+			op: "remove",
+			identity: { label: identity.label, baseUrl: normalizeBaseUrl(identity.baseUrl) },
+		});
 		this.onDidChange?.();
+		await this.persist(REMOVED_GROUP_TOMBSTONES_KEY, this.tombstones());
 		return true;
 	}
 
@@ -159,20 +217,26 @@ export class GroupRemovalStore {
 	 * identity.
 	 */
 	async clearTombstonesFor(declared: readonly GroupIdentity[]): Promise<boolean> {
-		const current = this.tombstones();
-		const kept = current.filter(
-			(existing) => !declared.some((identity) => sameIdentity(existing, identity.label, identity.baseUrl))
+		const matched = this.tombstones().filter((existing) =>
+			declared.some((identity) => sameIdentity(existing, identity.label, identity.baseUrl))
 		);
-		if (kept.length === current.length) {
+		if (matched.length === 0) {
 			return false;
 		}
-		await this.memento.update(REMOVED_GROUP_TOMBSTONES_KEY, kept);
+		for (const identity of matched) {
+			this.tombstoneOps.set(GroupRemovalStore.opKey(identity.label, identity.baseUrl), { op: "remove", identity });
+		}
 		this.onDidChange?.();
+		await this.persist(REMOVED_GROUP_TOMBSTONES_KEY, this.tombstones());
 		return true;
 	}
 
 	provenance(): readonly OrphanedGroupRecord[] {
-		return parseProvenanceList(this.memento.get(ORPHANED_GROUP_PROVENANCE_KEY));
+		const stored = parseProvenanceList(this.memento.get(ORPHANED_GROUP_PROVENANCE_KEY));
+		const list = stored.filter(
+			(record) => !this.provenanceOps.has(GroupRemovalStore.opKey(record.label, record.baseUrl))
+		);
+		return [...list, ...this.provenanceOps.values()];
 	}
 
 	/** The origin recorded for one group identity, if a removal or rename explains it. */
@@ -186,10 +250,11 @@ export class GroupRemovalStore {
 	 * truth; keeping both would make the badge lie).
 	 */
 	async recordOrigin(record: OrphanedGroupRecord): Promise<void> {
-		const kept = this.provenance().filter((existing) => !sameIdentity(existing, record.label, record.baseUrl));
-		await this.memento.update(ORPHANED_GROUP_PROVENANCE_KEY, [
-			...kept,
-			{ label: record.label, baseUrl: normalizeBaseUrl(record.baseUrl), origin: record.origin },
-		]);
+		this.provenanceOps.set(GroupRemovalStore.opKey(record.label, record.baseUrl), {
+			label: record.label,
+			baseUrl: normalizeBaseUrl(record.baseUrl),
+			origin: record.origin,
+		});
+		await this.persist(ORPHANED_GROUP_PROVENANCE_KEY, this.provenance());
 	}
 }

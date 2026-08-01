@@ -171,8 +171,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// then answers empty; an unhidden one serves again), and the refresh
 	// re-renders the hidden-groups line.
 	groupRemovals.onDidChange = () => {
-		provider.notifyModelInformationChanged();
-		dashboard.refresh();
+		// Isolated like the status callback's consumers below: one consumer
+		// throwing must not starve the other, and a throw escaping into the
+		// store would make its callers report a mutation that DID apply as
+		// failed.
+		try {
+			provider.notifyModelInformationChanged();
+		} catch (error) {
+			logger.error("Group-removal change notification failed", error);
+		}
+		try {
+			dashboard.refresh();
+		} catch (error) {
+			logger.error("Dashboard refresh failed", error);
+		}
+	};
+	// The store's persists are best-effort (the session journal is the truth
+	// and rewrites the whole view on the next mutation); failures are log-only.
+	groupRemovals.onPersistError = (error) => {
+		logger.error("Persisting group-removal bookkeeping failed", error);
 	};
 	// Test-only commands; registered after the sync engine and the dashboard
 	// exist because the docker-serversync suite reads the engine's declared

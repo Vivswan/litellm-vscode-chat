@@ -142,9 +142,12 @@ export function createServerSyncEnv(
 			} catch (error) {
 				logger.error("Clearing removed-group tombstones failed", error);
 			}
-			// The notice must only claim "hidden" for groups whose tombstone
-			// provably landed; an event whose bookkeeping failed degrades to the
-			// untracked wording (group and models stay visible).
+			// The notice claims "hidden" once the store accepted the tombstone
+			// (its session journal now hides the group; persistence is the
+			// store's own best-effort concern). A throw here is unexpected -
+			// e.g. the change-event wiring - and degrades the event to the
+			// untracked wording rather than promising a hiding that may not
+			// have reached the provider.
 			const noticeEvents: RemovedEntryEvent[] = [];
 			for (const event of events) {
 				try {

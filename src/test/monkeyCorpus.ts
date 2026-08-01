@@ -45,4 +45,32 @@ export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 			{ kind: "declare-server", label: "s2", credential: "bad-key" },
 		],
 	},
+	{
+		// FUZZ_SEED=466017 walk 21, shrunk (nightly run 30692494781, #220): the
+		// remove's sync pass resolved the removed label's base URL from a fresh
+		// globalState ledger read that had reverted to a pre-declare version,
+		// so the removal event carried no URL, no tombstone was written, and
+		// the removed group's models never left the host list. All three
+		// nightly shards hit the same class mid-session (the tombstone store's
+		// own read-modify-write lost entries the same way during multi-label
+		// cleanups). Fixed by making the engine's session ledger and the
+		// removal store's session caches the truth, like the fingerprint map;
+		// the failure was storage-timing-dependent, so this trace guards the
+		// sequence rather than deterministically reproducing the revert (the
+		// unit suites pin the revert itself with simulated stale reads).
+		name: "stale-ledger-remove-shortly-after-declare",
+		actions: [
+			{ kind: "sync-now" },
+			{ kind: "sync-now" },
+			{ kind: "chat", verb: "echo", a: 98538, b: 294, pick: 642 },
+			{ kind: "dashboard-junk", payload: { type: "setHeaders", value: { h: { nested: 4 } } } },
+			{ kind: "sync-now" },
+			{ kind: "sync-now" },
+			{ kind: "declare-server", label: "s1", credential: "inline" },
+			{ kind: "remove-server", label: "s1" },
+			{ kind: "chat", verb: "echo", a: 60891, b: 694, pick: 187 },
+			{ kind: "set-headers", valid: true, serial: 11 },
+			{ kind: "set-model-parameters", valid: true, serial: 12 },
+		],
+	},
 ];

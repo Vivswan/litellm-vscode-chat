@@ -110,10 +110,14 @@ export interface ServerSyncEnv {
 	setFingerprints(map: Readonly<Record<string, string>>): Promise<void>;
 	/**
 	 * The persisted identity ledger: label -> normalized base URL for the
-	 * entries earlier passes saw declared. Read at pass end to resolve which
-	 * host a just-removed label's group pointed at; rewritten with the current
-	 * entries afterwards. Unlike the fingerprints it carries no credential
-	 * material and no salt dependence, so it is read and written unguarded.
+	 * entries earlier passes saw declared. It resolves which host a
+	 * just-removed label's group pointed at, so it is what a removal's
+	 * tombstone stands on. Like the fingerprints it is subject to the storage
+	 * layer handing back stale values, so the engine seeds a session copy from
+	 * the first read and treats later reads as presence-only gap fillers (a
+	 * stale read can only under-report, never invent a record; see
+	 * ServerSyncEngine.ledger). Unlike the fingerprints it carries no
+	 * credential material and no salt dependence, so writes go out unguarded.
 	 */
 	getEntryBaseUrls(): Readonly<Record<string, string>>;
 	setEntryBaseUrls(map: Readonly<Record<string, string>>): Promise<void>;
@@ -297,6 +301,23 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 * last-known-good left to carry - keeps the error forever.
 	 */
 	private fingerprints: Record<string, string> | undefined;
+	/**
+	 * The session's identity ledger, the same seed-once design as
+	 * `fingerprints` and for the same reason: the nightly monkey fuzzer caught
+	 * removals losing their tombstones because the pass resolved the removed
+	 * label's base URL from a fresh globalState read that had reverted to a
+	 * pre-declare version - the label read as ledger-less, the event degraded
+	 * to the untracked (no-tombstone) notice, and the removed group's models
+	 * never left the host list (#220). Seeded from the store on the first
+	 * pass, session truth from then on; each pass still takes one fresh store
+	 * read, merged presence-only underneath, so store-only records (another
+	 * window's writes) fill gaps but can never shadow a record this session
+	 * holds. A stale store CAN re-surface a label this session already
+	 * dropped, harmlessly: removal events key on the fingerprint session map,
+	 * so a dropped label is never looked up again, and the pass-end rewrite
+	 * prunes it from the next ledger.
+	 */
+	private ledger: Record<string, string> | undefined;
 	/** Per-label retry state that must survive between passes; see RetryState. */
 	private retry = new Map<string, RetryState>();
 	private running: Promise<void> | undefined;
@@ -661,7 +682,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 		// skipped: a corrupt store could hand one back, and assigning it would
 		// ride into the prototype.
 		const storeRecords = this.env.getFingerprints();
-		const ledger = this.env.getEntryBaseUrls();
+		// The session ledger is the truth for this pass (see the field's doc);
+		// the fresh store read merges underneath it, presence-only.
+		const storedLedger = this.env.getEntryBaseUrls();
+		this.ledger ??= { ...storedLedger };
+		const ledger: Readonly<Record<string, string>> = { ...storedLedger, ...this.ledger };
 		const carriedLedger: Record<string, string> = {};
 		for (const label of new Set([...Object.keys(previous), ...Object.keys(storeRecords)])) {
 			if (currentLabels.has(label) || !labelStillPresent(label) || isUnsafeRecordKey(label)) {
@@ -736,10 +761,16 @@ export class ServerSyncEngine implements vscode.Disposable {
 				const previousUrl = ledger[entry.label];
 				return previousUrl !== undefined ? [[entry.label, previousUrl]] : [];
 			});
-			await this.env.setEntryBaseUrls(Object.fromEntries([...ledgerEntries, ...Object.entries(carriedLedger)]));
+			const nextLedger = Object.fromEntries([...ledgerEntries, ...Object.entries(carriedLedger)]);
+			// Session truth before the persist, like the fingerprint map: a
+			// failing (or later-reverted) storage write must not cost a later
+			// removal its tombstone.
+			this.ledger = nextLedger;
+			await this.env.setEntryBaseUrls(nextLedger);
 		} catch (error) {
-			// Log-only like the fingerprint persist: a failed ledger write only
-			// degrades a LATER removal to the untracked (no-tombstone) notice.
+			// Log-only like the fingerprint persist: the session ledger already
+			// holds the records, so only a NEXT session's removal degrades to the
+			// untracked (no-tombstone) notice.
 			this.env.logError("Persisting the entry identity ledger failed", error);
 		}
 		if (removed.length > 0) {

@@ -369,6 +369,24 @@ suite("extension/servers/serverSync", () => {
 			]);
 		});
 
+		test("a stale ledger re-read cannot degrade a removal to the untracked notice (#220)", async () => {
+			// The nightly monkey fuzzer caught removed groups' models never
+			// leaving the host list: the removal pass resolved the removed
+			// label's base URL from a fresh globalState read that had reverted to
+			// a pre-declare version (the same hazard the fingerprint session map
+			// documents), so the event carried no URL and the env wrote no
+			// tombstone. The session ledger is the truth; the store read only
+			// fills gaps.
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			recorded.env.getEntryBaseUrls = () => ({}); // every read is the stale pre-declare snapshot
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			recorded.setting = [];
+			await engine.syncNow();
+			assert.deepStrictEqual(recordedEvents(recorded), [{ kind: "removed", label: "A", baseUrl: "http://a.test" }]);
+		});
+
 		test("a removal the identity ledger predates carries no base URL (the env must not tombstone a guess)", async () => {
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			// A fingerprint record persisted by an older version, with no ledger
