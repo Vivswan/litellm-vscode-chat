@@ -27,7 +27,7 @@ export type { NonSecretOptionalFieldId, SecretFieldId, SecretLocation } from "..
 export { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 export type { HeaderScalar } from "../../shared/util/headers";
 export { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
-export { isUnsafeRecordKey } from "../../shared/util/json";
+export { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 
 import type {
 	BooleanSettingId,

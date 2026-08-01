@@ -14,15 +14,16 @@ const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
 const nlsSchema = z.record(z.string(), z.string());
 
-/** undefined: not read yet; null: no package.nls.json on disk. */
-let cached: Readonly<Record<string, string>> | null | undefined;
+let cached: { readonly table: Readonly<Record<string, string>> | null } | undefined;
 
 function readNlsTable(): Readonly<Record<string, string>> | null {
 	if (cached === undefined) {
 		const nlsPath = path.join(repoRoot, "package.nls.json");
-		cached = fs.existsSync(nlsPath) ? nlsSchema.parse(JSON.parse(fs.readFileSync(nlsPath, "utf8"))) : null;
+		cached = {
+			table: fs.existsSync(nlsPath) ? nlsSchema.parse(JSON.parse(fs.readFileSync(nlsPath, "utf8"))) : null,
+		};
 	}
-	return cached;
+	return cached.table;
 }
 
 /** Resolve one manifest value; throws on a %key% that package.nls.json exists but does not define. */
@@ -35,7 +36,7 @@ export function resolveNls(value: string): string {
 	if (table === null) {
 		return value;
 	}
-	const resolved = table[match[1] as string];
+	const resolved = table[match[1] ?? ""];
 	if (resolved === undefined) {
 		throw new Error(`package.nls.json has no entry for ${value}`);
 	}

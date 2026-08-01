@@ -93,7 +93,9 @@
 		},
 		{
 			"includes": [
+				"src/extension.ts",
 				"src/extension/**",
+				"!src/extension/l10nConfig.ts",
 				"!src/extension/dashboard/protocol.ts",
 				"!src/extension/dashboard/recordDraft.ts",
 				"!src/extension/dashboard/serverForm.ts"
@@ -105,7 +107,28 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@vscode/l10n": "Extension code runs in the host; localize with vscode.l10n.t. Only the dashboard-shared modules (protocol, recordDraft, serverForm) use @vscode/l10n because the webview also imports them."
+									"@vscode/l10n": "Extension code runs in the host; localize with vscode.l10n.t. Only l10nConfig.ts and the dashboard-shared modules (protocol, recordDraft, serverForm) use @vscode/l10n."
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"src/extension/dashboard/protocol.ts",
+				"src/extension/dashboard/recordDraft.ts",
+				"src/extension/dashboard/serverForm.ts"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"vscode": "The dashboard-shared modules also run inside the webview bundle; they stay pure and localize with @vscode/l10n."
 								}
 							}
 						}

@@ -95,7 +95,10 @@ export function toLanguageModelError(err: unknown): unknown {
 	return wrapped;
 }
 
-const AUTH_MESSAGE = `Authentication failed: Your LiteLLM server requires an API key. Please run the "${manageCommandTitle()}" command to configure your API key.`;
+/** Lazy so the interpolated manage-command title resolves through the l10n bundle at 401 time, not module load. */
+function authMessage(): string {
+	return `Authentication failed: Your LiteLLM server requires an API key. Please run the "${manageCommandTitle()}" command to configure your API key.`;
+}
 
 const UPSTREAM_AUTH_MESSAGE =
 	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.";
@@ -197,7 +200,7 @@ function errorBodyText(err: APIError): string {
 export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof APIError && typeof err.status === "number") {
 		if (err.status === 401) {
-			const message = isUpstreamAuthFailure(err.error) ? UPSTREAM_AUTH_MESSAGE : AUTH_MESSAGE;
+			const message = isUpstreamAuthFailure(err.error) ? UPSTREAM_AUTH_MESSAGE : authMessage();
 			return new RequestError(message, "auth", { status: 401, cause: err });
 		}
 		const text = errorBodyText(err);
