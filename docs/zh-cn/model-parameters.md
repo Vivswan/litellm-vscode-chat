@@ -111,7 +111,7 @@
 - 「Provider default」(初始状态) 不发送任何内容, 由你的提供方决定。
 - 每个推理模型的菜单都相同, 因为 LiteLLM 报告哪些模型接受 `reasoning_effort`, 但不报告每个模型接受哪些值。如果你选了模型拒绝的档位 (比如在最高只到 High 的模型上选 Extra High), 请求会带着服务器自己的错误消息失败; 换一档重试即可。
 
-temperature 有意留在 `modelParameters` 中自由设置: 选择器的 Configure Model 菜单只能呈现固定选项, 因此扩展不在那里添加 temperature 预设。
+temperature 有意留在 `modelParameters` 中自由设置: 选择器的「配置模型」(Configure Model) 菜单只能呈现固定选项, 因此扩展不在那里添加 temperature 预设。
 
 ## 优先级
 

@@ -36,7 +36,7 @@
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中含 `reasoning_effort` (显式的 `supports_reasoning: false` 胜出) | 选择器中的「Thinking Effort」控件; 参见[模型参数](model-parameters.md#模型选择器中的推理强度) |
 | 提示缓存 | `supports_prompt_caching` | 是否放置缓存断点; 参见[设置](settings.md#提示缓存) |
 
-服务器端的错误标志值得在服务器端修复: 扩展在两个方向上都信任声明, 提供声明了的, 扣下未声明的。
+服务器端的错误标志值得在服务器端修复: 扩展在两个方向上都信任声明, 提供声明了的, 不提供未声明的。
 
 ## 多模态输入
 

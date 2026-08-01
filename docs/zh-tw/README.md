@@ -1,6 +1,6 @@
-[English](../README.md) | [简体中文](../zh-cn/README.md) | 繁體中文
-
 # 適用於 GitHub Copilot Chat 的 LiteLLM 提供者: 文件
+
+[English](../README.md) | [简体中文](../zh-cn/README.md) | 繁體中文
 
 ## 入門
 
@@ -15,7 +15,7 @@
 ## 參考
 
 - [設定](settings.md) - 每個設定及其預設值: token 上限、逾時、模型清單快取、自訂標頭、提示快取。
-- [模型與功能](models.md) - 伺服器的模型資訊會註冊哪些內容、每項功能決定什麼、多模態輸入與輸出、推理、來源, 以及 token 用量回報。
+- [模型與功能](models.md) - 伺服器的模型資訊會註冊哪些內容、每項功能決定什麼、多模態輸入與輸出、思考、來源, 以及 token 用量回報。
 - [命令](getting-started.md#命令) - 一張表列出所有命令選擇區命令。
 
 ## 說明
