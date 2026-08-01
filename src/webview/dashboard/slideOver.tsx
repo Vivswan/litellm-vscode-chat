@@ -7,6 +7,7 @@
  * path, the scrim, the X, and the form's own Cancel all share one policy.
  */
 
+import * as l10n from "@vscode/l10n";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import { IconClose } from "./icons";
@@ -103,18 +104,18 @@ export function SlideOver({
 				ref={panelRef}
 				onKeyDown={onKeyDown}
 			>
-				<button type="button" class="quiet slide-close" aria-label="Close" onClick={onRequestClose}>
+				<button type="button" class="quiet slide-close" aria-label={l10n.t("Close")} onClick={onRequestClose}>
 					<IconClose />
 				</button>
 				{children}
 				{confirming ? (
 					<div class="discard-confirm" role="alert">
-						<span>Discard unsaved changes?</span>
+						<span>{l10n.t("Discard unsaved changes?")}</span>
 						<button type="button" onClick={onDiscard}>
-							Discard
+							{l10n.t("Discard")}
 						</button>
 						<button type="button" class="secondary" onClick={onKeepEditing}>
-							Keep editing
+							{l10n.t("Keep editing")}
 						</button>
 					</div>
 				) : null}

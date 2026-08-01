@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type {
@@ -27,28 +28,29 @@ import { DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpSettingsSection, settingRowHelp } from "./helpText";
 import { IconBraces } from "./icons";
-import { HEADERS_TITLE, HeadersEditor, MODEL_PARAMETERS_TITLE, ModelParametersEditor } from "./recordEditors";
+import { HeadersEditor, headersTitle, ModelParametersEditor, modelParametersTitle } from "./recordEditors";
 import { postMessage } from "./vscodeApi";
 
 /**
  * The form's grouping and order, most-touched first. Presentation only: the
  * setting inventory itself is the protocol's; anything not placed here still
  * renders, in a trailing "Other" group, so a newly added setting can never
- * silently vanish from the dashboard.
+ * silently vanish from the dashboard. Titles are zero-arg functions so the
+ * localized text resolves at render time, not at module load.
  */
 const SETTING_GROUPS: readonly {
-	readonly title: string;
+	readonly title: () => string;
 	readonly numbers: readonly NumberSettingId[];
 	readonly booleans: readonly BooleanSettingId[];
 }[] = [
 	{
-		title: "Model defaults",
+		title: () => l10n.t("Model defaults"),
 		numbers: ["defaultMaxOutputTokens", "defaultContextLength", "defaultMaxInputTokens"],
 		booleans: [],
 	},
-	{ title: "Timeouts", numbers: ["requestTimeout", "discoveryTimeout"], booleans: [] },
-	{ title: "Caching", numbers: ["discoveryCacheTtl"], booleans: ["promptCaching.enabled"] },
-	{ title: "Input", numbers: [], booleans: ["maskApiKeyInput"] },
+	{ title: () => l10n.t("Timeouts"), numbers: ["requestTimeout", "discoveryTimeout"], booleans: [] },
+	{ title: () => l10n.t("Caching"), numbers: ["discoveryCacheTtl"], booleans: ["promptCaching.enabled"] },
+	{ title: () => l10n.t("Input"), numbers: [], booleans: ["maskApiKeyInput"] },
 ];
 
 /**
@@ -87,7 +89,7 @@ function RevealButton({ title, settingId }: { title: string; settingId: Revealab
 		<button
 			type="button"
 			class="quiet reveal-json"
-			aria-label={`Open ${title} in settings.json`}
+			aria-label={l10n.t("Open {0} in settings.json", title)}
 			onClick={() => postMessage({ type: "revealSetting", setting: settingId })}
 		>
 			<IconBraces />
@@ -114,7 +116,7 @@ function ResetButton({
 	scope: SettingScope;
 	settingId: NumberSettingId | BooleanSettingId;
 }) {
-	const action = `Remove the ${settingScopeLabel(scope)} value of ${title}`;
+	const action = l10n.t("Remove the {0} value of {1}", settingScopeLabel(scope), title);
 	return (
 		<button
 			type="button"
@@ -122,7 +124,7 @@ function ResetButton({
 			aria-label={action}
 			onClick={() => postMessage({ type: "resetSetting", setting: settingId })}
 		>
-			Reset
+			{l10n.t("Reset")}
 		</button>
 	);
 }
@@ -137,10 +139,11 @@ function ResetButton({
  * shifts the row's text (the accent gutter is reserved separately).
  */
 function ModifiedNote({ scope, defaultText }: { scope: SettingScope; defaultText?: string }) {
-	const where = `Modified in ${settingScopeLabel(scope)} settings`;
 	return (
 		<span class="setting-modified-note">
-			{defaultText === undefined ? where : `${where} (default: ${defaultText})`}
+			{defaultText === undefined
+				? l10n.t("Modified in {0} settings", settingScopeLabel(scope))
+				: l10n.t("Modified in {0} settings (default: {1})", settingScopeLabel(scope), defaultText)}
 		</span>
 	);
 }
@@ -223,7 +226,7 @@ function NumberField({
 				<label class="setting-title" for={inputId}>
 					{presentation.label}
 				</label>
-				{help !== undefined ? <Help text={help} name={`Help: ${presentation.label}`} /> : null}
+				{help !== undefined ? <Help text={help} name={l10n.t("Help: {0}", presentation.label)} /> : null}
 				<RevealButton title={presentation.label} settingId={id} />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} defaultText={defaultDisplay(id)} /> : null}
 			</div>
@@ -290,7 +293,7 @@ function BooleanField({
 		<SettingRow modified={configuredScope !== null} hidden={hidden}>
 			<div class="setting-head">
 				<span class="setting-title">{presentation.label}</span>
-				{help !== undefined ? <Help text={help} name={`Help: ${presentation.label}`} /> : null}
+				{help !== undefined ? <Help text={help} name={l10n.t("Help: {0}", presentation.label)} /> : null}
 				<RevealButton title={presentation.label} settingId={id} />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
 			</div>
@@ -321,7 +324,7 @@ function SettingGroup({
 	settings,
 	isVisible,
 }: {
-	title: string;
+	title: () => string;
 	numbers: readonly NumberSettingId[];
 	booleans: readonly BooleanSettingId[];
 	settings: DashboardSettings;
@@ -331,7 +334,7 @@ function SettingGroup({
 	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id));
 	return (
 		<div class="settings-group" hidden={empty}>
-			<h3 class="settings-group-title">{title}</h3>
+			<h3 class="settings-group-title">{title()}</h3>
 			{numbers.map((id) => (
 				<NumberField
 					key={id}
@@ -369,8 +372,8 @@ function ScalarScopeNote({ settings }: { settings: DashboardSettings }) {
 	return (
 		<p class="hint">
 			{workspaceTouched
-				? "Editing User settings; a value set in Workspace settings is changed there."
-				: "Editing User settings."}
+				? l10n.t("Editing User settings; a value set in Workspace settings is changed there.")
+				: l10n.t("Editing User settings.")}
 		</p>
 	);
 }
@@ -436,15 +439,15 @@ export function SettingsSection({
 	const otherBooleans = BOOLEAN_SETTING_IDS.filter((id) => !placed.has(id));
 
 	const paramsVisible =
-		needle.length === 0 || recordEditorMatches(needle, MODEL_PARAMETERS_TITLE, settings.modelParameters);
-	const headersVisible = needle.length === 0 || recordEditorMatches(needle, HEADERS_TITLE, settings.headers);
+		needle.length === 0 || recordEditorMatches(needle, modelParametersTitle(), settings.modelParameters);
+	const headersVisible = needle.length === 0 || recordEditorMatches(needle, headersTitle(), settings.headers);
 	const anyScalarVisible = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].some(isVisible);
 	const nothingMatches = !anyScalarVisible && !paramsVisible && !headersVisible;
 	return (
 		<section>
 			<h2>
-				Settings <Help text={helpSettingsSection()} />
-				<DocsLink href={DOCS_LINK_SETTINGS} label="Open the settings guide" />
+				{l10n.t("Settings")} <Help text={helpSettingsSection()} />
+				<DocsLink href={DOCS_LINK_SETTINGS} label={l10n.t("Open the settings guide")} />
 			</h2>
 			<div class="toolbar">
 				<button
@@ -452,27 +455,27 @@ export function SettingsSection({
 					class="secondary"
 					onClick={() => postMessage({ type: "executeCommand", command: "openSettings" })}
 				>
-					Open in Settings editor
+					{l10n.t("Open in Settings editor")}
 				</button>
 			</div>
 			<ScalarScopeNote settings={settings} />
 			<div class="filterbar">
 				<input
 					type="text"
-					placeholder="Filter settings, e.g. timeout"
-					aria-label="Filter settings"
+					placeholder={l10n.t("Filter settings, e.g. timeout")}
+					aria-label={l10n.t("Filter settings")}
 					value={filter}
 					onInput={(event) => setFilter(event.currentTarget.value)}
 				/>
 			</div>
-			{nothingMatches ? <p class="empty">No settings match the filter.</p> : null}
+			{nothingMatches ? <p class="empty">{l10n.t("No settings match the filter.")}</p> : null}
 			<div class="settings-groups">
-				{SETTING_GROUPS.map((group) => (
-					<SettingGroup key={group.title} {...group} settings={settings} isVisible={isVisible} />
+				{SETTING_GROUPS.map((group, index) => (
+					<SettingGroup key={index} {...group} settings={settings} isVisible={isVisible} />
 				))}
 				{otherNumbers.length + otherBooleans.length > 0 ? (
 					<SettingGroup
-						title="Other"
+						title={() => l10n.t("Other")}
 						numbers={otherNumbers}
 						booleans={otherBooleans}
 						settings={settings}

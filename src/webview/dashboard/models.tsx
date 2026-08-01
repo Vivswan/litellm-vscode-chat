@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { DashboardModel, ModelParametersRecord, RequestScope } from "../../extension/dashboard/protocol";
 import { DOCS_LINK_MODELS } from "./docsLinks";
@@ -25,37 +26,61 @@ export function formatPricing(model: DashboardModel): string {
 	}
 	const parts: string[] = [];
 	if (model.inputCost !== undefined) {
-		parts.push(`${formatCost(model.inputCost)} in`);
+		parts.push(
+			l10n.t({
+				message: "{0} in",
+				args: [formatCost(model.inputCost)],
+				comment: ["price per million input tokens; {0} is a dollar amount"],
+			})
+		);
 	}
 	if (model.outputCost !== undefined) {
-		parts.push(`${formatCost(model.outputCost)} out`);
+		parts.push(
+			l10n.t({
+				message: "{0} out",
+				args: [formatCost(model.outputCost)],
+				comment: ["price per million output tokens; {0} is a dollar amount"],
+			})
+		);
 	}
 	return parts.join(" / ");
 }
 
 function pricingDetail(model: DashboardModel): string {
-	const parts: string[] = ["USD per million tokens"];
+	const parts: string[] = [l10n.t("USD per million tokens")];
 	if (model.cacheReadCost !== undefined) {
-		parts.push(`cache read ${formatCost(model.cacheReadCost)}`);
+		parts.push(l10n.t("cache read {0}", formatCost(model.cacheReadCost)));
 	}
 	if (model.cacheWriteCost !== undefined) {
-		parts.push(`cache write ${formatCost(model.cacheWriteCost)}`);
+		parts.push(l10n.t("cache write {0}", formatCost(model.cacheWriteCost)));
 	}
 	const longContext: string[] = [];
 	if (model.longContextInputCost !== undefined) {
-		longContext.push(`${formatCost(model.longContextInputCost)} in`);
+		longContext.push(
+			l10n.t({
+				message: "{0} in",
+				args: [formatCost(model.longContextInputCost)],
+				comment: ["price per million input tokens; {0} is a dollar amount"],
+			})
+		);
 	}
 	if (model.longContextOutputCost !== undefined) {
-		longContext.push(`${formatCost(model.longContextOutputCost)} out`);
+		longContext.push(
+			l10n.t({
+				message: "{0} out",
+				args: [formatCost(model.longContextOutputCost)],
+				comment: ["price per million output tokens; {0} is a dollar amount"],
+			})
+		);
 	}
 	if (model.longContextCacheReadCost !== undefined) {
-		longContext.push(`cache read ${formatCost(model.longContextCacheReadCost)}`);
+		longContext.push(l10n.t("cache read {0}", formatCost(model.longContextCacheReadCost)));
 	}
 	if (model.longContextCacheWriteCost !== undefined) {
-		longContext.push(`cache write ${formatCost(model.longContextCacheWriteCost)}`);
+		longContext.push(l10n.t("cache write {0}", formatCost(model.longContextCacheWriteCost)));
 	}
 	if (longContext.length > 0) {
-		parts.push(`long-context tier: ${longContext.join(", ")}`);
+		parts.push(l10n.t("long-context tier: {0}", longContext.join(", ")));
 	}
 	return parts.join(", ");
 }
@@ -64,16 +89,16 @@ function pricingDetail(model: DashboardModel): string {
 export function capabilities(model: DashboardModel): string {
 	const caps: string[] = [];
 	if (model.toolCalling) {
-		caps.push("tools");
+		caps.push(l10n.t("tools"));
 	}
 	if (model.imageInput) {
-		caps.push("vision");
+		caps.push(l10n.t("vision"));
 	}
 	if (model.promptCaching) {
-		caps.push("caching");
+		caps.push(l10n.t("caching"));
 	}
 	if (model.reasoning) {
-		caps.push("reasoning");
+		caps.push(l10n.t("reasoning"));
 	}
 	return caps.join(", ");
 }
@@ -289,35 +314,40 @@ export function ModelsSection({
 		// keeps the heading clear of the sticky tab bar.
 		<section id="models-section" tabIndex={-1}>
 			<h2>
-				Models <Help text={helpModelsSection()} />
-				<DocsLink href={DOCS_LINK_MODELS} label="Open the models guide" />
+				{l10n.t("Models")} <Help text={helpModelsSection()} />
+				<DocsLink href={DOCS_LINK_MODELS} label={l10n.t("Open the models guide")} />
 			</h2>
 			{models.length === 0 ? (
 				<div class="empty-block">
-					<p>No models discovered yet.</p>
-					<p class="hint">Models appear here once a server has synced; run Sync models to ask your servers now.</p>
+					<p>{l10n.t("No models discovered yet.")}</p>
+					<p class="hint">
+						{l10n.t("Models appear here once a server has synced; run Sync models to ask your servers now.")}
+					</p>
 				</div>
 			) : (
 				<>
 					<div class="filterbar">
 						<input
 							type="text"
-							placeholder="Filter by name, family, or server"
-							aria-label="Filter models"
+							placeholder={l10n.t("Filter by name, family, or server")}
+							aria-label={l10n.t("Filter models")}
 							value={filter}
 							onInput={(event) => setFilter(event.currentTarget.value)}
 						/>
 						{scope !== undefined ? (
 							<span class="chip">
-								Server: {scope.label}
-								<button type="button" class="quiet" aria-label="Clear the server filter" onClick={scope.onClear}>
+								{l10n.t("Server: {0}", scope.label)}
+								<button
+									type="button"
+									class="quiet"
+									aria-label={l10n.t("Clear the server filter")}
+									onClick={scope.onClear}
+								>
 									<IconClose />
 								</button>
 							</span>
 						) : null}
-						<span class="hint">
-							showing {sorted.length} of {scoped.length}
-						</span>
+						<span class="hint">{l10n.t("showing {0} of {1}", sorted.length, scoped.length)}</span>
 					</div>
 					{/* When windowed, the scrollport is a focusable, labelled region so
 					    arrow/PageDown scrolling works from the keyboard, and the table
@@ -327,20 +357,26 @@ export function ModelsSection({
 					<section
 						class={windowed ? "table-scroll windowed" : "table-scroll"}
 						ref={scrollRef}
-						aria-label="Models table"
+						aria-label={l10n.t("Models table")}
 						tabIndex={windowed ? 0 : undefined}
 						onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
 					>
 						<table class="models" aria-rowcount={windowed ? sorted.length + 1 : undefined}>
 							<thead>
 								<tr>
-									<SortHeader label="Model" sortKey="name" sort={sort} onSort={toggleSort} />
-									<SortHeader label="Family" sortKey="family" sort={sort} colClass="col-family" onSort={toggleSort} />
+									<SortHeader label={l10n.t("Model")} sortKey="name" sort={sort} onSort={toggleSort} />
+									<SortHeader
+										label={l10n.t("Family")}
+										sortKey="family"
+										sort={sort}
+										colClass="col-family"
+										onSort={toggleSort}
+									/>
 									{showServerColumn ? (
-										<SortHeader label="Server" sortKey="server" sort={sort} onSort={toggleSort} />
+										<SortHeader label={l10n.t("Server")} sortKey="server" sort={sort} onSort={toggleSort} />
 									) : null}
 									<SortHeader
-										label="Input tokens"
+										label={l10n.t("Input tokens")}
 										sortKey="input"
 										sort={sort}
 										numeric
@@ -348,7 +384,7 @@ export function ModelsSection({
 										onSort={toggleSort}
 									/>
 									<SortHeader
-										label="Output tokens"
+										label={l10n.t("Output tokens")}
 										sortKey="output"
 										sort={sort}
 										numeric
@@ -356,14 +392,14 @@ export function ModelsSection({
 										onSort={toggleSort}
 									/>
 									<SortHeader
-										label="Pricing ($/M)"
+										label={l10n.t("Pricing ($/M)")}
 										sortKey="price"
 										sort={sort}
 										numeric
 										colClass="col-price"
 										onSort={toggleSort}
 									/>
-									<th class="col-caps">Capabilities</th>
+									<th class="col-caps">{l10n.t("Capabilities")}</th>
 									<th>{/* params */}</th>
 								</tr>
 							</thead>
@@ -392,7 +428,7 @@ export function ModelsSection({
 												<button
 													type="button"
 													class="quiet icon-action"
-													aria-label={`Copy model ID ${model.id} from ${model.serverLabel}`}
+													aria-label={l10n.t("Copy model ID {0} from {1}", model.id, model.serverLabel)}
 													onClick={() => copyId(model, rowId)}
 												>
 													{copied === rowId ? <IconCheck /> : <IconCopy />}
@@ -428,12 +464,12 @@ export function ModelsSection({
 												<button
 													type="button"
 													class="quiet params-action"
-													aria-label={`Show effective parameters for ${model.name} on ${model.serverLabel}`}
+													aria-label={l10n.t("Show effective parameters for {0} on {1}", model.name, model.serverLabel)}
 													onClick={() =>
 														setInspecting({ id: model.id, serverLabel: model.serverLabel, scopeKey: model.scopeKey })
 													}
 												>
-													Params
+													{l10n.t("Params")}
 												</button>
 											</td>
 										</tr>
@@ -451,7 +487,7 @@ export function ModelsSection({
 							</tbody>
 						</table>
 					</section>
-					{sorted.length === 0 ? <p class="empty">No models match the filter.</p> : null}
+					{sorted.length === 0 ? <p class="empty">{l10n.t("No models match the filter.")}</p> : null}
 					{inspected !== undefined ? (
 						<ParamsInspector
 							model={inspected}

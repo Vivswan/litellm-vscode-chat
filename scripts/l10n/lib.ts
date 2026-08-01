@@ -124,6 +124,21 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"timeoutRequestError",
 	"upstreamAuthMessage",
 	"statusErrorTexts",
+	// WP4: webview component presenters that resolve l10n.t at call time.
+	"relativeTime",
+	"formatPricing",
+	"pricingDetail",
+	"capabilities",
+	"externalTip",
+	"locationName",
+	"sectionLabel",
+	"toastText",
+	"overallState",
+	"lastCheckedText",
+	"rowChecked",
+	"diagnosticsReportText",
+	"modelParametersTitle",
+	"headersTitle",
 ];
 
 /**
