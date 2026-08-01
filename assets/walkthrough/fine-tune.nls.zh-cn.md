@@ -1,4 +1,4 @@
-## 微调扩展
+## 进一步调整扩展
 
 所有全局选项都在 VS Code 设置的 `litellm-vscode-chat` 下:
 
