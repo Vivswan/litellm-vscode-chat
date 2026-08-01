@@ -123,7 +123,8 @@ export interface ServerSyncEnv {
 	 * detected (empty most passes). The env clears removal tombstones matching
 	 * a declared identity (a re-declared group must never stay suppressed),
 	 * records tombstones and provenance for the events, and raises the
-	 * user-facing notice; the group itself needs the native editor. Awaited by
+	 * user-facing notice; deleting the group itself means editing the models
+	 * file. Awaited by
 	 * the pass, so reconciliations stay serialized with the passes that
 	 * produced them: a removal's tombstone can never land after a later
 	 * pass's re-add already cleared it.
@@ -211,7 +212,7 @@ export const GROUP_UPSERT_FAILED_MESSAGE = "The host rejected the provider group
  * hostGroupCommand.test.ts).
  */
 export const GROUP_UPDATE_UNAVAILABLE_MESSAGE =
-	"A VS Code provider group already uses this name, and VS Code cannot update an existing group. If the group does not match this entry, remove it in the native Manage Language Models editor and run Sync Models Now.";
+	"A VS Code provider group already uses this name, and VS Code cannot update an existing group. If the group does not match this entry, delete its object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now.";
 
 /**
  * The classified text for an entry whose stored secrets could not be read

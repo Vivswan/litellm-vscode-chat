@@ -62,7 +62,7 @@ Prefix a key with the server's base URL and `/` to scope it to that server (writ
 }
 ```
 
-Server scoping matches by base URL for every server: entries in the `servers` setting, servers added in the native editor, and legacy servers all identify a server by where it points.
+Server scoping matches by base URL for every server: entries in the `servers` setting, externally added servers, and legacy servers all identify a server by where it points.
 
 Keys scoped by a pre-migration server label (for example `Production/gpt-4`) no longer match; per-entry `modelParameters` is the replacement, and the extension rewrote user-settings keys automatically during the provider-group migration. See [Troubleshooting](troubleshooting.md#label-scoped-parameter-keys-were-migrated) for what the migration did and which keys you must move by hand.
 
@@ -93,14 +93,14 @@ How entry keys work:
 
 - Entry keys are plain model-ID prefixes (longest match wins; no base-URL scoping, since the entry already names its server).
 - Where an entry parameter and a global one match the same model, the entry's value wins for that key and the global setting still supplies the rest.
-- A request picks up an entry's parameters only when the provider group it runs through matches the entry on both label and base URL. External groups managed only in the native editor, and stale groups left behind by a label or `baseUrl` edit, get only the global setting; the dashboard flags this as a ["params inactive" notice](troubleshooting.md#per-server-model-parameters-are-inactive).
+- A request picks up an entry's parameters only when the provider group it runs through matches the entry on both label and base URL. External groups with no settings entry, and stale groups left behind by a label or `baseUrl` edit, get only the global setting; the dashboard flags this as a ["params inactive" notice](troubleshooting.md#per-server-model-parameters-are-inactive).
 
 ## Reasoning effort in the model picker
 
 Models that advertise reasoning support (`supports_reasoning`, or `reasoning_effort` among their supported params) get an effort control in Copilot's model picker:
 
 1. Select the model in the picker.
-2. Click the "Thinking Effort" label next to the model name in the chat input. (The Manage Language Models editor shows the same control as "Reasoning Effort".)
+2. Click the "Thinking Effort" label next to the model name in the chat input.
 3. Pick a level from Off through Extra High; VS Code remembers the choice for that model.
 
 What each choice sends:

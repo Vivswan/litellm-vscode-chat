@@ -100,7 +100,7 @@ test("a saveServerSetting intentFailed survives a subsequent state push", () => 
 	pushToWebview({
 		type: "intentFailed",
 		intentType: "saveServerSetting",
-		message: "the group upsert failed; remove the stale group in the native editor",
+		message: "the group upsert failed; delete the stale group from the models file",
 		kind: "operation",
 		requestId: "req-1",
 	});

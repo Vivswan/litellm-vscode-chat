@@ -117,17 +117,19 @@ type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
  * The copy lives here (classifications cross the boundary, words do not):
  * a removed entry's leftover names the removed label, a rename leftover names
  * both labels, and a row without provenance gets the honest default - added
- * in the native editor, or predating the tracking.
+ * outside this extension, or predating the tracking. Deletion instructions
+ * name the models file: VS Code offers extensions no group removal, so the
+ * file (or VS Code's own UI) is where deleting actually lives.
  */
 function externalTip(server: ExternalDashboardServer): string {
 	const provenance = server.provenance;
 	if (provenance?.kind === "removed-entry-leftover") {
-		return `Left behind when the entry "${provenance.removedLabel}" was removed from the servers setting. Remove hides its models; deleting the group itself lives in the native Manage Language Models editor.`;
+		return `Left behind when the entry "${provenance.removedLabel}" was removed from the servers setting. Remove hides its models; to delete the group itself, open the models file (chatLanguageModels.json), remove its object, and reload the window.`;
 	}
 	if (provenance?.kind === "rename-leftover") {
-		return `Left behind when "${provenance.oldLabel}" was renamed to "${provenance.newLabel}". Its models appear under both names until you delete this group in the native Manage Language Models editor.`;
+		return `Left behind when "${provenance.oldLabel}" was renamed to "${provenance.newLabel}". Its models appear under both names until you delete this group from the models file (chatLanguageModels.json) and reload the window.`;
 	}
-	return "No entry in the servers setting: added in the native Manage Language Models editor, or it predates this extension's tracking. Edit adopts it into the setting.";
+	return "No entry in the servers setting: added outside this extension, or it predates this extension's tracking. Edit adopts it into the setting.";
 }
 
 /**
@@ -637,16 +639,17 @@ function ServerForm({
 			<TextField field="label" placeholder="e.g. Production" props={props} />
 			{renaming && (parse.ok || parse.problems.label === undefined) ? (
 				<p class="hint">
-					Renaming makes VS Code treat this as a new server: the old name keeps serving its models until you remove its
-					entry in the native editor.
+					Renaming makes VS Code treat this as a new server: the old name keeps serving its models until you delete its
+					object from the models file (the rename notice opens it).
 				</p>
 			) : null}
 			{target.kind === "edit" && !renaming ? (
 				<details class="fine-print">
 					<summary>Changing the URL or credentials?</summary>
 					<p class="hint">
-						Saving stores the change, but VS Code keeps using the old connection details until they are replaced: open
-						the native editor from the Servers toolbar, remove this server's old entry there, then run Sync Models Now.
+						Saving stores the change, but VS Code keeps using the old connection details until they are replaced: remove
+						this server's object from the models file (chatLanguageModels.json), reload the window, then run Sync Models
+						Now.
 					</p>
 				</details>
 			) : null}
@@ -931,8 +934,8 @@ function AdoptForm({
 				</div>
 			))}
 			<p class="hint">
-				The original group is not removed (VS Code offers no way to); its models appear twice until you delete it in the
-				native editor.
+				The original group is not removed (VS Code offers no way to); its models appear twice until you delete its
+				object from the models file and reload the window.
 			</p>
 			<div class="toolbar">
 				<button type="button" disabled={saving} onClick={adopt}>
@@ -1018,7 +1021,7 @@ function ServerRow({
 					</HoverTip>
 				) : null}
 				{server.notice === "entry-params-inactive" ? (
-					<HoverTip tip="This entry's per-server model parameters are not applied: the provider group serving it does not carry this entry's labeled identity (it predates entry labels or a rename). Remove the group in the native Manage Language Models editor and run Sync Models Now, or save the entry under a new label, to activate them.">
+					<HoverTip tip="This entry's per-server model parameters are not applied: the provider group serving it does not carry this entry's labeled identity (it predates entry labels or a rename). Delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now - or save the entry under a new label - to activate them.">
 						<span class="badge state-warn">params inactive</span>
 					</HoverTip>
 				) : null}
@@ -1258,13 +1261,6 @@ export function ServersSection({
 					<button type="button" onClick={() => openForm({ kind: "add" })}>
 						<IconAdd /> Add server
 					</button>
-					<button
-						type="button"
-						class="quiet"
-						onClick={() => postMessage({ type: "executeCommand", command: "manageServers" })}
-					>
-						Open native editor
-					</button>
 				</div>
 			) : null}
 			{form !== undefined ? (
@@ -1304,7 +1300,7 @@ export function ServersSection({
 							}}
 							onAdopted={(message) => {
 								setAdoptNotice(
-									`Adopted into the servers setting. The original VS Code-managed group still exists, so its models appear twice until you remove that group in the native editor.${message !== undefined ? ` ${message}` : ""}`
+									`Adopted into the servers setting. The original VS Code-managed group still exists, so its models appear twice until you delete its object from the models file and reload the window.${message !== undefined ? ` ${message}` : ""}`
 								);
 							}}
 							onClose={closeForm}
@@ -1329,15 +1325,20 @@ export function ServersSection({
 				<div class="notice" role="status">
 					<p>
 						Hid "{removedNotice}" and its models. VS Code still keeps a provider group named "{removedNotice}". To
-						delete it: open Manage Language Models, remove "{removedNotice}", then run Sync models.
+						delete it for good:
 					</p>
+					<ol class="notice-steps">
+						<li>Open the models file and remove the "{removedNotice}" object from the JSON array.</li>
+						<li>Reload the window (Ctrl+Shift+P, "Developer: Reload Window") or restart VS Code.</li>
+						<li>Run Sync models.</li>
+					</ol>
 					<div class="toolbar">
 						<button
 							type="button"
 							class="secondary"
-							onClick={() => postMessage({ type: "executeCommand", command: "manageServers" })}
+							onClick={() => postMessage({ type: "executeCommand", command: "openGroupsFile" })}
 						>
-							Open native editor
+							Open models file
 						</button>
 						<button type="button" class="quiet" onClick={() => setRemovedNotice(undefined)}>
 							Dismiss
@@ -1352,9 +1353,9 @@ export function ServersSection({
 						<button
 							type="button"
 							class="secondary"
-							onClick={() => postMessage({ type: "executeCommand", command: "manageServers" })}
+							onClick={() => postMessage({ type: "executeCommand", command: "openGroupsFile" })}
 						>
-							Open native editor
+							Open models file
 						</button>
 						<button type="button" class="quiet" onClick={() => setAdoptNotice(undefined)}>
 							Dismiss
@@ -1485,8 +1486,9 @@ export function ServersSection({
 							.map((server) => server.label)
 							.join(", ")}
 						: per-server model parameters are not applied because the provider group does not carry the entry's labeled
-						identity (it predates entry labels or a rename). Remove the group in the native Manage Language Models
-						editor and run Sync Models Now, or save the entry under a new label, to activate them.{" "}
+						identity (it predates entry labels or a rename). Delete the group's object from the models file
+						(chatLanguageModels.json), reload the window, and run Sync Models Now - or save the entry under a new label
+						- to activate them.{" "}
 						<DocsLink href={DOCS_LINK_PARAMS_INACTIVE} label="Learn more in the troubleshooting guide">
 							Learn more
 						</DocsLink>

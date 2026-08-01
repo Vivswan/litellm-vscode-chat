@@ -57,7 +57,7 @@ type DeclaredServerNotice = "entry-params-inactive";
  * Where an external provider group came from, when the extension's removal
  * bookkeeping knows: the leftover of a removed entry (with the removed
  * label), or the leftover of a rename (old label -> new label). Absent for
- * groups added in the native editor or predating the tracking - the webview
+ * groups added outside this extension or predating the tracking - the webview
  * renders that honest default. Classifications and labels only, never free
  * text, like DeclaredServerNotice.
  */
@@ -210,7 +210,7 @@ export function overallStatusText(
  * reports, so every diagnostics surface must name it the same way.
  */
 const ENTRY_PARAMS_INACTIVE_TEXT =
-	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); remove the group in the native Manage Language Models editor and run Sync Models Now, or save the entry under a new label";
+	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
 
 /** One server's diagnostics outcome line, pinned by tests like overallStatusText. */
 export function serverOutcomeText(server: DashboardServer): string {
@@ -661,7 +661,7 @@ export function failuresAfterStatePush<K extends string, V>(
 
 /** Actions the webview can trigger; the extension maps each ID to the command it already registers. */
 export const DASHBOARD_COMMAND_IDS = [
-	"manageServers",
+	"openGroupsFile",
 	"syncModels",
 	"testConnection",
 	"openSettings",
@@ -687,7 +687,7 @@ export type SecretDirective =
  * The non-secret half of a litellm-vscode-chat.servers entry as the dashboard
  * form submits it. The label is the entry's identity: the sync engine names
  * the VS Code provider group after it, so renaming creates a new group (the
- * old one stays until removed in the native editor).
+ * old one stays until its object is deleted from the models file).
  */
 export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly label: string;

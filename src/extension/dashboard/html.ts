@@ -787,6 +787,8 @@ const STYLES = `
 		background: var(--vscode-editorWidget-background, transparent);
 	}
 	.notice p { margin: 4px 0; }
+	.notice ol.notice-steps { margin: 4px 0; padding-left: 20px; }
+	.notice ol.notice-steps li { margin: 2px 0; }
 	.notice .toolbar { margin: 8px 0 0; }
 	.skeleton { border-radius: 3px; background: var(--vscode-foreground); opacity: 0.12; }
 

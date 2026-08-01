@@ -46,17 +46,17 @@ function mountSection(servers: readonly DashboardServer[]) {
 	);
 }
 
-test("the toolbar renders only once a server exists, and its buttons post their executeCommand ids", () => {
+test("the toolbar renders only once a server exists, and holds only the add entry point", () => {
 	// First run: the guided card is the only affordance, no strip of dead
 	// controls above it.
 	const empty = mountSection([]);
 	expect(empty.querySelector(".toolbar")).toBeNull();
 
-	// Test connection and the diagnostics view live on the Diagnostics tab;
-	// the toolbar keeps only the server-editing entry points.
+	// Test connection and the diagnostics view live on the Diagnostics tab,
+	// and the native editor is not a destination: Add server stands alone.
 	const populated = mountSection([makeDeclaredServer()]);
-	fireClick(buttonByText(populated, "Open native editor"));
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "manageServers" }]);
+	const buttons = [...populated.querySelectorAll(".toolbar button")].map((el) => el.textContent?.trim());
+	expect(buttons).toEqual(["Add server"]);
 });
 
 test("with no servers the guided start renders and its call to action opens the add form", () => {
@@ -344,7 +344,7 @@ test("a non-hideable external row (legacy registry) offers Edit only, no Remove"
 	expect(actions).toEqual(["Edit"]);
 });
 
-test("the hide ack raises the guidance notice naming the group, with the native-editor action", () => {
+test("the hide ack raises the guidance notice naming the group, with the models-file action", () => {
 	const external = makeExternalServer({ label: "Copilot" });
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [external] })));
@@ -360,18 +360,20 @@ test("the hide ack raises the guidance notice naming the group, with the native-
 	pushToWebview({ type: "intentSucceeded", intentType: "hideExternalServer", requestId: posted.requestId });
 	const notice = root.querySelector(".notice");
 	expect(notice).not.toBeNull();
-	// The notice names the exact group and gives the steps: the native editor
-	// is where real deletion lives.
+	// The notice names the exact group and gives the file-based steps as a
+	// numbered list: the models file is where real deletion lives.
 	expect(notice?.textContent).toContain('"Copilot"');
-	expect(notice?.textContent).toContain("Manage Language Models");
+	expect(notice?.textContent).toContain("models file");
+	expect(notice?.textContent).toContain("Reload the window");
 	expect(notice?.textContent).toContain("Sync models");
+	expect(notice?.querySelectorAll("ol.notice-steps li").length).toBe(3);
 
 	resetPosted();
 	const openButton = [...(notice?.querySelectorAll("button") ?? [])].find(
-		(el) => el.textContent?.trim() === "Open native editor"
+		(el) => el.textContent?.trim() === "Open models file"
 	);
 	fireClick(openButton as HTMLElement);
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "manageServers" }]);
+	expect(postedMessages).toEqual([{ type: "executeCommand", command: "openGroupsFile" }]);
 
 	fireClick(buttonByText(root, "Dismiss"));
 	expect(root.querySelector(".notice")).toBeNull();
@@ -460,7 +462,7 @@ test("the external badge tip renders the provenance classification, or the hones
 	const renamedTip = tips.find((tip) => tip.includes('renamed to "Fresh"'));
 	expect(renamedTip).toContain("Left behind");
 	const defaultTip = tips.find((tip) => tip.includes("predates"));
-	expect(defaultTip).toContain("native Manage Language Models editor");
+	expect(defaultTip).toContain("added outside this extension");
 });
 
 test("the model count is a scope link only when the section is given onShowModels", () => {

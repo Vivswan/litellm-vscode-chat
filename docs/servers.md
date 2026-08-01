@@ -25,17 +25,17 @@ Servers are declared in the `litellm-vscode-chat.servers` setting. The [dashboar
 
 How the setting behaves:
 
-- The extension syncs the entries to VS Code provider groups automatically, on activation and whenever the setting changes.
+- The extension syncs the entries to VS Code provider groups automatically, on activation and whenever the setting changes. Everything here is equally reachable from the dashboard ("LiteLLM: Open Dashboard", or Command Palette -> "Manage LiteLLM Provider" -> Manage Servers).
 - The setting is machine-scoped: it lives in your user settings only, a workspace cannot override it (so a cloned repository can never re-point your servers at another host), and Settings Sync does not carry it to other machines.
-- The `label` is the entry's identity. The provider group is named after it, so renaming an entry creates a new group. The old group stays behind under the old name; the extension's notice names it and points at the native editor, and the dashboard marks the leftover row "external" with the rename in its badge tip.
-- Removing an entry hides its group. VS Code offers no API to remove the group itself, so the extension remembers the removal, answers that group with an empty model list (its models leave the picker), and the dashboard folds the row into a "hidden groups" line with an Unhide action. The empty shell still exists host-side: the removal notice names the exact group and its button opens the native Manage Language Models editor (also Command Palette -> "Manage LiteLLM Provider" -> Manage Language Models) - remove the named group there, then run Sync Models Now, and the shell is gone for good.
+- The `label` is the entry's identity. The provider group is named after it, so renaming an entry creates a new group. The old group stays behind under the old name; the extension's notice names it and opens the models file where its object can be deleted, and the dashboard marks the leftover row "external" with the rename in its badge tip.
+- Removing an entry hides its group. VS Code offers no API to remove the group itself, so the extension remembers the removal, answers that group with an empty model list (its models leave the picker), and the dashboard folds the row into a "hidden groups" line with an Unhide action. The empty shell still exists host-side: the removal notice names the exact group and its button opens the models file (`<profile>/User/chatLanguageModels.json`) - delete the named group's object from the JSON array, reload the window, then run Sync Models Now, and the shell is gone for good.
 - A hidden group comes back on its own if you re-add an entry with the same label and base URL, or explicitly through the hidden-groups line's Unhide.
 
 One host limitation cuts across all of this: VS Code's provider-group command can create groups but not update or remove them.
 
-- When a declared entry's connection changes (URL or credentials), the extension cannot push the change into the existing group. The server row shows an error telling you to remove the group in the native editor and run Sync Models Now, which recreates it from the entry.
+- When a declared entry's connection changes (URL or credentials), the extension cannot push the change into the existing group. The server row shows an error telling you to delete the group's object from the models file, reload the window, and run Sync Models Now, which recreates it from the entry.
 - For the same reason, an edit made natively to a declared group stays in place until that group is removed and re-synced.
-- Manual fallback: VS Code stores the groups in `<profile>/User/chatLanguageModels.json` under your user data, and removing a group means deleting its object from that JSON array. VS Code reads the file at startup and holds it in memory, so quit VS Code completely before editing or the change is overwritten. The native Manage Language Models editor remains the supported path.
+- The models file: VS Code stores the groups in `<profile>/User/chatLanguageModels.json` under your user data (a documented, user-editable file), and removing a group means deleting its object from that JSON array. VS Code reads the file at startup and holds it in memory, so quit or reload the window after editing - a live window can overwrite external edits.
 
 ## Entry fields
 
@@ -109,7 +109,7 @@ Some LiteLLM gateways sit behind an identity provider and reject static API keys
 }
 ```
 
-In the dashboard form the same fields sit behind "OAuth and virtual key (optional)"; for external servers managed in the native "Manage Language Models" editor, they appear there.
+In the dashboard form the same fields sit behind "OAuth and virtual key (optional)"; for external servers the extension does not manage, they live in the models file.
 
 What happens when the token URL and client ID are both set:
 
@@ -129,18 +129,18 @@ An entry can carry its own `modelParameters`: the same prefix-keyed record as th
 
 ## External servers and adoption
 
-Servers added directly in the native Manage Language Models editor still work; the dashboard shows them marked "external" since they have no settings entry. The badge's hover tip says where the row came from when the extension knows: the leftover of a removed entry (named), or of a rename (old and new labels). Without a record, the group was added in the native editor or predates this tracking.
+Servers whose groups were added outside this extension still work; the dashboard shows them marked "external" since they have no settings entry. The badge's hover tip says where the row came from when the extension knows: the leftover of a removed entry (named), or of a rename (old and new labels). Without a record, the group was added outside this extension or predates this tracking.
 
 An external row offers two actions:
 
-- **Remove** hides the group: its models leave the picker and the row moves to the "hidden groups" line, same as removing a declared entry. The follow-up notice names the group and its button opens the native editor, where the shell can be deleted for good.
+- **Remove** hides the group: its models leave the picker and the row moves to the "hidden groups" line, same as removing a declared entry. The follow-up notice names the group and its button opens the models file, where the shell's object can be deleted for good.
 - **Edit** adopts the group into the setting:
 
 1. Click Edit on the external row; that is the adopt action.
-2. Pick the entry's label. The form prefills the group's current label, but renaming is usually worth it: an entry whose name an existing VS Code group still uses cannot sync until that group is removed in the native editor.
+2. Pick the entry's label. The form prefills the group's current label, but renaming is usually worth it: an entry whose name an existing VS Code group still uses cannot sync until that group's object is deleted from the models file.
 3. Pick where each secret is stored (secret storage or inline in settings). The credential values are copied inside the extension and never pass through the dashboard page.
 4. Save: the group's connection details become a new `litellm-vscode-chat.servers` entry, and the server is editable like any declared one.
-5. Delete the original group in the native editor. Adoption cannot remove it (VS Code has no API for that), so its models appear twice until you do; the dashboard reminds you of this after adopting.
+5. Delete the original group's object from the models file and reload the window. Adoption cannot remove it (VS Code has no API for that), so its models appear twice until you do; the dashboard reminds you of this after adopting.
 
 ## Multiple machines and Settings Sync
 
