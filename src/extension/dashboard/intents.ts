@@ -115,6 +115,7 @@ const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readon
 	testConnection: { command: CMD.testConnection, args: [] },
 	openSettings: { command: "workbench.action.openSettings", args: [EXTENSION_SETTINGS_FILTER] },
 	reportIssue: { command: CMD.reportIssue, args: [] },
+	openOutput: { command: INTERNAL_CMD.openOutput, args: [] },
 };
 
 /**

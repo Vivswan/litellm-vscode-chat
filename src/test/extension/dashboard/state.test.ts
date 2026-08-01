@@ -2035,6 +2035,7 @@ suite("extension/dashboard/state", () => {
 				{ type: "executeCommand", command: "testConnection" },
 				{ type: "executeCommand", command: "openSettings" },
 				{ type: "executeCommand", command: "reportIssue" },
+				{ type: "executeCommand", command: "openOutput" },
 			];
 			for (const intent of intents) {
 				await executeDashboardIntent(intent, recorded.env);
@@ -2046,6 +2047,7 @@ suite("extension/dashboard/state", () => {
 				["litellm.testConnection"],
 				["workbench.action.openSettings", "@ext:vivswan.litellm-vscode-chat"],
 				["litellm.reportIssue"],
+				["litellm.openOutput"],
 			]);
 		});
 	});
