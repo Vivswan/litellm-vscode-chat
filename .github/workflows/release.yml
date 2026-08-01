@@ -21,6 +21,18 @@ jobs:
   # Marketplace (MARKETPLACE_TOKEN is an Azure DevOps PAT) and as a release
   # asset. vscode:prepublish runs the production typecheck, the esbuild
   # bundle, and the ThirdPartyNotices generation.
+  #
+  # GitHub releases are immutable once published: assets freeze at
+  # publication, so a post-publication `gh release upload` gets a 422 (this
+  # killed the v0.4.1 asset). release-please therefore creates the release
+  # as a DRAFT ("draft": true in release-please-config.json, with
+  # "force-tag-creation": true so the tag exists for the checkout below and
+  # for release-please's own changelog bookkeeping); this job attaches the
+  # VSIX while the draft is still mutable and publishes the release as its
+  # last step. If a step fails after the Marketplace publish, the release
+  # stays an invisible draft; finish by hand with
+  #   gh release upload <tag> extension.vsix --clobber
+  #   gh release edit <tag> --draft=false
   publish:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
@@ -52,8 +64,16 @@ jobs:
         env:
           MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
 
-      - name: Upload VSIX to GitHub Release
+      - name: Attach VSIX to the draft release
         run: gh release upload "$RELEASE_TAG" extension.vsix --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+
+      # Publishing freezes the release (immutable releases), so this must
+      # stay the last step, after the VSIX is attached.
+      - name: Publish the GitHub release
+        run: gh release edit "$RELEASE_TAG" --draft=false
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
