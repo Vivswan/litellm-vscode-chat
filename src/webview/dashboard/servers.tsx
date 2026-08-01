@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import { useEffect, useState } from "preact/hooks";
 import type {
 	DashboardIntentType,
@@ -67,10 +68,13 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 	if (server.state === "ok") {
 		if (server.error !== undefined) {
 			return (
-				<HoverTip focusable tip="The server answered, but its last settings sync reported a problem; details below.">
+				<HoverTip
+					focusable
+					tip={l10n.t("The server answered, but its last settings sync reported a problem; details below.")}
+				>
 					<span class="pill tone-warn">
 						<span class="dot" />
-						Sync issue
+						{l10n.t("Sync issue")}
 						{time}
 					</span>
 				</HoverTip>
@@ -79,7 +83,7 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 		return (
 			<span class="pill tone-ok">
 				<span class="dot" />
-				Connected
+				{l10n.t("Connected")}
 				{time}
 			</span>
 		);
@@ -88,16 +92,19 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 		return (
 			<span class="pill tone-error">
 				<span class="dot" />
-				Error
+				{l10n.t("Error")}
 				{time}
 			</span>
 		);
 	}
 	return (
-		<HoverTip focusable tip="Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now.">
+		<HoverTip
+			focusable
+			tip={l10n.t("Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now.")}
+		>
 			<span class="pill tone-muted">
 				<span class="dot" />
-				Not checked
+				{l10n.t("Not checked")}
 			</span>
 		</HoverTip>
 	);
@@ -119,12 +126,21 @@ type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
 function externalTip(server: ExternalDashboardServer): string {
 	const provenance = server.provenance;
 	if (provenance?.kind === "removed-entry-leftover") {
-		return `Leftover of the removed entry "${provenance.removedLabel}". Remove hides its models; deleting its object from the models file erases it.`;
+		return l10n.t(
+			'Leftover of the removed entry "{0}". Remove hides its models; deleting its object from the models file erases it.',
+			provenance.removedLabel
+		);
 	}
 	if (provenance?.kind === "rename-leftover") {
-		return `Leftover of renaming "${provenance.oldLabel}" to "${provenance.newLabel}". Its models show under both names until its object is deleted from the models file.`;
+		return l10n.t(
+			'Leftover of renaming "{0}" to "{1}". Its models show under both names until its object is deleted from the models file.',
+			provenance.oldLabel,
+			provenance.newLabel
+		);
 	}
-	return "No entry in the servers setting: added outside this extension, or predates its tracking. Edit adopts it.";
+	return l10n.t(
+		"No entry in the servers setting: added outside this extension, or predates its tracking. Edit adopts it."
+	);
 }
 
 /**
@@ -185,10 +201,10 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 	};
 }
 
-const LOCATION_NAMES: Record<Exclude<SecretLocation, "none">, string> = {
-	secure: "secret storage",
-	settings: "settings",
-};
+/** The storage locations' display names, resolved at call time (no module-level localized constants). */
+function locationName(location: Exclude<SecretLocation, "none">): string {
+	return location === "secure" ? l10n.t("secret storage") : l10n.t("settings");
+}
 
 interface FieldRenderProps {
 	readonly draft: ServerFormDraft;
@@ -291,15 +307,23 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 					type="button"
 					class="quiet"
 					aria-pressed={revealed}
-					aria-label={`${revealed ? "Hide" : "Show"} the ${serverFormFieldLabel(field)}`}
+					aria-label={
+						revealed
+							? l10n.t("Hide the {0}", serverFormFieldLabel(field))
+							: l10n.t("Show the {0}", serverFormFieldLabel(field))
+					}
 					disabled={props.disabled || value.clear || empty}
 					onClick={() => setRevealed((current) => !current)}
 				>
-					{revealed ? "Hide" : "Show"}
+					{revealed ? l10n.t("Hide") : l10n.t("Show")}
 				</button>
 			</span>
-			<span class="secret-where" role="radiogroup" aria-label={`Where to store the ${serverFormFieldLabel(field)}`}>
-				<span class="where-label">Store in:</span>
+			<span
+				class="secret-where"
+				role="radiogroup"
+				aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
+			>
+				<span class="where-label">{l10n.t("Store in:")}</span>
 				<Help text={helpSecretStorage()} />
 				<label>
 					<input
@@ -309,7 +333,7 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 						disabled={props.disabled || value.clear}
 						onChange={() => patchSecret({ location: "secure" })}
 					/>
-					secret storage
+					{l10n.t("secret storage")}
 				</label>
 				<label>
 					<input
@@ -319,7 +343,7 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 						disabled={props.disabled || value.clear}
 						onChange={() => patchSecret({ location: "settings" })}
 					/>
-					settings (visible)
+					{l10n.t("settings (visible)")}
 				</label>
 			</span>
 			{/* Removal is destructive, so it lives on its own line in its own
@@ -332,21 +356,23 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 						disabled={props.disabled}
 						onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
 					/>
-					Remove the stored {serverFormFieldLabel(field)} on save
+					{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
 				</label>
 			) : null}
 			{value.prefill !== undefined && !value.clear ? (
 				value.value.trim().length === 0 ? (
-					<span class="hint">Emptied, but the stored value is kept; use remove to delete it.</span>
+					<span class="hint">{l10n.t("Emptied, but the stored value is kept; use remove to delete it.")}</span>
 				) : (
 					<span class="hint">
-						Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.
+						{l10n.t("Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.")}
 					</span>
 				)
 			) : value.existing !== "none" && !value.clear ? (
-				<span class="hint">Currently in {LOCATION_NAMES[value.existing]}; leave the field empty to keep it.</span>
+				<span class="hint">
+					{l10n.t("Currently in {0}; leave the field empty to keep it.", locationName(value.existing))}
+				</span>
 			) : null}
-			{value.clear ? <span class="hint">The stored value will be removed on save.</span> : null}
+			{value.clear ? <span class="hint">{l10n.t("The stored value will be removed on save.")}</span> : null}
 			{showProblem ? (
 				<span id={errorId} class="error">
 					{problem}
@@ -459,7 +485,7 @@ function ServerForm({
 	// requestId (the state left "testing" on an edit or a retest) is ignored.
 	useEffect(() => {
 		if (testState.kind === "testing" && ack?.requestId === testState.requestId) {
-			setTestState({ kind: "pass", text: ack.message ?? "Connected" });
+			setTestState({ kind: "pass", text: ack.message ?? l10n.t("Connected") });
 		}
 	}, [ack, testState]);
 
@@ -471,7 +497,7 @@ function ServerForm({
 		if (testState.kind !== "testing" || testFailureSeq === undefined || testFailureRequestId !== testState.requestId) {
 			return;
 		}
-		setTestState({ kind: "fail", text: testFailureMessage ?? "The connection test failed" });
+		setTestState({ kind: "fail", text: testFailureMessage ?? l10n.t("The connection test failed") });
 	}, [testFailureSeq, testFailureRequestId, testFailureMessage, testState]);
 
 	// This form's own failure: a validation-kind one re-opens it for editing
@@ -628,51 +654,61 @@ function ServerForm({
 			{/* The dialog's accessible name is the title span alone, so the
 			    docs anchor's own label never leaks into it. */}
 			<h3 class="head-with-icons">
-				<span id="server-form-title">{target.kind === "add" ? "Add server" : `Edit ${target.original.label}`}</span>
-				<DocsLink href={DOCS_LINK_SERVER_FORM} label="Open the server fields guide" />
+				<span id="server-form-title">
+					{target.kind === "add" ? l10n.t("Add server") : l10n.t("Edit {0}", target.original.label)}
+				</span>
+				<DocsLink href={DOCS_LINK_SERVER_FORM} label={l10n.t("Open the server fields guide")} />
 			</h3>
-			<TextField field="label" placeholder="e.g. Production" props={props} />
+			<TextField field="label" placeholder={l10n.t("e.g. Production")} props={props} />
 			{renaming && (parse.ok || parse.problems.label === undefined) ? (
 				<p class="hint">
-					Renaming makes VS Code treat this as a new server: the old name keeps serving its models until you delete its
-					object from the models file (the rename notice opens it).
+					{l10n.t(
+						"Renaming makes VS Code treat this as a new server: the old name keeps serving its models until you delete its object from the models file (the rename notice opens it)."
+					)}
 				</p>
 			) : null}
 			{target.kind === "edit" && !renaming ? (
 				<details class="fine-print">
-					<summary>Changing the URL or credentials?</summary>
-					<p class="hint">Saving stores the change, but VS Code keeps using the old connection details until:</p>
+					<summary>{l10n.t("Changing the URL or credentials?")}</summary>
+					<p class="hint">
+						{l10n.t("Saving stores the change, but VS Code keeps using the old connection details until:")}
+					</p>
 					<ol class="notice-steps hint">
-						<li>You remove this server's object from the models file (chatLanguageModels.json).</li>
-						<li>You reload the window, then run Sync Models Now.</li>
+						<li>{l10n.t("You remove this server's object from the models file (chatLanguageModels.json).")}</li>
+						<li>{l10n.t("You reload the window, then run Sync Models Now.")}</li>
 					</ol>
 				</details>
 			) : null}
-			{collides ? <p class="hint">An entry with this label already exists; saving replaces it.</p> : null}
-			<TextField field="baseUrl" placeholder="e.g. http://localhost:4000" props={props} />
+			{collides ? <p class="hint">{l10n.t("An entry with this label already exists; saving replaces it.")}</p> : null}
+			<TextField field="baseUrl" placeholder={l10n.t("e.g. http://localhost:4000")} props={props} />
 			<SecretField field="apiKey" props={props} />
 			<details open={oauthOpen} onToggle={(event) => setOauthOpen(event.currentTarget.open)}>
-				<summary>OAuth and virtual key (optional)</summary>
-				<TextField field="oauthTokenUrl" placeholder="e.g. https://idp.example.com/oauth2/token" props={props} />
-				<TextField field="oauthClientId" placeholder="e.g. litellm-vscode" props={props} />
+				<summary>{l10n.t("OAuth and virtual key (optional)")}</summary>
+				<TextField
+					field="oauthTokenUrl"
+					placeholder={l10n.t("e.g. https://idp.example.com/oauth2/token")}
+					props={props}
+				/>
+				<TextField field="oauthClientId" placeholder={l10n.t("e.g. litellm-vscode")} props={props} />
 				<SecretField field="oauthClientSecret" props={props} />
-				<TextField field="oauthScopes" placeholder="e.g. litellm.read litellm.write" props={props} />
-				<TextField field="virtualKeyHeader" placeholder="e.g. x-litellm-api-key" props={props} />
+				<TextField field="oauthScopes" placeholder={l10n.t("e.g. litellm.read litellm.write")} props={props} />
+				<TextField field="virtualKeyHeader" placeholder={l10n.t("e.g. x-litellm-api-key")} props={props} />
 				<SecretField field="virtualKeyValue" props={props} />
 			</details>
 			<details open={paramsOpen} onToggle={(event) => setParamsOpen(event.currentTarget.open)}>
 				<summary>
-					Model parameters for this server (optional) <Help text={serverFieldHelp("modelParameters")} />
+					{l10n.t("Model parameters for this server (optional)")} <Help text={serverFieldHelp("modelParameters")} />
 				</summary>
 				<p class="hint">
-					Sent only with requests routed through this entry; overrides the global Model parameters setting for the same
-					keys. Matching is by model ID prefix, longest prefix wins.
+					{l10n.t(
+						"Sent only with requests routed through this entry; overrides the global Model parameters setting for the same keys. Matching is by model ID prefix, longest prefix wins."
+					)}
 				</p>
 				<ParamGroupsFields
 					groups={draft.modelParameters}
 					problems={modelParameterProblems}
 					disabled={saving}
-					prefixPlaceholder="Model prefix, e.g. gpt-4"
+					prefixPlaceholder={l10n.t("Model prefix, e.g. gpt-4")}
 					prefixHelp={helpEntryModelParameterPrefix()}
 					onChange={(next) => props.patch({ modelParameters: next })}
 				/>
@@ -686,25 +722,26 @@ function ServerForm({
 						})
 					}
 				>
-					<IconAdd /> Add model prefix
+					<IconAdd /> {l10n.t("Add model prefix")}
 				</button>
 			</details>
 			<p class="hint">
-				Saved to the litellm-vscode-chat.servers user setting and synced to VS Code automatically. Secrets left empty or
-				unedited keep their current value.
+				{l10n.t(
+					"Saved to the litellm-vscode-chat.servers user setting and synced to VS Code automatically. Secrets left empty or unedited keep their current value."
+				)}
 			</p>
 			<div class="toolbar">
 				<button type="button" disabled={phase.phase !== "editing"} onClick={save}>
 					{saving ? (
 						<>
-							<span class="spinner" aria-hidden="true" /> Saving...
+							<span class="spinner" aria-hidden="true" /> {l10n.t("Saving...")}
 						</>
 					) : (
-						"Save"
+						l10n.t("Save")
 					)}
 				</button>
 				<button type="button" class="secondary" onClick={onCancel}>
-					Cancel
+					{l10n.t("Cancel")}
 				</button>
 				{/* Probes the draft as typed, saved or not. Disabled only while the
 				    base URL is unusable or a probe/save is in flight; Cancel stays
@@ -717,16 +754,16 @@ function ServerForm({
 				>
 					{testState.kind === "testing" ? (
 						<>
-							<span class="spinner" aria-hidden="true" /> Testing...
+							<span class="spinner" aria-hidden="true" /> {l10n.t("Testing...")}
 						</>
 					) : (
-						"Test connection"
+						l10n.t("Test connection")
 					)}
 				</button>
-				{phase.phase === "prefill" ? <span class="hint">Loading stored values...</span> : null}
+				{phase.phase === "prefill" ? <span class="hint">{l10n.t("Loading stored values...")}</span> : null}
 				{firstBlocking !== undefined ? (
 					<span class="error" role="alert">
-						Cannot save: fix {serverFormFieldLabel(firstBlocking)}
+						{l10n.t("Cannot save: fix {0}", serverFormFieldLabel(firstBlocking))}
 					</span>
 				) : null}
 				{testState.kind === "pass" ? (
@@ -844,20 +881,23 @@ function AdoptForm({
 	// all, and every row states its own condition instead of promising a copy
 	// that may not exist.
 	const secretRows: readonly { field: SecretFieldId; hint: string }[] = [
-		...(server.hasApiKey ? [{ field: "apiKey" as const, hint: "Copied only if the group has an API key." }] : []),
-		{ field: "oauthClientSecret" as const, hint: "Copied only if the group is configured for OAuth." },
-		{ field: "virtualKeyValue" as const, hint: "Copied only if the group sends a virtual key header." },
+		...(server.hasApiKey
+			? [{ field: "apiKey" as const, hint: l10n.t("Copied only if the group has an API key.") }]
+			: []),
+		{ field: "oauthClientSecret" as const, hint: l10n.t("Copied only if the group is configured for OAuth.") },
+		{ field: "virtualKeyValue" as const, hint: l10n.t("Copied only if the group sends a virtual key header.") },
 	];
 
 	return (
 		<div class="form-card">
-			<h3 id="server-form-title">Adopt {server.label}</h3>
+			<h3 id="server-form-title">{l10n.t("Adopt {0}", server.label)}</h3>
 			<p class="hint">
-				Adopting writes this VS Code-managed group into the litellm-vscode-chat.servers setting, so it becomes editable
-				here. Its credentials are copied inside the extension and never pass through this page.
+				{l10n.t(
+					"Adopting writes this VS Code-managed group into the litellm-vscode-chat.servers setting, so it becomes editable here. Its credentials are copied inside the extension and never pass through this page."
+				)}
 			</p>
 			<div class="field">
-				<label for="adopt-label">Label</label>
+				<label for="adopt-label">{l10n.t("Label")}</label>
 				<input
 					id="adopt-label"
 					type="text"
@@ -873,8 +913,9 @@ function AdoptForm({
 					onBlur={() => setTouched(true)}
 				/>
 				<span class="hint">
-					Names the new entry and its provider group; usually worth renaming, since a name an existing VS Code group
-					already uses cannot be synced.
+					{l10n.t(
+						"Names the new entry and its provider group; usually worth renaming, since a name an existing VS Code group already uses cannot be synced."
+					)}
 				</span>
 				{showProblem ? (
 					<span id="adopt-label-error" class="error">
@@ -883,16 +924,20 @@ function AdoptForm({
 				) : null}
 			</div>
 			<div class="field">
-				<span class="field-label">Base URL</span>
+				<span class="field-label">{l10n.t("Base URL")}</span>
 				<span class="readonly-value">{server.baseUrl}</span>
-				<span class="hint">Fixed to the group being adopted; edit the server afterwards to change it.</span>
+				<span class="hint">{l10n.t("Fixed to the group being adopted; edit the server afterwards to change it.")}</span>
 			</div>
 			{secretRows.map(({ field, hint }) => (
 				<div class="field" key={field}>
 					<span>{serverFormFieldLabel(field)}</span>
 					<span class="hint">{hint}</span>
-					<span class="secret-where" role="radiogroup" aria-label={`Where to store the ${serverFormFieldLabel(field)}`}>
-						<span class="where-label">Store in:</span>
+					<span
+						class="secret-where"
+						role="radiogroup"
+						aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
+					>
+						<span class="where-label">{l10n.t("Store in:")}</span>
 						<label>
 							<input
 								type="radio"
@@ -904,7 +949,7 @@ function AdoptForm({
 									setLocations((current) => ({ ...current, [field]: "secure" }));
 								}}
 							/>
-							secret storage
+							{l10n.t("secret storage")}
 						</label>
 						<label>
 							<input
@@ -917,34 +962,35 @@ function AdoptForm({
 									setLocations((current) => ({ ...current, [field]: "settings" }));
 								}}
 							/>
-							settings (visible)
+							{l10n.t("settings (visible)")}
 						</label>
 					</span>
 				</div>
 			))}
 			<p class="hint">
-				VS Code cannot remove the original group: its models appear twice until its object is deleted from the models
-				file.
+				{l10n.t(
+					"VS Code cannot remove the original group: its models appear twice until its object is deleted from the models file."
+				)}
 			</p>
 			<div class="toolbar">
 				<button type="button" disabled={saving} onClick={adopt}>
 					{saving ? (
 						<>
-							<span class="spinner" aria-hidden="true" /> Adopting...
+							<span class="spinner" aria-hidden="true" /> {l10n.t("Adopting...")}
 						</>
 					) : (
-						"Adopt"
+						l10n.t("Adopt")
 					)}
 				</button>
 				{/* Disabled while the intent is in flight: cancelling would unmount
 				    this form before the ack and lose the post-adoption notice (the
 				    duplicate-group reminder and any missing-credentials caveat). */}
 				<button type="button" class="secondary" disabled={saving} onClick={onCancel}>
-					Cancel
+					{l10n.t("Cancel")}
 				</button>
 				{showProblem ? (
 					<span class="error" role="alert">
-						Cannot adopt: fix Label
+						{l10n.t("Cannot adopt: fix Label")}
 					</span>
 				) : null}
 			</div>
@@ -978,10 +1024,10 @@ function ServerRow({
 		<tr>
 			<td>{server.label}</td>
 			<td class="url">{server.baseUrl}</td>
-			<td data-label="Status">
+			<td data-label={l10n.t("Status")}>
 				<StatusPill server={server} now={now} />
 			</td>
-			<td class="num" data-label="Models">
+			<td class="num" data-label={l10n.t("Models")}>
 				{/* The count doubles as the bridge to the models section below:
 				    clicking it scopes the list to this server. A zero stays plain
 				    text, since an empty scoped list has nothing to show. */}
@@ -989,7 +1035,7 @@ function ServerRow({
 					<button
 						type="button"
 						class="quiet count-link"
-						aria-label={`Show models from ${server.label}`}
+						aria-label={l10n.t("Show models from {0}", server.label)}
 						onClick={() => onShowModels(server.label)}
 					>
 						{server.modelCount}
@@ -1002,16 +1048,20 @@ function ServerRow({
 				{/* The credential kind is the information, so it is the visible
 				    text; a generic "auth" badge would hide it in a hover tip. */}
 				{server.hasApiKey || server.hasOAuth ? (
-					<span class="badge">{server.hasOAuth ? "OAuth" : "API key"}</span>
+					<span class="badge">{server.hasOAuth ? "OAuth" : l10n.t("API key")}</span>
 				) : null}
 				{server.origin === "external" ? (
 					<HoverTip focusable tip={externalTip(server)}>
-						<span class="badge">external</span>
+						<span class="badge">{l10n.t("external")}</span>
 					</HoverTip>
 				) : null}
 				{server.notice === "entry-params-inactive" ? (
-					<HoverTip tip="Per-server model parameters are not applied: the group serving this entry predates its label or a rename. The banner below has the fix.">
-						<span class="badge state-warn">params inactive</span>
+					<HoverTip
+						tip={l10n.t(
+							"Per-server model parameters are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
+						)}
+					>
+						<span class="badge state-warn">{l10n.t("params inactive")}</span>
 					</HoverTip>
 				) : null}
 			</td>
@@ -1033,22 +1083,22 @@ function ServerRow({
 								}
 							}}
 						>
-							Confirm remove?
+							{l10n.t("Confirm remove?")}
 						</button>
 						<button type="button" class="quiet" onClick={() => onArmRemove(false)}>
-							Cancel
+							{l10n.t("Cancel")}
 						</button>
 					</>
 				) : (
 					<>
 						<button type="button" class="quiet" onClick={onEdit}>
-							Edit
+							{l10n.t("Edit")}
 						</button>
 						{/* A legacy-registry external row is not hideable (the registry
 						    path would keep serving its models), so it keeps Edit only. */}
 						{server.origin === "declared" || server.hideable ? (
 							<button type="button" class="quiet" onClick={() => onArmRemove(true)}>
-								Remove
+								{l10n.t("Remove")}
 							</button>
 						) : null}
 					</>
@@ -1072,9 +1122,9 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	return (
 		<div class="hidden-groups">
 			<p class="hint">
-				{hidden.length} hidden {hidden.length === 1 ? "group" : "groups"} -{" "}
+				{hidden.length === 1 ? l10n.t("1 hidden group") : l10n.t("{0} hidden groups", hidden.length)} -{" "}
 				<button type="button" class="quiet" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-					{expanded ? "hide" : "show"}
+					{expanded ? l10n.t("hide") : l10n.t("show")}
 				</button>
 			</p>
 			{expanded ? (
@@ -1096,7 +1146,7 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 									})
 								}
 							>
-								Unhide
+								{l10n.t("Unhide")}
 							</button>
 						</li>
 					))}
@@ -1240,15 +1290,15 @@ export function ServersSection({
 	return (
 		<section>
 			<h2>
-				Servers <Help text={helpServersSection()} below />
-				<DocsLink href={DOCS_LINK_SERVERS} label="Open the servers guide" />
+				{l10n.t("Servers")} <Help text={helpServersSection()} below />
+				<DocsLink href={DOCS_LINK_SERVERS} label={l10n.t("Open the servers guide")} />
 			</h2>
 			{/* First run shows the guided card alone; a strip of mostly disabled
 			    controls above it would put dead buttons before the guidance. */}
 			{!noServers ? (
 				<div class="toolbar">
 					<button type="button" onClick={() => openForm({ kind: "add" })}>
-						<IconAdd /> Add server
+						<IconAdd /> {l10n.t("Add server")}
 					</button>
 				</div>
 			) : null}
@@ -1260,10 +1310,10 @@ export function ServersSection({
 					notice={
 						busyNote || escapeArmed ? (
 							<>
-								Still adopting; the form closes by itself when it finishes.
+								{l10n.t("Still adopting; the form closes by itself when it finishes.")}
 								{escapeArmed ? (
 									<button type="button" class="secondary" onClick={closeForm}>
-										Close anyway - adoption continues in the background
+										{l10n.t("Close anyway - adoption continues in the background")}
 									</button>
 								) : null}
 							</>
@@ -1288,9 +1338,10 @@ export function ServersSection({
 								}
 							}}
 							onAdopted={(message) => {
-								setAdoptNotice(
-									`Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window.${message !== undefined ? ` ${message}` : ""}`
+								const base = l10n.t(
+									"Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window."
 								);
+								setAdoptNotice(message !== undefined ? `${base} ${message}` : base);
 							}}
 							onClose={closeForm}
 							onCancel={requestCloseForm}
@@ -1313,13 +1364,15 @@ export function ServersSection({
 			{removedNotice !== undefined ? (
 				<div class="notice" role="status">
 					<p>
-						Hid "{removedNotice}" and its models. VS Code still keeps a provider group named "{removedNotice}". To
-						delete it for good:
+						{l10n.t(
+							'Hid "{0}" and its models. VS Code still keeps a provider group named "{0}". To delete it for good:',
+							removedNotice
+						)}
 					</p>
 					<ol class="notice-steps">
-						<li>Open the models file and remove the "{removedNotice}" object from the JSON array.</li>
-						<li>Reload the window (Ctrl+Shift+P, "Developer: Reload Window") or restart VS Code.</li>
-						<li>Run Sync models.</li>
+						<li>{l10n.t('Open the models file and remove the "{0}" object from the JSON array.', removedNotice)}</li>
+						<li>{l10n.t('Reload the window (Ctrl+Shift+P, "Developer: Reload Window") or restart VS Code.')}</li>
+						<li>{l10n.t("Run Sync models.")}</li>
 					</ol>
 					<div class="toolbar">
 						<button
@@ -1327,10 +1380,10 @@ export function ServersSection({
 							class="secondary"
 							onClick={() => postMessage({ type: "executeCommand", command: "openGroupsFile" })}
 						>
-							Open models file
+							{l10n.t("Open models file")}
 						</button>
 						<button type="button" class="quiet" onClick={() => setRemovedNotice(undefined)}>
-							Dismiss
+							{l10n.t("Dismiss")}
 						</button>
 					</div>
 				</div>
@@ -1344,10 +1397,10 @@ export function ServersSection({
 							class="secondary"
 							onClick={() => postMessage({ type: "executeCommand", command: "openGroupsFile" })}
 						>
-							Open models file
+							{l10n.t("Open models file")}
 						</button>
 						<button type="button" class="quiet" onClick={() => setAdoptNotice(undefined)}>
-							Dismiss
+							{l10n.t("Dismiss")}
 						</button>
 					</div>
 				</div>
@@ -1357,10 +1410,10 @@ export function ServersSection({
 					<p>
 						{adoptFailure.kind === "operation"
 							? adoptFailure.message
-							: sectionFailureText("Adopting the server failed:", adoptFailure.message)}
+							: sectionFailureText(l10n.t("Adopting the server failed:"), adoptFailure.message)}
 					</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("adoptServer")}>
-						Dismiss
+						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
@@ -1369,50 +1422,50 @@ export function ServersSection({
 					<p>
 						{saveFailure.kind === "operation"
 							? saveFailure.message
-							: sectionFailureText("Saving the server failed:", saveFailure.message)}
+							: sectionFailureText(l10n.t("Saving the server failed:"), saveFailure.message)}
 					</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("saveServerSetting")}>
-						Dismiss
+						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
 			{removeFailure !== undefined ? (
 				<div class="banner banner-error" role="alert">
-					<p>{sectionFailureText("Removing failed:", removeFailure.message)}</p>
+					<p>{sectionFailureText(l10n.t("Removing failed:"), removeFailure.message)}</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("removeServerSetting")}>
-						Dismiss
+						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
 			{hideFailure !== undefined ? (
 				<div class="banner banner-error" role="alert">
-					<p>{sectionFailureText("Hiding the group failed:", hideFailure.message)}</p>
+					<p>{sectionFailureText(l10n.t("Hiding the group failed:"), hideFailure.message)}</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("hideExternalServer")}>
-						Dismiss
+						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
 			{unhideFailure !== undefined ? (
 				<div class="banner banner-error" role="alert">
-					<p>{sectionFailureText("Unhiding the group failed:", unhideFailure.message)}</p>
+					<p>{sectionFailureText(l10n.t("Unhiding the group failed:"), unhideFailure.message)}</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("unhideServer")}>
-						Dismiss
+						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
 			{noServers ? (
 				<div class="empty-start">
-					<h3>Connect LiteLLM to Copilot Chat</h3>
+					<h3>{l10n.t("Connect LiteLLM to Copilot Chat")}</h3>
 					<p class="hint">
-						Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.
+						{l10n.t("Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.")}
 					</p>
 					<ol>
-						<li>Enter the server's URL - for a local proxy that is usually http://localhost:4000.</li>
-						<li>Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.</li>
-						<li>Save. Models sync automatically and show up on this page.</li>
+						<li>{l10n.t("Enter the server's URL - for a local proxy that is usually http://localhost:4000.")}</li>
+						<li>{l10n.t("Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.")}</li>
+						<li>{l10n.t("Save. Models sync automatically and show up on this page.")}</li>
 					</ol>
 					<button type="button" onClick={() => openForm({ kind: "add" })}>
-						Add your first server
+						{l10n.t("Add your first server")}
 					</button>
 				</div>
 			) : (
@@ -1422,10 +1475,10 @@ export function ServersSection({
 					<table class="servers">
 						<thead>
 							<tr>
-								<th>Server</th>
-								<th>Base URL</th>
-								<th>Status</th>
-								<th class="num">Models</th>
+								<th>{l10n.t("Server")}</th>
+								<th>{l10n.t("Base URL")}</th>
+								<th>{l10n.t("Status")}</th>
+								<th class="num">{l10n.t("Models")}</th>
 								<th>{/* badges */}</th>
 								<th>{/* actions */}</th>
 							</tr>
@@ -1470,19 +1523,22 @@ export function ServersSection({
 			{servers.some((server) => server.notice === "entry-params-inactive") ? (
 				<div class="banner banner-warn">
 					<p class="state-warn">
-						{servers
-							.filter((server) => server.notice === "entry-params-inactive")
-							.map((server) => server.label)
-							.join(", ")}
-						: per-server model parameters are not applied (the group serving the entry predates its label or a rename).
-						To activate them:{" "}
-						<DocsLink href={DOCS_LINK_PARAMS_INACTIVE} label="Learn more in the troubleshooting guide">
-							Learn more
+						{l10n.t(
+							"{0}: per-server model parameters are not applied (the group serving the entry predates its label or a rename). To activate them:",
+							servers
+								.filter((server) => server.notice === "entry-params-inactive")
+								.map((server) => server.label)
+								.join(", ")
+						)}{" "}
+						<DocsLink href={DOCS_LINK_PARAMS_INACTIVE} label={l10n.t("Learn more in the troubleshooting guide")}>
+							{l10n.t("Learn more")}
 						</DocsLink>
 					</p>
 					<ol class="notice-steps">
-						<li>Delete the group's object from the models file (chatLanguageModels.json).</li>
-						<li>Reload the window, then run Sync Models Now - or save the entry under a new label instead.</li>
+						<li>{l10n.t("Delete the group's object from the models file (chatLanguageModels.json).")}</li>
+						<li>
+							{l10n.t("Reload the window, then run Sync Models Now - or save the entry under a new label instead.")}
+						</li>
 					</ol>
 				</div>
 			) : null}

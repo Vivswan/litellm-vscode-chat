@@ -15,6 +15,7 @@
  * page, where the default above placement would clip.
  */
 
+import * as l10n from "@vscode/l10n";
 import type { ComponentChildren, CSSProperties, TargetedEvent } from "preact";
 import { useId, useState } from "preact/hooks";
 import type { DocsUrl } from "./docsLinks";
@@ -114,7 +115,7 @@ export function Help({ text, name, below }: { text: string; name?: string; below
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: the handlers only measure for tip placement; the interactivity stays on the inner Help button
 		<span class={below === true ? "help-wrap below" : "help-wrap"} onMouseEnter={place} onFocusIn={place}>
-			<button type="button" class="help" aria-label={name ?? "Help"} aria-describedby={id}>
+			<button type="button" class="help" aria-label={name ?? l10n.t("Help")} aria-describedby={id}>
 				?
 			</button>
 			<span class="help-tip" role="tooltip" id={id} style={style}>

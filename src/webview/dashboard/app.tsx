@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import type { ComponentChildren } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 import type {
@@ -27,11 +28,17 @@ import { postMessage } from "./vscodeApi";
 const SECTION_IDS = DASHBOARD_SECTION_IDS;
 type SectionId = DashboardSectionId;
 
-const SECTION_LABELS: Record<SectionId, string> = {
-	overview: "Servers & Models",
-	settings: "Settings",
-	diagnostics: "Diagnostics",
-};
+/** The tab labels, resolved at render time (no module-level localized constants). */
+function sectionLabel(section: SectionId): string {
+	switch (section) {
+		case "overview":
+			return l10n.t("Servers & Models");
+		case "settings":
+			return l10n.t("Settings");
+		case "diagnostics":
+			return l10n.t("Diagnostics");
+	}
+}
 
 /**
  * Messages arriving on the window come from the extension only (the CSP
@@ -70,13 +77,21 @@ export interface IntentAck {
  * copy (never text from the payload). Scalar and record edits stay silent:
  * their success is the value visibly updating in place. The adopt toast
  * carries no caveat text because the post-adoption notice already renders
- * the extension's message in full.
+ * the extension's message in full. Resolved at call time (no module-level
+ * localized constants).
  */
-const TOAST_TEXT: Partial<Record<DashboardIntentType, string>> = {
-	saveServerSetting: "Server saved",
-	removeServerSetting: "Server removed",
-	adoptServer: "Server adopted",
-};
+function toastText(intentType: DashboardIntentType): string | undefined {
+	switch (intentType) {
+		case "saveServerSetting":
+			return l10n.t("Server saved");
+		case "removeServerSetting":
+			return l10n.t("Server removed");
+		case "adoptServer":
+			return l10n.t("Server adopted");
+		default:
+			return undefined;
+	}
+}
 
 interface ToastItem {
 	readonly id: number;
@@ -102,7 +117,12 @@ function Toast({
 	return (
 		<div class="toast">
 			<span>{toast.text}</span>
-			<button type="button" class="quiet" aria-label="Dismiss notification" onClick={() => onDismiss(toast.id)}>
+			<button
+				type="button"
+				class="quiet"
+				aria-label={l10n.t("Dismiss notification")}
+				onClick={() => onDismiss(toast.id)}
+			>
 				<IconClose />
 			</button>
 		</div>
@@ -145,15 +165,18 @@ function overallState(servers: readonly DashboardServer[], legacyServerCount: nu
 		case "not-configured":
 			// The legacy registry is real configuration even though it
 			// contributes no server rows (see overallStatusText).
-			return { tone: "muted", word: legacyServerCount > 0 ? "Legacy registry only" : "Not configured" };
+			return {
+				tone: "muted",
+				word: legacyServerCount > 0 ? l10n.t("Legacy registry only") : l10n.t("Not configured"),
+			};
 		case "error":
-			return { tone: "error", word: "Error" };
+			return { tone: "error", word: l10n.t("Error") };
 		case "degraded":
-			return { tone: "warn", word: "Degraded" };
+			return { tone: "warn", word: l10n.t("Degraded") };
 		case "waiting":
-			return { tone: "muted", word: "Waiting for first sync" };
+			return { tone: "muted", word: l10n.t("Waiting for first sync") };
 		case "connected":
-			return { tone: "ok", word: "Connected" };
+			return { tone: "ok", word: l10n.t("Connected") };
 	}
 }
 
@@ -173,12 +196,18 @@ function StatusHero({ state, now }: { state: DashboardState; now: number }) {
 				{overall.word}
 			</span>
 			<span class="stat">
-				<strong>{state.servers.length}</strong> {state.servers.length === 1 ? "server" : "servers"}
+				<strong>{state.servers.length}</strong>{" "}
+				{state.servers.length === 1
+					? l10n.t({ message: "server", comment: ["singular noun after the count in the hero strip"] })
+					: l10n.t({ message: "servers", comment: ["plural noun after the count in the hero strip"] })}
 			</span>
 			<span class="stat">
-				<strong>{state.models.length}</strong> {state.models.length === 1 ? "model" : "models"}
+				<strong>{state.models.length}</strong>{" "}
+				{state.models.length === 1
+					? l10n.t({ message: "model", comment: ["singular noun after the count in the hero strip"] })
+					: l10n.t({ message: "models", comment: ["plural noun after the count in the hero strip"] })}
 			</span>
-			{synced !== undefined ? <span class="stat">last sync {synced}</span> : null}
+			{synced !== undefined ? <span class="stat">{l10n.t("last sync {0}", synced)}</span> : null}
 			<span class="spacer" />
 			<button
 				type="button"
@@ -186,7 +215,7 @@ function StatusHero({ state, now }: { state: DashboardState; now: number }) {
 				disabled={state.servers.length === 0}
 				onClick={() => postMessage({ type: "executeCommand", command: "syncModels" })}
 			>
-				Sync models
+				{l10n.t("Sync models")}
 			</button>
 		</div>
 	);
@@ -195,7 +224,7 @@ function StatusHero({ state, now }: { state: DashboardState; now: number }) {
 /** Grey stand-ins shaped like the page (title, hero strip, tab bar, a table); no spinner, no motion. */
 function LoadingSkeleton() {
 	return (
-		<main aria-label="Loading">
+		<main aria-label={l10n.t("Loading")}>
 			<div class="skeleton" style={{ height: "20px", width: "220px", margin: "24px 0 4px" }} />
 			<div class="skeleton" style={{ height: "13px", width: "420px", margin: "8px 0 16px" }} />
 			<div class="skeleton" style={{ height: "38px", margin: "16px 0 24px" }} />
@@ -239,7 +268,7 @@ function SectionTabs({ active, onSelect }: { active: SectionId; onSelect: (secti
 		event.preventDefault();
 	};
 	return (
-		<div class="tabs" role="tablist" aria-label="Dashboard sections" onKeyDown={onKeyDown}>
+		<div class="tabs" role="tablist" aria-label={l10n.t("Dashboard sections")} onKeyDown={onKeyDown}>
 			{SECTION_IDS.map((section) => (
 				<button
 					key={section}
@@ -252,7 +281,7 @@ function SectionTabs({ active, onSelect }: { active: SectionId; onSelect: (secti
 					tabIndex={section === active ? 0 : -1}
 					onClick={() => onSelect(section)}
 				>
-					{SECTION_LABELS[section]}
+					{sectionLabel(section)}
 				</button>
 			))}
 		</div>
@@ -340,7 +369,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					const { [message.intentType]: _dropped, ...rest } = current;
 					return rest;
 				});
-				const base = TOAST_TEXT[message.intentType];
+				const base = toastText(message.intentType);
 				if (base !== undefined) {
 					const caveat = message.intentType !== "adoptServer" ? message.message : undefined;
 					const text = caveat !== undefined ? `${base}. ${caveat}` : base;
@@ -396,18 +425,20 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	return (
 		<main>
 			<div class="page-head">
-				<h1>LiteLLM Dashboard</h1>
+				<h1>{l10n.t("LiteLLM Dashboard")}</h1>
 				<button
 					type="button"
 					class="quiet"
 					onClick={() => postMessage({ type: "executeCommand", command: "reportIssue" })}
 				>
-					<IconBug /> Report a bug
+					<IconBug /> {l10n.t("Report a bug")}
 				</button>
 			</div>
-			<p class="hint">Servers, models, and settings in one place; edits land in your VS Code settings.</p>
+			<p class="hint">{l10n.t("Servers, models, and settings in one place; edits land in your VS Code settings.")}</p>
 			<StatusHero state={state} now={now} />
-			{scalarFailure !== undefined ? <p class="error">The last change did not apply: {scalarFailure.message}</p> : null}
+			{scalarFailure !== undefined ? (
+				<p class="error">{l10n.t("The last change did not apply: {0}", scalarFailure.message)}</p>
+			) : null}
 			<SectionTabs active={section} onSelect={setSection} />
 			<SectionPanel section="overview" active={section}>
 				<ServersSection

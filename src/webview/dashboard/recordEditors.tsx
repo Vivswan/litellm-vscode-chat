@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import { useEffect, useState } from "preact/hooks";
 import type {
 	DashboardModel,
@@ -30,9 +31,15 @@ import { postMessage } from "./vscodeApi";
 /**
  * The two editors' headings, exported so the settings form's filter matches
  * an editor by exactly the title it renders (the scalar rows' label rule).
+ * Zero-arg functions so the localized text resolves at call time, not at
+ * module load.
  */
-export const MODEL_PARAMETERS_TITLE = "Model parameters";
-export const HEADERS_TITLE = "Custom headers";
+export function modelParametersTitle(): string {
+	return l10n.t("Model parameters");
+}
+export function headersTitle(): string {
+	return l10n.t("Custom headers");
+}
 
 /**
  * The record editors' settings.json jump, the settings form's RevealButton
@@ -44,7 +51,7 @@ function HeadingRevealButton({ title, settingId }: { title: string; settingId: "
 		<button
 			type="button"
 			class="quiet reveal-json"
-			aria-label={`Open ${title} in settings.json`}
+			aria-label={l10n.t("Open {0} in settings.json", title)}
 			onClick={() => postMessage({ type: "revealSetting", setting: settingId })}
 		>
 			<IconBraces />
@@ -155,8 +162,10 @@ export interface IntentFailure {
 function ScopeNote({ scoped }: { scoped: ScopedRecordSetting<unknown> }) {
 	return (
 		<p class="hint">
-			Editing {settingScopeLabel(scoped.editScope)} settings. Rows here apply together via the Apply button; the plain
-			settings above save each change on its own.
+			{l10n.t(
+				"Editing {0} settings. Rows here apply together via the Apply button; the plain settings above save each change on its own.",
+				settingScopeLabel(scoped.editScope)
+			)}
 		</p>
 	);
 }
@@ -165,7 +174,9 @@ function FailureNote({ failure, dirty }: { failure: IntentFailure | undefined; d
 	if (failure === undefined || !dirty) {
 		return null;
 	}
-	return <p class="error">Saving failed: {failure.message} Your edits are kept; fix them and Apply again.</p>;
+	return (
+		<p class="error">{l10n.t("Saving failed: {0} Your edits are kept; fix them and Apply again.", failure.message)}</p>
+	);
 }
 
 /**
@@ -176,14 +187,14 @@ function FailureNote({ failure, dirty }: { failure: IntentFailure | undefined; d
 function ApplyStatus({ phase }: { phase: DraftPhase }) {
 	return (
 		<span class={phase === "saved" ? "apply-status saved" : "apply-status"} role="status">
-			{phase === "applying" ? "Applying..." : phase === "saved" ? "Saved" : ""}
+			{phase === "applying" ? l10n.t("Applying...") : phase === "saved" ? l10n.t("Saved") : ""}
 		</span>
 	);
 }
 
 /** The other-scope records, rendered as the same disabled grid the edit scope uses, never as prose. */
 function OtherScopeNote({ scope }: { scope: SettingScope }) {
-	return <p class="hint">Set in {settingScopeLabel(scope)} settings - edit there.</p>;
+	return <p class="hint">{l10n.t("Set in {0} settings - edit there.", settingScopeLabel(scope))}</p>;
 }
 
 /**
@@ -265,7 +276,7 @@ export function ParamGroupsFields({
 								disabled={disabled}
 								onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
 							>
-								<IconTrash /> Remove prefix
+								<IconTrash /> {l10n.t("Remove prefix")}
 							</button>
 						)}
 						{problems[groupIndex]?.prefix !== undefined ? (
@@ -280,7 +291,7 @@ export function ParamGroupsFields({
 										type="text"
 										class={`key${problems[groupIndex]?.params[paramIndex]?.field === "name" ? " invalid" : ""}`}
 										aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
-										placeholder="Parameter, e.g. temperature"
+										placeholder={l10n.t("Parameter, e.g. temperature")}
 										value={param.key}
 										disabled={inert}
 										list={paramNameListId}
@@ -300,7 +311,7 @@ export function ParamGroupsFields({
 										type="text"
 										class={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
 										aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
-										placeholder="JSON value, e.g. 0.2"
+										placeholder={l10n.t("JSON value, e.g. 0.2")}
 										value={param.valueText}
 										disabled={inert}
 										onInput={(event) =>
@@ -321,7 +332,7 @@ export function ParamGroupsFields({
 										disabled={disabled}
 										onClick={() => patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })}
 									>
-										<IconTrash /> Remove
+										<IconTrash /> {l10n.t("Remove")}
 									</button>
 								)}
 								{problems[groupIndex]?.params[paramIndex] !== undefined ? (
@@ -337,7 +348,7 @@ export function ParamGroupsFields({
 							disabled={disabled}
 							onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
 						>
-							<IconAdd /> Add parameter
+							<IconAdd /> {l10n.t("Add parameter")}
 						</button>
 					)}
 				</div>
@@ -384,7 +395,7 @@ function HeaderRowsFields({
 						type="text"
 						class={`key${problems[index]?.field === "name" ? " invalid" : ""}`}
 						aria-invalid={problems[index]?.field === "name"}
-						placeholder="Header, e.g. x-litellm-api-key"
+						placeholder={l10n.t("Header, e.g. x-litellm-api-key")}
 						value={row.name}
 						disabled={readOnly}
 						onInput={(event) => patchRow(index, { name: event.currentTarget.value })}
@@ -394,7 +405,7 @@ function HeaderRowsFields({
 						type="text"
 						class={`value${problems[index]?.field === "value" ? " invalid" : ""}`}
 						aria-invalid={problems[index]?.field === "value"}
-						placeholder="Value"
+						placeholder={l10n.t("Value")}
 						value={row.valueText}
 						disabled={readOnly}
 						onInput={(event) => patchRow(index, { valueText: event.currentTarget.value })}
@@ -402,7 +413,7 @@ function HeaderRowsFields({
 					/>
 					{readOnly === true ? null : (
 						<button type="button" class="quiet" onClick={() => onChange(rows.filter((_, i) => i !== index))}>
-							<IconTrash /> Remove
+							<IconTrash /> {l10n.t("Remove")}
 						</button>
 					)}
 					{problems[index] !== undefined ? <span class="error">{problems[index]?.message}</span> : null}
@@ -537,12 +548,14 @@ export function ModelParametersEditor({
 	return (
 		<section hidden={hidden}>
 			<h3 class="head-with-icons">
-				{MODEL_PARAMETERS_TITLE} <Help text={helpModelParametersSection()} />
-				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label="Open the model parameters guide" />
-				<HeadingRevealButton title={MODEL_PARAMETERS_TITLE} settingId="modelParameters" />
+				{modelParametersTitle()} <Help text={helpModelParametersSection()} />
+				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
+				<HeadingRevealButton title={modelParametersTitle()} settingId="modelParameters" />
 			</h3>
 			<p class="hint">
-				Request parameters sent per model prefix (longest prefix wins). Values are JSON: 0.2, true, "text", ["stop"].
+				{l10n.t(
+					'Request parameters sent per model prefix (longest prefix wins). Values are JSON: 0.2, true, "text", ["stop"].'
+				)}
 			</p>
 			<ScopeNote scoped={scoped} />
 			<datalist id={MODEL_PREFIX_LIST_ID}>
@@ -559,7 +572,7 @@ export function ModelParametersEditor({
 				<div class="record-json">
 					<textarea
 						rows={10}
-						aria-label="Model parameters as JSON"
+						aria-label={l10n.t("Model parameters as JSON")}
 						aria-invalid={jsonBlocked}
 						value={json.text}
 						onInput={(event) => {
@@ -575,11 +588,11 @@ export function ModelParametersEditor({
 				</div>
 			) : (
 				<>
-					{groups.length === 0 ? <p class="empty">No model parameters configured in this scope.</p> : null}
+					{groups.length === 0 ? <p class="empty">{l10n.t("No model parameters configured in this scope.")}</p> : null}
 					<ParamGroupsFields
 						groups={groups}
 						problems={problems}
-						prefixPlaceholder="Model prefix, e.g. gpt-4 or http://host:4000/gpt-4"
+						prefixPlaceholder={l10n.t("Model prefix, e.g. gpt-4 or http://host:4000/gpt-4")}
 						prefixHelp={helpModelParameterPrefix()}
 						prefixListId={MODEL_PREFIX_LIST_ID}
 						paramNameListId={PARAM_NAME_LIST_ID}
@@ -596,20 +609,20 @@ export function ModelParametersEditor({
 						class="secondary"
 						onClick={() => draft.update([...groups, { prefix: "", params: [{ key: "", valueText: "" }] }])}
 					>
-						<IconAdd /> Add model prefix
+						<IconAdd /> {l10n.t("Add model prefix")}
 					</button>
 				) : null}
 				<button type="button" disabled={!canApply} onClick={apply}>
-					Apply
+					{l10n.t("Apply")}
 				</button>
 				<button
 					type="button"
 					class="secondary"
 					disabled={!draft.dirty && !(json !== undefined && json.text !== json.base)}
-					aria-label="Discard the unapplied model parameter edits"
+					aria-label={l10n.t("Discard the unapplied model parameter edits")}
 					onClick={discard}
 				>
-					Discard
+					{l10n.t("Discard")}
 				</button>
 				{json === undefined ? (
 					<button
@@ -622,11 +635,11 @@ export function ModelParametersEditor({
 							}
 						}}
 					>
-						Edit as JSON
+						{l10n.t("Edit as JSON")}
 					</button>
 				) : (
 					<button type="button" class="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
-						Edit as rows
+						{l10n.t("Edit as rows")}
 					</button>
 				)}
 				<ApplyStatus phase={draft.phase} />
@@ -709,16 +722,16 @@ export function HeadersEditor({
 	return (
 		<section hidden={hidden}>
 			<h3 class="head-with-icons">
-				{HEADERS_TITLE} <Help text={helpCustomHeadersSection()} />
-				<HeadingRevealButton title={HEADERS_TITLE} settingId="headers" />
+				{headersTitle()} <Help text={helpCustomHeadersSection()} />
+				<HeadingRevealButton title={headersTitle()} settingId="headers" />
 			</h3>
-			<p class="hint">Sent with every LiteLLM request. Prefer User settings for values that are secrets.</p>
+			<p class="hint">{l10n.t("Sent with every LiteLLM request. Prefer User settings for values that are secrets.")}</p>
 			<ScopeNote scoped={scoped} />
 			{json !== undefined ? (
 				<div class="record-json">
 					<textarea
 						rows={8}
-						aria-label="Custom headers as JSON"
+						aria-label={l10n.t("Custom headers as JSON")}
 						aria-invalid={jsonBlocked}
 						value={json.text}
 						onInput={(event) => {
@@ -734,7 +747,7 @@ export function HeadersEditor({
 				</div>
 			) : (
 				<>
-					{rows.length === 0 ? <p class="empty">No custom headers configured in this scope.</p> : null}
+					{rows.length === 0 ? <p class="empty">{l10n.t("No custom headers configured in this scope.")}</p> : null}
 					<HeaderRowsFields rows={rows} problems={problems} onChange={(next) => draft.update(next)} onEnter={apply} />
 				</>
 			)}
@@ -742,20 +755,20 @@ export function HeadersEditor({
 			<div class="toolbar">
 				{json === undefined ? (
 					<button type="button" class="secondary" onClick={() => draft.update([...rows, { name: "", valueText: "" }])}>
-						<IconAdd /> Add header
+						<IconAdd /> {l10n.t("Add header")}
 					</button>
 				) : null}
 				<button type="button" disabled={!canApply} onClick={apply}>
-					Apply
+					{l10n.t("Apply")}
 				</button>
 				<button
 					type="button"
 					class="secondary"
 					disabled={!draft.dirty && !(json !== undefined && json.text !== json.base)}
-					aria-label="Discard the unapplied header edits"
+					aria-label={l10n.t("Discard the unapplied header edits")}
 					onClick={discard}
 				>
-					Discard
+					{l10n.t("Discard")}
 				</button>
 				{json === undefined ? (
 					<button
@@ -768,11 +781,11 @@ export function HeadersEditor({
 							}
 						}}
 					>
-						Edit as JSON
+						{l10n.t("Edit as JSON")}
 					</button>
 				) : (
 					<button type="button" class="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
-						Edit as rows
+						{l10n.t("Edit as rows")}
 					</button>
 				)}
 				<ApplyStatus phase={draft.phase} />

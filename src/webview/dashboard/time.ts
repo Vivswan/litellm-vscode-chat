@@ -5,6 +5,7 @@
  * "when exactly?" - the Diagnostics tab carries the precise timestamp.
  */
 
+import * as l10n from "@vscode/l10n";
 import { useEffect, useState } from "preact/hooks";
 
 const MINUTE = 60;
@@ -19,15 +20,15 @@ export function relativeTime(iso: string, nowMs: number): string | undefined {
 	const seconds = Math.round((nowMs - then) / 1000);
 	// Small negative drift (host and webview clocks disagree) reads as now.
 	if (seconds < 45) {
-		return "just now";
+		return l10n.t("just now");
 	}
 	if (seconds < HOUR) {
-		return `${Math.round(seconds / MINUTE)} min ago`;
+		return l10n.t("{0} min ago", Math.round(seconds / MINUTE));
 	}
 	if (seconds < DAY) {
-		return `${Math.round(seconds / HOUR)} h ago`;
+		return l10n.t("{0} h ago", Math.round(seconds / HOUR));
 	}
-	return `${Math.round(seconds / DAY)} d ago`;
+	return l10n.t("{0} d ago", Math.round(seconds / DAY));
 }
 
 /**
