@@ -15,6 +15,21 @@ export function buildExposedModelId(rawModelId: string, serverId: string, server
 	return `${serverId}/${rawModelId}`;
 }
 
+/**
+ * Invert buildExposedModelId without knowing the registration-time server
+ * count: strip the "<serverId>/" namespace when the ID carries it, else the
+ * ID is already raw (single-server registrations and provider groups, which
+ * always register with a count of 1). The one ambiguity is a raw ID that
+ * itself begins with "<serverId>/" registered at count <= 1 - no LiteLLM
+ * route mints such IDs, and the round-trip property test pins the exact
+ * contract. Consumers without a route map (the dashboard's state builder)
+ * resolve raw IDs through this instead of open-coding the strip.
+ */
+export function rawModelIdFromExposed(exposedId: string, serverId: string): string {
+	const prefix = `${serverId}/`;
+	return exposedId.startsWith(prefix) ? exposedId.slice(prefix.length) : exposedId;
+}
+
 export interface TokenConstraints {
 	maxOutputTokens: number;
 	/** Provenance of maxOutputTokens; only "provider" values may be sent to the server uncapped. */

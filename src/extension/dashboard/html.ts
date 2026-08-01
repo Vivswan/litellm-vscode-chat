@@ -519,6 +519,39 @@ const STYLES = `
 	.record-json textarea:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 	.record-json .error { font-size: 0.9em; margin: 4px 0; }
 
+	/* The effective-parameters inspector (the models table's Params slide-over):
+	   read-only prose and one small table, muted where a value is not sent.
+	   The row action itself stays invisible until its row is hovered or holds
+	   focus, like the copy-ID icon, so the table keeps its quiet fleet look. */
+	button.params-action { opacity: 0; transition: opacity 120ms ease-out; }
+	tr:hover button.params-action, tr:focus-within button.params-action, button.params-action:focus-visible { opacity: 1; }
+	.params-inspector h3 { display: flex; align-items: center; gap: 8px; margin: 4px 24px 4px 0; }
+	.params-inspector .params-identity { overflow-wrap: anywhere; }
+	.params-inspector table.params td, .params-inspector table.params th { padding-right: 10px; }
+	.params-inspector .param-name, .params-inspector .param-value {
+		font-family: var(--vscode-editor-font-family, monospace);
+		overflow-wrap: anywhere;
+	}
+	.params-inspector .param-not-sent td { color: var(--vscode-descriptionForeground); }
+	.params-inspector .param-skip { color: var(--vscode-descriptionForeground); }
+	.params-inspector .param-shadowed td {
+		color: var(--vscode-descriptionForeground);
+		font-size: 0.9em;
+		border-bottom: none;
+		padding-top: 0;
+	}
+	.params-inspector .param-shadowed .param-value { text-decoration: line-through; }
+	.params-inspector .params-replaced ul {
+		list-style: none;
+		margin: 4px 0 8px;
+		padding: 0 0 0 12px;
+		color: var(--vscode-descriptionForeground);
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 0.9em;
+	}
+	.params-inspector .params-max-tokens { margin: 12px 0 8px; }
+	.params-inspector .params-caveats { border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2)); margin-top: 12px; padding-top: 4px; }
+
 	.form-card {
 		max-width: 640px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));

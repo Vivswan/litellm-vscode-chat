@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { ServerModelsSnapshot } from "../../provider";
 import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
+import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
 import {
 	HEADERS_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -35,6 +36,7 @@ import type {
 	HeaderScalar,
 	HiddenGroup,
 	NumberSettingId,
+	RequestScope,
 	ScopedRecordSetting,
 	SettingScope,
 } from "./protocol";
@@ -374,14 +376,20 @@ function buildServers(
 	};
 }
 
-function buildModel(info: PreAttachModelInfo, serverLabel: string): DashboardModel {
+function buildModel(info: PreAttachModelInfo, serverLabel: string, serverId: string, scopeKey: string): DashboardModel {
 	return {
 		id: info.id,
+		// The request's `model` field for this entry: group registrations expose
+		// raw IDs already, and legacy multi-server registrations namespace them
+		// with the server ID, which the shared strip inverts.
+		rawId: rawModelIdFromExposed(info.id, serverId),
+		scopeKey,
 		name: info.name,
 		family: info.family,
 		serverLabel,
 		maxInputTokens: info.maxInputTokens,
 		maxOutputTokens: info.maxOutputTokens,
+		outputLimitDeclared: info.litellm.outputLimitSource === "provider",
 		inputCost: info.inputCost,
 		outputCost: info.outputCost,
 		cacheReadCost: info.cacheCost,
@@ -495,9 +503,12 @@ const ALL_SCOPES: readonly SettingScope[] = ["global", "workspace", "workspaceFo
  * Split an object setting by scope: the record the edit scope holds (which
  * the editors edit and writes replace whole) and, read-only, the records
  * other scopes hold. Built from inspection, never from the merged effective
- * value; see ScopedRecordSetting for why.
+ * value; see ScopedRecordSetting for why. `effectiveRaw` is the one merged
+ * read (WorkspaceConfiguration.get), sanitized the same way, for the
+ * inspector's request-path view.
  */
 function buildScopedRecord<V>(
+	effectiveRaw: unknown,
 	inspection: SettingsInspection | undefined,
 	sanitize: (raw: unknown) => Record<string, V>
 ): ScopedRecordSetting<V> {
@@ -510,7 +521,7 @@ function buildScopedRecord<V>(
 	const otherScopes = ALL_SCOPES.filter((scope) => scope !== editScope)
 		.map((scope) => ({ scope, value: sanitize(rawByScope[scope]) }))
 		.filter((entry) => Object.keys(entry.value).length > 0);
-	return { editScope, value: sanitize(rawByScope[editScope]), otherScopes };
+	return { editScope, value: sanitize(rawByScope[editScope]), otherScopes, effective: sanitize(effectiveRaw) };
 }
 
 export function readDashboardSettings(reader: SettingsReader): DashboardSettings {
@@ -521,8 +532,12 @@ export function readDashboardSettings(reader: SettingsReader): DashboardSettings
 			numbers: recordFromKeys(NUMBER_SETTING_IDS, (id) => resolveConfiguredScope(reader.inspect(id))),
 			booleans: recordFromKeys(BOOLEAN_SETTING_IDS, (id) => resolveConfiguredScope(reader.inspect(id))),
 		},
-		modelParameters: buildScopedRecord(reader.inspect(MODEL_PARAMETERS_SETTING_KEY), normalizeModelParameters),
-		headers: buildScopedRecord(reader.inspect(HEADERS_SETTING_KEY), sanitizeHeaders),
+		modelParameters: buildScopedRecord(
+			reader.get(MODEL_PARAMETERS_SETTING_KEY),
+			reader.inspect(MODEL_PARAMETERS_SETTING_KEY),
+			normalizeModelParameters
+		),
+		headers: buildScopedRecord(reader.get(HEADERS_SETTING_KEY), reader.inspect(HEADERS_SETTING_KEY), sanitizeHeaders),
 	};
 }
 
@@ -540,6 +555,20 @@ function countUnlistedLegacyServers(
 	return legacyServers.filter((server) => !shown.has(normalizeBaseUrl(server.baseUrl))).length;
 }
 
+/**
+ * What the request path would resolve for one server's requests, as panel.ts
+ * resolves it: the group's label paired with the declared entry's own
+ * modelParameters, through the SAME resolver chat requests use
+ * (readEntryModelParameters, i.e. entryModelParametersFor over the live
+ * setting). Undefined for unlabeled groups, legacy-registry snapshots, and
+ * labels no declared entry matches at that URL - exactly the requests that
+ * get only the global setting.
+ */
+export type EntryParametersResolution = {
+	readonly entryLabel: string;
+	readonly entryParameters: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+};
+
 export function buildDashboardState(
 	snapshots: readonly ServerModelsSnapshot[],
 	reader: SettingsReader,
@@ -552,7 +581,14 @@ export function buildDashboardState(
 	 * default treats everything as a group, which is right wherever the
 	 * registry cannot contribute snapshots.
 	 */
-	isGroupSnapshot: (serverId: string) => boolean = () => true
+	isGroupSnapshot: (serverId: string) => boolean = () => true,
+	/**
+	 * The production request-path resolution of a server's per-entry
+	 * modelParameters, by snapshot server ID; see EntryParametersResolution.
+	 * The default (nothing resolves) is right only where no declared entry can
+	 * carry parameters.
+	 */
+	resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined = () => undefined
 ): DashboardState {
 	const labeled = labeledSnapshots(snapshots);
 	const { servers, snapshotLabels } = buildServers(labeled, declared, removedGroups, isGroupSnapshot);
@@ -562,16 +598,34 @@ export function buildDashboardState(
 	const hiddenGroups: HiddenGroup[] = removedGroups.tombstones
 		.map((identity) => ({ label: identity.label, baseUrl: identity.baseUrl }))
 		.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
+	// One request scope per snapshot, keyed positionally within this push
+	// (never by label: two same-label groups must not swap entry parameters).
+	// The scope states what a request through this server resolves: the
+	// base-URL scope its modelParameters matching runs under, plus the
+	// declared entry's own parameters when the production resolver finds one.
+	const requestScopes: Record<string, RequestScope> = {};
+	const scopeKeys = labeled.map(({ snapshot }, index) => {
+		const scopeKey = `s${index}`;
+		const entry = resolveEntryParameters(snapshot.status.serverId);
+		requestScopes[scopeKey] = {
+			baseUrlScope: normalizeBaseUrl(snapshot.status.baseUrl),
+			...(entry !== undefined ? { entryLabel: entry.entryLabel, entryParameters: entry.entryParameters } : {}),
+		};
+		return scopeKey;
+	});
 	return {
 		servers,
 		hiddenGroups,
 		models: labeled
 			.flatMap(({ snapshot, label }, index) =>
 				(snapshotLabels[index] ?? [label]).flatMap((serverLabel) =>
-					snapshot.models.map((info) => buildModel(info, serverLabel))
+					snapshot.models.map((info) =>
+						buildModel(info, serverLabel, snapshot.status.serverId, scopeKeys[index] ?? `s${index}`)
+					)
 				)
 			)
 			.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.name.localeCompare(b.name)),
+		requestScopes,
 		settings: readDashboardSettings(reader),
 		legacyServerCount: countUnlistedLegacyServers(servers, legacyServers),
 	};

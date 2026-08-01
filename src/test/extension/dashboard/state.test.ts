@@ -1038,11 +1038,14 @@ suite("extension/dashboard/state", () => {
 			const model = state.models[0];
 			assert.deepStrictEqual(model, {
 				id: "claude",
+				rawId: "claude",
+				scopeKey: "s0",
 				name: "claude",
 				family: "anthropic",
 				serverLabel: "Prod",
 				maxInputTokens: 100000,
 				maxOutputTokens: 8000,
+				outputLimitDeclared: true,
 				inputCost: 3,
 				outputCost: 15,
 				cacheReadCost: 0.3,
@@ -1234,6 +1237,128 @@ suite("extension/dashboard/state", () => {
 		});
 	});
 
+	suite("buildDashboardState: request scopes", () => {
+		test("models carry the raw ID with the legacy multi-server namespace stripped", () => {
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ serverId: "srv1" }),
+						models: [makeModelInfo({ id: "srv1/gpt-4", name: "gpt-4" })],
+					},
+				],
+				makeReader({})
+			);
+			assert.strictEqual(state.models[0]?.id, "srv1/gpt-4", "the exposed ID stays the row identity");
+			assert.strictEqual(state.models[0]?.rawId, "gpt-4", "the raw ID is what requests and prefixes match");
+		});
+
+		test("group models are already raw, and outputLimitDeclared mirrors the litellm provenance", () => {
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ serverId: "g1" }),
+						models: [
+							makeModelInfo({ id: "gpt-4", name: "a" }),
+							makeModelInfo({
+								id: "claude",
+								name: "b",
+								litellm: { supportsPromptCaching: false, outputLimitSource: "provider" },
+							}),
+						],
+					},
+				],
+				makeReader({})
+			);
+			assert.deepStrictEqual(
+				state.models.map((model) => [model.rawId, model.outputLimitDeclared]),
+				[
+					["gpt-4", false],
+					["claude", true],
+				]
+			);
+		});
+
+		test("every model's scopeKey resolves in requestScopes, with the base URL normalized", () => {
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test/" }),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+				],
+				makeReader({})
+			);
+			const model = state.models[0];
+			assert.ok(model !== undefined);
+			const scope = state.requestScopes[model.scopeKey];
+			assert.deepStrictEqual(scope, { baseUrlScope: normalizeBaseUrl("http://prod.test/") });
+		});
+
+		test("the injected resolver's entry parameters land on the snapshot's scope, keyed per snapshot", () => {
+			// Two same-label groups at one URL: the scope is keyed per snapshot, so
+			// only the snapshot whose server ID resolves carries the entry's
+			// parameters - a label-keyed scope would hand them to both.
+			const entryParameters = { "gpt-4": { temperature: 0.2 } };
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ serverId: "g1", label: "Team", baseUrl: "http://prod.test" }),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+					{
+						status: makeServerStatus({ serverId: "g2", label: "Team", baseUrl: "http://prod.test" }),
+						models: [makeModelInfo({ id: "m2", name: "m2" })],
+					},
+				],
+				makeReader({}),
+				[],
+				[],
+				{ tombstones: [], origins: [] },
+				() => true,
+				(serverId) => (serverId === "g1" ? { entryLabel: "Team", entryParameters } : undefined)
+			);
+			const modelByRaw = (rawId: string) => state.models.find((model) => model.rawId === rawId);
+			const scopeOf = (rawId: string) => {
+				const model = modelByRaw(rawId);
+				assert.ok(model !== undefined, rawId);
+				return state.requestScopes[model.scopeKey];
+			};
+			assert.deepStrictEqual(scopeOf("m1"), {
+				baseUrlScope: "http://prod.test",
+				entryLabel: "Team",
+				entryParameters,
+			});
+			assert.deepStrictEqual(scopeOf("m2"), { baseUrlScope: "http://prod.test" });
+			assert.notStrictEqual(modelByRaw("m1")?.scopeKey, modelByRaw("m2")?.scopeKey);
+		});
+
+		test("a tombstoned snapshot contributes no models and the remaining scope keys stay resolvable", () => {
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ serverId: "g1", label: "Hidden", baseUrl: "http://hidden.test" }),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+					{
+						status: makeServerStatus({ serverId: "g2", label: "Live", baseUrl: "http://live.test" }),
+						models: [makeModelInfo({ id: "m2", name: "m2" })],
+					},
+				],
+				makeReader({}),
+				[],
+				[],
+				{ tombstones: [{ label: "Hidden", baseUrl: "http://hidden.test" }], origins: [] }
+			);
+			assert.deepStrictEqual(
+				state.models.map((model) => model.serverLabel),
+				["Live"]
+			);
+			for (const model of state.models) {
+				assert.ok(state.requestScopes[model.scopeKey] !== undefined, "every surviving model's scope resolves");
+			}
+		});
+	});
+
 	suite("readDashboardSettings", () => {
 		test("passes configured finite numbers through, even out of range", () => {
 			const settings = readDashboardSettings(makeReader({ requestTimeout: 5, defaultMaxOutputTokens: 32000 }));
@@ -1402,6 +1527,22 @@ suite("extension/dashboard/state", () => {
 
 			assert.deepStrictEqual(settings.headers.value, {});
 			assert.deepStrictEqual(settings.modelParameters.value, {});
+		});
+
+		test("effective is the scope-merged read (reader.get), normalized like the request path", () => {
+			// makeReader's get() answers from `values`, standing in for VS Code's
+			// own cross-scope merge; the per-scope records come from inspect. The
+			// inspector must see the merged record even when the edit scope holds
+			// only part of it.
+			const settings = readDashboardSettings(
+				makeReader(
+					{ modelParameters: { "gpt-4": { temperature: 0.2 }, bad: 7 } },
+					{},
+					{ modelParameters: { workspaceValue: { "gpt-4": { temperature: 0.2 } } } }
+				)
+			);
+			assert.deepStrictEqual(settings.modelParameters.effective, { "gpt-4": { temperature: 0.2 } });
+			assert.strictEqual(settings.modelParameters.editScope, "workspace");
 		});
 	});
 

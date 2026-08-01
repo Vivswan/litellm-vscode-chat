@@ -121,3 +121,5 @@ When several sources set the same parameter for one request, the higher one wins
 4. Global `modelParameters`
 
 Any parameter left unset by all four falls through to your model provider's defaults, with the `max_tokens` exception described above.
+
+To see how these layers resolve for a specific model - which value wins, what got shadowed, and what `max_tokens` goes out - use the [dashboard's effective-parameters inspector](dashboard.md#effective-parameters), the Params action on each row of the models table.

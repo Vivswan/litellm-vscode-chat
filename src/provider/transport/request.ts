@@ -1,61 +1,20 @@
+import { parameterSkipReason, resolveModelParameters } from "../../shared/config/parameterResolution";
 import { getModelParametersConfig } from "../../shared/config/settings";
 import type { ToolConfig } from "../../shared/conversion/tools";
 import type { OpenAIChatMessage } from "../../shared/conversion/wire";
 import type { ModelRoute } from "../catalog/modelCatalog";
 import type { ModelConfigurationRequestParams } from "../catalog/modelConfiguration";
 
-/**
- * Cap on the fallback max_tokens when neither runtime options nor configured
- * model parameters set one and the model's output limit is a defaults-derived
- * guess rather than server-declared.
- */
-export const DEFAULT_MAX_TOKENS_CAP = 4096;
+// The prefix resolution, precedence merge, and max_tokens machinery live in
+// the shared module (the dashboard's inspector consumes the same functions);
+// these re-exports keep this module the transport-side entry point.
+export {
+	DEFAULT_MAX_TOKENS_CAP,
+	findLongestPrefixMatch,
+	resolveMaxTokens,
+} from "../../shared/config/parameterResolution";
+
 export const MAX_TOOLS_PER_REQUEST = 128;
-
-function findLongestPrefixEntry<T>(id: string, entries: Record<string, T>): { key: string; value: T } | undefined {
-	let best: { key: string; value: T } | undefined;
-	for (const [key, value] of Object.entries(entries)) {
-		if (id === key || id.startsWith(key)) {
-			if (!best || key.length > best.key.length) {
-				best = { key, value };
-			}
-		}
-	}
-	return best;
-}
-
-export function findLongestPrefixMatch<T>(id: string, entries: Record<string, T>): T | undefined {
-	return findLongestPrefixEntry(id, entries)?.value;
-}
-
-/**
- * The most specific scoped entry across all scopes. Specificity is the length
- * of the model prefix after the scope, not of the whole key. Scoped keys must
- * contain the full "<scope>/" prefix. Ties on model prefix length resolve to
- * the earlier scope in `scopes`, then to configuration object order.
- */
-function findScopedMatch<T>(
-	rawId: string,
-	scopes: readonly string[],
-	entries: Record<string, T>
-): { specificity: number; value: T } | undefined {
-	let best: { specificity: number; value: T } | undefined;
-	for (const scope of scopes) {
-		const scopePrefix = `${scope}/`;
-		for (const [key, value] of Object.entries(entries)) {
-			if (!key.startsWith(scopePrefix)) {
-				continue;
-			}
-			const modelPrefix = key.slice(scopePrefix.length);
-			if (rawId === modelPrefix || rawId.startsWith(modelPrefix)) {
-				if (!best || modelPrefix.length > best.specificity) {
-					best = { specificity: modelPrefix.length, value };
-				}
-			}
-		}
-	}
-	return best;
-}
 
 /**
  * Resolve the configured modelParameters for a model, merging two settings
@@ -66,6 +25,9 @@ function findScopedMatch<T>(
  * scoped to one entry, so plain longest-prefix matching applies); its
  * matching parameters override the global result key by key, mirroring how
  * the picker configuration and runtime options later override both.
+ * The merge itself lives in resolveModelParameters (shared with the
+ * dashboard's inspector); this wrapper only resolves the raw ID and reads
+ * the live configuration.
  */
 export function getModelParameters(
 	modelId: string,
@@ -75,11 +37,12 @@ export function getModelParameters(
 ): Record<string, unknown> {
 	const route = modelRoutes.get(modelId);
 	const rawId = route?.rawModelId ?? modelId;
-	const modelParameters = getModelParametersConfig();
-	const scoped = findScopedMatch(rawId, serverScopes, modelParameters);
-	const global = scoped?.value ?? findLongestPrefixMatch(rawId, modelParameters);
-	const entry = findLongestPrefixMatch(rawId, entryModelParameters ?? {});
-	return { ...global, ...entry };
+	return resolveModelParameters({
+		rawModelId: rawId,
+		globalParameters: getModelParametersConfig(),
+		serverScopes,
+		entryParameters: entryModelParameters,
+	}).params;
 }
 
 export interface RequestBodyParams {
@@ -113,14 +76,12 @@ export function buildRequestBody(params: RequestBodyParams): Record<string, unkn
 		max_tokens: maxTokens,
 	};
 
-	const providerOwnedKeys = new Set(["model", "messages", "stream", "stream_options", "tools", "tool_choice"]);
-
-	// Underscore-prefixed keys are internal on both sources: VS Code injects
-	// them into modelOptions, and retired extension metadata such as
-	// _replaceDefaults may linger in user configuration.
+	// parameterSkipReason owns the drop rules: provider-owned keys (max_tokens
+	// included; the chain above already decided its value) and
+	// underscore-prefixed internal keys never pass through, on any source.
 	const passThrough = (source: Record<string, unknown>) => {
 		for (const [key, value] of Object.entries(source)) {
-			if (key === "max_tokens" || providerOwnedKeys.has(key) || key.startsWith("_")) {
+			if (parameterSkipReason(key) !== undefined) {
 				continue;
 			}
 			body[key] = value;

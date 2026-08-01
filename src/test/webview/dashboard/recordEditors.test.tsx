@@ -43,7 +43,7 @@ function sectionByHeading(root: ParentNode, heading: string): HTMLElement {
 }
 
 function settingsWithHeaders(value: Record<string, string | number | boolean>) {
-	return makeSettings({ headers: { editScope: "global", value, otherScopes: [] } });
+	return makeSettings({ headers: { editScope: "global", value, otherScopes: [], effective: value } });
 }
 
 test("headers: a dirty draft wins over pushed state, Apply posts parsed rows, the reflecting push drops the applied draft", () => {
@@ -179,7 +179,7 @@ test("rows that assemble to the stored record cannot be applied, even under a di
 
 	// Key order is not a value change either: a reordered JSON paste stays unappliable.
 	const settings = makeSettings({
-		modelParameters: { editScope: "global", value: { a: { x: 1 }, b: { y: 2 } }, otherScopes: [] },
+		modelParameters: { editScope: "global", value: { a: { x: 1 }, b: { y: 2 } }, otherScopes: [], effective: {} },
 	});
 	pushToWebview(statePush(makeState({ settings })));
 	const params = () => sectionByHeading(root, "Model parameters");
@@ -351,11 +351,13 @@ test("other-scope records render as the disabled row grid with the edit-there hi
 			editScope: "global",
 			value: {},
 			otherScopes: [{ scope: "workspace", value: { "gpt-4": { temperature: 0.2 } } }],
+			effective: { "gpt-4": { temperature: 0.2 } },
 		},
 		headers: {
 			editScope: "global",
 			value: {},
 			otherScopes: [{ scope: "workspace", value: { "x-ws": "from-workspace" } }],
+			effective: { "x-ws": "from-workspace" },
 		},
 	});
 	pushToWebview(statePush(makeState({ settings })));
@@ -444,7 +446,7 @@ test("each editor's hint names the seam between the two save models: rows apply 
 test("Edit as JSON: the textarea seeds from the record, and a valid edit applies through the same parse", () => {
 	const root = mount(<App />);
 	const settings = makeSettings({
-		modelParameters: { editScope: "global", value: { "gpt-4": { temperature: 0.2 } }, otherScopes: [] },
+		modelParameters: { editScope: "global", value: { "gpt-4": { temperature: 0.2 } }, otherScopes: [], effective: {} },
 	});
 	pushToWebview(statePush(makeState({ settings })));
 	const section = () => sectionByHeading(root, "Model parameters");

@@ -34,7 +34,7 @@ test("renders one row per model with formatted tokens, pricing, capabilities, an
 		reasoning: true,
 	});
 	const bare = makeModel({ id: "bare", name: "Bare", toolCalling: false, imageInput: false });
-	const root = mount(<ModelsSection models={[priced, bare]} serverCount={1} />);
+	const root = mount(<ModelsSection models={[priced, bare]} serverCount={1} requestScopes={{}} modelParameters={{}} />);
 
 	const rows = Array.from(root.querySelectorAll("tbody tr"));
 	expect(rows.length).toBe(2);
@@ -70,7 +70,7 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 		makeModel({ id: "gpt-4o", name: "Omni", family: "gpt", serverLabel: "Prod" }),
 		makeModel({ id: "claude-sonnet", name: "Sonnet", family: "claude", serverLabel: "Staging" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={2} />);
+	const root = mount(<ModelsSection models={models} serverCount={2} requestScopes={{}} modelParameters={{}} />);
 	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	const visibleNames = () =>
 		Array.from(root.querySelectorAll("tbody tr")).map((row) => (row.querySelector("td")?.textContent ?? "").trim());
@@ -94,12 +94,12 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 
 test("the server column appears only when serverCount > 1, keyed to the count rather than distinct labels", () => {
 	const models = [makeModel({ serverLabel: "Shared" }), makeModel({ id: "b", serverLabel: "Shared" })];
-	const single = mount(<ModelsSection models={models} serverCount={1} />);
+	const single = mount(<ModelsSection models={models} serverCount={1} requestScopes={{}} modelParameters={{}} />);
 	const singleHeaders = Array.from(single.querySelectorAll("th")).map((th) => (th.textContent ?? "").trim());
 	expect(singleHeaders).not.toContain("Server");
 
 	// Two groups can share one label; their models must stay attributable.
-	const dual = mount(<ModelsSection models={models} serverCount={2} />);
+	const dual = mount(<ModelsSection models={models} serverCount={2} requestScopes={{}} modelParameters={{}} />);
 	const dualHeaders = Array.from(dual.querySelectorAll("th")).map((th) => (th.textContent ?? "").trim());
 	expect(dualHeaders).toContain("Server");
 });
@@ -112,7 +112,13 @@ test("a server scope narrows the rows before the text filter and renders as a cl
 	];
 	let cleared = 0;
 	const root = mount(
-		<ModelsSection models={models} serverCount={2} scope={{ label: "Prod", onClear: () => cleared++ }} />
+		<ModelsSection
+			models={models}
+			serverCount={2}
+			scope={{ label: "Prod", onClear: () => cleared++ }}
+			requestScopes={{}}
+			modelParameters={{}}
+		/>
 	);
 	const visibleNames = () =>
 		Array.from(root.querySelectorAll("tbody tr")).map((row) => (row.querySelector("td")?.textContent ?? "").trim());

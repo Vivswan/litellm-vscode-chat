@@ -22,6 +22,10 @@ export const HELP_MODELS_SECTION =
 	"Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask " +
 	"the servers again now.";
 
+export const HELP_PARAMS_INSPECTOR =
+	"What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the " +
+	"chat client can still override the forwarded values.";
+
 export const HELP_SETTINGS_SECTION =
 	"The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or " +
 	"the built-in default shows through.";

@@ -40,8 +40,8 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 			},
 			booleans: { "promptCaching.enabled": null, maskApiKeyInput: null },
 		},
-		modelParameters: { editScope: "global", value: {}, otherScopes: [] },
-		headers: { editScope: "global", value: {}, otherScopes: [] },
+		modelParameters: { editScope: "global", value: {}, otherScopes: [], effective: {} },
+		headers: { editScope: "global", value: {}, otherScopes: [], effective: {} },
 		...overrides,
 	};
 }
@@ -100,11 +100,14 @@ export function makeExternalServer(overrides: Partial<ExternalServer> = {}): Ext
 export function makeModel(overrides: Partial<DashboardModel> = {}): DashboardModel {
 	return {
 		id: "gpt-test",
+		rawId: "gpt-test",
+		scopeKey: "s0",
 		name: "GPT Test",
 		family: "gpt",
 		serverLabel: "Prod",
 		maxInputTokens: 128000,
 		maxOutputTokens: 16000,
+		outputLimitDeclared: false,
 		toolCalling: true,
 		imageInput: false,
 		promptCaching: false,
@@ -118,6 +121,7 @@ export function makeState(overrides: Partial<DashboardState> = {}): DashboardSta
 		servers: [],
 		hiddenGroups: [],
 		models: [],
+		requestScopes: { s0: { baseUrlScope: "http://localhost:4000" } },
 		settings: makeSettings(),
 		legacyServerCount: 0,
 		...overrides,
