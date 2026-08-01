@@ -104,13 +104,13 @@ The two timeout settings are hard bounds on the whole call, streaming and any re
 
 VS Code's provider-group API can add groups but not remove them, so the extension cannot delete a group when its `servers` entry goes away. Removal works by hiding instead:
 
-- Removing an entry (the dashboard's Remove, or deleting it from settings.json) hides its group: the group serves no models, and the dashboard lists it under a muted "N hidden groups" line with an Unhide per row. A notice names the group and offers to open the native editor.
+- Removing an entry (the dashboard's Remove, or deleting it from settings.json) hides its group: the group serves no models, and the dashboard lists it under a muted "N hidden groups" line with an Unhide per row. A notice names the group and offers to open the models file.
 - Removing an external row (a group with no settings entry) does the same: the row's Remove hides the group and the follow-up notice carries the same steps.
-- The group's empty shell still shows in the native Manage Language Models editor. To delete it for good: open Manage Language Models (the notice's button, or Command Palette -> "Manage LiteLLM Provider" -> Manage Language Models), remove the named group, then run "LiteLLM: Sync Models Now".
+- The group's empty shell still exists host-side. To delete it for good: open the models file (the notice's button, or `<profile>/User/chatLanguageModels.json` by hand), remove the named group's object from the JSON array, reload the window, then run "LiteLLM: Sync Models Now".
 - Manual fallback: the groups live in `<profile>/User/chatLanguageModels.json` under your VS Code user data; removing one means deleting its object from the JSON array. Quit VS Code completely first - it reads the file at startup and holds it in memory, so an edit made while it runs is overwritten.
 - Renaming an entry creates a new group under the new name; the old group keeps its models until you delete it the same way. The dashboard shows it as an external row whose badge tip names the rename.
 - A hidden group returns when you re-add an entry with its label and base URL, or through the hidden-groups line's Unhide.
-- An external row's badge tip states the group's origin when the extension recorded one - the leftover of a removed entry, or of a rename. Groups added in the native editor, or predating this tracking, show the plain default.
+- An external row's badge tip states the group's origin when the extension recorded one - the leftover of a removed entry, or of a rename. Groups added outside this extension, or predating this tracking, show the plain default.
 
 ## Per-server model parameters are inactive
 
@@ -118,8 +118,8 @@ The dashboard shows a "params inactive" badge (and a banner naming the affected 
 
 Two ways to fix it:
 
-- Remove the group in the native editor (Command Palette → "Manage LiteLLM Provider" → Manage Language Models) and run "LiteLLM: Sync Models Now"; the extension recreates the group from the entry, this time carrying its identity.
-- Or save the entry under a new label; a new group is created for it. The old group stays until you remove it in the native editor.
+- Delete the group's object from the models file (`<profile>/User/chatLanguageModels.json`), reload the window, and run "LiteLLM: Sync Models Now"; the extension recreates the group from the entry, this time carrying its identity.
+- Or save the entry under a new label; a new group is created for it. The old group stays until you delete its object from the models file.
 
 ## Label-scoped parameter keys were migrated
 
@@ -139,6 +139,6 @@ Label-scoped keys in workspace or folder settings are not touched (those files a
 Uninstalling the extension does not remove two things, so clean them up first if you care about leftover credentials:
 
 - Your `litellm-vscode-chat.*` settings stay in settings.json, including any inline API keys, OAuth client secrets, or virtual keys in the `servers` entries and any gateway key in `headers`. Remove them in the Settings editor or delete the lines from user settings.json.
-- The VS Code provider groups the servers were synced to are host-owned and keep appearing in the Manage Language Models editor (with their own copies of the credentials) until you remove them there: Command Palette → "Manage LiteLLM Provider" → Manage Language Models.
+- The VS Code provider groups the servers were synced to are host-owned and keep their own copies of the credentials until you remove them: delete their objects from `<profile>/User/chatLanguageModels.json` (quit or reload VS Code afterward).
 
 Secrets kept in VS Code secret storage can be removed while the extension is still installed, through the edit form's "Remove the stored ..." checkboxes ([Servers](servers.md#secrets-and-secret-storage)); after uninstall, that storage belongs to VS Code's extension-data handling and is no longer reachable from the extension's own UI.

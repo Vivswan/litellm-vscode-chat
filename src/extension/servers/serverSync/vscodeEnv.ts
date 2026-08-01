@@ -20,21 +20,22 @@ import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./sec
 import type { EntryModelParameters } from "./setting";
 import { entryModelParametersFor, parseServersSetting } from "./setting";
 
-/** The one button every removal notice carries: it opens where group deletion actually lives. */
-const OPEN_NATIVE_EDITOR_LABEL = "Open Manage Language Models";
+/** The one button every removal notice carries: it opens the models file, where group deletion actually lives. */
+const OPEN_GROUPS_FILE_LABEL = "Open Models File";
 
-const openNativeEditorAction = () => ({
-	label: OPEN_NATIVE_EDITOR_LABEL,
-	run: () => void vscode.commands.executeCommand(INTERNAL_CMD.manageServers),
+const openGroupsFileAction = () => ({
+	label: OPEN_GROUPS_FILE_LABEL,
+	run: () => void vscode.commands.executeCommand(INTERNAL_CMD.openGroupsFile),
 });
 
 const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`).join(", ");
 
 /**
  * The removal notices, one per event class so each says only what is true.
- * Every variant names the exact group label(s) to delete, gives the steps,
- * and carries the button that opens the native editor - the only place group
- * deletion exists.
+ * Every variant names the exact group label(s) to delete, gives the
+ * file-based steps, and carries the button that opens the models file -
+ * where group deletion actually lives (VS Code offers extensions no removal
+ * API, and the file is documented user-editable).
  */
 function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 	const hidden: string[] = [];
@@ -53,24 +54,24 @@ function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 		const labels = quoted(hidden);
 		const message =
 			hidden.length === 1
-				? `Removed ${labels} from the servers setting; its models are hidden. VS Code still keeps a provider group named ${labels}. To delete it: open Manage Language Models, remove ${labels}, then run Sync Models Now.`
-				: `Removed ${labels} from the servers setting; their models are hidden. VS Code still keeps a provider group for each. To delete them: open Manage Language Models, remove ${labels}, then run Sync Models Now.`;
-		void showActionableMessage("info", message, [openNativeEditorAction()]);
+				? `Removed ${labels} from the servers setting; its models are hidden. VS Code still keeps a provider group named ${labels}. To delete it: 1) open the models file and remove the ${labels} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.`
+				: `Removed ${labels} from the servers setting; their models are hidden. VS Code still keeps a provider group for each. To delete them: 1) open the models file and remove the ${labels} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.`;
+		void showActionableMessage("info", message, [openGroupsFileAction()]);
 	}
 	for (const event of renamed) {
 		void showActionableMessage(
 			"info",
-			`Renamed "${event.oldLabel}" to "${event.newLabel}". VS Code keeps the old group "${event.oldLabel}" and its models. To delete it: open Manage Language Models, remove "${event.oldLabel}", then run Sync Models Now. A rename made directly in settings.json does not carry the old label's stored secrets; set them again for "${event.newLabel}" (a dashboard rename copies them).`,
-			[openNativeEditorAction()]
+			`Renamed "${event.oldLabel}" to "${event.newLabel}". VS Code keeps the old group "${event.oldLabel}" and its models. To delete it: 1) open the models file and remove the "${event.oldLabel}" object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now. A rename made directly in settings.json does not carry the old label's stored secrets; set them again for "${event.newLabel}" (a dashboard rename copies them).`,
+			[openGroupsFileAction()]
 		);
 	}
 	if (untracked.length > 0) {
 		const labels = quoted(untracked);
 		const message =
 			untracked.length === 1
-				? `Removed ${labels} from the servers setting. VS Code keeps the provider group and its models. To delete it: open Manage Language Models, remove ${labels}, then run Sync Models Now.`
-				: `Removed ${labels} from the servers setting. VS Code keeps their provider groups and models. To delete them: open Manage Language Models, remove ${labels}, then run Sync Models Now.`;
-		void showActionableMessage("info", message, [openNativeEditorAction()]);
+				? `Removed ${labels} from the servers setting. VS Code keeps the provider group and its models. To delete it: 1) open the models file and remove the ${labels} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.`
+				: `Removed ${labels} from the servers setting. VS Code keeps their provider groups and models. To delete them: 1) open the models file and remove the ${labels} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.`;
+		void showActionableMessage("info", message, [openGroupsFileAction()]);
 	}
 }
 

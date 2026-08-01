@@ -10,7 +10,7 @@
 
 ## Servers
 
-The server list shows every server the extension knows about: entries declared in the `litellm-vscode-chat.servers` setting, and "external" servers that exist only as VS Code provider groups (added in the native editor).
+The server list shows every server the extension knows about: entries declared in the `litellm-vscode-chat.servers` setting, and "external" servers that exist only as VS Code provider groups (added outside this extension).
 
 Each row's Status pill is one of four states:
 
@@ -33,8 +33,8 @@ For each secret field the form lets you choose between VS Code secret storage (t
 
 ### Notices
 
-- **"params inactive"** (a badge on the server row, with a matching banner under the table): the entry declares per-server model parameters, but the provider group serving it does not carry the entry's labeled identity (the group predates entry labels, or a rename left a stale group), so those parameters are not being applied. The fix is to remove the group in the native editor and re-sync, or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
-- **After adopting an external server**, a one-time notice reminds you that the original group still exists and its models appear twice until you remove it in the native editor.
+- **"params inactive"** (a badge on the server row, with a matching banner under the table): the entry declares per-server model parameters, but the provider group serving it does not carry the entry's labeled identity (the group predates entry labels, or a rename left a stale group), so those parameters are not being applied. The fix is to delete the group's object from the models file (chatLanguageModels.json), reload the window, and re-sync - or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
+- **After adopting an external server**, a one-time notice reminds you that the original group still exists and its models appear twice until you delete its object from the models file (the notice's button opens it) and reload the window.
 
 ## Models
 

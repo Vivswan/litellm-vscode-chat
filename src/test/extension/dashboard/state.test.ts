@@ -1863,7 +1863,7 @@ suite("extension/dashboard/state", () => {
 		test("every command ID maps to an allow-listed command", async () => {
 			const recorded = makeEnv();
 			const intents: DashboardIntent[] = [
-				{ type: "executeCommand", command: "manageServers" },
+				{ type: "executeCommand", command: "openGroupsFile" },
 				{ type: "executeCommand", command: "syncModels" },
 				{ type: "executeCommand", command: "testConnection" },
 				{ type: "executeCommand", command: "openSettings" },
@@ -1874,7 +1874,7 @@ suite("extension/dashboard/state", () => {
 			}
 
 			assert.deepStrictEqual(recorded.commands, [
-				["litellm.manageServers"],
+				["litellm.openGroupsFile"],
 				["litellm.syncModels"],
 				["litellm.testConnection"],
 				["workbench.action.openSettings", "@ext:vivswan.litellm-vscode-chat"],

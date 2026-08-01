@@ -33,15 +33,15 @@ export function ensureRegistryMutable(): boolean {
 
 /**
  * Whether the legacy registry is still served in each UI mode (only
- * "nativeRequired" means migration retired it). The one predicate behind the
+ * "groupsOnly" means migration retired it). The one predicate behind the
  * mutation guard below and the provider's grouplessRegistryEnabled gate, so
  * the two cannot drift; exhaustive by construction, so a mode added to
  * ManagementUiMode does not compile until it takes a side here.
  */
 export const REGISTRY_SERVED_IN_MODE: Record<ManagementUiMode, boolean> = {
 	legacy: true,
-	nativePreferred: true,
-	nativeRequired: false,
+	groupsWithRegistry: true,
+	groupsOnly: false,
 };
 
 /**
@@ -282,14 +282,13 @@ export const EXTENSION_SETTINGS_FILTER = "@ext:vivswan.litellm-vscode-chat";
 /**
  * Which UI the hub's server entry opens. "legacy" is the quick-pick server
  * flow over the registry. The other two open the dashboard's Servers & Models
- * view; their names date from when they targeted the native editor and are
- * kept because they still encode the real split - whether the legacy registry
- * is served (see REGISTRY_SERVED_IN_MODE). "nativePreferred" means the
- * registry is still live (fresh installs: servers added there are served and
- * migrated later), "nativeRequired" means the migration retired it, so the
- * quick pick would edit dead configuration.
+ * view; the split they encode is whether the legacy registry is served (see
+ * REGISTRY_SERVED_IN_MODE). "groupsWithRegistry" means the registry is still
+ * live (fresh installs: servers added there are served and migrated later),
+ * "groupsOnly" means the migration retired it, so the quick pick would edit
+ * dead configuration.
  */
-export type ManagementUiMode = "legacy" | "nativePreferred" | "nativeRequired";
+export type ManagementUiMode = "legacy" | "groupsWithRegistry" | "groupsOnly";
 
 /**
  * A hub entry either routes in-module ("servers" and "settings" carry

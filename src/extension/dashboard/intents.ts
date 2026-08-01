@@ -110,7 +110,7 @@ export interface IntentEnvironment {
 }
 
 const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readonly unknown[] }> = {
-	manageServers: { command: INTERNAL_CMD.manageServers, args: [] },
+	openGroupsFile: { command: INTERNAL_CMD.openGroupsFile, args: [] },
 	syncModels: { command: CMD.syncModels, args: [] },
 	testConnection: { command: CMD.testConnection, args: [] },
 	openSettings: { command: "workbench.action.openSettings", args: [EXTENSION_SETTINGS_FILTER] },

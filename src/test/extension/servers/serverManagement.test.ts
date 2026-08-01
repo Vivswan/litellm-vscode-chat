@@ -57,7 +57,7 @@ suite("extension/servers/serverManagement", () => {
 			const storage = makeExtensionStorage();
 			const registry = new ServerRegistry(storage.memento, storage.secrets);
 			const logger = new Logger({ info: () => {}, error: () => {} });
-			const handler = captureManageHandlers(registry, logger, "nativeRequired").manage;
+			const handler = captureManageHandlers(registry, logger, "groupsOnly").manage;
 
 			const run: HubRun = { executed: [], itemLabels: [] };
 			const origExecute = vscode.commands.executeCommand;
@@ -182,7 +182,7 @@ suite("extension/servers/serverManagement", () => {
 		}
 
 		test("nativeRequired opens the dashboard and never the legacy flow", async () => {
-			const run = await runManageCommand("nativeRequired");
+			const run = await runManageCommand("groupsOnly");
 
 			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
 			assert.strictEqual(run.serverListOpened, false, "the quick pick edits configuration nothing serves");
@@ -190,7 +190,7 @@ suite("extension/servers/serverManagement", () => {
 		});
 
 		test("nativePreferred opens the dashboard; the registry quick pick is legacy-only", async () => {
-			const run = await runManageCommand("nativePreferred");
+			const run = await runManageCommand("groupsWithRegistry");
 
 			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
 			assert.strictEqual(run.serverListOpened, false);
@@ -205,7 +205,7 @@ suite("extension/servers/serverManagement", () => {
 		});
 
 		test("litellm.manageServers opens the dashboard without showing the hub", async () => {
-			const run = await runManageCommand("nativeRequired", "direct");
+			const run = await runManageCommand("groupsOnly", "direct");
 
 			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
 			assert.strictEqual(run.hubOpened, false, "configuration routes must not land on the hub menu");
@@ -571,7 +571,7 @@ suite("extension/servers/serverManagement", () => {
 		test("a migration completing while the add prompts are open aborts the write with the dashboard notice", async () => {
 			let migrated = false;
 			const run = await runServerWalk({
-				mode: () => (migrated ? "nativeRequired" : "legacy"),
+				mode: () => (migrated ? "groupsOnly" : "legacy"),
 				inputs: [
 					"Prod",
 					"http://localhost:4000",
@@ -593,7 +593,7 @@ suite("extension/servers/serverManagement", () => {
 			const edit = await runServerWalk({
 				seed: [["Old", "http://old", "key1"]],
 				picks: ["Old", "Edit"],
-				mode: () => (migrated ? "nativeRequired" : "legacy"),
+				mode: () => (migrated ? "groupsOnly" : "legacy"),
 				inputs: [
 					"New",
 					"http://new",
@@ -616,7 +616,7 @@ suite("extension/servers/serverManagement", () => {
 			const remove = await runServerWalk({
 				seed: [["Prod", "http://prod", ""]],
 				picks: ["Prod", "Remove"],
-				mode: () => (migrated ? "nativeRequired" : "legacy"),
+				mode: () => (migrated ? "groupsOnly" : "legacy"),
 				warningResponse: () => {
 					migrated = true;
 					return "Remove";
@@ -626,7 +626,7 @@ suite("extension/servers/serverManagement", () => {
 		});
 
 		test("nativePreferred opens the dashboard and never prompts, leaving the registry untouched", async () => {
-			const run = await runServerWalk({ seed: [["Prod", "http://prod", ""]], mode: "nativePreferred" });
+			const run = await runServerWalk({ seed: [["Prod", "http://prod", ""]], mode: "groupsWithRegistry" });
 			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
 			assert.deepStrictEqual(run.quickPicks, [], "the legacy list must not open beside the dashboard");
 			assert.deepStrictEqual(run.inputOptions, []);
@@ -637,7 +637,7 @@ suite("extension/servers/serverManagement", () => {
 		});
 
 		test("nativeRequired opens the dashboard and leaves a populated registry untouched", async () => {
-			const run = await runServerWalk({ seed: [["Prod", "http://prod", "k"]], mode: "nativeRequired" });
+			const run = await runServerWalk({ seed: [["Prod", "http://prod", "k"]], mode: "groupsOnly" });
 			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
 			assert.deepStrictEqual(run.quickPicks, [], "the legacy quick pick would edit dead configuration");
 			assert.deepStrictEqual(run.inputOptions, []);
@@ -707,14 +707,14 @@ suite("extension/servers/serverManagement", () => {
 					true
 				);
 				assert.strictEqual(
-					canMutateRegistry(() => "nativePreferred"),
+					canMutateRegistry(() => "groupsWithRegistry"),
 					true,
 					"the registry is still served while the native UI is merely preferred"
 				);
 				assert.strictEqual(messages.length, 0);
 
 				assert.strictEqual(
-					canMutateRegistry(() => "nativeRequired"),
+					canMutateRegistry(() => "groupsOnly"),
 					false,
 					"a migrated registry must not accept mutations"
 				);

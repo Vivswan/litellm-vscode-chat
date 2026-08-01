@@ -77,9 +77,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			return "legacy";
 		}
 		if (isMigrated()) {
-			return "nativeRequired";
+			return "groupsOnly";
 		}
-		return registry.getServers().length === 0 ? "nativePreferred" : "legacy";
+		return registry.getServers().length === 0 ? "groupsWithRegistry" : "legacy";
 	};
 	// Groups the user explicitly removed (the host command is add-only, so
 	// removal works by tombstoning): the provider consults the store on every

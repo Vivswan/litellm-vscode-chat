@@ -857,7 +857,7 @@ suite("extension/servers/serverSync", () => {
 			await engine.syncNow();
 			assert.strictEqual(engine.getDeclared()[0]?.syncError, GROUP_UPDATE_UNAVAILABLE_MESSAGE);
 
-			// The user removes the stale group in the native editor and runs Sync
+			// The user deletes the stale group from the models file and runs Sync
 			// Models Now: the forced pass retries the add, and this time it lands.
 			recorded.duplicateLabels.delete("Taken");
 			await engine.syncNow(true);
