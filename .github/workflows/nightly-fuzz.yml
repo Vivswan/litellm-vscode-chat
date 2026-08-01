@@ -161,7 +161,13 @@ jobs:
         with:
           name: fuzz-failures-shard${{ matrix.shard }}-${{ github.run_attempt }}
           path: .fuzz-failures/
-          if-no-files-found: ignore
+          # .fuzz-failures is a dot-directory, and upload-artifact skips hidden
+          # paths by default (since v4.4.0) - without this flag the upload
+          # finds nothing and the report job files its bare no-report notice.
+          include-hidden-files: true
+          # warn, not ignore: a shard that failed before writing a report is
+          # legitimate (setup died), but it should say so in the step log.
+          if-no-files-found: warn
 
   # Report and resolve live outside the shard matrix on purpose: as steps of
   # a matrixed job they race, and one shard's green resolve could close the
