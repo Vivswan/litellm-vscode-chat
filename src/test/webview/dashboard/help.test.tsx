@@ -11,6 +11,7 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../webview/dashboard/app";
+import { Help } from "../../../webview/dashboard/help";
 import * as helpText from "../../../webview/dashboard/helpText";
 import {
 	HELP_MODEL_PARAMETER_NAME,
@@ -25,7 +26,16 @@ import {
 	SETTING_ROW_HELP,
 } from "../../../webview/dashboard/helpText";
 import { declaredWithSecrets, makeModel, makeSettings, makeState, statePush } from "../fixtures";
-import { buttonByText, cleanup, fireClick, fireMouseEnter, mount, pushToWebview, resetPosted } from "../harness";
+import {
+	buttonByText,
+	cleanup,
+	fireClick,
+	fireMouseEnter,
+	mount,
+	pushToWebview,
+	resetPosted,
+	stubBoundingRect,
+} from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -256,4 +266,65 @@ test("a shown tip pins itself with fixed coordinates, so scroll containers canno
 	expect([tip.style.top, tip.style.bottom]).toContain("auto");
 	expect([tip.style.top, tip.style.bottom].some((edge) => edge.endsWith("px"))).toBe(true);
 	expect(tip.style.left.endsWith("px")).toBe(true);
+});
+
+// The placement arithmetic below runs on real trigger geometry, which
+// happy-dom never produces (every rect is zeros), so each test stubs the
+// wrapper's getBoundingClientRect before the hover that measures it.
+
+test("a tip in normal position sits 8px left of its trigger with its bottom pinned above it", () => {
+	const root = mount(<Help text={HELP_MODELS_SECTION} />);
+	const wrap = root.querySelector(".help-wrap") as HTMLElement;
+	stubBoundingRect(wrap, { left: 200, top: 300, bottom: 320 });
+	fireMouseEnter(wrap);
+
+	const tip = wrap.querySelector(".help-tip") as HTMLElement;
+	// Unclamped: rect.left - 8 wins over both viewport bounds. The guard makes
+	// the assumption explicit rather than silently depending on happy-dom's
+	// default viewport width.
+	expect(window.innerWidth - 350).toBeGreaterThan(192);
+	expect(tip.style.left).toBe("192px");
+	// Default placement anchors the tip's bottom to the trigger's top edge
+	// (plus the 6px gap), keeping the tip's unknown height out of the math.
+	expect(tip.style.bottom).toBe(`${window.innerHeight - 300 + 6}px`);
+	expect(tip.style.top).toBe("auto");
+	expect(tip.style.position).toBe("fixed");
+});
+
+test("the horizontal clamp keeps the tip's 350px box inside the viewport at both edges", () => {
+	// The clamp's two branches must be distinct for the assertions to mean
+	// anything: a viewport narrower than 358px would collapse them.
+	expect(window.innerWidth - 350).toBeGreaterThan(8);
+
+	// Near the right edge, rect.left - 8 would push the tip's 320px max-width
+	// box (plus padding, border, and margin) off-screen; innerWidth - 350 wins.
+	const right = mount(<Help text={HELP_MODELS_SECTION} />);
+	const rightWrap = right.querySelector(".help-wrap") as HTMLElement;
+	stubBoundingRect(rightWrap, { left: window.innerWidth - 20, top: 300, bottom: 320 });
+	fireMouseEnter(rightWrap);
+	expect((rightWrap.querySelector(".help-tip") as HTMLElement).style.left).toBe(`${window.innerWidth - 350}px`);
+
+	// Near the left edge, rect.left - 8 would go negative; the 8px viewport
+	// margin wins.
+	const left = mount(<Help text={HELP_MODELS_SECTION} />);
+	const leftWrap = left.querySelector(".help-wrap") as HTMLElement;
+	stubBoundingRect(leftWrap, { left: 4, top: 300, bottom: 320 });
+	fireMouseEnter(leftWrap);
+	expect((leftWrap.querySelector(".help-tip") as HTMLElement).style.left).toBe("8px");
+});
+
+test("the below variant pins the tip's top under the trigger and stands the bottom down", () => {
+	const root = mount(<Help below text={HELP_SERVERS_SECTION} />);
+	const wrap = root.querySelector(".help-wrap") as HTMLElement;
+	stubBoundingRect(wrap, { left: 200, top: 10, bottom: 30 });
+	fireMouseEnter(wrap);
+
+	const tip = wrap.querySelector(".help-tip") as HTMLElement;
+	// Below flips the anchored edge: top pins to the trigger's bottom edge
+	// plus the 6px gap, and bottom stands down instead of top.
+	expect(tip.style.top).toBe("36px");
+	expect(tip.style.bottom).toBe("auto");
+	// The horizontal rule is the same in both variants.
+	expect(tip.style.left).toBe("192px");
+	expect(tip.style.position).toBe("fixed");
 });
