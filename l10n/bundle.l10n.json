@@ -1,7 +1,17 @@
 {
 	"\"{0}\" is a reserved name and cannot be used": "\"{0}\" is a reserved name and cannot be used",
-	"A hard bound on one model-list fetch; type 30s, 1m, or plain ms.": "A hard bound on one model-list fetch; type 30s, 1m, or plain ms.",
-	"A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.": "A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
+	"A hard bound on one model-list fetch; type 30s, 1m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "A hard bound on one model-list fetch; type 30s, 1m, or plain ms.",
+		"comment": [
+			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
+		]
+	},
+	"A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
+		"comment": [
+			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
+		]
+	},
 	"API key": "API key",
 	"An entry with this label already exists": "An entry with this label already exists",
 	"Base URL": "Base URL",
@@ -47,7 +57,12 @@
 	"Must be at least {0}": "Must be at least {0}",
 	"Name the header that carries the key": "Name the header that carries the key",
 	"Names this server in the model picker, e.g. Team proxy. Renaming a saved entry creates a new group under the new name.": "Names this server in the model picker, e.g. Team proxy. Renaming a saved entry creates a new group under the new name.",
-	"Not a duration - use ms, s, m, or h": "Not a duration - use ms, s, m, or h",
+	"Not a duration - use ms, s, m, or h/Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "Not a duration - use ms, s, m, or h",
+		"comment": [
+			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
+		]
+	},
 	"Not a number": "Not a number",
 	"Not a valid HTTP header name": "Not a valid HTTP header name",
 	"Not valid JSON.": "Not valid JSON.",
@@ -87,12 +102,42 @@
 	"What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the chat client can still override the forwarded values.": "What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the chat client can still override the forwarded values.",
 	"Workspace": "Workspace",
 	"Workspace folder": "Workspace folder",
-	"derived": "derived",
 	"derived from context length": "derived from context length",
+	"derived/Shown as the built-in default of a setting whose value is computed per model rather than configured.": {
+		"message": "derived",
+		"comment": [
+			"Shown as the built-in default of a setting whose value is computed per model rather than configured."
+		]
+	},
 	"every refresh": "every refresh",
-	"h": "h",
-	"min": "min",
-	"ms": "ms",
-	"s": "s",
-	"tokens": "tokens"
+	"h/Abbreviation for hours in durations like '1 h 30 min'.": {
+		"message": "h",
+		"comment": [
+			"Abbreviation for hours in durations like '1 h 30 min'."
+		]
+	},
+	"min/Abbreviation for minutes (not minimum) in durations like '5 min'.": {
+		"message": "min",
+		"comment": [
+			"Abbreviation for minutes (not minimum) in durations like '5 min'."
+		]
+	},
+	"ms/Abbreviation for milliseconds; unit suffix after duration inputs.": {
+		"message": "ms",
+		"comment": [
+			"Abbreviation for milliseconds; unit suffix after duration inputs."
+		]
+	},
+	"s/Abbreviation for seconds in durations like '90 s'.": {
+		"message": "s",
+		"comment": [
+			"Abbreviation for seconds in durations like '90 s'."
+		]
+	},
+	"tokens/Unit suffix after token-count inputs; LLM tokens.": {
+		"message": "tokens",
+		"comment": [
+			"Unit suffix after token-count inputs; LLM tokens."
+		]
+	}
 }

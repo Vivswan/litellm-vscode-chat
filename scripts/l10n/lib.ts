@@ -78,9 +78,9 @@ export function serializeBundle(bundle: l10nJsonFormat): string {
 /**
  * Lazy localization helpers (zero-arg or key-selecting): calling one at
  * module scope defeats its laziness exactly like a direct t() call, so the
- * guard bans these names alongside l10n.t and vscode.l10n.t. New helpers
- * minted by later work packages (help text, catalog presenters) belong on
- * this list.
+ * guard bans these names alongside l10n.t and vscode.l10n.t. Parsers and
+ * presenters that resolve l10n.t transitively count too. New helpers minted
+ * by later work packages (help text, catalog presenters) belong on this list.
  */
 export const LAZY_L10N_HELPERS: readonly string[] = [
 	"manageCommandTitle",
@@ -101,6 +101,20 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"helpEntryModelParameterPrefix",
 	"helpModelParameterName",
 	"helpModelParameterValue",
+	"parseNumberDraft",
+	"defaultDisplay",
+	"equivalence",
+	"parseJsonValue",
+	"isBoundViolation",
+	"parseGroups",
+	"parseHeaderRows",
+	"parseHeaderRowsDetailed",
+	"groupsFromJsonText",
+	"headerRowsFromJsonText",
+	"parseServerForm",
+	"parseServerFormForTest",
+	"validateAdoptLabel",
+	"sectionFailureText",
 ];
 
 /**

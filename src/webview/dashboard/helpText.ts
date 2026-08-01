@@ -148,11 +148,16 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 				"Usually left empty: the input budget is then context length minus max output tokens. Setting it pins the input limit for every model, overriding even server-declared ones."
 			);
 		case "requestTimeout":
-			return l10n.t(
-				"A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off."
-			);
+			return l10n.t({
+				message:
+					"A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
+				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+			});
 		case "discoveryTimeout":
-			return l10n.t("A hard bound on one model-list fetch; type 30s, 1m, or plain ms.");
+			return l10n.t({
+				message: "A hard bound on one model-list fetch; type 30s, 1m, or plain ms.",
+				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+			});
 		case "discoveryCacheTtl":
 			return l10n.t(
 				"How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately."

@@ -10,6 +10,7 @@
  * tests pin the structure and class contract the stylesheet keys on.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../../extension/dashboard/protocol";
 import { SERVER_FORM_FIELD_ORDER } from "../../../extension/dashboard/serverForm";
 import { App } from "../../../webview/dashboard/app";
 import { Help } from "../../../webview/dashboard/help";
@@ -75,6 +76,14 @@ function allHelpStrings(): [name: string, text: string][] {
 	}
 	return entries;
 }
+
+test("SETTING_ROW_HELP_IDS names exactly the settings whose settingRowHelp answers", () => {
+	// The id list is static (module scope may not localize) while the strings
+	// live in the switch; this closes the drift between the two.
+	expect([...SETTING_ROW_HELP_IDS]).toEqual(
+		[...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].filter((id) => settingRowHelp(id) !== undefined)
+	);
+});
 
 test("every help string is short, printable ASCII, and free of template interpolation", () => {
 	const entries = allHelpStrings();
