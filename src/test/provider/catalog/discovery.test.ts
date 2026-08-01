@@ -209,6 +209,32 @@ suite("provider/catalog/discovery", () => {
 			assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
 			assert.ok(error.message.startsWith("Failed to parse LiteLLM models response from"), error.message);
 			assert.strictEqual(error.logClassification, "RequestError(http, unparseable models response body)");
+			// The display message localizes; under the English fallback its full
+			// English mirror (what the output channel renders) is identical.
+			assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
+			assert.ok(!publicErrorText(error).includes("MARKER"), "the public rendering leaked the payload snippet");
+		});
+
+		test("a malformed application/json models body throws the same classification via the SDK's own parse", async () => {
+			// The SDK parses JSON itself when the content type advertises it, so
+			// its SyntaxError arrives at the dedicated rethrow branch rather than
+			// coerceJsonPayload; the two sites must stay indistinguishable on
+			// every rendering (classification, display, English mirror).
+			const body = '{"data": [MARKER-not-json';
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => HttpResponse.text(body, { headers: { "Content-Type": "application/json" } })),
+				http.get(MODELS_URL, () => HttpResponse.text(body, { headers: { "Content-Type": "application/json" } }))
+			);
+
+			const error = await fetchModels(request()).then(
+				() => assert.fail("a malformed application/json models body must fail discovery"),
+				(e: unknown) => e
+			);
+
+			assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
+			assert.ok(error.message.startsWith("Failed to parse LiteLLM models response from"), error.message);
+			assert.strictEqual(error.logClassification, "RequestError(http, unparseable models response body)");
+			assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
 			assert.ok(!publicErrorText(error).includes("MARKER"), "the public rendering leaked the payload snippet");
 		});
 

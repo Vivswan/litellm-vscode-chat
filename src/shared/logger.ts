@@ -58,6 +58,24 @@ function classificationOf(error: unknown): string | undefined {
 }
 
 /**
+ * The full English mirror of a localized display message, offered under an
+ * `englishMessage` property (RequestError and localizedError construction
+ * sites set it; see errorMapping.ts). English-by-policy surfaces - the
+ * output channel and, absent a classification, the issue-report buffer -
+ * render it instead of the message, so a translated display string never
+ * lands in logs or public issues. Total against hostile getters.
+ */
+function englishMessageOf(error: unknown): string | undefined {
+	try {
+		const english = (error as { englishMessage?: unknown } | null | undefined)?.englishMessage;
+		return typeof english === "string" ? english : undefined;
+	} catch {
+		// A hostile englishMessage getter must not break logging.
+		return undefined;
+	}
+}
+
+/**
  * A string proven to have gone through the public-rendering gate, so it may
  * sit in a field that log lines interpolate (ServerStatus.logSafeError, the
  * status bar's error state). The brand has exactly two producers:
@@ -83,20 +101,23 @@ export function markLogSafe(text: string): LogSafeErrorText {
 /**
  * The rendering of a thrown value for public surfaces (the issue-report
  * buffer and the latest-error snapshot, both of which prefill public GitHub
- * issues): its classification when it offers one, its message text otherwise.
+ * issues): its classification when it offers one, its English mirror when
+ * the display message is localized, its message text otherwise.
  */
 export function publicErrorText(error: unknown): LogSafeErrorText {
-	return (classificationOf(error) ?? errorMessageText(error)) as LogSafeErrorText;
+	return (classificationOf(error) ?? englishMessageOf(error) ?? errorMessageText(error)) as LogSafeErrorText;
 }
 
 /**
  * The public rendering of a thrown value's stack. When the value classifies
- * its message away, the `${name}: ${message}` prefix V8 puts on the stack is
- * stripped BY LENGTH, never by line shape: an http body can contain lines
- * shaped like stack frames ("\tat com.acme.internal...(...)"), so a shape
- * filter alone would keep attacker-controlled lines. A stack that does not
- * start with the exact prefix fails closed to the classification alone; the
- * frame filter afterwards is belt and braces.
+ * its message away (or mirrors it in English), the `${name}: ${message}`
+ * prefix V8 puts on the stack is stripped BY LENGTH, never by line shape: an
+ * http body can contain lines shaped like stack frames ("\tat
+ * com.acme.internal...(...)"), so a shape filter alone would keep
+ * attacker-controlled lines. A stack that does not start with the exact
+ * prefix fails closed to the replacement alone; the frame filter afterwards
+ * is belt and braces. A classification replaces the whole message line; an
+ * English mirror keeps the `${name}: ` convention.
  */
 export function publicErrorStack(error: unknown): string | undefined {
 	try {
@@ -104,22 +125,24 @@ export function publicErrorStack(error: unknown): string | undefined {
 			return undefined;
 		}
 		const classification = classificationOf(error);
-		if (classification === undefined) {
+		const english = englishMessageOf(error);
+		if (classification === undefined && english === undefined) {
 			return error.stack;
 		}
+		const replacement = classification ?? `${error.name}: ${english}`;
 		const prefix = `${error.name}: ${error.message}`;
 		if (!error.stack.startsWith(prefix)) {
-			return classification;
+			return replacement;
 		}
 		const frames = error.stack
 			.slice(prefix.length)
 			.split("\n")
 			.filter((line) => /^\s+at /.test(line));
-		return [classification, ...frames].join("\n");
+		return [replacement, ...frames].join("\n");
 	} catch {
-		// classificationOf is total; a hostile stack/name/message getter loses
-		// its frames, never breaks logging.
-		return classificationOf(error);
+		// classificationOf and englishMessageOf are total; a hostile
+		// stack/name/message getter loses its frames, never breaks logging.
+		return classificationOf(error) ?? englishMessageOf(error);
 	}
 }
 
@@ -162,7 +185,10 @@ export class Logger {
 	}
 
 	error(message: string, error: unknown): void {
-		const text = `${message}: ${errorMessageText(error)}`;
+		// The output channel stays English by policy: a localized display
+		// message defers to the full English mirror when the error carries one
+		// (response detail included; the channel is the local debugging surface).
+		const text = `${message}: ${englishMessageOf(error) ?? errorMessageText(error)}`;
 		this.output.error(text);
 		// The channel keeps the full message (local debugging surface); the
 		// buffer opens public issues, so it takes the classification when the

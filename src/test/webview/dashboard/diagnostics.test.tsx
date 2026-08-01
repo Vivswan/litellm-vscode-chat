@@ -277,6 +277,40 @@ test("Copy diagnostics puts the rendered block on the clipboard as plain text an
 	expect(iconPath()).not.toBe(copyIconPath);
 });
 
+test("Copy diagnostics substitutes a row's English error mirror while the on-screen grid keeps the localized text", () => {
+	// The copied block lands in public issue reports, which stay English by
+	// policy; the visible grid renders the localized error the chat UI showed.
+	const written: string[] = [];
+	const clipboard = {
+		writeText: (text: string) => {
+			written.push(text);
+			return Promise.resolve();
+		},
+	};
+	Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
+
+	const root = mountDiagnostics({
+		servers: [
+			makeDeclaredServer({
+				label: "Broken",
+				state: "error",
+				error: "LOCALIZED transport failure",
+				errorEnglish: "ENGLISH transport failure",
+			}),
+		],
+		models: [],
+	});
+	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
+	expect(panel.textContent).toContain("LOCALIZED transport failure");
+	expect(panel.textContent).not.toContain("ENGLISH transport failure");
+
+	fireClick(buttonByText(root, "Copy diagnostics"));
+	const copied = written[0] ?? "";
+	expect(copied).toContain("Broken (http://localhost:4000): Error: ENGLISH transport failure");
+	expect(copied).toContain("Error: ENGLISH transport failure");
+	expect(copied).not.toContain("LOCALIZED");
+});
+
 test("Report a bug posts the reportIssue command from the feedback list", () => {
 	const root = mountDiagnostics();
 	resetPosted();

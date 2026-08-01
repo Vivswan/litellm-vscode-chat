@@ -338,12 +338,12 @@ suite("provider/transport/errorMapping", () => {
 		});
 	});
 
-	suite("display/log split (localized display, English logs)", () => {
-		test("template-only mapSdkError sites record an English logClassification identical to the English display", () => {
+	suite("display/English split (localized display, English logs)", () => {
+		test("every localized mapSdkError site records an englishMessage identical to the English display", () => {
 			// Under the test host's English fallback, l10n.t returns the English
 			// template, so the localized display message and the hand-written
-			// English log rendering must be the same string. A mismatch here
-			// means a site's English mirror drifted from its t() literal.
+			// English mirror must be the same string. A mismatch here means a
+			// site's English mirror drifted from its t() literal.
 			const upstream401 = {
 				message: "litellm.AuthenticationError: AnthropicException - upstream key missing",
 				type: null,
@@ -353,6 +353,8 @@ suite("provider/transport/errorMapping", () => {
 				mapSdkError(new APIConnectionTimeoutError(), discoveryCtx),
 				mapSdkError(new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()), chatCtx),
 				mapSdkError(new AuthenticationError(401, upstream401, undefined, new Headers()), chatCtx),
+				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), chatCtx),
+				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), discoveryCtx),
 				mapSdkError(new APIUserAbortError(), chatCtx),
 				mapSdkError(
 					connectionError(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })),
@@ -368,27 +370,29 @@ suite("provider/transport/errorMapping", () => {
 					}),
 					chatCtx
 				),
+				streamErrorFrame({ message: "upstream died" }),
 			];
 			for (const mapped of cases) {
-				const classified = mapped as Error & { logClassification?: string };
-				assert.strictEqual(classified.logClassification, mapped.message, mapped.message);
+				const mirrored = mapped as Error & { englishMessage?: string };
+				assert.strictEqual(mirrored.englishMessage, mapped.message, mapped.message);
 			}
 		});
 
-		test("timeoutRequestError carries the display message, the cause, and the English log rendering", () => {
+		test("timeoutRequestError carries the display message, the cause, and the English mirror", () => {
 			const cause = new Error("boom");
 			const err = timeoutRequestError(chatCtx, cause);
 			assert.strictEqual(err.kind, "timeout");
 			assert.strictEqual(err.cause, cause);
 			assert.strictEqual(err.message, timeoutMessage(chatCtx));
 			// English fallback: the two renderings coincide.
-			assert.strictEqual(err.logClassification, timeoutMessage(chatCtx));
+			assert.strictEqual(err.englishMessage, timeoutMessage(chatCtx));
+			assert.strictEqual(err.logClassification, undefined, "template-only sites carry no terse classification");
 		});
 
-		test("localizedError pairs the display message with its English log rendering", () => {
-			const err = localizedError("display text", "english text") as Error & { logClassification?: string };
+		test("localizedError pairs the display message with its English mirror", () => {
+			const err = localizedError("display text", "english text") as Error & { englishMessage?: string };
 			assert.strictEqual(err.message, "display text");
-			assert.strictEqual(err.logClassification, "english text");
+			assert.strictEqual(err.englishMessage, "english text");
 		});
 	});
 });

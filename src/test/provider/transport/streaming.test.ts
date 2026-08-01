@@ -2109,6 +2109,14 @@ suite("provider/streaming reasoning-only empty responses", () => {
 			(e: unknown) => {
 				assert.ok(e instanceof Error, `expected an Error, got ${String(e)}`);
 				assert.strictEqual(e.message, REASONING_ONLY_MESSAGE, "the message is a fixed string, never response-derived");
+				// The display message localizes; under the English fallback its
+				// full English mirror must be the identical string, so the
+				// English-by-policy log surfaces stay English in every locale.
+				assert.strictEqual(
+					(e as Error & { englishMessage?: string }).englishMessage,
+					e.message,
+					"the English mirror must match the English display"
+				);
 				return true;
 			}
 		);
@@ -2249,7 +2257,12 @@ suite("provider/streaming reasoning-only empty responses", () => {
 
 		await assert.rejects(
 			() => stream.processStreamingResponse(body, progress, token()),
-			(e: unknown) => e instanceof Error && e.message === "Invalid JSON for tool call"
+			(e: unknown) =>
+				e instanceof Error &&
+				e.message === "Invalid JSON for tool call" &&
+				// The localized display and its English mirror coincide under the
+				// English fallback; a missing or drifted mirror fails here.
+				(e as Error & { englishMessage?: string }).englishMessage === e.message
 		);
 		assert.strictEqual(parts.length, 0);
 	});

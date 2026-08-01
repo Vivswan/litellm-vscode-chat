@@ -98,23 +98,38 @@ function lastCheckedText(servers: readonly DashboardServer[], now: number): stri
  * facts the tab renders, composed from pushed state only (which carries no
  * secret values by construction; see the storage invariants). Per-server
  * lines go through serverOutcomeText, the same shared renderer the grid
- * decomposes, so the copied wording cannot drift from the rendered one.
+ * decomposes, so the copied wording cannot drift from the rendered one -
+ * except that a row carrying an English error mirror (errorEnglish, the
+ * transport error's log-safe rendering) substitutes it here: the copied
+ * block is destined for public issue reports, which stay English by policy,
+ * while the on-screen grid keeps the localized error.
  */
+function withEnglishError(server: DashboardServer): DashboardServer {
+	if (server.state === "error" && server.errorEnglish !== undefined) {
+		return { ...server, error: server.errorEnglish };
+	}
+	if (server.state === "ok" && server.errorEnglish !== undefined) {
+		return { ...server, error: server.errorEnglish };
+	}
+	return server;
+}
+
 function diagnosticsReportText(
 	servers: readonly DashboardServer[],
 	modelCount: number,
 	legacyServerCount: number,
 	now: number
 ): string {
+	const copyServers = servers.map(withEnglishError);
 	const lines = [
-		overallStatusText(servers, modelCount, legacyServerCount),
-		`Servers configured: ${servers.length}`,
-		`Last checked: ${lastCheckedText(servers, now)}`,
+		overallStatusText(copyServers, modelCount, legacyServerCount),
+		`Servers configured: ${copyServers.length}`,
+		`Last checked: ${lastCheckedText(copyServers, now)}`,
 	];
 	if (legacyServerCount > 0) {
 		lines.push(`Legacy registry servers: ${legacyServerCount}`);
 	}
-	for (const server of servers) {
+	for (const server of copyServers) {
 		lines.push(`${server.label} (${server.baseUrl}): ${serverOutcomeText(server)}`);
 	}
 	return lines.join("\n");

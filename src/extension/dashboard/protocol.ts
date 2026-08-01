@@ -109,6 +109,12 @@ interface DashboardServerBase {
  * declared entry whose group upsert failed while an already-live group keeps
  * serving renders "OK (N models) - <sync error>"), and "unchecked" (declared
  * in settings but not yet seen by a discovery pass) carries none.
+ * `errorEnglish` is the error's log-safe English rendering
+ * (ServerStatus.logSafeError, markLogSafe-branded - no secrets, no raw
+ * response text), present only when `error` is the transport error itself:
+ * the on-screen row renders the localized `error`, while the copyable
+ * diagnostics block substitutes `errorEnglish` so pasted reports stay
+ * English (see diagnostics.tsx).
  */
 export type DashboardServer = DashboardServerBase &
 	(
@@ -147,9 +153,9 @@ export type DashboardServer = DashboardServerBase &
 		  }
 	) &
 	(
-		| { readonly state: "ok"; readonly error?: string | undefined }
-		| { readonly state: "error"; readonly error: string }
-		| { readonly state: "unchecked"; readonly error?: undefined }
+		| { readonly state: "ok"; readonly error?: string | undefined; readonly errorEnglish?: string | undefined }
+		| { readonly state: "error"; readonly error: string; readonly errorEnglish?: string | undefined }
+		| { readonly state: "unchecked"; readonly error?: undefined; readonly errorEnglish?: undefined }
 	);
 
 /**

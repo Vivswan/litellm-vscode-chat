@@ -3,6 +3,7 @@ import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { entryModelParametersFor } from "../../../extension/servers/serverSync";
 import { attachGroupServer } from "../../../provider/catalog/groupModels";
+import { ChatClient } from "../../../provider/transport/chatClient";
 import { findLongestPrefixMatch, getModelParameters } from "../../../provider/transport/request";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import {
@@ -1163,6 +1164,122 @@ suite("provider/request contract", () => {
 				/more than 128 tools/
 			);
 			assert.deepStrictEqual(requests, [], "Requests over the tool limit must be rejected before any network call");
+		});
+	});
+
+	suite("localized display / English mirror pairs", () => {
+		// Every chatClient throw site pairs a localized display message with a
+		// full English mirror (localizedError). Under the test host's English
+		// fallback the two coincide, so these tests fail when a site's mirror
+		// drifts from its t() literal - or when a site forgets the mirror.
+		function expectMirroredRejection(promise: Promise<unknown>, expected: RegExp): Promise<void> {
+			return assert.rejects(promise, (e: unknown) => {
+				assert.ok(e instanceof Error, `expected an Error, got ${String(e)}`);
+				assert.match(e.message, expected);
+				assert.strictEqual(
+					(e as Error & { englishMessage?: string }).englishMessage,
+					e.message,
+					"the English mirror must match the English display"
+				);
+				return true;
+			});
+		}
+
+		function send(client: ChatClient, model: Parameters<ChatClient["send"]>[0]["model"]): Promise<void> {
+			return client.send({
+				model,
+				messages: [userMessage("hi")],
+				options: {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+				} as vscode.ProvideLanguageModelChatResponseOptions,
+				progress: { report: () => {} },
+				token: new vscode.CancellationTokenSource().token,
+			});
+		}
+
+		test("a route whose server disappeared rejects with the mirrored server-gone message", async () => {
+			const client = new ChatClient({ userAgent: "test", getServers: () => Promise.resolve([]) });
+			client.applyRegistration(
+				new Map([["m1", { serverId: "s1", serverLabel: "Old Server", rawModelId: "m1" }]]),
+				true
+			);
+			await expectMirroredRejection(
+				send(client, makeModelInfo({ id: "m1" })),
+				/^Server "Old Server" is no longer configured$/
+			);
+		});
+
+		test("a model no source resolves rejects with the mirrored not-registered message", async () => {
+			const client = new ChatClient({ userAgent: "test", getServers: () => Promise.resolve([]) });
+			await expectMirroredRejection(
+				send(client, makeModelInfo({ id: "ghost" })),
+				/^Model "ghost" is not registered with any configured server\. Refresh the model list and try again\.$/
+			);
+		});
+
+		test("more tools than the cap rejects with the mirrored tools-cap message", async () => {
+			const client = new ChatClient({ userAgent: "test" });
+			const model = attachGroupServer(makeModelInfo(), {
+				baseUrl: normalizeBaseUrl(TEST_BASE_URL),
+				apiKey: "test-key",
+				label: "Mirror",
+			});
+			const tools = Array.from({ length: 129 }, (_, i) => ({ name: `tool_${i}`, description: "a tool" }));
+			await assert.rejects(
+				client.send({
+					model,
+					messages: [userMessage("hi")],
+					options: {
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						tools,
+					} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
+					progress: { report: () => {} },
+					token: new vscode.CancellationTokenSource().token,
+				}),
+				(e: unknown) => {
+					assert.ok(e instanceof Error);
+					assert.strictEqual(e.message, "Cannot have more than 128 tools per request.");
+					assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
+					return true;
+				}
+			);
+		});
+
+		test("an over-limit prompt rejects with the mirrored token-limit message", async () => {
+			const client = new ChatClient({ userAgent: "test" });
+			const model = attachGroupServer(makeModelInfo({ maxInputTokens: 10 }), {
+				baseUrl: normalizeBaseUrl(TEST_BASE_URL),
+				apiKey: "test-key",
+				label: "Mirror",
+			});
+			await assert.rejects(
+				client.send({
+					model,
+					messages: [userMessage("x".repeat(4000))],
+					options: {
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+					} as vscode.ProvideLanguageModelChatResponseOptions,
+					progress: { report: () => {} },
+					token: new vscode.CancellationTokenSource().token,
+				}),
+				(e: unknown) => {
+					assert.ok(e instanceof Error);
+					assert.match(e.message, /^Message exceeds token limit \(estimated \d+ tokens, limit 10\)\.$/);
+					assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
+					return true;
+				}
+			);
+		});
+
+		test("an empty 200 body rejects with the mirrored no-response-body message", async () => {
+			mswServer.use(http.post(CHAT_COMPLETIONS_URL, () => new HttpResponse(null, { status: 200 })));
+			const client = new ChatClient({ userAgent: "test" });
+			const model = attachGroupServer(makeModelInfo(), {
+				baseUrl: normalizeBaseUrl(TEST_BASE_URL),
+				apiKey: "test-key",
+				label: "Mirror",
+			});
+			await expectMirroredRejection(send(client, model), /^No response body from LiteLLM API$/);
 		});
 	});
 });

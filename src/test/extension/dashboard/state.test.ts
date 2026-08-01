@@ -286,6 +286,55 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[1]?.lastChecked, "2026-07-26T00:00:00.000Z");
 		});
 
+		test("errorEnglish carries the status's log-safe rendering exactly when the display error is the transport error", () => {
+			// The copyable diagnostics block stays English by policy; the webview
+			// substitutes errorEnglish there while the on-screen row renders the
+			// (possibly localized) error. A sync error has no separate English
+			// mirror, so a row displaying one carries none.
+			const external = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
+						models: [],
+					},
+				],
+				makeReader({})
+			);
+			assert.strictEqual(external.servers[0]?.error, "LOCALIZED");
+			assert.strictEqual(external.servers[0]?.errorEnglish, "ENGLISH");
+
+			const declared = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[makeDeclared()]
+			);
+			assert.strictEqual(declared.servers[0]?.origin, "declared");
+			assert.strictEqual(declared.servers[0]?.error, "LOCALIZED");
+			assert.strictEqual(declared.servers[0]?.errorEnglish, "ENGLISH");
+
+			const synced = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[makeDeclared({ syncError: "sync failed", syncErrorClass: "upsertFailed" })]
+			);
+			assert.strictEqual(synced.servers[0]?.error, "sync failed", "the sync error still masks the live error");
+			assert.strictEqual(
+				synced.servers[0]?.errorEnglish,
+				undefined,
+				"a masked transport error must not lend its mirror to the sync error"
+			);
+		});
+
 		test("legacy registry servers with no row of their own are counted, never listed", () => {
 			const state = buildDashboardState(
 				[{ status: makeServerStatus(), models: [] }],

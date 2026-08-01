@@ -368,13 +368,11 @@ function coerceJsonPayload(value: unknown, baseUrl: string): unknown {
 		// V8's SyntaxError message quotes a snippet of the unparseable payload
 		// (response-derived), so the classification keeps it off public
 		// surfaces while the user-facing message keeps the diagnostic value.
-		throw new RequestError(
-			l10n.t("Failed to parse LiteLLM models response from {0}: {1}", baseUrl, errorMessageText(error)),
-			"http",
-			{
-				logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
-			}
-		);
+		const reason = errorMessageText(error);
+		throw new RequestError(l10n.t("Failed to parse LiteLLM models response from {0}: {1}", baseUrl, reason), "http", {
+			logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
+			englishMessage: `Failed to parse LiteLLM models response from ${baseUrl}: ${reason}`,
+		});
 	}
 }
 
@@ -579,6 +577,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				{
 					cause: error,
 					logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
+					englishMessage: `Failed to parse LiteLLM models response from ${baseUrl}: ${error.message}`,
 				}
 			);
 		}
