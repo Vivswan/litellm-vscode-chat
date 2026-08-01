@@ -370,6 +370,12 @@ suite("provider/transport/errorMapping", () => {
 					}),
 					chatCtx
 				),
+				mapSdkError(
+					Object.assign(new TypeError("terminated"), {
+						cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
+					}),
+					discoveryCtx
+				),
 				streamErrorFrame({ message: "upstream died" }),
 			];
 			for (const mapped of cases) {
