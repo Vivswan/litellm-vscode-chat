@@ -63,13 +63,14 @@ suite("shared/config/commandIds: package.json drift guard", () => {
 
 	test("every contributed command title appears in the getting-started commands table", () => {
 		// docs/getting-started.md's Commands table mirrors contributes.commands;
-		// an added or retitled command must reach it.
+		// an added or retitled command must reach it. The docs pin the English
+		// titles, so the manifest's %key% references resolve through
+		// package.nls.json first.
 		const text = fs.readFileSync(path.join(repoRoot, "docs", "getting-started.md"), "utf8");
 		for (const entry of readPackageJson().contributes.commands) {
-			assert.ok(
-				entry.title !== undefined && text.includes(entry.title),
-				`docs/getting-started.md names "${entry.title}"`
-			);
+			assert.ok(entry.title !== undefined, `${entry.command} is contributed with a title`);
+			const title = resolveNls(entry.title);
+			assert.ok(text.includes(title), `docs/getting-started.md names "${title}"`);
 		}
 	});
 
@@ -80,7 +81,11 @@ suite("shared/config/commandIds: package.json drift guard", () => {
 
 	test("walkthrough command: and onCommand: deep-links use registered command IDs", () => {
 		const registered = new Set<string>([...Object.values(CMD), ...Object.values(INTERNAL_CMD)]);
-		const walkthroughs = JSON.stringify(readPackageJson().contributes.walkthroughs ?? "");
+		// The command: links sit inside externalized step descriptions, so every
+		// manifest string resolves through package.nls.json before the scan.
+		const walkthroughs = JSON.stringify(readPackageJson().contributes.walkthroughs ?? "", (_key, value: unknown) =>
+			typeof value === "string" ? resolveNls(value) : value
+		);
 		const references = [...walkthroughs.matchAll(/(?:onCommand|command):(litellm\.[\w.]+)/g)].map(
 			(match) => match[1] as string
 		);

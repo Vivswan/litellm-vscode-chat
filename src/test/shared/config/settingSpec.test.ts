@@ -16,6 +16,7 @@ import {
 } from "../../../shared/config/settings";
 import type { HeaderScalar } from "../../../shared/util/headers";
 import { HEADER_SCALAR_TYPES } from "../../../shared/util/headers";
+import { resolveNls } from "../../util/nls";
 
 /**
  * Drift guards between the shared setting spec and its prose mirrors:
@@ -138,12 +139,13 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 		// "Default is 300000ms (5 minutes)" and friends: the sentence may be
 		// rephrased freely, but the number it quotes must be the live default.
 		// The quoted digits are compared whole, so a spec default that is a
-		// prefix of a stale prose number cannot pass.
+		// prefix of a stale prose number cannot pass. The manifest holds %key%
+		// references, so the prose is the resolved package.nls.json value.
 		const { properties } = readPackageJson().contributes.configuration;
 		let checked = 0;
 		for (const [id, spec] of Object.entries(NUMBER_SETTING_SPECS)) {
 			const schema = settingSchema(properties, id);
-			const description = schema.description ?? schema.markdownDescription ?? "";
+			const description = resolveNls(schema.description ?? schema.markdownDescription ?? "");
 			const quoted = /Default is (\d+)/.exec(description)?.[1];
 			if (quoted === undefined) {
 				continue;
