@@ -18,7 +18,7 @@ import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
 import type { SecretFieldId } from "./protocol";
 import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "./protocol";
-import { isUsableHttpUrl, SERVER_FORM_FIELD_LABELS } from "./serverForm";
+import { isUsableHttpUrl, serverFormFieldLabel } from "./serverForm";
 import { joinDeclared, labeledSnapshots } from "./state";
 
 /**
@@ -238,7 +238,7 @@ export async function applyAdoptServer(
 		caveats.push("The live group's credentials could not be read, so none were copied; edit the server to set them.");
 	}
 	if (staleRemaining.length > 0) {
-		const names = staleRemaining.map((field) => SERVER_FORM_FIELD_LABELS[field]).join(", ");
+		const names = staleRemaining.map((field) => serverFormFieldLabel(field)).join(", ");
 		caveats.push(
 			`A previously stored secret under this label (${names}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.`
 		);

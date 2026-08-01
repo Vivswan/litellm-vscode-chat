@@ -24,7 +24,7 @@ import {
 } from "../../extension/dashboard/protocol";
 import { DOCS_LINK_PARAMS_INSPECTOR } from "./docsLinks";
 import { DocsLink, Help } from "./help";
-import { HELP_PARAMS_INSPECTOR } from "./helpText";
+import { helpParamsInspector } from "./helpText";
 import { capabilities, formatCost, formatPricing, formatTokens } from "./models";
 import { SlideOver } from "./slideOver";
 
@@ -172,7 +172,7 @@ export function ParamsInspector({
 		>
 			<div class="params-inspector">
 				<h3 id="params-inspector-title">
-					{model.name} <Help text={HELP_PARAMS_INSPECTOR} name="About effective parameters" />
+					{model.name} <Help text={helpParamsInspector()} name="About effective parameters" />
 					<DocsLink href={DOCS_LINK_PARAMS_INSPECTOR} label="Open the effective-parameters guide" />
 				</h3>
 				<p class="hint params-identity">

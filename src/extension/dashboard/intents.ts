@@ -23,7 +23,7 @@ import type {
 	SecretDirective,
 	SecretFieldId,
 } from "./protocol";
-import { NUMBER_SETTINGS, SECRET_FIELD_IDS } from "./protocol";
+import { NUMBER_SETTING_SPECS, SECRET_FIELD_IDS } from "./protocol";
 import { applySaveServerSetting } from "./saveServer";
 import { isUsableHttpUrl } from "./serverForm";
 import type { DraftConnection } from "./testDraftConnection";
@@ -123,7 +123,7 @@ const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readon
  * number is not writable, or undefined when it is.
  */
 export function validateNumberSetting(setting: NumberSettingId, value: number | null): string | undefined {
-	const spec = NUMBER_SETTINGS[setting];
+	const spec = NUMBER_SETTING_SPECS[setting];
 	if (value === null) {
 		return spec.nullable ? undefined : `${setting} requires a number`;
 	}

@@ -3,7 +3,8 @@
  * into the webview and the intents the webview posts back. This module is
  * imported by both sides (the extension host and the browser bundle), so it
  * must stay pure: no vscode, no DOM, no Node. Pure helpers from src/shared
- * are the one allowed dependency, re-exported here because webview code may
+ * and @vscode/l10n (the one l10n API that works in both runtimes) are the
+ * allowed dependencies, re-exported here because webview code may
  * import only this module (the Biome override in biome.json enforces that).
  *
  * The dashboard is a stateless view over the existing stores. Everything in
@@ -23,18 +24,15 @@ export type {
 } from "../../shared/config/parameterResolution";
 export { DEFAULT_MAX_TOKENS_CAP, projectEffectiveParameters } from "../../shared/config/parameterResolution";
 export type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
+export { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 export type { NonSecretOptionalFieldId, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 export { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 export type { HeaderScalar } from "../../shared/util/headers";
 export { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 export { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 
-import type {
-	BooleanSettingId,
-	BooleanSettingValueSpec,
-	NumberSettingId,
-	NumberSettingValueSpec,
-} from "../../shared/config/settingSpec";
+import * as l10n from "@vscode/l10n";
+import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import type { HeaderScalar } from "../../shared/util/headers";
@@ -185,9 +183,11 @@ export function classifyOverall(servers: readonly Pick<DashboardServer, "state">
  * The verdict as one sentence, the headline of the Diagnostics tab (which is
  * what litellm.showDiagnostics opens). Shared like classifyOverall and pinned
  * by tests: this line is what users paste into issue reports, so its wording
- * must not depend on which surface they copied from. The legacy registry
- * (pre-migration installs and test mode) is real configuration even though it
- * contributes no server rows, so it overrides the bare not-configured claim.
+ * must not depend on which surface they copied from. English by policy: users
+ * paste these lines into public issue reports, so localization sweeps must
+ * skip this function. The legacy registry (pre-migration installs and test
+ * mode) is real configuration even though it contributes no server rows, so
+ * it overrides the bare not-configured claim.
  */
 export function overallStatusText(
 	servers: readonly DashboardServer[],
@@ -218,7 +218,9 @@ export function overallStatusText(
  * The entry-params-inactive classification as diagnostics prose. Fixed text
  * derived from the classification alone (no user or response content):
  * "my per-entry parameters do nothing" is exactly what lands in issue
- * reports, so every diagnostics surface must name it the same way.
+ * reports, so every diagnostics surface must name it the same way. English by
+ * policy: users paste these lines into public issue reports, so localization
+ * sweeps must skip this constant.
  */
 const ENTRY_PARAMS_INACTIVE_TEXT =
 	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
@@ -258,7 +260,11 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 	}
 }
 
-/** One server's diagnostics outcome line, pinned by tests like overallStatusText. */
+/**
+ * One server's diagnostics outcome line, pinned by tests like
+ * overallStatusText. English by policy: users paste these lines into public
+ * issue reports, so localization sweeps must skip this function.
+ */
 export function serverOutcomeText(server: DashboardServer): string {
 	const parts = serverOutcomeParts(server);
 	// "OK (2 models) - <sync error>" vs "Error: <error>": the error joins an
@@ -314,68 +320,87 @@ export interface DashboardModel {
 	readonly reasoning: boolean;
 }
 
-/** One number setting as the dashboard renders it: the shared value spec plus this module's presentation. */
-export type NumberSettingSpec = NumberSettingValueSpec & {
+/**
+ * What each number setting counts. Static classification, deliberately apart
+ * from the localized presentation: value logic (the duration grammar in
+ * draftValue, the clock rendering in defaultDisplay and equivalence) keys off
+ * these codes, and the form renders the localized unit suffix from
+ * numberSettingPresentation instead.
+ */
+export const NUMBER_SETTING_UNITS = {
+	defaultMaxOutputTokens: "tokens",
+	defaultContextLength: "tokens",
+	defaultMaxInputTokens: "tokens",
+	requestTimeout: "ms",
+	discoveryTimeout: "ms",
+	discoveryCacheTtl: "ms",
+} as const satisfies Record<NumberSettingId, "ms" | "tokens">;
+
+/** One number setting's presentation strings, resolved per call so the l10n bundle is honored. */
+export interface NumberSettingPresentation {
 	readonly label: string;
 	readonly description: string;
-	/** What the number counts; the form renders it as the input's suffix and humanizes durations from it. */
-	readonly unit: "ms" | "tokens";
+	/** The input's unit suffix; display text only - the grammar keys off NUMBER_SETTING_UNITS, never off this. */
+	readonly unit: string;
 	/** What a configured 0 means, when 0 is legal and has a special reading (the cache TTL). */
 	readonly zeroMeaning?: string;
 	/** The empty field's hint on a nullable setting: what being unset means, e.g. "derived from context length". */
 	readonly placeholder?: string;
-};
+}
 
 /**
- * The number-valued litellm-vscode-chat.* settings the dashboard edits.
- * The value side of each entry (default, minimum, nullability) is spread in
- * from the shared setting spec; labels and descriptions are presentation and
- * live only here. The state builder still reads display-fallback defaults
- * through configuration inspection, which settingSpec.test.ts pins to the
- * same numbers.
+ * The presentation of one number-valued litellm-vscode-chat.* setting the
+ * dashboard edits. A function, not a module-level catalog: these strings
+ * localize, and module-level constants would freeze the English text before
+ * l10n.config runs (the value side stays static in
+ * shared/config/settingSpec's NUMBER_SETTING_SPECS). The state builder still
+ * reads display-fallback defaults through configuration inspection, which
+ * settingSpec.test.ts pins to the same numbers.
  */
-export const NUMBER_SETTINGS = {
-	defaultMaxOutputTokens: {
-		...NUMBER_SETTING_SPECS.defaultMaxOutputTokens,
-		label: "Default max output tokens",
-		description: "Used when the server does not report a limit.",
-		unit: "tokens",
-	},
-	defaultContextLength: {
-		...NUMBER_SETTING_SPECS.defaultContextLength,
-		label: "Default context length",
-		description: "Used when the server does not report a context window.",
-		unit: "tokens",
-	},
-	defaultMaxInputTokens: {
-		...NUMBER_SETTING_SPECS.defaultMaxInputTokens,
-		label: "Default max input tokens",
-		description: "Leave empty to derive it as context length minus output tokens.",
-		unit: "tokens",
-		placeholder: "derived from context length",
-	},
-	requestTimeout: {
-		...NUMBER_SETTING_SPECS.requestTimeout,
-		label: "Request timeout",
-		description: "Hard bound for one chat completion call.",
-		unit: "ms",
-	},
-	discoveryTimeout: {
-		...NUMBER_SETTING_SPECS.discoveryTimeout,
-		label: "Discovery timeout",
-		description: "Hard bound for one model discovery call.",
-		unit: "ms",
-	},
-	discoveryCacheTtl: {
-		...NUMBER_SETTING_SPECS.discoveryCacheTtl,
-		label: "Discovery cache lifetime",
-		description: "How long discovered model lists are reused; 0 asks the server on every refresh.",
-		unit: "ms",
-		zeroMeaning: "every refresh",
-	},
-} as const satisfies Record<NumberSettingId, NumberSettingSpec>;
+export function numberSettingPresentation(id: NumberSettingId): NumberSettingPresentation {
+	switch (id) {
+		case "defaultMaxOutputTokens":
+			return {
+				label: l10n.t("Default max output tokens"),
+				description: l10n.t("Used when the server does not report a limit."),
+				unit: l10n.t("tokens"),
+			};
+		case "defaultContextLength":
+			return {
+				label: l10n.t("Default context length"),
+				description: l10n.t("Used when the server does not report a context window."),
+				unit: l10n.t("tokens"),
+			};
+		case "defaultMaxInputTokens":
+			return {
+				label: l10n.t("Default max input tokens"),
+				description: l10n.t("Leave empty to derive it as context length minus output tokens."),
+				unit: l10n.t("tokens"),
+				placeholder: l10n.t("derived from context length"),
+			};
+		case "requestTimeout":
+			return {
+				label: l10n.t("Request timeout"),
+				description: l10n.t("Hard bound for one chat completion call."),
+				unit: l10n.t("ms"),
+			};
+		case "discoveryTimeout":
+			return {
+				label: l10n.t("Discovery timeout"),
+				description: l10n.t("Hard bound for one model discovery call."),
+				unit: l10n.t("ms"),
+			};
+		case "discoveryCacheTtl":
+			return {
+				label: l10n.t("Discovery cache lifetime"),
+				description: l10n.t("How long discovered model lists are reused; 0 asks the server on every refresh."),
+				unit: l10n.t("ms"),
+				zeroMeaning: l10n.t("every refresh"),
+			};
+	}
+}
 
-export const NUMBER_SETTING_IDS = Object.keys(NUMBER_SETTINGS) as readonly NumberSettingId[];
+export const NUMBER_SETTING_IDS = Object.keys(NUMBER_SETTING_SPECS) as readonly NumberSettingId[];
 
 /** Millisecond multipliers for the duration grammar's unit suffixes. */
 const DURATION_SUFFIX_MS: Readonly<Record<string, number>> = {
@@ -433,7 +458,7 @@ function draftValue(id: NumberSettingId, text: string): number | undefined {
 	if (trimmed.length === 0) {
 		return undefined;
 	}
-	if (NUMBER_SETTINGS[id].unit === "ms") {
+	if (NUMBER_SETTING_UNITS[id] === "ms") {
 		return parseDurationDraftMs(trimmed);
 	}
 	const value = Number(trimmed);
@@ -451,13 +476,13 @@ function draftValue(id: NumberSettingId, text: string): number | undefined {
  * back to the raw number.
  */
 export function defaultDisplay(id: NumberSettingId): string {
-	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
+	const spec = NUMBER_SETTING_SPECS[id];
 	if (spec.default === null) {
-		return "derived";
+		return l10n.t("derived");
 	}
-	if (spec.unit === "ms") {
+	if (NUMBER_SETTING_UNITS[id] === "ms") {
 		const duration = formatDuration(spec.default);
-		if (duration !== undefined && duration.exact) {
+		if (duration?.exact) {
 			return duration.label;
 		}
 	}
@@ -475,30 +500,37 @@ export function defaultDisplay(id: NumberSettingId): string {
  */
 export function isBoundViolation(id: NumberSettingId, text: string): boolean {
 	const value = draftValue(id, text);
-	return value !== undefined && value < NUMBER_SETTINGS[id].minimum;
+	return value !== undefined && value < NUMBER_SETTING_SPECS[id].minimum;
 }
 
-/** One boolean setting as the dashboard renders it: the shared value spec plus this module's presentation. */
-type BooleanSettingSpec = BooleanSettingValueSpec & {
+/** One boolean setting's presentation strings, resolved per call so the l10n bundle is honored. */
+export interface BooleanSettingPresentation {
 	readonly label: string;
 	readonly description: string;
-};
+}
 
-/** The boolean litellm-vscode-chat.* settings the dashboard edits; value specs spread in like NUMBER_SETTINGS. */
-export const BOOLEAN_SETTINGS = {
-	"promptCaching.enabled": {
-		...BOOLEAN_SETTING_SPECS["promptCaching.enabled"],
-		label: "Prompt caching",
-		description: "Cache the system prompt on models that advertise support.",
-	},
-	maskApiKeyInput: {
-		...BOOLEAN_SETTING_SPECS.maskApiKeyInput,
-		label: "Mask API key input",
-		description: "Hide the API key while typing it into configuration prompts.",
-	},
-} as const satisfies Record<BooleanSettingId, BooleanSettingSpec>;
+/**
+ * The presentation of one boolean litellm-vscode-chat.* setting the dashboard
+ * edits; a function for the same lazy-localization reason as
+ * numberSettingPresentation (the value side stays static in
+ * shared/config/settingSpec's BOOLEAN_SETTING_SPECS).
+ */
+export function booleanSettingPresentation(id: BooleanSettingId): BooleanSettingPresentation {
+	switch (id) {
+		case "promptCaching.enabled":
+			return {
+				label: l10n.t("Prompt caching"),
+				description: l10n.t("Cache the system prompt on models that advertise support."),
+			};
+		case "maskApiKeyInput":
+			return {
+				label: l10n.t("Mask API key input"),
+				description: l10n.t("Hide the API key while typing it into configuration prompts."),
+			};
+	}
+}
 
-export const BOOLEAN_SETTING_IDS = Object.keys(BOOLEAN_SETTINGS) as readonly BooleanSettingId[];
+export const BOOLEAN_SETTING_IDS = Object.keys(BOOLEAN_SETTING_SPECS) as readonly BooleanSettingId[];
 
 /**
  * The settings the revealSetting intent may name: exactly what the Settings
@@ -516,26 +548,27 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = [
 	"headers",
 ];
 
-const DURATION_UNITS: readonly (readonly [number, string])[] = [
-	[3600000, "h"],
-	[60000, "min"],
-	[1000, "s"],
-];
-
 /**
  * A millisecond count as humans read clocks: "5 min", "1 h 30 min". At most
  * two units; a truncated remainder gets a "~" instead of false precision,
  * with `exact` saying which happened so callers that cannot tolerate an
  * approximation (the default note) need not sniff the label. Sub-second
- * values return undefined (they already read as milliseconds).
+ * values return undefined (they already read as milliseconds). The unit names
+ * localize inside the function, per call, so the module never holds localized
+ * constants.
  */
 function formatDuration(ms: number): { label: string; exact: boolean } | undefined {
 	if (!Number.isInteger(ms) || ms < 1000) {
 		return undefined;
 	}
+	const units: readonly (readonly [number, string])[] = [
+		[3600000, l10n.t("h")],
+		[60000, l10n.t("min")],
+		[1000, l10n.t("s")],
+	];
 	const parts: string[] = [];
 	let rest = ms;
-	for (const [size, name] of DURATION_UNITS) {
+	for (const [size, name] of units) {
 		const count = Math.floor(rest / size);
 		if (count > 0 && parts.length < 2) {
 			parts.push(`${count} ${name}`);
@@ -559,20 +592,21 @@ export type NumberDraftParse =
 	| { readonly kind: "value"; readonly value: number };
 
 export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraftParse {
-	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
+	const spec = NUMBER_SETTING_SPECS[id];
 	const trimmed = text.trim();
 	if (trimmed.length === 0) {
-		return spec.nullable ? { kind: "clear" } : { kind: "invalid", problem: "Enter a number" };
+		return spec.nullable ? { kind: "clear" } : { kind: "invalid", problem: l10n.t("Enter a number") };
 	}
 	const value = draftValue(id, text);
 	if (value === undefined) {
 		return {
 			kind: "invalid",
-			problem: spec.unit === "ms" ? "Not a duration - use ms, s, m, or h" : "Not a number",
+			problem:
+				NUMBER_SETTING_UNITS[id] === "ms" ? l10n.t("Not a duration - use ms, s, m, or h") : l10n.t("Not a number"),
 		};
 	}
 	if (value < spec.minimum) {
-		return { kind: "invalid", problem: `Must be at least ${spec.minimum}` };
+		return { kind: "invalid", problem: l10n.t("Must be at least {0}", spec.minimum) };
 	}
 	return { kind: "value", value };
 }
@@ -586,12 +620,12 @@ export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraft
  * number says nothing); their unit suffix on the input carries the meaning.
  */
 export function equivalence(id: NumberSettingId, value: number): string | undefined {
-	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
-	if (spec.unit !== "ms") {
+	if (NUMBER_SETTING_UNITS[id] !== "ms") {
 		return undefined;
 	}
 	if (value === 0) {
-		return spec.zeroMeaning === undefined ? undefined : `= ${spec.zeroMeaning}`;
+		const zeroMeaning = numberSettingPresentation(id).zeroMeaning;
+		return zeroMeaning === undefined ? undefined : `= ${zeroMeaning}`;
 	}
 	const duration = formatDuration(value);
 	return duration === undefined ? undefined : `= ${duration.label}`;
@@ -612,12 +646,17 @@ export function draftSyncKey(value: number | null, configuredScope: SettingScope
 /** The configuration scopes a setting value can live in, in ascending precedence. */
 export type SettingScope = "global" | "workspace" | "workspaceFolder";
 
-/** Human-readable scope names for the webview. */
-export const SETTING_SCOPE_LABELS: Record<SettingScope, string> = {
-	global: "User",
-	workspace: "Workspace",
-	workspaceFolder: "Workspace folder",
-};
+/** The human-readable name of a configuration scope, resolved per call so the l10n bundle is honored. */
+export function settingScopeLabel(scope: SettingScope): string {
+	switch (scope) {
+		case "global":
+			return l10n.t("User");
+		case "workspace":
+			return l10n.t("Workspace");
+		case "workspaceFolder":
+			return l10n.t("Workspace folder");
+	}
+}
 
 /**
  * An object setting split by configuration scope. VS Code shallow-merges
@@ -990,12 +1029,12 @@ export type ParsedJsonValue =
 export function parseJsonValue(text: string): ParsedJsonValue {
 	const trimmed = text.trim();
 	if (trimmed.length === 0) {
-		return { ok: false, error: 'Enter a JSON value, e.g. 0.2, true, or "text".' };
+		return { ok: false, error: l10n.t('Enter a JSON value, e.g. 0.2, true, or "text".') };
 	}
 	try {
 		return { ok: true, value: JSON.parse(trimmed) as unknown };
 	} catch {
-		return { ok: false, error: 'Not valid JSON. Quote strings, e.g. "text".' };
+		return { ok: false, error: l10n.t('Not valid JSON. Quote strings, e.g. "text".') };
 	}
 }
 

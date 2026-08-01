@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { DashboardServer, WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
-import { HELP_ENTRY_MODEL_PARAMETER_PREFIX } from "../../../webview/dashboard/helpText";
+import { helpEntryModelParameterPrefix } from "../../../webview/dashboard/helpText";
 import { ServersSection } from "../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
 import {
@@ -133,7 +133,7 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	expect(prefixInput.placeholder).toBe("Model prefix, e.g. gpt-4");
 	const glyph = prefixInput.closest(".cell")?.querySelector("button.help");
 	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
-	expect(tip?.textContent).toBe(HELP_ENTRY_MODEL_PARAMETER_PREFIX);
+	expect(tip?.textContent).toBe(helpEntryModelParameterPrefix());
 
 	// An invalid JSON value blocks Save without posting anything.
 	fireInput(valueInput, "not json");
