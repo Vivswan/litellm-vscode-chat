@@ -29,9 +29,16 @@ coverage/**
 .worktrees/**
 biome.json
 bun.lock
+bunfig.toml
+knip.json
 .editorconfig
 .gitattributes
 .gitignore
+.yamllint
+.copier-answers.yml
+.repo-platform.yml
+.typography-allow
+.typography-allow.local
 
 # Repository docs and release automation (not needed at runtime)
 docs/**
