@@ -1,5 +1,11 @@
 # LiteLLM Provider for GitHub Copilot Chat
 
+[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/vivswan.litellm-vscode-chat?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/vivswan.litellm-vscode-chat)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
+[![Rating](https://img.shields.io/visual-studio-marketplace/stars/vivswan.litellm-vscode-chat)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat&ssr=false#review-details)
+[![CI](https://github.com/Vivswan/litellm-vscode-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/Vivswan/litellm-vscode-chat/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/Vivswan/litellm-vscode-chat)](LICENSE)
+
 Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://docs.litellm.ai).
 
 ## Features

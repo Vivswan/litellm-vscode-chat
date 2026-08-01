@@ -1,7 +1,7 @@
 {
 	"name": "litellm-vscode-chat",
 	"displayName": "LiteLLM Provider for GitHub Copilot Chat",
-	"description": "An extension that integrates LiteLLM into GitHub Copilot Chat",
+	"description": "Use 100+ LLMs in GitHub Copilot Chat through your LiteLLM proxy: streaming, tool calling, vision, reasoning, and multiple servers. Works with OpenAI, Anthropic, Gemini, Bedrock, Azure, Ollama, and any OpenAI-compatible endpoint.",
 	"version": "0.4.0",
 	"publisher": "vivswan",
 	"license": "MIT",
@@ -17,7 +17,7 @@
 			"href": "https://github.com/Vivswan/litellm-vscode-chat"
 		}
 	],
-	"homepage": "https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat",
+	"homepage": "https://github.com/Vivswan/litellm-vscode-chat",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/Vivswan/litellm-vscode-chat"
@@ -30,8 +30,41 @@
 	},
 	"categories": [
 		"AI",
-		"Chat"
+		"Chat",
+		"Machine Learning"
 	],
+	"keywords": [
+		"litellm",
+		"copilot",
+		"github-copilot",
+		"copilot-chat",
+		"chat-provider",
+		"language-model",
+		"llm",
+		"ai",
+		"chat",
+		"openai-compatible",
+		"openai",
+		"anthropic",
+		"claude",
+		"gemini",
+		"azure",
+		"bedrock",
+		"ollama",
+		"vllm",
+		"openrouter",
+		"proxy",
+		"gateway",
+		"byok",
+		"bring-your-own-key",
+		"self-hosted",
+		"tool-calling",
+		"reasoning",
+		"thinking",
+		"multimodal",
+		"vision"
+	],
+	"pricing": "Free",
 	"main": "./dist/extension.js",
 	"contributes": {
 		"languageModelChatProviders": [
