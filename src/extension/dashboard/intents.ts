@@ -6,7 +6,8 @@
  * webview or a real configuration store. panel.ts owns the vscode wiring.
  */
 
-import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
+import * as vscode from "vscode";
+import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
 import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
@@ -371,14 +372,16 @@ export async function executeDashboardIntent(
 			const modelCount = await applyTestServerDraft(intent, env);
 			// Static classification plus the discovered count, composed here so
 			// the webview renders it verbatim; never payload or response text.
-			return `Connected - ${modelCount} ${modelCount === 1 ? "model" : "models"}`;
+			return modelCount === 1
+				? vscode.l10n.t("Connected - 1 model")
+				: vscode.l10n.t("Connected - {0} models", modelCount);
 		}
 		case "removeServerSetting": {
 			const entries = rawServerEntries(env.readServersSetting());
 			const next = entries.filter((entry) => !entryHasLabel(entry, intent.label));
 			if (next.length === entries.length) {
 				throw new DashboardValidationError(
-					"No servers setting entry has this label; the server is managed outside the setting"
+					vscode.l10n.t("No servers setting entry has this label; the server is managed outside the setting")
 				);
 			}
 			// The label's secure-side secrets are kept on purpose: re-adding the
@@ -393,7 +396,7 @@ export async function executeDashboardIntent(
 		case "hideExternalServer": {
 			const baseUrl = intent.baseUrl.trim();
 			if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
-				throw new DashboardValidationError("baseUrl: not a usable http(s) URL");
+				throw new DashboardValidationError(vscode.l10n.t("baseUrl: not a usable http(s) URL"));
 			}
 			// Resolution binds the opaque handle to a group that is external
 			// RIGHT NOW: a stale or forged intent cannot tombstone a declared
@@ -401,7 +404,10 @@ export async function executeDashboardIntent(
 			const identity = env.resolveExternalGroup(baseUrl, intent.sourceHandle);
 			if (identity === undefined) {
 				throw new DashboardValidationError(
-					"This row does not resolve to a hideable VS Code provider group: it may have been adopted or removed, or it is a legacy-registry server (remove those with the Manage LiteLLM Provider command)"
+					vscode.l10n.t(
+						"This row does not resolve to a hideable VS Code provider group: it may have been adopted or removed, or it is a legacy-registry server (remove those with the {0} command)",
+						manageCommandTitle()
+					)
 				);
 			}
 			await env.hideGroup(identity);
@@ -409,13 +415,15 @@ export async function executeDashboardIntent(
 		}
 		case "unhideServer": {
 			if (intent.label.trim().length === 0) {
-				throw new DashboardValidationError("label: enter a label");
+				throw new DashboardValidationError(vscode.l10n.t("label: enter a label"));
 			}
 			// The identity is echoed back verbatim (no trimming): the webview
 			// sends exactly what the HiddenGroup row carried.
 			const removed = await env.unhideGroup({ label: intent.label, baseUrl: intent.baseUrl });
 			if (!removed) {
-				throw new DashboardValidationError("No hidden group matches this identity; it may already be visible");
+				throw new DashboardValidationError(
+					vscode.l10n.t("No hidden group matches this identity; it may already be visible")
+				);
 			}
 			return undefined;
 		}

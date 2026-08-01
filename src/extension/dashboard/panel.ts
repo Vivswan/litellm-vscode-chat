@@ -349,7 +349,7 @@ export class DashboardController implements vscode.Disposable {
 				kind = "operation";
 				this.env.log("Dashboard intent partially applied", { intentType: intent.type, kind: "operation" });
 			} else {
-				message = "The change was not applied; see the LiteLLM output log.";
+				message = vscode.l10n.t("The change was not applied; see the LiteLLM output log.");
 				this.env.log("Dashboard intent failed", {
 					intentType: intent.type,
 					error: error instanceof Error ? error.name : typeof error,

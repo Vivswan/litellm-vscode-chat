@@ -5,6 +5,7 @@
  * group and the storage locations, never the values.
  */
 
+import * as vscode from "vscode";
 import type { ServerModelsSnapshot } from "../../provider";
 import type { GroupServer } from "../../provider/catalog/groupModels";
 import type { OptionalEntryFields } from "../../shared/serverEntry";
@@ -135,18 +136,18 @@ export async function applyAdoptServer(
 ): Promise<string | undefined> {
 	const label = intent.label.trim();
 	if (label.length === 0) {
-		throw new DashboardValidationError("label: enter a label");
+		throw new DashboardValidationError(vscode.l10n.t("label: enter a label"));
 	}
 	if (isUnsafeRecordKey(label)) {
-		throw new DashboardValidationError("label: reserved name");
+		throw new DashboardValidationError(vscode.l10n.t("label: reserved name"));
 	}
 	const baseUrl = intent.baseUrl.trim();
 	if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
-		throw new DashboardValidationError("baseUrl: not a usable http(s) URL");
+		throw new DashboardValidationError(vscode.l10n.t("baseUrl: not a usable http(s) URL"));
 	}
 	const entries = rawServerEntries(env.readServersSetting());
 	if (acceptedEntry(entries, label) !== undefined) {
-		throw new DashboardValidationError("label: an entry with this label already exists");
+		throw new DashboardValidationError(vscode.l10n.t("label: an entry with this label already exists"));
 	}
 
 	const credentials = env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
@@ -197,7 +198,9 @@ export async function applyAdoptServer(
 				// only, and this label's entry never landed. Re-adding the label
 				// makes the entry editable, and the edit form's remove checkbox
 				// is what clears the leftover blob field.
-				"The adoption failed, and removing a copied secret again also failed. Re-add a server under this label with the dashboard form, then edit the entry to remove the leftover secret."
+				vscode.l10n.t(
+					"The adoption failed, and removing a copied secret again also failed. Re-add a server under this label with the dashboard form, then edit the entry to remove the leftover secret."
+				)
 			);
 		}
 		throw error;
@@ -235,12 +238,17 @@ export async function applyAdoptServer(
 	env.requestServerSync();
 	const caveats: string[] = [];
 	if (credentials === undefined) {
-		caveats.push("The live group's credentials could not be read, so none were copied; edit the server to set them.");
+		caveats.push(
+			vscode.l10n.t("The live group's credentials could not be read, so none were copied; edit the server to set them.")
+		);
 	}
 	if (staleRemaining.length > 0) {
 		const names = staleRemaining.map((field) => serverFormFieldLabel(field)).join(", ");
 		caveats.push(
-			`A previously stored secret under this label (${names}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.`
+			vscode.l10n.t(
+				"A previously stored secret under this label ({0}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.",
+				names
+			)
 		);
 	}
 	return caveats.length > 0 ? caveats.join(" ") : undefined;
