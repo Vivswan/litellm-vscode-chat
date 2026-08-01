@@ -117,6 +117,7 @@ export function makeState(overrides: Partial<DashboardState> = {}): DashboardSta
 		servers: [],
 		models: [],
 		settings: makeSettings(),
+		legacyServerCount: 0,
 		...overrides,
 	};
 }

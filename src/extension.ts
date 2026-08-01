@@ -25,7 +25,6 @@ import {
 	registerTestCommands,
 	registerTestConnectionCommand,
 } from "./extension/ui/commands";
-import { registerDiagnosticsCommand } from "./extension/ui/diagnostics";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
 import {
 	CONFIGURE_NOW_LABEL,
@@ -150,7 +149,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		})
 	);
 	registerSetServerSecretCommand(context, syncEngine, logger);
-	const dashboard = registerDashboardCommand(context, provider, logger, syncEngine);
+	// Also registers litellm.showDiagnostics: the command deep-links to the
+	// dashboard's Diagnostics tab, and the dashboard states the legacy
+	// registry's leftovers, which is why it takes the registry.
+	const dashboard = registerDashboardCommand(context, provider, logger, syncEngine, registry);
 	syncEngine.onDidSync = () => dashboard.refresh();
 	// Test-only commands; registered after the sync engine and the dashboard
 	// exist because the docker-serversync suite reads the engine's declared
@@ -215,17 +217,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Sync Models Now command: a forced server sync first (reconciling groups
 	// edited natively), then a discovery-cache-skipping refetch of every group.
 	registerSyncModelsCommand(context, provider, statusBar, outputChannel, logger, () => syncEngine.syncNow(true));
-
-	// Diagnostics command: reads the same stores the dashboard renders, with
-	// the status bar's connection status for the legacy-registry-only world.
-	registerDiagnosticsCommand(
-		context,
-		registry,
-		() => provider.getServerSnapshots(),
-		() => syncEngine.getDeclared(),
-		() => statusBar.connectionStatus,
-		outputChannel
-	);
 
 	// Help & Feedback command
 	registerHelpAndFeedbackCommand(context);

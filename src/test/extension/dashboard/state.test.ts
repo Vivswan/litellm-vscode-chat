@@ -247,6 +247,30 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[1]?.lastChecked, "2026-07-26T00:00:00.000Z");
 		});
 
+		test("legacy registry servers with no row of their own are counted, never listed", () => {
+			const state = buildDashboardState(
+				[{ status: makeServerStatus(), models: [] }],
+				makeReader({}),
+				[],
+				[
+					{ baseUrl: "http://old.test" },
+					// The same host the snapshot row shows (modulo the trailing
+					// slash): already stated once, so it must not count again.
+					{ baseUrl: "http://prod.test/" },
+				]
+			);
+
+			assert.strictEqual(state.legacyServerCount, 1);
+			assert.ok(!JSON.stringify(state.servers).includes("old.test"), "legacy servers contribute no row");
+		});
+
+		test("a declared row also shadows its legacy twin; without legacy input the count is zero", () => {
+			const shadowed = buildDashboardState([], makeReader({}), [makeDeclared()], [{ baseUrl: "http://prod.test" }]);
+			assert.strictEqual(shadowed.legacyServerCount, 0);
+
+			assert.strictEqual(buildDashboardState([], makeReader({})).legacyServerCount, 0);
+		});
+
 		test("a down server's retained models list under its erroring row without a per-model stale marker", () => {
 			// The provider retains a failed group's last known models in the
 			// status window (bounded by the last successful discovery), so the

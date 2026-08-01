@@ -110,6 +110,54 @@ test("the connection block renders the hero's verdict wording with per-server ou
 	expect(panel.textContent).toContain("http://localhost:4001");
 });
 
+test("the summary block stands alone: server count, absolute last-checked time, and its relative echo", () => {
+	const lastChecked = "2026-07-26T01:02:03.000Z";
+	const root = mountDiagnostics({
+		servers: [
+			makeDeclaredServer({ label: "Prod", modelCount: 2, lastChecked }),
+			makeDeclaredServer({ label: "Staging", baseUrl: "http://localhost:4001", modelCount: 0 }),
+		],
+		models: [makeModel(), makeModel({ id: "second", name: "Second" })],
+	});
+	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
+	expect(panel.textContent).toContain("Servers configured: 2");
+	// The absolute timestamp is the copyable fact; the relative echo rides
+	// beside it as a muted hint.
+	expect(panel.textContent).toContain(`Last checked: ${new Date(lastChecked).toLocaleString()}`);
+	const hint = panel.querySelector(".diag-facts .hint");
+	expect(hint?.textContent).toMatch(/ago|just now/);
+	expect(panel.textContent).toContain("Check the LiteLLM output channel for detailed logs.");
+});
+
+test("with nothing checked yet the summary says Never and carries no relative echo", () => {
+	const root = mountDiagnostics({
+		servers: [makeDeclaredServer({ label: "New", state: "unchecked", modelCount: 0 })],
+	});
+	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
+	expect(panel.textContent).toContain("Waiting for first sync");
+	expect(panel.textContent).toContain("Servers configured: 1");
+	expect(panel.textContent).toContain("Last checked: Never");
+	expect(panel.querySelector(".diag-facts .hint")).toBeNull();
+});
+
+test("legacy registry leftovers get their line, and a legacy-only world names the registry in the verdict", () => {
+	const root = mountDiagnostics({ legacyServerCount: 2 });
+	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
+	expect(panel.textContent).toContain("Legacy registry only (2 servers)");
+	expect(panel.textContent).toContain("Servers configured: 0");
+	expect(panel.textContent).toContain("Legacy registry servers: 2");
+	expect(panel.textContent).not.toContain("Not configured");
+	// litellm.testConnection still sweeps the legacy registry, so the button
+	// must not read the legacy-only world as nothing-to-test.
+	expect(buttonByText(root, "Test connection").disabled).toBe(false);
+});
+
+test("an empty legacy registry earns no legacy line", () => {
+	const root = mountDiagnostics();
+	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
+	expect(panel.textContent).not.toContain("Legacy registry");
+});
+
 test("Test connection posts its command, and disables with nothing configured", () => {
 	const root = mountDiagnostics();
 	resetPosted();
@@ -121,7 +169,7 @@ test("Test connection posts its command, and disables with nothing configured", 
 	expect(buttonByText(empty, "Test connection").disabled).toBe(true);
 });
 
-test("a params-inactive notice rides on its server's outcome line, like the dialog's", () => {
+test("a params-inactive notice rides on its server's outcome line", () => {
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", modelCount: 2, notice: "entry-params-inactive" })],
 		models: [makeModel(), makeModel({ id: "second", name: "Second" })],

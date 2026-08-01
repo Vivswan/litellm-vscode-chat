@@ -1,0 +1,121 @@
+import * as assert from "node:assert";
+import type { DashboardServer } from "../../../extension/dashboard/protocol";
+import {
+	classifyOverall,
+	latestCheckedMs,
+	overallStatusText,
+	serverOutcomeText,
+} from "../../../extension/dashboard/protocol";
+
+/**
+ * Wording pins for the shared diagnostics renderers. These lines are what
+ * users copy out of the Diagnostics tab into issue reports (the Show
+ * Diagnostics dialog used to render the same functions), so the exact text
+ * is pinned here once instead of per surface.
+ */
+
+type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
+
+function declaredServer(overrides: Partial<DeclaredServer> = {}): DashboardServer {
+	const base: DeclaredServer = {
+		origin: "declared",
+		label: "Prod",
+		baseUrl: "http://prod.test",
+		modelCount: 0,
+		hasApiKey: false,
+		hasOAuth: false,
+		state: "ok",
+		config: { secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } },
+	};
+	return { ...base, ...overrides } as DeclaredServer;
+}
+
+suite("extension/dashboard/protocol renderers", () => {
+	suite("overallStatusText", () => {
+		test("nothing configured anywhere reads as not configured", () => {
+			assert.strictEqual(overallStatusText([], 0), "Not configured");
+		});
+
+		test("a legacy-only registry names the registry instead of a not-configured claim", () => {
+			assert.strictEqual(overallStatusText([], 0, 1), "Legacy registry only (1 server)");
+			assert.strictEqual(overallStatusText([], 0, 2), "Legacy registry only (2 servers)");
+		});
+
+		test("legacy leftovers never override a configured verdict", () => {
+			const servers = [declaredServer({ state: "ok", modelCount: 3 })];
+			assert.strictEqual(overallStatusText(servers, 3, 2), "Connected (3 models)");
+		});
+
+		test("every server reachable reads as connected with the model count", () => {
+			const servers = [declaredServer({ modelCount: 4 }), declaredServer({ label: "Backup", modelCount: 2 })];
+			assert.strictEqual(overallStatusText(servers, 6), "Connected (6 models)");
+		});
+
+		test("one failing server among reachable ones reads as degraded", () => {
+			const servers = [
+				declaredServer({ modelCount: 4 }),
+				declaredServer({ label: "Backup", state: "error", error: "connection refused" }),
+			];
+			assert.strictEqual(overallStatusText(servers, 4), "Degraded (4 models, some servers failed)");
+		});
+
+		test("every server failing surfaces the first error as the status", () => {
+			const servers = [
+				declaredServer({ state: "error", error: "connection refused" }),
+				declaredServer({ label: "Backup", state: "error", error: "timeout" }),
+			];
+			assert.strictEqual(overallStatusText(servers, 0), "Error: connection refused");
+		});
+
+		test("declared entries no discovery pass has seen read as waiting, never as a failure", () => {
+			const servers = [declaredServer({ state: "unchecked" })];
+			assert.strictEqual(classifyOverall(servers), "waiting");
+			assert.strictEqual(overallStatusText(servers, 0), "Waiting for first sync");
+		});
+	});
+
+	suite("serverOutcomeText", () => {
+		test("a reachable server reads OK with its model count", () => {
+			assert.strictEqual(serverOutcomeText(declaredServer({ modelCount: 3 })), "OK (3 models)");
+		});
+
+		test("a reachable server whose sync failed shows both the models and the sync error", () => {
+			const server = declaredServer({ modelCount: 2, error: "upsert refused" });
+			assert.strictEqual(serverOutcomeText(server), "OK (2 models) - upsert refused");
+		});
+
+		test("a failing server reads its error", () => {
+			const server = declaredServer({ state: "error", error: "connection refused" });
+			assert.strictEqual(serverOutcomeText(server), "Error: connection refused");
+		});
+
+		test("an unchecked entry reads not checked yet", () => {
+			assert.strictEqual(serverOutcomeText(declaredServer({ state: "unchecked" })), "Not checked yet");
+		});
+
+		test("an entry whose group cannot serve its per-entry parameters says so on a healthy line", () => {
+			// The row is healthy, which is exactly why the line must call the
+			// inactive parameters out: this is what users collect into reports.
+			const line = serverOutcomeText(declaredServer({ modelCount: 2, notice: "entry-params-inactive" }));
+			assert.ok(line.startsWith("OK (2 models) - per-entry modelParameters are not applied"), line);
+			assert.ok(line.includes("run Sync Models Now"), line);
+		});
+	});
+
+	suite("latestCheckedMs", () => {
+		test("undefined while nothing was checked; otherwise the most recent timestamp", () => {
+			assert.strictEqual(latestCheckedMs([]), undefined);
+			assert.strictEqual(latestCheckedMs([{ lastChecked: undefined }]), undefined);
+			const older = "2026-07-26T01:02:03.000Z";
+			const newer = "2026-07-27T05:06:07.000Z";
+			assert.strictEqual(
+				latestCheckedMs([{ lastChecked: older }, { lastChecked: undefined }, { lastChecked: newer }]),
+				new Date(newer).getTime()
+			);
+		});
+
+		test("unparseable timestamps are ignored instead of poisoning the maximum", () => {
+			assert.strictEqual(latestCheckedMs([{ lastChecked: "not a date" }]), undefined);
+		});
+	});
+});

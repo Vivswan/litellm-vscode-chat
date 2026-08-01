@@ -2,12 +2,14 @@ import type { ComponentChildren } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 import type {
 	DashboardIntentType,
+	DashboardSectionId,
 	DashboardServer,
 	DashboardState,
 	ExtensionToWebviewMessage,
 } from "../../extension/dashboard/protocol";
 import {
 	classifyOverall,
+	DASHBOARD_SECTION_IDS,
 	failuresAfterStatePush,
 	isExtensionMessageType,
 	latestCheckedMs,
@@ -21,14 +23,9 @@ import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
 import { postMessage } from "./vscodeApi";
 
-/**
- * The dashboard's top-level sections, one tab each. Servers and models share
- * the overview tab (they are one workflow: connect a server, see its models);
- * the settings form and the Diagnostics page (connection summary plus
- * feedback) get pages of their own.
- */
-const SECTION_IDS = ["overview", "settings", "diagnostics"] as const;
-type SectionId = (typeof SECTION_IDS)[number];
+/** The section tabs; the ID list lives in the protocol module because focusSection deep-links name them. */
+const SECTION_IDS = DASHBOARD_SECTION_IDS;
+type SectionId = DashboardSectionId;
 
 const SECTION_LABELS: Record<SectionId, string> = {
 	overview: "Servers & Models",
@@ -139,7 +136,7 @@ type Overall = { tone: "ok" | "error" | "warn" | "muted"; word: string };
 
 /**
  * The hero's overall verdict. The classification is shared with the
- * diagnostics dialog (classifyOverall in the protocol module); this only maps
+ * Diagnostics tab (classifyOverall in the protocol module); this only maps
  * it to the hero's tone and word.
  */
 function overallState(servers: readonly DashboardServer[]): Overall {
@@ -317,6 +314,15 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				setFailures(failuresAfterStatePush);
 				return;
 			}
+			if (message.type === "focusSection") {
+				// The extension's deep link (litellm.showDiagnostics landing on the
+				// Diagnostics tab); the includes check drops a section this page
+				// does not have instead of blanking every panel.
+				if (SECTION_IDS.includes(message.section)) {
+					setSection(message.section);
+				}
+				return;
+			}
 			if (message.type === "inlineSecrets") {
 				setInlineSecrets(message);
 				return;
@@ -427,7 +433,12 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				<SettingsSection settings={state.settings} failures={failures} />
 			</SectionPanel>
 			<SectionPanel section="diagnostics" active={section}>
-				<DiagnosticsSection servers={state.servers} modelCount={state.models.length} now={now} />
+				<DiagnosticsSection
+					servers={state.servers}
+					modelCount={state.models.length}
+					legacyServerCount={state.legacyServerCount}
+					now={now}
+				/>
 			</SectionPanel>
 			<ToastHost toasts={toasts} durationMs={toastDurationMs} onDismiss={dismissToast} />
 		</main>

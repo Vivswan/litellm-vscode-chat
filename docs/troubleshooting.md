@@ -1,6 +1,6 @@
 # Troubleshooting
 
-The extension puts its state where you can see it: a status bar item for the connection at a glance, a diagnostics view for the details, and an output channel for the full log. This page covers those tools, issue reporting and privacy, timeout and retry semantics, the common failure cases, cleanup when uninstalling, and notes on migrations from older versions.
+The extension puts its state where you can see it: a status bar item for the connection at a glance, the dashboard's Diagnostics tab for the details, and an output channel for the full log. This page covers those tools, issue reporting and privacy, timeout and retry semantics, the common failure cases, cleanup when uninstalling, and notes on migrations from older versions.
 
 ## Status bar
 
@@ -14,16 +14,16 @@ The LiteLLM status bar item (bottom right corner) shows your connection status:
 | `⚠ LiteLLM (N)` | Degraded | Some servers unreachable, N models from reachable servers |
 | `✗ LiteLLM` | Error | All servers failed - click for diagnostics |
 
-Click it at any time to view detailed diagnostics.
+Click it at any time to open the [dashboard](dashboard.md); its Diagnostics tab has the details.
 
 ## Diagnostic tools
 
 | Tool | What it gives you |
 |------|-------------------|
 | "LiteLLM: Test Connection" (Command Palette) | Verifies a server end to end: connects, reports the number of models found, shows detailed error messages on failure, and updates the status bar |
-| "LiteLLM: Show Diagnostics" (or clicking the status bar item) | The configured servers with labels and URLs, per-server connection state, model counts and errors, the overall status, the last check timestamp, and a shortcut to the output channel |
+| "LiteLLM: Show Diagnostics" | Opens the dashboard on its [Diagnostics tab](dashboard.md#diagnostics): the overall status, the configured-server count, the last check timestamp, one outcome line per server with its URL, any legacy-registry leftovers, and a Test connection button |
 | The "LiteLLM" output channel | The full log: configuration changes, model fetch attempts and results, and errors with full details. Open the Output panel (`Ctrl+Shift+U` / `Cmd+Shift+U`) and select "LiteLLM" from the dropdown |
-| "LiteLLM: Help & Feedback" (also reachable from the diagnostics dialog) | The shortcut for reporting bugs, requesting features, or opening the documentation |
+| "LiteLLM: Help & Feedback" | The shortcut for reporting bugs, requesting features, or opening the documentation; the Diagnostics tab carries the same links |
 
 ## Reporting an issue
 

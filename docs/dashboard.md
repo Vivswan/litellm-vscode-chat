@@ -57,8 +57,8 @@ The Settings tab renders the same settings the native Settings editor shows, as 
 
 ## Diagnostics
 
-The Diagnostics tab gathers the support surfaces:
+The Diagnostics tab gathers the support surfaces; "LiteLLM: Show Diagnostics" in the Command Palette opens the dashboard straight onto it.
 
-- A connection summary: the same verdict the status strip shows, with one outcome line per server ("OK (12 models)", the error text otherwise) and a Test connection button.
+- A connection summary, written to be copied whole into a bug report: the same verdict the status strip shows, the configured-server count, the last check as an absolute timestamp (with a relative echo), and one outcome line per server ("OK (12 models)", the error text otherwise), plus a Test connection button. Installs carrying pre-migration servers with no row of their own also see a "Legacy registry servers" count.
 - Report a bug opens a GitHub issue pre-filled with version, platform, and recent logs - the same action as the header button.
 - Request a feature, Rate this extension, Documentation, and the GitHub repository are plain links.
