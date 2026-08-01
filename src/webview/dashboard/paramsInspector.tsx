@@ -8,6 +8,7 @@
  * of silent omissions.
  */
 
+import * as l10n from "@vscode/l10n";
 import type {
 	DashboardModel,
 	EffectiveParameterRow,
@@ -42,10 +43,22 @@ function Fact({ label, value }: { label: string; value: string }) {
 function cachePricing(model: DashboardModel): string | undefined {
 	const parts: string[] = [];
 	if (model.cacheReadCost !== undefined) {
-		parts.push(`read ${formatCost(model.cacheReadCost)}`);
+		parts.push(
+			l10n.t({
+				message: "read {0}",
+				args: [formatCost(model.cacheReadCost)],
+				comment: ["cache read price; {0} is a dollar amount"],
+			})
+		);
 	}
 	if (model.cacheWriteCost !== undefined) {
-		parts.push(`write ${formatCost(model.cacheWriteCost)}`);
+		parts.push(
+			l10n.t({
+				message: "write {0}",
+				args: [formatCost(model.cacheWriteCost)],
+				comment: ["cache write price; {0} is a dollar amount"],
+			})
+		);
 	}
 	return parts.length > 0 ? parts.join(" / ") : undefined;
 }
@@ -54,29 +67,45 @@ function cachePricing(model: DashboardModel): string | undefined {
 function longContextPricing(model: DashboardModel): string | undefined {
 	const parts: string[] = [];
 	if (model.longContextInputCost !== undefined) {
-		parts.push(`${formatCost(model.longContextInputCost)} in`);
+		parts.push(
+			l10n.t({
+				message: "{0} in",
+				args: [formatCost(model.longContextInputCost)],
+				comment: ["price per million input tokens; {0} is a dollar amount"],
+			})
+		);
 	}
 	if (model.longContextOutputCost !== undefined) {
-		parts.push(`${formatCost(model.longContextOutputCost)} out`);
+		parts.push(
+			l10n.t({
+				message: "{0} out",
+				args: [formatCost(model.longContextOutputCost)],
+				comment: ["price per million output tokens; {0} is a dollar amount"],
+			})
+		);
 	}
 	if (model.longContextCacheReadCost !== undefined) {
-		parts.push(`cache read ${formatCost(model.longContextCacheReadCost)}`);
+		parts.push(l10n.t("cache read {0}", formatCost(model.longContextCacheReadCost)));
 	}
 	if (model.longContextCacheWriteCost !== undefined) {
-		parts.push(`cache write ${formatCost(model.longContextCacheWriteCost)}`);
+		parts.push(l10n.t("cache write {0}", formatCost(model.longContextCacheWriteCost)));
 	}
 	return parts.length > 0 ? parts.join(" / ") : undefined;
 }
 
 /** The Source column's naming: the layer that set the value plus its winning record key. */
 function sourceName(ref: ParameterSourceRef, entryLabel: string): string {
-	return ref.layer === "entry" ? `Server entry "${entryLabel}" - ${ref.key}` : `Settings - ${ref.key}`;
+	return ref.layer === "entry"
+		? l10n.t('Server entry "{0}" - {1}', entryLabel, ref.key)
+		: l10n.t("Settings - {0}", ref.key);
 }
 
-const SKIP_REASON_TEXT = {
-	underscore: "not sent: keys starting with _ are reserved for extension metadata",
-	"provider-owned": "not sent: a provider-owned request field, never overridable",
-} as const;
+/** The not-sent annotations, resolved at call time (no module-level localized constants). */
+function skipReasonText(reason: "underscore" | "provider-owned"): string {
+	return reason === "underscore"
+		? l10n.t("not sent: keys starting with _ are reserved for extension metadata")
+		: l10n.t("not sent: a provider-owned request field, never overridable");
+}
 
 /** The request fields the extension itself owns; rendered as chips, never prose. */
 const ALWAYS_SENT_FIELDS = ["model", "messages", "stream", "stream_options", "max_tokens"] as const;
@@ -89,15 +118,18 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens, entryLabel: string): { va
 				value: maxTokens.value,
 				reason:
 					maxTokens.configuredSource !== undefined
-						? `set by ${sourceName(maxTokens.configuredSource, entryLabel)}`
-						: "set in configuration",
+						? l10n.t("set by {0}", sourceName(maxTokens.configuredSource, entryLabel))
+						: l10n.t("set in configuration"),
 			};
 		case "declared":
-			return { value: maxTokens.value, reason: "the server's declared output limit (nothing configured sets it)" };
+			return {
+				value: maxTokens.value,
+				reason: l10n.t("the server's declared output limit (nothing configured sets it)"),
+			};
 		case "capped-default":
 			return {
 				value: maxTokens.value,
-				reason: `min(${DEFAULT_MAX_TOKENS_CAP}, model max) - the limit is a default, not server-declared`,
+				reason: l10n.t("min({0}, model max) - the limit is a default, not server-declared", DEFAULT_MAX_TOKENS_CAP),
 			};
 	}
 }
@@ -107,7 +139,7 @@ function ShadowedLine({ shadow, entryLabel }: { shadow: ShadowedParameterValue; 
 		<tr class="param-shadowed">
 			<td />
 			<td class="param-value">{formatJsonValue(shadow.value)}</td>
-			<td>overridden: {sourceName(shadow, entryLabel)}</td>
+			<td>{l10n.t("overridden: {0}", sourceName(shadow, entryLabel))}</td>
 		</tr>
 	);
 }
@@ -120,7 +152,7 @@ function ParameterRow({ row, entryLabel }: { row: EffectiveParameterRow; entryLa
 				<td class="param-value">{formatJsonValue(row.value)}</td>
 				<td>
 					{sourceName(row.source, entryLabel)}
-					{row.skipReason !== undefined ? <span class="param-skip"> ({SKIP_REASON_TEXT[row.skipReason]})</span> : null}
+					{row.skipReason !== undefined ? <span class="param-skip"> ({skipReasonText(row.skipReason)})</span> : null}
 				</td>
 			</tr>
 			{row.shadowed.map((shadow) => (
@@ -172,43 +204,51 @@ export function ParamsInspector({
 		>
 			<div class="params-inspector">
 				<h3 id="params-inspector-title">
-					{model.name} <Help text={helpParamsInspector()} name="About effective parameters" />
-					<DocsLink href={DOCS_LINK_PARAMS_INSPECTOR} label="Open the effective-parameters guide" />
+					{model.name} <Help text={helpParamsInspector()} name={l10n.t("About effective parameters")} />
+					<DocsLink href={DOCS_LINK_PARAMS_INSPECTOR} label={l10n.t("Open the effective-parameters guide")} />
 				</h3>
 				<p class="hint params-identity">
-					{model.rawId} on {model.serverLabel}
+					{l10n.t({
+						message: "{0} on {1}",
+						args: [model.rawId, model.serverLabel],
+						comment: ["{0} is a model ID, {1} is the server it is served from"],
+					})}
 					{scope !== undefined ? ` (${scope.baseUrlScope})` : ""}
 				</p>
 				<dl class="model-facts">
-					<Fact label="Family" value={model.family} />
-					<Fact label="Capabilities" value={capabilities(model) || "none declared"} />
-					<Fact label="Input tokens" value={formatTokens(model.maxInputTokens)} />
+					<Fact label={l10n.t("Family")} value={model.family} />
+					<Fact label={l10n.t("Capabilities")} value={capabilities(model) || l10n.t("none declared")} />
+					<Fact label={l10n.t("Input tokens")} value={formatTokens(model.maxInputTokens)} />
 					<Fact
-						label="Output tokens"
-						value={`${formatTokens(model.maxOutputTokens)}${model.outputLimitDeclared ? "" : " (default, not server-declared)"}`}
+						label={l10n.t("Output tokens")}
+						value={
+							model.outputLimitDeclared
+								? formatTokens(model.maxOutputTokens)
+								: l10n.t("{0} (default, not server-declared)", formatTokens(model.maxOutputTokens))
+						}
 					/>
-					<Fact label="Pricing ($/M)" value={formatPricing(model)} />
+					<Fact label={l10n.t("Pricing ($/M)")} value={formatPricing(model)} />
 					{cachePricing(model) !== undefined ? (
-						<Fact label="Cache ($/M)" value={cachePricing(model) as string} />
+						<Fact label={l10n.t("Cache ($/M)")} value={cachePricing(model) as string} />
 					) : null}
 					{longContextPricing(model) !== undefined ? (
-						<Fact label="Long context ($/M)" value={longContextPricing(model) as string} />
+						<Fact label={l10n.t("Long context ($/M)")} value={longContextPricing(model) as string} />
 					) : null}
 				</dl>
 				<div class="params-fixed">
-					<span class="params-caveat-label">Always sent</span>
+					<span class="params-caveat-label">{l10n.t("Always sent")}</span>
 					{ALWAYS_SENT_FIELDS.map((field) => (
 						<code key={field}>{field}</code>
 					))}
-					<span class="hint">+ tools, tool_choice with tools; not overridable</span>
+					<span class="hint">{l10n.t("+ tools, tool_choice with tools; not overridable")}</span>
 				</div>
 				{projection.rows.length > 0 ? (
 					<table class="params">
 						<thead>
 							<tr>
-								<th>Parameter</th>
-								<th>Value</th>
-								<th>Source</th>
+								<th>{l10n.t("Parameter")}</th>
+								<th>{l10n.t("Value")}</th>
+								<th>{l10n.t("Source")}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -218,13 +258,15 @@ export function ParamsInspector({
 						</tbody>
 					</table>
 				) : empty ? (
-					<p class="hint params-empty">No configured parameters match this model.</p>
+					<p class="hint params-empty">{l10n.t("No configured parameters match this model.")}</p>
 				) : null}
 				{projection.replacedUnscoped !== undefined ? (
 					<div class="params-replaced">
 						<p class="hint">
-							Not applied - Settings {projection.replacedUnscoped.key}: a server-scoped match replaces the whole
-							unscoped record.
+							{l10n.t(
+								"Not applied - Settings {0}: a server-scoped match replaces the whole unscoped record.",
+								projection.replacedUnscoped.key
+							)}
 						</p>
 						<ul>
 							{Object.entries(projection.replacedUnscoped.record).map(([name, value]) => (
@@ -241,13 +283,15 @@ export function ParamsInspector({
 				</p>
 				<dl class="params-caveats">
 					<div>
-						<dt class="params-caveat-label">Runtime options</dt>
-						<dd class="hint">Set per request by the chat client; they override every row above.</dd>
+						<dt class="params-caveat-label">{l10n.t("Runtime options")}</dt>
+						<dd class="hint">{l10n.t("Set per request by the chat client; they override every row above.")}</dd>
 					</div>
 					{model.reasoning ? (
 						<div>
-							<dt class="params-caveat-label">Picker: reasoning effort</dt>
-							<dd class="hint">Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.</dd>
+							<dt class="params-caveat-label">{l10n.t("Picker: reasoning effort")}</dt>
+							<dd class="hint">
+								{l10n.t("Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.")}
+							</dd>
 						</div>
 					) : null}
 				</dl>

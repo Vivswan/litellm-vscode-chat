@@ -22,6 +22,7 @@
 	"$(trash) Remove Server": "$(trash) Remove Server",
 	"$(warning) LiteLLM": "$(warning) LiteLLM",
 	"$(warning) LiteLLM ({0})": "$(warning) LiteLLM ({0})",
+	"+ tools, tool_choice with tools; not overridable": "+ tools, tool_choice with tools; not overridable",
 	"1 hidden group": "1 hidden group",
 	"1 model available": "1 model available",
 	"1 model available from {0} servers": "1 model available from {0} servers",
@@ -42,6 +43,7 @@
 	"A previously stored secret under this label ({0}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.": "A previously stored secret under this label ({0}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.",
 	"A server with this label already exists": "A server with this label already exists",
 	"API key": "API key",
+	"About effective parameters": "About effective parameters",
 	"Add header": "Add header",
 	"Add model prefix": "Add model prefix",
 	"Add parameter": "Add parameter",
@@ -53,6 +55,7 @@
 	"Adopting the server failed:": "Adopting the server failed:",
 	"Adopting writes this VS Code-managed group into the litellm-vscode-chat.servers setting, so it becomes editable here. Its credentials are copied inside the extension and never pass through this page.": "Adopting writes this VS Code-managed group into the litellm-vscode-chat.servers setting, so it becomes editable here. Its credentials are copied inside the extension and never pass through this page.",
 	"Adopting...": "Adopting...",
+	"Always sent": "Always sent",
 	"An entry with this label already exists": "An entry with this label already exists",
 	"An entry with this label already exists; saving replaces it.": "An entry with this label already exists; saving replaces it.",
 	"Apply": "Apply",
@@ -61,6 +64,7 @@
 	"Authentication failed: Your LiteLLM server requires an API key. Please run the \"{0}\" command to configure your API key.": "Authentication failed: Your LiteLLM server requires an API key. Please run the \"{0}\" command to configure your API key.",
 	"Base URL": "Base URL",
 	"Base URL is required": "Base URL is required",
+	"Cache ($/M)": "Cache ($/M)",
 	"Cache the system prompt on models that advertise support.": "Cache the system prompt on models that advertise support.",
 	"Caching": "Caching",
 	"Cancel": "Cancel",
@@ -71,6 +75,7 @@
 	"Changing the URL or credentials?": "Changing the URL or credentials?",
 	"Check Server": "Check Server",
 	"Check every server and report the result": "Check every server and report the result",
+	"Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.": "Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.",
 	"Clear the server filter": "Clear the server filter",
 	"Click for diagnostics": "Click for diagnostics",
 	"Close": "Close",
@@ -231,6 +236,7 @@
 	"LiteLLM: {0}": "LiteLLM: {0}",
 	"Loading": "Loading",
 	"Loading stored values...": "Loading stored values...",
+	"Long context ($/M)": "Long context ($/M)",
 	"Manage LiteLLM Provider": "Manage LiteLLM Provider",
 	"Manage server \"{0}\" ({1})": "Manage server \"{0}\" ({1})",
 	"Mask API key input": "Mask API key input",
@@ -262,6 +268,7 @@
 	"Network Error: The connection to {0} was closed before the response completed. {1}": "Network Error: The connection to {0} was closed before the response completed. {1}",
 	"Network Error: Unable to reach the OAuth token endpoint at {0}. Please check that the URL is correct and the identity provider is reachable.": "Network Error: Unable to reach the OAuth token endpoint at {0}. Please check that the URL is correct and the identity provider is reachable.",
 	"Network Error: Unable to reach {0}. {1}": "Network Error: Unable to reach {0}. {1}",
+	"No configured parameters match this model.": "No configured parameters match this model.",
 	"No custom headers configured in this scope.": "No custom headers configured in this scope.",
 	"No entry in the servers setting: added outside this extension, or predates its tracking. Edit adopts it.": "No entry in the servers setting: added outside this extension, or predates its tracking. Edit adopts it.",
 	"No hidden group matches this identity; it may already be visible": "No hidden group matches this identity; it may already be visible",
@@ -280,6 +287,7 @@
 	},
 	"Not a number": "Not a number",
 	"Not a valid HTTP header name": "Not a valid HTTP header name",
+	"Not applied - Settings {0}: a server-scoped match replaces the whole unscoped record.": "Not applied - Settings {0}: a server-scoped match replaces the whole unscoped record.",
 	"Not checked": "Not checked",
 	"Not configured": "Not configured",
 	"Not configured - click to set up": "Not configured - click to set up",
@@ -306,6 +314,7 @@
 	"Open a prefilled GitHub issue": "Open a prefilled GitHub issue",
 	"Open in Settings editor": "Open in Settings editor",
 	"Open models file": "Open models file",
+	"Open the effective-parameters guide": "Open the effective-parameters guide",
 	"Open the model parameters guide": "Open the model parameters guide",
 	"Open the models file and remove the \"{0}\" object from the JSON array.": "Open the models file and remove the \"{0}\" object from the JSON array.",
 	"Open the models guide": "Open the models guide",
@@ -315,11 +324,13 @@
 	"Open {0} in settings.json": "Open {0} in settings.json",
 	"Other": "Other",
 	"Output tokens": "Output tokens",
+	"Parameter": "Parameter",
 	"Parameter, e.g. temperature": "Parameter, e.g. temperature",
 	"Parameters sent only to this server's models, e.g. temperature 0.2. Runtime options and per-model picker config win; these win over the global Model parameters setting.": "Parameters sent only to this server's models, e.g. temperature 0.2. Runtime options and per-model picker config win; these win over the global Model parameters setting.",
 	"Params": "Params",
 	"Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.": "Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.",
 	"Per-server model parameters are not applied: the group serving this entry predates its label or a rename. The banner below has the fix.": "Per-server model parameters are not applied: the group serving this entry predates its label or a rename. The banner below has the fix.",
+	"Picker: reasoning effort": "Picker: reasoning effort",
 	"Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.": "Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.",
 	"Pricing ($/M)": "Pricing ($/M)",
 	"Prompt caching": "Prompt caching",
@@ -350,6 +361,7 @@
 	"Reset": "Reset",
 	"Reveal File": "Reveal File",
 	"Run Sync models.": "Run Sync models.",
+	"Runtime options": "Runtime options",
 	"SSL Certificate Error: The SSL certificate for {0} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.": "SSL Certificate Error: The SSL certificate for {0} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.",
 	"SSL Certificate Error: There is an issue with the SSL certificate for {0}. Error: {1}": "SSL Certificate Error: There is an issue with the SSL certificate for {0}. Error: {1}",
 	"Save": "Save",
@@ -374,6 +386,7 @@
 	"Server \"{0}\" removed.": "Server \"{0}\" removed.",
 	"Server \"{0}\" updated!": "Server \"{0}\" updated!",
 	"Server adopted": "Server adopted",
+	"Server entry \"{0}\" - {1}": "Server entry \"{0}\" - {1}",
 	"Server migration is in progress, try again in a moment.": "Server migration is in progress, try again in a moment.",
 	"Server removed": "Server removed",
 	"Server saved": "Server saved",
@@ -385,11 +398,14 @@
 	"Servers, models, and settings in one place; edits land in your VS Code settings.": "Servers, models, and settings in one place; edits land in your VS Code settings.",
 	"Servers, models, and settings in one view": "Servers, models, and settings in one view",
 	"Set in {0} settings - edit there.": "Set in {0} settings - edit there.",
+	"Set per request by the chat client; they override every row above.": "Set per request by the chat client; they override every row above.",
 	"Settings": "Settings",
+	"Settings - {0}": "Settings - {0}",
 	"Show": "Show",
 	"Show effective parameters for {0} on {1}": "Show effective parameters for {0} on {1}",
 	"Show models from {0}": "Show models from {0}",
 	"Show the {0}": "Show the {0}",
+	"Source": "Source",
 	"Space-separated, e.g. litellm.read litellm.write. Empty uses the provider's defaults.": "Space-separated, e.g. litellm.read litellm.write. Empty uses the provider's defaults.",
 	"Status": "Status",
 	"Still adopting; the form closes by itself when it finishes.": "Still adopting; the form closes by itself when it finishes.",
@@ -489,6 +505,7 @@
 	"just now": "just now",
 	"last sync {0}": "last sync {0}",
 	"long-context tier: {0}": "long-context tier: {0}",
+	"min({0}, model max) - the limit is a default, not server-declared": "min({0}, model max) - the limit is a default, not server-declared",
 	"min/Abbreviation for minutes (not minimum) in durations like '5 min'.": {
 		"message": "min",
 		"comment": [
@@ -514,8 +531,18 @@
 		]
 	},
 	"name the header that carries the key": "name the header that carries the key",
+	"none declared": "none declared",
 	"not a usable http(s) URL": "not a usable http(s) URL",
+	"not sent: a provider-owned request field, never overridable": "not sent: a provider-owned request field, never overridable",
+	"not sent: keys starting with _ are reserved for extension metadata": "not sent: keys starting with _ are reserved for extension metadata",
+	"overridden: {0}": "overridden: {0}",
 	"params inactive": "params inactive",
+	"read {0}/cache read price; {0} is a dollar amount": {
+		"message": "read {0}",
+		"comment": [
+			"cache read price; {0} is a dollar amount"
+		]
+	},
 	"reasoning": "reasoning",
 	"reserved name": "reserved name",
 	"s/Abbreviation for seconds in durations like '90 s'.": {
@@ -537,10 +564,13 @@
 			"plural noun after the count in the hero strip"
 		]
 	},
+	"set by {0}": "set by {0}",
+	"set in configuration": "set in configuration",
 	"settings": "settings",
 	"settings (visible)": "settings (visible)",
 	"show": "show",
 	"showing {0} of {1}": "showing {0} of {1}",
+	"the server's declared output limit (nothing configured sets it)": "the server's declared output limit (nothing configured sets it)",
 	"tokens/Unit suffix after token-count inputs; LLM tokens.": {
 		"message": "tokens",
 		"comment": [
@@ -549,6 +579,13 @@
 	},
 	"tools": "tools",
 	"vision": "vision",
+	"write {0}/cache write price; {0} is a dollar amount": {
+		"message": "write {0}",
+		"comment": [
+			"cache write price; {0} is a dollar amount"
+		]
+	},
+	"{0} (default, not server-declared)": "{0} (default, not server-declared)",
 	"{0} d ago": "{0} d ago",
 	"{0} for {1}": "{0} for {1}",
 	"{0} h ago": "{0} h ago",
@@ -562,6 +599,12 @@
 	"{0} min ago": "{0} min ago",
 	"{0} models available": "{0} models available",
 	"{0} models available from {1} servers": "{0} models available from {1} servers",
+	"{0} on {1}/{0} is a model ID, {1} is the server it is served from": {
+		"message": "{0} on {1}",
+		"comment": [
+			"{0} is a model ID, {1} is the server it is served from"
+		]
+	},
 	"{0} out/price per million output tokens; {0} is a dollar amount": {
 		"message": "{0} out",
 		"comment": [
