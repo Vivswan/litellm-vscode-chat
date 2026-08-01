@@ -134,12 +134,16 @@ export class GroupRemovalStore {
 	 * ride through underneath. Every persist writes the journaled view, so a
 	 * failed or reverted write self-heals on the next mutation (and, like
 	 * every log-only persist in this codebase, a failure with no later
-	 * mutation costs the NEXT session the record - never this one). Known
-	 * residual, same as every whole-key Memento write in this codebase: two
-	 * windows mutating concurrently can overwrite each other's latest write,
-	 * and a sticky journal op keeps this window's answer until its next
-	 * persist - per-window session state stays correct, and each window
-	 * re-persists its own ops.
+	 * mutation costs the NEXT session the record - never this one). The
+	 * deliberate cross-window cost: a journal op is sticky for the session and
+	 * every persist re-asserts it, so another window's store-level clear of an
+	 * identity this window tombstoned is neither observed here nor preserved
+	 * by this window's next write. That divergence is confined to the other
+	 * window's dashboard Unhide (a re-declared entry clears through every
+	 * window's own sync pass via clearTombstonesFor, which journals the remove
+	 * locally); it lasts until this session ends, and the alternative -
+	 * trusting a fresh read over the journal - is exactly the reverted-store
+	 * hole this journal exists to close.
 	 */
 	private tombstoneOps = new Map<string, { op: "add" | "remove"; identity: GroupIdentity }>();
 	private provenanceOps = new Map<string, OrphanedGroupRecord>();
