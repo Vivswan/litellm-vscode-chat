@@ -31,12 +31,31 @@ import type {
 	DashboardServer,
 	DashboardSettings,
 	DashboardState,
+	ExternalServerProvenance,
 	HeaderScalar,
+	HiddenGroup,
 	NumberSettingId,
 	ScopedRecordSetting,
 	SettingScope,
 } from "./protocol";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, NUMBER_SETTINGS } from "./protocol";
+
+/**
+ * The removal bookkeeping the state builder folds in, as plain values (this
+ * module stays vscode-free): the identities the user explicitly removed
+ * (tombstones; base URLs normalized) and the recorded origins of orphaned
+ * groups. panel.ts reads both from the GroupRemovalStore.
+ */
+export interface RemovedGroupsView {
+	readonly tombstones: readonly { readonly label: string; readonly baseUrl: string }[];
+	readonly origins: readonly {
+		readonly label: string;
+		readonly baseUrl: string;
+		readonly origin: ExternalServerProvenance;
+	}[];
+}
+
+const NO_REMOVED_GROUPS: RemovedGroupsView = { tombstones: [], origins: [] };
 
 /** The per-scope values configuration inspection reports; a seam over WorkspaceConfiguration.inspect. */
 export interface SettingsInspection {
@@ -92,7 +111,12 @@ export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): La
 	});
 }
 
-function buildServer(snapshot: ServerModelsSnapshot, label: string): DashboardServer {
+function buildServer(
+	snapshot: ServerModelsSnapshot,
+	label: string,
+	provenance: ExternalServerProvenance | undefined,
+	hideable: boolean
+): DashboardServer {
 	const { status } = snapshot;
 	const base = {
 		label,
@@ -102,6 +126,8 @@ function buildServer(snapshot: ServerModelsSnapshot, label: string): DashboardSe
 		hasOAuth: false,
 		origin: "external",
 		adoptHandle: adoptSourceHandle(status.serverId),
+		hideable,
+		...(provenance !== undefined ? { provenance } : {}),
 	} as const;
 	return status.state === "ok"
 		? { ...base, state: "ok", modelCount: status.modelCount }
@@ -241,16 +267,48 @@ function declaredOutcome(
  * and an external unlabeled group sharing a connection with a pre-label
  * entry collapses into it (pre-existing under-report); exact host
  * cardinality is not recoverable from declarations alone.
+ *
+ * Removal bookkeeping (removedGroups) applies to external rows only: a
+ * tombstoned external snapshot leaves the table (the hidden-groups line
+ * states it instead) and contributes no models, and the remaining external
+ * rows carry their recorded provenance classification when one exists.
  */
 function buildServers(
 	labeled: readonly LabeledSnapshot[],
-	declared: readonly DeclaredServerView[]
+	declared: readonly DeclaredServerView[],
+	removedGroups: RemovedGroupsView,
+	isGroupSnapshot: (serverId: string) => boolean
 ): { servers: DashboardServer[]; snapshotLabels: string[][] } {
 	const { matchedByDeclared, unmatched } = joinDeclared(labeled, declared);
+	// The removal bookkeeping is keyed by the snapshot's own status label
+	// (never the display label, which can carry a collision ordinal) plus the
+	// normalized base URL. Only EXTERNAL, GROUP-BACKED rows are ever
+	// suppressed: a declared entry matching a tombstone clears it engine-side
+	// (and until that pass lands the declared row must keep rendering), and a
+	// legacy-registry row has no group a tombstone silences - the registry
+	// path would keep serving its models, so hiding it here would lie.
+	const isTombstoned = (snapshot: ServerModelsSnapshot) =>
+		isGroupSnapshot(snapshot.status.serverId) &&
+		removedGroups.tombstones.some(
+			(identity) =>
+				identity.label === snapshot.status.label &&
+				normalizeBaseUrl(identity.baseUrl) === normalizeBaseUrl(snapshot.status.baseUrl)
+		);
+	const originFor = (snapshot: ServerModelsSnapshot) =>
+		removedGroups.origins.find(
+			(record) =>
+				record.label === snapshot.status.label &&
+				normalizeBaseUrl(record.baseUrl) === normalizeBaseUrl(snapshot.status.baseUrl)
+		)?.origin;
 	// Countable claimant labels per snapshot, in declared order, with the
 	// first claimant of any state as the render-at-least-once fallback.
 	const claimants = new Map<LabeledSnapshot, { labels: string[]; fallback: string }>();
 	const servers: DashboardServer[] = [];
+	// Hidden externals leave the table AND the models list: the provider
+	// already answers a suppressed group with no models, so this only bridges
+	// the window between the tombstone write and the host's re-resolution
+	// (plus registry-backed rows, which have no group path to suppress).
+	const hidden = new Set<LabeledSnapshot>();
 	declared.forEach((view, declaredIndex) => {
 		const match = matchedByDeclared.get(declaredIndex);
 		const matched = match?.entry;
@@ -287,12 +345,26 @@ function buildServers(
 		});
 	});
 	for (const entry of unmatched) {
-		servers.push(buildServer(entry.snapshot, entry.label));
+		if (isTombstoned(entry.snapshot)) {
+			hidden.add(entry);
+			continue;
+		}
+		servers.push(
+			buildServer(
+				entry.snapshot,
+				entry.label,
+				originFor(entry.snapshot),
+				isGroupSnapshot(entry.snapshot.status.serverId)
+			)
+		);
 	}
 	servers.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
 	return {
 		servers,
 		snapshotLabels: labeled.map((entry) => {
+			if (hidden.has(entry)) {
+				return [];
+			}
 			const claimed = claimants.get(entry);
 			if (claimed === undefined) {
 				return [entry.label];
@@ -472,12 +544,27 @@ export function buildDashboardState(
 	snapshots: readonly ServerModelsSnapshot[],
 	reader: SettingsReader,
 	declared: readonly DeclaredServerView[] = [],
-	legacyServers: readonly { readonly baseUrl: string }[] = []
+	legacyServers: readonly { readonly baseUrl: string }[] = [],
+	removedGroups: RemovedGroupsView = NO_REMOVED_GROUPS,
+	/**
+	 * Whether a snapshot belongs to a provider group (vs the legacy registry);
+	 * gates tombstone suppression and the external rows' hideable flag. The
+	 * default treats everything as a group, which is right wherever the
+	 * registry cannot contribute snapshots.
+	 */
+	isGroupSnapshot: (serverId: string) => boolean = () => true
 ): DashboardState {
 	const labeled = labeledSnapshots(snapshots);
-	const { servers, snapshotLabels } = buildServers(labeled, declared);
+	const { servers, snapshotLabels } = buildServers(labeled, declared, removedGroups, isGroupSnapshot);
+	// The hidden-groups line renders from the tombstones themselves, not from
+	// live snapshots: an unhide must stay offered even after the suppressed
+	// group's snapshot ages out of the status window.
+	const hiddenGroups: HiddenGroup[] = removedGroups.tombstones
+		.map((identity) => ({ label: identity.label, baseUrl: identity.baseUrl }))
+		.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
 	return {
 		servers,
+		hiddenGroups,
 		models: labeled
 			.flatMap(({ snapshot, label }, index) =>
 				(snapshotLabels[index] ?? [label]).flatMap((serverLabel) =>

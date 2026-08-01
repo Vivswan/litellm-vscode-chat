@@ -98,6 +98,18 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 		requestId: requestIdSchema,
 	}),
 	z.strictObject({ type: z.literal("removeServerSetting"), label: z.string(), requestId: requestIdSchema }),
+	z.strictObject({
+		type: z.literal("hideExternalServer"),
+		baseUrl: z.string(),
+		sourceHandle: requestIdSchema,
+		requestId: requestIdSchema,
+	}),
+	z.strictObject({
+		type: z.literal("unhideServer"),
+		label: z.string(),
+		baseUrl: z.string(),
+		requestId: requestIdSchema,
+	}),
 	z.strictObject({ type: z.literal("readInlineSecrets"), label: z.string(), requestId: requestIdSchema }),
 	z.strictObject({
 		type: z.literal("adoptServer"),

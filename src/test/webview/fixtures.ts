@@ -92,6 +92,7 @@ export function makeExternalServer(overrides: Partial<ExternalServer> = {}): Ext
 		hasOAuth: false,
 		state: "ok",
 		adoptHandle: "handle-abc123",
+		hideable: true,
 	};
 	return { ...base, ...overrides } as ExternalServer;
 }
@@ -115,6 +116,7 @@ export function makeModel(overrides: Partial<DashboardModel> = {}): DashboardMod
 export function makeState(overrides: Partial<DashboardState> = {}): DashboardState {
 	return {
 		servers: [],
+		hiddenGroups: [],
 		models: [],
 		settings: makeSettings(),
 		legacyServerCount: 0,

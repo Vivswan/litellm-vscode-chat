@@ -68,7 +68,9 @@ function makeEngineEnv(declared: unknown, storage: FakeExtensionStorage) {
 		setFingerprints: async (map) => {
 			storage.mementoStore.set(SERVER_SYNC_FINGERPRINTS_KEY, { ...map });
 		},
-		notifyRemoved: () => {},
+		getEntryBaseUrls: () => ({}),
+		setEntryBaseUrls: async () => {},
+		reconcileEntryIdentities: async () => {},
 		log: () => {},
 		logError: () => {},
 	};

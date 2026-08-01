@@ -100,6 +100,18 @@ The two timeout settings are hard bounds on the whole call, streaming and any re
 - Your VS Code build lacks the thinking-part API, so streamed reasoning is dropped (with a note in the output channel), and a reply that contained nothing but reasoning fails with this error
 - Update VS Code to a version that supports thinking parts, or use a model that returns final text
 
+## Removed servers, hidden groups, and leftover native groups
+
+VS Code's provider-group API can add groups but not remove them, so the extension cannot delete a group when its `servers` entry goes away. Removal works by hiding instead:
+
+- Removing an entry (the dashboard's Remove, or deleting it from settings.json) hides its group: the group serves no models, and the dashboard lists it under a muted "N hidden groups" line with an Unhide per row. A notice names the group and offers to open the native editor.
+- Removing an external row (a group with no settings entry) does the same: the row's Remove hides the group and the follow-up notice carries the same steps.
+- The group's empty shell still shows in the native Manage Language Models editor. To delete it for good: open Manage Language Models (the notice's button, or Command Palette -> "Manage LiteLLM Provider" -> Manage Language Models), remove the named group, then run "LiteLLM: Sync Models Now".
+- Manual fallback: the groups live in `<profile>/User/chatLanguageModels.json` under your VS Code user data; removing one means deleting its object from the JSON array. Quit VS Code completely first - it reads the file at startup and holds it in memory, so an edit made while it runs is overwritten.
+- Renaming an entry creates a new group under the new name; the old group keeps its models until you delete it the same way. The dashboard shows it as an external row whose badge tip names the rename.
+- A hidden group returns when you re-add an entry with its label and base URL, or through the hidden-groups line's Unhide.
+- An external row's badge tip states the group's origin when the extension recorded one - the leftover of a removed entry, or of a rename. Groups added in the native editor, or predating this tracking, show the plain default.
+
 ## Per-server model parameters are inactive
 
 The dashboard shows a "params inactive" badge (and a banner naming the affected entries) when a server entry declares per-entry `modelParameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `modelParameters` setting.

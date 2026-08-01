@@ -84,6 +84,16 @@ export interface IntentEnvironment {
 	 * setting or SecretStorage and are never logged.
 	 */
 	resolveAdoptionCredentials(baseUrl: string, sourceHandle: string): AdoptableGroupCredentials | undefined;
+	/**
+	 * The identity (status label and base URL) of the external group a hide
+	 * intent names by its opaque row handle; same resolution rules as the
+	 * adopt path (still external, still at `baseUrl`), no credential material.
+	 */
+	resolveExternalGroup(baseUrl: string, sourceHandle: string): { label: string; baseUrl: string } | undefined;
+	/** Persist one removed-group tombstone; the group answers with no models until unhidden. */
+	hideGroup(identity: { label: string; baseUrl: string }): Promise<void>;
+	/** Clear one removed-group tombstone. Resolves false when no tombstone matched the identity. */
+	unhideGroup(identity: { label: string; baseUrl: string }): Promise<boolean>;
 	/** Classification-only logging (the buffer feeds public issue reports); never a payload value. */
 	log(message: string, data?: unknown): void;
 }
@@ -321,6 +331,35 @@ export async function executeDashboardIntent(
 		}
 		case "adoptServer":
 			return applyAdoptServer(intent, env);
+		case "hideExternalServer": {
+			const baseUrl = intent.baseUrl.trim();
+			if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
+				throw new DashboardValidationError("baseUrl: not a usable http(s) URL");
+			}
+			// Resolution binds the opaque handle to a group that is external
+			// RIGHT NOW: a stale or forged intent cannot tombstone a declared
+			// group's identity or a group at another host.
+			const identity = env.resolveExternalGroup(baseUrl, intent.sourceHandle);
+			if (identity === undefined) {
+				throw new DashboardValidationError(
+					"This row does not resolve to a hideable VS Code provider group: it may have been adopted or removed, or it is a legacy-registry server (remove those with the Manage LiteLLM Provider command)"
+				);
+			}
+			await env.hideGroup(identity);
+			return undefined;
+		}
+		case "unhideServer": {
+			if (intent.label.trim().length === 0) {
+				throw new DashboardValidationError("label: enter a label");
+			}
+			// The identity is echoed back verbatim (no trimming): the webview
+			// sends exactly what the HiddenGroup row carried.
+			const removed = await env.unhideGroup({ label: intent.label, baseUrl: intent.baseUrl });
+			if (!removed) {
+				throw new DashboardValidationError("No hidden group matches this identity; it may already be visible");
+			}
+			return undefined;
+		}
 		case "executeCommand": {
 			const { command, args } = COMMANDS_BY_ID[intent.command];
 			await env.executeCommand(command, ...args);

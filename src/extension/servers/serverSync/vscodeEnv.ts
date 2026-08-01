@@ -8,21 +8,78 @@ import * as vscode from "vscode";
 import { CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { SERVERS_SETTING_KEY } from "../../../shared/config/settings";
-import { SERVER_SYNC_FINGERPRINTS_KEY } from "../../../shared/config/storageKeys";
+import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
 import type { Logger } from "../../../shared/logger";
 import type { SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
-import type { ServerSyncEngine, ServerSyncEnv } from "./engine";
+import { showActionableMessage } from "../../ui/notifier";
+import type { GroupRemovalStore } from "../groupRemovals";
+import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
 import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./secrets";
 import type { EntryModelParameters } from "./setting";
 import { entryModelParametersFor, parseServersSetting } from "./setting";
+
+/** The one button every removal notice carries: it opens where group deletion actually lives. */
+const OPEN_NATIVE_EDITOR_LABEL = "Open Manage Language Models";
+
+const openNativeEditorAction = () => ({
+	label: OPEN_NATIVE_EDITOR_LABEL,
+	run: () => void vscode.commands.executeCommand(INTERNAL_CMD.manageServers),
+});
+
+const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`).join(", ");
+
+/**
+ * The removal notices, one per event class so each says only what is true.
+ * Every variant names the exact group label(s) to delete, gives the steps,
+ * and carries the button that opens the native editor - the only place group
+ * deletion exists.
+ */
+function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
+	const hidden: string[] = [];
+	const untracked: string[] = [];
+	const renamed: Extract<RemovedEntryEvent, { kind: "renamed" }>[] = [];
+	for (const event of events) {
+		if (event.kind === "renamed") {
+			renamed.push(event);
+		} else if (event.baseUrl !== undefined) {
+			hidden.push(event.label);
+		} else {
+			untracked.push(event.label);
+		}
+	}
+	if (hidden.length > 0) {
+		const labels = quoted(hidden);
+		const message =
+			hidden.length === 1
+				? `Removed ${labels} from the servers setting; its models are hidden. VS Code still keeps a provider group named ${labels}. To delete it: open Manage Language Models, remove ${labels}, then run Sync Models Now.`
+				: `Removed ${labels} from the servers setting; their models are hidden. VS Code still keeps a provider group for each. To delete them: open Manage Language Models, remove ${labels}, then run Sync Models Now.`;
+		void showActionableMessage("info", message, [openNativeEditorAction()]);
+	}
+	for (const event of renamed) {
+		void showActionableMessage(
+			"info",
+			`Renamed "${event.oldLabel}" to "${event.newLabel}". VS Code keeps the old group "${event.oldLabel}" and its models. To delete it: open Manage Language Models, remove "${event.oldLabel}", then run Sync Models Now. A rename made directly in settings.json does not carry the old label's stored secrets; set them again for "${event.newLabel}" (a dashboard rename copies them).`,
+			[openNativeEditorAction()]
+		);
+	}
+	if (untracked.length > 0) {
+		const labels = quoted(untracked);
+		const message =
+			untracked.length === 1
+				? `Removed ${labels} from the servers setting. VS Code keeps the provider group and its models. To delete it: open Manage Language Models, remove ${labels}, then run Sync Models Now.`
+				: `Removed ${labels} from the servers setting. VS Code keeps their provider groups and models. To delete them: open Manage Language Models, remove ${labels}, then run Sync Models Now.`;
+		void showActionableMessage("info", message, [openNativeEditorAction()]);
+	}
+}
 
 /** The real environment: workspace configuration, SecretStorage, globalState, and the host command. */
 export function createServerSyncEnv(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	fingerprintSalt: FingerprintSaltSession
+	fingerprintSalt: FingerprintSaltSession,
+	removals: GroupRemovalStore
 ): ServerSyncEnv {
 	if (fingerprintSalt.state() !== "durable") {
 		logger.log(
@@ -59,18 +116,72 @@ export function createServerSyncEnv(
 			}
 			await context.globalState.update(SERVER_SYNC_FINGERPRINTS_KEY, map);
 		},
-		notifyRemoved: (labels) => {
-			const list = labels.join(", ");
-			void vscode.window
-				.showInformationMessage(
-					`Removed from the servers setting: ${list}. VS Code keeps the provider group and it stays active with global settings only; remove it in the native Manage Language Models editor. If this was a rename made directly in the settings file, the new label starts without the old label's stored secrets - set them again for the new entry (a dashboard rename copies them).`,
-					"Open native editor"
-				)
-				.then((choice) => {
-					if (choice === "Open native editor") {
-						void vscode.commands.executeCommand(INTERNAL_CMD.manageServers);
+		getEntryBaseUrls: () => {
+			// Validated like the fingerprints: the key is engine-owned, but a
+			// corrupt value must not ride behind a cast.
+			const stored = context.globalState.get<unknown>(SYNCED_ENTRY_BASE_URLS_KEY);
+			if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
+				return {};
+			}
+			return Object.fromEntries(
+				Object.entries(stored).filter((field): field is [string, string] => typeof field[1] === "string")
+			);
+		},
+		setEntryBaseUrls: async (map) => {
+			await context.globalState.update(SYNCED_ENTRY_BASE_URLS_KEY, map);
+		},
+		reconcileEntryIdentities: async (declared, events) => {
+			// Awaited by the engine's pass, so this stays serialized with the
+			// passes that produce it: a removal's tombstone cannot land after a
+			// later pass's re-add already cleared it.
+			// Clear first: a removal and a re-add of the same identity in one
+			// pass must end unsuppressed.
+			try {
+				await removals.clearTombstonesFor(declared);
+			} catch (error) {
+				logger.error("Clearing removed-group tombstones failed", error);
+			}
+			// The notice must only claim "hidden" for groups whose tombstone
+			// provably landed; an event whose bookkeeping failed degrades to the
+			// untracked wording (group and models stay visible).
+			const noticeEvents: RemovedEntryEvent[] = [];
+			for (const event of events) {
+				try {
+					if (event.kind === "renamed") {
+						// A rename orphans the old group but is not an explicit
+						// removal: provenance only, no tombstone, models stay visible.
+						await removals.recordOrigin({
+							label: event.oldLabel,
+							baseUrl: event.baseUrl,
+							origin: { kind: "rename-leftover", oldLabel: event.oldLabel, newLabel: event.newLabel },
+						});
+						noticeEvents.push(event);
+					} else if (event.baseUrl !== undefined) {
+						await removals.recordOrigin({
+							label: event.label,
+							baseUrl: event.baseUrl,
+							origin: { kind: "removed-entry-leftover", removedLabel: event.label },
+						});
+						await removals.addTombstone({ label: event.label, baseUrl: event.baseUrl });
+						noticeEvents.push(event);
+					} else {
+						// The ledger predates this label, so no group identity can be
+						// resolved: no tombstone, no provenance, only the notice -
+						// never suppress on a guess.
+						noticeEvents.push(event);
 					}
-				});
+				} catch (error) {
+					logger.error("Recording removed-group bookkeeping failed", error);
+					if (event.kind === "removed") {
+						noticeEvents.push({ kind: "removed", label: event.label, baseUrl: undefined });
+					} else {
+						noticeEvents.push(event);
+					}
+				}
+			}
+			if (noticeEvents.length > 0) {
+				notifyRemovalEvents(noticeEvents);
+			}
 		},
 		log: (message, data) => logger.log(message, data),
 		logError: (message, error) => logger.error(message, error),

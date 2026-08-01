@@ -412,6 +412,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			<SectionPanel section="overview" active={section}>
 				<ServersSection
 					servers={state.servers}
+					hidden={state.hiddenGroups}
 					now={now}
 					ack={ack}
 					failures={failures}

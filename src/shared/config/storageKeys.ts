@@ -93,6 +93,35 @@ export function apiKeySecret(serverId: string): string {
 export const SERVER_SYNC_FINGERPRINTS_KEY = "litellm.serverSyncFingerprints";
 
 /**
+ * globalState: label -> normalized base URL for the entries the sync engine
+ * saw declared, written every pass. The removal path's identity ledger: when
+ * a label leaves the setting (possibly while VS Code was closed), this is
+ * what still knows which host its provider group pointed at. Owned by
+ * src/extension/servers/serverSync/vscodeEnv.ts.
+ */
+export const SYNCED_ENTRY_BASE_URLS_KEY = "litellm.syncedEntryBaseUrls";
+
+/**
+ * globalState: identities ({ label, baseUrl }, base URL normalized) of
+ * provider groups the user explicitly removed - by removing the declared
+ * entry, or with the dashboard's Remove on an external row. The provider
+ * answers a tombstoned group with an empty model list; the dashboard lists it
+ * under "hidden groups". Cleared per identity when a matching declared entry
+ * (re)appears or the user unhides the group. Owned by
+ * src/extension/servers/groupRemovals.ts, like the provenance key below.
+ */
+export const REMOVED_GROUP_TOMBSTONES_KEY = "litellm.removedGroupTombstones";
+
+/**
+ * globalState: identity -> origin classification for provider groups a
+ * removal or rename orphaned ({ label, baseUrl, origin }): which entry
+ * removal left the group behind, or which rename it predates. Labels and
+ * classifications only, never free text. The dashboard renders it as the
+ * external row's provenance.
+ */
+export const ORPHANED_GROUP_PROVENANCE_KEY = "litellm.orphanedGroupProvenance";
+
+/**
  * SecretStorage: the secure-side secrets of one litellm-vscode-chat.servers
  * entry, keyed by its label: a JSON blob holding any of apiKey,
  * oauthClientSecret, and virtualKeyValue the user chose not to keep inline

@@ -21,7 +21,7 @@
  * vscodeEnv.ts is the vscode wiring. This index is the import surface.
  */
 
-export type { DeclaredServerView, ServerSyncEnv } from "./engine";
+export type { DeclaredEntryIdentity, DeclaredServerView, RemovedEntryEvent, ServerSyncEnv } from "./engine";
 export {
 	buildGroupArgs,
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,

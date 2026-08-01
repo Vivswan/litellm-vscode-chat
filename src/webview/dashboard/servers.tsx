@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import type {
 	DashboardIntentType,
 	DashboardServer,
+	HiddenGroup,
 	SecretFieldId,
 	SecretLocation,
 } from "../../extension/dashboard/protocol";
@@ -107,6 +108,24 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 /** The two DashboardServer origins as their own types; Extract keeps them in step with the protocol union. */
 type DeclaredDashboardServer = Extract<DashboardServer, { origin: "declared" }>;
 type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
+
+/**
+ * The external badge's hover tip, from the row's provenance classification.
+ * The copy lives here (classifications cross the boundary, words do not):
+ * a removed entry's leftover names the removed label, a rename leftover names
+ * both labels, and a row without provenance gets the honest default - added
+ * in the native editor, or predating the tracking.
+ */
+function externalTip(server: ExternalDashboardServer): string {
+	const provenance = server.provenance;
+	if (provenance?.kind === "removed-entry-leftover") {
+		return `Left behind when the entry "${provenance.removedLabel}" was removed from the servers setting. Remove hides its models; deleting the group itself lives in the native Manage Language Models editor.`;
+	}
+	if (provenance?.kind === "rename-leftover") {
+		return `Left behind when "${provenance.oldLabel}" was renamed to "${provenance.newLabel}". Its models appear under both names until you delete this group in the native Manage Language Models editor.`;
+	}
+	return "No entry in the servers setting: added in the native Manage Language Models editor, or it predates this extension's tracking. Edit adopts it into the setting.";
+}
 
 /**
  * What the open form is for, decided once where it opens (a row's Edit or the
@@ -841,6 +860,7 @@ function ServerRow({
 	armed,
 	onEdit,
 	onArmRemove,
+	onHideExternal,
 	onShowModels,
 }: {
 	server: DashboardServer;
@@ -848,6 +868,8 @@ function ServerRow({
 	armed: boolean;
 	onEdit: () => void;
 	onArmRemove: (armed: boolean) => void;
+	/** Posts the hideExternalServer intent for this row; the section owns the requestId and the follow-up notice. */
+	onHideExternal: (server: ExternalDashboardServer) => void;
 	onShowModels: ((label: string) => void) | undefined;
 }) {
 	const confirmRemove = () => {
@@ -885,10 +907,7 @@ function ServerRow({
 					<span class="badge">{server.hasOAuth ? "OAuth" : "API key"}</span>
 				) : null}
 				{server.origin === "external" ? (
-					<HoverTip
-						focusable
-						tip="No entry in the servers setting; managed in the native editor. Edit adopts it into the setting."
-					>
+					<HoverTip focusable tip={externalTip(server)}>
 						<span class="badge">external</span>
 					</HoverTip>
 				) : null}
@@ -899,38 +918,99 @@ function ServerRow({
 				) : null}
 			</td>
 			<td class={armed ? "actions armed" : "actions"}>
-				{server.origin === "declared" ? (
-					armed ? (
-						<>
-							<button type="button" class="quiet state-error" onClick={confirmRemove}>
-								Confirm remove?
-							</button>
-							<button type="button" class="quiet" onClick={() => onArmRemove(false)}>
-								Cancel
-							</button>
-						</>
-					) : (
-						<>
-							<button type="button" class="quiet" onClick={onEdit}>
-								Edit
-							</button>
+				{armed ? (
+					<>
+						<button
+							type="button"
+							class="quiet state-error"
+							onClick={() => {
+								// The same two-step confirm for both origins; only the intent
+								// differs (a declared entry is removed from the setting, an
+								// external group is hidden by tombstone).
+								if (server.origin === "declared") {
+									confirmRemove();
+								} else {
+									onHideExternal(server);
+									onArmRemove(false);
+								}
+							}}
+						>
+							Confirm remove?
+						</button>
+						<button type="button" class="quiet" onClick={() => onArmRemove(false)}>
+							Cancel
+						</button>
+					</>
+				) : (
+					<>
+						<button type="button" class="quiet" onClick={onEdit}>
+							Edit
+						</button>
+						{/* A legacy-registry external row is not hideable (the registry
+						    path would keep serving its models), so it keeps Edit only. */}
+						{server.origin === "declared" || server.hideable ? (
 							<button type="button" class="quiet" onClick={() => onArmRemove(true)}>
 								Remove
 							</button>
-						</>
-					)
-				) : (
-					<button type="button" class="quiet" onClick={onEdit}>
-						Edit
-					</button>
+						) : null}
+					</>
 				)}
 			</td>
 		</tr>
 	);
 }
 
+/**
+ * The collapsed hidden-groups line: one muted sentence stating the count,
+ * expandable to a row per hidden group with its Unhide. Unhide clears the
+ * removal tombstone extension-side; the group's models return on the host's
+ * next re-resolution, which the extension triggers itself.
+ */
+function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
+	const [expanded, setExpanded] = useState(false);
+	if (hidden.length === 0) {
+		return null;
+	}
+	return (
+		<div class="hidden-groups">
+			<p class="hint">
+				{hidden.length} hidden {hidden.length === 1 ? "group" : "groups"} -{" "}
+				<button type="button" class="quiet" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+					{expanded ? "hide" : "show"}
+				</button>
+			</p>
+			{expanded ? (
+				<ul>
+					{hidden.map((group, index) => (
+						// Positional identity like the server rows: the list rebuilds
+						// wholesale on every state push.
+						<li key={index}>
+							<span class="hidden-label">{group.label}</span> <span class="url">{group.baseUrl}</span>{" "}
+							<button
+								type="button"
+								class="quiet"
+								onClick={() =>
+									postMessage({
+										type: "unhideServer",
+										label: group.label,
+										baseUrl: group.baseUrl,
+										requestId: newRequestId(),
+									})
+								}
+							>
+								Unhide
+							</button>
+						</li>
+					))}
+				</ul>
+			) : null}
+		</div>
+	);
+}
+
 export function ServersSection({
 	servers,
+	hidden = [],
 	now,
 	ack,
 	failures,
@@ -941,6 +1021,8 @@ export function ServersSection({
 	adoptEscapeAfterMs = ADOPT_ESCAPE_AFTER_MS,
 }: {
 	servers: readonly DashboardServer[];
+	/** Groups hidden by an explicit removal; rendered as the collapsed hidden-groups line. */
+	hidden?: readonly HiddenGroup[];
 	/** The shared clock tick (one useNow in App), so a hidden panel does not run its own interval. */
 	now: number;
 	ack: IntentAck | undefined;
@@ -983,9 +1065,29 @@ export function ServersSection({
 	// The one-time post-adoption notice: the old host-owned group survives (no
 	// removal API), so the user is told plainly why models now appear twice.
 	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
+	// The hide round trip: the posted intent's requestId plus the row's label,
+	// so the guidance notice below can name the exact group to delete once the
+	// ack lands. Copy is composed here; only the ack crosses the boundary.
+	const [pendingHide, setPendingHide] = useState<{ requestId: string; label: string } | undefined>(undefined);
+	const [removedNotice, setRemovedNotice] = useState<string | undefined>(undefined);
+	const pendingHideRequestId = pendingHide?.requestId;
+	const pendingHideLabel = pendingHide?.label;
+	useEffect(() => {
+		if (pendingHideRequestId !== undefined && ack?.requestId === pendingHideRequestId) {
+			setRemovedNotice(pendingHideLabel);
+			setPendingHide(undefined);
+		}
+	}, [ack, pendingHideRequestId, pendingHideLabel]);
+	const hideExternal = (server: ExternalDashboardServer) => {
+		const requestId = newRequestId();
+		postMessage({ type: "hideExternalServer", baseUrl: server.baseUrl, sourceHandle: server.adoptHandle, requestId });
+		setPendingHide({ requestId, label: server.label });
+	};
 	const saveFailure = failures.saveServerSetting;
 	const removeFailure = failures.removeServerSetting;
 	const adoptFailure = failures.adoptServer;
+	const hideFailure = failures.hideExternalServer;
+	const unhideFailure = failures.unhideServer;
 	const noServers = servers.length === 0;
 
 	const openForm = (target: FormTarget) => {
@@ -1114,6 +1216,26 @@ export function ServersSection({
 					)}
 				</SlideOver>
 			) : null}
+			{removedNotice !== undefined ? (
+				<div class="notice" role="status">
+					<p>
+						Hid "{removedNotice}" and its models. VS Code still keeps a provider group named "{removedNotice}". To
+						delete it: open Manage Language Models, remove "{removedNotice}", then run Sync models.
+					</p>
+					<div class="toolbar">
+						<button
+							type="button"
+							class="secondary"
+							onClick={() => postMessage({ type: "executeCommand", command: "manageServers" })}
+						>
+							Open native editor
+						</button>
+						<button type="button" class="quiet" onClick={() => setRemovedNotice(undefined)}>
+							Dismiss
+						</button>
+					</div>
+				</div>
+			) : null}
 			{adoptNotice !== undefined ? (
 				<div class="notice" role="status">
 					<p>{adoptNotice}</p>
@@ -1159,6 +1281,22 @@ export function ServersSection({
 				<div class="banner banner-error" role="alert">
 					<p>{sectionFailureText("Removing failed:", removeFailure.message)}</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("removeServerSetting")}>
+						Dismiss
+					</button>
+				</div>
+			) : null}
+			{hideFailure !== undefined ? (
+				<div class="banner banner-error" role="alert">
+					<p>{sectionFailureText("Hiding the group failed:", hideFailure.message)}</p>
+					<button type="button" class="quiet" onClick={() => onDismissFailure("hideExternalServer")}>
+						Dismiss
+					</button>
+				</div>
+			) : null}
+			{unhideFailure !== undefined ? (
+				<div class="banner banner-error" role="alert">
+					<p>{sectionFailureText("Unhiding the group failed:", unhideFailure.message)}</p>
+					<button type="button" class="quiet" onClick={() => onDismissFailure("unhideServer")}>
 						Dismiss
 					</button>
 				</div>
@@ -1211,6 +1349,7 @@ export function ServersSection({
 										)
 									}
 									onArmRemove={(armed) => setArmedRemove(armed ? server.label : undefined)}
+									onHideExternal={hideExternal}
 									onShowModels={onShowModels}
 								/>
 							))}
@@ -1218,6 +1357,7 @@ export function ServersSection({
 					</table>
 				</div>
 			)}
+			<HiddenGroupsLine hidden={hidden} />
 			{servers.some((server) => server.error !== undefined) ? (
 				<div class="banner banner-error">
 					<p class="error">

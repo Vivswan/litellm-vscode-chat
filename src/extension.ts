@@ -5,6 +5,7 @@ import { loadFingerprintSalt } from "./extension/fingerprintSalt";
 import type { MigrationContext } from "./extension/migrations";
 import { runMigrations } from "./extension/migrations";
 import { isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
+import { GroupRemovalStore } from "./extension/servers/groupRemovals";
 import {
 	type ManagementUiMode,
 	REGISTRY_SERVED_IN_MODE,
@@ -80,12 +81,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}
 		return registry.getServers().length === 0 ? "nativePreferred" : "legacy";
 	};
+	// Groups the user explicitly removed (the host command is add-only, so
+	// removal works by tombstoning): the provider consults the store on every
+	// group refresh, and tombstone changes fire the model-change event below.
+	const groupRemovals = new GroupRemovalStore(context.globalState);
 	const provider = new LiteLLMChatModelProvider({
 		userAgent: ua,
 		logger,
 		getServers: () => registry.getServersWithKeys(),
 		getEntryModelParameters: readEntryModelParameters,
 		grouplessRegistryEnabled: () => REGISTRY_SERVED_IN_MODE[getManagementUiMode()],
+		isGroupSuppressed: (label, baseUrl) => groupRemovals.isTombstoned(label, baseUrl),
 	});
 
 	// The setting itself is the truth here, not the sync engine's view: the
@@ -136,7 +142,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// The declarative server sync: litellm-vscode-chat.servers entries become
 	// provider groups. Created before the dashboard, which edits the setting
 	// and reads the engine's declared-server view.
-	const syncEngine = new ServerSyncEngine(createServerSyncEnv(context, logger, fingerprintSalt));
+	const syncEngine = new ServerSyncEngine(createServerSyncEnv(context, logger, fingerprintSalt, groupRemovals));
 	context.subscriptions.push(
 		// Disposal withdraws an armed no-servers claim, so its deferred toast
 		// cannot fire from a deactivated extension.
@@ -152,8 +158,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Also registers litellm.showDiagnostics: the command deep-links to the
 	// dashboard's Diagnostics tab, and the dashboard states the legacy
 	// registry's leftovers, which is why it takes the registry.
-	const dashboard = registerDashboardCommand(context, provider, logger, syncEngine, registry);
+	const dashboard = registerDashboardCommand(context, provider, logger, syncEngine, registry, groupRemovals);
 	syncEngine.onDidSync = () => dashboard.refresh();
+	// A tombstone change must reach the picker and the dashboard at once: the
+	// model-change event makes the host re-resolve every group (a hidden group
+	// then answers empty; an unhidden one serves again), and the refresh
+	// re-renders the hidden-groups line.
+	groupRemovals.onDidChange = () => {
+		provider.notifyModelInformationChanged();
+		dashboard.refresh();
+	};
 	// Test-only commands; registered after the sync engine and the dashboard
 	// exist because the docker-serversync suite reads the engine's declared
 	// views through them and the monkey fuzzer injects dashboard messages.
