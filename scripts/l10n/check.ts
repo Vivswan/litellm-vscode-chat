@@ -6,17 +6,20 @@
  * translated value's {0}-style placeholders differ from the English value's,
  * when a translation file carries banned typography, when the bundle and
  * package.nls locale sets disagree, or when package.json's %key% references
- * and package.nls.json disagree. Every file is parsed through a zod schema;
- * nothing is cast.
+ * and package.nls.json disagree. Every file is parsed through a zod schema
+ * (nothing is cast), and one bad file records its failure and lets the rest
+ * of the run continue.
  */
 import fs from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 import {
 	BUNDLE_PATH,
 	type BundleFile,
 	bundleMessage,
 	bundleSchema,
 	extractBundle,
+	LAZY_L10N_HELPERS,
 	moduleScopeL10nOffenses,
 	nlsSchema,
 	readSourceFiles,
@@ -34,8 +37,33 @@ function rel(file: string): string {
 	return path.relative(process.cwd(), file);
 }
 
-async function readJson(file: string): Promise<unknown> {
-	return JSON.parse(await fs.readFile(file, "utf8")) as unknown;
+function describeParseError(error: unknown): string {
+	if (error instanceof z.ZodError) {
+		return error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
+	}
+	return error instanceof Error ? error.message : String(error);
+}
+
+/** Parse one file's text through a schema; a failure records itself and returns undefined so the run continues. */
+function parseTable<T>(file: string, text: string, schema: z.ZodType<T>): T | undefined {
+	try {
+		return schema.parse(JSON.parse(text));
+	} catch (error) {
+		fail(`${rel(file)}: ${describeParseError(error)}`);
+		return undefined;
+	}
+}
+
+/** Read and parse one file; undefined (with a recorded failure) on any read or shape problem. */
+async function readTable<T>(file: string, schema: z.ZodType<T>): Promise<T | undefined> {
+	let text: string;
+	try {
+		text = await fs.readFile(file, "utf8");
+	} catch (error) {
+		fail(`${rel(file)}: ${error instanceof Error ? error.message : String(error)}`);
+		return undefined;
+	}
+	return parseTable(file, text, schema);
 }
 
 async function exists(file: string): Promise<boolean> {
@@ -54,20 +82,22 @@ async function checkExtractionDrift(): Promise<BundleFile | undefined> {
 		return undefined;
 	}
 	const committedText = await fs.readFile(BUNDLE_PATH, "utf8");
-	const committed = bundleSchema.parse(JSON.parse(committedText));
+	const committed = parseTable(BUNDLE_PATH, committedText, bundleSchema);
 	const extracted = await extractBundle();
 	if (serializeBundle(extracted) !== committedText) {
 		// Key-level hints before the verdict, so the failure reads without a manual diff.
-		for (const key of Object.keys(extracted)) {
-			if (!(key in committed)) {
-				fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} is in the source but not in the bundle.`);
-			} else if (bundleMessage(extracted[key]) !== bundleMessage(committed[key])) {
-				fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} has a different message in the source.`);
+		if (committed !== undefined) {
+			for (const key of Object.keys(extracted)) {
+				if (!(key in committed)) {
+					fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} is in the source but not in the bundle.`);
+				} else if (bundleMessage(extracted[key]) !== bundleMessage(committed[key])) {
+					fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} has a different message in the source.`);
+				}
 			}
-		}
-		for (const key of Object.keys(committed)) {
-			if (!(key in extracted)) {
-				fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} is in the bundle but no longer in the source.`);
+			for (const key of Object.keys(committed)) {
+				if (!(key in extracted)) {
+					fail(`${rel(BUNDLE_PATH)} drift: key ${JSON.stringify(key)} is in the bundle but no longer in the source.`);
+				}
 			}
 		}
 		fail(
@@ -78,13 +108,63 @@ async function checkExtractionDrift(): Promise<BundleFile | undefined> {
 	return committed;
 }
 
+/**
+ * The guard's own teeth, proven before it judges real files: every fixture
+ * is a pattern the AST walk must classify correctly, so a guard regression
+ * fails the gate instead of silently passing frozen-English catalogs.
+ */
+const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string; readonly flagged: boolean }[] = [
+	{
+		name: "module-level template interpolating a lazy helper",
+		source: `const MSG = \`run "\${manageCommandTitle()}" to configure\`;\n`,
+		flagged: true,
+	},
+	{
+		name: "multiline object literal with a t() value",
+		source: 'const CATALOG = {\n\tlabel: l10n.t("Label"),\n};\n',
+		flagged: true,
+	},
+	{
+		name: "eager IIFE",
+		source: 'const X = (() => l10n.t("x"))();\n',
+		flagged: true,
+	},
+	{
+		name: "satisfies-wrapped object with t()",
+		source: 'const Y = { a: vscode.l10n.t("a") } satisfies Record<string, string>;\n',
+		flagged: true,
+	},
+	{
+		name: "top-level expression statement call",
+		source: 'l10n.t("side effect");\n',
+		flagged: true,
+	},
+	{
+		name: "lazy arrow",
+		source: 'export const f = () => l10n.t("x");\n',
+		flagged: false,
+	},
+	{
+		name: "plain exported function",
+		source: 'export function g(): string {\n\treturn l10n.t("y");\n}\n',
+		flagged: false,
+	},
+];
+
 /** The lazy-catalog guard: no module-scope localization calls anywhere in the shipped source. */
 async function checkModuleScopeLocalization(): Promise<void> {
+	for (const fixture of GUARD_FIXTURES) {
+		const flagged = moduleScopeL10nOffenses(fixture.source, "fixture.ts").length > 0;
+		if (flagged !== fixture.flagged) {
+			fail(`guard self-check: "${fixture.name}" should ${fixture.flagged ? "" : "not "}be flagged.`);
+		}
+	}
 	for (const { file, contents } of await readSourceFiles()) {
-		for (const line of moduleScopeL10nOffenses(contents)) {
+		for (const line of moduleScopeL10nOffenses(contents, file)) {
 			fail(
-				`${rel(file)}:${line}: localization call in a module-level initializer; ` +
-					"it evaluates before l10n.config and freezes English. Resolve at call time (a zero-arg function)."
+				`${rel(file)}:${line}: module-scope localization call (l10n.t, vscode.l10n.t, or ` +
+					`${LAZY_L10N_HELPERS.join("/")}); it evaluates before l10n.config and freezes English. ` +
+					"Resolve at call time (a zero-arg function)."
 			);
 		}
 	}
@@ -128,19 +208,25 @@ function checkAgainstReference(
 }
 
 /**
- * (d) Banned typography, aligned with the repo-platform check: fullwidth
- * forms (variants, brackets, currency signs), no-break and ideographic
- * spaces, curly quotes, ellipsis, and hyphen-to-horizontal-bar dashes. CJK
- * ideographs and the sanctioned CJK punctuation pass because they are simply
- * not in the ranges.
+ * (d) Banned typography: a fast local subset; the repo-platform
+ * check-typography action in CI is authoritative. Fullwidth and halfwidth
+ * forms (the halfwidth marks are look-alikes of the sanctioned fullwidth
+ * ones, and this scan is the real gate for them), no-break/typographic/
+ * ideographic spaces, invisible and bidi controls, soft hyphen, curly
+ * quotes, ellipsis, dashes, and the minus/multiplication/division signs.
+ * CJK ideographs and the sanctioned CJK punctuation are not in the ranges.
+ * Built per call: a shared /g regex would carry lastIndex across .test()
+ * callers.
  */
-const BANNED_TYPOGRAPHY = /[\u00A0\u2010-\u2015\u2018-\u201F\u2026\u3000\uFF01-\uFF60\uFFE0-\uFFE6]/gu;
+function bannedTypography(): RegExp {
+	return /[\u00A0\u00AD\u00D7\u00F7\u2000-\u200F\u2010-\u2015\u2018-\u201F\u2026\u2028-\u202F\u2060\u2066-\u2069\u2212\u3000\uFEFF\uFF01-\uFF9F\uFFE0-\uFFE6]/gu;
+}
 
 /** Scan decoded keys and values (raw-JSON scans miss \u-escaped offenders); report each offending key. */
 function checkTypography(file: string, table: Record<string, string>): void {
 	for (const [key, value] of Object.entries(table)) {
 		const offenders = new Set<string>();
-		for (const match of `${key}\n${value}`.matchAll(BANNED_TYPOGRAPHY)) {
+		for (const match of `${key}\n${value}`.matchAll(bannedTypography())) {
 			offenders.add(match[0]);
 		}
 		for (const offender of offenders) {
@@ -167,7 +253,10 @@ function localesOf(names: readonly string[], pattern: RegExp): Set<string> {
 	return locales;
 }
 
-async function checkTranslationFiles(englishBundle: BundleFile | undefined): Promise<void> {
+async function checkTranslationFiles(
+	englishBundle: BundleFile | undefined,
+	englishNls: Readonly<Record<string, string>> | undefined
+): Promise<void> {
 	const root = process.cwd();
 	const l10nDir = path.dirname(BUNDLE_PATH);
 	const bundleFiles = (await exists(l10nDir))
@@ -178,25 +267,30 @@ async function checkTranslationFiles(englishBundle: BundleFile | undefined): Pro
 		// Strings only: the webview bootstrap drops a bundle with any non-string
 		// value, so a {message, comment} object here would silently revert the
 		// dashboard to English while the host stays translated.
-		const translated = nlsSchema.parse(await readJson(file));
+		const translated = await readTable(file, nlsSchema);
+		if (translated === undefined) {
+			continue;
+		}
 		if (englishBundle !== undefined) {
 			checkAgainstReference(file, translated, bundleMessages(englishBundle));
 		}
 		checkTypography(file, translated);
 	}
 
-	const rootNames = await fs.readdir(root);
-	const nlsFiles = rootNames.filter((name) => /^package\.nls\.[\w-]+\.json$/.test(name)).sort();
-	const nlsPath = path.join(root, "package.nls.json");
-	if (await exists(nlsPath)) {
-		const englishNls = nlsSchema.parse(await readJson(nlsPath));
-		checkTypography(nlsPath, englishNls);
-		for (const name of nlsFiles) {
-			const file = path.join(root, name);
-			const translated = nlsSchema.parse(await readJson(file));
-			checkAgainstReference(file, translated, englishNls);
-			checkTypography(file, translated);
+	const nlsFiles = (await fs.readdir(root)).filter((name) => /^package\.nls\.[\w-]+\.json$/.test(name)).sort();
+	if (englishNls !== undefined) {
+		checkTypography(path.join(root, "package.nls.json"), englishNls);
+	}
+	for (const name of nlsFiles) {
+		const file = path.join(root, name);
+		const translated = await readTable(file, nlsSchema);
+		if (translated === undefined) {
+			continue;
 		}
+		if (englishNls !== undefined) {
+			checkAgainstReference(file, translated, englishNls);
+		}
+		checkTypography(file, translated);
 	}
 
 	// Cross-family locale parity: a locale ships both files or neither.
@@ -242,20 +336,26 @@ type ManifestNlsState =
 			readonly nls: Readonly<Record<string, string>>;
 	  };
 
+/** Resolved once; checkTranslationFiles and checkManifestCoverage both consume it (one package.nls.json read). */
 async function resolveManifestNlsState(): Promise<ManifestNlsState> {
 	const root = process.cwd();
 	const references = new Set<string>();
-	collectNlsReferences(await readJson(path.join(root, "package.json")), references);
+	const manifest = await readTable(path.join(root, "package.json"), z.unknown());
+	collectNlsReferences(manifest, references);
 	const nlsPath = path.join(root, "package.nls.json");
 	if (!(await exists(nlsPath))) {
 		return references.size === 0 ? { kind: "not-externalized" } : { kind: "missing-nls", references };
 	}
-	return { kind: "externalized", references, nls: nlsSchema.parse(await readJson(nlsPath)) };
+	const nls = await readTable(nlsPath, nlsSchema);
+	if (nls === undefined) {
+		// Unreadable counts as missing for coverage purposes; the parse failure is already recorded.
+		return references.size === 0 ? { kind: "not-externalized" } : { kind: "missing-nls", references };
+	}
+	return { kind: "externalized", references, nls };
 }
 
 /** (e) package.json's %key% references and package.nls.json must name the same key set. */
-async function checkManifestCoverage(): Promise<void> {
-	const state = await resolveManifestNlsState();
+function checkManifestCoverage(state: ManifestNlsState): void {
 	switch (state.kind) {
 		case "not-externalized":
 			return;
@@ -282,8 +382,9 @@ async function checkManifestCoverage(): Promise<void> {
 async function main(): Promise<void> {
 	const englishBundle = await checkExtractionDrift();
 	await checkModuleScopeLocalization();
-	await checkTranslationFiles(englishBundle);
-	await checkManifestCoverage();
+	const manifestState = await resolveManifestNlsState();
+	await checkTranslationFiles(englishBundle, manifestState.kind === "externalized" ? manifestState.nls : undefined);
+	checkManifestCoverage(manifestState);
 	if (failed) {
 		process.exitCode = 1;
 		return;

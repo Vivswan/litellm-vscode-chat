@@ -8,6 +8,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { getL10nJson, type l10nJsonFormat } from "@vscode/l10n-dev";
+import ts from "typescript";
 import { z } from "zod";
 
 /** The English reference bundle: what extract writes and check re-derives. */
@@ -75,27 +76,88 @@ export function serializeBundle(bundle: l10nJsonFormat): string {
 }
 
 /**
- * Line numbers (1-based) of module-level const/let/var initializers that
- * call a localization function on the declaration line. A module-scope call
- * evaluates before l10n.config and freezes the English text, so the lazy
- * rule bans it. A heuristic (column-zero declarations, same-line call), not
- * a parser: it catches the easy mistake, not every conceivable one; a
- * function-valued initializer defers the call and passes.
+ * Zero-arg lazy localization helpers: calling one at module scope defeats
+ * its laziness exactly like a direct t() call, so the guard bans these names
+ * alongside l10n.t and vscode.l10n.t. New helpers minted by later work
+ * packages (help text, catalog presenters) belong on this list.
  */
-export function moduleScopeL10nOffenses(contents: string): number[] {
+export const LAZY_L10N_HELPERS: readonly string[] = ["manageCommandTitle"];
+
+/**
+ * Line numbers (1-based) of module-scope localization calls: l10n.t,
+ * vscode.l10n.t, or a LAZY_L10N_HELPERS name evaluated while the module
+ * loads, before l10n.config has run, freezing the English text. A real parse
+ * of the top-level statements (no deep scope analysis): variable
+ * initializers are searched through object/array literals, templates,
+ * as/satisfies wrappers, and immediately-invoked functions, while a
+ * function-valued initializer defers its body and passes; top-level
+ * expression statements are searched the same way.
+ */
+export function moduleScopeL10nOffenses(contents: string, fileName: string): number[] {
+	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+	const sourceFile = ts.createSourceFile(fileName, contents, ts.ScriptTarget.Latest, false, kind);
 	const offenses: number[] = [];
-	for (const [index, line] of contents.split("\n").entries()) {
-		if (!/^(?:export\s+)?(?:const|let|var)\s/.test(line)) {
-			continue;
+
+	const unwrap = (node: ts.Expression): ts.Expression => {
+		let current = node;
+		while (
+			ts.isParenthesizedExpression(current) ||
+			ts.isAsExpression(current) ||
+			ts.isSatisfiesExpression(current) ||
+			ts.isNonNullExpression(current)
+		) {
+			current = current.expression;
 		}
-		const call = /\bl10n\.t\(|\bmanageCommandTitle\(\)/.exec(line);
-		if (call === null) {
-			continue;
+		return current;
+	};
+
+	const isDeferred = (node: ts.Expression): boolean => {
+		const inner = unwrap(node);
+		return ts.isArrowFunction(inner) || ts.isFunctionExpression(inner);
+	};
+
+	// Walk everything that evaluates at module load. Function bodies are
+	// skipped (their calls run later) unless the function is invoked on the
+	// spot: an IIFE's callee body evaluates eagerly, so it is walked too.
+	const scan = (node: ts.Node): void => {
+		if (ts.isCallExpression(node)) {
+			const callee = node.expression.getText(sourceFile);
+			if (callee === "l10n.t" || callee === "vscode.l10n.t" || LAZY_L10N_HELPERS.includes(callee)) {
+				offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
+			}
+			const invoked = unwrap(node.expression);
+			if (ts.isArrowFunction(invoked) || ts.isFunctionExpression(invoked)) {
+				scan(invoked.body);
+			} else {
+				scan(node.expression);
+			}
+			for (const argument of node.arguments) {
+				scan(argument);
+			}
+			return;
 		}
-		if (/=>|\bfunction\b/.test(line.slice(0, call.index))) {
-			continue;
+		if (
+			ts.isArrowFunction(node) ||
+			ts.isFunctionExpression(node) ||
+			ts.isFunctionDeclaration(node) ||
+			ts.isClassDeclaration(node) ||
+			ts.isClassExpression(node)
+		) {
+			return;
 		}
-		offenses.push(index + 1);
+		ts.forEachChild(node, scan);
+	};
+
+	for (const statement of sourceFile.statements) {
+		if (ts.isVariableStatement(statement)) {
+			for (const declaration of statement.declarationList.declarations) {
+				if (declaration.initializer !== undefined && !isDeferred(declaration.initializer)) {
+					scan(declaration.initializer);
+				}
+			}
+		} else if (ts.isExpressionStatement(statement)) {
+			scan(statement.expression);
+		}
 	}
 	return offenses;
 }
