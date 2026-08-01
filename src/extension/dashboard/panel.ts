@@ -20,6 +20,7 @@ import type { Logger } from "../../shared/logger";
 import type { SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../shared/webviewPaths";
+import type { GroupRemovalStore } from "../servers/groupRemovals";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
 import {
@@ -30,7 +31,7 @@ import {
 	readServerSecrets,
 	updateServerSecret,
 } from "../servers/serverSync";
-import { resolveAdoptableCredentials } from "./adopt";
+import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildDashboardHtml } from "./html";
 import { webviewMessageSchema } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
@@ -41,7 +42,7 @@ import {
 	readInlineSecretValues,
 } from "./intents";
 import type { DashboardSectionId, ExtensionToWebviewMessage } from "./protocol";
-import type { SettingsReader } from "./state";
+import type { RemovedGroupsView, SettingsReader } from "./state";
 import { buildDashboardState, resolveConfiguredScope, resolveUpdateScope } from "./state";
 
 /** The slice of vscode.Webview the controller uses; createPanel sets the HTML before handing the panel over. */
@@ -68,6 +69,10 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	getDeclaredServers(): readonly DeclaredServerView[];
 	/** The legacy registry's servers, reduced to base URLs; see DashboardState.legacyServerCount. */
 	getLegacyServers(): readonly { readonly baseUrl: string }[];
+	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
+	getRemovedGroups(): RemovedGroupsView;
+	/** Whether a snapshot belongs to a provider group (vs the legacy registry); see buildDashboardState. */
+	isGroupSnapshot(serverId: string): boolean;
 	settingsReader(): SettingsReader;
 	log(message: string, data?: unknown): void;
 	logError(message: string, error: unknown): void;
@@ -210,7 +215,9 @@ export class DashboardController implements vscode.Disposable {
 				this.env.getSnapshots(),
 				this.env.settingsReader(),
 				this.env.getDeclaredServers(),
-				this.env.getLegacyServers()
+				this.env.getLegacyServers(),
+				this.env.getRemovedGroups(),
+				(serverId) => this.env.isGroupSnapshot(serverId)
 			),
 		});
 	}
@@ -375,7 +382,8 @@ export function registerDashboardCommand(
 	provider: LiteLLMChatModelProvider,
 	logger: Logger,
 	syncEngine: ServerSyncEngine,
-	registry: ServerRegistry
+	registry: ServerRegistry,
+	removals: GroupRemovalStore
 ): DashboardController {
 	const controller = new DashboardController({
 		createPanel: () => createRealPanel(context.extensionUri),
@@ -392,6 +400,15 @@ export function registerDashboardCommand(
 			);
 		},
 		getLegacyServers: () => registry.getServers(),
+		getRemovedGroups: (): RemovedGroupsView => ({
+			tombstones: removals.tombstones(),
+			origins: removals.provenance().map((record) => ({
+				label: record.label,
+				baseUrl: record.baseUrl,
+				origin: record.origin,
+			})),
+		}),
+		isGroupSnapshot: (serverId) => provider.getGroupServer(serverId) !== undefined,
 		settingsReader: () => {
 			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 			return {
@@ -436,6 +453,24 @@ export function registerDashboardCommand(
 				sourceHandle,
 				(serverId) => provider.getGroupServer(serverId)
 			),
+		// The hide intent's identity source: the same still-external resolution
+		// the adopt path uses, minus the credentials, and gated to group-backed
+		// snapshots (a legacy-registry row has no group a tombstone could
+		// silence, so it is not hideable).
+		resolveExternalGroup: (baseUrl, sourceHandle) =>
+			resolveExternalGroupIdentity(
+				provider.getServerSnapshots(),
+				syncEngine.getDeclared(),
+				baseUrl,
+				sourceHandle,
+				(serverId) => provider.getGroupServer(serverId) !== undefined
+			),
+		// Tombstone writes fire the store's onDidChange, which the activation
+		// wiring points at the provider's model-change event: the host
+		// re-resolves and the hidden group's models leave (or return to) the
+		// picker without waiting for the next background refresh.
+		hideGroup: (identity) => removals.addTombstone(identity),
+		unhideGroup: (identity) => removals.removeTombstone(identity),
 		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
 		log: (message, data) => logger.log(message, data),
 		logError: (message, error) => logger.error(message, error),

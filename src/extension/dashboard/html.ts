@@ -459,6 +459,13 @@ const STYLES = `
 		white-space: nowrap;
 	}
 	.badge + .badge { margin-left: 4px; }
+	/* The hidden-groups line under the servers table: one muted sentence
+	   stating the count, and a quiet row per group when expanded. */
+	.hidden-groups { margin: 4px 0 8px; color: var(--vscode-descriptionForeground); }
+	.hidden-groups > p { margin: 4px 0; }
+	.hidden-groups ul { list-style: none; margin: 4px 0; padding: 0 0 0 12px; }
+	.hidden-groups li { padding: 2px 0; }
+	.hidden-groups .hidden-label { font-weight: 600; }
 	.caps { color: var(--vscode-descriptionForeground); }
 	.state-ok { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
 	.state-error { color: var(--vscode-errorForeground); }

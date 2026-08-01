@@ -109,6 +109,18 @@ const validMessageArbs: Readonly<Record<WebviewToExtensionMessage["type"], fc.Ar
 		{ requiredKeys: ["type", "server", "secrets", "requestId"] }
 	),
 	removeServerSetting: fc.record({ type: fc.constant("removeServerSetting"), label: fc.string(), requestId }),
+	hideExternalServer: fc.record({
+		type: fc.constant("hideExternalServer"),
+		baseUrl: fc.string(),
+		sourceHandle: requestId,
+		requestId,
+	}),
+	unhideServer: fc.record({
+		type: fc.constant("unhideServer"),
+		label: fc.string(),
+		baseUrl: fc.string(),
+		requestId,
+	}),
 	readInlineSecrets: fc.record({ type: fc.constant("readInlineSecrets"), label: fc.string(), requestId }),
 	adoptServer: fc.record({
 		type: fc.constant("adoptServer"),

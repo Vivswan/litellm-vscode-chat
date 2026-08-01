@@ -53,6 +53,29 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
  */
 type DeclaredServerNotice = "entry-params-inactive";
 
+/**
+ * Where an external provider group came from, when the extension's removal
+ * bookkeeping knows: the leftover of a removed entry (with the removed
+ * label), or the leftover of a rename (old label -> new label). Absent for
+ * groups added in the native editor or predating the tracking - the webview
+ * renders that honest default. Classifications and labels only, never free
+ * text, like DeclaredServerNotice.
+ */
+export type ExternalServerProvenance =
+	| { readonly kind: "removed-entry-leftover"; readonly removedLabel: string }
+	| { readonly kind: "rename-leftover"; readonly oldLabel: string; readonly newLabel: string };
+
+/**
+ * One provider group the user explicitly removed (tombstoned): it answers
+ * with no models and leaves the servers table for the collapsed hidden-groups
+ * line, which offers Unhide per row. The identity is what the unhideServer
+ * intent echoes back.
+ */
+export interface HiddenGroup {
+	readonly label: string;
+	readonly baseUrl: string;
+}
+
 interface DashboardServerBase {
 	readonly label: string;
 	readonly baseUrl: string;
@@ -87,6 +110,8 @@ export type DashboardServer = DashboardServerBase &
 				readonly adoptHandle?: undefined;
 				/** A warning classification for the row, when one applies; see DeclaredServerNotice. */
 				readonly notice?: DeclaredServerNotice | undefined;
+				readonly provenance?: undefined;
+				readonly hideable?: undefined;
 		  }
 		| {
 				/**
@@ -102,6 +127,14 @@ export type DashboardServer = DashboardServerBase &
 				readonly adoptHandle: string;
 				readonly config?: undefined;
 				readonly notice?: undefined;
+				/** Why the group exists, when a removal or rename explains it; see ExternalServerProvenance. */
+				readonly provenance?: ExternalServerProvenance | undefined;
+				/**
+				 * Whether Remove (hide) applies: true for provider-group rows, false
+				 * for legacy-registry rows, whose models the registry path would
+				 * keep serving - hiding those would only make the dashboard lie.
+				 */
+				readonly hideable: boolean;
 		  }
 	) &
 	(
@@ -476,6 +509,12 @@ export interface DashboardSettings {
 
 export interface DashboardState {
 	readonly servers: readonly DashboardServer[];
+	/**
+	 * Groups the user explicitly removed, out of the servers table by design:
+	 * rendered as the collapsed hidden-groups line with an Unhide per row.
+	 * They contribute nothing to the overall verdict or the model counts.
+	 */
+	readonly hiddenGroups: readonly HiddenGroup[];
 	readonly models: readonly DashboardModel[];
 	readonly settings: DashboardSettings;
 	/**
@@ -604,6 +643,8 @@ const ACKED_INTENT_TYPES: Readonly<Record<AckedIntentType, true>> = {
 	saveServerSetting: true,
 	removeServerSetting: true,
 	adoptServer: true,
+	hideExternalServer: true,
+	unhideServer: true,
 };
 
 /** The failure notices a state push leaves standing, keyed like FailuresByIntent; see ACKED_INTENT_TYPES. */
@@ -673,6 +714,32 @@ export type WebviewToExtensionMessage =
 			readonly requestId: string;
 	  }
 	| { readonly type: "removeServerSetting"; readonly label: string; readonly requestId: string }
+	| {
+			/**
+			 * Remove (hide) an external provider group: writes its removal
+			 * tombstone, so it answers with no models and moves to the
+			 * hidden-groups line. Names the group by the opaque handle its row
+			 * carried (DashboardServer.adoptHandle), resolved extension-side only
+			 * against groups that are still external and still at `baseUrl` - the
+			 * same trust rule the adopt intent follows, so a forged intent cannot
+			 * hide a declared group.
+			 */
+			readonly type: "hideExternalServer";
+			readonly baseUrl: string;
+			readonly sourceHandle: string;
+			readonly requestId: string;
+	  }
+	| {
+			/**
+			 * Clear one hidden group's tombstone (the identity its HiddenGroup row
+			 * carried); its models return on the next host re-resolution, which
+			 * the extension triggers itself.
+			 */
+			readonly type: "unhideServer";
+			readonly label: string;
+			readonly baseUrl: string;
+			readonly requestId: string;
+	  }
 	| {
 			/**
 			 * Ask for a declared entry's inline secret values (the edit form's

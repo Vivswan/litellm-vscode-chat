@@ -11,11 +11,13 @@ import { groupClientId, parseGroupConfiguration } from "../../../provider/catalo
 import { VENDOR_ID } from "../../../shared/config/commandIds";
 import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
+import { isUnsafeRecordKey } from "../../../shared/util/json";
 import type { StoredServerSecrets } from "./secrets";
 import { inlineSecretValues } from "./secrets";
 import type { DeclaredServer, EntryModelParameters } from "./setting";
-import { parseServersSetting } from "./setting";
+import { parseServersSetting, rawDeclaredLabels } from "./setting";
 
 /**
  * Which failure class produced a view's syncError. "upsertFailed" means the
@@ -62,6 +64,25 @@ export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly syncErrorClass?: SyncErrorClass | undefined;
 }
 
+/** One identity the setting currently declares: the entry label and its normalized base URL. */
+export interface DeclaredEntryIdentity {
+	readonly label: string;
+	readonly baseUrl: string;
+}
+
+/**
+ * One entry the pass found gone from the setting, classified. "renamed" means
+ * a new label (one with no prior fingerprint record) now declares the removed
+ * label's base URL, so the disappearance is a rename and the old group is a
+ * rename leftover, not an explicit removal. "removed" is everything else; its
+ * baseUrl comes from the persisted identity ledger and is undefined for
+ * labels the ledger predates (their group identity cannot be resolved, so
+ * the env must not tombstone them).
+ */
+export type RemovedEntryEvent =
+	| { readonly kind: "removed"; readonly label: string; readonly baseUrl: string | undefined }
+	| { readonly kind: "renamed"; readonly oldLabel: string; readonly newLabel: string; readonly baseUrl: string };
+
 /** Everything the engine touches, injected; createServerSyncEnv builds the real one. */
 export interface ServerSyncEnv {
 	/** The effective litellm-vscode-chat.servers value: what the settings side declares. */
@@ -87,8 +108,30 @@ export interface ServerSyncEnv {
 	 */
 	getFingerprints(): Readonly<Record<string, string>>;
 	setFingerprints(map: Readonly<Record<string, string>>): Promise<void>;
-	/** Entries removed from the setting; the group itself needs the native editor. */
-	notifyRemoved(labels: readonly string[]): void;
+	/**
+	 * The persisted identity ledger: label -> normalized base URL for the
+	 * entries earlier passes saw declared. Read at pass end to resolve which
+	 * host a just-removed label's group pointed at; rewritten with the current
+	 * entries afterwards. Unlike the fingerprints it carries no credential
+	 * material and no salt dependence, so it is read and written unguarded.
+	 */
+	getEntryBaseUrls(): Readonly<Record<string, string>>;
+	setEntryBaseUrls(map: Readonly<Record<string, string>>): Promise<void>;
+	/**
+	 * Pass-end identity reconciliation, called once per pass: the identities
+	 * the setting currently declares, and the removal/rename events this pass
+	 * detected (empty most passes). The env clears removal tombstones matching
+	 * a declared identity (a re-declared group must never stay suppressed),
+	 * records tombstones and provenance for the events, and raises the
+	 * user-facing notice; the group itself needs the native editor. Awaited by
+	 * the pass, so reconciliations stay serialized with the passes that
+	 * produced them: a removal's tombstone can never land after a later
+	 * pass's re-add already cleared it.
+	 */
+	reconcileEntryIdentities(
+		declared: readonly DeclaredEntryIdentity[],
+		events: readonly RemovedEntryEvent[]
+	): Promise<void>;
 	log(message: string, data?: unknown): void;
 	logError(message: string, error: unknown): void;
 }
@@ -160,9 +203,12 @@ export const GROUP_UPSERT_FAILED_MESSAGE = "The host rejected the provider group
  * provider group already holds its name. That covers an entry whose
  * configuration changed after its group was created AND a brand-new entry
  * (the adopt flow included) under a name the host already uses, so the text
- * must not assert that anything changed. VS Code's group command is strictly
- * additive (lm.addLanguageModelsProviderGroup rejects an existing name, and
- * no update or removal command exists; pinned by hostGroupCommand.test.ts).
+ * must not assert that anything changed. VS Code's group commands are
+ * strictly additive: lm.addLanguageModelsProviderGroup rejects an existing
+ * name, and the only other registered group command,
+ * lm.migrateLanguageModelsProviderGroup, is add-shaped (it warms the provider
+ * and calls the same add) - no update or removal command exists (pinned by
+ * hostGroupCommand.test.ts).
  */
 export const GROUP_UPDATE_UNAVAILABLE_MESSAGE =
 	"A VS Code provider group already uses this name, and VS Code cannot update an existing group. If the group does not match this entry, remove it in the native Manage Language Models editor and run Sync Models Now.";
@@ -367,7 +413,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	private async syncPass(force: boolean): Promise<void> {
-		const { entries, problems } = parseServersSetting(this.env.readServersSetting());
+		const rawSetting = this.env.readServersSetting();
+		const { entries, problems } = parseServersSetting(rawSetting);
 		for (const problem of problems) {
 			this.env.log(`Servers setting: ${problem}`);
 		}
@@ -385,6 +432,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 		const previous: Readonly<Record<string, string>> = this.fingerprints;
 		const next: Record<string, string> = {};
 		const views: DeclaredServerView[] = [];
+		// Each entry's fingerprint as computed THIS pass; the pass-end ledger
+		// compares it against `next` to tell in-sync entries (whose declared URL
+		// provably describes the live group) from blocked or skipped ones.
+		const printedByLabel = new Map<string, string>();
 		for (const entry of entries) {
 			let stored: StoredServerSecrets = {};
 			let secretsUnreadable = false;
@@ -415,6 +466,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 			}
 			const args = buildGroupArgs(entry, stored);
 			const printed = groupArgsFingerprint(args);
+			printedByLabel.set(entry.label, printed);
 			const retryState = this.retry.get(entry.label);
 			if (secretsUnreadable) {
 				// Without the real secrets the fingerprint is not meaningful, so no
@@ -577,7 +629,48 @@ export class ServerSyncEngine implements vscode.Disposable {
 		}
 
 		const currentLabels = new Set(entries.map((entry) => entry.label));
-		const removed = Object.keys(previous).filter((label) => !currentLabels.has(label));
+		// Removal detection wants "the user removed the entry", not "this pass
+		// could not accept it": a label any raw entry still carries (malformed
+		// mid-edit, or a duplicate) is present, not removed, so no event may
+		// fire for it - a tombstone written for a present entry would suppress
+		// a group the user did not remove. A setting whose CONTAINER is
+		// malformed (not an array, mid-edit) proves nothing about any label, so
+		// presence is unknowable and everything reads as present: no removals,
+		// all records carried. Detection still keys on the fingerprint map: a
+		// record is the evidence a group was (probably) created for the label,
+		// so an entry that never synced leaves no shell and raises no event.
+		const settingParseable = rawSetting === undefined || rawSetting === null || Array.isArray(rawSetting);
+		const rawLabels = settingParseable ? rawDeclaredLabels(rawSetting) : undefined;
+		const labelStillPresent = (label: string) =>
+			currentLabels.has(label) || rawLabels === undefined || rawLabels.has(label);
+		const removed = Object.keys(previous).filter((label) => !labelStillPresent(label));
+		// A present-but-rejected label also KEEPS its records: the pass-end
+		// writes below rebuild both maps from the accepted entries, and without
+		// this carry a mid-edit malformed entry would shed its fingerprint
+		// (wedging the repaired entry on an unrecognizable duplicate) and its
+		// ledger record (blinding a later real removal). Fingerprints carry with
+		// carryLastGood's asymmetry - this window's session record first, else
+		// ONE fresh store read presence-only, so another window's persisted
+		// proof cannot be erased by this pass-end write. Reserved keys are
+		// skipped: a corrupt store could hand one back, and assigning it would
+		// ride into the prototype.
+		const storeRecords = this.env.getFingerprints();
+		const ledger = this.env.getEntryBaseUrls();
+		const carriedLedger: Record<string, string> = {};
+		for (const label of new Set([...Object.keys(previous), ...Object.keys(storeRecords)])) {
+			if (currentLabels.has(label) || !labelStillPresent(label) || isUnsafeRecordKey(label)) {
+				continue;
+			}
+			const carried = previous[label] ?? storeRecords[label];
+			if (carried !== undefined && next[label] === undefined) {
+				next[label] = carried;
+			}
+		}
+		for (const [label, url] of Object.entries(ledger)) {
+			if (!currentLabels.has(label) && labelStillPresent(label) && !isUnsafeRecordKey(label)) {
+				carriedLedger[label] = url;
+			}
+		}
 		// Per-label retry state is pruned with its entry; the map is keyed by
 		// user-controlled labels and would otherwise grow without bound.
 		for (const label of [...this.retry.keys()]) {
@@ -587,15 +680,66 @@ export class ServerSyncEngine implements vscode.Disposable {
 		}
 		this.views = views;
 		// In-memory before the persist: session truth must survive a failing
-		// (or later-reverted) storage write.
+		// (or later-reverted) storage write. The persist itself is log-only:
+		// the session map has already dropped a removed label, so a throw here
+		// must not abort the reconciliation below - the removal's tombstone and
+		// notice would be lost with no later pass able to rediscover them.
 		this.fingerprints = next;
-		await this.env.setFingerprints(next);
-		if (removed.length > 0) {
-			// The setting entry is gone but the provider group survives: there is
-			// no programmatic group removal. The label's SecretStorage blob is
-			// kept on purpose; re-adding the label picks it up again.
-			this.env.log("Servers setting entries removed; their provider groups remain", { labels: removed });
-			this.env.notifyRemoved(removed);
+		try {
+			await this.env.setFingerprints(next);
+		} catch (error) {
+			this.env.logError("Persisting the pass-end fingerprint map failed", error);
 		}
+		// The identity ledger is read before it is rewritten (above): the old
+		// record is the only thing that still knows a removed label's base URL.
+		const events: RemovedEntryEvent[] = removed.map((label) => {
+			const baseUrl = ledger[label];
+			if (baseUrl !== undefined) {
+				// A label with no prior fingerprint record now declaring the removed
+				// label's host reads as the rename's other half.
+				const renamedTo = entries.find(
+					(entry) => previous[entry.label] === undefined && normalizeBaseUrl(entry.baseUrl) === baseUrl
+				);
+				if (renamedTo !== undefined) {
+					return { kind: "renamed", oldLabel: label, newLabel: renamedTo.label, baseUrl };
+				}
+			}
+			return { kind: "removed", label, baseUrl };
+		});
+		try {
+			// An entry is recorded under its declared URL only when this pass
+			// proved the live group holds exactly that configuration (its
+			// fingerprint landed in `next`). A blocked or skipped entry keeps its
+			// previous record - under an add-only host the live group still has
+			// the OLD connection - and with no previous record it gets NONE: an
+			// unproven URL in the ledger would make a later removal tombstone a
+			// group that does not exist while the real one keeps serving, with a
+			// notice claiming otherwise. No record degrades that removal to the
+			// honest untracked notice instead.
+			const ledgerEntries = entries.flatMap((entry): [string, string][] => {
+				const inSync =
+					printedByLabel.get(entry.label) !== undefined && next[entry.label] === printedByLabel.get(entry.label);
+				if (inSync) {
+					return [[entry.label, normalizeBaseUrl(entry.baseUrl)]];
+				}
+				const previousUrl = ledger[entry.label];
+				return previousUrl !== undefined ? [[entry.label, previousUrl]] : [];
+			});
+			await this.env.setEntryBaseUrls(Object.fromEntries([...ledgerEntries, ...Object.entries(carriedLedger)]));
+		} catch (error) {
+			// Log-only like the fingerprint persist: a failed ledger write only
+			// degrades a LATER removal to the untracked (no-tombstone) notice.
+			this.env.logError("Persisting the entry identity ledger failed", error);
+		}
+		if (removed.length > 0) {
+			// The setting entries are gone but the provider groups survive: there
+			// is no programmatic group removal. Labels' SecretStorage blobs are
+			// kept on purpose; re-adding a label picks its secrets up again.
+			this.env.log("Servers setting entries removed; their provider groups remain", { labels: removed });
+		}
+		await this.env.reconcileEntryIdentities(
+			entries.map((entry) => ({ label: entry.label, baseUrl: normalizeBaseUrl(entry.baseUrl) })),
+			events
+		);
 	}
 }

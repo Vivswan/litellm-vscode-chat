@@ -5,7 +5,7 @@
  * into adoptServer must fail here).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import type { WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
+import type { DashboardServer, WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { HELP_ENTRY_MODEL_PARAMETER_PREFIX } from "../../../webview/dashboard/helpText";
 import { ServersSection } from "../../../webview/dashboard/servers";
@@ -32,7 +32,7 @@ afterEach(() => {
 
 const noop = () => {};
 
-function mountSection(servers: readonly ReturnType<typeof makeDeclaredServer>[]) {
+function mountSection(servers: readonly DashboardServer[]) {
 	return mount(
 		<ServersSection
 			servers={servers}
@@ -313,6 +313,154 @@ test("adopting an external row posts adoptServer carrying exactly the sanctioned
 	// The secrets record carries storage locations only, one per secret field.
 	expect(posted.secrets).toEqual({ apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" });
 	expect(Object.keys(posted.secrets).sort()).toEqual(["apiKey", "oauthClientSecret", "virtualKeyValue"]);
+});
+
+test("removing an external row is two-step and posts hideExternalServer with the row's handle", () => {
+	const external = makeExternalServer({ label: "Copilot", baseUrl: "http://copilot.example:4000" });
+	const root = mountSection([external]);
+
+	// Arm, then cancel: nothing posted.
+	fireClick(buttonByText(root, "Remove"));
+	expect(root.textContent).toContain("Confirm remove?");
+	fireClick(buttonByText(root, "Cancel"));
+	expect(postedMessages).toEqual([]);
+
+	fireClick(buttonByText(root, "Remove"));
+	fireClick(buttonByText(root, "Confirm remove?"));
+	expect(postedMessages.length).toBe(1);
+	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "hideExternalServer" }>;
+	// Exact key set: the intent names the group by its opaque handle and URL,
+	// nothing more.
+	expect(Object.keys(posted).sort()).toEqual(["baseUrl", "requestId", "sourceHandle", "type"]);
+	expect(posted.type).toBe("hideExternalServer");
+	expect(posted.baseUrl).toBe("http://copilot.example:4000");
+	expect(posted.sourceHandle).toBe(external.adoptHandle);
+	expect(typeof posted.requestId).toBe("string");
+});
+
+test("a non-hideable external row (legacy registry) offers Edit only, no Remove", () => {
+	const root = mountSection([makeExternalServer({ hideable: false })]);
+	const actions = [...root.querySelectorAll("td.actions button")].map((el) => el.textContent?.trim());
+	expect(actions).toEqual(["Edit"]);
+});
+
+test("the hide ack raises the guidance notice naming the group, with the native-editor action", () => {
+	const external = makeExternalServer({ label: "Copilot" });
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [external] })));
+
+	resetPosted();
+	fireClick(buttonByText(root, "Remove"));
+	fireClick(buttonByText(root, "Confirm remove?"));
+	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "hideExternalServer" }>;
+
+	// A foreign ack does nothing; the intent's own ack raises the notice.
+	pushToWebview({ type: "intentSucceeded", intentType: "hideExternalServer", requestId: "someone-elses" });
+	expect(root.querySelector(".notice")).toBeNull();
+	pushToWebview({ type: "intentSucceeded", intentType: "hideExternalServer", requestId: posted.requestId });
+	const notice = root.querySelector(".notice");
+	expect(notice).not.toBeNull();
+	// The notice names the exact group and gives the steps: the native editor
+	// is where real deletion lives.
+	expect(notice?.textContent).toContain('"Copilot"');
+	expect(notice?.textContent).toContain("Manage Language Models");
+	expect(notice?.textContent).toContain("Sync models");
+
+	resetPosted();
+	const openButton = [...(notice?.querySelectorAll("button") ?? [])].find(
+		(el) => el.textContent?.trim() === "Open native editor"
+	);
+	fireClick(openButton as HTMLElement);
+	expect(postedMessages).toEqual([{ type: "executeCommand", command: "manageServers" }]);
+
+	fireClick(buttonByText(root, "Dismiss"));
+	expect(root.querySelector(".notice")).toBeNull();
+});
+
+test("the hidden-groups line states the count, expands to rows, and Unhide posts the identity verbatim", () => {
+	const root = mount(
+		<ServersSection
+			servers={[makeDeclaredServer()]}
+			hidden={[
+				{ label: "Old", baseUrl: "http://old.test" },
+				{ label: "Gone", baseUrl: "http://gone.test" },
+			]}
+			now={Date.now()}
+			ack={undefined}
+			failures={{}}
+			inlineSecrets={undefined}
+			onDismissFailure={noop}
+			onClearInlineSecrets={noop}
+		/>
+	);
+
+	const line = root.querySelector(".hidden-groups");
+	expect(line).not.toBeNull();
+	expect(line?.textContent).toContain("2 hidden groups");
+	// Collapsed by default: no Unhide until shown.
+	expect(line?.textContent).not.toContain("Unhide");
+
+	fireClick(buttonByText(root, "show"));
+	expect(line?.textContent).toContain("Old");
+	expect(line?.textContent).toContain("http://old.test");
+	const unhide = [...root.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Unhide");
+	fireClick(unhide as HTMLElement);
+	expect(postedMessages.length).toBe(1);
+	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "unhideServer" }>;
+	expect(posted.type).toBe("unhideServer");
+	// The identity is echoed verbatim from the first listed row.
+	expect(posted.label).toBe("Old");
+	expect(posted.baseUrl).toBe("http://old.test");
+	expect(typeof posted.requestId).toBe("string");
+});
+
+test("without hidden groups no hidden-groups line renders; with them it renders even beside the empty start", () => {
+	const none = mountSection([makeDeclaredServer()]);
+	expect(none.querySelector(".hidden-groups")).toBeNull();
+
+	// Every visible group hidden: the guided start renders, but the unhide
+	// path must stay reachable.
+	const onlyHidden = mount(
+		<ServersSection
+			servers={[]}
+			hidden={[{ label: "Old", baseUrl: "http://old.test" }]}
+			now={Date.now()}
+			ack={undefined}
+			failures={{}}
+			inlineSecrets={undefined}
+			onDismissFailure={noop}
+			onClearInlineSecrets={noop}
+		/>
+	);
+	expect(onlyHidden.querySelector(".empty-start")).not.toBeNull();
+	expect(onlyHidden.querySelector(".hidden-groups")?.textContent).toContain("1 hidden group");
+});
+
+test("the external badge tip renders the provenance classification, or the honest default", () => {
+	const root = mountSection([
+		makeExternalServer({
+			label: "Old",
+			baseUrl: "http://a.test",
+			provenance: { kind: "removed-entry-leftover", removedLabel: "Old" },
+		}),
+		makeExternalServer({
+			label: "Renamed",
+			baseUrl: "http://b.test",
+			provenance: { kind: "rename-leftover", oldLabel: "Renamed", newLabel: "Fresh" },
+		}),
+		makeExternalServer({ label: "Native", baseUrl: "http://c.test" }),
+	]);
+
+	const tips = [...root.querySelectorAll("span.badge")]
+		.filter((el) => el.textContent?.trim() === "external")
+		.map((el) => el.closest(".tip-wrap")?.querySelector(".help-tip")?.textContent ?? "");
+	expect(tips.length).toBe(3);
+	const removedTip = tips.find((tip) => tip.includes('"Old" was removed'));
+	expect(removedTip).toContain("Left behind");
+	const renamedTip = tips.find((tip) => tip.includes('renamed to "Fresh"'));
+	expect(renamedTip).toContain("Left behind");
+	const defaultTip = tips.find((tip) => tip.includes("predates"));
+	expect(defaultTip).toContain("native Manage Language Models editor");
 });
 
 test("the model count is a scope link only when the section is given onShowModels", () => {

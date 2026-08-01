@@ -29,6 +29,51 @@ import { joinDeclared, labeledSnapshots } from "./state";
 export type AdoptableGroupCredentials = OptionalEntryFields;
 
 /**
+ * Resolve the still-external snapshot a row handle names, bound to the
+ * intent's base URL. Shared by the adopt intent's credential resolution and
+ * the hide intent's identity resolution: both re-derive the external set at
+ * intent time, so a forged or stale handle can only ever land on a group that
+ * is genuinely external right now, and cannot re-point at another host.
+ */
+function resolveExternalSnapshot(
+	snapshots: readonly ServerModelsSnapshot[],
+	declared: readonly DeclaredServerView[],
+	baseUrl: string,
+	sourceHandle: string
+): ServerModelsSnapshot | undefined {
+	const labeled = labeledSnapshots(snapshots);
+	const { unmatched } = joinDeclared(labeled, declared);
+	return [...unmatched].find(
+		(entry) =>
+			adoptSourceHandle(entry.snapshot.status.serverId) === sourceHandle &&
+			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl)
+	)?.snapshot;
+}
+
+/**
+ * The identity of the external group a hide intent names: the status label
+ * and base URL the removal tombstone is keyed by. Same resolution rules as
+ * resolveExternalSnapshot, plus one extra gate: the snapshot must be a
+ * provider group (`isGroupSnapshot`). A legacy-registry row has no group the
+ * tombstone could silence - the registry sweep would keep serving its models
+ * - so "hiding" it would only make the dashboard lie; those servers are
+ * removed through the legacy management flow instead.
+ */
+export function resolveExternalGroupIdentity(
+	snapshots: readonly ServerModelsSnapshot[],
+	declared: readonly DeclaredServerView[],
+	baseUrl: string,
+	sourceHandle: string,
+	isGroupSnapshot: (serverId: string) => boolean
+): { label: string; baseUrl: string } | undefined {
+	const source = resolveExternalSnapshot(snapshots, declared, baseUrl, sourceHandle);
+	if (source === undefined || !isGroupSnapshot(source.status.serverId)) {
+		return undefined;
+	}
+	return { label: source.status.label, baseUrl: source.status.baseUrl };
+}
+
+/**
  * Resolve the group an adopt intent names back to its credentials, by the
  * opaque handle its external row carried. Resolution re-derives the external
  * set at intent time and binds the handle to the intent's base URL, so a
@@ -45,13 +90,7 @@ export function resolveAdoptableCredentials(
 	sourceHandle: string,
 	getGroupServer: (serverId: string) => GroupServer | undefined
 ): AdoptableGroupCredentials | undefined {
-	const labeled = labeledSnapshots(snapshots);
-	const { unmatched } = joinDeclared(labeled, declared);
-	const source = [...unmatched].find(
-		(entry) =>
-			adoptSourceHandle(entry.snapshot.status.serverId) === sourceHandle &&
-			normalizeBaseUrl(entry.snapshot.status.baseUrl) === normalizeBaseUrl(baseUrl)
-	)?.snapshot;
+	const source = resolveExternalSnapshot(snapshots, declared, baseUrl, sourceHandle);
 	if (source === undefined) {
 		return undefined;
 	}

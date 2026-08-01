@@ -54,6 +54,16 @@ export interface LiteLLMChatModelProviderOptions {
 	 * registry is migrated to provider groups they serve nothing.
 	 */
 	grouplessRegistryEnabled?: (() => boolean) | undefined;
+	/**
+	 * Whether a provider group was explicitly removed by the user (the
+	 * extension layer's tombstone store, injected here because this layer
+	 * cannot import it). Judged by the group's status label and normalized
+	 * base URL. A suppressed group answers with an empty model list and skips
+	 * the network entirely; its group-side status still reports, so the
+	 * status window and the dashboard stay coherent. Default: nothing is
+	 * suppressed.
+	 */
+	isGroupSuppressed?: ((label: string, baseUrl: string) => boolean) | undefined;
 	discoveryCache?: DiscoveryCache<readonly PreAttachModelInfo[]> | undefined;
 	/** The status window's only clock seam; tests inject a fake. The default reads Date.now at call time. */
 	now?: (() => number) | undefined;
@@ -77,6 +87,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private readonly _getServers: () => Promise<ServerWithKey[]>;
 	private _configurationPrompt?: ConfigurationPrompt;
 	private readonly _grouplessRegistryEnabled: () => boolean;
+	private readonly _isGroupSuppressed: (label: string, baseUrl: string) => boolean;
 	private readonly _statusWindow: StatusWindow;
 	// Counts per-group status reports only: the groupless report says nothing
 	// about whether the host is re-resolving groups, so refreshViaHost's
@@ -98,6 +109,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.logger = options.logger;
 		this._getServers = options.getServers ?? (() => Promise.resolve([]));
 		this._grouplessRegistryEnabled = options.grouplessRegistryEnabled ?? (() => true);
+		this._isGroupSuppressed = options.isGroupSuppressed ?? (() => false);
 		this._client = new ChatClient({
 			userAgent: options.userAgent,
 			logger: options.logger,
@@ -358,6 +370,20 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const attach = (infos: readonly PreAttachModelInfo[]): AttachedModelInfo[] =>
 			infos.map((info) => attachGroupServer(info, groupServer));
 
+		// A group the user explicitly removed answers empty and never touches
+		// the network or the cache. Its status still reports (as healthy with
+		// zero models) so the status window ages it like any live group and the
+		// dashboard's hidden-groups view sees a coherent snapshot. Unhiding
+		// fires the change event; the host's re-resolution then lands back here
+		// with the predicate answering false.
+		if (this._isGroupSuppressed(server.label, groupServer.baseUrl)) {
+			this.log("Provider group is hidden by an explicit user removal; serving no models", {
+				baseUrl: server.baseUrl,
+			});
+			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: 0 }, []);
+			return [];
+		}
+
 		if (bypassCache) {
 			this._discoveryCache.invalidate(server.id);
 		} else {
@@ -414,6 +440,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			}
 			throw error instanceof Error ? error : new Error(texts.error);
 		}
+	}
+
+	/**
+	 * Fire the model-change event without the refresh round-trip bookkeeping:
+	 * the host re-resolves every group through this provider. Used when the
+	 * suppression predicate's answers change (a group was hidden or unhidden),
+	 * so the picker reflects the change immediately.
+	 */
+	notifyModelInformationChanged(): void {
+		this._onDidChangeEmitter.fire();
 	}
 
 	/**

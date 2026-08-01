@@ -490,6 +490,72 @@ suite("provider groups", () => {
 		);
 	});
 
+	test("a suppressed group answers empty without a network call and reports a zero-model status", async () => {
+		// The extension injects the removal-tombstone predicate; the provider
+		// consults it with the group's status label and normalized base URL.
+		const seen: [string, string][] = [];
+		let suppressed = true;
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			isGroupSuppressed: (label, baseUrl) => {
+				seen.push([label, baseUrl]);
+				return suppressed;
+			},
+		});
+		const statuses: AggregatedStatus[] = [];
+		provider.setStatusCallback((status) => statuses.push(status));
+		let fetches = 0;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => {
+				fetches += 1;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			}),
+			http.get(MODELS_URL, () => {
+				fetches += 1;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			})
+		);
+
+		const infos = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: `${TEST_BASE_URL}/`, apiKey: "k", label: "Prod" }),
+			cancellation()
+		);
+
+		assert.deepStrictEqual(infos, [], "the suppressed group serves nothing");
+		assert.strictEqual(fetches, 0, "suppression never touches the network");
+		assert.deepStrictEqual(seen, [["Prod", TEST_BASE_URL]], "judged by status label and normalized base URL");
+		const serverStatus = expectDefined(expectDefined(statuses[0]).serverStatuses[0]);
+		assert.strictEqual(serverStatus.state, "ok", "a suppressed group is not an error");
+		assert.strictEqual(serverStatus.state === "ok" && serverStatus.modelCount, 0);
+
+		// Unhidden (the predicate answers false again): the next re-resolution
+		// serves the models like any healthy group.
+		suppressed = false;
+		const restored = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: `${TEST_BASE_URL}/`, apiKey: "k", label: "Prod" }),
+			cancellation()
+		);
+		assert.strictEqual(restored.length, 1, "the unhidden group serves again");
+		assert.ok(fetches > 0, "the unhidden refresh reaches the network");
+	});
+
+	test("an unlabeled group is judged by its URL-host status label", async () => {
+		const seen: [string, string][] = [];
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			isGroupSuppressed: (label, baseUrl) => {
+				seen.push([label, baseUrl]);
+				return false;
+			},
+		});
+		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
+
+		await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" }),
+			cancellation()
+		);
+
+		assert.deepStrictEqual(seen, [["litellm.test", TEST_BASE_URL]]);
+	});
+
 	test("a silent group refresh returns no models when the server is unreachable and reports the URL host", async () => {
 		const provider = makeProvider();
 		const statuses: AggregatedStatus[] = [];

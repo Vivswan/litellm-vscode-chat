@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
-import { resolveAdoptableCredentials } from "../../../extension/dashboard/adopt";
+import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "../../../extension/dashboard/adopt";
 import type { DashboardIntent } from "../../../extension/dashboard/intentSchema";
 import { webviewMessageSchema } from "../../../extension/dashboard/intentSchema";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
@@ -118,6 +118,14 @@ interface RecordedEnv {
 	/** What resolveAdoptionCredentials returns; every call is recorded in adoptionLookups. */
 	adoptionCredentials?: AdoptableGroupCredentials;
 	adoptionLookups: [string, string][];
+	/** What resolveExternalGroup returns; every call is recorded in externalLookups. */
+	externalGroup?: { label: string; baseUrl: string };
+	externalLookups: [string, string][];
+	/** Every hideGroup call. */
+	hidden: { label: string; baseUrl: string }[];
+	/** Every unhideGroup call; unhideResult is what the fake reports back. */
+	unhidden: { label: string; baseUrl: string }[];
+	unhideResult: boolean;
 	env: IntentEnvironment;
 }
 
@@ -135,6 +143,10 @@ function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		logs: [],
 		syncRequests: 0,
 		adoptionLookups: [],
+		externalLookups: [],
+		hidden: [],
+		unhidden: [],
+		unhideResult: true,
 		env: {
 			updateSetting: async (key, value) => {
 				recorded.updates.push([key, value]);
@@ -205,6 +217,17 @@ function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			resolveAdoptionCredentials: (baseUrl, sourceHandle) => {
 				recorded.adoptionLookups.push([baseUrl, sourceHandle]);
 				return recorded.adoptionCredentials;
+			},
+			resolveExternalGroup: (baseUrl, sourceHandle) => {
+				recorded.externalLookups.push([baseUrl, sourceHandle]);
+				return recorded.externalGroup;
+			},
+			hideGroup: async (identity) => {
+				recorded.hidden.push({ ...identity });
+			},
+			unhideGroup: async (identity) => {
+				recorded.unhidden.push({ ...identity });
+				return recorded.unhideResult;
 			},
 			log: (message, data) => {
 				recorded.logs.push([message, data]);
@@ -1049,6 +1072,149 @@ suite("extension/dashboard/state", () => {
 				state.models.map((m) => `${m.serverLabel}/${m.name}`),
 				["Alpha/a", "Alpha/b", "Zeta/m1"]
 			);
+		});
+	});
+
+	suite("buildDashboardState: removed groups", () => {
+		test("a tombstoned external snapshot leaves the table and the models list for hiddenGroups", () => {
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test" }),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+					{
+						status: makeServerStatus({ serverId: "g2", label: "Live", baseUrl: "http://live.test" }),
+						models: [makeModelInfo({ id: "m2", name: "m2" })],
+					},
+				],
+				makeReader({}),
+				[],
+				[],
+				{ tombstones: [{ label: "Prod", baseUrl: "http://prod.test" }], origins: [] }
+			);
+
+			assert.deepStrictEqual(
+				state.servers.map((server) => server.label),
+				["Live"],
+				"the tombstoned row is gone"
+			);
+			assert.deepStrictEqual(
+				state.models.map((model) => model.serverLabel),
+				["Live"],
+				"the tombstoned snapshot contributes no models"
+			);
+			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Prod", baseUrl: "http://prod.test" }]);
+		});
+
+		test("tombstones suppress by the raw status label, not the display ordinal", () => {
+			// Two external groups share a label, so the table would render "Dup
+			// (1)" and "Dup (2)"; the tombstone still stores the raw identity.
+			const state = buildDashboardState(
+				[
+					{ status: makeServerStatus({ serverId: "g1", label: "Dup", baseUrl: "http://a.test" }), models: [] },
+					{ status: makeServerStatus({ serverId: "g2", label: "Dup", baseUrl: "http://b.test" }), models: [] },
+				],
+				makeReader({}),
+				[],
+				[],
+				{ tombstones: [{ label: "Dup", baseUrl: "http://b.test" }], origins: [] }
+			);
+
+			assert.deepStrictEqual(
+				state.servers.map((server) => server.baseUrl),
+				["http://a.test"],
+				"exactly the tombstoned identity hides"
+			);
+		});
+
+		test("a declared row is never suppressed, even when a tombstone matches its identity", () => {
+			// The engine auto-clears such a tombstone on its next pass; until then
+			// the declared entry the user just wrote must keep rendering.
+			const state = buildDashboardState(
+				[{ status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test" }), models: [] }],
+				makeReader({}),
+				[makeDeclared()],
+				[],
+				{ tombstones: [{ label: "Prod", baseUrl: "http://prod.test" }], origins: [] }
+			);
+
+			assert.strictEqual(state.servers.length, 1);
+			assert.strictEqual(state.servers[0]?.origin, "declared");
+		});
+
+		test("hidden groups persist without a live snapshot, so unhide stays offered", () => {
+			const state = buildDashboardState([], makeReader({}), [], [], {
+				tombstones: [{ label: "Gone", baseUrl: "http://gone.test" }],
+				origins: [],
+			});
+
+			assert.deepStrictEqual(state.servers, []);
+			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Gone", baseUrl: "http://gone.test" }]);
+		});
+
+		test("a registry-backed snapshot is never suppressed and its row is not hideable", () => {
+			// In test mode (and pre-migration) the legacy registry contributes
+			// external-looking rows; the registry sweep would keep serving their
+			// models, so a tombstone must not hide them and the row offers no
+			// Remove (hideable false).
+			const state = buildDashboardState(
+				[
+					{
+						status: makeServerStatus({ serverId: "registry-1", label: "Legacy", baseUrl: "http://legacy.test" }),
+						models: [makeModelInfo({ id: "m1", name: "m1" })],
+					},
+				],
+				makeReader({}),
+				[],
+				[],
+				{ tombstones: [{ label: "Legacy", baseUrl: "http://legacy.test" }], origins: [] },
+				() => false
+			);
+
+			assert.strictEqual(state.servers.length, 1, "the registry row stays visible");
+			assert.strictEqual(state.servers[0]?.hideable, false);
+			assert.strictEqual(state.models.length, 1, "its models stay listed");
+			assert.deepStrictEqual(
+				state.hiddenGroups,
+				[{ label: "Legacy", baseUrl: "http://legacy.test" }],
+				"the stale tombstone still lists, so it stays unhideable-away"
+			);
+		});
+
+		test("group-backed external rows are hideable by default", () => {
+			const state = buildDashboardState(
+				[{ status: makeServerStatus({ serverId: "g1", label: "Prod" }), models: [] }],
+				makeReader({})
+			);
+			assert.strictEqual(state.servers[0]?.hideable, true);
+		});
+
+		test("external rows carry their recorded provenance; unrecorded rows carry none", () => {
+			const state = buildDashboardState(
+				[
+					{ status: makeServerStatus({ serverId: "g1", label: "Old", baseUrl: "http://host.test" }), models: [] },
+					{ status: makeServerStatus({ serverId: "g2", label: "Other", baseUrl: "http://other.test" }), models: [] },
+				],
+				makeReader({}),
+				[],
+				[],
+				{
+					tombstones: [],
+					origins: [
+						{
+							label: "Old",
+							baseUrl: "http://host.test",
+							origin: { kind: "rename-leftover", oldLabel: "Old", newLabel: "New" },
+						},
+					],
+				}
+			);
+
+			const oldRow = state.servers.find((server) => server.label === "Old");
+			const otherRow = state.servers.find((server) => server.label === "Other");
+			assert.deepStrictEqual(oldRow?.provenance, { kind: "rename-leftover", oldLabel: "Old", newLabel: "New" });
+			assert.strictEqual(otherRow?.provenance, undefined, "no recorded origin renders the honest default");
 		});
 	});
 
@@ -2436,6 +2602,78 @@ suite("extension/dashboard/state", () => {
 		});
 	});
 
+	suite("executeDashboardIntent: hidden groups", () => {
+		test("hideExternalServer tombstones exactly the identity the handle resolves to", async () => {
+			const recorded = makeEnv();
+			// The resolved identity is the group's own status label and URL, not
+			// what the intent claimed: the handle is the authority.
+			recorded.externalGroup = { label: "Prod", baseUrl: "http://prod.test/" };
+			await executeDashboardIntent(
+				{ type: "hideExternalServer", baseUrl: "http://prod.test", sourceHandle: "handle-1", requestId: "req-1" },
+				recorded.env
+			);
+
+			assert.deepStrictEqual(recorded.externalLookups, [["http://prod.test", "handle-1"]]);
+			assert.deepStrictEqual(recorded.hidden, [{ label: "Prod", baseUrl: "http://prod.test/" }]);
+		});
+
+		test("hideExternalServer refuses an unusable base URL before any lookup", async () => {
+			const recorded = makeEnv();
+			await assert.rejects(
+				executeDashboardIntent(
+					{ type: "hideExternalServer", baseUrl: "not a url", sourceHandle: "h", requestId: "r" },
+					recorded.env
+				),
+				/baseUrl/
+			);
+			assert.deepStrictEqual(recorded.externalLookups, []);
+			assert.deepStrictEqual(recorded.hidden, []);
+		});
+
+		test("a handle that resolves to no still-external group hides nothing", async () => {
+			const recorded = makeEnv();
+			// recorded.externalGroup stays unset: the resolver answers undefined.
+			await assert.rejects(
+				executeDashboardIntent(
+					{ type: "hideExternalServer", baseUrl: "http://prod.test", sourceHandle: "stale", requestId: "r" },
+					recorded.env
+				),
+				/does not resolve to a hideable/
+			);
+			assert.deepStrictEqual(recorded.hidden, []);
+		});
+
+		test("unhideServer echoes the identity verbatim and fails when no tombstone matched", async () => {
+			const recorded = makeEnv();
+			await executeDashboardIntent(
+				{ type: "unhideServer", label: "Prod", baseUrl: "http://prod.test", requestId: "r1" },
+				recorded.env
+			);
+			assert.deepStrictEqual(recorded.unhidden, [{ label: "Prod", baseUrl: "http://prod.test" }]);
+
+			recorded.unhideResult = false;
+			await assert.rejects(
+				executeDashboardIntent(
+					{ type: "unhideServer", label: "Ghost", baseUrl: "http://gone.test", requestId: "r2" },
+					recorded.env
+				),
+				/No hidden group/
+			);
+		});
+
+		test("unhideServer refuses a blank label", async () => {
+			const recorded = makeEnv();
+			await assert.rejects(
+				executeDashboardIntent(
+					{ type: "unhideServer", label: "  ", baseUrl: "http://prod.test", requestId: "r" },
+					recorded.env
+				),
+				/label/
+			);
+			assert.deepStrictEqual(recorded.unhidden, []);
+		});
+	});
+
 	suite("resolveAdoptableCredentials", () => {
 		const groupServers = new Map([
 			[
@@ -2558,6 +2796,51 @@ suite("extension/dashboard/state", () => {
 				),
 				undefined,
 				"a registry snapshot has no group credentials to adopt"
+			);
+		});
+
+		test("resolveExternalGroupIdentity yields the raw status identity, under the same trust rules", () => {
+			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
+			const isGroup = (serverId: string) => groupServers.has(serverId);
+			// Both ordinal rows resolve to the same raw status identity: the
+			// tombstone is keyed by the snapshot's own label, never the display
+			// ordinal.
+			const handle = handleOf(snapshots, [], "ext.test (1)");
+			assert.deepStrictEqual(resolveExternalGroupIdentity(snapshots, [], "http://ext.test", handle, isGroup), {
+				label: "ext.test",
+				baseUrl: "http://ext.test",
+			});
+			assert.strictEqual(
+				resolveExternalGroupIdentity(snapshots, [], "http://attacker.test", handle, isGroup),
+				undefined,
+				"bound to the intent's base URL like the adopt path"
+			);
+			const declared = [
+				makeDeclared({ label: "Prod", baseUrl: "http://ext.test", expectedClientId: "group:aaa:http://ext.test" }),
+			];
+			assert.strictEqual(
+				resolveExternalGroupIdentity(snapshots, declared, "http://ext.test", handle, isGroup),
+				undefined,
+				"a declared group's identity must not resolve for a hide intent"
+			);
+		});
+
+		test("resolveExternalGroupIdentity refuses registry-backed snapshots: there is no group to silence", () => {
+			const registryOnly = [
+				{
+					status: makeServerStatus({ serverId: "registry-1", label: "ext.test", baseUrl: "http://ext.test" }),
+					models: [],
+				},
+			];
+			assert.strictEqual(
+				resolveExternalGroupIdentity(
+					registryOnly,
+					[],
+					"http://ext.test",
+					handleOf(registryOnly, [], "ext.test"),
+					() => false
+				),
+				undefined
 			);
 		});
 	});

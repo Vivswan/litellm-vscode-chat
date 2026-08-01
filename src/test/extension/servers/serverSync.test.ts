@@ -1,8 +1,11 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { readInlineSecretValues } from "../../../extension/dashboard/intents";
+import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import type {
+	DeclaredEntryIdentity,
 	DeclaredServer,
+	RemovedEntryEvent,
 	SecretStore,
 	ServerSyncEnv,
 	StoredServerSecrets,
@@ -49,7 +52,10 @@ function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { 
 interface Recorded {
 	upserts: Record<string, string>[];
 	fingerprints: Record<string, string>;
-	removedNotices: string[][];
+	/** The persisted identity ledger (label -> normalized base URL). */
+	entryBaseUrls: Record<string, string>;
+	/** Every reconcileEntryIdentities call: the declared identities and the removal events. */
+	reconciles: { declared: DeclaredEntryIdentity[]; events: RemovedEntryEvent[] }[];
 	logged: [string, unknown][];
 	loggedErrors: [string, unknown][];
 	env: ServerSyncEnv;
@@ -59,6 +65,8 @@ interface Recorded {
 	failLabels: Set<string>;
 	/** When set, addProviderGroup rejects these labels the way an add-only host refuses an existing name. */
 	duplicateLabels: Set<string>;
+	/** When set, the pass-end setFingerprints write rejects with this error. */
+	failFingerprintWrites?: Error;
 	/** What confirmFingerprintsDurable reports; false models a session-only salt. */
 	saltDurable: boolean;
 }
@@ -67,7 +75,8 @@ function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServer
 	const recorded: Recorded = {
 		upserts: [],
 		fingerprints: {},
-		removedNotices: [],
+		entryBaseUrls: {},
+		reconciles: [],
 		logged: [],
 		loggedErrors: [],
 		setting,
@@ -90,10 +99,17 @@ function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServer
 			},
 			getFingerprints: () => recorded.fingerprints,
 			setFingerprints: async (map) => {
+				if (recorded.failFingerprintWrites !== undefined) {
+					throw recorded.failFingerprintWrites;
+				}
 				recorded.fingerprints = { ...map };
 			},
-			notifyRemoved: (labels) => {
-				recorded.removedNotices.push([...labels]);
+			getEntryBaseUrls: () => recorded.entryBaseUrls,
+			setEntryBaseUrls: async (map) => {
+				recorded.entryBaseUrls = { ...map };
+			},
+			reconcileEntryIdentities: async (declared, events) => {
+				recorded.reconciles.push({ declared: [...declared], events: [...events] });
 			},
 			log: (message, data) => {
 				recorded.logged.push([message, data]);
@@ -104,6 +120,11 @@ function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServer
 		},
 	};
 	return recorded;
+}
+
+/** The removal/rename events the recorded env saw, flattened across passes (most passes record none). */
+function recordedEvents(recorded: Recorded): RemovedEntryEvent[] {
+	return recorded.reconciles.flatMap((reconcile) => reconcile.events);
 }
 
 suite("extension/servers/serverSync", () => {
@@ -292,15 +313,202 @@ suite("extension/servers/serverSync", () => {
 			]);
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
+			assert.deepStrictEqual(recordedEvents(recorded), [], "nothing removed yet");
+			assert.deepStrictEqual(
+				recorded.entryBaseUrls,
+				{ A: "http://a.test", B: "http://b.test" },
+				"the identity ledger records every declared entry"
+			);
 
 			recorded.setting = [{ label: "A", baseUrl: "http://a.test" }];
 			await engine.syncNow();
 
-			assert.deepStrictEqual(recorded.removedNotices, [["B"]]);
+			assert.deepStrictEqual(recordedEvents(recorded), [{ kind: "removed", label: "B", baseUrl: "http://b.test" }]);
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["A"]);
+			assert.deepStrictEqual(Object.keys(recorded.entryBaseUrls), ["A"], "the ledger prunes with the entry");
+			assert.deepStrictEqual(
+				recorded.reconciles.at(-1)?.declared,
+				[{ label: "A", baseUrl: "http://a.test" }],
+				"every pass reports the declared identities (the tombstone auto-clear input)"
+			);
 
 			await engine.syncNow();
-			assert.strictEqual(recorded.removedNotices.length, 1, "no repeat notification");
+			assert.deepStrictEqual(recordedEvents(recorded), [{ kind: "removed", label: "B", baseUrl: "http://b.test" }]);
+			assert.ok(
+				recorded.reconciles.every((reconcile, index) => index === 1 || reconcile.events.length === 0),
+				"no repeat removal event"
+			);
+		});
+
+		test("a removed label whose base URL a brand-new label now declares reads as a rename", async () => {
+			const recorded = makeSyncEnv([{ label: "Old", baseUrl: "http://host.test/" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			recorded.setting = [{ label: "New", baseUrl: "http://host.test" }];
+			await engine.syncNow();
+
+			assert.deepStrictEqual(recordedEvents(recorded), [
+				{ kind: "renamed", oldLabel: "Old", newLabel: "New", baseUrl: "http://host.test" },
+			]);
+		});
+
+		test("a removal whose base URL another EXISTING entry declares stays a removal, not a rename", async () => {
+			const recorded = makeSyncEnv([
+				{ label: "Old", baseUrl: "http://host.test" },
+				{ label: "Twin", baseUrl: "http://host.test" },
+			]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			recorded.setting = [{ label: "Twin", baseUrl: "http://host.test" }];
+			await engine.syncNow();
+
+			assert.deepStrictEqual(recordedEvents(recorded), [
+				{ kind: "removed", label: "Old", baseUrl: "http://host.test" },
+			]);
+		});
+
+		test("a removal the identity ledger predates carries no base URL (the env must not tombstone a guess)", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			// A fingerprint record persisted by an older version, with no ledger
+			// entry to resolve its host.
+			recorded.fingerprints = { Ghost: "stale-record" };
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			assert.deepStrictEqual(recordedEvents(recorded), [{ kind: "removed", label: "Ghost", baseUrl: undefined }]);
+		});
+
+		test("a present-but-malformed entry is not a removal: records carry and no event fires", async () => {
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1);
+
+			// A mid-edit settings.json: the entry is still there, just unusable
+			// (its baseUrl vanished for a moment). Tombstoning it would suppress
+			// a group the user did not remove, and shedding its records would
+			// wedge the repaired entry on an unrecognizable duplicate.
+			recorded.setting = [{ label: "Prod" }];
+			await engine.syncNow();
+			assert.deepStrictEqual(recordedEvents(recorded), [], "a carried label is present, not removed");
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"], "the fingerprint record carries");
+			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://prod.test" }, "the ledger record carries");
+
+			// The edit completes: the unchanged entry reads as in-sync again (no
+			// host call, no spurious name-conflict error) and still no event.
+			recorded.setting = [{ label: "Prod", baseUrl: "http://prod.test" }];
+			await engine.syncNow();
+			assert.deepStrictEqual(recordedEvents(recorded), []);
+			assert.strictEqual(recorded.upserts.length, 1, "the repaired entry matches its carried fingerprint");
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined);
+		});
+
+		test("a failing pass-end fingerprint write cannot swallow a removal's reconciliation", async () => {
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			// The session map drops the removed label before the persist, so an
+			// aborting persist would lose the removal's only evidence: the event
+			// (and its tombstone) must still go out.
+			recorded.setting = [];
+			recorded.failFingerprintWrites = new Error("memento write failed");
+			await engine.syncNow();
+
+			assert.deepStrictEqual(recordedEvents(recorded), [
+				{ kind: "removed", label: "Prod", baseUrl: "http://prod.test" },
+			]);
+			assert.ok(
+				recorded.loggedErrors.some(([message]) => message.includes("fingerprint map")),
+				"the failed persist is logged"
+			);
+		});
+
+		test("a malformed setting CONTAINER proves nothing: no removals, all records carried", async () => {
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			// A mid-edit settings.json where the array itself is broken: presence
+			// is unknowable, so nothing may read as removed and nothing may shed
+			// its records.
+			recorded.setting = "not an array";
+			await engine.syncNow();
+			assert.deepStrictEqual(recordedEvents(recorded), []);
+			assert.deepStrictEqual(Object.keys(recorded.fingerprints), ["Prod"]);
+			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://prod.test" });
+
+			// Clearing the setting for real IS explicit removal of every entry.
+			recorded.setting = undefined;
+			await engine.syncNow();
+			assert.deepStrictEqual(recordedEvents(recorded), [
+				{ kind: "removed", label: "Prod", baseUrl: "http://prod.test" },
+			]);
+		});
+
+		test("a rejected label's carry also accepts another window's store record, presence-only", async () => {
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			// Another window synced "Other" and persisted its records after this
+			// engine seeded its session map; the entry then goes malformed here.
+			// The carry must take the store's proof (carryLastGood's asymmetry),
+			// or this pass-end write would erase the only copy.
+			recorded.fingerprints = { ...recorded.fingerprints, Other: "other-window-record" };
+			recorded.entryBaseUrls = { ...recorded.entryBaseUrls, Other: "http://other.test" };
+			recorded.setting = [{ label: "Prod", baseUrl: "http://prod.test" }, { label: "Other" }];
+			await engine.syncNow();
+
+			assert.strictEqual(recorded.fingerprints.Other, "other-window-record", "the other window's proof survives");
+			assert.strictEqual(recorded.entryBaseUrls.Other, "http://other.test");
+			assert.deepStrictEqual(recordedEvents(recorded), []);
+		});
+
+		test("a blocked URL change with no prior ledger record yields an untracked removal, never a guessed tombstone", async () => {
+			// An install upgrading from a pre-ledger version changes the entry's
+			// URL before the first pass: the add is refused, so the declared URL
+			// was never proven and must not enter the ledger - a later removal
+			// degrades to the untracked notice instead of tombstoning a group
+			// that does not exist.
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://new.test" }]);
+			recorded.fingerprints = { Prod: "pre-ledger-record" };
+			recorded.duplicateLabels.add("Prod");
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.deepStrictEqual(recorded.entryBaseUrls, {}, "no unproven URL is recorded");
+
+			recorded.setting = [];
+			await engine.syncNow();
+			assert.deepStrictEqual(recordedEvents(recorded), [{ kind: "removed", label: "Prod", baseUrl: undefined }]);
+		});
+
+		test("a blocked entry keeps its previous ledger URL, so a later removal tombstones the group that exists", async () => {
+			const recorded = makeSyncEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.deepStrictEqual(recorded.entryBaseUrls, { Prod: "http://old.test" });
+
+			// The URL changes but the add-only host refuses the update: the live
+			// group keeps the OLD connection, so the ledger must not move.
+			recorded.setting = [{ label: "Prod", baseUrl: "http://new.test" }];
+			recorded.duplicateLabels.add("Prod");
+			await engine.syncNow();
+			assert.strictEqual(engine.getDeclared()[0]?.syncErrorClass, "blocked");
+			assert.deepStrictEqual(
+				recorded.entryBaseUrls,
+				{ Prod: "http://old.test" },
+				"the ledger records the group that exists, not the configuration that never landed"
+			);
+
+			// Removing the entry now names the live group's identity.
+			recorded.setting = [];
+			await engine.syncNow();
+			assert.deepStrictEqual(recordedEvents(recorded), [
+				{ kind: "removed", label: "Prod", baseUrl: "http://old.test" },
+			]);
 		});
 
 		test("a failed upsert is classified, keeps no fingerprint, surfaces on the view, and retries next pass", async () => {
@@ -1314,7 +1522,16 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			globalState: storage.memento,
 			secrets: storage.secrets,
 		} as unknown as vscode.ExtensionContext;
-		return { env: createServerSyncEnv(context, logger, fakeFingerprintSaltSession(salt)), storage, lines };
+		return {
+			env: createServerSyncEnv(
+				context,
+				logger,
+				fakeFingerprintSaltSession(salt),
+				new GroupRemovalStore(storage.memento)
+			),
+			storage,
+			lines,
+		};
 	}
 
 	test("a durable salt persists the map as before", async () => {
@@ -1365,10 +1582,15 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			secrets: storage.secrets,
 		} as unknown as vscode.ExtensionContext;
 		const answers: ("durable" | "session-only")[] = ["durable", "session-only"];
-		const env = createServerSyncEnv(context, new Logger({ info: () => {}, error: () => {} }), {
-			state: () => "durable",
-			confirmDurable: async () => answers.shift() ?? "session-only",
-		});
+		const env = createServerSyncEnv(
+			context,
+			new Logger({ info: () => {}, error: () => {} }),
+			{
+				state: () => "durable",
+				confirmDurable: async () => answers.shift() ?? "session-only",
+			},
+			new GroupRemovalStore(storage.memento)
+		);
 
 		await env.setFingerprints({ A: "first" });
 		assert.deepStrictEqual(storage.mementoStore.get(SERVER_SYNC_FINGERPRINTS_KEY), { A: "first" });

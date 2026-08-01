@@ -124,6 +124,34 @@ export function acceptedEntry(raw: unknown, label: string): { index: number; ent
 }
 
 /**
+ * Every label the raw setting still CARRIES, acceptance aside: any object
+ * entry with a usable label string counts, even when the parser would reject
+ * it (no usable baseUrl, a duplicate). The removal detector reads this
+ * because "the user removed the entry" and "the entry is present but
+ * momentarily malformed" (a mid-edit settings.json, say) must never be
+ * confused - a tombstone written for the latter would suppress a group the
+ * user did not remove. Reserved labels stay out: the parser rejects them
+ * permanently (never synced, never fingerprinted), and the caller carries
+ * map records under these labels, so a prototype-polluting key must not
+ * come back from here.
+ */
+export function rawDeclaredLabels(raw: unknown): Set<string> {
+	if (!Array.isArray(raw)) {
+		return new Set();
+	}
+	const labels = new Set<string>();
+	for (const item of raw) {
+		if (isRecord(item) && typeof item.label === "string") {
+			const label = item.label.trim();
+			if (label.length > 0 && !isUnsafeRecordKey(label)) {
+				labels.add(label);
+			}
+		}
+	}
+	return labels;
+}
+
+/**
  * The request path's resolution of one declared entry's per-entry
  * modelParameters: the entry acceptedEntry resolves for `label`, and only
  * when that entry also declares the server the request is routed to (base

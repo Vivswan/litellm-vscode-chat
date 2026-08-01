@@ -97,6 +97,8 @@ function makeHarness(): Harness {
 		getSnapshots: () => [{ status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] }],
 		getDeclaredServers: () => [],
 		getLegacyServers: () => harness.legacyServers,
+		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
+		isGroupSnapshot: () => true,
 		settingsReader: () => reader,
 		updateSetting: async (key, value) => {
 			if (harness.failUpdates !== undefined) {
@@ -132,6 +134,9 @@ function makeHarness(): Harness {
 		deleteServerSecrets: async () => {},
 		requestServerSync: () => {},
 		resolveAdoptionCredentials: () => undefined,
+		resolveExternalGroup: () => undefined,
+		hideGroup: async () => {},
+		unhideGroup: async () => false,
 		executeCommand: async (command, ...args) => {
 			commands.push([command, ...args]);
 		},
