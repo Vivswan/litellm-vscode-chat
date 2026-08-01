@@ -139,3 +139,17 @@ test("the page header carries one quiet Report-a-bug action that posts the repor
 	fireClick(button);
 	expect(postedMessages).toEqual([{ type: "executeCommand", command: "reportIssue" }]);
 });
+
+test("with only legacy-registry servers the hero says so instead of claiming not configured", () => {
+	// The Diagnostics tab's verdict treats the legacy registry as real
+	// configuration (overallStatusText); the hero mirrors that rule, so the
+	// strip and the tab can never disagree about the same install.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ legacyServerCount: 2 })));
+	const pill = root.querySelector(".hero .pill");
+	expect(pill?.textContent).toContain("Legacy registry only");
+	expect(pill?.classList.contains("tone-muted")).toBe(true);
+
+	pushToWebview(statePush(makeState()));
+	expect(root.querySelector(".hero .pill")?.textContent).toContain("Not configured");
+});

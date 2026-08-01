@@ -594,7 +594,6 @@ export const DASHBOARD_COMMAND_IDS = [
 	"manageServers",
 	"syncModels",
 	"testConnection",
-	"showDiagnostics",
 	"openSettings",
 	"reportIssue",
 ] as const;

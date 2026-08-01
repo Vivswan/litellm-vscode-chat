@@ -337,7 +337,7 @@ const STYLES = `
 	.diag-facts li, .diag-servers li { margin: 4px 0; }
 	/* The facts list separates its hint with literal text (the block is copied
 	   whole into reports), so it needs no CSS gap. */
-	.diag-servers li .hint, .diag-verdict .hint, .feedback-links li .hint { margin-left: 8px; }
+	.diag-servers li .hint, .feedback-links li .hint { margin-left: 8px; }
 	.diag-actions { margin: 8px 0 4px; }
 	.feedback-links { list-style: none; padding: 0; margin: 8px 0; }
 	.feedback-links li { margin: 8px 0; }

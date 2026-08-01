@@ -1654,7 +1654,6 @@ suite("extension/dashboard/state", () => {
 				{ type: "executeCommand", command: "manageServers" },
 				{ type: "executeCommand", command: "syncModels" },
 				{ type: "executeCommand", command: "testConnection" },
-				{ type: "executeCommand", command: "showDiagnostics" },
 				{ type: "executeCommand", command: "openSettings" },
 				{ type: "executeCommand", command: "reportIssue" },
 			];
@@ -1666,7 +1665,6 @@ suite("extension/dashboard/state", () => {
 				["litellm.manageServers"],
 				["litellm.syncModels"],
 				["litellm.testConnection"],
-				["litellm.showDiagnostics"],
 				["workbench.action.openSettings", "@ext:vivswan.litellm-vscode-chat"],
 				["litellm.reportIssue"],
 			]);
