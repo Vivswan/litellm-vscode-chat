@@ -126,18 +126,22 @@ function SortHeader({
 	sortKey,
 	sort,
 	numeric,
+	colClass,
 	onSort,
 }: {
 	label: string;
 	sortKey: SortKey;
 	sort: Sort | undefined;
 	numeric?: boolean;
+	/** The stylesheet's hook for dropping this whole column on narrow panels; layout only. */
+	colClass?: string;
 	onSort: (key: SortKey) => void;
 }) {
 	const active = sort?.key === sortKey;
+	const classes = [numeric === true ? "num" : undefined, colClass].filter((name) => name !== undefined).join(" ");
 	return (
 		<th
-			class={numeric === true ? "num" : undefined}
+			class={classes.length > 0 ? classes : undefined}
 			aria-sort={active ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
 		>
 			<button type="button" class="sort" onClick={() => onSort(sortKey)}>
@@ -331,14 +335,35 @@ export function ModelsSection({
 							<thead>
 								<tr>
 									<SortHeader label="Model" sortKey="name" sort={sort} onSort={toggleSort} />
-									<SortHeader label="Family" sortKey="family" sort={sort} onSort={toggleSort} />
+									<SortHeader label="Family" sortKey="family" sort={sort} colClass="col-family" onSort={toggleSort} />
 									{showServerColumn ? (
 										<SortHeader label="Server" sortKey="server" sort={sort} onSort={toggleSort} />
 									) : null}
-									<SortHeader label="Input tokens" sortKey="input" sort={sort} numeric onSort={toggleSort} />
-									<SortHeader label="Output tokens" sortKey="output" sort={sort} numeric onSort={toggleSort} />
-									<SortHeader label="Pricing ($/M)" sortKey="price" sort={sort} numeric onSort={toggleSort} />
-									<th>Capabilities</th>
+									<SortHeader
+										label="Input tokens"
+										sortKey="input"
+										sort={sort}
+										numeric
+										colClass="col-input"
+										onSort={toggleSort}
+									/>
+									<SortHeader
+										label="Output tokens"
+										sortKey="output"
+										sort={sort}
+										numeric
+										colClass="col-output"
+										onSort={toggleSort}
+									/>
+									<SortHeader
+										label="Pricing ($/M)"
+										sortKey="price"
+										sort={sort}
+										numeric
+										colClass="col-price"
+										onSort={toggleSort}
+									/>
+									<th class="col-caps">Capabilities</th>
 									<th>{/* params */}</th>
 								</tr>
 							</thead>
@@ -353,10 +378,14 @@ export function ModelsSection({
 									// Sorted-position identity: rows rebuild wholesale on every
 									// state push, and a model appears once per server.
 									const rowId = `${model.serverLabel}/${model.id}`;
+									const caps = capabilities(model);
 									return (
 										<tr key={start + index} aria-rowindex={windowed ? start + index + 2 : undefined}>
 											<td class="model-name">
-												{model.name}
+												{/* The span is the stylesheet's ellipsis cap for pathological
+												    names; the full name stays in the DOM (and in the inspector's
+												    heading), only its rendering trims. */}
+												<span class="model-name-text">{model.name}</span>
 												{/* Beside the name because the name is what it copies. The
 												    server label keeps the accessible name unique when one raw
 												    ID is registered through several servers. */}
@@ -369,11 +398,11 @@ export function ModelsSection({
 													{copied === rowId ? <IconCheck /> : <IconCopy />}
 												</button>
 											</td>
-											<td>{model.family}</td>
+											<td class="col-family">{model.family}</td>
 											{showServerColumn ? <td>{model.serverLabel}</td> : null}
-											<td class="num">{formatTokens(model.maxInputTokens)}</td>
-											<td class="num">{formatTokens(model.maxOutputTokens)}</td>
-											<td class="num">
+											<td class="num col-input">{formatTokens(model.maxInputTokens)}</td>
+											<td class="num col-output">{formatTokens(model.maxOutputTokens)}</td>
+											<td class="num col-price">
 												{/* Cache and long-context tiers exist only here, so the tip
 												    is focus-reachable; native title tooltips do not show in
 												    the webview host. */}
@@ -381,10 +410,21 @@ export function ModelsSection({
 													<span>{formatPricing(model)}</span>
 												</HoverTip>
 											</td>
-											<td class="caps">{capabilities(model)}</td>
+											<td class="caps col-caps">
+												{/* Truncates with a CSS ellipsis to hold the column budget; the
+													    tip carries the full list, and it is focusable because the
+													    ellipsized tail is invisible without a pointer. */}
+												{caps.length > 0 ? (
+													<HoverTip focusable tip={caps}>
+														<span class="caps-text">{caps}</span>
+													</HoverTip>
+												) : null}
+											</td>
 											<td class="actions">
 												{/* A quiet text action, not an icon: "Params" says what opens,
-												    and the uniform row height survives (no taller chrome). */}
+												    and the uniform row height survives (no taller chrome). It
+												    stays visible at rest - it is the inspector's only entry
+												    point, so hover-reveal would make it undiscoverable. */}
 												<button
 													type="button"
 													class="quiet params-action"

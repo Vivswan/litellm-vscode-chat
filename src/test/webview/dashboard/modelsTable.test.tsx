@@ -176,12 +176,36 @@ test("the copy button lives inside the model-name cell; the trailing column hold
 	const nameCell = cells[0] as HTMLElement;
 	expect(nameCell.classList.contains("model-name")).toBe(true);
 	expect(nameCell.textContent).toContain("Omni");
+	// The name renders inside the ellipsis-capped span the stylesheet trims;
+	// the full text stays in the DOM.
+	expect(nameCell.querySelector(".model-name-text")?.textContent).toBe("Omni");
 	expect(nameCell.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']")).not.toBeNull();
 	// The last cell carries the Params action; copy and Params are the row's only controls.
 	const lastCell = cells[cells.length - 1] as HTMLElement;
 	expect(lastCell.classList.contains("actions")).toBe(true);
 	expect(lastCell.querySelector("button.params-action")).not.toBeNull();
 	expect(row.querySelectorAll("button").length).toBe(2);
+});
+
+test("the hideable columns carry their col- classes on header and cells, and the Params action is not hover-revealed", () => {
+	// The narrow-viewport media queries drop whole columns by these classes;
+	// a th/td that loses its class silently reopens the horizontal-scroll
+	// dead zones. Both the 7- and 8-column layouts (without and with the
+	// Server column) must stay wired.
+	for (const serverCount of [1, 2]) {
+		const root = mount(
+			<ModelsSection models={[makeModel()]} serverCount={serverCount} requestScopes={{}} modelParameters={{}} />
+		);
+		for (const col of ["col-family", "col-input", "col-output", "col-price", "col-caps"]) {
+			expect(root.querySelectorAll(`thead th.${col}`).length).toBe(1);
+			expect(root.querySelectorAll(`tbody td.${col}`).length).toBe(1);
+		}
+		// The Params action is the inspector's only entry point: it must not
+		// ride the hover-revealed icon-action styling the copy button uses.
+		const params = root.querySelector("button.params-action") as HTMLElement;
+		expect(params.classList.contains("icon-action")).toBe(false);
+		cleanup();
+	}
 });
 
 test("spacer colSpan tracks the rendered column count with and without the Server column", () => {
