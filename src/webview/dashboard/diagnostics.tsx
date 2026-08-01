@@ -285,7 +285,7 @@ export function DiagnosticsSection({
 								class="linkish"
 								onClick={() => postMessage({ type: "executeCommand", command: "reportIssue" })}
 							>
-								<IconBug /> Report a bug
+								<IconBug /> {l10n.t("Report a bug")}
 							</button>
 						}
 						hint={l10n.t("Opens a GitHub issue pre-filled with version, platform, and recent logs.")}
@@ -293,19 +293,19 @@ export function DiagnosticsSection({
 					<ExternalRow
 						href={FEEDBACK_LINK_FEATURE_REQUEST}
 						icon={<IconLightbulb />}
-						label="Request a feature"
+						label={l10n.t("Request a feature")}
 						hint={l10n.t("Suggest an improvement as a GitHub issue.")}
 					/>
 					<ExternalRow
 						href={FEEDBACK_LINK_RATE}
 						icon={<IconStar />}
-						label="Rate this extension"
+						label={l10n.t("Rate this extension")}
 						hint={l10n.t("Leave a review on the Visual Studio Marketplace.")}
 					/>
 					<FeedbackRow
 						action={
 							<DocsLink href={DOCS_LINK_GETTING_STARTED} label="Documentation - the getting-started guide">
-								<IconBook /> Documentation
+								<IconBook /> {l10n.t("Documentation")}
 							</DocsLink>
 						}
 						hint={l10n.t("The getting-started guide, with the rest of the docs one click away.")}
@@ -313,7 +313,7 @@ export function DiagnosticsSection({
 					<ExternalRow
 						href={FEEDBACK_LINK_REPOSITORY}
 						icon={<IconRepo />}
-						label="GitHub repository"
+						label={l10n.t("GitHub repository")}
 						hint={l10n.t("Source code, releases, and issues.")}
 					/>
 				</ul>
