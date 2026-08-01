@@ -140,6 +140,33 @@ suite("extension/servers/groupRemovals", () => {
 			]);
 		});
 
+		test("this window's journal op outlives another window's store-level clear (the deliberate contract)", async () => {
+			// The flip side of the ride-through above, pinned so the trade-off
+			// reads as chosen: a journal op is sticky for the session and every
+			// persist re-asserts it. After this window tombstones A, another
+			// window's store-level clear of A (its dashboard Unhide) is neither
+			// observed here nor preserved by this window's next write - the
+			// journal cannot tell that clear apart from the reverted store read
+			// it exists to shadow (#220). A re-declared entry still unhides
+			// everywhere: each window's own sync pass journals the remove through
+			// clearTombstonesFor.
+			const { store, storage } = makeStore();
+			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			// Another window clears A directly in shared storage.
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, []);
+
+			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the sticky add still answers here");
+			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			assert.deepStrictEqual(
+				storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
+				[
+					{ label: "A", baseUrl: "http://host.test" },
+					{ label: "B", baseUrl: "http://host.test" },
+				],
+				"the next write re-asserts A into the store"
+			);
+		});
+
 		test("a rejected persist still hides the group this session and self-heals on the next write", async () => {
 			const { store, storage, changes } = makeStore();
 			const persistErrors: unknown[] = [];
