@@ -7,7 +7,7 @@ import {
 	RequestError,
 	timeoutMessage,
 } from "../../../provider/transport/errorMapping";
-import { MANAGE_COMMAND_TITLE } from "../../../shared/config/commandIds";
+import { manageCommandTitle } from "../../../shared/config/commandIds";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -23,9 +23,9 @@ const SEED = resolveFuzzSeed();
  *
  * AUTH_MESSAGE and UPSTREAM_AUTH_MESSAGE are not exported by the source, so
  * the expected strings are mirrored here; the AUTH_MESSAGE mirror is built
- * from the same MANAGE_COMMAND_TITLE constant the source interpolates.
+ * from the same manageCommandTitle() helper the source interpolates.
  */
-const AUTH_MESSAGE = `Authentication failed: Your LiteLLM server requires an API key. Please run the "${MANAGE_COMMAND_TITLE}" command to configure your API key.`;
+const AUTH_MESSAGE = `Authentication failed: Your LiteLLM server requires an API key. Please run the "${manageCommandTitle()}" command to configure your API key.`;
 
 const UPSTREAM_AUTH_MESSAGE =
 	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.";

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { z } from "zod";
-import { MANAGE_COMMAND_TITLE, VENDOR_ID } from "../../shared/config/commandIds";
+import { manageCommandTitle, VENDOR_ID } from "../../shared/config/commandIds";
 import {
 	apiKeySecret,
 	GROUP_MIGRATION_COMPLETE_KEY,
@@ -299,7 +299,7 @@ async function submitGroupSeed(
 			await globalState.update(PENDING_GROUP_SUBMISSION_KEY, undefined);
 			await markSkipped(
 				current.id,
-				`A language models group named "${record.name}" already exists, so server "${current.label}" was not migrated. Review the group in the language models UI, then remove the legacy server via "${MANAGE_COMMAND_TITLE}".`
+				`A language models group named "${record.name}" already exists, so server "${current.label}" was not migrated. Review the group in the language models UI, then remove the legacy server via "${manageCommandTitle()}".`
 			);
 			return "skipped";
 		}
@@ -440,7 +440,7 @@ export async function migrateServersToProviderGroups(
 				} else {
 					await markSkipped(
 						server.id,
-						`Server "${current.label}" changed after it was migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "${MANAGE_COMMAND_TITLE}".`
+						`Server "${current.label}" changed after it was migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "${manageCommandTitle()}".`
 					);
 				}
 				continue;
@@ -480,7 +480,7 @@ export async function migrateServersToProviderGroups(
 			} else {
 				await markSkipped(
 					server.id,
-					`Server "${afterSeed.label}" changed while it was being migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "${MANAGE_COMMAND_TITLE}".`
+					`Server "${afterSeed.label}" changed while it was being migrated; its provider group has the earlier settings. Review the group in the language models UI, then remove the legacy server via "${manageCommandTitle()}".`
 				);
 			}
 		}

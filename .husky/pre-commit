@@ -44,5 +44,8 @@ bun run lint
 # Type-check the bun-run helper scripts (not covered by compile)
 bunx tsc --noEmit -p tsconfig.scripts.json
 
+# Localization gate: bundle extraction drift and translation-file parity
+bun run l10n:check
+
 # Run tests
 bun run test

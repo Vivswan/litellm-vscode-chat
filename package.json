@@ -66,6 +66,7 @@
 	],
 	"pricing": "Free",
 	"main": "./dist/extension.js",
+	"l10n": "./l10n",
 	"contributes": {
 		"languageModelChatProviders": [
 			{
@@ -378,6 +379,8 @@
 		"setup-env:pwsh": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/env/setup-env.ps1",
 		"setup-env:verify:pwsh": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/env/setup-env.ps1 -Verify",
 		"setup-env:full:pwsh": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/env/setup-env.ps1 -Full",
+		"l10n:extract": "bun scripts/l10n/extract.ts",
+		"l10n:check": "bun scripts/l10n/check.ts",
 		"lint:actions": "bun scripts/ci/lint-actions.ts",
 		"lint:knip": "knip",
 		"lint:types": "eslint src scripts",
@@ -396,6 +399,7 @@
 		"test:docker": "bun scripts/docker-test.ts"
 	},
 	"dependencies": {
+		"@vscode/l10n": "^0.0.18",
 		"openai": "^6.48.0",
 		"preact": "^10.29.7",
 		"zod": "^4.4.3"
@@ -407,6 +411,7 @@
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^26.1.1",
 		"@types/vscode": "^1.125.0",
+		"@vscode/l10n-dev": "^0.0.35",
 		"@vscode/test-cli": "^0.0.15",
 		"@vscode/test-electron": "^3.1.0",
 		"@vscode/vsce": "^3.9.2",

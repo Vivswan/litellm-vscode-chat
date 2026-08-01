@@ -402,6 +402,8 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 		cspSource: panel.webview.cspSource,
 		nonce: createNonce(),
 		scriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, DASHBOARD_BUNDLE_FILENAME)).toString(),
+		language: vscode.env.language,
+		l10nBundle: vscode.l10n.bundle,
 	});
 	return panel;
 }
