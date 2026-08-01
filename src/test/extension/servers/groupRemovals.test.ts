@@ -82,6 +82,97 @@ suite("extension/servers/groupRemovals", () => {
 			const { store: notAList } = makeStore({ [REMOVED_GROUP_TOMBSTONES_KEY]: "junk" });
 			assert.deepStrictEqual(notAList.tombstones(), []);
 		});
+
+		test("a stale memento read cannot lose an awaited tombstone (#220)", async () => {
+			// The nightly monkey fuzzer caught removed groups' models never
+			// leaving the host list: globalState handed back a pre-update value
+			// after an awaited update (the hazard the sync engine's fingerprint
+			// session map documents), so a re-read inside the next add's
+			// read-modify-write dropped the earlier tombstone, and the provider's
+			// suppression read missed a just-written one. The session journal is
+			// applied over every read, so this session's ops always win.
+			const { store, storage } = makeStore();
+			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			// The storage layer reverts the key to its pre-add value.
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, []);
+
+			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the session journal serves the read");
+
+			// The next add must build on the session list, not the reverted store:
+			// both tombstones survive, and the persisted write carries both.
+			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "A survives B's read-modify-write");
+			assert.strictEqual(store.isTombstoned("B", "http://host.test"), true);
+			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), [
+				{ label: "A", baseUrl: "http://host.test" },
+				{ label: "B", baseUrl: "http://host.test" },
+			]);
+		});
+
+		test("a stale store cannot resurrect a cleared tombstone (a re-declared group never stays suppressed)", async () => {
+			const { store, storage } = makeStore();
+			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			assert.strictEqual(await store.removeTombstone({ label: "A", baseUrl: "http://host.test" }), true);
+
+			// The storage layer reverts to the version that still holds A; the
+			// session journal must keep the group unsuppressed anyway.
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, [{ label: "A", baseUrl: "http://host.test" }]);
+			assert.strictEqual(store.isTombstoned("A", "http://host.test"), false);
+		});
+
+		test("another window's tombstone rides through this window's mutations", async () => {
+			// globalState is shared across windows: the journal shadows only this
+			// session's own ops, so a record another window persisted must both
+			// answer reads here and survive this window's next full-list write.
+			const { store, storage } = makeStore();
+			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, [
+				{ label: "A", baseUrl: "http://host.test" },
+				{ label: "W", baseUrl: "http://host.test" },
+			]);
+
+			assert.strictEqual(store.isTombstoned("W", "http://host.test"), true, "fresh reads see the other window");
+			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), [
+				{ label: "A", baseUrl: "http://host.test" },
+				{ label: "W", baseUrl: "http://host.test" },
+				{ label: "B", baseUrl: "http://host.test" },
+			]);
+		});
+
+		test("a rejected persist still hides the group this session and self-heals on the next write", async () => {
+			const { store, storage, changes } = makeStore();
+			const persistErrors: unknown[] = [];
+			store.onPersistError = (error) => persistErrors.push(error);
+			const update = storage.memento.update.bind(storage.memento);
+			let failNext = true;
+			(storage.memento as { update: (key: string, value: unknown) => Thenable<void> }).update = (key, value) => {
+				if (failNext) {
+					failNext = false;
+					return Promise.reject(new Error("storage write failed"));
+				}
+				return update(key, value);
+			};
+
+			// Persistence is best-effort: the journal hides the group, the
+			// provider is notified, and the failure is reported instead of thrown
+			// (a thrown persist would make callers report the opposite of the
+			// effective state).
+			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the journal hides the group anyway");
+			assert.strictEqual(changes.length, 1, "the provider is notified despite the failed persist");
+			assert.strictEqual(persistErrors.length, 1, "the failure is reported, not thrown");
+
+			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			assert.deepStrictEqual(
+				storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
+				[
+					{ label: "A", baseUrl: "http://host.test" },
+					{ label: "B", baseUrl: "http://host.test" },
+				],
+				"the next write persists the journaled view, healing the store"
+			);
+		});
 	});
 
 	suite("provenance", () => {
