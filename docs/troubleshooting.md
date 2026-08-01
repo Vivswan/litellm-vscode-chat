@@ -12,7 +12,7 @@ The LiteLLM status bar item (bottom right corner) shows your connection status:
 | `⟳ LiteLLM` | Loading | Fetching models from servers |
 | `✓ LiteLLM (N)` | Connected | All servers reachable with N models available |
 | `⚠ LiteLLM (N)` | Degraded | Some servers unreachable, N models from reachable servers |
-| `✗ LiteLLM` | Error | All servers failed - click for diagnostics |
+| `✗ LiteLLM` | Error | All servers failed - the Diagnostics tab has each server's error |
 
 Click it at any time to open the [dashboard](dashboard.md); its Diagnostics tab has the details.
 

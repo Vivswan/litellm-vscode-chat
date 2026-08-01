@@ -137,12 +137,15 @@ type Overall = { tone: "ok" | "error" | "warn" | "muted"; word: string };
 /**
  * The hero's overall verdict. The classification is shared with the
  * Diagnostics tab (classifyOverall in the protocol module); this only maps
- * it to the hero's tone and word.
+ * it to the hero's tone and word, with the tab's legacy-registry rule
+ * mirrored so the strip and the tab never disagree about the same install.
  */
-function overallState(servers: readonly DashboardServer[]): Overall {
+function overallState(servers: readonly DashboardServer[], legacyServerCount: number): Overall {
 	switch (classifyOverall(servers)) {
 		case "not-configured":
-			return { tone: "muted", word: "Not configured" };
+			// The legacy registry is real configuration even though it
+			// contributes no server rows (see overallStatusText).
+			return { tone: "muted", word: legacyServerCount > 0 ? "Legacy registry only" : "Not configured" };
 		case "error":
 			return { tone: "error", word: "Error" };
 		case "degraded":
@@ -161,7 +164,7 @@ function lastSync(servers: readonly DashboardServer[], now: number): string | un
 
 /** The at-a-glance strip the status bar click promises: overall state, counts, last sync, and Sync. */
 function StatusHero({ state, now }: { state: DashboardState; now: number }) {
-	const overall = overallState(state.servers);
+	const overall = overallState(state.servers, state.legacyServerCount);
 	const synced = lastSync(state.servers, now);
 	return (
 		<div class="hero">

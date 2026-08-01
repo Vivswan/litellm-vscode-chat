@@ -92,7 +92,6 @@ const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readon
 	manageServers: { command: INTERNAL_CMD.manageServers, args: [] },
 	syncModels: { command: CMD.syncModels, args: [] },
 	testConnection: { command: CMD.testConnection, args: [] },
-	showDiagnostics: { command: CMD.showDiagnostics, args: [] },
 	openSettings: { command: "workbench.action.openSettings", args: [EXTENSION_SETTINGS_FILTER] },
 	reportIssue: { command: CMD.reportIssue, args: [] },
 };
