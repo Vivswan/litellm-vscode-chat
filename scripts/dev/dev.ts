@@ -22,6 +22,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { VENDOR_ID } from "../../src/shared/config/commandIds";
+import { CONFIG_SECTION } from "../../src/shared/config/settingSpec";
 import { DEV_SEED_FILENAME, type DevSeed } from "../../src/shared/devSeed";
 import { composeSetting, readEnvFile, STACK_DEFAULTS } from "../stack/litellmConfig";
 
@@ -158,7 +160,200 @@ const markerFile = join(profileDir, "seed-fingerprint");
 // codeql[js/insufficient-password-hash] -- not password storage: a change-detection fingerprint of the dev seed (a well-known local test key)
 const seedFingerprint = createHash("sha256").update(JSON.stringify(seed)).digest("hex");
 const previousFingerprint = existsSync(markerFile) ? readFileSync(markerFile, "utf8").trim() : undefined;
+
+function readProfileFile(...relative: string[]): string | undefined {
+	try {
+		return readFileSync(join(profileDir, ...relative), "utf8");
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * settings.json is JSONC: VS Code preserves comments and trailing commas a
+ * user pastes in, and either would make a strict parse read a seeded profile
+ * as unseeded. This reduces exactly those two extensions - a comment outside
+ * strings becomes one space (whitespace, not a deletion, so a comment lodged
+ * mid-token cannot weld the fragments around it into a valid literal), and a comma is dropped only when it follows the
+ * end of a value and the next meaningful character closes an array or object
+ * (so "[,]" stays invalid) - and leaves everything else for JSON.parse to
+ * judge. String-aware, so a comma or slash inside a value never changes it.
+ */
+function stripJsoncExtensions(text: string): string {
+	const out: string[] = [];
+	let inString = false;
+	// The last meaningful character emitted outside strings: a comma may only
+	// trail a finished value (closing quote or bracket, or a literal/number
+	// character).
+	let prev = "";
+	// Index in `out` of a trailing-candidate comma that only whitespace or
+	// comments has followed so far; a closing bracket drops it, anything else
+	// clears it.
+	let danglingComma = -1;
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i] as string;
+		if (inString) {
+			out.push(ch);
+			if (ch === "\\" && i + 1 < text.length) {
+				out.push(text[i + 1] as string);
+				i++;
+			} else if (ch === '"') {
+				inString = false;
+				prev = '"';
+			}
+			continue;
+		}
+		if (ch === "/" && text[i + 1] === "/") {
+			out.push(" ");
+			while (i + 1 < text.length && text[i + 1] !== "\n") {
+				i++;
+			}
+			continue;
+		}
+		if (ch === "/" && text[i + 1] === "*") {
+			const end = text.indexOf("*/", i + 2);
+			if (end < 0) {
+				// Unterminated: malformed, not strippable. The unmodified text
+				// makes JSON.parse reject it, and the caller keeps the profile.
+				return text;
+			}
+			out.push(" ");
+			i = end + 1;
+			continue;
+		}
+		if (ch === '"') {
+			inString = true;
+			danglingComma = -1;
+			prev = "";
+			out.push(ch);
+			continue;
+		}
+		if (ch === ",") {
+			danglingComma = /["\]}0-9A-Za-z]/.test(prev) ? out.length : -1;
+			prev = ch;
+			out.push(ch);
+			continue;
+		}
+		if (ch === "]" || ch === "}") {
+			if (danglingComma >= 0) {
+				out.splice(danglingComma, 1);
+			}
+			danglingComma = -1;
+			prev = ch;
+			out.push(ch);
+			continue;
+		}
+		if (!/\s/.test(ch)) {
+			danglingComma = -1;
+			prev = ch;
+		}
+		out.push(ch);
+	}
+	return out.join("");
+}
+
+// shared/config/settings.ts owns SERVERS_SETTING_KEY, but that module
+// imports vscode and cannot load outside the host; this literal must track
+// it.
+const serversSettingKey = `${CONFIG_SECTION}.servers`;
+
+/**
+ * Whether a previous run's host actually consumed the seed: applying it
+ * writes a servers entry with the seed's label into the profile's
+ * User/settings.json (src/extension/devSeed.ts). The marker cannot answer
+ * this - it is written below, BEFORE the host launches - so "marker present,
+ * group absent" also describes a host that never activated, and wiping on
+ * that state would reset the profile on every run. A settings file that is
+ * unreadable or malformed beyond JSONC cannot confirm consumption either, so
+ * it keeps the profile; the failure mode is a skipped reset, never a wipe.
+ */
+function profileConsumedSeed(): boolean {
+	const raw = readProfileFile("User", "settings.json");
+	if (raw === undefined) {
+		return false;
+	}
+	let settings: unknown;
+	try {
+		settings = JSON.parse(stripJsoncExtensions(raw));
+	} catch {
+		return false;
+	}
+	if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
+		return false;
+	}
+	const servers = (settings as Record<string, unknown>)[serversSettingKey];
+	if (!Array.isArray(servers)) {
+		return false;
+	}
+	return servers.some((entry) => {
+		if (entry === null || typeof entry !== "object") {
+			return false;
+		}
+		const label = (entry as { label?: unknown }).label;
+		// Trimmed like the seed consumer matches labels (upsertSeedEntry).
+		return typeof label === "string" && label.trim() === seed.label;
+	});
+}
+
+/**
+ * Whether the seeded group is still in the host's group store,
+ * User/chatLanguageModels.json: a JSON array of { name, vendor, ... }
+ * records the host writes as strict JSON. Absent, unparsable, or group-less
+ * all count as gone - the caller only asks after profileConsumedSeed()
+ * proved the group was once created.
+ */
+function profileHasSeededGroup(): boolean {
+	const raw = readProfileFile("User", "chatLanguageModels.json");
+	if (raw === undefined) {
+		return false;
+	}
+	let groups: unknown;
+	try {
+		groups = JSON.parse(raw);
+	} catch {
+		return false;
+	}
+	if (!Array.isArray(groups)) {
+		return false;
+	}
+	return groups.some(
+		(group) =>
+			group !== null &&
+			typeof group === "object" &&
+			(group as { vendor?: unknown }).vendor === VENDOR_ID &&
+			(group as { name?: unknown }).name === seed.label
+	);
+}
+
+// A matching fingerprint only promises the profile was seeded for this
+// configuration; the group itself lives in User/chatLanguageModels.json,
+// where a developer can delete it (or the whole file) by hand. That state
+// re-seeds the same way a configuration change does: wipe and start over.
+// One reset per loss: the wipe leaves a breadcrumb in the fresh profile,
+// and while it is present a still-missing group logs instead of wiping
+// again - the re-seed did not stick, so the group add itself is failing,
+// and wiping every run would pile sign-in loss on top of that bug. The
+// first preflight that sees the group back removes the breadcrumb, so a
+// later hand-deletion resets again. Presence is the signal; the content is
+// irrelevant.
+const reseedBreadcrumb = join(profileDir, "seed-reseeded");
+let wipeReason: string | undefined;
+let missingGroupReset = false;
 if (previousFingerprint !== seedFingerprint) {
+	wipeReason = "seed configuration changed";
+} else if (profileConsumedSeed()) {
+	if (profileHasSeededGroup()) {
+		rmSync(reseedBreadcrumb, { force: true });
+	} else if (existsSync(reseedBreadcrumb)) {
+		console.error(
+			"[dev] the seeded group is missing again after a profile reset; the group add is failing, so the profile is kept - inspect the extension logs (or delete .dev-profile to retry from scratch)"
+		);
+	} else {
+		wipeReason = "seeded group missing from the profile";
+		missingGroupReset = true;
+	}
+}
+if (wipeReason !== undefined) {
 	if (existsSync(profileDir)) {
 		// Wiping under a live host would yank its state out from under it, so a
 		// visible host blocks the launch. Best effort, not a lock: when ps is
@@ -169,12 +364,15 @@ if (previousFingerprint !== seedFingerprint) {
 			);
 			process.exit(1);
 		}
-		console.log("[dev] seed configuration changed; resetting the dedicated dev profile");
+		console.log(`[dev] ${wipeReason}; resetting the dedicated dev profile`);
 	}
 	rmSync(profileDir, { recursive: true, force: true });
 }
 mkdirSync(profileDir, { recursive: true });
 writeFileSync(markerFile, `${seedFingerprint}\n`);
+if (missingGroupReset) {
+	writeFileSync(reseedBreadcrumb, "");
+}
 
 // Verbose by default in the dev stack (and only there): the fake backend
 // logs every chat request and response body into ./logs/fake-openai.log.

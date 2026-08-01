@@ -11,7 +11,7 @@ bun install
 bun run compile
 ```
 
-Press `F5` to launch the Extension Development Host, or `bun run dev` to launch it preconfigured against the local stack below. In the dev container (or any other headless Linux machine), run the test suite under a virtual display: `xvfb-run -a bun run test`.
+Press `F5` to launch the Extension Development Host, or `bun run dev` to launch it preconfigured against the local stack below. The dev host's state lives in a disposable `.dev-profile/` directory at the repository root: deleting the directory, or the seeded server's provider group inside it, is recovered on the next `bun run dev`, which resets and re-seeds the profile (at the cost of any sign-ins stored there). To avoid reset loops the launcher performs one automatic reset per observed loss; if it reports the group missing again, delete `.dev-profile/` by hand. In the dev container (or any other headless Linux machine), run the test suite under a virtual display: `xvfb-run -a bun run test`.
 
 | Command | Description |
 |---------|-------------|
