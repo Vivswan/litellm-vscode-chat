@@ -2,7 +2,7 @@
 	"name": "litellm-vscode-chat",
 	"displayName": "LiteLLM Provider for GitHub Copilot Chat",
 	"description": "Use 100+ LLMs in GitHub Copilot Chat through your LiteLLM proxy: streaming, tool calling, vision, reasoning, and multiple servers. Works with OpenAI, Anthropic, Gemini, Bedrock, Azure, Ollama, and any OpenAI-compatible endpoint.",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"publisher": "vivswan",
 	"license": "MIT",
 	"icon": "assets/logo.png",
