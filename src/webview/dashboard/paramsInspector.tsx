@@ -25,7 +25,48 @@ import {
 import { DOCS_LINK_PARAMS_INSPECTOR } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { HELP_PARAMS_INSPECTOR } from "./helpText";
+import { capabilities, formatCost, formatPricing, formatTokens } from "./models";
 import { SlideOver } from "./slideOver";
+
+/** One row of the model-facts grid; rows with nothing to say do not render. */
+function Fact({ label, value }: { label: string; value: string }) {
+	return (
+		<div>
+			<dt class="params-caveat-label">{label}</dt>
+			<dd>{value}</dd>
+		</div>
+	);
+}
+
+/** Cache pricing as its own fact line, only when the model declares any. */
+function cachePricing(model: DashboardModel): string | undefined {
+	const parts: string[] = [];
+	if (model.cacheReadCost !== undefined) {
+		parts.push(`read ${formatCost(model.cacheReadCost)}`);
+	}
+	if (model.cacheWriteCost !== undefined) {
+		parts.push(`write ${formatCost(model.cacheWriteCost)}`);
+	}
+	return parts.length > 0 ? parts.join(" / ") : undefined;
+}
+
+/** The long-context pricing tier, only when it differs from the base price. */
+function longContextPricing(model: DashboardModel): string | undefined {
+	const parts: string[] = [];
+	if (model.longContextInputCost !== undefined) {
+		parts.push(`${formatCost(model.longContextInputCost)} in`);
+	}
+	if (model.longContextOutputCost !== undefined) {
+		parts.push(`${formatCost(model.longContextOutputCost)} out`);
+	}
+	if (model.longContextCacheReadCost !== undefined) {
+		parts.push(`cache read ${formatCost(model.longContextCacheReadCost)}`);
+	}
+	if (model.longContextCacheWriteCost !== undefined) {
+		parts.push(`cache write ${formatCost(model.longContextCacheWriteCost)}`);
+	}
+	return parts.length > 0 ? parts.join(" / ") : undefined;
+}
 
 /** The Source column's naming: the layer that set the value plus its winning record key. */
 function sourceName(ref: ParameterSourceRef, entryLabel: string): string {
@@ -138,6 +179,22 @@ export function ParamsInspector({
 					{model.rawId} on {model.serverLabel}
 					{scope !== undefined ? ` (${scope.baseUrlScope})` : ""}
 				</p>
+				<dl class="model-facts">
+					<Fact label="Family" value={model.family} />
+					<Fact label="Capabilities" value={capabilities(model) || "none declared"} />
+					<Fact label="Input tokens" value={formatTokens(model.maxInputTokens)} />
+					<Fact
+						label="Output tokens"
+						value={`${formatTokens(model.maxOutputTokens)}${model.outputLimitDeclared ? "" : " (default, not server-declared)"}`}
+					/>
+					<Fact label="Pricing ($/M)" value={formatPricing(model)} />
+					{cachePricing(model) !== undefined ? (
+						<Fact label="Cache ($/M)" value={cachePricing(model) as string} />
+					) : null}
+					{longContextPricing(model) !== undefined ? (
+						<Fact label="Long context ($/M)" value={longContextPricing(model) as string} />
+					) : null}
+				</dl>
 				<div class="params-fixed">
 					<span class="params-caveat-label">Always sent</span>
 					{ALWAYS_SENT_FIELDS.map((field) => (
