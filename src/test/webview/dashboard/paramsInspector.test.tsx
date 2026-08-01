@@ -203,3 +203,41 @@ test("two rows sharing an ID and display label still open their own snapshot's s
 	const dialog = document.querySelector("[role='dialog']") as HTMLElement;
 	expect(textOf(dialog, ".params-identity")).toBe("gpt-4o on Prod (http://second.test)");
 });
+
+test("the facts grid restates the model's table facts, with conditional pricing tiers", () => {
+	// The inspector is self-contained on purpose: limits, pricing tiers, and
+	// capabilities render here even though the table shows them, so reading a
+	// model never requires closing the panel.
+	const root = mountInspector({
+		modelOverrides: {
+			family: "gpt",
+			maxInputTokens: 128000,
+			maxOutputTokens: 4096,
+			outputLimitDeclared: false,
+			inputCost: 2.5,
+			outputCost: 10,
+			cacheReadCost: 0.25,
+			longContextInputCost: 5,
+			toolCalling: true,
+			imageInput: true,
+			promptCaching: false,
+			reasoning: false,
+		},
+	});
+	const facts = root.querySelector(".model-facts");
+	expect(facts?.textContent).toContain("Family");
+	expect(facts?.textContent).toContain("gpt");
+	expect(facts?.textContent).toContain("tools, vision");
+	expect(facts?.textContent).toContain("128,000");
+	expect(facts?.textContent).toContain("4,096 (default, not server-declared)");
+	expect(facts?.textContent).toContain("$2.5 in / $10 out");
+	expect(facts?.textContent).toContain("read $0.25");
+	expect(facts?.textContent).toContain("Long context ($/M)");
+	expect(facts?.textContent).toContain("$5 in");
+
+	// Absent tiers render no row at all, not an empty one.
+	const bare = mountInspector({ modelOverrides: { cacheReadCost: undefined, longContextInputCost: undefined } });
+	const bareFacts = bare.querySelector(".model-facts");
+	expect(bareFacts?.textContent).not.toContain("Cache ($/M)");
+	expect(bareFacts?.textContent).not.toContain("Long context");
+});

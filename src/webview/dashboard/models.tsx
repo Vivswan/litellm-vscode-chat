@@ -6,7 +6,7 @@ import { HELP_MODELS_SECTION } from "./helpText";
 import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
 import { ParamsInspector } from "./paramsInspector";
 
-function formatTokens(count: number): string {
+export function formatTokens(count: number): string {
 	return count.toLocaleString();
 }
 
@@ -15,11 +15,11 @@ function formatTokens(count: number): string {
  * enough to compare models at a glance, and binary-fraction noise never
  * renders.
  */
-function formatCost(cost: number): string {
+export function formatCost(cost: number): string {
 	return `$${Number(cost.toPrecision(3))}`;
 }
 
-function formatPricing(model: DashboardModel): string {
+export function formatPricing(model: DashboardModel): string {
 	if (model.inputCost === undefined && model.outputCost === undefined) {
 		return "-";
 	}
@@ -61,7 +61,7 @@ function pricingDetail(model: DashboardModel): string {
 }
 
 /** The capabilities column at fleet scale: dimmed plain text, no chrome per cell. */
-function capabilities(model: DashboardModel): string {
+export function capabilities(model: DashboardModel): string {
 	const caps: string[] = [];
 	if (model.toolCalling) {
 		caps.push("tools");

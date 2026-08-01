@@ -587,6 +587,14 @@ const STYLES = `
 	/* The always-sent fields render as code chips on one labeled line, and the
 	   caveats as labeled definition pairs: fixed explanations are structure
 	   here, never stacked prose paragraphs. */
+	.params-inspector .model-facts {
+		display: grid;
+		grid-template-columns: max-content 1fr;
+		gap: 3px 12px;
+		margin: 8px 0 12px;
+	}
+	.params-inspector .model-facts div { display: contents; }
+	.params-inspector .model-facts dd { margin: 0; }
 	.params-inspector .params-fixed {
 		display: flex;
 		flex-wrap: wrap;
