@@ -28,7 +28,10 @@ function readNlsTable(): Readonly<Record<string, string>> | null {
 
 /** Resolve one manifest value; throws on a %key% that package.nls.json exists but does not define. */
 export function resolveNls(value: string): string {
-	const match = /^%(.+)%$/.exec(value);
+	// Key-shaped references only, mirroring vsce's substitution: a literal
+	// value that merely contains percent signs ("%a% and %b%", "100%") passes
+	// through instead of being looked up.
+	const match = /^%([\w\d.]+)%$/.exec(value);
 	if (match === null) {
 		return value;
 	}

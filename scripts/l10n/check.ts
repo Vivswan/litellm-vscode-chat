@@ -4,6 +4,8 @@
  * extraction, when a localized string is resolved at module scope, when a
  * translation file's key set drifts from its English reference, when a
  * translated value's {0}-style placeholders differ from the English value's,
+ * when a translated value drops or rewrites a preserved token (a $(codicon),
+ * a command:<id> occurrence, or a markdown link target),
  * when a translation file carries banned typography, when the bundle and
  * package.nls locale sets disagree, or when package.json's %key% references
  * and package.nls.json disagree. Every file is parsed through a zod schema
@@ -174,7 +176,32 @@ async function checkModuleScopeLocalization(): Promise<void> {
 	}
 }
 
-/** (b) + (c) One translation file against its English reference: equal key sets, matching placeholders. */
+/**
+ * Non-prose token families beyond the {N} placeholders that a translated
+ * value must carry verbatim, compared as multisets against the English
+ * source: $(icon) codicons (a dropped or fullwidth-parenthesized token ships
+ * a status bar rendering literal text), command:<id> occurrences, and
+ * markdown link TARGETS including percent-encoded ones like
+ * %5B%22@ext:...%22%5D (a reworded target silently breaks walkthrough and
+ * settings deep-links). The /g literals are consumed only through matchAll,
+ * which iterates over a clone, so no lastIndex is shared between calls.
+ */
+const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegExp }[] = [
+	{ what: "$(codicon) tokens", pattern: /\$\(([a-z0-9~-]+)\)/g },
+	{ what: "command IDs", pattern: /command:[A-Za-z0-9_.-]+/g },
+	{ what: "markdown link targets", pattern: /\]\(([^()\s]+)\)/g },
+];
+
+/** The multiset of one token family's occurrences in one message. */
+function tokenCounts(message: string, pattern: RegExp): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const match of message.matchAll(pattern)) {
+		counts.set(match[0], (counts.get(match[0]) ?? 0) + 1);
+	}
+	return counts;
+}
+
+/** (b) + (c) One translation file against its English reference: equal key sets, matching placeholders and preserved tokens. */
 function checkAgainstReference(
 	file: string,
 	translated: Record<string, string>,
@@ -190,14 +217,22 @@ function checkAgainstReference(
 			fail(`${rel(file)}: key ${JSON.stringify(key)} is missing.`);
 			continue;
 		}
-		const wanted = placeholderCounts(english[key]);
-		const got = placeholderCounts(translated[key]);
-		const sameCounts = wanted.size === got.size && [...wanted].every(([token, count]) => got.get(token) === count);
-		if (!sameCounts) {
-			fail(
-				`${rel(file)}: key ${JSON.stringify(key)} must carry exactly the English value's placeholders ` +
-					`(${[...wanted.keys()].join(" ") || "none"}).`
-			);
+		const families = [
+			{ what: "placeholders", wanted: placeholderCounts(english[key]), got: placeholderCounts(translated[key]) },
+			...PRESERVED_TOKENS.map(({ what, pattern }) => ({
+				what,
+				wanted: tokenCounts(english[key], pattern),
+				got: tokenCounts(translated[key], pattern),
+			})),
+		];
+		for (const { what, wanted, got } of families) {
+			const same = wanted.size === got.size && [...wanted].every(([token, count]) => got.get(token) === count);
+			if (!same) {
+				fail(
+					`${rel(file)}: key ${JSON.stringify(key)} must carry exactly the English value's ${what} ` +
+						`(${[...wanted.keys()].join(" ") || "none"}).`
+				);
+			}
 		}
 	}
 }

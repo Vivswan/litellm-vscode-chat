@@ -1,55 +1,83 @@
 /**
  * Translated help-text guard, the localized counterpart of help.test.tsx's
- * English sweep: for every English help string the helpText module exports
- * (plain string constants today; the lazy-catalog refactor turns them into
- * zero-arg functions and both shapes are collected, including record
- * values), each translated bundle that carries the key must keep the
- * help-text contract. That is: 1-2 short sentences (10-160 chars, a lower
- * band than the English 40-220 because CJK is denser), no template syntax
- * and no {0} placeholders (help text never interpolates, so it can never
- * carry server data), and no banned typography. Locales are discovered from
- * disk, so the guard passes with zero translated bundles and tightens as
- * they land; missing or untranslated keys are the parity suite's job
+ * English sweep: for every English help string the helpText module exports,
+ * each translated bundle that carries the key must keep the help-text
+ * contract. That is: 1-2 short sentences (10-160 chars, a lower band than
+ * the English 40-220 because CJK is denser), no template syntax and no {0}
+ * placeholders (help text never interpolates, so it can never carry server
+ * data), and no banned typography. Locales are discovered from disk, so the
+ * guard passes with zero translated bundles and tightens as they land;
+ * missing or untranslated keys are the parity suite's job
  * (src/test/l10n/bundleParity.test.ts), not this one's.
+ *
+ * The collector tolerates both helpText shapes so this suite is green on
+ * either side of the lazy-catalog refactor: the pre-refactor module (HELP_X
+ * string constants plus the SERVER_FIELD_HELP / SETTING_ROW_HELP records)
+ * and the post-refactor one (zero-arg helpX() functions plus
+ * serverFieldHelp(field) and settingRowHelp(id), fanned out explicitly over
+ * their domains, since arity-taking helpers are invisible to generic
+ * collection). SETTING_ROW_HELP_IDS is an ID list, not help text; arrays
+ * are never collected from.
  */
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { EMPTY_SERVER_FORM } from "../../../extension/dashboard/serverForm";
 import * as helpText from "../../../webview/dashboard/helpText";
 import { bannedTypography } from "../../util/l10n";
 
 const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..");
 
-/** Every English help string reachable from one exported value, whatever its shape. */
-function collectEnglishHelp(value: unknown, into: Set<string>): void {
+function addIfString(value: unknown, into: Set<string>): void {
 	if (typeof value === "string") {
 		into.add(value);
-		return;
-	}
-	if (typeof value === "function") {
-		if (value.length === 0) {
-			const result = (value as () => unknown)();
-			if (typeof result === "string") {
-				into.add(result);
-			}
-		}
-		return;
-	}
-	if (value !== null && typeof value === "object") {
-		for (const nested of Object.values(value)) {
-			collectEnglishHelp(nested, into);
-		}
 	}
 }
 
-test("every translated help string keeps the help-text contract", () => {
+/** Every English help string the module exports, whichever shape it currently has. */
+function collectEnglishHelp(): Set<string> {
+	const mod: Record<string, unknown> = { ...helpText };
 	const english = new Set<string>();
-	for (const value of Object.values(helpText)) {
-		collectEnglishHelp(value, english);
+	for (const value of Object.values(mod)) {
+		if (typeof value === "string") {
+			english.add(value); // Pre-refactor HELP_X constants.
+			continue;
+		}
+		if (typeof value === "function" && value.length === 0) {
+			addIfString((value as () => unknown)(), english); // Post-refactor helpX().
+			continue;
+		}
+		if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+			// Pre-refactor SERVER_FIELD_HELP / SETTING_ROW_HELP records.
+			for (const nested of Object.values(value)) {
+				addIfString(nested, english);
+			}
+		}
 	}
-	// The module exports dozens of help strings; a collapse here means the
-	// export shape changed and the collector above needs to learn it.
-	expect(english.size).toBeGreaterThan(10);
+	// Post-refactor arg-taking helpers, fanned out over their whole domains.
+	const serverFieldHelp = mod.serverFieldHelp;
+	if (typeof serverFieldHelp === "function") {
+		for (const field of Object.keys(EMPTY_SERVER_FORM)) {
+			addIfString((serverFieldHelp as (field: string) => unknown)(field), english);
+		}
+	}
+	const settingRowHelp = mod.settingRowHelp;
+	const rowIds = mod.SETTING_ROW_HELP_IDS;
+	if (typeof settingRowHelp === "function" && Array.isArray(rowIds)) {
+		for (const id of rowIds) {
+			addIfString((settingRowHelp as (id: unknown) => unknown)(id), english);
+		}
+	}
+	return english;
+}
+
+test("every translated help string keeps the help-text contract", () => {
+	const english = collectEnglishHelp();
+	// 11 section/field-editor strings + one per server-form field + one per
+	// SETTING_ROW_HELP id, on both sides of the refactor. A drop below the
+	// floor means the export shape changed and the collector above went
+	// partially blind; teach it the new shape instead of lowering the floor.
+	expect(english.size).toBeGreaterThanOrEqual(25);
 
 	const l10nDir = path.join(repoRoot, "l10n");
 	const bundleNames = fs

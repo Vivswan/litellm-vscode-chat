@@ -85,11 +85,13 @@ jobs:
           touch logs/ci-proof.log coverage/ci-proof.json
           listing="$(bunx vsce ls)"
           echo "$listing"
-          # Allowlist, not denylist: the package is 13 known files, and a
-          # denylist only catches leaks someone predicted (the repo-tooling
-          # files it missed shipped in a VSIX before anyone noticed). Anything
-          # new must be added here deliberately, including new asset types.
-          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js)$|^assets/.+\.(png|md)$|^package\.nls(\.[\w-]+)?\.json$|^l10n/bundle\.l10n(\.[\w-]+)?\.json$'
+          # Allowlist, not denylist: the package is a small known file set,
+          # and a denylist only catches leaks someone predicted (the
+          # repo-tooling files it missed shipped in a VSIX before anyone
+          # noticed). Anything new must be added here deliberately, including
+          # new asset types and new localization catalogs. POSIX bracket
+          # expressions treat \w literally, hence the spelled-out class.
+          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js)$|^assets/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$'
           if echo "$listing" | grep -Ev "$allowed"; then
             echo "::error::vsce would package files outside the allowed set (matches above)"
             exit 1
