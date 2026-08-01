@@ -27,4 +27,22 @@ export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 			{ kind: "declare-server", label: "s2", credential: "oauth" },
 		],
 	},
+	{
+		// FUZZ_SEED=575380 walk 0 (CI run 30684907448), re-expanded from the
+		// shrunk single bad-key declare: the group-removal feature tombstones an
+		// explicitly removed entry's provider group, so its models leave the
+		// host list, while the oracle's model-count floors kept counting every
+		// healthy ever-synced group forever. The prior run's cleanup removals
+		// poisoned the floors and every later walk failed its first probe. The
+		// oracle now moves removed labels to the hidden side of the floors;
+		// this trace replays the whole chain: a healthy fake group, its
+		// explicit removal (tombstoned and hidden), then another declare whose
+		// probes must accept the hidden group's absence.
+		name: "removed-entry-tombstone-hides-healthy-group",
+		actions: [
+			{ kind: "declare-server", label: "s1", credential: "oauth" },
+			{ kind: "remove-server", label: "s1" },
+			{ kind: "declare-server", label: "s2", credential: "bad-key" },
+		],
+	},
 ];
