@@ -76,12 +76,32 @@ export function serializeBundle(bundle: l10nJsonFormat): string {
 }
 
 /**
- * Zero-arg lazy localization helpers: calling one at module scope defeats
- * its laziness exactly like a direct t() call, so the guard bans these names
- * alongside l10n.t and vscode.l10n.t. New helpers minted by later work
- * packages (help text, catalog presenters) belong on this list.
+ * Lazy localization helpers (zero-arg or key-selecting): calling one at
+ * module scope defeats its laziness exactly like a direct t() call, so the
+ * guard bans these names alongside l10n.t and vscode.l10n.t. New helpers
+ * minted by later work packages (help text, catalog presenters) belong on
+ * this list.
  */
-export const LAZY_L10N_HELPERS: readonly string[] = ["manageCommandTitle"];
+export const LAZY_L10N_HELPERS: readonly string[] = [
+	"manageCommandTitle",
+	"numberSettingPresentation",
+	"booleanSettingPresentation",
+	"settingScopeLabel",
+	"serverFormFieldLabel",
+	"serverFieldHelp",
+	"settingRowHelp",
+	"helpServersSection",
+	"helpModelsSection",
+	"helpParamsInspector",
+	"helpSettingsSection",
+	"helpModelParametersSection",
+	"helpCustomHeadersSection",
+	"helpSecretStorage",
+	"helpModelParameterPrefix",
+	"helpEntryModelParameterPrefix",
+	"helpModelParameterName",
+	"helpModelParameterValue",
+];
 
 /**
  * Line numbers (1-based) of module-scope localization calls: l10n.t,

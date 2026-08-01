@@ -40,7 +40,7 @@ import type {
 	ScopedRecordSetting,
 	SettingScope,
 } from "./protocol";
-import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, NUMBER_SETTINGS } from "./protocol";
+import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, NUMBER_SETTING_SPECS } from "./protocol";
 
 /**
  * The removal bookkeeping the state builder folds in, as plain values (this
@@ -412,7 +412,7 @@ function buildModel(info: PreAttachModelInfo, serverLabel: string, serverId: str
  * package.json default so the form still renders a real value.
  */
 function readNumberSetting(reader: SettingsReader, id: NumberSettingId): number | null {
-	const spec = NUMBER_SETTINGS[id];
+	const spec = NUMBER_SETTING_SPECS[id];
 	const raw = reader.get(id);
 	if (spec.nullable && (raw === null || raw === undefined)) {
 		return null;
@@ -438,7 +438,7 @@ function readBooleanSetting(reader: SettingsReader, id: BooleanSettingId): boole
  * inspected default is unusable.
  */
 function readNumberDefault(reader: SettingsReader, id: NumberSettingId): number | null {
-	const spec = NUMBER_SETTINGS[id];
+	const spec = NUMBER_SETTING_SPECS[id];
 	const fallback = reader.inspect(id)?.defaultValue;
 	if (typeof fallback === "number" && Number.isFinite(fallback)) {
 		return fallback;

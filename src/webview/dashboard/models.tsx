@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { DashboardModel, ModelParametersRecord, RequestScope } from "../../extension/dashboard/protocol";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
-import { HELP_MODELS_SECTION } from "./helpText";
+import { helpModelsSection } from "./helpText";
 import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
 import { ParamsInspector } from "./paramsInspector";
 
@@ -289,7 +289,7 @@ export function ModelsSection({
 		// keeps the heading clear of the sticky tab bar.
 		<section id="models-section" tabIndex={-1}>
 			<h2>
-				Models <Help text={HELP_MODELS_SECTION} />
+				Models <Help text={helpModelsSection()} />
 				<DocsLink href={DOCS_LINK_MODELS} label="Open the models guide" />
 			</h2>
 			{models.length === 0 ? (

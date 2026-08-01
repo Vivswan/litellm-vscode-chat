@@ -5,26 +5,27 @@ import type {
 	DashboardModel,
 	DashboardSettings,
 	NumberSettingId,
-	NumberSettingSpec,
 	RevealableSettingId,
 	SettingScope,
 } from "../../extension/dashboard/protocol";
 import {
 	BOOLEAN_SETTING_IDS,
-	BOOLEAN_SETTINGS,
+	booleanSettingPresentation,
 	defaultDisplay,
 	draftSyncKey,
 	equivalence,
 	isBoundViolation,
 	NUMBER_SETTING_IDS,
-	NUMBER_SETTINGS,
+	NUMBER_SETTING_SPECS,
+	NUMBER_SETTING_UNITS,
+	numberSettingPresentation,
 	parseNumberDraft,
-	SETTING_SCOPE_LABELS,
+	settingScopeLabel,
 } from "../../extension/dashboard/protocol";
 import type { FailuresByIntent } from "./app";
 import { DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
-import { HELP_SETTINGS_SECTION, SETTING_ROW_HELP } from "./helpText";
+import { helpSettingsSection, settingRowHelp } from "./helpText";
 import { IconBraces } from "./icons";
 import { HEADERS_TITLE, HeadersEditor, MODEL_PARAMETERS_TITLE, ModelParametersEditor } from "./recordEditors";
 import { postMessage } from "./vscodeApi";
@@ -113,7 +114,7 @@ function ResetButton({
 	scope: SettingScope;
 	settingId: NumberSettingId | BooleanSettingId;
 }) {
-	const action = `Remove the ${SETTING_SCOPE_LABELS[scope]} value of ${title}`;
+	const action = `Remove the ${settingScopeLabel(scope)} value of ${title}`;
 	return (
 		<button
 			type="button"
@@ -136,7 +137,7 @@ function ResetButton({
  * shifts the row's text (the accent gutter is reserved separately).
  */
 function ModifiedNote({ scope, defaultText }: { scope: SettingScope; defaultText?: string }) {
-	const where = `Modified in ${SETTING_SCOPE_LABELS[scope]} settings`;
+	const where = `Modified in ${settingScopeLabel(scope)} settings`;
 	return (
 		<span class="setting-modified-note">
 			{defaultText === undefined ? where : `${where} (default: ${defaultText})`}
@@ -170,14 +171,14 @@ function NumberField({
 	configuredScope: SettingScope | null;
 	hidden: boolean;
 }) {
-	const spec: NumberSettingSpec = NUMBER_SETTINGS[id];
+	const presentation = numberSettingPresentation(id);
 	const [text, setText] = useState(value === null ? "" : String(value));
 	const [blurred, setBlurred] = useState(false);
-	const help = SETTING_ROW_HELP[id];
+	const help = settingRowHelp(id);
 	// ms settings take the duration grammar ("90s", "5m"), so their input must
 	// be type="text": a number input silently swallows the suffix letters.
 	// Token settings keep type="number".
-	const duration = spec.unit === "ms";
+	const duration = NUMBER_SETTING_UNITS[id] === "ms";
 
 	// Keyed on draftSyncKey, not on the value alone: a successful reset of a
 	// value pinned to exactly its default changes only the configured scope,
@@ -220,13 +221,13 @@ function NumberField({
 		<SettingRow modified={configuredScope !== null} hidden={hidden}>
 			<div class="setting-head">
 				<label class="setting-title" for={inputId}>
-					{spec.label}
+					{presentation.label}
 				</label>
-				{help !== undefined ? <Help text={help} name={`Help: ${spec.label}`} /> : null}
-				<RevealButton title={spec.label} settingId={id} />
+				{help !== undefined ? <Help text={help} name={`Help: ${presentation.label}`} /> : null}
+				<RevealButton title={presentation.label} settingId={id} />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} defaultText={defaultDisplay(id)} /> : null}
 			</div>
-			<p class="setting-desc">{spec.description}</p>
+			<p class="setting-desc">{presentation.description}</p>
 			<div class="setting-control">
 				<input
 					id={inputId}
@@ -235,12 +236,12 @@ function NumberField({
 					// would hide the s/m/h suffix keys the duration grammar needs.
 					inputMode={duration ? "text" : undefined}
 					spellcheck={duration ? false : undefined}
-					min={duration ? undefined : spec.minimum}
+					min={duration ? undefined : NUMBER_SETTING_SPECS[id].minimum}
 					class={error === undefined ? "" : "invalid"}
 					aria-invalid={error !== undefined}
 					aria-describedby={error === undefined ? unitId : `${unitId} ${errorId}`}
 					value={text}
-					placeholder={spec.placeholder}
+					placeholder={presentation.placeholder}
 					onInput={(event) => setText(event.currentTarget.value)}
 					onBlur={settle}
 					onKeyDown={(event) => {
@@ -250,7 +251,7 @@ function NumberField({
 					}}
 				/>
 				<span class="setting-unit" id={unitId}>
-					{spec.unit}
+					{presentation.unit}
 				</span>
 				{error !== undefined ? (
 					<span class="error" id={errorId}>
@@ -258,7 +259,9 @@ function NumberField({
 					</span>
 				) : null}
 				{equiv !== undefined ? <span class="setting-equiv">{equiv}</span> : null}
-				{configuredScope !== null ? <ResetButton title={spec.label} scope={configuredScope} settingId={id} /> : null}
+				{configuredScope !== null ? (
+					<ResetButton title={presentation.label} scope={configuredScope} settingId={id} />
+				) : null}
 			</div>
 		</SettingRow>
 	);
@@ -280,15 +283,15 @@ function BooleanField({
 	configuredScope: SettingScope | null;
 	hidden: boolean;
 }) {
-	const spec = BOOLEAN_SETTINGS[id];
+	const presentation = booleanSettingPresentation(id);
 	const inputId = `setting-${id}`;
-	const help = SETTING_ROW_HELP[id];
+	const help = settingRowHelp(id);
 	return (
 		<SettingRow modified={configuredScope !== null} hidden={hidden}>
 			<div class="setting-head">
-				<span class="setting-title">{spec.label}</span>
-				{help !== undefined ? <Help text={help} name={`Help: ${spec.label}`} /> : null}
-				<RevealButton title={spec.label} settingId={id} />
+				<span class="setting-title">{presentation.label}</span>
+				{help !== undefined ? <Help text={help} name={`Help: ${presentation.label}`} /> : null}
+				<RevealButton title={presentation.label} settingId={id} />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
 			</div>
 			<div class="setting-control">
@@ -301,9 +304,11 @@ function BooleanField({
 							postMessage({ type: "setBooleanSetting", setting: id, value: event.currentTarget.checked })
 						}
 					/>
-					<span class="setting-desc">{spec.description}</span>
+					<span class="setting-desc">{presentation.description}</span>
 				</label>
-				{configuredScope !== null ? <ResetButton title={spec.label} scope={configuredScope} settingId={id} /> : null}
+				{configuredScope !== null ? (
+					<ResetButton title={presentation.label} scope={configuredScope} settingId={id} />
+				) : null}
 			</div>
 		</SettingRow>
 	);
@@ -372,9 +377,9 @@ function ScalarScopeNote({ settings }: { settings: DashboardSettings }) {
 
 /** One scalar row's searchable text: its label and description, the two lines the row itself shows. */
 function scalarText(id: NumberSettingId | BooleanSettingId): { label: string; description: string } {
-	return Object.hasOwn(NUMBER_SETTINGS, id)
-		? NUMBER_SETTINGS[id as NumberSettingId]
-		: BOOLEAN_SETTINGS[id as BooleanSettingId];
+	return Object.hasOwn(NUMBER_SETTING_SPECS, id)
+		? numberSettingPresentation(id as NumberSettingId)
+		: booleanSettingPresentation(id as BooleanSettingId);
 }
 
 /**
@@ -438,7 +443,7 @@ export function SettingsSection({
 	return (
 		<section>
 			<h2>
-				Settings <Help text={HELP_SETTINGS_SECTION} />
+				Settings <Help text={helpSettingsSection()} />
 				<DocsLink href={DOCS_LINK_SETTINGS} label="Open the settings guide" />
 			</h2>
 			<div class="toolbar">

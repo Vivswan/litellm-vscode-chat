@@ -7,6 +7,7 @@
  * rows and call nothing else.
  */
 
+import * as l10n from "@vscode/l10n";
 import { isHeaderScalar } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { HeaderScalar } from "./protocol";
@@ -49,15 +50,25 @@ function duplicates(values: readonly string[]): Set<string> {
 	return dupes;
 }
 
-function keyProblem(key: string, noun: string, dupes: Set<string>): string | undefined {
+/**
+ * The per-catalog halves of a key's problem message. Passed in as already
+ * localized literals from each call site (never composed from a noun) so
+ * l10n extraction sees whole sentences and translations need not inflect.
+ */
+interface KeyProblemMessages {
+	readonly empty: string;
+	readonly duplicate: string;
+}
+
+function keyProblem(key: string, messages: KeyProblemMessages, dupes: Set<string>): string | undefined {
 	if (key.length === 0) {
-		return `Enter a ${noun}`;
+		return messages.empty;
 	}
 	if (isUnsafeRecordKey(key)) {
-		return `"${key}" is a reserved name and cannot be used`;
+		return l10n.t('"{0}" is a reserved name and cannot be used', key);
 	}
 	if (dupes.has(key)) {
-		return `Duplicate ${noun}`;
+		return messages.duplicate;
 	}
 	return undefined;
 }
@@ -84,10 +95,18 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
 		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
-		const prefixProblem = keyProblem(group.prefix.trim(), "model prefix", duplicatePrefixes);
+		const prefixProblem = keyProblem(
+			group.prefix.trim(),
+			{ empty: l10n.t("Enter a model prefix"), duplicate: l10n.t("Duplicate model prefix") },
+			duplicatePrefixes
+		);
 		const params: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
 		const paramProblems = group.params.map((param): RowFieldProblem | undefined => {
-			const problem = keyProblem(param.key.trim(), "parameter name", duplicateKeys);
+			const problem = keyProblem(
+				param.key.trim(),
+				{ empty: l10n.t("Enter a parameter name"), duplicate: l10n.t("Duplicate parameter name") },
+				duplicateKeys
+			);
 			if (problem !== undefined) {
 				return { field: "name", message: problem };
 			}
@@ -146,16 +165,20 @@ export function parseHeaderRowsDetailed(rows: readonly HeaderRow[]): HeaderRowsD
 	const headers: Record<string, HeaderScalar> = Object.create(null) as Record<string, HeaderScalar>;
 	const problems = rows.map((row): RowFieldProblem | undefined => {
 		const name = row.name.trim();
-		const problem = keyProblem(name, "header name", duplicateNames);
+		const problem = keyProblem(
+			name,
+			{ empty: l10n.t("Enter a header name"), duplicate: l10n.t("Duplicate header name") },
+			duplicateNames
+		);
 		if (problem !== undefined) {
 			return { field: "name", message: problem };
 		}
 		if (!isValidHeaderName(name)) {
-			return { field: "name", message: "Not a valid HTTP header name" };
+			return { field: "name", message: l10n.t("Not a valid HTTP header name") };
 		}
 		const value = parseHeaderValue(row.valueText);
 		if (!isValidHeaderValue(String(value))) {
-			return { field: "value", message: "This value cannot be sent as an HTTP header" };
+			return { field: "value", message: l10n.t("This value cannot be sent as an HTTP header") };
 		}
 		headers[name] = value;
 		return undefined;
@@ -189,10 +212,10 @@ function recordFromJsonText(
 	try {
 		parsed = JSON.parse(text) as unknown;
 	} catch {
-		return { ok: false, problem: "Not valid JSON." };
+		return { ok: false, problem: l10n.t("Not valid JSON.") };
 	}
 	if (!isRecord(parsed)) {
-		return { ok: false, problem: `Must be a JSON object, e.g. ${example}.` };
+		return { ok: false, problem: l10n.t("Must be a JSON object, e.g. {0}.", example) };
 	}
 	return { ok: true, value: parsed };
 }
@@ -212,7 +235,7 @@ function firstGroupProblem(groups: readonly PrefixGroup[], problems: readonly Gr
 			return withKey(groups[index]?.params[paramIndex]?.key ?? "", group.params[paramIndex]?.message ?? "");
 		}
 	}
-	return "Invalid value.";
+	return l10n.t("Invalid value.");
 }
 
 /**
@@ -227,7 +250,10 @@ export function groupsFromJsonText(text: string): RecordJsonParse<PrefixGroup[]>
 	}
 	for (const [prefix, params] of Object.entries(record.value)) {
 		if (!isRecord(params)) {
-			return { ok: false, problem: withKey(prefix, 'Expected an object of parameters, e.g. {"temperature": 0.2}') };
+			return {
+				ok: false,
+				problem: withKey(prefix, l10n.t('Expected an object of parameters, e.g. {"temperature": 0.2}')),
+			};
 		}
 	}
 	const groups = toGroups(record.value as Record<string, Record<string, unknown>>);
@@ -243,7 +269,7 @@ export function headerRowsFromJsonText(text: string): RecordJsonParse<HeaderRow[
 	}
 	for (const [name, value] of Object.entries(record.value)) {
 		if (!isHeaderScalar(value)) {
-			return { ok: false, problem: withKey(name, "Header values must be a string, number, or boolean") };
+			return { ok: false, problem: withKey(name, l10n.t("Header values must be a string, number, or boolean")) };
 		}
 	}
 	const rows = toHeaderRows(record.value as Record<string, HeaderScalar>);
@@ -252,5 +278,8 @@ export function headerRowsFromJsonText(text: string): RecordJsonParse<HeaderRow[
 		return { ok: true, rows };
 	}
 	const index = parse.problems.findIndex((problem) => problem !== undefined);
-	return { ok: false, problem: withKey(rows[index]?.name ?? "", parse.problems[index]?.message ?? "Invalid value.") };
+	return {
+		ok: false,
+		problem: withKey(rows[index]?.name ?? "", parse.problems[index]?.message ?? l10n.t("Invalid value.")),
+	};
 }

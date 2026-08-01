@@ -23,21 +23,16 @@ import {
 	OAUTH_SECTION_FIELDS,
 	parseServerForm,
 	parseServerFormForTest,
-	SERVER_FORM_FIELD_LABELS,
 	SERVER_FORM_FIELD_ORDER,
 	saveFailureDisposition,
 	sectionFailureText,
+	serverFormFieldLabel,
 	validateAdoptLabel,
 } from "../../extension/dashboard/serverForm";
 import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
 import { DOCS_LINK_PARAMS_INACTIVE, DOCS_LINK_SERVER_FORM, DOCS_LINK_SERVERS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
-import {
-	HELP_ENTRY_MODEL_PARAMETER_PREFIX,
-	HELP_SECRET_STORAGE,
-	HELP_SERVERS_SECTION,
-	SERVER_FIELD_HELP,
-} from "./helpText";
+import { helpEntryModelParameterPrefix, helpSecretStorage, helpServersSection, serverFieldHelp } from "./helpText";
 import { IconAdd } from "./icons";
 import { ParamGroupsFields } from "./recordEditors";
 import { SlideOver } from "./slideOver";
@@ -225,8 +220,8 @@ function TextField({
 	return (
 		<div class="field">
 			<span class="label-row">
-				<label for={id}>{SERVER_FORM_FIELD_LABELS[field]}</label>
-				<Help text={SERVER_FIELD_HELP[field]} />
+				<label for={id}>{serverFormFieldLabel(field)}</label>
+				<Help text={serverFieldHelp(field)} />
 			</span>
 			<input
 				id={id}
@@ -277,8 +272,8 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 	return (
 		<div class="field">
 			<span class="label-row">
-				<label for={id}>{SERVER_FORM_FIELD_LABELS[field]}</label>
-				<Help text={SERVER_FIELD_HELP[field]} />
+				<label for={id}>{serverFormFieldLabel(field)}</label>
+				<Help text={serverFieldHelp(field)} />
 			</span>
 			<span class="secret-input">
 				<input
@@ -296,16 +291,16 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 					type="button"
 					class="quiet"
 					aria-pressed={revealed}
-					aria-label={`${revealed ? "Hide" : "Show"} the ${SERVER_FORM_FIELD_LABELS[field]}`}
+					aria-label={`${revealed ? "Hide" : "Show"} the ${serverFormFieldLabel(field)}`}
 					disabled={props.disabled || value.clear || empty}
 					onClick={() => setRevealed((current) => !current)}
 				>
 					{revealed ? "Hide" : "Show"}
 				</button>
 			</span>
-			<span class="secret-where" role="radiogroup" aria-label={`Where to store the ${SERVER_FORM_FIELD_LABELS[field]}`}>
+			<span class="secret-where" role="radiogroup" aria-label={`Where to store the ${serverFormFieldLabel(field)}`}>
 				<span class="where-label">Store in:</span>
-				<Help text={HELP_SECRET_STORAGE} />
+				<Help text={helpSecretStorage()} />
 				<label>
 					<input
 						type="radio"
@@ -337,7 +332,7 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 						disabled={props.disabled}
 						onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
 					/>
-					Remove the stored {SERVER_FORM_FIELD_LABELS[field]} on save
+					Remove the stored {serverFormFieldLabel(field)} on save
 				</label>
 			) : null}
 			{value.prefill !== undefined && !value.clear ? (
@@ -667,7 +662,7 @@ function ServerForm({
 			</details>
 			<details open={paramsOpen} onToggle={(event) => setParamsOpen(event.currentTarget.open)}>
 				<summary>
-					Model parameters for this server (optional) <Help text={SERVER_FIELD_HELP.modelParameters} />
+					Model parameters for this server (optional) <Help text={serverFieldHelp("modelParameters")} />
 				</summary>
 				<p class="hint">
 					Sent only with requests routed through this entry; overrides the global Model parameters setting for the same
@@ -678,7 +673,7 @@ function ServerForm({
 					problems={modelParameterProblems}
 					disabled={saving}
 					prefixPlaceholder="Model prefix, e.g. gpt-4"
-					prefixHelp={HELP_ENTRY_MODEL_PARAMETER_PREFIX}
+					prefixHelp={helpEntryModelParameterPrefix()}
 					onChange={(next) => props.patch({ modelParameters: next })}
 				/>
 				<button
@@ -731,7 +726,7 @@ function ServerForm({
 				{phase.phase === "prefill" ? <span class="hint">Loading stored values...</span> : null}
 				{firstBlocking !== undefined ? (
 					<span class="error" role="alert">
-						Cannot save: fix {SERVER_FORM_FIELD_LABELS[firstBlocking]}
+						Cannot save: fix {serverFormFieldLabel(firstBlocking)}
 					</span>
 				) : null}
 				{testState.kind === "pass" ? (
@@ -748,12 +743,6 @@ function ServerForm({
 		</div>
 	);
 }
-
-const ADOPT_SECRET_LABELS: Record<SecretFieldId, string> = {
-	apiKey: SERVER_FORM_FIELD_LABELS.apiKey,
-	oauthClientSecret: SERVER_FORM_FIELD_LABELS.oauthClientSecret,
-	virtualKeyValue: SERVER_FORM_FIELD_LABELS.virtualKeyValue,
-};
 
 /**
  * The adopt form: turns an external provider group into a declared servers
@@ -900,9 +889,9 @@ function AdoptForm({
 			</div>
 			{secretRows.map(({ field, hint }) => (
 				<div class="field" key={field}>
-					<span>{ADOPT_SECRET_LABELS[field]}</span>
+					<span>{serverFormFieldLabel(field)}</span>
 					<span class="hint">{hint}</span>
-					<span class="secret-where" role="radiogroup" aria-label={`Where to store the ${ADOPT_SECRET_LABELS[field]}`}>
+					<span class="secret-where" role="radiogroup" aria-label={`Where to store the ${serverFormFieldLabel(field)}`}>
 						<span class="where-label">Store in:</span>
 						<label>
 							<input
@@ -1251,7 +1240,7 @@ export function ServersSection({
 	return (
 		<section>
 			<h2>
-				Servers <Help text={HELP_SERVERS_SECTION} below />
+				Servers <Help text={helpServersSection()} below />
 				<DocsLink href={DOCS_LINK_SERVERS} label="Open the servers guide" />
 			</h2>
 			{/* First run shows the guided card alone; a strip of mostly disabled

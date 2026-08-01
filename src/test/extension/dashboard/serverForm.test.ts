@@ -13,10 +13,10 @@ import {
 	OAUTH_SECTION_FIELDS,
 	parseServerForm,
 	parseServerFormForTest,
-	SERVER_FORM_FIELD_LABELS,
 	SERVER_FORM_FIELD_ORDER,
 	saveFailureDisposition,
 	sectionFailureText,
+	serverFormFieldLabel,
 } from "../../../extension/dashboard/serverForm";
 
 function draft(overrides: Partial<ServerFormDraft> = {}): ServerFormDraft {
@@ -146,7 +146,9 @@ suite("extension/dashboard/serverForm", () => {
 		test("the field order covers every draft field exactly once, with a display label each", () => {
 			const draftFields = Object.keys(EMPTY_SERVER_FORM).sort();
 			assert.deepStrictEqual([...SERVER_FORM_FIELD_ORDER].sort(), draftFields);
-			assert.deepStrictEqual(Object.keys(SERVER_FORM_FIELD_LABELS).sort(), draftFields);
+			for (const field of SERVER_FORM_FIELD_ORDER) {
+				assert.ok(serverFormFieldLabel(field).length > 0, field);
+			}
 		});
 
 		test("OAuth-section fields are a subset of the order, so a summary can always point into the form", () => {

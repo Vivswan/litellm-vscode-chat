@@ -10,20 +10,22 @@
  * tests pin the structure and class contract the stylesheet keys on.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { SERVER_FORM_FIELD_ORDER } from "../../../extension/dashboard/serverForm";
 import { App } from "../../../webview/dashboard/app";
 import { Help } from "../../../webview/dashboard/help";
 import * as helpText from "../../../webview/dashboard/helpText";
 import {
-	HELP_MODEL_PARAMETER_NAME,
-	HELP_MODEL_PARAMETER_PREFIX,
-	HELP_MODEL_PARAMETER_VALUE,
-	HELP_MODEL_PARAMETERS_SECTION,
-	HELP_MODELS_SECTION,
-	HELP_SECRET_STORAGE,
-	HELP_SERVERS_SECTION,
-	HELP_SETTINGS_SECTION,
-	SERVER_FIELD_HELP,
-	SETTING_ROW_HELP,
+	helpModelParameterName,
+	helpModelParameterPrefix,
+	helpModelParametersSection,
+	helpModelParameterValue,
+	helpModelsSection,
+	helpSecretStorage,
+	helpServersSection,
+	helpSettingsSection,
+	SETTING_ROW_HELP_IDS,
+	serverFieldHelp,
+	settingRowHelp,
 } from "../../../webview/dashboard/helpText";
 import { declaredWithSecrets, makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
@@ -44,17 +46,32 @@ afterEach(() => {
 	cleanup();
 });
 
-/** Every help string the module exports, flattened out of the keyed records. */
+/**
+ * Every help string the module exports, resolved through its lazy function
+ * exports (the parametrized ones fanned out over their full key sets). The
+ * suite runs with l10n unconfigured, so these are the ENGLISH texts the
+ * guards below judge.
+ */
 function allHelpStrings(): [name: string, text: string][] {
 	const entries: [string, string][] = [];
 	for (const [name, value] of Object.entries(helpText)) {
-		if (typeof value === "string") {
-			entries.push([name, value]);
+		if (typeof value !== "function") {
+			// SETTING_ROW_HELP_IDS: a key list, not help text.
 			continue;
 		}
-		for (const [key, text] of Object.entries(value as Record<string, string>)) {
-			entries.push([`${name}.${key}`, text]);
+		if (name === "serverFieldHelp") {
+			for (const field of SERVER_FORM_FIELD_ORDER) {
+				entries.push([`${name}(${field})`, serverFieldHelp(field)]);
+			}
+			continue;
 		}
+		if (name === "settingRowHelp") {
+			for (const id of SETTING_ROW_HELP_IDS) {
+				entries.push([`${name}(${id})`, settingRowHelp(id) ?? ""]);
+			}
+			continue;
+		}
+		entries.push([name, (value as () => string)()]);
 	}
 	return entries;
 }
@@ -167,11 +184,11 @@ test("each section heading carries its own help", () => {
 		}
 		return heading as HTMLElement;
 	};
-	helpIn(headingByTitle("Servers"), HELP_SERVERS_SECTION);
-	helpIn(headingByTitle("Models"), HELP_MODELS_SECTION);
-	helpIn(headingByTitle("Settings"), HELP_SETTINGS_SECTION);
-	helpIn(headingByTitle("Model parameters"), HELP_MODEL_PARAMETERS_SECTION);
-	helpIn(headingByTitle("Custom headers"), helpText.HELP_CUSTOM_HEADERS_SECTION);
+	helpIn(headingByTitle("Servers"), helpServersSection());
+	helpIn(headingByTitle("Models"), helpModelsSection());
+	helpIn(headingByTitle("Settings"), helpSettingsSection());
+	helpIn(headingByTitle("Model parameters"), helpModelParametersSection());
+	helpIn(headingByTitle("Custom headers"), helpText.helpCustomHeadersSection());
 
 	// Placement: the Servers heading sits in the page's top band, so its tip
 	// flips below the trigger; everything further down keeps the default
@@ -205,14 +222,14 @@ test("every server form field label has its help glyph beside it, and the storag
 		if (row === null) {
 			throw new Error(`no label row for ${label}`);
 		}
-		helpIn(row, SERVER_FIELD_HELP[field]);
+		helpIn(row, serverFieldHelp(field));
 	}
 
 	// Each secret field's storage radiogroup explains inline vs secure once.
 	const whereGroups = Array.from(root.querySelectorAll(".form-card .secret-where[role='radiogroup']"));
 	expect(whereGroups.length).toBe(3);
 	for (const group of whereGroups) {
-		helpIn(group, HELP_SECRET_STORAGE);
+		helpIn(group, helpSecretStorage());
 	}
 });
 
@@ -227,11 +244,11 @@ test("the model-parameters editor explains prefix, parameter name, and JSON valu
 		throw new Error("no Model parameters section");
 	}
 	const prefixCell = section.querySelector("input.key[placeholder^='Model prefix']")?.closest(".cell") ?? null;
-	helpIn(prefixCell, HELP_MODEL_PARAMETER_PREFIX);
+	helpIn(prefixCell, helpModelParameterPrefix());
 	const nameCell = section.querySelector("input.key[placeholder^='Parameter']")?.closest(".cell") ?? null;
-	helpIn(nameCell, HELP_MODEL_PARAMETER_NAME);
+	helpIn(nameCell, helpModelParameterName());
 	const valueCell = section.querySelector("input.value[placeholder^='JSON value']")?.closest(".cell") ?? null;
-	helpIn(valueCell, HELP_MODEL_PARAMETER_VALUE);
+	helpIn(valueCell, helpModelParameterValue());
 });
 
 test("settings rows show help only where the one-line description is not enough", () => {
@@ -239,13 +256,12 @@ test("settings rows show help only where the one-line description is not enough"
 	pushToWebview(statePush(fullState()));
 
 	const rowFor = (id: string) => root.querySelector(`#setting-${CSS.escape(id)}`)?.closest(".setting-row") ?? null;
-	for (const id of Object.keys(SETTING_ROW_HELP)) {
+	for (const id of SETTING_ROW_HELP_IDS) {
 		const row = rowFor(id);
 		if (row === null) {
 			throw new Error(`no settings row for ${id}`);
 		}
-		const expected = SETTING_ROW_HELP[id as keyof typeof SETTING_ROW_HELP];
-		helpIn(row.querySelector(".setting-head"), expected ?? "");
+		helpIn(row.querySelector(".setting-head"), settingRowHelp(id) ?? "");
 	}
 	// A row with a self-sufficient description stays clean: no duplicate "?".
 	const plain = rowFor("defaultContextLength");
@@ -279,7 +295,7 @@ test("a shown tip pins itself with fixed coordinates, so scroll containers canno
 // wrapper's getBoundingClientRect before the hover that measures it.
 
 test("a tip in normal position sits 8px left of its trigger with its bottom pinned above it", () => {
-	const root = mount(<Help text={HELP_MODELS_SECTION} />);
+	const root = mount(<Help text={helpModelsSection()} />);
 	const wrap = root.querySelector(".help-wrap") as HTMLElement;
 	stubBoundingRect(wrap, { left: 200, top: 300, bottom: 320 });
 	fireMouseEnter(wrap);
@@ -304,7 +320,7 @@ test("the horizontal clamp keeps the tip's 350px box inside the viewport at both
 
 	// Near the right edge, rect.left - 8 would push the tip's 320px max-width
 	// box (plus padding, border, and margin) off-screen; innerWidth - 350 wins.
-	const right = mount(<Help text={HELP_MODELS_SECTION} />);
+	const right = mount(<Help text={helpModelsSection()} />);
 	const rightWrap = right.querySelector(".help-wrap") as HTMLElement;
 	stubBoundingRect(rightWrap, { left: window.innerWidth - 20, top: 300, bottom: 320 });
 	fireMouseEnter(rightWrap);
@@ -312,7 +328,7 @@ test("the horizontal clamp keeps the tip's 350px box inside the viewport at both
 
 	// Near the left edge, rect.left - 8 would go negative; the 8px viewport
 	// margin wins.
-	const left = mount(<Help text={HELP_MODELS_SECTION} />);
+	const left = mount(<Help text={helpModelsSection()} />);
 	const leftWrap = left.querySelector(".help-wrap") as HTMLElement;
 	stubBoundingRect(leftWrap, { left: 4, top: 300, bottom: 320 });
 	fireMouseEnter(leftWrap);
@@ -320,7 +336,7 @@ test("the horizontal clamp keeps the tip's 350px box inside the viewport at both
 });
 
 test("the below variant pins the tip's top under the trigger and stands the bottom down", () => {
-	const root = mount(<Help below text={HELP_SERVERS_SECTION} />);
+	const root = mount(<Help below text={helpServersSection()} />);
 	const wrap = root.querySelector(".help-wrap") as HTMLElement;
 	stubBoundingRect(wrap, { left: 200, top: 10, bottom: 30 });
 	fireMouseEnter(wrap);

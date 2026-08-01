@@ -9,6 +9,7 @@
  * (intents.ts) before anything is written.
  */
 
+import * as l10n from "@vscode/l10n";
 import type {
 	NonSecretOptionalFieldId,
 	SaveServerPayload,
@@ -86,19 +87,35 @@ export const SERVER_FORM_FIELD_ORDER: readonly ServerFormField[] = [
 	"modelParameters",
 ];
 
-/** Display names for the form's fields, shared by labels and problem summaries. */
-export const SERVER_FORM_FIELD_LABELS: Record<ServerFormField, string> = {
-	label: "Label",
-	baseUrl: "Base URL",
-	apiKey: "API key",
-	oauthTokenUrl: "OAuth token URL",
-	oauthClientId: "OAuth client ID",
-	oauthClientSecret: "OAuth client secret",
-	oauthScopes: "OAuth scopes",
-	virtualKeyHeader: "Virtual key header",
-	virtualKeyValue: "Virtual key value",
-	modelParameters: "Model parameters",
-};
+/**
+ * The display name of one form field, shared by labels and problem summaries.
+ * A function, not a module-level catalog: the names localize, and a constant
+ * record would freeze the English text before l10n.config runs.
+ */
+export function serverFormFieldLabel(field: ServerFormField): string {
+	switch (field) {
+		case "label":
+			return l10n.t("Label");
+		case "baseUrl":
+			return l10n.t("Base URL");
+		case "apiKey":
+			return l10n.t("API key");
+		case "oauthTokenUrl":
+			return l10n.t("OAuth token URL");
+		case "oauthClientId":
+			return l10n.t("OAuth client ID");
+		case "oauthClientSecret":
+			return l10n.t("OAuth client secret");
+		case "oauthScopes":
+			return l10n.t("OAuth scopes");
+		case "virtualKeyHeader":
+			return l10n.t("Virtual key header");
+		case "virtualKeyValue":
+			return l10n.t("Virtual key value");
+		case "modelParameters":
+			return l10n.t("Model parameters");
+	}
+}
 
 /**
  * The fields rendered inside the collapsible "OAuth and virtual key" section.
@@ -208,9 +225,9 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 	const problems: { -readonly [K in ServerFormField]?: string } = {};
 	const label = draft.label.trim();
 	if (label.length === 0) {
-		problems.label = "Enter a label";
+		problems.label = l10n.t("Enter a label");
 	} else if (isUnsafeRecordKey(label)) {
-		problems.label = "This label is a reserved name and cannot be used";
+		problems.label = l10n.t("This label is a reserved name and cannot be used");
 	} else if (
 		context.originalLabel !== undefined &&
 		label !== context.originalLabel &&
@@ -218,13 +235,13 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 	) {
 		// Renaming onto a sibling would leave two entries with one identity;
 		// the extension refuses it too (adds keep their replace-by-label upsert).
-		problems.label = "An entry with this label already exists";
+		problems.label = l10n.t("An entry with this label already exists");
 	}
 	const baseUrl = draft.baseUrl.trim();
 	if (baseUrl.length === 0) {
-		problems.baseUrl = "Enter the server URL";
+		problems.baseUrl = l10n.t("Enter the server URL");
 	} else if (!isUsableHttpUrl(baseUrl)) {
-		problems.baseUrl = "Must be a usable http(s) URL, e.g. http://localhost:4000";
+		problems.baseUrl = l10n.t("Must be a usable http(s) URL, e.g. http://localhost:4000");
 	}
 
 	// OAuth is one unit: the request path drops partial configurations
@@ -233,12 +250,12 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 	const clientId = draft.oauthClientId.trim();
 	const oauthExtras = secrets.oauthClientSecret.resolves || draft.oauthScopes.trim().length > 0;
 	if (tokenUrl.length > 0 && !isUsableHttpUrl(tokenUrl)) {
-		problems.oauthTokenUrl = "Must be a usable http(s) URL";
+		problems.oauthTokenUrl = l10n.t("Must be a usable http(s) URL");
 	} else if ((clientId.length > 0 || oauthExtras) && tokenUrl.length === 0) {
-		problems.oauthTokenUrl = "OAuth needs the token URL and client ID";
+		problems.oauthTokenUrl = l10n.t("OAuth needs the token URL and client ID");
 	}
 	if ((tokenUrl.length > 0 || oauthExtras) && clientId.length === 0) {
-		problems.oauthClientId = "OAuth needs the token URL and client ID";
+		problems.oauthClientId = l10n.t("OAuth needs the token URL and client ID");
 	}
 
 	// The virtual key is likewise both-or-neither, and must be sendable as an
@@ -248,14 +265,14 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 	const header = draft.virtualKeyHeader.trim();
 	const virtualKey = secrets.virtualKeyValue;
 	if (header.length > 0 && !isValidHeaderName(header)) {
-		problems.virtualKeyHeader = "Not a valid HTTP header name";
+		problems.virtualKeyHeader = l10n.t("Not a valid HTTP header name");
 	} else if (virtualKey.resolves && header.length === 0) {
-		problems.virtualKeyHeader = "Name the header that carries the key";
+		problems.virtualKeyHeader = l10n.t("Name the header that carries the key");
 	}
 	if (header.length > 0 && !virtualKey.resolves) {
-		problems.virtualKeyValue = "Enter the key sent in this header";
+		problems.virtualKeyValue = l10n.t("Enter the key sent in this header");
 	} else if (virtualKey.visibleValue !== undefined && !isValidHeaderValue(virtualKey.visibleValue)) {
-		problems.virtualKeyValue = "The value cannot be sent as an HTTP header";
+		problems.virtualKeyValue = l10n.t("The value cannot be sent as an HTTP header");
 	}
 
 	// The per-entry model-parameter rows share the global editor's parse, so a
@@ -263,7 +280,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 	// rows carry their own problems and the field slot holds the summary.
 	const groupsParse = parseGroups(draft.modelParameters);
 	if (!groupsParse.ok) {
-		problems.modelParameters = "Fix the model parameter rows";
+		problems.modelParameters = l10n.t("Fix the model parameter rows");
 	}
 
 	if (Object.values(problems).some((problem) => problem !== undefined)) {
@@ -365,13 +382,13 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 export function validateAdoptLabel(label: string, takenLabels: readonly string[]): string | undefined {
 	const trimmed = label.trim();
 	if (trimmed.length === 0) {
-		return "Enter a label";
+		return l10n.t("Enter a label");
 	}
 	if (isUnsafeRecordKey(trimmed)) {
-		return "This label is a reserved name and cannot be used";
+		return l10n.t("This label is a reserved name and cannot be used");
 	}
 	if (takenLabels.includes(trimmed)) {
-		return "An entry with this label already exists";
+		return l10n.t("An entry with this label already exists");
 	}
 	return undefined;
 }
@@ -400,7 +417,7 @@ export function sectionFailureText(prefix: string, message: string): string {
 	const prefixText = colon > 0 ? message.slice(0, colon) : undefined;
 	const field = SERVER_FORM_FIELD_ORDER.find((candidate) => candidate === prefixText);
 	if (field !== undefined) {
-		return `${SERVER_FORM_FIELD_LABELS[field]}${message.slice(colon)}`;
+		return `${serverFormFieldLabel(field)}${message.slice(colon)}`;
 	}
 	return `${prefix} ${message}`;
 }

@@ -1,6 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
-import type { DashboardModel, HeaderScalar, ScopedRecordSetting } from "../../extension/dashboard/protocol";
-import { SETTING_SCOPE_LABELS } from "../../extension/dashboard/protocol";
+import type {
+	DashboardModel,
+	HeaderScalar,
+	ScopedRecordSetting,
+	SettingScope,
+} from "../../extension/dashboard/protocol";
+import { settingScopeLabel } from "../../extension/dashboard/protocol";
 import type { GroupProblems, HeaderRow, PrefixGroup, RowFieldProblem } from "../../extension/dashboard/recordDraft";
 import {
 	groupsFromJsonText,
@@ -13,11 +18,11 @@ import {
 import { DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import {
-	HELP_CUSTOM_HEADERS_SECTION,
-	HELP_MODEL_PARAMETER_NAME,
-	HELP_MODEL_PARAMETER_PREFIX,
-	HELP_MODEL_PARAMETER_VALUE,
-	HELP_MODEL_PARAMETERS_SECTION,
+	helpCustomHeadersSection,
+	helpModelParameterName,
+	helpModelParameterPrefix,
+	helpModelParametersSection,
+	helpModelParameterValue,
 } from "./helpText";
 import { IconAdd, IconBraces, IconTrash } from "./icons";
 import { postMessage } from "./vscodeApi";
@@ -150,8 +155,8 @@ export interface IntentFailure {
 function ScopeNote({ scoped }: { scoped: ScopedRecordSetting<unknown> }) {
 	return (
 		<p class="hint">
-			Editing {SETTING_SCOPE_LABELS[scoped.editScope]} settings. Rows here apply together via the Apply button; the
-			plain settings above save each change on its own.
+			Editing {settingScopeLabel(scoped.editScope)} settings. Rows here apply together via the Apply button; the plain
+			settings above save each change on its own.
 		</p>
 	);
 }
@@ -177,8 +182,8 @@ function ApplyStatus({ phase }: { phase: DraftPhase }) {
 }
 
 /** The other-scope records, rendered as the same disabled grid the edit scope uses, never as prose. */
-function OtherScopeNote({ scope }: { scope: keyof typeof SETTING_SCOPE_LABELS }) {
-	return <p class="hint">Set in {SETTING_SCOPE_LABELS[scope]} settings - edit there.</p>;
+function OtherScopeNote({ scope }: { scope: SettingScope }) {
+	return <p class="hint">Set in {settingScopeLabel(scope)} settings - edit there.</p>;
 }
 
 /**
@@ -288,7 +293,7 @@ export function ParamGroupsFields({
 										}
 										onKeyDown={paramNameListId === undefined ? onKeyDown : undefined}
 									/>
-									<Help text={HELP_MODEL_PARAMETER_NAME} />
+									<Help text={helpModelParameterName()} />
 								</span>
 								<span class="cell value">
 									<input
@@ -307,7 +312,7 @@ export function ParamGroupsFields({
 										}
 										onKeyDown={onKeyDown}
 									/>
-									<Help text={HELP_MODEL_PARAMETER_VALUE} />
+									<Help text={helpModelParameterValue()} />
 								</span>
 								{readOnly === true ? null : (
 									<button
@@ -532,7 +537,7 @@ export function ModelParametersEditor({
 	return (
 		<section hidden={hidden}>
 			<h3 class="head-with-icons">
-				{MODEL_PARAMETERS_TITLE} <Help text={HELP_MODEL_PARAMETERS_SECTION} />
+				{MODEL_PARAMETERS_TITLE} <Help text={helpModelParametersSection()} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label="Open the model parameters guide" />
 				<HeadingRevealButton title={MODEL_PARAMETERS_TITLE} settingId="modelParameters" />
 			</h3>
@@ -575,7 +580,7 @@ export function ModelParametersEditor({
 						groups={groups}
 						problems={problems}
 						prefixPlaceholder="Model prefix, e.g. gpt-4 or http://host:4000/gpt-4"
-						prefixHelp={HELP_MODEL_PARAMETER_PREFIX}
+						prefixHelp={helpModelParameterPrefix()}
 						prefixListId={MODEL_PREFIX_LIST_ID}
 						paramNameListId={PARAM_NAME_LIST_ID}
 						onChange={(next) => draft.update(next)}
@@ -634,7 +639,7 @@ export function ModelParametersEditor({
 						problems={[]}
 						readOnly
 						prefixPlaceholder=""
-						prefixHelp={HELP_MODEL_PARAMETER_PREFIX}
+						prefixHelp={helpModelParameterPrefix()}
 						onChange={() => undefined}
 					/>
 				</div>
@@ -704,7 +709,7 @@ export function HeadersEditor({
 	return (
 		<section hidden={hidden}>
 			<h3 class="head-with-icons">
-				{HEADERS_TITLE} <Help text={HELP_CUSTOM_HEADERS_SECTION} />
+				{HEADERS_TITLE} <Help text={helpCustomHeadersSection()} />
 				<HeadingRevealButton title={HEADERS_TITLE} settingId="headers" />
 			</h3>
 			<p class="hint">Sent with every LiteLLM request. Prefer User settings for values that are secrets.</p>

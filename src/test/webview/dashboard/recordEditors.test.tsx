@@ -9,7 +9,7 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../webview/dashboard/app";
-import { HELP_MODEL_PARAMETER_PREFIX } from "../../../webview/dashboard/helpText";
+import { helpModelParameterPrefix } from "../../../webview/dashboard/helpText";
 import { SettingsSection } from "../../../webview/dashboard/settings";
 import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
@@ -146,7 +146,7 @@ test("model parameters: the global editor's prefix copy advertises URL scoping (
 	expect(prefixInput.placeholder).toBe("Model prefix, e.g. gpt-4 or http://host:4000/gpt-4");
 	const glyph = prefixInput.closest(".cell")?.querySelector("button.help");
 	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
-	expect(tip?.textContent).toBe(HELP_MODEL_PARAMETER_PREFIX);
+	expect(tip?.textContent).toBe(helpModelParameterPrefix());
 });
 
 test("a draft edited back to the store value counts as unchanged: Apply and Discard disable, nothing posts", () => {
