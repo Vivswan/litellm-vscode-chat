@@ -7,10 +7,12 @@ import type {
 } from "../../../extension/dashboard/serverForm";
 import {
 	applyInlinePrefill,
+	CONNECTION_FIELDS,
 	EMPTY_SERVER_FORM,
 	isUsableHttpUrl,
 	OAUTH_SECTION_FIELDS,
 	parseServerForm,
+	parseServerFormForTest,
 	SERVER_FORM_FIELD_LABELS,
 	SERVER_FORM_FIELD_ORDER,
 	saveFailureDisposition,
@@ -359,6 +361,67 @@ suite("extension/dashboard/serverForm", () => {
 		test("an operation-kind failure closes the form (the save committed, the draft is stale); validation returns to editing", () => {
 			assert.strictEqual(saveFailureDisposition("operation"), "close");
 			assert.strictEqual(saveFailureDisposition("validation"), "edit");
+		});
+	});
+
+	suite("parseServerFormForTest", () => {
+		test("label and model-parameter problems never gate a probe; the real label still rides the intent", () => {
+			// An empty label plus a broken parameter row block Save but not Test.
+			const parse = parseServerFormForTest(
+				draft({ label: "  ", modelParameters: [{ prefix: "", params: [{ key: "", valueText: "not json" }] }] })
+			);
+			assert.ok(parse.ok, "connection-clean drafts must parse");
+			assert.strictEqual(parse.intent.server.label, "");
+			assert.strictEqual(parse.intent.server.modelParameters, undefined);
+			assert.strictEqual(parse.intent.replaceLabel, undefined);
+		});
+
+		test("connection-relevant problems block with the same rules and messages as the save parse", () => {
+			const broken = draft({
+				baseUrl: "not a url",
+				oauthClientId: "client-1",
+				virtualKeyHeader: "bad header",
+			});
+			const parse = parseServerFormForTest(broken);
+			assert.ok(!parse.ok);
+			const full = parseServerForm(broken);
+			assert.ok(!full.ok);
+			// Field for field the same problems the save parse computes: one rule
+			// set, two gates.
+			for (const field of CONNECTION_FIELDS) {
+				assert.strictEqual(parse.problems[field], full.problems[field], field);
+			}
+			assert.strictEqual(parse.problems.label, undefined, "label problems stay out");
+		});
+
+		test("the assembled intent carries the save parse's directives and the edited entry's replaceLabel", () => {
+			const edited = draft({
+				label: "Renamed",
+				apiKey: secret({ value: " sk-typed ", location: "settings" }),
+				// A stored OAuth secret resolves through "keep", so the pairing
+				// rules require its token URL and client ID - for a test exactly
+				// as for a save.
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "client-1",
+				oauthClientSecret: secret({ existing: "secure" }),
+			});
+			const parse = parseServerFormForTest(edited, { originalLabel: "Prod" });
+			assert.ok(parse.ok, `expected a clean parse, got ${JSON.stringify(parse)}`);
+			assert.strictEqual(parse.intent.replaceLabel, "Prod");
+			assert.strictEqual(parse.intent.server.label, "Renamed");
+			assert.strictEqual(parse.intent.server.oauthClientId, "client-1");
+			assert.deepStrictEqual(parse.intent.secrets, {
+				apiKey: { action: "set", location: "settings", value: "sk-typed" },
+				oauthClientSecret: { action: "keep" },
+				virtualKeyValue: { action: "keep" },
+			});
+		});
+
+		test("CONNECTION_FIELDS is exactly the field catalog minus label and modelParameters", () => {
+			// The clear-on-edit rule and the field catalog cannot drift: a new
+			// connection-shaped field must join CONNECTION_FIELDS or this fails.
+			const expected = SERVER_FORM_FIELD_ORDER.filter((field) => field !== "label" && field !== "modelParameters");
+			assert.deepStrictEqual([...CONNECTION_FIELDS].sort(), [...expected].sort());
 		});
 	});
 

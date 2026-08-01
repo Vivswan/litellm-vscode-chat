@@ -26,6 +26,8 @@ import type {
 import { NUMBER_SETTINGS, SECRET_FIELD_IDS } from "./protocol";
 import { applySaveServerSetting } from "./saveServer";
 import { isUsableHttpUrl } from "./serverForm";
+import type { DraftConnection } from "./testDraftConnection";
+import { applyTestServerDraft } from "./testDraftConnection";
 
 /**
  * A constraint violation detected by this module's own validation. Its
@@ -96,6 +98,15 @@ export interface IntentEnvironment {
 	unhideGroup(identity: { label: string; baseUrl: string }): Promise<boolean>;
 	/** Classification-only logging (the buffer feeds public issue reports); never a payload value. */
 	log(message: string, data?: unknown): void;
+	/**
+	 * One discovery probe against a fully resolved draft connection (the
+	 * testServerDraft intent). Read-only by contract - no settings write, no
+	 * group or status mutation, no caching across probes - bounded by the
+	 * discoveryTimeout setting, and the connection's credential values are
+	 * never logged. Resolves to the discovered model count; throws the
+	 * transport's classified error on failure.
+	 */
+	probeDraftConnection(connection: DraftConnection): Promise<number>;
 }
 
 const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readonly unknown[] }> = {
@@ -162,25 +173,15 @@ export function validateModelParametersRecord(
 }
 
 /**
- * The value constraints on a saveServerSetting intent, mirroring the webview
- * form's field-level rules (serverForm.ts) for messages that bypassed it.
- * Cross-field pairing (OAuth's token URL and client ID, the virtual key's
- * header and value) is enforced in applySaveServerSetting, where the resolved
- * secrets context exists. Returns the reason the intent is not applicable, or
- * undefined when it is. Reasons name fields, never values: payloads carry
- * secrets, and the message is echoed to the webview.
+ * The connection-relevant value constraints shared by the save and the draft
+ * test: usable URLs, header charset, and per-directive value rules. Label and
+ * modelParameters constraints stay in validateSaveServerSetting - neither
+ * gates a connection probe. Reasons name fields, never values.
  */
-export function validateSaveServerSetting(
+function validateConnectionFields(
 	server: SaveServerPayload,
 	secrets: Readonly<Record<SecretFieldId, SecretDirective>>
 ): string | undefined {
-	const label = server.label.trim();
-	if (label.length === 0) {
-		return "label: enter a label";
-	}
-	if (isUnsafeRecordKey(label)) {
-		return "label: reserved name";
-	}
 	const baseUrl = server.baseUrl.trim();
 	if (baseUrl.length === 0) {
 		return "baseUrl: enter the server URL";
@@ -208,6 +209,33 @@ export function validateSaveServerSetting(
 	if (virtualKeyDirective.action === "set" && !isValidHeaderValue(virtualKeyDirective.value)) {
 		return "virtualKeyValue: the value cannot be sent as an HTTP header";
 	}
+	return undefined;
+}
+
+/**
+ * The value constraints on a saveServerSetting intent, mirroring the webview
+ * form's field-level rules (serverForm.ts) for messages that bypassed it.
+ * Cross-field pairing (OAuth's token URL and client ID, the virtual key's
+ * header and value) is enforced in applySaveServerSetting, where the resolved
+ * secrets context exists. Returns the reason the intent is not applicable, or
+ * undefined when it is. Reasons name fields, never values: payloads carry
+ * secrets, and the message is echoed to the webview.
+ */
+export function validateSaveServerSetting(
+	server: SaveServerPayload,
+	secrets: Readonly<Record<SecretFieldId, SecretDirective>>
+): string | undefined {
+	const label = server.label.trim();
+	if (label.length === 0) {
+		return "label: enter a label";
+	}
+	if (isUnsafeRecordKey(label)) {
+		return "label: reserved name";
+	}
+	const connectionProblem = validateConnectionFields(server, secrets);
+	if (connectionProblem !== undefined) {
+		return connectionProblem;
+	}
 	if (server.modelParameters !== undefined) {
 		// The same reserved-key rules the global setModelParameters intent
 		// enforces; the message already names the offending rule.
@@ -217,6 +245,20 @@ export function validateSaveServerSetting(
 		}
 	}
 	return undefined;
+}
+
+/**
+ * The value constraints on a testServerDraft intent: the connection-relevant
+ * subset of the save rules. The label deliberately goes unchecked (empty and
+ * reserved labels probe fine; the label only addresses "keep" resolution),
+ * and cross-field pairing is enforced in applyTestServerDraft, where the
+ * resolved secrets exist - the same split the save path uses.
+ */
+export function validateTestServerDraft(
+	server: SaveServerPayload,
+	secrets: Readonly<Record<SecretFieldId, SecretDirective>>
+): string | undefined {
+	return validateConnectionFields(server, secrets);
 }
 
 /**
@@ -259,10 +301,10 @@ export function readInlineSecretValues(raw: unknown, label: string): Readonly<Pa
 
 /**
  * Execute one validated intent against the injected environment. Resolves to
- * an optional user-facing caveat for the success notice (only adoptServer
- * produces one today). Throws on constraint violations without logging; the
- * panel controller is the boundary that logs and reports the failure back to
- * the webview.
+ * an optional user-facing message for the success notice: adoptServer's
+ * caveat, and testServerDraft's static classification plus model count.
+ * Throws on constraint violations without logging; the panel controller is
+ * the boundary that logs and reports the failure back to the webview.
  */
 export async function executeDashboardIntent(
 	intent: DashboardIntent,
@@ -313,6 +355,16 @@ export async function executeDashboardIntent(
 			}
 			await applySaveServerSetting(intent, env);
 			return undefined;
+		}
+		case "testServerDraft": {
+			const problem = validateTestServerDraft(intent.server, intent.secrets);
+			if (problem !== undefined) {
+				throw new DashboardValidationError(problem);
+			}
+			const modelCount = await applyTestServerDraft(intent, env);
+			// Static classification plus the discovered count, composed here so
+			// the webview renders it verbatim; never payload or response text.
+			return `Connected - ${modelCount} ${modelCount === 1 ? "model" : "models"}`;
 		}
 		case "removeServerSetting": {
 			const entries = rawServerEntries(env.readServersSetting());

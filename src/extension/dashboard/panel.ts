@@ -44,11 +44,24 @@ import {
 import type { DashboardSectionId, ExtensionToWebviewMessage } from "./protocol";
 import type { RemovedGroupsView, SettingsReader } from "./state";
 import { buildDashboardState, resolveConfiguredScope, resolveUpdateScope } from "./state";
+import { createDraftConnectionProbe } from "./testDraftConnection";
 
 /** The slice of vscode.Webview the controller uses; createPanel sets the HTML before handing the panel over. */
 interface DashboardWebview {
 	postMessage(message: unknown): Thenable<boolean>;
 	onDidReceiveMessage: vscode.Event<unknown>;
+}
+
+/**
+ * Whether a raw message is a read-only intent safe to handle off the mutation
+ * chain (today only the draft-connection probe). A cheap discriminant peek,
+ * not a schema parse: an impostor merely claiming the type is still fully
+ * re-validated in handleMessage and rejected there. Only genuinely
+ * non-mutating, potentially network-blocking intents may be listed here; any
+ * intent that writes the servers setting or a secret must stay on the chain.
+ */
+function isConcurrentMessage(raw: unknown): boolean {
+	return typeof raw === "object" && raw !== null && (raw as { type?: unknown }).type === "testServerDraft";
 }
 
 /** The slice of vscode.WebviewPanel the controller uses. */
@@ -178,9 +191,26 @@ export class DashboardController implements vscode.Disposable {
 	 * callers) logs the failure. The page generation is captured at arrival,
 	 * not at handling: the chain may drain a message after the page that sent
 	 * it died, and a late ready must not vouch for the next page.
+	 *
+	 * The read-only draft-connection probe is the one intent that runs OFF the
+	 * chain: it never read-modify-writes the servers array (the only reason the
+	 * chain serializes), but it can block on the network for a whole discovery
+	 * timeout, so chaining it would stall every later Save behind a slow or
+	 * abandoned probe. It still takes the exact same validated handleMessage
+	 * dispatch; only its place in the queue differs. A malformed message merely
+	 * claiming the type is harmless off-chain (the schema rejects it), and the
+	 * rejection guard mirrors the chain's so a thrown handler cannot surface as
+	 * an unhandled rejection for the fire-and-forget webview caller.
 	 */
 	private enqueueMessage(raw: unknown): Promise<DashboardMessageOutcome> {
 		const arrivalGeneration = this._pageGeneration;
+		if (isConcurrentMessage(raw)) {
+			const outcome = this.handleMessage(raw, arrivalGeneration);
+			outcome.then(undefined, (error) => {
+				this.env.logError("Dashboard message handling failed", error);
+			});
+			return outcome;
+		}
 		const outcome = this._messageChain.then(() => this.handleMessage(raw, arrivalGeneration));
 		this._messageChain = outcome.then(
 			() => undefined,
@@ -471,6 +501,10 @@ export function registerDashboardCommand(
 		// picker without waiting for the next background refresh.
 		hideGroup: (identity) => removals.addTombstone(identity),
 		unhideGroup: (identity) => removals.removeTombstone(identity),
+		// The draft-connection test's probe: one throwaway discovery pass, no
+		// mutation, no caching, and no logger (its discovery chatter would enter
+		// the issue-report buffer); see createDraftConnectionProbe.
+		probeDraftConnection: createDraftConnectionProbe(context),
 		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
 		log: (message, data) => logger.log(message, data),
 		logError: (message, error) => logger.error(message, error),

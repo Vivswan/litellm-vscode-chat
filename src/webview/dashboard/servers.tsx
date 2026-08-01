@@ -17,9 +17,12 @@ import type {
 } from "../../extension/dashboard/serverForm";
 import {
 	applyInlinePrefill,
+	CONNECTION_FIELDS,
 	EMPTY_SERVER_FORM,
+	isUsableHttpUrl,
 	OAUTH_SECTION_FIELDS,
 	parseServerForm,
+	parseServerFormForTest,
 	SERVER_FORM_FIELD_LABELS,
 	SERVER_FORM_FIELD_ORDER,
 	saveFailureDisposition,
@@ -149,6 +152,18 @@ type FormPhase =
 	| { readonly phase: "prefill"; readonly requestId: string }
 	| { readonly phase: "editing" }
 	| { readonly phase: "saving"; readonly requestId: string };
+
+/**
+ * The draft-connection test's own little lifecycle, independent of FormPhase:
+ * a test in flight must not gate editing, saving, or cancelling. Leaving
+ * "testing" for any other state abandons the in-flight requestId, so a late
+ * outcome for it is ignored - which is exactly what clearing on an edit needs.
+ */
+type TestState =
+	| { readonly kind: "idle" }
+	| { readonly kind: "testing"; readonly requestId: string }
+	| { readonly kind: "pass"; readonly text: string }
+	| { readonly kind: "fail"; readonly text: string };
 
 function secretDraft(existing: SecretLocation): SecretFieldDraft {
 	return { value: "", location: existing === "settings" ? "settings" : "secure", clear: false, existing };
@@ -390,6 +405,7 @@ function ServerForm({
 	const [draft, setDraft] = useState<ServerFormDraft>(() => draftFor(target));
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
+	const [testState, setTestState] = useState<TestState>({ kind: "idle" });
 	const [oauthOpen, setOauthOpen] = useState(false);
 	// The per-entry parameters disclosure opens by itself only for an entry
 	// that already carries some; adding rows to a bare entry is opt-in.
@@ -440,6 +456,26 @@ function ServerForm({
 			onClose();
 		}
 	}, [ack, phase, onClose]);
+
+	// This form's own test outcome. Success renders the extension-composed
+	// message verbatim ("Connected - N models"); an outcome for an abandoned
+	// requestId (the state left "testing" on an edit or a retest) is ignored.
+	useEffect(() => {
+		if (testState.kind === "testing" && ack?.requestId === testState.requestId) {
+			setTestState({ kind: "pass", text: ack.message ?? "Connected" });
+		}
+	}, [ack, testState]);
+
+	const testFailure = failures.testServerDraft;
+	const testFailureSeq = testFailure?.seq;
+	const testFailureRequestId = testFailure?.requestId;
+	const testFailureMessage = testFailure?.message;
+	useEffect(() => {
+		if (testState.kind !== "testing" || testFailureSeq === undefined || testFailureRequestId !== testState.requestId) {
+			return;
+		}
+		setTestState({ kind: "fail", text: testFailureMessage ?? "The connection test failed" });
+	}, [testFailureSeq, testFailureRequestId, testFailureMessage, testState]);
 
 	// This form's own failure: a validation-kind one re-opens it for editing
 	// (the draft is still the truth); an operation-kind one means the save
@@ -527,12 +563,55 @@ function ServerForm({
 		setPhase({ phase: "saving", requestId });
 	};
 
+	// The draft as typed goes out for one extension-side discovery probe; the
+	// label and the model-parameter rows never gate it (parseServerFormForTest),
+	// but a connection-relevant problem surfaces the way Save surfaces its
+	// problems instead of probing a configuration a save would refuse.
+	const testConnection = () => {
+		if (testState.kind === "testing" || saving) {
+			return;
+		}
+		const testParse = parseServerFormForTest(draft, originalLabel !== undefined ? { originalLabel } : {});
+		if (!testParse.ok) {
+			setTouched((current) => {
+				const next = new Set(current);
+				for (const field of CONNECTION_FIELDS) {
+					if (testParse.problems[field] !== undefined) {
+						next.add(field);
+					}
+				}
+				return next;
+			});
+			if (OAUTH_SECTION_FIELDS.some((field) => testParse.problems[field] !== undefined)) {
+				setOauthOpen(true);
+			}
+			return;
+		}
+		const requestId = newRequestId();
+		postMessage({ type: "testServerDraft", ...testParse.intent, requestId });
+		setTestState({ kind: "testing", requestId });
+	};
+
 	const props: FieldRenderProps = {
 		draft,
 		visibleProblems,
 		disabled: saving,
 		patch: (patch) => {
 			onUserEdit();
+			// Any field a probe's outcome depends on makes a standing (or
+			// in-flight) result describe a configuration that no longer exists;
+			// a stale PASS is worse than no result, so it clears. The label
+			// counts: it selects which stored or orphan secret a "keep" directive
+			// resolves extension-side, so a rename can silently change the
+			// effective credentials the probe would use.
+			if (
+				testState.kind !== "idle" &&
+				Object.keys(patch).some(
+					(field) => field === "label" || (CONNECTION_FIELDS as readonly string[]).includes(field)
+				)
+			) {
+				setTestState({ kind: "idle" });
+			}
 			setDraft((current) => ({ ...current, ...patch }));
 		},
 		touch: (field) => {
@@ -629,10 +708,37 @@ function ServerForm({
 				<button type="button" class="secondary" onClick={onCancel}>
 					Cancel
 				</button>
+				{/* Probes the draft as typed, saved or not. Disabled only while the
+				    base URL is unusable or a probe/save is in flight; Cancel stays
+				    live throughout - an abandoned probe's outcome is simply ignored. */}
+				<button
+					type="button"
+					class="secondary"
+					disabled={!isUsableHttpUrl(draft.baseUrl.trim()) || testState.kind === "testing" || saving}
+					onClick={testConnection}
+				>
+					{testState.kind === "testing" ? (
+						<>
+							<span class="spinner" aria-hidden="true" /> Testing...
+						</>
+					) : (
+						"Test connection"
+					)}
+				</button>
 				{phase.phase === "prefill" ? <span class="hint">Loading stored values...</span> : null}
 				{firstBlocking !== undefined ? (
 					<span class="error" role="alert">
 						Cannot save: fix {SERVER_FORM_FIELD_LABELS[firstBlocking]}
+					</span>
+				) : null}
+				{testState.kind === "pass" ? (
+					<span class="test-result state-ok" role="status">
+						{testState.text}
+					</span>
+				) : null}
+				{testState.kind === "fail" ? (
+					<span class="test-result error" role="alert">
+						{testState.text}
 					</span>
 				) : null}
 			</div>
@@ -1109,6 +1215,9 @@ export function ServersSection({
 		setFormBusy(false);
 		setBusyNote(false);
 		onClearInlineSecrets();
+		// A test failure renders only inside the form it belongs to; the closed
+		// form's notice would otherwise sit invisibly in the failures map.
+		onDismissFailure("testServerDraft");
 	};
 
 	// Every way out of an open form funnels through here: the form's Cancel,

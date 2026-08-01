@@ -645,6 +645,7 @@ const ACKED_INTENT_TYPES: Readonly<Record<AckedIntentType, true>> = {
 	adoptServer: true,
 	hideExternalServer: true,
 	unhideServer: true,
+	testServerDraft: true,
 };
 
 /** The failure notices a state push leaves standing, keyed like FailuresByIntent; see ACKED_INTENT_TYPES. */
@@ -711,6 +712,26 @@ export type WebviewToExtensionMessage =
 			/** When editing: the label of the entry to replace (differs from server.label on rename). */
 			readonly replaceLabel?: string | undefined;
 			/** Webview-generated correlation ID, echoed in the outcome notice. */
+			readonly requestId: string;
+	  }
+	| {
+			/**
+			 * Test a DRAFT server configuration - possibly never saved - with one
+			 * extension-side discovery probe. Read-only by contract: nothing is
+			 * written, synced, or cached, so both outcome kinds leave configuration
+			 * untouched. The payload mirrors saveServerSetting (same secret
+			 * directives, same value rules: webview -> extension only, never
+			 * logged, never echoed back); "keep" directives resolve extension-side
+			 * against the entry `replaceLabel` names, exactly as a save would. The
+			 * success notice's message is composed extension-side as static
+			 * classification text plus the discovered model count, never payload
+			 * or response text.
+			 */
+			readonly type: "testServerDraft";
+			readonly server: SaveServerPayload;
+			readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
+			/** When editing: the label whose stored secrets "keep" directives resolve from. */
+			readonly replaceLabel?: string | undefined;
 			readonly requestId: string;
 	  }
 	| { readonly type: "removeServerSetting"; readonly label: string; readonly requestId: string }

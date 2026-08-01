@@ -486,3 +486,178 @@ test("the model count is a scope link only when the section is given onShowModel
 	fireClick(root.querySelector("button[aria-label='Show models from Prod']") as HTMLElement);
 	expect(labels).toEqual(["Prod"]);
 });
+
+test("Test connection gates on the base URL alone, posts the draft's exact keys, and its own ack renders the result", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	fireClick(buttonByText(root, "Add your first server"));
+
+	// Unusable URL: the button is the only thing disabled; a savable label is
+	// deliberately not required to probe.
+	expect(buttonByText(root, "Test connection").disabled).toBe(true);
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+	expect(buttonByText(root, "Test connection").disabled).toBe(false);
+
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	expect(postedMessages.length).toBe(1);
+	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	// Exact key set, like the adopt test: a smuggled extra field must fail here.
+	expect(Object.keys(posted).sort()).toEqual(["requestId", "secrets", "server", "type"]);
+	expect(posted.type).toBe("testServerDraft");
+	expect(posted.server).toEqual({ label: "", baseUrl: "http://localhost:4000" });
+	expect(posted.secrets).toEqual({
+		apiKey: { action: "keep" },
+		oauthClientSecret: { action: "keep" },
+		virtualKeyValue: { action: "keep" },
+	});
+	expect(typeof posted.requestId).toBe("string");
+
+	// In flight: the button goes busy, Save and Cancel stay live.
+	expect(buttonByText(root, "Testing...").disabled).toBe(true);
+	expect(buttonByText(root, "Save").disabled).toBe(false);
+	expect(buttonByText(root, "Cancel").disabled).toBe(false);
+
+	// A foreign ack changes nothing; the test's own ack renders the
+	// extension-composed message verbatim, selectable in the footer.
+	pushToWebview({
+		type: "intentSucceeded",
+		intentType: "testServerDraft",
+		requestId: "someone-elses",
+		message: "Connected - 9 models",
+	});
+	expect(root.textContent).toContain("Testing...");
+	pushToWebview({
+		type: "intentSucceeded",
+		intentType: "testServerDraft",
+		requestId: posted.requestId,
+		message: "Connected - 3 models",
+	});
+	expect(root.querySelector(".test-result")?.textContent).toBe("Connected - 3 models");
+	expect(root.textContent).not.toContain("Testing...");
+	// The form stayed open throughout: the probe never doubles as a save.
+	expect(root.querySelector(".form-card")).not.toBeNull();
+});
+
+test("a failed test renders its message inline and the result clears on any credential-affecting edit", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	// Editing an entry: the intent addresses "keep" resolution at the original label.
+	expect(posted.replaceLabel).toBe("Prod");
+
+	pushToWebview({
+		type: "intentFailed",
+		intentType: "testServerDraft",
+		message: "Network Error: unable to reach the server",
+		kind: "validation",
+		requestId: posted.requestId,
+	});
+	const result = root.querySelector(".test-result");
+	expect(result?.textContent).toContain("Network Error: unable to reach the server");
+	// Inline only: no section-level failure banner for the probe.
+	expect(root.querySelector(".banner-error")).toBeNull();
+
+	// A label edit clears it too: the label selects which stored or orphan
+	// secret a "keep" resolves, so a rename can change the effective
+	// credentials the probe would use - a stale PASS on those is worse than none.
+	fireInput(inputByLabel(root, "Label"), "Prod renamed");
+	expect(root.querySelector(".test-result")).toBeNull();
+
+	// A credential edit invalidates a fresh result the same way.
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const second = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	pushToWebview({
+		type: "intentSucceeded",
+		intentType: "testServerDraft",
+		requestId: second.requestId,
+		message: "Connected - 2 models",
+	});
+	expect(root.querySelector(".test-result")).not.toBeNull();
+	fireInput(inputByLabel(root, "API key"), "sk-new");
+	expect(root.querySelector(".test-result")).toBeNull();
+
+	// Same for the base URL, from a fresh PASS.
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const third = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	expect(third.secrets.apiKey).toEqual({ action: "set", location: "secure", value: "sk-new" });
+	pushToWebview({
+		type: "intentSucceeded",
+		intentType: "testServerDraft",
+		requestId: third.requestId,
+		message: "Connected - 2 models",
+	});
+	expect(root.querySelector(".test-result")).not.toBeNull();
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
+	expect(root.querySelector(".test-result")).toBeNull();
+});
+
+test("an in-flight test is abandoned by a connection edit: the stale outcome is ignored", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	fireClick(buttonByText(root, "Add your first server"));
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
+	// The edit returned the button to idle and dropped the pending requestId...
+	expect(root.textContent).not.toContain("Testing...");
+	// ...so the late outcome for the old draft paints nothing.
+	pushToWebview({
+		type: "intentSucceeded",
+		intentType: "testServerDraft",
+		requestId: posted.requestId,
+		message: "Connected - 3 models",
+	});
+	expect(root.querySelector(".test-result")).toBeNull();
+});
+
+test("Test with a partial OAuth draft posts nothing and surfaces the pairing problem like Save would", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	fireClick(buttonByText(root, "Add your first server"));
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+	fireInput(inputByLabel(root, "OAuth client ID"), "client-1");
+
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	expect(postedMessages).toEqual([]);
+	// Probing half an OAuth configuration would test a connection the saved
+	// entry would never send, so the form blocks it with the pairing message.
+	expect(root.textContent).toContain("OAuth needs the token URL and client ID");
+});
+
+test("a test in flight does not block Cancel; the form closes and the outcome lands nowhere", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	fireClick(buttonByText(root, "Add your first server"));
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+
+	// The typed URL made the form dirty, so Cancel raises the discard confirm
+	// (unchanged semantics); Discard closes despite the probe in flight.
+	fireClick(buttonByText(root, "Cancel"));
+	fireClick(buttonByText(root, "Discard"));
+	expect(root.querySelector(".form-card")).toBeNull();
+
+	// The abandoned outcome must not throw or resurrect anything.
+	pushToWebview({
+		type: "intentFailed",
+		intentType: "testServerDraft",
+		message: "Network Error: unreachable",
+		kind: "validation",
+		requestId: posted.requestId,
+	});
+	expect(root.querySelector(".test-result")).toBeNull();
+	expect(root.querySelector(".banner-error")).toBeNull();
+});

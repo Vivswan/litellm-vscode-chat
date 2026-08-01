@@ -46,6 +46,59 @@ function planResolves(plan: SecretPlan): boolean {
 }
 
 /**
+ * What "keep" directives resolve against for a draft that writes `label` over
+ * the entry `targetLabel` names: the accepted entry being replaced (resolved
+ * through acceptedEntry, so a rejected same-label sibling cannot shadow it)
+ * and the secure-side blobs involved. `storedEffective` is the blob the saved
+ * entry's label will read afterwards: a rename copies the old label's blob
+ * only when it holds anything, so an empty old blob leaves an orphan blob
+ * already sitting under the new label serving. Shared by the save apply and
+ * the draft-connection test (testDraftConnection.ts), so "keep" cannot mean
+ * two different values on the two paths.
+ */
+export interface KeepSources {
+	readonly accepted: { readonly index: number; readonly entry: DeclaredServer } | undefined;
+	readonly storedOld: Partial<Readonly<Record<SecretFieldId, string>>>;
+	readonly storedNew: Partial<Readonly<Record<SecretFieldId, string>>>;
+	readonly storedEffective: Partial<Readonly<Record<SecretFieldId, string>>>;
+	/** Whether a rename will copy the old label's blob (it holds anything). */
+	readonly willCopy: boolean;
+}
+
+export async function readKeepSources(
+	entries: readonly unknown[],
+	label: string,
+	targetLabel: string,
+	readServerSecrets: IntentEnvironment["readServerSecrets"]
+): Promise<KeepSources> {
+	const accepted = acceptedEntry(entries, targetLabel);
+	const renaming = targetLabel !== label;
+	const storedOld = await readServerSecrets(targetLabel);
+	const storedNew = renaming ? await readServerSecrets(label) : storedOld;
+	const willCopy = renaming && Object.keys(storedOld).length > 0;
+	return { accepted, storedOld, storedNew, storedEffective: willCopy ? storedOld : storedNew, willCopy };
+}
+
+/**
+ * The value one "keep" directive resolves to, and where it lives: inline
+ * exactly when the sync engine reads it inline (the shared inlineSecretValues
+ * rule, never a re-derivation), the effective secure blob otherwise,
+ * undefined when the field holds nothing anywhere.
+ */
+export function resolveKeptSecret(
+	existing: DeclaredServer | undefined,
+	storedEffective: Partial<Readonly<Record<SecretFieldId, string>>>,
+	field: SecretFieldId
+): { readonly value: string; readonly location: "inline" | "secure" } | undefined {
+	const inline = existing === undefined ? undefined : inlineSecretValues(existing)[field];
+	if (inline !== undefined) {
+		return { value: inline, location: "inline" };
+	}
+	const stored = storedEffective[field];
+	return stored !== undefined ? { value: stored, location: "secure" } : undefined;
+}
+
+/**
  * Apply one saveServerSetting intent in a failure-safe order: validate
  * everything up front, then run the additive secret operations (set-secure
  * writes; a rename copies the blob to the new label) and the settings write as
@@ -79,10 +132,18 @@ export async function applySaveServerSetting(
 	// hit the same label the entry lookup resolves.
 	const targetLabel = (intent.replaceLabel ?? label).trim();
 	const entries = rawServerEntries(env.readServersSetting());
-	// Resolution agrees with the parsed world (acceptedEntry): the entry
-	// being edited is the one the dashboard row described, never a rejected
-	// same-label sibling sitting earlier in the raw array.
-	const accepted = acceptedEntry(entries, targetLabel);
+	// Resolution agrees with the parsed world (acceptedEntry, via
+	// readKeepSources): the entry being edited is the one the dashboard row
+	// described, never a rejected same-label sibling sitting earlier in the raw
+	// array. The same helper also reads what the sync engine will read for this
+	// entry's label after the save (see KeepSources on the rename rules), so
+	// the pairing checks and the draft-connection test share one "keep" truth.
+	const { accepted, storedNew, storedEffective, willCopy } = await readKeepSources(
+		entries,
+		label,
+		targetLabel,
+		(secretsLabel) => env.readServerSecrets(secretsLabel)
+	);
 	if (intent.replaceLabel !== undefined && accepted === undefined) {
 		throw new DashboardValidationError(
 			"The entry being edited no longer exists in the servers setting; close the form and retry"
@@ -93,13 +154,6 @@ export async function applySaveServerSetting(
 		throw new DashboardValidationError("label: an entry with this label already exists");
 	}
 
-	// What the sync engine will read for this entry's label after the save: a
-	// rename copies the old label's whole blob over the new label's, but only
-	// when the old blob is non-empty, so an orphan blob already sitting under
-	// the new label otherwise keeps serving and must satisfy pairing too.
-	const storedOld = await env.readServerSecrets(targetLabel);
-	const storedNew = renaming ? await env.readServerSecrets(label) : storedOld;
-
 	const mode: SaveMode =
 		accepted === undefined
 			? { kind: "create" }
@@ -109,11 +163,10 @@ export async function applySaveServerSetting(
 						index: accepted.index,
 						existing: accepted.entry,
 						oldLabel: targetLabel,
-						willCopy: Object.keys(storedOld).length > 0,
+						willCopy,
 					}
 				: { kind: "edit", index: accepted.index, existing: accepted.entry };
 	const existing = mode.kind === "create" ? undefined : mode.existing;
-	const storedEffective = mode.kind === "rename" && mode.willCopy ? storedOld : storedNew;
 
 	const plans = recordFromKeys(SECRET_FIELD_IDS, (field): SecretPlan => {
 		const directive = intent.secrets[field];
@@ -125,13 +178,11 @@ export async function applySaveServerSetting(
 			case "clear":
 				return { kind: "cleared" };
 			case "keep": {
-				// Inline exactly when the sync engine reads it inline: the shared
-				// inlineSecretValues rule, not a re-derivation.
-				const inline = existing === undefined ? undefined : inlineSecretValues(existing)[field];
-				if (inline !== undefined) {
-					return { kind: "kept-inline", value: inline };
+				const kept = resolveKeptSecret(existing, storedEffective, field);
+				if (kept === undefined) {
+					return { kind: "absent" };
 				}
-				return storedEffective[field] !== undefined ? { kind: "stored" } : { kind: "absent" };
+				return kept.location === "inline" ? { kind: "kept-inline", value: kept.value } : { kind: "stored" };
 			}
 		}
 	});

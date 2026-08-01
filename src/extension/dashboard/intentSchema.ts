@@ -97,6 +97,16 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 		replaceLabel: z.string().optional(),
 		requestId: requestIdSchema,
 	}),
+	z.strictObject({
+		// The draft-connection test carries the save payload's exact shape (the
+		// same strict schemas, so unknown fields cannot ride along), but the
+		// intent only probes: value constraints live in validateTestServerDraft.
+		type: z.literal("testServerDraft"),
+		server: saveServerSchema,
+		secrets: secretDirectivesSchema,
+		replaceLabel: z.string().optional(),
+		requestId: requestIdSchema,
+	}),
 	z.strictObject({ type: z.literal("removeServerSetting"), label: z.string(), requestId: requestIdSchema }),
 	z.strictObject({
 		type: z.literal("hideExternalServer"),

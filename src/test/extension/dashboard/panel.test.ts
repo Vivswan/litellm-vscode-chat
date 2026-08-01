@@ -72,6 +72,8 @@ interface Harness {
 	failUpdates?: Error;
 	/** When set, storeServerSecret rejects with this error on deletes (value === undefined). */
 	failUnstore?: Error;
+	/** When set, probeDraftConnection waits on this before resolving; lets a test hold a slow probe open. */
+	probeGate?: Promise<void>;
 }
 
 function makeHarness(): Harness {
@@ -137,6 +139,10 @@ function makeHarness(): Harness {
 		resolveExternalGroup: () => undefined,
 		hideGroup: async () => {},
 		unhideGroup: async () => false,
+		// The probe is gated so tests can hold it open (a slow discovery) and
+		// prove a later Save is not queued behind it; ungated it resolves 0.
+		probeDraftConnection: () =>
+			harness.probeGate === undefined ? Promise.resolve(0) : harness.probeGate.then(() => 0),
 		executeCommand: async (command, ...args) => {
 			commands.push([command, ...args]);
 		},
@@ -393,6 +399,68 @@ suite("extension/dashboard/panel", () => {
 		await settle();
 
 		assert.deepStrictEqual(harness.commands, [["litellm.syncModels"]]);
+	});
+
+	test("a slow draft-connection probe runs off the mutation chain: a later Save lands before the probe resolves", async () => {
+		const harness = makeHarness();
+		let releaseProbe: () => void = () => {};
+		harness.probeGate = new Promise<void>((resolve) => {
+			releaseProbe = resolve;
+		});
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		// A probe that will hang for a whole discovery timeout, then a Save.
+		fake.receiveMessage({
+			type: "testServerDraft",
+			server: { label: "Prod", baseUrl: "http://prod.test" },
+			secrets: {
+				apiKey: { action: "keep" },
+				oauthClientSecret: { action: "keep" },
+				virtualKeyValue: { action: "keep" },
+			},
+			requestId: "probe-1",
+		});
+		fake.receiveMessage({
+			type: "saveServerSetting",
+			server: { label: "Prod", baseUrl: "http://prod.test" },
+			secrets: {
+				apiKey: { action: "keep" },
+				oauthClientSecret: { action: "keep" },
+				virtualKeyValue: { action: "keep" },
+			},
+			requestId: "save-1",
+		});
+		// Several ticks: the save's writeServersSetting carries its own
+		// setTimeout latency, and the probe stays parked on its gate throughout.
+		for (let i = 0; i < 5; i += 1) {
+			await settle();
+		}
+
+		// The Save's write landed while the probe is still hanging: were the
+		// probe on the chain, this would be empty until releaseProbe ran.
+		assert.deepStrictEqual(harness.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
+		assert.ok(
+			fake.posted.some(
+				(message) =>
+					(message as ExtensionToWebviewMessage).type === "intentSucceeded" &&
+					(message as { requestId?: string }).requestId === "save-1"
+			),
+			"the Save acked before the probe finished"
+		);
+		assert.ok(
+			!fake.posted.some((message) => (message as { requestId?: string }).requestId === "probe-1"),
+			"the probe has not acked yet; it is still hanging"
+		);
+
+		// Releasing the probe lets its own ack arrive, carrying the composed count.
+		releaseProbe();
+		await settle();
+		const probeAck = fake.posted.find((message) => (message as { requestId?: string }).requestId === "probe-1") as
+			| ExtensionToWebviewMessage
+			| undefined;
+		assert.ok(probeAck?.type === "intentSucceeded" && probeAck.message === "Connected - 0 models");
 	});
 
 	test("a failing intent is reported back to the webview as a retryable failure, with our validation text", async () => {
