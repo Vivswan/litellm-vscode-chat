@@ -87,7 +87,9 @@ const defaultIssueReporterEnv: IssueReporterEnv = {
 	openExternal: openUrl,
 	showCompactedDiagnosticsMessage: async () => {
 		await vscode.window.showInformationMessage(
-			"LiteLLM: Full diagnostics were too large to prefill in GitHub and were copied to your clipboard. Please paste them into the issue."
+			vscode.l10n.t(
+				"LiteLLM: Full diagnostics were too large to prefill in GitHub and were copied to your clipboard. Please paste them into the issue."
+			)
 		);
 	},
 };
@@ -107,14 +109,19 @@ export function createIssueReporterEnv(diagnosticsDirectory: vscode.Uri): IssueR
 			return file;
 		},
 		showCompactedDiagnosticsMessage: async (diagnosticsFile) => {
+			const revealFile = vscode.l10n.t("Reveal File");
 			const choice = await vscode.window.showInformationMessage(
 				diagnosticsFile
-					? "LiteLLM: Full diagnostics were saved to a redacted log file and copied to your clipboard. Attach the file to the GitHub issue or paste the contents."
-					: "LiteLLM: Full diagnostics were too large to prefill in GitHub and were copied to your clipboard. Please paste them into the issue.",
-				...(diagnosticsFile ? ["Reveal File"] : [])
+					? vscode.l10n.t(
+							"LiteLLM: Full diagnostics were saved to a redacted log file and copied to your clipboard. Attach the file to the GitHub issue or paste the contents."
+						)
+					: vscode.l10n.t(
+							"LiteLLM: Full diagnostics were too large to prefill in GitHub and were copied to your clipboard. Please paste them into the issue."
+						),
+				...(diagnosticsFile ? [revealFile] : [])
 			);
 
-			if (choice === "Reveal File" && diagnosticsFile) {
+			if (choice === revealFile && diagnosticsFile) {
 				await vscode.commands.executeCommand("revealFileInOS", diagnosticsFile);
 			}
 		},

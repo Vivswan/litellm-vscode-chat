@@ -30,7 +30,7 @@ import {
 } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
 import {
-	CONFIGURE_NOW_LABEL,
+	configureNowLabel,
 	createConfigurationPrompt,
 	Notifier,
 	reconfigureAction,
@@ -233,9 +233,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// over any provider group, so the group latch cannot contribute yet.
 	const hasShownWelcome = context.globalState.get<boolean>(HAS_SHOWN_WELCOME_KEY, false);
 	if (!hasShownWelcome && registry.getServers().length === 0 && !hasDeclaredServers()) {
-		showActionableMessage("info", "Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.", [
-			reconfigureAction(CONFIGURE_NOW_LABEL),
-			{ label: "Documentation", run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS_URL)) },
+		showActionableMessage("info", vscode.l10n.t("Welcome to LiteLLM! Connect to 100+ LLMs in VS Code."), [
+			reconfigureAction(configureNowLabel()),
+			{
+				label: vscode.l10n.t("Documentation"),
+				run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS_URL)),
+			},
 		]).catch((error) => {
 			logger.error("Welcome message failed", error);
 		});

@@ -14,9 +14,13 @@ export interface MessageAction {
  * The label every button that promises configuration shares; such a button
  * must route to reconfigureAction (or, for the raw showErrorMessage path
  * below, CMD.openDashboard directly), landing on the dashboard's Servers &
- * Models view - never on the hub menu or a native editor.
+ * Models view - never on the hub menu or a native editor. A function, not a
+ * constant: module-level localized constants would evaluate before
+ * l10n.config and freeze English.
  */
-export const CONFIGURE_NOW_LABEL = "Configure Now";
+export function configureNowLabel(): string {
+	return vscode.l10n.t("Configure Now");
+}
 
 export async function showActionableMessage(
 	kind: "info" | "warning" | "error",
@@ -36,32 +40,32 @@ export async function showActionableMessage(
 	}
 }
 
-export function reconfigureAction(label = "Reconfigure"): MessageAction {
+export function reconfigureAction(label = vscode.l10n.t("Reconfigure")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand(CMD.openDashboard) };
 }
 
-export function reportIssueAction(label = "Report Issue"): MessageAction {
+export function reportIssueAction(label = vscode.l10n.t("Report Issue")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand(CMD.reportIssue) };
 }
 
-export function viewOutputAction(channel: vscode.OutputChannel, label = "View Output"): MessageAction {
+export function viewOutputAction(channel: vscode.OutputChannel, label = vscode.l10n.t("View Output")): MessageAction {
 	return { label, run: () => channel.show() };
 }
 
-export function testConnectionAction(label = "Test Connection"): MessageAction {
+export function testConnectionAction(label = vscode.l10n.t("Test Connection")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand(CMD.testConnection) };
 }
 
-export function openChatAction(label = "Open Chat"): MessageAction {
+export function openChatAction(label = vscode.l10n.t("Open Chat")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand("workbench.action.chat.open") };
 }
 
-export function openSettingsAction(query: string, label = "Open Settings"): MessageAction {
+export function openSettingsAction(query: string, label = vscode.l10n.t("Open Settings")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand("workbench.action.openSettings", query) };
 }
 
 export function dismissAction(): MessageAction {
-	return { label: "Dismiss", run: () => {} };
+	return { label: vscode.l10n.t("Dismiss"), run: () => {} };
 }
 
 /**
@@ -76,16 +80,18 @@ export function createConfigurationPrompt(hasConfiguredServers: () => boolean): 
 			if (hasConfiguredServers()) {
 				return false;
 			}
+			const configureNow = configureNowLabel();
+			const learnMore = vscode.l10n.t("Learn More");
 			const choice = await vscode.window.showErrorMessage(
-				"LiteLLM is not configured. Set up your connection to use this provider.",
-				CONFIGURE_NOW_LABEL,
-				"Learn More"
+				vscode.l10n.t("LiteLLM is not configured. Set up your connection to use this provider."),
+				configureNow,
+				learnMore
 			);
-			if (choice === CONFIGURE_NOW_LABEL) {
+			if (choice === configureNow) {
 				await vscode.commands.executeCommand(CMD.openDashboard);
 				return true;
 			}
-			if (choice === "Learn More") {
+			if (choice === learnMore) {
 				void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS_URL));
 			}
 			return false;
@@ -245,8 +251,8 @@ export class Notifier implements vscode.Disposable {
 				tag: "no-servers",
 				signature: "no-servers",
 				kind: "warning",
-				message: "LiteLLM: No servers configured. Click to configure.",
-				actions: [reconfigureAction(CONFIGURE_NOW_LABEL)],
+				message: vscode.l10n.t("LiteLLM: No servers configured. Click to configure."),
+				actions: [reconfigureAction(configureNowLabel())],
 			};
 		}
 		const failures = status.serverStatuses.filter(isErrorServerStatus);
@@ -254,9 +260,10 @@ export class Notifier implements vscode.Disposable {
 		if (firstFailure !== undefined && failures.length === status.serverStatuses.length) {
 			return {
 				tag: "all-failed",
+				// The dedup signature is an internal key, never displayed; it stays English.
 				signature: `all-failed:${firstFailure.error}`,
 				kind: "error",
-				message: `LiteLLM: ${firstFailure.error}`,
+				message: vscode.l10n.t("LiteLLM: {0}", firstFailure.error),
 				actions: [reconfigureAction(), reportIssueAction()],
 			};
 		}
@@ -265,8 +272,8 @@ export class Notifier implements vscode.Disposable {
 				tag: "no-models",
 				signature: "no-models",
 				kind: "warning",
-				message: "LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.",
-				actions: [testConnectionAction("Check Server"), reconfigureAction(), reportIssueAction()],
+				message: vscode.l10n.t("LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration."),
+				actions: [testConnectionAction(vscode.l10n.t("Check Server")), reconfigureAction(), reportIssueAction()],
 			};
 		}
 		return { tag: "recovered" };

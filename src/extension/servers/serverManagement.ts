@@ -27,7 +27,7 @@ export function ensureRegistryMutable(): boolean {
 	if (!isGroupMigrationRunning()) {
 		return true;
 	}
-	void vscode.window.showInformationMessage("Server migration is in progress, try again in a moment.");
+	void vscode.window.showInformationMessage(vscode.l10n.t("Server migration is in progress, try again in a moment."));
 	return false;
 }
 
@@ -56,7 +56,10 @@ export function canMutateRegistry(getUiMode: () => ManagementUiMode): boolean {
 	}
 	if (!REGISTRY_SERVED_IN_MODE[getUiMode()]) {
 		void vscode.window.showInformationMessage(
-			`LiteLLM servers are now managed in the LiteLLM dashboard. Re-run "${manageCommandTitle()}" to open it.`
+			vscode.l10n.t(
+				'LiteLLM servers are now managed in the LiteLLM dashboard. Re-run "{0}" to open it.',
+				manageCommandTitle()
+			)
 		);
 		return false;
 	}
@@ -75,21 +78,21 @@ async function promptForServerLabel(
 ): Promise<string | undefined> {
 	const editing = initial !== undefined;
 	const value = await vscode.window.showInputBox({
-		title: editing ? "LiteLLM: Edit Server - Label" : "LiteLLM: Add Server - Label",
+		title: editing ? vscode.l10n.t("LiteLLM: Edit Server - Label") : vscode.l10n.t("LiteLLM: Add Server - Label"),
 		prompt: editing
-			? "Update the server label"
-			: "Enter a unique label for this server (e.g., 'Production', 'Local Dev')",
+			? vscode.l10n.t("Update the server label")
+			: vscode.l10n.t("Enter a unique label for this server (e.g., 'Production', 'Local Dev')"),
 		ignoreFocusOut: true,
-		...(editing ? { value: initial } : { placeHolder: "My LiteLLM Server" }),
+		...(editing ? { value: initial } : { placeHolder: vscode.l10n.t("My LiteLLM Server") }),
 		validateInput: (value) => {
 			if (!value.trim()) {
-				return "Label is required";
+				return vscode.l10n.t("Label is required");
 			}
 			if (value.includes("/")) {
-				return "Label cannot contain '/' (used as separator in model parameters)";
+				return vscode.l10n.t("Label cannot contain '/' (used as separator in model parameters)");
 			}
 			if (registry.hasLabel(value.trim(), excludeId)) {
-				return "A server with this label already exists";
+				return vscode.l10n.t("A server with this label already exists");
 			}
 			return null;
 		},
@@ -100,16 +103,17 @@ async function promptForServerLabel(
 async function promptForBaseUrl(initial?: string): Promise<string | undefined> {
 	const editing = initial !== undefined;
 	const value = await vscode.window.showInputBox({
-		title: editing ? "LiteLLM: Edit Server - Base URL" : "LiteLLM: Add Server - Base URL",
-		prompt: editing ? "Update the LiteLLM base URL" : "Enter the LiteLLM base URL",
+		title: editing ? vscode.l10n.t("LiteLLM: Edit Server - Base URL") : vscode.l10n.t("LiteLLM: Add Server - Base URL"),
+		prompt: editing ? vscode.l10n.t("Update the LiteLLM base URL") : vscode.l10n.t("Enter the LiteLLM base URL"),
 		ignoreFocusOut: true,
+		// The placeholder is a pure example URL; URLs stay untranslated.
 		...(editing ? { value: initial } : { placeHolder: "http://localhost:4000" }),
 		validateInput: (value) => {
 			if (!value.trim()) {
-				return "Base URL is required";
+				return vscode.l10n.t("Base URL is required");
 			}
 			if (!value.startsWith("http://") && !value.startsWith("https://")) {
-				return "URL must start with http:// or https://";
+				return vscode.l10n.t("URL must start with http:// or https://");
 			}
 			return null;
 		},
@@ -120,8 +124,11 @@ async function promptForBaseUrl(initial?: string): Promise<string | undefined> {
 async function promptForApiKey(masked: boolean, initial?: string): Promise<string | undefined> {
 	const editing = initial !== undefined;
 	const value = await vscode.window.showInputBox({
-		title: editing ? "LiteLLM: Edit Server - API Key" : "LiteLLM: Add Server - API Key",
-		prompt: editing && initial ? "Update the API key" : "Enter the API key (leave empty if not required)",
+		title: editing ? vscode.l10n.t("LiteLLM: Edit Server - API Key") : vscode.l10n.t("LiteLLM: Add Server - API Key"),
+		prompt:
+			editing && initial
+				? vscode.l10n.t("Update the API key")
+				: vscode.l10n.t("Enter the API key (leave empty if not required)"),
 		ignoreFocusOut: true,
 		password: masked,
 		...(editing ? { value: initial } : {}),
@@ -142,13 +149,26 @@ export function warnAboutOrphanedModelParameters(
 ): void {
 	const prefix = `${oldLabel}/`;
 	const orphaned = parameterKeys.filter((key) => key.startsWith(prefix));
-	if (orphaned.length === 0) {
+	const firstOrphan = orphaned[0];
+	if (firstOrphan === undefined) {
 		return;
 	}
-	const noun = orphaned.length === 1 ? "entry" : "entries";
 	void showActionableMessage(
 		"warning",
-		`Renaming the server left ${orphaned.length} modelParameters ${noun} scoped to the old label (e.g., "${orphaned[0]}"). Update the "${prefix}" prefix to "${newLabel}/" in settings to keep them applied.`,
+		orphaned.length === 1
+			? vscode.l10n.t(
+					'Renaming the server left 1 modelParameters entry scoped to the old label (e.g., "{0}"). Update the "{1}" prefix to "{2}/" in settings to keep them applied.',
+					firstOrphan,
+					prefix,
+					newLabel
+				)
+			: vscode.l10n.t(
+					'Renaming the server left {0} modelParameters entries scoped to the old label (e.g., "{1}"). Update the "{2}" prefix to "{3}/" in settings to keep them applied.',
+					orphaned.length,
+					firstOrphan,
+					prefix,
+					newLabel
+				),
 		[openSettingsAction(`${CONFIG_SECTION}.${MODEL_PARAMETERS_SETTING_KEY}`), dismissAction()]
 	);
 }
@@ -183,7 +203,7 @@ async function addServerFlow(
 	await registry.addServer(label, baseUrl, apiKey);
 	logger.log(`Added server "${label}" at ${baseUrl}`);
 
-	void showActionableMessage("info", `Server "${label}" added!`, [
+	void showActionableMessage("info", vscode.l10n.t('Server "{0}" added!', label), [
 		testConnectionAction(),
 		openChatAction(),
 		dismissAction(),
@@ -206,13 +226,13 @@ async function manageServerFlow(
 
 	const pick = await vscode.window.showQuickPick(
 		[
-			{ label: "$(edit) Edit Server", action: "edit" },
-			{ label: "$(testing-run-icon) Test All Servers", action: "test" },
-			{ label: "$(trash) Remove Server", action: "remove" },
+			{ label: vscode.l10n.t("$(edit) Edit Server"), action: "edit" },
+			{ label: vscode.l10n.t("$(testing-run-icon) Test All Servers"), action: "test" },
+			{ label: vscode.l10n.t("$(trash) Remove Server"), action: "remove" },
 		],
 		{
-			title: `LiteLLM: ${server.label}`,
-			placeHolder: `Manage server "${server.label}" (${server.baseUrl})`,
+			title: vscode.l10n.t("LiteLLM: {0}", server.label),
+			placeHolder: vscode.l10n.t('Manage server "{0}" ({1})', server.label, server.baseUrl),
 		}
 	);
 
@@ -248,7 +268,10 @@ async function manageServerFlow(
 		await registry.updateServer(serverId, label, baseUrl, apiKey);
 		logger.log(`Updated server "${label}"`);
 
-		void showActionableMessage("info", `Server "${label}" updated!`, [testConnectionAction(), dismissAction()]);
+		void showActionableMessage("info", vscode.l10n.t('Server "{0}" updated!', label), [
+			testConnectionAction(),
+			dismissAction(),
+		]);
 
 		if (label !== oldLabel) {
 			warnAboutOrphanedModelParameters(oldLabel, label, Object.keys(getModelParametersConfig()));
@@ -259,19 +282,20 @@ async function manageServerFlow(
 		if (!canMutateRegistry(getUiMode)) {
 			return;
 		}
+		const removeButton = vscode.l10n.t("Remove");
 		const confirm = await vscode.window.showWarningMessage(
-			`Remove server "${server.label}" (${server.baseUrl})?`,
+			vscode.l10n.t('Remove server "{0}" ({1})?', server.label, server.baseUrl),
 			{ modal: true },
-			"Remove"
+			removeButton
 		);
-		if (confirm === "Remove") {
+		if (confirm === removeButton) {
 			// A migration may have started while the confirmation dialog was open.
 			if (!canMutateRegistry(getUiMode)) {
 				return;
 			}
 			await registry.removeServer(serverId);
 			logger.log(`Removed server "${server.label}"`);
-			void vscode.window.showInformationMessage(`Server "${server.label}" removed.`);
+			void vscode.window.showInformationMessage(vscode.l10n.t('Server "{0}" removed.', server.label));
 		}
 	}
 }
@@ -298,53 +322,60 @@ interface HubItem extends vscode.QuickPickItem {
 	action: "servers" | "settings" | CommandId;
 }
 
-const HUB_ITEMS: readonly HubItem[] = [
-	{
-		label: "$(server) Manage Servers",
-		description: "Servers, API keys, and which models are enabled",
-		action: "servers",
-	},
-	{
-		label: "$(dashboard) Open Dashboard",
-		description: "Servers, models, and settings in one view",
-		action: CMD.openDashboard,
-	},
-	{
-		label: "$(sync) Sync Models Now",
-		description: "Refetch the model list from every server",
-		action: CMD.syncModels,
-	},
-	{
-		label: "$(testing-run-icon) Test Connection",
-		description: "Check every server and report the result",
-		action: CMD.testConnection,
-	},
-	{
-		label: "$(pulse) Show Diagnostics",
-		description: "Connection state and per-server details",
-		action: CMD.showDiagnostics,
-	},
-	{
-		label: "$(key) Set Server Secret",
-		description: "Store an API key or OAuth secret outside settings files",
-		action: CMD.setServerSecret,
-	},
-	{
-		label: "$(settings-gear) Open Settings",
-		description: "Timeouts, caching, headers, model parameters",
-		action: "settings",
-	},
-	{
-		label: "$(question) Help & Feedback",
-		description: "Documentation, feature requests, bug reports",
-		action: CMD.helpAndFeedback,
-	},
-	{
-		label: "$(report) Report Issue",
-		description: "Open a prefilled GitHub issue",
-		action: CMD.reportIssue,
-	},
-];
+/**
+ * The hub entries, resolved per open: a module-level constant would localize
+ * before l10n.config and freeze English. Codicon prefixes stay inside the
+ * literals so extraction keys match what the quick pick displays.
+ */
+function hubItems(): readonly HubItem[] {
+	return [
+		{
+			label: vscode.l10n.t("$(server) Manage Servers"),
+			description: vscode.l10n.t("Servers, API keys, and which models are enabled"),
+			action: "servers",
+		},
+		{
+			label: vscode.l10n.t("$(dashboard) Open Dashboard"),
+			description: vscode.l10n.t("Servers, models, and settings in one view"),
+			action: CMD.openDashboard,
+		},
+		{
+			label: vscode.l10n.t("$(sync) Sync Models Now"),
+			description: vscode.l10n.t("Refetch the model list from every server"),
+			action: CMD.syncModels,
+		},
+		{
+			label: vscode.l10n.t("$(testing-run-icon) Test Connection"),
+			description: vscode.l10n.t("Check every server and report the result"),
+			action: CMD.testConnection,
+		},
+		{
+			label: vscode.l10n.t("$(pulse) Show Diagnostics"),
+			description: vscode.l10n.t("Connection state and per-server details"),
+			action: CMD.showDiagnostics,
+		},
+		{
+			label: vscode.l10n.t("$(key) Set Server Secret"),
+			description: vscode.l10n.t("Store an API key or OAuth secret outside settings files"),
+			action: CMD.setServerSecret,
+		},
+		{
+			label: vscode.l10n.t("$(settings-gear) Open Settings"),
+			description: vscode.l10n.t("Timeouts, caching, headers, model parameters"),
+			action: "settings",
+		},
+		{
+			label: vscode.l10n.t("$(question) Help & Feedback"),
+			description: vscode.l10n.t("Documentation, feature requests, bug reports"),
+			action: CMD.helpAndFeedback,
+		},
+		{
+			label: vscode.l10n.t("$(report) Report Issue"),
+			description: vscode.l10n.t("Open a prefilled GitHub issue"),
+			action: CMD.reportIssue,
+		},
+	];
+}
 
 /**
  * The hub's server entry: the dashboard's Servers & Models view where the
@@ -371,7 +402,7 @@ async function openServerManagement(
 	}
 
 	const items: (vscode.QuickPickItem & { action: string })[] = [
-		{ label: "$(add) Add Server", action: "add" },
+		{ label: vscode.l10n.t("$(add) Add Server"), action: "add" },
 		...servers.map((s) => ({
 			label: `$(server) ${s.label}`,
 			description: s.baseUrl,
@@ -380,8 +411,8 @@ async function openServerManagement(
 	];
 
 	const pick = await vscode.window.showQuickPick(items, {
-		title: "LiteLLM: Manage Servers",
-		placeHolder: "Select an action or server to manage",
+		title: vscode.l10n.t("LiteLLM: Manage Servers"),
+		placeHolder: vscode.l10n.t("Select an action or server to manage"),
 	});
 
 	if (!pick) {
@@ -414,9 +445,9 @@ export function registerManageCommand(
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.manage, async () => {
-			const pick = await vscode.window.showQuickPick([...HUB_ITEMS], {
+			const pick = await vscode.window.showQuickPick([...hubItems()], {
 				title: "LiteLLM",
-				placeHolder: "Select an action",
+				placeHolder: vscode.l10n.t("Select an action"),
 			});
 			if (!pick) {
 				return;

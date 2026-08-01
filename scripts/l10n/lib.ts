@@ -83,7 +83,10 @@ export function serializeBundle(bundle: l10nJsonFormat): string {
  * by later work packages (help text, catalog presenters) belong on this list.
  */
 export const LAZY_L10N_HELPERS: readonly string[] = [
+	"configureNowLabel",
+	"hubItems",
 	"manageCommandTitle",
+	"secretPaletteLabel",
 	"numberSettingPresentation",
 	"booleanSettingPresentation",
 	"settingScopeLabel",
