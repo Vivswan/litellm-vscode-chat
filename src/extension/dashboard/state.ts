@@ -39,6 +39,7 @@ import type {
 	RequestScope,
 	ScopedRecordSetting,
 	SettingScope,
+	TransportErrorClassification,
 } from "./protocol";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, NUMBER_SETTING_SPECS } from "./protocol";
 
@@ -133,7 +134,14 @@ function buildServer(
 	} as const;
 	return status.state === "ok"
 		? { ...base, state: "ok", modelCount: status.modelCount }
-		: { ...base, state: "error", modelCount: 0, error: status.error, errorEnglish: status.logSafeError };
+		: {
+				...base,
+				state: "error",
+				modelCount: 0,
+				error: status.error,
+				errorEnglish: status.logSafeError,
+				...(status.classification !== undefined ? { classification: status.classification } : {}),
+			};
 }
 
 /**
@@ -225,16 +233,24 @@ export function joinDeclared(
  * must show. A reachable group keeps its live state, though - the surfaces
  * render the error text alongside the live facts (diagnostics'
  * serverOutcomeText, the dashboard's per-server error list). `errorEnglish`
- * carries the transport error's log-safe English rendering exactly when the
- * row's error IS the transport error; a sync error has no separate English
- * mirror, so it carries none.
+ * carries the transport error's log-safe English rendering, and
+ * `classification` its transport classification (enum ids only,
+ * protocol-legal), each exactly when the row's error IS the transport error;
+ * a sync error has no separate English mirror and is never classified, so it
+ * carries neither.
  */
 function declaredOutcome(
 	status: ServerStatus | undefined,
 	syncError: string | undefined
 ):
 	| { state: "ok"; modelCount: number; error?: string | undefined; errorEnglish?: string | undefined }
-	| { state: "error"; modelCount: number; error: string; errorEnglish?: string | undefined }
+	| {
+			state: "error";
+			modelCount: number;
+			error: string;
+			errorEnglish?: string | undefined;
+			classification?: TransportErrorClassification | undefined;
+	  }
 	| { state: "unchecked"; modelCount: number } {
 	if (status?.state === "ok") {
 		return { state: "ok", modelCount: status.modelCount, error: syncError };
@@ -242,7 +258,13 @@ function declaredOutcome(
 	if (status?.state === "error") {
 		return syncError !== undefined
 			? { state: "error", modelCount: 0, error: syncError }
-			: { state: "error", modelCount: 0, error: status.error, errorEnglish: status.logSafeError };
+			: {
+					state: "error",
+					modelCount: 0,
+					error: status.error,
+					errorEnglish: status.logSafeError,
+					...(status.classification !== undefined ? { classification: status.classification } : {}),
+				};
 	}
 	return syncError !== undefined
 		? { state: "error", modelCount: 0, error: syncError }

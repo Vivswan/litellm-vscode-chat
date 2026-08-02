@@ -768,6 +768,11 @@ const STYLES = `
 		display: block;
 		margin-top: 2px;
 	}
+	/* A failed server entry's inline troubleshooting link: the label and its
+	   external-link icon stay together mid-sentence in the joined banner. */
+	.banner-hint {
+		white-space: nowrap;
+	}
 	/* The discard confirm pins to the panel's bottom edge so it is in view
 	   wherever the Esc that raised it was pressed. */
 	.discard-confirm {

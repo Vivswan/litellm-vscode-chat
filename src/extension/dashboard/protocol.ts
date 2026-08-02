@@ -158,9 +158,33 @@ export type DashboardServer = DashboardServerBase &
 		  }
 	) &
 	(
-		| { readonly state: "ok"; readonly error?: string | undefined; readonly errorEnglish?: string | undefined }
-		| { readonly state: "error"; readonly error: string; readonly errorEnglish?: string | undefined }
-		| { readonly state: "unchecked"; readonly error?: undefined; readonly errorEnglish?: undefined }
+		| {
+				readonly state: "ok";
+				readonly error?: string | undefined;
+				readonly errorEnglish?: string | undefined;
+				readonly classification?: undefined;
+		  }
+		| {
+				readonly state: "error";
+				readonly error: string;
+				readonly errorEnglish?: string | undefined;
+				/**
+				 * The transport classification behind the row's error, when one
+				 * exists. Classification only - enum ids and a status number, never
+				 * message text - so it is safe to cross the webview boundary; present
+				 * under the same rule as errorEnglish (only when `error` IS the
+				 * transport error - a masking sync error is not classified). The
+				 * webview maps the setup-hint id to the matching troubleshooting-guide
+				 * link, exactly like the intentFailed notice's classification.
+				 */
+				readonly classification?: TransportErrorClassification | undefined;
+		  }
+		| {
+				readonly state: "unchecked";
+				readonly error?: undefined;
+				readonly errorEnglish?: undefined;
+				readonly classification?: undefined;
+		  }
 	);
 
 /**

@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import type { FingerprintSaltSession, FingerprintSaltState } from "../extension/fingerprintSalt";
 import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";
 import type { LiteLLMModelInfo, PreAttachModelInfo } from "../provider/catalog/groupModels";
+import type { TransportErrorClassification } from "../shared/errorClassification";
 import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
@@ -230,7 +231,10 @@ export async function captureRequestBody(
 type ServerStatusOverrides = Partial<
 	Pick<ServerStatus, "serverId" | "label" | "baseUrl" | "lastChecked" | "hasApiKey">
 > &
-	({ state?: "ok"; modelCount?: number } | { state: "error"; error: string; logSafeError?: string });
+	(
+		| { state?: "ok"; modelCount?: number }
+		| { state: "error"; error: string; logSafeError?: string; classification?: TransportErrorClassification }
+	);
 
 /** A ServerStatus with sensible defaults for status-driven tests. */
 export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerStatus {
@@ -250,6 +254,7 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 				// them (publicErrorText on a string is the identity rendering).
 				logSafeError:
 					overrides.logSafeError !== undefined ? markLogSafe(overrides.logSafeError) : publicErrorText(overrides.error),
+				...(overrides.classification !== undefined ? { classification: overrides.classification } : {}),
 			}
 		: { ...common, state: "ok", modelCount: overrides.modelCount ?? 4 };
 }
