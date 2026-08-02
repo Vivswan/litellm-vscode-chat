@@ -1,11 +1,14 @@
 import * as assert from "node:assert";
+import { APIConnectionError, APIError, AuthenticationError } from "openai";
 import * as vscode from "vscode";
 import type { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { registerTestCommands, runConnectionTest, runModelSync } from "../../../extension/ui/commands";
 import type { ConnectionStatus } from "../../../extension/ui/status";
-import { RequestError } from "../../../provider/transport/errorMapping";
+import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
+import type { SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
 import { expectDefined, makeServerStatus } from "../../testUtils";
 
 suite("extension/ui/commands", () => {
@@ -96,6 +99,7 @@ suite("extension/ui/commands", () => {
 	interface Toast {
 		kind: "info" | "warning" | "error";
 		message: string;
+		buttons: string[];
 	}
 
 	function makeStatusBar(initial: ConnectionStatus) {
@@ -119,10 +123,12 @@ suite("extension/ui/commands", () => {
 		const origInfo = vscode.window.showInformationMessage;
 		const origWarn = vscode.window.showWarningMessage;
 		const origError = vscode.window.showErrorMessage;
-		const record = (kind: Toast["kind"]) => async (message: string) => {
-			toasts.push({ kind, message });
-			return undefined;
-		};
+		const record =
+			(kind: Toast["kind"]) =>
+			async (message: string, ...buttons: string[]) => {
+				toasts.push({ kind, message, buttons });
+				return undefined;
+			};
 		(vscode.window as Record<string, unknown>).showInformationMessage = record("info");
 		(vscode.window as Record<string, unknown>).showWarningMessage = record("warning");
 		(vscode.window as Record<string, unknown>).showErrorMessage = record("error");
@@ -249,6 +255,118 @@ suite("extension/ui/commands", () => {
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "error");
 			assert.ok(toast.message.includes("ECONNREFUSED"), toast.message);
+		});
+
+		// Composed from ACTUAL transport mappings (mapSdkError -> statusErrorTexts),
+		// so the toast construction cannot drift from what the transport really
+		// produces: the message stays exactly the transport text (which already
+		// carries its own advice - nothing is appended), and the classification
+		// only adds the Troubleshooting Docs action with the cause's deep link.
+		suite("classified error toasts composed from real transport mappings", () => {
+			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
+			const causes: ReadonlyArray<[string, () => Error, SetupHintKind]> = [
+				[
+					"a discovery 404",
+					() => mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), ctx),
+					"check-base-url",
+				],
+				[
+					"a refused connection",
+					() =>
+						mapSdkError(
+							new APIConnectionError({
+								cause: Object.assign(new TypeError("fetch failed"), {
+									cause: new Error("connect ECONNREFUSED 127.0.0.1:4000"),
+								}),
+							}),
+							ctx
+						),
+					"proxy-not-running",
+				],
+				[
+					"a proxy-rejected key",
+					() =>
+						mapSdkError(new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()), ctx),
+					"configure-api-key",
+				],
+			];
+
+			function providerLeavingError(statusBar: ReturnType<typeof makeStatusBar>, mapped: Error) {
+				return {
+					provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+						await statusBar.updateStatusBar({ state: "error", ...statusErrorTexts(mapped) });
+						return [];
+					},
+					refreshViaHost: async () => {},
+				};
+			}
+
+			for (const [label, buildError, setupHint] of causes) {
+				test(`${label} keeps the exact transport message and adds the docs action`, async () => {
+					const mapped = buildError();
+					assert.strictEqual(statusErrorTexts(mapped).classification?.setupHint, setupHint);
+					const statusBar = makeStatusBar({ state: "not-configured" });
+
+					const toasts = await withToasts(() =>
+						runConnectionTest(providerLeavingError(statusBar, mapped), statusBar, outputChannel, logger)
+					);
+
+					const toast = expectDefined(toasts[0]);
+					assert.strictEqual(toast.kind, "error");
+					assert.strictEqual(toast.message, `LiteLLM: Connection failed - ${mapped.message}`);
+					assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Troubleshooting Docs", "Report Issue"]);
+				});
+			}
+
+			test("the Troubleshooting Docs action opens the cause's docs deep link", async () => {
+				const mapped = mapSdkError(
+					new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()),
+					ctx
+				);
+				const statusBar = makeStatusBar({ state: "not-configured" });
+				const opened: string[] = [];
+				const origError = vscode.window.showErrorMessage;
+				const origExecute = vscode.commands.executeCommand;
+				(vscode.window as Record<string, unknown>).showErrorMessage = async () => "Troubleshooting Docs";
+				(vscode.commands as Record<string, unknown>).executeCommand = async (command: string, ...args: unknown[]) => {
+					if (command === "vscode.open" && typeof args[0] === "string") {
+						opened.push(args[0]);
+						return;
+					}
+					return origExecute(command, ...args);
+				};
+				try {
+					await runConnectionTest(providerLeavingError(statusBar, mapped), statusBar, outputChannel, logger);
+					// The toast is fired without awaiting; give the chosen action's
+					// run (showActionableMessage -> openUrl) a turn to land.
+					await new Promise((resolve) => setTimeout(resolve, 0));
+				} finally {
+					(vscode.window as Record<string, unknown>).showErrorMessage = origError;
+					(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
+				}
+				assert.deepStrictEqual(opened, [SETUP_HINT_DOCS_URLS["check-base-url"]]);
+			});
+		});
+
+		test("an unclassified error status renders exactly today's toast", async () => {
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+					await statusBar.updateStatusBar({
+						state: "error",
+						error: "ECONNREFUSED",
+						logSafeError: markLogSafe("ECONNREFUSED"),
+					});
+					return [];
+				},
+				refreshViaHost: async () => {},
+			};
+
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.message, "LiteLLM: Connection failed - ECONNREFUSED");
+			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Report Issue"]);
 		});
 
 		test("a classified refresh failure reaches the buffer as its classification, never its body", async () => {
@@ -390,6 +508,54 @@ suite("extension/ui/commands", () => {
 				lines.every((line) => !line.includes("internal-billing-host-MARKER")),
 				"the display error's body text leaked into a log line"
 			);
+		});
+
+		test("a classified error status keeps the exact transport message and adds the docs action", async () => {
+			// Composed from the actual transport mapping, like the connection-test
+			// suite above: nothing is appended to the message.
+			const logger = new Logger({ info: () => {}, error: () => {} });
+			const mapped = mapSdkError(
+				new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()),
+				{
+					surface: "discovery",
+					baseUrl: "http://litellm.test",
+					timeoutMs: 5000,
+				}
+			);
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				refreshViaHost: async () => {
+					await statusBar.updateStatusBar({ state: "error", ...statusErrorTexts(mapped), totalModels: 0 });
+				},
+			};
+
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "error");
+			assert.strictEqual(toast.message, `LiteLLM: Model sync failed - ${mapped.message}`);
+			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Troubleshooting Docs", "Report Issue"]);
+		});
+
+		test("an unclassified error status renders exactly today's toast", async () => {
+			const logger = new Logger({ info: () => {}, error: () => {} });
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				refreshViaHost: async () => {
+					await statusBar.updateStatusBar({
+						state: "error",
+						error: "ECONNREFUSED",
+						logSafeError: markLogSafe("ECONNREFUSED"),
+						totalModels: 0,
+					});
+				},
+			};
+
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.message, "LiteLLM: Model sync failed - ECONNREFUSED");
+			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Report Issue"]);
 		});
 
 		test("reports the degraded outcome with the failing server count", async () => {

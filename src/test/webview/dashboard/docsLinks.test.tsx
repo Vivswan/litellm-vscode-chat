@@ -12,13 +12,18 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../../../shared/util/links";
+import type { SetupHintKind } from "../../../shared/errorClassification";
+import { SETUP_HINT_KINDS } from "../../../shared/errorClassification";
+import * as links from "../../../shared/util/links";
 import { App } from "../../../webview/dashboard/app";
 import * as docsLinks from "../../../webview/dashboard/docsLinks";
 import {
+	DOCS_LINK_CHECK_BASE_URL,
+	DOCS_LINK_CONFIGURE_API_KEY,
 	DOCS_LINK_MODEL_PARAMETERS,
 	DOCS_LINK_MODELS,
 	DOCS_LINK_PARAMS_INACTIVE,
+	DOCS_LINK_PROXY_NOT_RUNNING,
 	DOCS_LINK_SERVER_FORM,
 	DOCS_LINK_SERVERS,
 	DOCS_LINK_SETTINGS,
@@ -34,13 +39,48 @@ afterEach(() => {
 });
 
 const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..");
-const DOCS_BASE = `${GITHUB_REPO_URL}/blob/main/docs/`;
+const DOCS_BASE = `${links.GITHUB_REPO_URL}/blob/main/docs/`;
 
-/** Every docs URL the code ships: the webview constants plus the extension's Documentation action. */
+/**
+ * Every host-side link the links module exports: flat string constants plus
+ * the values of record exports (the per-cause troubleshooting deep links).
+ * Swept from a namespace import like the docsLinks constants, so a future
+ * host link cannot escape the checks by not being hand-listed.
+ */
+function hostLinkUrls(): [name: string, url: string][] {
+	return Object.entries(links).flatMap(([name, value]): [string, string][] => {
+		if (typeof value === "string") {
+			return [[name, value]];
+		}
+		if (typeof value === "object" && value !== null) {
+			return Object.entries(value)
+				.filter((entry): entry is [string, string] => typeof entry[1] === "string")
+				.map(([key, url]) => [`${name}.${key}`, url]);
+		}
+		return [];
+	});
+}
+
+/** Every docs URL the code ships: the webview constants plus the host-side links rooted under docs/. */
 function allDocsUrls(): [name: string, url: string][] {
 	const entries = Object.entries(docsLinks).filter(([, value]) => typeof value === "string") as [string, string][];
-	return [...entries, ["GITHUB_DOCS_URL", GITHUB_DOCS_URL]];
+	return [...entries, ...hostLinkUrls().filter(([, url]) => url.startsWith(DOCS_BASE))];
 }
+
+test("every host-side link is ASCII and rooted at the repository", () => {
+	const entries = hostLinkUrls();
+	expect(entries.length).toBeGreaterThan(1);
+	for (const [name, value] of entries) {
+		// Enforces the links module's GitHub-only docstring by design: a future
+		// non-GitHub link failing here is a policy decision to make, not a
+		// link-integrity bug.
+		expect(value, name).toStartWith(links.GITHUB_REPO_URL);
+		expect(value, name).toMatch(/^[\x20-\x7E]+$/);
+	}
+	// The docs-rooted subset feeds the file/anchor sweep below; if this count
+	// drops, a docs link stopped being swept rather than stopped existing.
+	expect(hostLinkUrls().filter(([, url]) => url.startsWith(DOCS_BASE)).length).toBeGreaterThanOrEqual(4);
+});
 
 test("every docs URL is ASCII and rooted at the repository's docs folder", () => {
 	const entries = allDocsUrls();
@@ -48,6 +88,23 @@ test("every docs URL is ASCII and rooted at the repository's docs folder", () =>
 	for (const [name, value] of entries) {
 		expect(value, name).toStartWith(DOCS_BASE);
 		expect(value, name).toMatch(/^[\x20-\x7E]+$/);
+	}
+});
+
+test("the host's per-cause hint links and the dashboard's docsLinks constants agree", () => {
+	// The webview cannot consume SETUP_HINT_DOCS_URLS (layering plus the
+	// literal-strings-only contract below force docsLinks.ts to ship its own
+	// copies), so this pin is what keeps the toast and the dashboard pointing
+	// at the same heading; re-pointing one side at a different real anchor
+	// fails here instead of passing both resolution sweeps. The Record type
+	// makes the pin exhaustive: a new hint id fails to compile until mapped.
+	const mirrored: Record<SetupHintKind, string> = {
+		"check-base-url": DOCS_LINK_CHECK_BASE_URL,
+		"proxy-not-running": DOCS_LINK_PROXY_NOT_RUNNING,
+		"configure-api-key": DOCS_LINK_CONFIGURE_API_KEY,
+	};
+	for (const hint of SETUP_HINT_KINDS) {
+		expect(links.SETUP_HINT_DOCS_URLS[hint], hint).toBe(mirrored[hint]);
 	}
 });
 

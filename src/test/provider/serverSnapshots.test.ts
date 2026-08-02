@@ -10,7 +10,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider } from "../testUtils";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, withFetch } from "../testUtils";
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
 function groupOptions(configuration: unknown, silent = true): { silent: boolean } {
@@ -72,6 +72,47 @@ suite("provider server snapshots", () => {
 		const snapshot = expectDefined(snapshots[0]);
 		assert.strictEqual(snapshot.status.state, "error");
 		assert.deepStrictEqual(snapshot.models, []);
+	});
+
+	test("a discovery 404 stamps the base-URL classification on the error status", async () => {
+		// The classification rides statusErrorTexts onto the ServerStatusError,
+		// so the extension's status surfaces can render the setup hint.
+		const provider = makeProvider();
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+			http.get(MODELS_URL, () => emptyErrorResponse(404))
+		);
+
+		await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" }),
+			cancellation()
+		);
+
+		const status = expectDefined(provider.getServerSnapshots()[0]).status;
+		assert.ok(status.state === "error", "expected an error status");
+		assert.deepStrictEqual(status.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
+	});
+
+	// msw cannot fabricate undici's ECONNREFUSED cause chain (the precedent is
+	// discovery.test.ts), so this stays on withFetch; the swap also keeps the
+	// request away from msw's unhandled-request guard.
+	test("a refused connection stamps the proxy-not-running classification on the error status", async () => {
+		const provider = makeProvider(TEST_BASE_URL);
+
+		await withFetch(
+			async () => {
+				throw Object.assign(new TypeError("fetch failed"), {
+					cause: new Error("connect ECONNREFUSED 127.0.0.1:4000"),
+				});
+			},
+			async () => {
+				await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+			}
+		);
+
+		const status = expectDefined(provider.getServerSnapshots()[0]).status;
+		assert.ok(status.state === "error", "expected an error status");
+		assert.deepStrictEqual(status.classification, { kind: "connection", setupHint: "proxy-not-running" });
 	});
 
 	test("a cached group refresh still records the models", async () => {

@@ -14,6 +14,7 @@ import { updateServerSecret } from "../servers/serverSync";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import type { IssueReporter } from "./issueReporter";
 import {
+	commandErrorActions,
 	configureNowLabel,
 	openChatAction,
 	reconfigureAction,
@@ -138,11 +139,13 @@ export async function runConnectionTest(
 				break;
 			}
 			case "error":
-				void showActionableMessage("error", vscode.l10n.t("LiteLLM: Connection failed - {0}", status.error), [
-					viewOutputAction(outputChannel),
-					reconfigureAction(),
-					reportIssueAction(),
-				]);
+				// The message stays exactly the transport text (it already carries
+				// its own advice); a classified failure only adds the docs action.
+				void showActionableMessage(
+					"error",
+					vscode.l10n.t("LiteLLM: Connection failed - {0}", status.error),
+					commandErrorActions(status.classification, outputChannel)
+				);
 				break;
 			case "not-configured":
 				void showActionableMessage(
@@ -251,11 +254,12 @@ export async function runModelSync(
 			case "error":
 				// logSafeError, never error: this line lands in the issue-report buffer.
 				logger.log(`Model sync failed: ${status.logSafeError}`);
-				void showActionableMessage("error", vscode.l10n.t("LiteLLM: Model sync failed - {0}", status.error), [
-					viewOutputAction(outputChannel),
-					reconfigureAction(),
-					reportIssueAction(),
-				]);
+				// Same classification treatment as the connection test's error toast.
+				void showActionableMessage(
+					"error",
+					vscode.l10n.t("LiteLLM: Model sync failed - {0}", status.error),
+					commandErrorActions(status.classification, outputChannel)
+				);
 				break;
 			case "not-configured":
 				logger.log("Model sync found no configured servers");
