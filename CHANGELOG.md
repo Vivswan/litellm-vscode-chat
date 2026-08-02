@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.4](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.3...v0.4.4) (2026-08-02)
+
+
+### Features
+
+* **dashboard:** classify draft-test failures with a hint and docs link ([2b961e7](https://github.com/Vivswan/litellm-vscode-chat/commit/2b961e75a07af3f8c6cc33a06fa9f1f2360278e3))
+* **dashboard:** link troubleshooting guidance from failed server rows ([d8cc71f](https://github.com/Vivswan/litellm-vscode-chat/commit/d8cc71ff01a4d5c69fef15222ffb4b6252a4a559))
+* **status:** carry error classification to status surfaces with setup hints ([337ed50](https://github.com/Vivswan/litellm-vscode-chat/commit/337ed50e8b276875f8b395d20972985aa3635f03))
+* **transport:** classify 404 responses with base-URL guidance ([6341117](https://github.com/Vivswan/litellm-vscode-chat/commit/6341117553c667b00c474490c4e65714848c9cad))
+* **ui:** offer troubleshooting before opening setup-problem issue reports ([c269ff4](https://github.com/Vivswan/litellm-vscode-chat/commit/c269ff4b2b252cd9856dc4bd0fafb4f4c2fd3d4c))
+
+
+### Bug Fixes
+
+* **dashboard:** give the diagnostics tab room to breathe ([96336eb](https://github.com/Vivswan/litellm-vscode-chat/commit/96336eb169479892e1787ebb8fa2373e73eecb21))
+
 ## [0.4.3](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.2...v0.4.3) (2026-08-01)
 
 
