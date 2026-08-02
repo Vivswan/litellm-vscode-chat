@@ -25,6 +25,10 @@ export type {
 export { DEFAULT_MAX_TOKENS_CAP, projectEffectiveParameters } from "../../shared/config/parameterResolution";
 export type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 export { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
+// The intentFailed notice's classification: enum ids and a status number,
+// never message text, so it is safe across the webview boundary (the same
+// rule the logs follow).
+export type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
 export type { NonSecretOptionalFieldId, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 export { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 export type { HeaderScalar } from "../../shared/util/headers";
@@ -34,6 +38,7 @@ export { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import * as l10n from "@vscode/l10n";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
+import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import type { HeaderScalar } from "../../shared/util/headers";
 
@@ -829,6 +834,14 @@ export type ExtensionToWebviewMessage =
 			 */
 			readonly kind: "validation" | "operation";
 			readonly requestId?: string | undefined;
+			/**
+			 * The transport classification behind a failed connection probe, when
+			 * one exists. Classification only - enum ids and a status number,
+			 * never message text - so it is safe to cross the webview boundary;
+			 * the webview maps the setup-hint id to the matching
+			 * troubleshooting-guide section link.
+			 */
+			readonly classification?: TransportErrorClassification | undefined;
 	  };
 
 /**

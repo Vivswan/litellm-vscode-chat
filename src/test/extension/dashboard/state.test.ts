@@ -6,6 +6,7 @@ import { webviewMessageSchema } from "../../../extension/dashboard/intentSchema"
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import {
 	DashboardOperationError,
+	DashboardValidationError,
 	executeDashboardIntent,
 	readInlineSecretValues,
 	validateHeadersRecord,
@@ -3075,6 +3076,31 @@ suite("extension/dashboard/state", () => {
 			});
 			// Error ownership: the intent layer maps, the panel boundary logs.
 			assert.deepStrictEqual(recorded.logs, []);
+		});
+
+		test("a probe RequestError's classification rides the validation error: kind, status, and setup hint", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeError = new RequestError("the server answered 404", "http", {
+				status: 404,
+				setupHint: "check-base-url",
+			});
+			await assert.rejects(draftTest(recorded), (error: unknown) => {
+				assert.ok(error instanceof DashboardValidationError);
+				assert.deepStrictEqual(error.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
+				return true;
+			});
+		});
+
+		test("a non-transport validation refusal carries no classification", async () => {
+			const recorded = makeEnv([]);
+			await assert.rejects(
+				draftTest(recorded, { server: { label: "Prod", baseUrl: "not a url" } }),
+				(error: unknown) => {
+					assert.ok(error instanceof DashboardValidationError);
+					assert.strictEqual(error.classification, undefined);
+					return true;
+				}
+			);
 		});
 
 		test("an unexpected non-transport error is rethrown as-is for the boundary's generic handling", async () => {

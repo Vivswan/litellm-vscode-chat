@@ -9,6 +9,7 @@ import {
 import type { ExtensionToWebviewMessage } from "../../../extension/dashboard/protocol";
 import type { EntryParametersResolution, SettingsReader } from "../../../extension/dashboard/state";
 import { entryModelParametersFor } from "../../../extension/servers/serverSync";
+import { RequestError } from "../../../provider/transport/errorMapping";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
 
 interface FakePanel {
@@ -81,6 +82,8 @@ interface Harness {
 	failUnstore?: Error;
 	/** When set, probeDraftConnection waits on this before resolving; lets a test hold a slow probe open. */
 	probeGate?: Promise<void>;
+	/** When set, probeDraftConnection rejects with this error (a failing draft test). */
+	probeError?: Error;
 }
 
 function makeHarness(): Harness {
@@ -149,8 +152,12 @@ function makeHarness(): Harness {
 		unhideGroup: async () => false,
 		// The probe is gated so tests can hold it open (a slow discovery) and
 		// prove a later Save is not queued behind it; ungated it resolves 0.
-		probeDraftConnection: () =>
-			harness.probeGate === undefined ? Promise.resolve(0) : harness.probeGate.then(() => 0),
+		probeDraftConnection: () => {
+			if (harness.probeError !== undefined) {
+				return Promise.reject(harness.probeError);
+			}
+			return harness.probeGate === undefined ? Promise.resolve(0) : harness.probeGate.then(() => 0);
+		},
 		executeCommand: async (command, ...args) => {
 			commands.push([command, ...args]);
 		},
@@ -491,6 +498,47 @@ suite("extension/dashboard/panel", () => {
 		assert.ok(notice.type === "intentFailed" && notice.intentType === "setNumberSetting");
 		assert.ok(notice.type === "intentFailed" && notice.message.includes("at least"));
 		assert.ok(notice.type === "intentFailed" && notice.kind === "validation", "a refused intent is validation-kind");
+		assert.ok(!("classification" in notice), "a non-transport validation failure carries no classification");
+	});
+
+	test("a failing draft probe's transport classification rides the intentFailed notice", async () => {
+		const harness = makeHarness();
+		harness.probeError = new RequestError("the server answered 404", "http", {
+			status: 404,
+			setupHint: "check-base-url",
+		});
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		fake.receiveMessage({
+			type: "testServerDraft",
+			server: { label: "Prod", baseUrl: "http://prod.test" },
+			secrets: {
+				apiKey: { action: "keep" },
+				oauthClientSecret: { action: "keep" },
+				virtualKeyValue: { action: "keep" },
+			},
+			requestId: "probe-404",
+		});
+		await settle();
+
+		const notice = fake.posted.find(
+			(message) => (message as ExtensionToWebviewMessage).type === "intentFailed"
+		) as ExtensionToWebviewMessage;
+		assert.ok(notice !== undefined && notice.type === "intentFailed");
+		assert.strictEqual(notice.requestId, "probe-404");
+		assert.strictEqual(notice.kind, "validation");
+		assert.deepStrictEqual(notice.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
+		// The log carries the classification enums (they feed issue-report
+		// triage) but never the message's response-derived text.
+		const rejection = harness.loggedMessages.find(([message]) => message === "Dashboard intent rejected");
+		assert.deepStrictEqual(rejection?.[1], {
+			intentType: "testServerDraft",
+			kind: "validation",
+			classification: { kind: "http", status: 404, setupHint: "check-base-url" },
+		});
+		assert.ok(!JSON.stringify(harness.loggedMessages).includes("answered 404"), "the message stays out of the log");
 	});
 
 	test("a validation failure's message reaches the webview but never the log", async () => {

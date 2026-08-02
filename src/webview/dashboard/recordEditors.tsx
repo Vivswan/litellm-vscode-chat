@@ -5,6 +5,7 @@ import type {
 	HeaderScalar,
 	ScopedRecordSetting,
 	SettingScope,
+	TransportErrorClassification,
 } from "../../extension/dashboard/protocol";
 import { settingScopeLabel } from "../../extension/dashboard/protocol";
 import type { GroupProblems, HeaderRow, PrefixGroup, RowFieldProblem } from "../../extension/dashboard/recordDraft";
@@ -152,6 +153,8 @@ export interface IntentFailure {
 	readonly kind: "validation" | "operation";
 	/** The failed intent's correlation ID, when the intent carried one. */
 	readonly requestId?: string | undefined;
+	/** The transport classification behind a failed probe, when the notice carried one; enum ids only, never text. */
+	readonly classification?: TransportErrorClassification | undefined;
 }
 
 /**

@@ -19,6 +19,7 @@ import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/aut
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { getTokenDefaults } from "../../shared/config/settings";
+import { transportClassificationOf } from "../../shared/errorClassification";
 import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError, rawServerEntries } from "./intents";
@@ -137,8 +138,11 @@ export async function applyTestServerDraft(
 		if (error instanceof RequestError) {
 			// The transport's message is user-facing by the same convention as a
 			// server row's error state; validation-kind because nothing durable
-			// changed (the probe is read-only), so the form stays editable.
-			throw new DashboardValidationError(error.message);
+			// changed (the probe is read-only), so the form stays editable. The
+			// classification (kind, status, setup hint - never text) rides along
+			// so the form can link the matching troubleshooting-guide section
+			// next to the message.
+			throw new DashboardValidationError(error.message, { classification: transportClassificationOf(error) });
 		}
 		throw error;
 	}

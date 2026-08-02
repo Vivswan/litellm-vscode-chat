@@ -6,6 +6,8 @@ import type {
 	HiddenGroup,
 	SecretFieldId,
 	SecretLocation,
+	SetupHintKind,
+	TransportErrorClassification,
 } from "../../extension/dashboard/protocol";
 import { SECRET_FIELD_IDS } from "../../extension/dashboard/protocol";
 import type { GroupProblems } from "../../extension/dashboard/recordDraft";
@@ -31,7 +33,15 @@ import {
 	validateAdoptLabel,
 } from "../../extension/dashboard/serverForm";
 import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
-import { DOCS_LINK_PARAMS_INACTIVE, DOCS_LINK_SERVER_FORM, DOCS_LINK_SERVERS } from "./docsLinks";
+import type { DocsUrl } from "./docsLinks";
+import {
+	DOCS_LINK_CHECK_BASE_URL,
+	DOCS_LINK_CONFIGURE_API_KEY,
+	DOCS_LINK_PARAMS_INACTIVE,
+	DOCS_LINK_PROXY_NOT_RUNNING,
+	DOCS_LINK_SERVER_FORM,
+	DOCS_LINK_SERVERS,
+} from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpEntryModelParameterPrefix, helpSecretStorage, helpServersSection, serverFieldHelp } from "./helpText";
 import { IconAdd } from "./icons";
@@ -176,7 +186,34 @@ type TestState =
 	| { readonly kind: "idle" }
 	| { readonly kind: "testing"; readonly requestId: string }
 	| { readonly kind: "pass"; readonly text: string }
-	| { readonly kind: "fail"; readonly text: string };
+	| {
+			readonly kind: "fail";
+			readonly text: string;
+			readonly classification?: TransportErrorClassification | undefined;
+	  };
+
+/**
+ * The troubleshooting-guide section behind a setup-hint id (the transport
+ * assigns one only where the advice is known right; see
+ * shared/errorClassification.ts), with the fuller accessible label naming the
+ * destination. Labels resolve per call so the l10n bundle is honored.
+ */
+function troubleshootingLink(hint: SetupHintKind): { href: DocsUrl; label: string } {
+	switch (hint) {
+		case "proxy-not-running":
+			return { href: DOCS_LINK_PROXY_NOT_RUNNING, label: l10n.t("Open the troubleshooting guide: unable to connect") };
+		case "configure-api-key":
+			return {
+				href: DOCS_LINK_CONFIGURE_API_KEY,
+				label: l10n.t("Open the troubleshooting guide: authentication failed"),
+			};
+		case "check-base-url":
+			return {
+				href: DOCS_LINK_CHECK_BASE_URL,
+				label: l10n.t("Open the troubleshooting guide: the server answered 404"),
+			};
+	}
+}
 
 function secretDraft(existing: SecretLocation): SecretFieldDraft {
 	return { value: "", location: existing === "settings" ? "settings" : "secure", clear: false, existing };
@@ -493,12 +530,17 @@ function ServerForm({
 	const testFailureSeq = testFailure?.seq;
 	const testFailureRequestId = testFailure?.requestId;
 	const testFailureMessage = testFailure?.message;
+	const testFailureClassification = testFailure?.classification;
 	useEffect(() => {
 		if (testState.kind !== "testing" || testFailureSeq === undefined || testFailureRequestId !== testState.requestId) {
 			return;
 		}
-		setTestState({ kind: "fail", text: testFailureMessage ?? l10n.t("The connection test failed") });
-	}, [testFailureSeq, testFailureRequestId, testFailureMessage, testState]);
+		setTestState({
+			kind: "fail",
+			text: testFailureMessage ?? l10n.t("The connection test failed"),
+			classification: testFailureClassification,
+		});
+	}, [testFailureSeq, testFailureRequestId, testFailureMessage, testFailureClassification, testState]);
 
 	// This form's own failure: a validation-kind one re-opens it for editing
 	// (the draft is still the truth); an operation-kind one means the save
@@ -774,6 +816,16 @@ function ServerForm({
 				{testState.kind === "fail" ? (
 					<span class="test-result error" role="alert">
 						{testState.text}
+						{testState.classification?.setupHint !== undefined ? (
+							// A classified setup problem: the link to its matching
+							// troubleshooting-guide section rides inside the alert so one
+							// announcement carries the failure and the way out.
+							<span class="test-hint">
+								<DocsLink {...troubleshootingLink(testState.classification.setupHint)}>
+									{l10n.t("Troubleshoot")}
+								</DocsLink>
+							</span>
+						) : null}
 					</span>
 				) : null}
 			</div>

@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { DashboardServer, WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
+import { DOCS_LINK_CHECK_BASE_URL } from "../../../webview/dashboard/docsLinks";
 import { helpEntryModelParameterPrefix } from "../../../webview/dashboard/helpText";
 import { ServersSection } from "../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
@@ -540,8 +541,57 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 	});
 	expect(root.querySelector(".test-result")?.textContent).toBe("Connected - 3 models");
 	expect(root.textContent).not.toContain("Testing...");
+	// A pass never carries a troubleshooting link.
+	expect(root.querySelector(".test-hint")).toBeNull();
 	// The form stayed open throughout: the probe never doubles as a save.
 	expect(root.querySelector(".form-card")).not.toBeNull();
+});
+
+test("a failed test with a setup hint renders the troubleshooting link inside the alert", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	fireClick(buttonByText(root, "Add your first server"));
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	pushToWebview({
+		type: "intentFailed",
+		intentType: "testServerDraft",
+		message: "the server answered 404",
+		kind: "validation",
+		requestId: posted.requestId,
+		classification: { kind: "http", status: 404, setupHint: "check-base-url" },
+	});
+
+	// The error message renders as before; the link rides inside the alert
+	// element (one live-region announcement covers both) and targets the
+	// troubleshooting-guide section matching the setup-hint id, with short
+	// visible text and the fuller per-cause accessible label.
+	const alert = root.querySelector(".test-result.error");
+	expect(alert?.getAttribute("role")).toBe("alert");
+	expect(alert?.textContent).toContain("the server answered 404");
+	const anchor = alert?.querySelector<HTMLAnchorElement>(".test-hint a.docs-link");
+	expect(anchor?.getAttribute("href")).toBe(DOCS_LINK_CHECK_BASE_URL);
+	expect(anchor?.getAttribute("aria-label")).toBe("Open the troubleshooting guide: the server answered 404");
+	expect(anchor?.textContent).toContain("Troubleshoot");
+
+	// A classification without a setup hint renders no link line either.
+	resetPosted();
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
+	fireClick(buttonByText(root, "Test connection"));
+	const second = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	pushToWebview({
+		type: "intentFailed",
+		intentType: "testServerDraft",
+		message: "LiteLLM API error: 500",
+		kind: "validation",
+		requestId: second.requestId,
+		classification: { kind: "http", status: 500 },
+	});
+	expect(root.querySelector(".test-result.error")?.textContent).toContain("LiteLLM API error: 500");
+	expect(root.querySelector(".test-hint")).toBeNull();
 });
 
 test("a failed test renders its message inline and the result clears on any credential-affecting edit", () => {
@@ -566,6 +616,10 @@ test("a failed test renders its message inline and the result clears on any cred
 	expect(result?.textContent).toContain("Network Error: unable to reach the server");
 	// Inline only: no section-level failure banner for the probe.
 	expect(root.querySelector(".banner-error")).toBeNull();
+	// A notice without a classification renders exactly the pre-link UI: no
+	// troubleshooting link anywhere in the footer.
+	expect(root.querySelector(".test-hint")).toBeNull();
+	expect(root.querySelector(".form-card .toolbar a.docs-link")).toBeNull();
 
 	// A label edit clears it too: the label selects which stored or orphan
 	// secret a "keep" resolves, so a rename can change the effective
