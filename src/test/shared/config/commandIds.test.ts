@@ -1,7 +1,13 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CMD, INTERNAL_CMD, manageCommandTitle, VENDOR_ID } from "../../../shared/config/commandIds";
+import {
+	CMD,
+	INTERNAL_CMD,
+	manageCommandTitle,
+	syncModelsCommandTitle,
+	VENDOR_ID,
+} from "../../../shared/config/commandIds";
 import { resolveNls } from "../../util/nls";
 
 /**
@@ -45,6 +51,14 @@ suite("shared/config/commandIds: package.json drift guard", () => {
 		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.manage);
 		assert.ok(entry?.title !== undefined, "the manage command is contributed with a title");
 		assert.strictEqual(resolveNls(entry.title), manageCommandTitle());
+	});
+
+	test("the sync-models command is contributed under syncModelsCommandTitle()", () => {
+		// Same contract as the manage title: the chat-404 guidance interpolates
+		// it, so it must be exactly what the palette shows.
+		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.syncModels);
+		assert.ok(entry?.title !== undefined, "the sync-models command is contributed with a title");
+		assert.strictEqual(resolveNls(entry.title), syncModelsCommandTitle());
 	});
 
 	test("the docs and walkthrough prose name the manage command by its contributed title", () => {

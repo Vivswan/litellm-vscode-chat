@@ -37,6 +37,15 @@ export function manageCommandTitle(): string {
 }
 
 /**
+ * CMD.syncModels' palette title, exactly as package.json contributes it
+ * (commandIds.test.ts pins the mirror); same call-time-resolution contract as
+ * manageCommandTitle above.
+ */
+export function syncModelsCommandTitle(): string {
+	return l10n.t("LiteLLM: Sync Models Now");
+}
+
+/**
  * User-facing commands registered at runtime but kept out of
  * contributes.commands on purpose: manageServers is the server-management
  * route the hub's server entry and the dashboard's manage intent share

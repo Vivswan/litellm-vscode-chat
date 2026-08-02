@@ -94,6 +94,11 @@ The two timeout settings are hard bounds on the whole call, streaming and any re
 - Ensure your LiteLLM proxy is running
 - Check firewall/network settings
 
+**"LiteLLM API error: 404" / "answered 404 - it responded, but does not serve the LiteLLM API"**
+- Something answered at that address, but not a LiteLLM proxy: check what is actually listening there - a web server, another service, or the wrong port (the LiteLLM proxy's default is 4000)
+- The `/v1` trap applies here too: a base URL ending in `/v1` makes the extension request `/v1/v1/...`, which the proxy answers with 404. Remove the suffix; the extension appends `/v1` itself
+- A 404 on a chat request from a previously working server usually means the model was removed from the proxy: run "LiteLLM: Sync Models Now" to refresh the model list. If every request fails with 404, check the base URL as above
+
 **"Message exceeds token limit (estimated N tokens, limit M)"**
 - The extension rejects a request before sending it when its own token estimate exceeds the model's input budget. The count is a local estimate (roughly four characters per token for text, flat figures per image, PDF, or audio clip), so it can differ from what the server would bill
 - Trim the conversation or drop attachments, or raise the budget: the limit comes from the server's declared input limit, or from the [`defaultContextLength`/`defaultMaxInputTokens` settings](settings.md#token-limits) when the server declares none

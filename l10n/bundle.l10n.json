@@ -143,6 +143,7 @@
 	"Error": "Error",
 	"Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.": "Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.",
 	"Expected an object of parameters, e.g. {\"temperature\": 0.2}": "Expected an object of parameters, e.g. {\"temperature\": 0.2}",
+	"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: do not include a /v1 suffix (the extension appends it), and note the LiteLLM proxy's default port is 4000.": "Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: do not include a /v1 suffix (the extension appends it), and note the LiteLLM proxy's default port is 4000.",
 	"Failed to fetch LiteLLM models: {0}/{0} is the HTTP status code the server answered with": {
 		"message": "Failed to fetch LiteLLM models: {0}",
 		"comment": [
@@ -196,6 +197,7 @@
 	"Leftover of renaming \"{0}\" to \"{1}\". Its models show under both names until its object is deleted from the models file.": "Leftover of renaming \"{0}\" to \"{1}\". Its models show under both names until its object is deleted from the models file.",
 	"Leftover of the removed entry \"{0}\". Remove hides its models; deleting its object from the models file erases it.": "Leftover of the removed entry \"{0}\". Remove hides its models; deleting its object from the models file erases it.",
 	"Legacy registry only": "Legacy registry only",
+	"LiteLLM API error: 404. The server no longer recognizes this request - the model may have been removed from the proxy (run \"{0}\" to refresh the list); if every request fails with 404, check the base URL (do not include a /v1 suffix).": "LiteLLM API error: 404. The server no longer recognizes this request - the model may have been removed from the proxy (run \"{0}\" to refresh the list); if every request fails with 404, check the base URL (do not include a /v1 suffix).",
 	"LiteLLM API error: the stream reported an error": "LiteLLM API error: the stream reported an error",
 	"LiteLLM API error: {0}/{0} is the HTTP status code the server answered with": {
 		"message": "LiteLLM API error: {0}",
@@ -238,6 +240,7 @@
 	"LiteLLM: No servers configured. Add one in the LiteLLM dashboard.": "LiteLLM: No servers configured. Add one in the LiteLLM dashboard.",
 	"LiteLLM: No servers configured. Click to configure.": "LiteLLM: No servers configured. Click to configure.",
 	"LiteLLM: Set Server Secret": "LiteLLM: Set Server Secret",
+	"LiteLLM: Sync Models Now": "LiteLLM: Sync Models Now",
 	"LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.": "LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.",
 	"LiteLLM: {0}": "LiteLLM: {0}",
 	"Loading": "Loading",
