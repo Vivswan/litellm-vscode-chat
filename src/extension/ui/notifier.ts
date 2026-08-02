@@ -58,7 +58,7 @@ export function testConnectionAction(label = vscode.l10n.t("Test Connection")): 
 	return { label, run: () => void vscode.commands.executeCommand(CMD.testConnection) };
 }
 
-function troubleshootingDocsAction(url: string, label = vscode.l10n.t("Troubleshooting Docs")): MessageAction {
+export function troubleshootingDocsAction(url: string, label = vscode.l10n.t("Troubleshooting Docs")): MessageAction {
 	return { label, run: () => openUrl(url) };
 }
 

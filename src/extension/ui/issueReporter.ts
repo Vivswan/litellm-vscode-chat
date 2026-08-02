@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import type { TransportErrorClassification } from "../../shared/errorClassification";
+import { transportClassificationOf } from "../../shared/errorClassification";
 import { publicErrorStack, publicErrorText } from "../../shared/logger";
 import { GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
@@ -12,6 +14,8 @@ export interface ErrorContext {
 	message: string;
 	stack?: string | undefined;
 	timestamp: string;
+	/** Classification only - enum ids and a status number, never message text - so triage can read the cause without the body. */
+	classification?: TransportErrorClassification | undefined;
 }
 
 export interface DiagnosticsSnapshot {
@@ -145,11 +149,13 @@ export class IssueReporter {
 		// The public renderings: an http RequestError's message (and the copy of
 		// it V8 prefixes onto the stack) embeds the response body, so both
 		// degrade to its classification; every other error keeps its text.
+		const classification = transportClassificationOf(error);
 		this._latestError = {
 			source,
 			message: publicErrorText(error),
 			stack: publicErrorStack(error),
 			timestamp: new Date().toISOString(),
+			...(classification !== undefined ? { classification } : {}),
 		};
 	}
 
@@ -208,6 +214,9 @@ export class IssueReporter {
 			diagLines.push("");
 			diagLines.push(`- Source: ${snapshot.latestError.source}`);
 			diagLines.push(`- Time: ${snapshot.latestError.timestamp}`);
+			if (snapshot.latestError.classification !== undefined) {
+				diagLines.push(classificationLine(snapshot.latestError.classification));
+			}
 			diagLines.push(`- Message: ${redactSecrets(snapshot.latestError.message)}`);
 		}
 		diagLines.push("");
@@ -304,6 +313,17 @@ export class IssueReporter {
 	}
 }
 
+/**
+ * The Latest-error section's cause line: enum ids and an integer only,
+ * English by policy (the issue body is diagnostics text), never anything
+ * derived from a response.
+ */
+function classificationLine(classification: TransportErrorClassification): string {
+	const status = classification.status !== undefined ? ` ${classification.status}` : "";
+	const setupHint = classification.setupHint !== undefined ? ` (${classification.setupHint})` : "";
+	return `- Classification: ${classification.kind}${status}${setupHint}`;
+}
+
 function createIssueUrl(title: string, body: string): string {
 	const params = new URLSearchParams({
 		labels: "bug",
@@ -346,6 +366,9 @@ function buildClipboardFallbackBody(snapshot: DiagnosticsSnapshot, sink: Compact
 		lines.push("", "### Latest error", "");
 		lines.push(`- Source: ${snapshot.latestError.source}`);
 		lines.push(`- Time: ${snapshot.latestError.timestamp}`);
+		if (snapshot.latestError.classification !== undefined) {
+			lines.push(classificationLine(snapshot.latestError.classification));
+		}
 		lines.push(`- Message: ${shortenLine(redactSecrets(snapshot.latestError.message.split(/\r?\n/)[0] ?? ""), 500)}`);
 	}
 

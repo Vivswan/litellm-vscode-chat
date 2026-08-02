@@ -22,6 +22,7 @@ import {
 	showActionableMessage,
 	viewOutputAction,
 } from "./notifier";
+import { detectSetupProblem, showSetupProblemGate } from "./setupGate";
 import type { ConnectionStatus } from "./status";
 
 const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO_URL}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
@@ -299,6 +300,36 @@ export function registerSyncModelsCommand(
 	);
 }
 
+/**
+ * Build the diagnostics snapshot and open a prefilled GitHub issue - behind
+ * the setup gate: when the current connection status is setup-shaped (not
+ * configured, or failed with a setup hint), the user first gets a non-modal
+ * offer of the faster fix, and only Report Anyway opens the issue (with the
+ * snapshot built up front, so the report shows what the gate judged).
+ *
+ * The gate dialog is deliberately NOT awaited: the dashboard's
+ * executeCommand intent awaits this command inside its serialized message
+ * chain, so an unanswered toast would freeze every subsequent dashboard
+ * message. The returned promise settles once the issue is open (ungated
+ * path) or the gate is on screen (gated path).
+ */
+export async function runReportIssue(
+	registry: ServerRegistry,
+	getConnectionStatus: () => ConnectionStatus,
+	extVersion: string,
+	vscodeVersion: string,
+	issueReporter: IssueReporter
+): Promise<void> {
+	const connectionStatus = getConnectionStatus();
+	const snapshot = await buildDiagnosticsSnapshot(registry, connectionStatus, extVersion, vscodeVersion, issueReporter);
+	const problem = detectSetupProblem(connectionStatus);
+	if (problem === undefined) {
+		await issueReporter.openIssue(snapshot);
+		return;
+	}
+	void showSetupProblemGate(problem, () => issueReporter.openIssue(snapshot));
+}
+
 export function registerReportIssueCommand(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
@@ -308,16 +339,9 @@ export function registerReportIssueCommand(
 	issueReporter: IssueReporter
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand(CMD.reportIssue, async () => {
-			const snapshot = await buildDiagnosticsSnapshot(
-				registry,
-				getConnectionStatus(),
-				extVersion,
-				vscodeVersion,
-				issueReporter
-			);
-			await issueReporter.openIssue(snapshot);
-		})
+		vscode.commands.registerCommand(CMD.reportIssue, () =>
+			runReportIssue(registry, getConnectionStatus, extVersion, vscodeVersion, issueReporter)
+		)
 	);
 }
 

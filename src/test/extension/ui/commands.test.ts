@@ -1,17 +1,27 @@
 import * as assert from "node:assert";
 import { APIConnectionError, APIError, AuthenticationError } from "openai";
 import * as vscode from "vscode";
-import type { ServerRegistry } from "../../../extension/servers/serverRegistry";
-import { registerTestCommands, runConnectionTest, runModelSync } from "../../../extension/ui/commands";
+import { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import { registerTestCommands, runConnectionTest, runModelSync, runReportIssue } from "../../../extension/ui/commands";
+import { IssueReporter } from "../../../extension/ui/issueReporter";
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
-import { expectDefined, makeServerStatus } from "../../testUtils";
+import { expectDefined, makeExtensionStorage, makeServerStatus } from "../../testUtils";
 
 suite("extension/ui/commands", () => {
+	/** Poll until `condition` holds: the gate flow is deliberately not awaited by the command, so its effects land later. */
+	async function waitFor(condition: () => boolean, what: string): Promise<void> {
+		const deadline = Date.now() + 2000;
+		while (!condition()) {
+			assert.ok(Date.now() < deadline, `timed out waiting for ${what}`);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+	}
+
 	interface QuickPickItem {
 		label: string;
 	}
@@ -49,13 +59,22 @@ suite("extension/ui/commands", () => {
 	test("helpAndFeedback delegates to reportIssue when Report Bug selected", async () => {
 		let openedUri: string | undefined;
 		const mock = mockHelpFeedback("$(bug) Report Bug", (uri) => (openedUri = uri));
+		// The unit host's connection status is typically not-configured, so the
+		// real reportIssue command hits the setup gate; answering Report Anyway
+		// keeps this test about the delegation. The gate flow is not awaited by
+		// the command, so the opened URL is waited for, not read synchronously.
+		const origWarn = vscode.window.showWarningMessage;
+		(vscode.window as Record<string, unknown>).showWarningMessage = async (_message: string, ...buttons: string[]) =>
+			buttons.includes("Report Anyway") ? "Report Anyway" : undefined;
 		try {
 			await vscode.commands.executeCommand("litellm.helpAndFeedback");
+			await waitFor(() => openedUri !== undefined, "the issue URL to open");
 			const uri = expectDefined(openedUri, "Should open a URL via reportIssue");
 			assert.ok(uri.includes("issues/new"), "Should open new issue page");
 			assert.ok(uri.includes("bug"), "Should include bug label");
 			assert.ok(!uri.includes("%2523"), uri);
 		} finally {
+			(vscode.window as Record<string, unknown>).showWarningMessage = origWarn;
 			mock.restore();
 		}
 	});
@@ -630,6 +649,252 @@ suite("extension/ui/commands", () => {
 				`Expected the failure to be logged. Errors: ${errors.join(" | ")}`
 			);
 			assert.strictEqual(toasts.length, 1, "the outcome toast must still be shown");
+		});
+	});
+
+	// The Report Issue command's setup gate: setup-shaped diagnostics get one
+	// non-modal offer of the faster fix before GitHub opens. The verdict comes
+	// from the CURRENT connection status only - never the historical
+	// latestError - and only Report Anyway opens an issue.
+	suite("runReportIssue", () => {
+		function makeRegistry(): ServerRegistry {
+			const storage = makeExtensionStorage();
+			return new ServerRegistry(storage.memento, storage.secrets);
+		}
+
+		function makeReporter(openedIssueUrls: string[]): IssueReporter {
+			return new IssueReporter({
+				writeClipboard: async () => {},
+				openExternal: async (url) => {
+					openedIssueUrls.push(url);
+				},
+			});
+		}
+
+		function issueBody(url: string): string {
+			return new URL(url).searchParams.get("body") ?? "";
+		}
+
+		const classified404: ConnectionStatus = {
+			state: "error",
+			error: "answered 404",
+			logSafeError: markLogSafe("RequestError(http, status 404, discovery)"),
+			classification: { kind: "http", status: 404, setupHint: "check-base-url" },
+		};
+
+		interface GateMocks {
+			warnings: { message: string; buttons: string[] }[];
+			executed: unknown[][];
+			restore: () => void;
+		}
+
+		/** Mock the gate dialog (answering with `answer`) and intercept every executeCommand the chosen action runs. */
+		function mockGate(answer: string | undefined): GateMocks {
+			const warnings: GateMocks["warnings"] = [];
+			const executed: unknown[][] = [];
+			const origWarn = vscode.window.showWarningMessage;
+			const origExecute = vscode.commands.executeCommand;
+			(vscode.window as Record<string, unknown>).showWarningMessage = async (message: string, ...buttons: string[]) => {
+				warnings.push({ message, buttons });
+				return answer;
+			};
+			(vscode.commands as Record<string, unknown>).executeCommand = async (command: string, ...args: unknown[]) => {
+				executed.push([command, ...args]);
+			};
+			return {
+				warnings,
+				executed,
+				restore() {
+					(vscode.window as Record<string, unknown>).showWarningMessage = origWarn;
+					(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
+				},
+			};
+		}
+
+		/** Only the gate's own dialogs: the mocks intercept process-wide, so a stray background toast in the shared host must not shift indices. */
+		function gateWarnings(mocks: GateMocks): GateMocks["warnings"] {
+			return mocks.warnings.filter((warning) => warning.buttons.includes("Report Anyway"));
+		}
+
+		/** Only the commands the gate's actions run, for the same reason. */
+		function gateExecuted(mocks: GateMocks): unknown[][] {
+			const gateCommands = new Set<unknown>(["litellm.openDashboard", "litellm.testConnection", "vscode.open"]);
+			return mocks.executed.filter((call) => gateCommands.has(call[0]));
+		}
+
+		test("a not-configured status gates with Configure Now, and Report Anyway opens the prebuilt issue", async () => {
+			const openedIssueUrls: string[] = [];
+			const mocks = mockGate("Report Anyway");
+			try {
+				await runReportIssue(
+					makeRegistry(),
+					() => ({ state: "not-configured" }),
+					"1.2.3",
+					"9.9.9",
+					makeReporter(openedIssueUrls)
+				);
+				await waitFor(() => openedIssueUrls.length > 0, "Report Anyway to open the issue");
+			} finally {
+				mocks.restore();
+			}
+			const warning = expectDefined(gateWarnings(mocks)[0]);
+			assert.ok(warning.message.includes("setup help is faster in the dashboard"), warning.message);
+			assert.deepStrictEqual(warning.buttons, ["Configure Now", "Report Anyway"]);
+			const url = expectDefined(openedIssueUrls[0]);
+			assert.ok(url.includes("issues/new"), url);
+			assert.ok(issueBody(url).includes("Connection state: not-configured"), "the prebuilt snapshot must be reported");
+		});
+
+		test("Configure Now opens the dashboard and never an issue", async () => {
+			const openedIssueUrls: string[] = [];
+			const mocks = mockGate("Configure Now");
+			try {
+				await runReportIssue(
+					makeRegistry(),
+					() => ({ state: "not-configured" }),
+					"1.2.3",
+					"9.9.9",
+					makeReporter(openedIssueUrls)
+				);
+				await waitFor(() => gateExecuted(mocks).length > 0, "the dashboard command to run");
+			} finally {
+				mocks.restore();
+			}
+			assert.deepStrictEqual(gateExecuted(mocks), [["litellm.openDashboard"]]);
+			assert.deepStrictEqual(openedIssueUrls, [], "declining the report must not open an issue");
+		});
+
+		test("a setup-hinted error status gates with the cause's docs deep link", async () => {
+			const openedIssueUrls: string[] = [];
+			const mocks = mockGate("Troubleshooting Docs");
+			try {
+				await runReportIssue(makeRegistry(), () => classified404, "1.2.3", "9.9.9", makeReporter(openedIssueUrls));
+				await waitFor(() => mocks.executed.length > 0, "the docs link to open");
+			} finally {
+				mocks.restore();
+			}
+			const warning = expectDefined(gateWarnings(mocks)[0]);
+			assert.ok(warning.message.includes("looks like a setup problem"), warning.message);
+			assert.deepStrictEqual(warning.buttons, ["Troubleshooting Docs", "Test Connection", "Report Anyway"]);
+			// The per-cause deep link, not the generic troubleshooting page.
+			assert.deepStrictEqual(gateExecuted(mocks), [["vscode.open", SETUP_HINT_DOCS_URLS["check-base-url"]]]);
+			assert.deepStrictEqual(openedIssueUrls, [], "the docs action must not open an issue");
+		});
+
+		test("Test Connection runs the connection test command and never an issue", async () => {
+			const openedIssueUrls: string[] = [];
+			const mocks = mockGate("Test Connection");
+			try {
+				await runReportIssue(makeRegistry(), () => classified404, "1.2.3", "9.9.9", makeReporter(openedIssueUrls));
+				await waitFor(() => gateExecuted(mocks).length > 0, "the connection test command to run");
+			} finally {
+				mocks.restore();
+			}
+			assert.deepStrictEqual(gateExecuted(mocks), [["litellm.testConnection"]]);
+			assert.deepStrictEqual(openedIssueUrls, [], "the test action must not open an issue");
+		});
+
+		test("dismissing the gate does nothing; rerunning the command re-offers it", async () => {
+			const openedIssueUrls: string[] = [];
+			const mocks = mockGate(undefined);
+			try {
+				const registry = makeRegistry();
+				const reporter = makeReporter(openedIssueUrls);
+				await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter);
+				await waitFor(() => gateWarnings(mocks).length === 1, "the gate to show");
+				// Nothing is remembered: the second invocation offers the gate again.
+				await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter);
+				await waitFor(() => gateWarnings(mocks).length === 2, "the gate to re-offer");
+				// A settled turn for any stray action; there must be none.
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			} finally {
+				mocks.restore();
+			}
+			assert.deepStrictEqual(gateExecuted(mocks), [], "dismissal must run nothing");
+			assert.deepStrictEqual(openedIssueUrls, [], "dismissal must not open an issue");
+		});
+
+		test("a healthy status goes straight to GitHub even with a stale classified latestError recorded", async () => {
+			const openedIssueUrls: string[] = [];
+			const reporter = makeReporter(openedIssueUrls);
+			// The historical latestError is never cleared; a setup-shaped failure
+			// recorded before recovery must not gate a now-healthy user.
+			reporter.recordError(
+				"discovery",
+				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), {
+					surface: "discovery",
+					baseUrl: "http://litellm.test",
+					timeoutMs: 5000,
+				})
+			);
+			const mocks = mockGate("Report Anyway");
+			try {
+				await runReportIssue(
+					makeRegistry(),
+					() => ({ state: "connected", totalModels: 2, serverStatuses: [makeServerStatus({ modelCount: 2 })] }),
+					"1.2.3",
+					"9.9.9",
+					reporter
+				);
+			} finally {
+				mocks.restore();
+			}
+			assert.deepStrictEqual(gateWarnings(mocks), [], "a healthy status must never be gated");
+			assert.strictEqual(openedIssueUrls.length, 1, "the ungated path opens the issue before the command settles");
+		});
+
+		test("an error status without a setup hint goes straight to GitHub", async () => {
+			const openedIssueUrls: string[] = [];
+			const mocks = mockGate("Report Anyway");
+			try {
+				await runReportIssue(
+					makeRegistry(),
+					() => ({
+						state: "error",
+						error: "boom",
+						logSafeError: markLogSafe("boom"),
+						classification: { kind: "http", status: 500 },
+					}),
+					"1.2.3",
+					"9.9.9",
+					makeReporter(openedIssueUrls)
+				);
+			} finally {
+				mocks.restore();
+			}
+			assert.deepStrictEqual(gateWarnings(mocks), [], "a hintless failure is a real bug report, not a setup problem");
+			assert.strictEqual(openedIssueUrls.length, 1);
+		});
+
+		test("the command settles while the gate is unanswered, and Report Anyway reports the snapshot built up front", async () => {
+			const openedIssueUrls: string[] = [];
+			let answer: ((choice: string | undefined) => void) | undefined;
+			const origWarn = vscode.window.showWarningMessage;
+			(vscode.window as Record<string, unknown>).showWarningMessage = (_message: string, ..._buttons: string[]) =>
+				new Promise((resolve) => {
+					answer = resolve;
+				});
+			try {
+				let status: ConnectionStatus = { state: "not-configured" };
+				// Pins the non-blocking contract: the dashboard's executeCommand
+				// intent awaits this promise inside its serialized message chain, so
+				// it must settle while showWarningMessage's promise is still pending
+				// (an awaited gate would hang this test into its timeout).
+				await runReportIssue(makeRegistry(), () => status, "1.2.3", "9.9.9", makeReporter(openedIssueUrls));
+				assert.ok(answer !== undefined, "the gate must be on screen when the command settles");
+				assert.strictEqual(openedIssueUrls.length, 0, "no issue opens before the gate is answered");
+				// The world changes while the dialog sits unanswered; the report must
+				// still carry the snapshot the gate judged.
+				status = { state: "connected", totalModels: 1, serverStatuses: [makeServerStatus({ modelCount: 1 })] };
+				expectDefined(answer)("Report Anyway");
+				await waitFor(() => openedIssueUrls.length > 0, "Report Anyway to open the issue");
+			} finally {
+				(vscode.window as Record<string, unknown>).showWarningMessage = origWarn;
+			}
+			assert.ok(
+				issueBody(expectDefined(openedIssueUrls[0])).includes("Connection state: not-configured"),
+				"the issue must carry the snapshot built before the gate, not the later status"
+			);
 		});
 	});
 

@@ -43,6 +43,29 @@ suite("extension/ui/diagnostics", () => {
 			assert.deepStrictEqual(snapshot.recentLogs, ["first log line", "second log line"]);
 		});
 
+		test("the snapshot passes the latest error's classification through", async () => {
+			const reporter = new IssueReporter();
+			// Duck-typed like a transport RequestError: transportClassificationOf
+			// reads kind/status/setupHint off any thrown value.
+			reporter.recordError(
+				"discovery",
+				Object.assign(new Error("connect ECONNREFUSED"), { kind: "connection", setupHint: "proxy-not-running" })
+			);
+
+			const snapshot = await buildDiagnosticsSnapshot(
+				createRegistry(),
+				{ state: "error", error: "boom", logSafeError: markLogSafe("boom") },
+				"1.2.3",
+				"9.9.9",
+				reporter
+			);
+
+			assert.deepStrictEqual(expectDefined(snapshot.latestError).classification, {
+				kind: "connection",
+				setupHint: "proxy-not-running",
+			});
+		});
+
 		test("reports a configured server with an API key", async () => {
 			const registry = createRegistry();
 			await registry.addServer("Prod", "http://prod.test", "sk-secret");
