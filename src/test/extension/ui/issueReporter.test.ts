@@ -153,6 +153,107 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("LiteLLM request timed out after 3000ms."), "template text stays useful in the issue");
 	});
 
+	test("recordError captures the transport classification, and only for transport errors", () => {
+		const reporter = new IssueReporter();
+		const mapped = mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), {
+			surface: "discovery",
+			baseUrl: "http://litellm.test",
+			timeoutMs: 5000,
+		});
+		reporter.recordError("discovery", mapped);
+		assert.deepStrictEqual(expectDefined(reporter.getLatestError()).classification, {
+			kind: "http",
+			status: 404,
+			setupHint: "check-base-url",
+		});
+
+		reporter.recordError("discovery", new Error("plain failure"));
+		assert.strictEqual(
+			expectDefined(reporter.getLatestError()).classification,
+			undefined,
+			"a plain Error carries no classification"
+		);
+	});
+
+	test("a classified latest error renders one Classification line in the body", () => {
+		const reporter = new IssueReporter();
+		const body = reporter.buildBody(
+			makeSnapshot({
+				latestError: {
+					source: "discovery",
+					message: "answered 404",
+					timestamp: "2026-01-01T00:00:00.000Z",
+					classification: { kind: "http", status: 404, setupHint: "check-base-url" },
+				},
+			})
+		);
+		assert.ok(body.includes("- Classification: http 404 (check-base-url)"), body);
+	});
+
+	test("a status-less, hint-less classification renders just the kind", () => {
+		const reporter = new IssueReporter();
+		const body = reporter.buildBody(
+			makeSnapshot({
+				latestError: {
+					source: "chat",
+					message: "timed out",
+					timestamp: "2026-01-01T00:00:00.000Z",
+					classification: { kind: "timeout" },
+				},
+			})
+		);
+		assert.ok(body.includes("- Classification: timeout\n"), body);
+	});
+
+	test("an unclassified latest error renders no Classification line", () => {
+		const reporter = new IssueReporter();
+		const body = reporter.buildBody(
+			makeSnapshot({
+				latestError: { source: "chat", message: "boom", timestamp: "2026-01-01T00:00:00.000Z" },
+			})
+		);
+		assert.ok(!body.includes("- Classification:"), body);
+	});
+
+	test("the Classification line survives into the clipboard fallback body", () => {
+		const reporter = new IssueReporter();
+		const url = reporter.buildIssueUrl(
+			makeSnapshot({
+				latestError: {
+					source: "fetchModels",
+					message: `network failure ${"x".repeat(30000)}`,
+					timestamp: "2026-01-01T00:00:00.000Z",
+					classification: { kind: "http", status: 404, setupHint: "check-base-url" },
+				},
+				recentLogs: [],
+			})
+		);
+		const body = getIssueBody(url);
+
+		assert.ok(url.length <= MAX_SAFE_URL_LENGTH);
+		assert.ok(body.includes("Full redacted diagnostics were too large to prefill in GitHub"), body);
+		assert.ok(body.includes("- Classification: http 404 (check-base-url)"), body);
+	});
+
+	test("a classified error's redaction stays exactly as before", () => {
+		// The Classification line is enum ids plus an integer; the message and
+		// title redaction pipeline must behave as if the field were not there.
+		const reporter = new IssueReporter();
+		const snapshot = makeSnapshot({
+			latestError: {
+				source: "discovery",
+				message: "Failed to connect to https://internal.corp.com:4000/v1/models",
+				timestamp: "2026-01-01T00:00:00.000Z",
+				classification: { kind: "connection", setupHint: "proxy-not-running" },
+			},
+		});
+		const body = reporter.buildBody(snapshot);
+		assertHostRedacted(body, "internal.corp.com");
+		assert.ok(body.includes("[REDACTED_HOST]"), body);
+		assert.ok(body.includes("- Classification: connection (proxy-not-running)"), body);
+		assertHostRedacted(reporter.buildTitle(snapshot), "internal.corp.com");
+	});
+
 	test("buildBody includes recent logs", () => {
 		const reporter = new IssueReporter();
 		const body = reporter.buildBody(
