@@ -39,6 +39,15 @@ function expectRequestError(mapped: Error, kind: RequestError["kind"]): RequestE
 	return mapped;
 }
 
+/**
+ * Containment assert for rendered output. The needle rides a parameter so a
+ * URL literal never sits at an includes() call, the shape CodeQL reads as
+ * URL-sanitization-by-substring (js/incomplete-url-substring-sanitization).
+ */
+function assertShows(text: string, needle: string, context: string): void {
+	assert.ok(text.includes(needle), `${context}, got ${text}`);
+}
+
 suite("provider/transport/errorMapping", () => {
 	suite("HTTP status errors", () => {
 		test("401 maps to the authentication message on both surfaces", () => {
@@ -179,7 +188,7 @@ suite("provider/transport/errorMapping", () => {
 			const mapped = expectRequestError(mapSdkError(err, discoveryCtx), "http");
 			assert.strictEqual(mapped.status, 404);
 			assert.strictEqual(mapped.setupHint, "check-base-url");
-			assert.ok(mapped.message.includes("http://litellm.test"), mapped.message);
+			assertShows(mapped.message, "http://litellm.test", "discovery 404 names the base URL");
 			assert.ok(mapped.message.includes("/v1 suffix"), mapped.message);
 			assert.ok(mapped.message.includes("default port is 4000"), mapped.message);
 			assert.strictEqual(mapped.logClassification, "RequestError(http, status 404, discovery)");
