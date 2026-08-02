@@ -336,6 +336,47 @@ suite("extension/dashboard/state", () => {
 			);
 		});
 
+		test("classification rides the error row under the same rule as errorEnglish", () => {
+			// The webview maps the setup-hint id to a troubleshooting link; only
+			// the classification crosses the boundary (enum ids, never text).
+			const classification = { kind: "connection", setupHint: "proxy-not-running" } as const;
+			const external = buildDashboardState(
+				[{ status: makeServerStatus({ state: "error", error: "boom", classification }), models: [] }],
+				makeReader({})
+			);
+			assert.strictEqual(external.servers[0]?.origin, "external");
+			assert.deepStrictEqual(external.servers[0]?.classification, classification);
+
+			const declared = buildDashboardState(
+				[{ status: makeServerStatus({ state: "error", error: "boom", classification }), models: [] }],
+				makeReader({}),
+				[makeDeclared()]
+			);
+			assert.strictEqual(declared.servers[0]?.origin, "declared");
+			assert.deepStrictEqual(declared.servers[0]?.classification, classification);
+
+			// An unclassified failure carries no field at all (conditional spread,
+			// never an explicit undefined).
+			const unclassified = buildDashboardState(
+				[{ status: makeServerStatus({ state: "error", error: "boom" }), models: [] }],
+				makeReader({})
+			);
+			const unclassifiedRow = unclassified.servers[0];
+			assert.ok(unclassifiedRow !== undefined && !("classification" in unclassifiedRow));
+
+			// A sync error masks the transport error and must not borrow the
+			// masked error's classification: the hint would advise on a failure
+			// the row is not displaying.
+			const synced = buildDashboardState(
+				[{ status: makeServerStatus({ state: "error", error: "boom", classification }), models: [] }],
+				makeReader({}),
+				[makeDeclared({ syncError: "sync failed", syncErrorClass: "upsertFailed" })]
+			);
+			assert.strictEqual(synced.servers[0]?.error, "sync failed");
+			const syncedRow = synced.servers[0];
+			assert.ok(syncedRow !== undefined && !("classification" in syncedRow));
+		});
+
 		test("legacy registry servers with no row of their own are counted, never listed", () => {
 			const state = buildDashboardState(
 				[{ status: makeServerStatus(), models: [] }],

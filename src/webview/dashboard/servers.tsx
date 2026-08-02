@@ -1,4 +1,5 @@
 import * as l10n from "@vscode/l10n";
+import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type {
 	DashboardIntentType,
@@ -196,7 +197,9 @@ type TestState =
  * The troubleshooting-guide section behind a setup-hint id (the transport
  * assigns one only where the advice is known right; see
  * shared/errorClassification.ts), with the fuller accessible label naming the
- * destination. Labels resolve per call so the l10n bundle is honored.
+ * destination. Labels resolve per call so the l10n bundle is honored. Shared
+ * by the draft-test footer and the servers error banner, so a classified
+ * failure links the same section wherever it surfaces.
  */
 function troubleshootingLink(hint: SetupHintKind): { href: DocsUrl; label: string } {
 	switch (hint) {
@@ -819,12 +822,17 @@ function ServerForm({
 						{testState.classification?.setupHint !== undefined ? (
 							// A classified setup problem: the link to its matching
 							// troubleshooting-guide section rides inside the alert so one
-							// announcement carries the failure and the way out.
-							<span class="test-hint">
-								<DocsLink {...troubleshootingLink(testState.classification.setupHint)}>
-									{l10n.t("Troubleshoot")}
-								</DocsLink>
-							</span>
+							// announcement carries the failure and the way out. The leading
+							// space keeps copied text from gluing the link label onto the
+							// error message.
+							<>
+								{" "}
+								<span class="test-hint">
+									<DocsLink {...troubleshootingLink(testState.classification.setupHint)}>
+										{l10n.t("Troubleshoot")}
+									</DocsLink>
+								</span>
+							</>
 						) : null}
 					</span>
 				) : null}
@@ -1567,8 +1575,32 @@ export function ServersSection({
 					<p class="error">
 						{servers
 							.filter((server) => server.error !== undefined)
-							.map((server) => `${server.label}: ${server.error}`)
-							.join("; ")}
+							.map((server, index) => (
+								// Keyed identity (origin plus the external row's opaque handle
+								// or the declared row's setting-unique label) so reconciliation
+								// keeps focus on a Troubleshoot link when an earlier entry
+								// recovers. A classified failure carries the same short
+								// Troubleshoot link as the draft-test footer, inline after its
+								// own entry; an unclassified entry renders exactly the text it
+								// always did.
+								<Fragment key={`${server.origin}:${server.adoptHandle ?? server.label}`}>
+									{index > 0 ? "; " : ""}
+									{`${server.label}: ${server.error}`}
+									{server.classification?.setupHint !== undefined ? (
+										// The leading space keeps copied text (the banner is the
+										// selectable error surface) from gluing the link label
+										// onto the error message.
+										<>
+											{" "}
+											<span class="banner-hint">
+												<DocsLink {...troubleshootingLink(server.classification.setupHint)}>
+													{l10n.t("Troubleshoot")}
+												</DocsLink>
+											</span>
+										</>
+									) : null}
+								</Fragment>
+							))}
 					</p>
 				</div>
 			) : null}

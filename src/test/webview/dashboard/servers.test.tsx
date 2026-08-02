@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { DashboardServer, WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
-import { DOCS_LINK_CHECK_BASE_URL } from "../../../webview/dashboard/docsLinks";
+import { DOCS_LINK_CHECK_BASE_URL, DOCS_LINK_PROXY_NOT_RUNNING } from "../../../webview/dashboard/docsLinks";
 import { helpEntryModelParameterPrefix } from "../../../webview/dashboard/helpText";
 import { ServersSection } from "../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
@@ -571,7 +571,9 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 	// visible text and the fuller per-cause accessible label.
 	const alert = root.querySelector(".test-result.error");
 	expect(alert?.getAttribute("role")).toBe("alert");
-	expect(alert?.textContent).toContain("the server answered 404");
+	// Full text pinned: message, the copy-selection space, then the link
+	// label - dropping the space would glue "404Troubleshoot" in copied text.
+	expect(alert?.textContent).toBe("the server answered 404 Troubleshoot");
 	const anchor = alert?.querySelector<HTMLAnchorElement>(".test-hint a.docs-link");
 	expect(anchor?.getAttribute("href")).toBe(DOCS_LINK_CHECK_BASE_URL);
 	expect(anchor?.getAttribute("aria-label")).toBe("Open the troubleshooting guide: the server answered 404");
@@ -592,6 +594,71 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 	});
 	expect(root.querySelector(".test-result.error")?.textContent).toContain("LiteLLM API error: 500");
 	expect(root.querySelector(".test-hint")).toBeNull();
+});
+
+test("classified refresh failures carry per-entry Troubleshoot links; unclassified entries stay plain", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			state: "error",
+			error: "unable to connect",
+			classification: { kind: "connection", setupHint: "proxy-not-running" },
+		}),
+		makeDeclaredServer({ label: "Quiet", baseUrl: "http://quiet.test", state: "error", error: "boom" }),
+		makeDeclaredServer({
+			label: "Wrong",
+			baseUrl: "http://wrong.test",
+			state: "error",
+			error: "answered 404",
+			classification: { kind: "http", status: 404, setupHint: "check-base-url" },
+		}),
+	]);
+
+	// The whole line pinned as text: each link rides its own entry (before the
+	// separator to the next), the unclassified entry stays plain, and copied
+	// text keeps a space between the error and the link label. A missing link
+	// fails this line loudly - no vacuous index comparisons.
+	const banner = root.querySelector(".banner-error p.error");
+	expect(banner?.textContent).toBe(
+		"Prod: unable to connect Troubleshoot; Quiet: boom; Wrong: answered 404 Troubleshoot"
+	);
+
+	// Two classified failures, two links, each targeting the
+	// troubleshooting-guide section matching its own setup-hint id, with the
+	// fuller per-cause accessible label - the same links the draft-test footer
+	// renders.
+	const anchors = [...(banner?.querySelectorAll<HTMLAnchorElement>(".banner-hint a.docs-link") ?? [])];
+	expect(anchors.map((anchor) => anchor.getAttribute("href"))).toEqual([
+		DOCS_LINK_PROXY_NOT_RUNNING,
+		DOCS_LINK_CHECK_BASE_URL,
+	]);
+	expect(anchors.map((anchor) => anchor.getAttribute("aria-label"))).toEqual([
+		"Open the troubleshooting guide: unable to connect",
+		"Open the troubleshooting guide: the server answered 404",
+	]);
+});
+
+test("without a classification the error banner renders exactly as before: joined text, no elements", () => {
+	const root = mountSection([
+		makeDeclaredServer({ label: "Prod", state: "error", error: "boom" }),
+		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", error: "bang" }),
+	]);
+	// Pinned markup: the joined line stays pure text - no link, no wrapper
+	// span appeared for unclassified failures.
+	expect(root.querySelector(".banner-error p.error")?.innerHTML).toBe("Prod: boom; Beta: bang");
+});
+
+test("a hintless classification renders no troubleshooting link in the banner", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			state: "error",
+			error: "LiteLLM API error: 500",
+			classification: { kind: "http", status: 500 },
+		}),
+	]);
+	expect(root.querySelector(".banner-error p.error")?.innerHTML).toBe("Prod: LiteLLM API error: 500");
+	expect(root.querySelector(".banner-hint")).toBeNull();
 });
 
 test("a failed test renders its message inline and the result clears on any credential-affecting edit", () => {
