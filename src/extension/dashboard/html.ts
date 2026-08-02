@@ -384,24 +384,26 @@ const STYLES = `
 	   the outcome grid render selectable prose (this tab is where users copy
 	   state from when asking for help); each feedback row is one action plus
 	   its muted one-liner. */
-	.diag-facts { list-style: none; padding: 0; margin: 8px 0 12px; }
-	.diag-facts li { margin: 4px 0; }
+	.diag-verdict { margin: 0 0 12px; }
+	.diag-facts { list-style: none; padding: 0; margin: 8px 0 16px; }
+	.diag-facts li { margin: 5px 0; }
 	/* The outcome grid: one compact row per server, hugging its content
-	   instead of the generic full-width table rule. A row's error or
-	   params-inactive warning spans beneath it as its own line; rows followed
-	   by such a note drop their rule (.no-rule) so each server group reads as
-	   one block. No hover band: the grid is prose to read and copy, not a
-	   control surface. */
+	   instead of the generic full-width table rule, with 6px of vertical
+	   padding (over the 3px base) so each server scans as its own band. A
+	   row's error or params-inactive warning spans beneath it as its own
+	   line; rows followed by such a note drop their rule (.no-rule) so each
+	   server group reads as one block. No hover band: the grid is prose to
+	   read and copy, not a control surface. */
 	table.diag-grid { width: auto; }
-	.diag-grid th, .diag-grid td { padding-right: 20px; }
+	.diag-grid th, .diag-grid td { padding: 6px 20px 6px 0; }
 	.diag-grid th:last-child, .diag-grid td:last-child { padding-right: 0; }
 	.diag-grid tbody tr:hover { background: transparent; }
 	.diag-grid tr.no-rule td { border-bottom: none; }
-	.diag-grid tr.diag-note td { padding: 0 0 5px 12px; }
+	.diag-grid tr.diag-note td { padding: 2px 0 10px 12px; }
 	.diag-grid tr.diag-note.error td { color: var(--vscode-errorForeground); }
 	.diag-grid tr.diag-note.warn td { color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow)); }
 	.diag-url { font-family: var(--vscode-editor-font-family); font-size: 0.95em; word-break: break-all; }
-	.diag-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+	.diag-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 8px; }
 	.diag-actions button { display: inline-flex; align-items: center; gap: 5px; }
 	.feedback-links { list-style: none; padding: 0; margin: 8px 0; }
 	.feedback-links li { margin: 8px 0; }
