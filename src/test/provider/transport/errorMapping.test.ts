@@ -6,14 +6,17 @@ import {
 	APIUserAbortError,
 	AuthenticationError,
 } from "openai";
+import { LanguageModelError } from "vscode";
 import {
 	localizedError,
 	type MapErrorContext,
 	mapSdkError,
 	RequestError,
+	statusErrorTexts,
 	streamErrorFrame,
 	timeoutMessage,
 	timeoutRequestError,
+	toLanguageModelError,
 } from "../../../provider/transport/errorMapping";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
@@ -48,6 +51,9 @@ suite("provider/transport/errorMapping", () => {
 					mapped.message
 				);
 				assert.strictEqual(mapped.cause, err);
+				// The proxy's own gate rejected this client's key, so the
+				// configure-the-key advice is certain.
+				assert.strictEqual(mapped.setupHint, "configure-api-key");
 			}
 		});
 
@@ -76,6 +82,11 @@ suite("provider/transport/errorMapping", () => {
 					"must not send the user to reconfigure the extension key"
 				);
 				assert.ok(!mapped.message.includes("Anthropic"), "response-derived text must not be echoed");
+				assert.strictEqual(
+					mapped.setupHint,
+					undefined,
+					"updating the extension's key cannot fix the proxy's upstream credentials, so no hint"
+				);
 			}
 		});
 
@@ -162,6 +173,46 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(mapped.message, "LiteLLM API error: 400\nplain text failure, not JSON");
 			assert.strictEqual(mapped.status, 400);
 		});
+
+		test("discovery 404 points at the base URL with the /v1 and default-port guidance", () => {
+			const err = APIError.generate(404, { error: { message: "no such route" } }, undefined, new Headers());
+			const mapped = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			assert.strictEqual(mapped.status, 404);
+			assert.strictEqual(mapped.setupHint, "check-base-url");
+			assert.ok(mapped.message.includes("http://litellm.test"), mapped.message);
+			assert.ok(mapped.message.includes("/v1 suffix"), mapped.message);
+			assert.ok(mapped.message.includes("default port is 4000"), mapped.message);
+			assert.strictEqual(mapped.logClassification, "RequestError(http, status 404, discovery)");
+			// The response body rides as the same suffix the generic branch appends.
+			assert.ok(mapped.message.endsWith('\n{"error":{"message":"no such route"}}'), mapped.message);
+			assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
+		});
+
+		test("chat 404 keeps the pinned status prefix and suggests Sync Models, with no setupHint", () => {
+			const err = APIError.generate(404, { error: { message: "model not found" } }, undefined, new Headers());
+			const mapped = expectRequestError(mapSdkError(err, chatCtx), "http");
+			assert.strictEqual(mapped.status, 404);
+			// docker-transport.test.ts pins `LiteLLM API error: ${status}\b`
+			// against the live stack; the guidance may only follow the prefix.
+			assert.ok(mapped.message.startsWith("LiteLLM API error: 404."), mapped.message);
+			assert.ok(mapped.message.includes("LiteLLM: Sync Models Now"), mapped.message);
+			assert.strictEqual(
+				mapped.setupHint,
+				undefined,
+				"a chat 404 usually means a removed model, not a bad base URL, so no hint"
+			);
+			assert.strictEqual(mapped.logClassification, "RequestError(http, status 404, chat)");
+			assert.ok(mapped.message.endsWith('\n{"error":{"message":"model not found"}}'), mapped.message);
+			assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
+		});
+
+		test("a 404 with a non-JSON body recovers the text from the SDK message like the generic branch", () => {
+			const err = new APIError(404, undefined, "default backend - 404", new Headers());
+			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+			assert.ok(chat.message.endsWith("\ndefault backend - 404"), chat.message);
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			assert.ok(discovery.message.endsWith("\ndefault backend - 404"), discovery.message);
+		});
 	});
 
 	suite("connection errors", () => {
@@ -173,6 +224,24 @@ suite("provider/transport/errorMapping", () => {
 				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct."
 			);
 			assert.strictEqual(mapped.cause, err);
+			// Nothing listens on that port - the one connection failure where "is
+			// the proxy running?" is certainly the right first question.
+			assert.strictEqual(mapped.setupHint, "proxy-not-running");
+		});
+
+		test("ENOTFOUND maps to the same connection message but carries no setupHint", () => {
+			const err = connectionError(
+				Object.assign(new Error("getaddrinfo ENOTFOUND litellm.internal"), { code: "ENOTFOUND" })
+			);
+			const mapped = expectRequestError(mapSdkError(err, chatCtx), "connection");
+			assert.strictEqual(
+				mapped.message,
+				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct."
+			);
+			// DNS failure does not establish the proxy is stopped (a mistyped
+			// hostname resolves nowhere with the proxy running fine), so the
+			// construction-site-certainty contract forbids the hint here.
+			assert.strictEqual(mapped.setupHint, undefined);
 		});
 
 		test("expired certificate in the cause chain maps to the SSL-expired message", () => {
@@ -338,6 +407,37 @@ suite("provider/transport/errorMapping", () => {
 		});
 	});
 
+	suite("classification for status surfaces", () => {
+		test("statusErrorTexts carries a RequestError's classification, present fields only", () => {
+			const withHint = statusErrorTexts(
+				new RequestError("guidance", "http", { status: 404, setupHint: "check-base-url" })
+			);
+			assert.deepStrictEqual(withHint.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
+
+			const bare = statusErrorTexts(new RequestError("timed out", "timeout"));
+			assert.deepStrictEqual(bare.classification, { kind: "timeout" });
+			assert.ok(
+				!("status" in (bare.classification ?? {})) && !("setupHint" in (bare.classification ?? {})),
+				"absent fields stay absent, not present-as-undefined"
+			);
+		});
+
+		test("statusErrorTexts omits the classification for a plain Error", () => {
+			const texts = statusErrorTexts(new Error("boom"));
+			assert.strictEqual(texts.error, "boom");
+			assert.ok(!("classification" in texts), "unclassified errors must render exactly today's status shape");
+		});
+
+		test("toLanguageModelError still maps a chat 404 to NotFound", () => {
+			const err = APIError.generate(404, { error: { message: "model not found" } }, undefined, new Headers());
+			const mapped = mapSdkError(err, chatCtx);
+			const wrapped = toLanguageModelError(mapped);
+			assert.ok(wrapped instanceof LanguageModelError, `expected LanguageModelError, got ${String(wrapped)}`);
+			assert.strictEqual(wrapped.code, LanguageModelError.NotFound().code);
+			assert.strictEqual(wrapped.cause, mapped);
+		});
+	});
+
 	suite("display/English split (localized display, English logs)", () => {
 		test("every localized mapSdkError site records an englishMessage identical to the English display", () => {
 			// Under the test host's English fallback, l10n.t returns the English
@@ -355,6 +455,8 @@ suite("provider/transport/errorMapping", () => {
 				mapSdkError(new AuthenticationError(401, upstream401, undefined, new Headers()), chatCtx),
 				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), chatCtx),
 				mapSdkError(new APIError(503, { error: { message: "boom" } }, "503 boom", new Headers()), discoveryCtx),
+				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), chatCtx),
+				mapSdkError(new APIError(404, { error: { message: "no such route" } }, undefined, new Headers()), discoveryCtx),
 				mapSdkError(new APIUserAbortError(), chatCtx),
 				mapSdkError(
 					connectionError(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" })),

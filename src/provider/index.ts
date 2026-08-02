@@ -11,6 +11,7 @@ import type {
 import { CancellationError, EventEmitter } from "vscode";
 import { getDiscoveryCacheTtl, getTokenDefaults } from "../shared/config/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
+import type { TransportErrorClassification } from "../shared/errorClassification";
 import type { Logger, LogSafeErrorText } from "../shared/logger";
 import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
@@ -509,7 +510,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		server: ServerWithKey,
 		groupServer: GroupServer,
 		silent: boolean,
-		outcome: { state: "ok"; modelCount: number } | { state: "error"; error: string; logSafeError: LogSafeErrorText },
+		outcome:
+			| { state: "ok"; modelCount: number }
+			| {
+					state: "error";
+					error: string;
+					logSafeError: LogSafeErrorText;
+					classification?: TransportErrorClassification;
+			  },
 		/** Pre-attach infos only; StatusWindow.record's type enforces it. */
 		models: readonly PreAttachModelInfo[]
 	): void {

@@ -1,11 +1,14 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
 import { LanguageModelError, l10n } from "vscode";
-import { manageCommandTitle } from "../../shared/config/commandIds";
+import { manageCommandTitle, syncModelsCommandTitle } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import type { SetupHintKind, TransportErrorClassification, TransportErrorKind } from "../../shared/errorClassification";
+import { transportClassificationOf } from "../../shared/errorClassification";
 import type { LogSafeErrorText } from "../../shared/logger";
 import { errorMessageText, markLogSafe, publicErrorText } from "../../shared/logger";
 
-export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | "network" | "timeout" | "aborted";
+/** The kind union lives in shared (status surfaces and the dashboard protocol may not import this layer); the transport keeps its established name. */
+export type RequestErrorKind = TransportErrorKind;
 
 /**
  * Error thrown across the provider's transport boundary. `kind` lets callers
@@ -28,17 +31,30 @@ export type RequestErrorKind = "auth" | "http" | "certificate" | "connection" | 
  *   public surfaces fall back to it when no classification applies, so a
  *   template-only site keeps its text useful in issues in every locale.
  *   Every site whose message goes through l10n.t must pass one.
+ *
+ * `setupHint` is a third per-construction-site opt-in: the id of the setup
+ * advice UI surfaces may append (see shared/errorClassification.ts). Only a
+ * site that knows the advice is right sets one - sites where the same
+ * kind/status can mean something else (OAuth endpoints in auth.ts,
+ * upstream-auth 401s, chat 404s) must NOT.
  */
 export class RequestError extends Error {
 	readonly kind: RequestErrorKind;
 	readonly status?: number | undefined;
 	readonly logClassification?: string;
 	readonly englishMessage?: string;
+	readonly setupHint?: SetupHintKind;
 
 	constructor(
 		message: string,
 		kind: RequestErrorKind,
-		options?: { status?: number; cause?: unknown; logClassification?: string; englishMessage?: string }
+		options?: {
+			status?: number;
+			cause?: unknown;
+			logClassification?: string;
+			englishMessage?: string;
+			setupHint?: SetupHintKind;
+		}
 	) {
 		super(message, { cause: options?.cause });
 		this.name = "RequestError";
@@ -50,6 +66,9 @@ export class RequestError extends Error {
 		if (options?.englishMessage !== undefined) {
 			this.englishMessage = options.englishMessage;
 		}
+		if (options?.setupHint !== undefined) {
+			this.setupHint = options.setupHint;
+		}
 	}
 }
 
@@ -60,17 +79,29 @@ export interface MapErrorContext {
 }
 
 /**
- * Both renderings of a failed fetch for the error status: `error` renders
- * directly in the status bar and toasts, `logSafeError` is what log lines
- * carry (see ServerStatusError). An empty message (new Error("")) is
- * classified here, at the boundary that constructs the status.
+ * Both renderings of a failed fetch for the error status, plus the
+ * classification when the reason carries one (a classified RequestError):
+ * `error` renders directly in the status bar and toasts, `logSafeError` is
+ * what log lines carry (see ServerStatusError), and `classification` is the
+ * enum-only shape UI surfaces branch on for setup hints (absent for
+ * unclassified errors, and every consumer must render exactly today's UI
+ * then). An empty message (new Error("")) is classified here, at the boundary
+ * that constructs the status.
  */
-export function statusErrorTexts(reason: unknown): { error: string; logSafeError: LogSafeErrorText } {
+export function statusErrorTexts(reason: unknown): {
+	error: string;
+	logSafeError: LogSafeErrorText;
+	classification?: TransportErrorClassification;
+} {
 	const display = errorMessageText(reason);
 	const logSafe = publicErrorText(reason);
+	// The shared extractor duck-types kind/status/setupHint, which for a
+	// RequestError is exactly its classification; a plain Error yields none.
+	const classification = transportClassificationOf(reason);
 	return {
 		error: display.length > 0 ? display : l10n.t("Unknown error"),
 		logSafeError: logSafe.length > 0 ? logSafe : markLogSafe("Unknown error"),
+		...(classification !== undefined ? { classification } : {}),
 	};
 }
 
@@ -272,10 +303,56 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 						cause: err,
 						englishMessage: UPSTREAM_AUTH_MESSAGE_ENGLISH,
 					})
-				: new RequestError(authMessage(), "auth", { status: 401, cause: err, englishMessage: AUTH_MESSAGE_ENGLISH });
+				: new RequestError(authMessage(), "auth", {
+						status: 401,
+						cause: err,
+						englishMessage: AUTH_MESSAGE_ENGLISH,
+						// The proxy's own gate rejected this client's key, so the advice
+						// is certain; the upstream variant above gets none (updating the
+						// extension's key cannot fix the proxy's provider credentials).
+						setupHint: "configure-api-key",
+					});
 		}
 		const text = errorBodyText(err);
 		const suffix = text ? `\n${text}` : "";
+		// 404 gets its own guidance per surface: on discovery it almost always
+		// means the base URL points at something that is not a LiteLLM proxy
+		// (wrong port, a /v1 suffix doubling the path); on chat it usually means
+		// the proxy dropped the model, so no setupHint - "check the base URL"
+		// would be wrong advice for an otherwise healthy server.
+		if (err.status === 404) {
+			if (ctx.surface === "discovery") {
+				return new RequestError(
+					`${l10n.t(
+						"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: do not include a /v1 suffix (the extension appends it), and note the LiteLLM proxy's default port is 4000.",
+						ctx.baseUrl
+					)}${suffix}`,
+					"http",
+					{
+						status: 404,
+						cause: err,
+						logClassification: "RequestError(http, status 404, discovery)",
+						englishMessage: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: do not include a /v1 suffix (the extension appends it), and note the LiteLLM proxy's default port is 4000.${suffix}`,
+						setupHint: "check-base-url",
+					}
+				);
+			}
+			return new RequestError(
+				`${l10n.t(
+					'LiteLLM API error: 404. The server no longer recognizes this request - the model may have been removed from the proxy (run "{0}" to refresh the list); if every request fails with 404, check the base URL (do not include a /v1 suffix).',
+					syncModelsCommandTitle()
+				)}${suffix}`,
+				"http",
+				{
+					status: 404,
+					cause: err,
+					logClassification: "RequestError(http, status 404, chat)",
+					// "LiteLLM: Sync Models Now" is the palette title package.json
+					// contributes (the manageCommandTitle mirror pattern).
+					englishMessage: `LiteLLM API error: 404. The server no longer recognizes this request - the model may have been removed from the proxy (run "LiteLLM: Sync Models Now" to refresh the list); if every request fails with 404, check the base URL (do not include a /v1 suffix).${suffix}`,
+				}
+			);
+		}
 		const message =
 			ctx.surface === "chat"
 				? `${l10n.t({
@@ -357,6 +434,11 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				{
 					cause: err,
 					englishMessage: `Connection Error: Unable to connect to ${ctx.baseUrl}. Please check that the server is running and the URL is correct.`,
+					// ECONNREFUSED means the host answered "nothing listens on that
+					// port", so "is the proxy running?" is certainly the right first
+					// question. ENOTFOUND is a DNS failure - the proxy may be running
+					// fine behind a mistyped hostname - so it gets no hint.
+					...(haystack.includes("ECONNREFUSED") ? { setupHint: "proxy-not-running" as const } : {}),
 				}
 			);
 		}

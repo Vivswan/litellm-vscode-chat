@@ -178,7 +178,17 @@ suite("provider/errorMapping properties", () => {
 					assert.strictEqual(mapped.status, status);
 					assert.strictEqual(mapped.kind, status === 401 ? "auth" : "http");
 					assert.notStrictEqual(mapped.kind, "network", "a status-bearing error must never classify as network");
-					if (status !== 401) {
+					if (status === 404) {
+						// 404 has its own guidance branch: chat keeps the pinned
+						// status prefix (docker-transport.test.ts asserts it against
+						// the live stack); discovery leads with the base-URL advice.
+						const prefix =
+							ctx.surface === "chat"
+								? "LiteLLM API error: 404."
+								: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404`;
+						assert.ok(mapped.message.startsWith(prefix), mapped.message);
+						assert.strictEqual(mapped.setupHint, ctx.surface === "discovery" ? "check-base-url" : undefined);
+					} else if (status !== 401) {
 						const prefix =
 							ctx.surface === "chat" ? `LiteLLM API error: ${status}` : `Failed to fetch LiteLLM models: ${status}`;
 						assert.ok(mapped.message.startsWith(prefix), mapped.message);
