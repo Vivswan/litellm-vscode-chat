@@ -43,7 +43,7 @@ import {
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "./intents";
-import type { DashboardSectionId, ExtensionToWebviewMessage } from "./protocol";
+import type { DashboardSectionId, ExtensionToWebviewMessage, TransportErrorClassification } from "./protocol";
 import type { EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
 import { buildDashboardState, resolveConfiguredScope, resolveUpdateScope } from "./state";
 import { createDraftConnectionProbe } from "./testDraftConnection";
@@ -341,9 +341,18 @@ export class DashboardController implements vscode.Disposable {
 			// for every failure kind.
 			let message: string;
 			let kind: "validation" | "operation" = "validation";
+			let classification: TransportErrorClassification | undefined;
 			if (error instanceof DashboardValidationError) {
 				message = error.message;
-				this.env.log("Dashboard intent rejected", { intentType: intent.type, kind: "validation" });
+				// Classification only (enum ids and a status, from the transport's
+				// probe error) - protocol-legal and log-legal by the same rule, so
+				// it also rides the log line for issue-report triage.
+				classification = error.classification;
+				this.env.log("Dashboard intent rejected", {
+					intentType: intent.type,
+					kind: "validation",
+					...(classification !== undefined ? { classification } : {}),
+				});
 			} else if (error instanceof DashboardOperationError) {
 				message = error.message;
 				kind = "operation";
@@ -355,7 +364,14 @@ export class DashboardController implements vscode.Disposable {
 					error: error instanceof Error ? error.name : typeof error,
 				});
 			}
-			this.postToPanel({ type: "intentFailed", intentType: intent.type, message, kind, requestId });
+			this.postToPanel({
+				type: "intentFailed",
+				intentType: intent.type,
+				message,
+				kind,
+				requestId,
+				...(classification !== undefined ? { classification } : {}),
+			});
 			// One class for every refused-or-failed intent: the outcome consumer
 			// (the monkey fuzzer) only needs "did not act as asked", and the
 			// validation/operation split already travels via intentFailed's kind.

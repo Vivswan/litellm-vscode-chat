@@ -25,7 +25,7 @@ Each row's Status pill is one of four states:
 
 The error text behind an Error or Sync issue state renders selectable in a banner under the table; [Troubleshooting](troubleshooting.md) covers the recovery steps.
 
-The add/edit form opens in a side panel; it writes the servers setting, so edits made here and edits made in settings.json are the same thing. Test connection, beside Save, probes the draft before you commit it - one discovery call with the URL and credentials as currently entered, answering "Connected - 12 models" or the exact error, and saving nothing. Edit on an external row adopts it into the setting; see [Servers](servers.md#external-servers-and-adoption).
+The add/edit form opens in a side panel; it writes the servers setting, so edits made here and edits made in settings.json are the same thing. Test connection, beside Save, probes the draft before you commit it - one discovery call with the URL and credentials as currently entered, answering "Connected - 12 models" or the exact error, and saving nothing. Failures the extension recognizes as setup problems (a wrong base URL, an unreachable proxy, a rejected key) add a link to the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) under the message. Edit on an external row adopts it into the setting; see [Servers](servers.md#external-servers-and-adoption).
 
 For each secret field the form lets you choose between VS Code secret storage (the default) and an inline settings value:
 

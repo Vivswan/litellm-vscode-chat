@@ -383,6 +383,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				message: message.message,
 				kind: message.kind,
 				requestId: message.requestId,
+				classification: message.classification,
 			};
 			setFailures((current) => ({ ...current, [message.intentType]: failure }));
 		};

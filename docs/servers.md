@@ -43,7 +43,7 @@ One host limitation cuts across all of this: VS Code's provider-group command ca
 
 Each entry carries a label, a base URL, and optionally credentials and per-server model parameters. The dashboard's add/edit form covers the same fields.
 
-- The form's Test connection button probes the draft exactly as entered - unsaved edits included, kept secrets read from wherever they are stored - with one discovery call, and reports the model count or the exact error. It saves and syncs nothing.
+- The form's Test connection button probes the draft exactly as entered - unsaved edits included, kept secrets read from wherever they are stored - with one discovery call, and reports the model count or the exact error (linking the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) when the failure looks like a setup problem). It saves and syncs nothing.
 
 | Setting key | Description |
 |-------------|-------------|

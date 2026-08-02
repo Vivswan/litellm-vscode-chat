@@ -762,6 +762,12 @@ const STYLES = `
 		user-select: text;
 		overflow-wrap: anywhere;
 	}
+	/* A failed test's troubleshooting link: its own line inside the alert,
+	   under the error message it belongs to. */
+	.test-hint {
+		display: block;
+		margin-top: 2px;
+	}
 	/* The discard confirm pins to the panel's bottom edge so it is in view
 	   wherever the Esc that raised it was pressed. */
 	.discard-confirm {

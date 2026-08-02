@@ -23,6 +23,7 @@ import type {
 	SaveServerPayload,
 	SecretDirective,
 	SecretFieldId,
+	TransportErrorClassification,
 } from "./protocol";
 import { NUMBER_SETTING_SPECS, SECRET_FIELD_IDS } from "./protocol";
 import { applySaveServerSetting } from "./saveServer";
@@ -39,9 +40,20 @@ import { applyTestServerDraft } from "./testDraftConnection";
  * logs a classification only.
  */
 export class DashboardValidationError extends Error {
-	constructor(message: string) {
+	/**
+	 * The transport classification behind the failure, when a probe supplied
+	 * one: enum ids and a status number only, never message text, so it rides
+	 * both the intentFailed protocol message and the boundary's rejection log
+	 * line.
+	 */
+	readonly classification?: TransportErrorClassification;
+
+	constructor(message: string, options?: { classification?: TransportErrorClassification | undefined }) {
 		super(message);
 		this.name = "DashboardValidationError";
+		if (options?.classification !== undefined) {
+			this.classification = options.classification;
+		}
 	}
 }
 
