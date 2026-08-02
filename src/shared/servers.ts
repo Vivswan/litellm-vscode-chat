@@ -4,6 +4,7 @@
  * (the dependency between layers is one-way: extension -> provider -> shared).
  */
 
+import type { TransportErrorClassification } from "./errorClassification";
 import type { LogSafeErrorText } from "./logger";
 
 export interface ServerConfig {
@@ -44,6 +45,13 @@ export interface ServerStatusError extends ServerStatusCommon {
 	error: string;
 	/** The rendering for log lines; the brand makes a display string a compile error here (see LogSafeErrorText). */
 	logSafeError: LogSafeErrorText;
+	/**
+	 * Classification only (enum ids plus an integer status, never message
+	 * text), so unlike `error` it is log-legal and protocol-legal. UI surfaces
+	 * branch on it for setup hints; absent means the error was not classified
+	 * and every consumer renders exactly today's UI.
+	 */
+	classification?: TransportErrorClassification | undefined;
 	modelCount?: undefined;
 }
 

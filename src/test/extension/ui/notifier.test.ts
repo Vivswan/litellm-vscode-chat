@@ -1,7 +1,10 @@
 import * as assert from "node:assert";
+import { APIConnectionError } from "openai";
 import * as vscode from "vscode";
 import type { NotifierTimer } from "../../../extension/ui/notifier";
 import { createConfigurationPrompt, Notifier, reconfigureAction } from "../../../extension/ui/notifier";
+import { mapSdkError, statusErrorTexts } from "../../../provider/transport/errorMapping";
+import type { TransportErrorClassification } from "../../../shared/errorClassification";
 import { publicErrorText } from "../../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../../shared/servers";
 import { expectDefined } from "../../testUtils";
@@ -44,7 +47,7 @@ suite("extension/ui/notifier", () => {
 		};
 	}
 
-	function errorStatus(error: string): ServerStatus {
+	function errorStatus(error: string, classification?: TransportErrorClassification): ServerStatus {
 		return {
 			serverId: "srv1",
 			label: "Default",
@@ -52,13 +55,18 @@ suite("extension/ui/notifier", () => {
 			state: "error",
 			error,
 			logSafeError: publicErrorText(error),
+			...(classification !== undefined ? { classification } : {}),
 			lastChecked: new Date().toISOString(),
 		};
 	}
 
 	const noServers = (silent = true): AggregatedStatus => ({ serverStatuses: [], totalModels: 0, silent });
-	const allFailed = (error: string, silent = true): AggregatedStatus => ({
-		serverStatuses: [errorStatus(error)],
+	const allFailed = (
+		error: string,
+		silent = true,
+		classification?: TransportErrorClassification
+	): AggregatedStatus => ({
+		serverStatuses: [errorStatus(error, classification)],
 		totalModels: 0,
 		silent,
 	});
@@ -264,6 +272,90 @@ suite("extension/ui/notifier", () => {
 			assert.strictEqual(pendingCount(), 0, "disposal must clear the timer, not just forget it");
 			elapseGrace();
 			assert.strictEqual(toasts.length, 0, "no toast may fire from a deactivated extension");
+		});
+	});
+
+	suite("the classification on the all-failed toast", () => {
+		const hinted: TransportErrorClassification = { kind: "connection", setupHint: "proxy-not-running" };
+
+		test("a hint-carrying classification keeps today's message and adds Troubleshooting Docs", () => {
+			// The transport message already carries its own advice; the
+			// classification's whole value on the toast is the docs action.
+			const notifier = new Notifier(() => false);
+			notifier.handleAggregatedStatus(
+				allFailed("Connection Error: Unable to connect to http://litellm.test.", true, hinted)
+			);
+			assert.strictEqual(toasts.length, 1);
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "error");
+			assert.strictEqual(toast.message, "LiteLLM: Connection Error: Unable to connect to http://litellm.test.");
+			assert.deepStrictEqual(toast.buttons, ["Reconfigure", "Troubleshooting Docs", "Report Issue"]);
+		});
+
+		test("without a classification the toast renders exactly today's message and actions", () => {
+			const notifier = new Notifier(() => false);
+			notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.message, "LiteLLM: ECONNREFUSED");
+			assert.deepStrictEqual(toast.buttons, ["Reconfigure", "Report Issue"]);
+		});
+
+		test("a hintless classification renders today's UI too", () => {
+			// A classified error whose construction site opted out of a hint (a
+			// timeout, an upstream-auth 401) must not grow a docs button with no
+			// cause-specific target.
+			const notifier = new Notifier(() => false);
+			notifier.handleAggregatedStatus(allFailed("timed out", true, { kind: "timeout" }));
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.message, "LiteLLM: timed out");
+			assert.deepStrictEqual(toast.buttons, ["Reconfigure", "Report Issue"]);
+		});
+
+		test("the same text with the same hint still dedups", () => {
+			const notifier = new Notifier(() => false);
+			notifier.handleAggregatedStatus(allFailed("boom", true, hinted));
+			notifier.handleAggregatedStatus(allFailed("boom", true, hinted));
+			assert.strictEqual(toasts.length, 1, "an unchanged failure must not re-fire");
+		});
+
+		test("a bare failure followed by the same text with a hint re-fires", () => {
+			// The signature keys on error text PLUS hint: the hint identifies the
+			// cause, so its arrival is new information (and the first toast that
+			// carries the Troubleshooting Docs action), not a duplicate.
+			const notifier = new Notifier(() => false);
+			notifier.handleAggregatedStatus(allFailed("boom"));
+			notifier.handleAggregatedStatus(allFailed("boom", true, hinted));
+			assert.strictEqual(toasts.length, 2, "the hinted re-report must not dedup against the bare one");
+			assert.deepStrictEqual(expectDefined(toasts[1]).buttons, ["Reconfigure", "Troubleshooting Docs", "Report Issue"]);
+		});
+
+		test("distinct causes sharing display text re-fire: DNS failure then connection refused", () => {
+			// Composed from real transport mappings so the shared-text premise
+			// cannot drift: ENOTFOUND and ECONNREFUSED deliberately render the
+			// same connection message, but only ECONNREFUSED carries
+			// proxy-not-running - a text-only signature would suppress the toast
+			// that first offers the docs action.
+			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
+			const connectionFailure = (deepest: string) =>
+				statusErrorTexts(
+					mapSdkError(
+						new APIConnectionError({
+							cause: Object.assign(new TypeError("fetch failed"), { cause: new Error(deepest) }),
+						}),
+						ctx
+					)
+				);
+			const dns = connectionFailure("getaddrinfo ENOTFOUND litellm.test");
+			const refused = connectionFailure("connect ECONNREFUSED 127.0.0.1:4000");
+			assert.strictEqual(dns.error, refused.error, "the premise: both causes share one display text");
+			assert.strictEqual(dns.classification?.setupHint, undefined, "DNS failure must carry no hint");
+			assert.strictEqual(refused.classification?.setupHint, "proxy-not-running");
+
+			const notifier = new Notifier(() => false);
+			notifier.handleAggregatedStatus(allFailed(dns.error, true, dns.classification));
+			notifier.handleAggregatedStatus(allFailed(refused.error, true, refused.classification));
+			assert.strictEqual(toasts.length, 2, "the refused connection must not dedup against the DNS failure");
+			assert.deepStrictEqual(expectDefined(toasts[1]).buttons, ["Reconfigure", "Troubleshooting Docs", "Report Issue"]);
 		});
 	});
 

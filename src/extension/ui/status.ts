@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import { z } from "zod";
 import { CMD } from "../../shared/config/commandIds";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/config/storageKeys";
+import type { TransportErrorClassification } from "../../shared/errorClassification";
+import { SETUP_HINT_KINDS, TRANSPORT_ERROR_KINDS } from "../../shared/errorClassification";
 import type { Logger, LogSafeErrorText } from "../../shared/logger";
 import { markLogSafe } from "../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
@@ -53,6 +55,8 @@ export type ConnectionStatus =
 			/** Display-only; log lines must use logSafeError (see ServerStatusError for the split's rationale). */
 			error: string;
 			logSafeError: LogSafeErrorText;
+			/** Classification only, no message text (see ServerStatusError); absent renders exactly today's UI. */
+			classification?: TransportErrorClassification | undefined;
 			totalModels?: number | undefined;
 			serverStatuses?: readonly ServerStatus[] | undefined;
 			lastChecked?: string | undefined;
@@ -95,6 +99,40 @@ export function statusTotalModels(status: ConnectionStatus): number | undefined 
 }
 
 /**
+ * A persisted error classification, shared by the per-server element schema
+ * and the top-level status schema. Every field is validated against the
+ * shared const arrays (an integer status, known enum ids). Junk drops the
+ * smallest thing that contains it, never its element - the hasApiKey
+ * treatment: a junk optional field (a fractional status, a bogus hint id)
+ * drops that field and keeps the rest of the classification; a junk kind or
+ * a non-object drops the whole classification, because a hint is decoration
+ * on an error that renders fine without it.
+ */
+const persistedClassificationSchema = z
+	.object({
+		kind: z.enum(TRANSPORT_ERROR_KINDS),
+		status: z.number().int().optional().catch(undefined),
+		setupHint: z.enum(SETUP_HINT_KINDS).optional().catch(undefined),
+	})
+	.optional()
+	.catch(undefined);
+
+/**
+ * A parsed classification with dropped fields removed rather than left as
+ * explicit undefined keys (the per-field catch writes those), so restored
+ * statuses stay structurally identical to freshly constructed ones.
+ */
+function restoredClassification(
+	parsed: NonNullable<z.infer<typeof persistedClassificationSchema>>
+): TransportErrorClassification {
+	return {
+		kind: parsed.kind,
+		...(parsed.status !== undefined ? { status: parsed.status } : {}),
+		...(parsed.setupHint !== undefined ? { setupHint: parsed.setupHint } : {}),
+	};
+}
+
+/**
  * One persisted status-window element, over only the fields consumers read
  * (the status bar's counts, diagnostics' group classification and legacy
  * rows). Loose, because older extension versions may have persisted extra
@@ -116,10 +154,12 @@ const persistedServerStatusSchema = z.discriminatedUnion("state", [
 		label: z.string(),
 		baseUrl: z.string(),
 		// A message-less (or empty) error element cannot render honestly, so it
-		// is malformed and drops; a junk serverId/lastChecked/hasApiKey only
-		// drops that field (the catch), never the whole element.
+		// is malformed and drops; a junk serverId/lastChecked/hasApiKey/
+		// classification only drops that field (the catch), never the whole
+		// element.
 		error: z.string().min(1),
 		logSafeError: z.string().min(1).optional().catch(undefined),
+		classification: persistedClassificationSchema,
 		serverId: z.string().optional().catch(undefined),
 		lastChecked: z.string().optional().catch(undefined),
 		hasApiKey: z.boolean().optional().catch(undefined),
@@ -152,6 +192,9 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 				// written by publicErrorText (globalState is machine-local and only
 				// this extension writes the key), so re-branding it is sound.
 				logSafeError: element.logSafeError !== undefined ? markLogSafe(element.logSafeError) : RESTORED_ERROR_LOG_TEXT,
+				...(element.classification !== undefined
+					? { classification: restoredClassification(element.classification) }
+					: {}),
 			};
 }
 
@@ -168,6 +211,7 @@ const persistedStatusSchema = z.looseObject({
 	// error state's downgrade path below instead of rendering blank text.
 	error: z.string().min(1).optional().catch(undefined),
 	logSafeError: z.string().min(1).optional().catch(undefined),
+	classification: persistedClassificationSchema,
 	lastChecked: z.string().optional(),
 });
 
@@ -221,6 +265,7 @@ function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 				// Same fail-closed rule as restoreServerStatus: a pre-upgrade
 				// display message never becomes the log rendering.
 				logSafeError: raw.logSafeError !== undefined ? markLogSafe(raw.logSafeError) : RESTORED_ERROR_LOG_TEXT,
+				...(raw.classification !== undefined ? { classification: restoredClassification(raw.classification) } : {}),
 				serverStatuses,
 				...(raw.totalModels !== undefined ? { totalModels: raw.totalModels } : {}),
 				...lastChecked,
@@ -383,6 +428,7 @@ export class StatusBarManager {
 				state: "error",
 				error: firstFailure.error,
 				logSafeError: firstFailure.logSafeError,
+				...(firstFailure.classification !== undefined ? { classification: firstFailure.classification } : {}),
 				serverStatuses,
 				totalModels: 0,
 				lastChecked: now,
@@ -400,6 +446,7 @@ export class StatusBarManager {
 			void this.updateStatusBar({
 				state: "error",
 				// Display localizes; the log-safe rendering stays English by policy.
+				// No classification: this verdict is synthetic, not a transport failure.
 				error: vscode.l10n.t("Servers returned 0 models"),
 				logSafeError: markLogSafe("Servers returned 0 models"),
 				serverStatuses,

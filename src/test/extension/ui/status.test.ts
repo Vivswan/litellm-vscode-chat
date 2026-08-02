@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import type * as vscode from "vscode";
 import { StatusBarManager } from "../../../extension/ui/status";
 import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
+import type { TransportErrorClassification } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
 import type { ServerStatus } from "../../../shared/servers";
 
@@ -31,6 +32,16 @@ function createManager(
 	} as unknown as vscode.ExtensionContext;
 	createdContexts.push(context);
 	return new StatusBarManager(context, new Logger({ info() {}, error() {} }, recorder), hasConfiguredServers);
+}
+
+/** The single restored element, narrowed to the error variant or failing loudly. */
+function expectErrorElement(serverStatuses: readonly ServerStatus[]): ServerStatus & { state: "error" } {
+	assert.strictEqual(serverStatuses.length, 1, "the element must survive the restore");
+	const element = serverStatuses[0];
+	if (element === undefined || element.state !== "error") {
+		throw new assert.AssertionError({ message: `expected one error element, got ${JSON.stringify(element)}` });
+	}
+	return element;
 }
 
 suite("extension/ui/status", () => {
@@ -80,6 +91,39 @@ suite("extension/ui/status", () => {
 		);
 		const status = manager.connectionStatus;
 		assert.ok(status.state === "error" && status.error.includes("MARKER"), "the display surface keeps the full text");
+	});
+
+	test("an all-failed report copies the first failure's classification; the zero-models synthetic carries none", () => {
+		const manager = createManager(undefined, () => true);
+		const classification: TransportErrorClassification = { kind: "http", status: 404, setupHint: "check-base-url" };
+		const failed: ServerStatus = {
+			serverId: "srv1",
+			label: "Prod",
+			baseUrl: "http://prod.test",
+			state: "error",
+			error: "answered 404",
+			logSafeError: markLogSafe("RequestError(http, status 404, discovery)"),
+			classification,
+			lastChecked: new Date().toISOString(),
+		};
+
+		manager.handleAggregatedStatus({ serverStatuses: [failed], totalModels: 0, silent: true });
+		const allFailed = manager.connectionStatus;
+		assert.ok(allFailed.state === "error");
+		assert.deepStrictEqual(allFailed.classification, classification);
+
+		const ok: ServerStatus = {
+			serverId: "srv1",
+			label: "Prod",
+			baseUrl: "http://prod.test",
+			state: "ok",
+			modelCount: 0,
+			lastChecked: new Date().toISOString(),
+		};
+		manager.handleAggregatedStatus({ serverStatuses: [ok], totalModels: 0, silent: true });
+		const zeroModels = manager.connectionStatus;
+		assert.ok(zeroModels.state === "error");
+		assert.ok(!("classification" in zeroModels), "the synthetic zero-models verdict is not a transport failure");
 	});
 
 	suite("the empty status window", () => {
@@ -224,6 +268,115 @@ suite("extension/ui/status", () => {
 			assert.ok(status.state === "error");
 			assert.strictEqual(status.error, "boom body");
 			assert.strictEqual(status.logSafeError, "RequestError(http, status 502)");
+		});
+
+		suite("error classification", () => {
+			// The persisted shape is enum ids plus an integer status (never message
+			// text); junk drops the smallest thing that contains it, matching the
+			// hasApiKey treatment: a junk optional field keeps the rest of the
+			// classification, a junk kind or non-object drops the whole field, and
+			// nothing ever drops the element.
+			const classification = { kind: "connection", setupHint: "proxy-not-running" };
+			const fieldDroppingJunk: ReadonlyArray<[string, unknown, unknown]> = [
+				[
+					"a fractional status",
+					{ kind: "http", status: 404.5, setupHint: "check-base-url" },
+					{ kind: "http", setupHint: "check-base-url" },
+				],
+				["a bogus setupHint", { kind: "http", status: 404, setupHint: "reboot" }, { kind: "http", status: 404 }],
+			];
+			const classificationDroppingJunk: ReadonlyArray<[string, unknown]> = [
+				["an unknown kind", { kind: "exploded", status: 404 }],
+				["a non-object value", "check-base-url"],
+			];
+
+			test("restores at the top level", () => {
+				const manager = createManager({ state: "error", error: "boom", classification });
+
+				const status = manager.connectionStatus;
+				assert.ok(status.state === "error");
+				assert.deepStrictEqual(status.classification, classification);
+			});
+
+			test("restores on a nested error element", () => {
+				const manager = createManager({
+					state: "degraded",
+					totalModels: 0,
+					serverStatuses: [
+						{ label: "Prod", baseUrl: "http://prod.test", state: "error", error: "boom", classification },
+					],
+				});
+
+				const status = manager.connectionStatus;
+				assert.ok(status.state === "degraded");
+				const element = expectErrorElement(status.serverStatuses);
+				assert.deepStrictEqual(element.classification, classification);
+			});
+
+			test("an absent field restores as absent at both sites", () => {
+				const manager = createManager({
+					state: "error",
+					error: "boom",
+					serverStatuses: [{ label: "Prod", baseUrl: "http://prod.test", state: "error", error: "boom" }],
+				});
+
+				const status = manager.connectionStatus;
+				assert.ok(status.state === "error");
+				assert.ok(!("classification" in status), "the top-level restore must not invent a classification");
+				const element = expectErrorElement(status.serverStatuses ?? []);
+				assert.ok(!("classification" in element), "the element restore must not invent a classification");
+			});
+
+			for (const [label, junk, preserved] of fieldDroppingJunk) {
+				test(`${label} drops that field and keeps the rest, at the top level`, () => {
+					const manager = createManager({ state: "error", error: "boom", classification: junk });
+
+					const status = manager.connectionStatus;
+					assert.ok(status.state === "error", "the error status itself must survive");
+					assert.deepStrictEqual(status.classification, preserved);
+				});
+
+				test(`${label} drops that field and keeps the rest, on the nested element`, () => {
+					const manager = createManager({
+						state: "degraded",
+						totalModels: 0,
+						serverStatuses: [
+							{ label: "Prod", baseUrl: "http://prod.test", state: "error", error: "boom", classification: junk },
+						],
+					});
+
+					const status = manager.connectionStatus;
+					assert.ok(status.state === "degraded");
+					assert.deepStrictEqual(expectErrorElement(status.serverStatuses).classification, preserved);
+				});
+			}
+
+			for (const [label, junk] of classificationDroppingJunk) {
+				test(`${label} drops the whole field but keeps the top-level error`, () => {
+					const manager = createManager({ state: "error", error: "boom", classification: junk });
+
+					const status = manager.connectionStatus;
+					assert.ok(status.state === "error", "the error status itself must survive");
+					assert.strictEqual(status.error, "boom");
+					assert.ok(!("classification" in status), "junk must drop the field, not poison the status");
+				});
+
+				test(`${label} drops the whole field but keeps the nested element`, () => {
+					const manager = createManager({
+						state: "degraded",
+						totalModels: 0,
+						serverStatuses: [
+							{ label: "Prod", baseUrl: "http://prod.test", state: "error", error: "boom", classification: junk },
+						],
+					});
+
+					const status = manager.connectionStatus;
+					assert.ok(status.state === "degraded");
+					const element = expectErrorElement(status.serverStatuses);
+					assert.strictEqual(element.error, "boom");
+					assert.ok(!("classification" in element), "junk must drop the field, not the element");
+				});
+			}
 		});
 
 		test("an error status that lost its message downgrades to degraded connecting", () => {

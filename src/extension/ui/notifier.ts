@@ -1,9 +1,11 @@
 import * as vscode from "vscode";
 import type { ConfigurationPrompt } from "../../provider/config";
 import { CMD } from "../../shared/config/commandIds";
+import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { AggregatedStatus } from "../../shared/servers";
 import { isErrorServerStatus } from "../../shared/servers";
-import { GITHUB_DOCS_URL } from "../../shared/util/links";
+import { GITHUB_DOCS_URL, SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
+import { openUrl } from "../../shared/util/openUrl";
 
 export interface MessageAction {
 	label: string;
@@ -54,6 +56,37 @@ export function viewOutputAction(channel: vscode.OutputChannel, label = vscode.l
 
 export function testConnectionAction(label = vscode.l10n.t("Test Connection")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand(CMD.testConnection) };
+}
+
+function troubleshootingDocsAction(url: string, label = vscode.l10n.t("Troubleshooting Docs")): MessageAction {
+	return { label, run: () => openUrl(url) };
+}
+
+/**
+ * The error-toast actions for surfaces without an output channel (the
+ * notifier's background toasts): a hint-carrying classification earns the
+ * Troubleshooting Docs button, deep-linked to that cause's docs section;
+ * otherwise exactly today's pair. The message itself never changes - the
+ * transport messages already carry their own advice, so the hint's whole
+ * value on a toast is the docs link.
+ */
+function notifierErrorActions(classification: TransportErrorClassification | undefined): MessageAction[] {
+	const setupHint = classification?.setupHint;
+	return setupHint !== undefined
+		? [reconfigureAction(), troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[setupHint]), reportIssueAction()]
+		: [reconfigureAction(), reportIssueAction()];
+}
+
+/**
+ * The error-toast actions for the command surfaces (test connection, model
+ * sync): the same set as notifierErrorActions with View Output first in both
+ * variants, so a hint never displaces access to the logs.
+ */
+export function commandErrorActions(
+	classification: TransportErrorClassification | undefined,
+	outputChannel: vscode.OutputChannel
+): MessageAction[] {
+	return [viewOutputAction(outputChannel), ...notifierErrorActions(classification)];
 }
 
 export function openChatAction(label = vscode.l10n.t("Open Chat")): MessageAction {
@@ -260,11 +293,17 @@ export class Notifier implements vscode.Disposable {
 		if (firstFailure !== undefined && failures.length === status.serverStatuses.length) {
 			return {
 				tag: "all-failed",
-				// The dedup signature is an internal key, never displayed; it stays English.
-				signature: `all-failed:${firstFailure.error}`,
+				// The dedup signature is an internal English key, never displayed.
+				// It keys on the error text PLUS the setup hint: the hint identifies
+				// the cause, and distinct causes can share display text (ENOTFOUND
+				// and ECONNREFUSED deliberately render the same connection message,
+				// but only the latter carries proxy-not-running), so a failure whose
+				// hint changes must re-fire the toast that first carries the
+				// Troubleshooting Docs action.
+				signature: `all-failed:${firstFailure.error}:${firstFailure.classification?.setupHint ?? ""}`,
 				kind: "error",
 				message: vscode.l10n.t("LiteLLM: {0}", firstFailure.error),
-				actions: [reconfigureAction(), reportIssueAction()],
+				actions: notifierErrorActions(firstFailure.classification),
 			};
 		}
 		if (status.totalModels === 0) {
