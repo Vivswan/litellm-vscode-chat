@@ -1,0 +1,14 @@
+# Gitleaks config for the scheduled full-history scan in the managed ci.yml.
+# Keeps the complete default ruleset (useDefault) and allowlists known false
+# positives narrowly, by the exact matched secret - never by path, so real
+# credentials in test files still get flagged.
+
+[extend]
+useDefault = true
+
+# [allowlist] (singular) rather than [[allowlists]]: the gitleaks-action pins
+# gitleaks 8.24.3, which silently ignores the newer plural table.
+[allowlist]
+description = "Test fixture simulating VS Code's internal underscore-prefixed modelOptions fields; trips the generic-api-key entropy rule"
+regexTarget = "secret"
+regexes = ['''^test-correlation-id-12345$''']
