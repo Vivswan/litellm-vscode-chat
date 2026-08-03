@@ -3,21 +3,30 @@
 # overwritten by sync, so allowlists added here survive updates.
 # [extend] pulls in gitleaks' default ruleset - without it, this file
 # would REPLACE the defaults and disable every stock rule.
+# minVersion is honored only by binaries new enough to know it (an older
+# one skips the check silently), so the CI job pins GITLEAKS_VERSION to a
+# release above the floor.
+minVersion = "8.25.0"
+
 [extend]
 useDefault = true
 
-# The singular [allowlist] table, not [[allowlists]]: the CI action's
-# default gitleaks (8.24.3) silently ignores the plural form.
-[allowlist]
 # Generated lockfiles: integrity hashes occasionally trip the generic
-# entropy rules, and secrets do not belong in generated files. Add
-# further false-positive paths (or regexes = [...]) here; for a one-off
-# finding, prefer an inline "gitleaks:allow" comment on the flagged line
-# - finding-level, so it never excuses future secrets in the same file.
+# entropy rules, and secrets do not belong in generated files.
+[[allowlists]]
+description = "generated lockfiles"
 paths = ['''(^|/)(bun\.lock|bun\.lockb|uv\.lock|Cargo\.lock)$''']
-# Historical test fixture (a fake modelOptions correlation id) that trips
-# the generic-api-key entropy rule in past commits, where an inline
-# gitleaks:allow comment cannot reach. Matched against the exact extracted
-# secret, so real credentials in test files still get flagged.
+
+# Add further false-positive allowlists here; for a one-off finding,
+# prefer an inline "gitleaks:allow" comment on the flagged line -
+# finding-level, so it never excuses future secrets in the same file.
+
+# A test-fixture correlation id trips the generic-api-key entropy rule in
+# historical commits (8aa7fb00, e66bb318), where an inline gitleaks:allow
+# comment cannot reach; the line at HEAD carries one instead. Matched
+# against the exact extracted secret, so real credentials in test files
+# still get flagged.
+[[allowlists]]
+description = "historical test-fixture correlation id"
 regexTarget = "secret"
 regexes = ['''^test-correlation-id-12345$''']
