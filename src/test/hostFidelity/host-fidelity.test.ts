@@ -1258,7 +1258,7 @@ suite("Host-Fidelity Tests (live)", () => {
 				[vscode.LanguageModelChatMessage.User("Say OK.")],
 				{
 					modelOptions: {
-						_capturingTokenCorrelationId: "test-correlation-id-12345",
+						_capturingTokenCorrelationId: "test-correlation-id-12345", // gitleaks:allow
 						_internalSessionData: { sessionId: "abc" },
 						temperature: 0.5,
 					},
