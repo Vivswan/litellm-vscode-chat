@@ -1,15 +1,23 @@
-# Gitleaks config for the scheduled full-history scan in the managed ci.yml.
-# Keeps the complete default ruleset (useDefault) and allowlists known false
-# positives narrowly, by the exact matched secret - never by path, so real
-# credentials in test files still get flagged.
-
+# Repo-owned gitleaks config, read by the CI gitleaks job (and local
+# `gitleaks git` runs). Seeded once by repo-platform's template and never
+# overwritten by sync, so allowlists added here survive updates.
+# [extend] pulls in gitleaks' default ruleset - without it, this file
+# would REPLACE the defaults and disable every stock rule.
 [extend]
 useDefault = true
 
-# [allowlist] (singular) rather than [[allowlists]]: the plural table only
-# arrived in gitleaks 8.25.0 and the gitleaks-action's bundled version predates
-# it; the singular form works on both.
+# The singular [allowlist] table, not [[allowlists]]: the CI action's
+# default gitleaks (8.24.3) silently ignores the plural form.
 [allowlist]
-description = "Test fixture simulating VS Code's internal underscore-prefixed modelOptions fields; trips the generic-api-key entropy rule"
+# Generated lockfiles: integrity hashes occasionally trip the generic
+# entropy rules, and secrets do not belong in generated files. Add
+# further false-positive paths (or regexes = [...]) here; for a one-off
+# finding, prefer an inline "gitleaks:allow" comment on the flagged line
+# - finding-level, so it never excuses future secrets in the same file.
+paths = ['''(^|/)(bun\.lock|bun\.lockb|uv\.lock|Cargo\.lock)$''']
+# Historical test fixture (a fake modelOptions correlation id) that trips
+# the generic-api-key entropy rule in past commits, where an inline
+# gitleaks:allow comment cannot reach. Matched against the exact extracted
+# secret, so real credentials in test files still get flagged.
 regexTarget = "secret"
 regexes = ['''^test-correlation-id-12345$''']
