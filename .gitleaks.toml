@@ -6,8 +6,9 @@
 [extend]
 useDefault = true
 
-# [allowlist] (singular) rather than [[allowlists]]: the gitleaks-action pins
-# gitleaks 8.24.3, which silently ignores the newer plural table.
+# [allowlist] (singular) rather than [[allowlists]]: the plural table only
+# arrived in gitleaks 8.25.0 and the gitleaks-action's bundled version predates
+# it; the singular form works on both.
 [allowlist]
 description = "Test fixture simulating VS Code's internal underscore-prefixed modelOptions fields; trips the generic-api-key entropy rule"
 regexTarget = "secret"
