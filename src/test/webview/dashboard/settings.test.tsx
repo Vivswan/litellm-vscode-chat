@@ -500,3 +500,13 @@ test("every scalar row carries a settings.json jump that posts revealSetting wit
 	fireClick(booleanJump as HTMLButtonElement);
 	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "promptCaching.enabled" }]);
 });
+
+test("the model-defaults group carries the deprecation hint pointing at modelCapabilities", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const group = [...root.querySelectorAll(".settings-group")].find((el) =>
+		el.querySelector(".settings-group-title")?.textContent?.includes("Model defaults")
+	);
+	const hint = group?.querySelector("p.hint");
+	expect(hint?.textContent).toContain("Deprecated");
+	expect(hint?.textContent).toContain("modelCapabilities");
+});

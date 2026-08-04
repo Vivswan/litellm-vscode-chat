@@ -18,6 +18,7 @@
 - 多模态输入 (视觉、PDF/文档附件、文本/JSON 数据) 以及生成的图像/音频输出
 - 流式传输、函数调用和思维/推理 token
 - 广泛的模型选项透传 (`response_format`、`reasoning_effort`、`seed` 等)
+- 每模型能力覆盖与声明的模型: 纠正网关报告的内容, 或注册它根本列不出的模型, 空缺由 OpenRouter 目录自动填补 ([详情](docs/zh-cn/model-capabilities.md))
 - 用于管理服务器、模型和设置的仪表板面板, 背后是普通的 VS Code 设置
 - 支持自托管或云端部署
 
@@ -52,6 +53,7 @@
 - [服务器](docs/zh-cn/servers.md) - 多服务器、密钥与密钥存储、OAuth、虚拟密钥、采用外部服务器
 - [模型与能力](docs/zh-cn/models.md) - 哪些模型会注册、能力门控、多模态输入输出、用量报告
 - [模型参数](docs/zh-cn/model-parameters.md) - 每模型请求参数、前缀匹配、优先级、推理强度
+- [模型能力](docs/zh-cn/model-capabilities.md) - 能力覆盖、声明的模型、OpenRouter 目录、预期的发现失败
 - [设置](docs/zh-cn/settings.md) - 每个设置及其默认值: token 限制、超时、缓存、标头
 - [仪表板](docs/zh-cn/dashboard.md) - 面板的标签页、服务器表单和记录编辑器
 - [故障排除](docs/zh-cn/troubleshooting.md) - 诊断、问题报告、常见问题、隐私、卸载清理、迁移说明
@@ -67,6 +69,10 @@ bun run compile
 ```
 
 按 `F5` 启动扩展开发主机。[开发](docs/development.md)介绍了本地 LiteLLM 栈和测试套件; [CONTRIBUTING.md](CONTRIBUTING.md) 介绍了如何提交更改。
+
+## 隐私
+
+你的提示和补全只在 VS Code 与你配置的 LiteLLM 服务器之间传输。一个默认开启的例外: 扩展约每周从 `https://openrouter.ai/api/v1/models` 刷新一次内置的模型能力目录, 这是一个公开的、无需身份验证的模型列表 - 该请求不携带提示、不携带用量, 也不携带任何关于你或你的服务器的信息。把 `litellm-vscode-chat.openRouterCatalog.enabled` 设为 `false` 可关闭刷新和自动匹配; 显式的 `_openrouter_model` 指令继续离线工作于内置快照。详情见[模型能力](docs/zh-cn/model-capabilities.md#openrouter-目录)和[隐私与数据](docs/zh-cn/troubleshooting.md#隐私与数据)。
 
 ## 致谢
 

@@ -18,6 +18,7 @@ import { validateHeadersRecord } from "../../../extension/dashboard/intents";
 import {
 	BOOLEAN_SETTING_IDS,
 	DASHBOARD_COMMAND_IDS,
+	EXPECTED_FAILURE_CATEGORIES,
 	type HeaderScalar,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	NUMBER_SETTING_IDS,
@@ -66,6 +67,13 @@ const saveServerPayload = fc.record(
 		label: fc.string(),
 		baseUrl: fc.string(),
 		...Object.fromEntries(NON_SECRET_OPTIONAL_FIELD_IDS.map((field) => [field, fc.string()])),
+		modelParameters: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), {
+			maxKeys: 3,
+		}),
+		modelCapabilities: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), {
+			maxKeys: 3,
+		}),
+		expectedFailures: fc.uniqueArray(fc.constantFrom(...EXPECTED_FAILURE_CATEGORIES)),
 	},
 	{ requiredKeys: ["label", "baseUrl"] }
 );
@@ -137,6 +145,13 @@ const validMessageArbs: Readonly<Record<WebviewToExtensionMessage["type"], fc.Ar
 		requestId,
 	}),
 	readInlineSecrets: fc.record({ type: fc.constant("readInlineSecrets"), label: fc.string(), requestId }),
+	readModelCapabilities: fc.record({
+		type: fc.constant("readModelCapabilities"),
+		scopeKey: fc.string({ minLength: 1, maxLength: REQUEST_ID_MAX_LENGTH }),
+		rawId: fc.string({ minLength: 1, maxLength: 64 }),
+		requestId,
+	}),
+	searchCatalog: fc.record({ type: fc.constant("searchCatalog"), query: fc.string({ maxLength: 200 }), requestId }),
 	adoptServer: fc.record({
 		type: fc.constant("adoptServer"),
 		label: fc.string(),

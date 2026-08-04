@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-cn/models.md) | [繁體中文](zh-tw/models.md)
 
-The extension reads each server's model info and registers what it finds with Copilot Chat: the model's token limits, pricing, and capability flags all come from there. Capabilities decide what a model is offered for (tools, images, reasoning); they never change what the extension asks a model to do, which is [Model parameters](model-parameters.md)' job.
+The extension reads each server's model info and registers what it finds with Copilot Chat: the model's token limits, pricing, and capability flags all come from there, corrected and extended by anything you set in [Model capabilities](model-capabilities.md). Capabilities decide what a model is offered for (tools, images, reasoning); they never change what the extension asks a model to do, which is [Model parameters](model-parameters.md)' job.
 
 ## What registers
 
@@ -12,7 +12,7 @@ Every chat-capable model a reachable server reports appears in the picker. Three
 
 - Models whose `model_info.mode` names a non-chat endpoint (`embedding`, `image_generation`, `audio_speech`, `audio_transcription`, `rerank`, `moderation`) are left out on purpose, since a chat request to them can only fail. Models with no declared mode always register.
 - Deployments the proxy has paused (`model_info.blocked`) are skipped.
-- Nothing else is filtered: a model with no capability data at all still registers, with the fallback token limits from [Settings](settings.md#token-limits).
+- Nothing else is filtered: a model with no capability data at all still registers, its gaps filled by [`modelCapabilities`](model-capabilities.md), the fallback token limits from [Settings](settings.md#token-limits), or an [OpenRouter catalog match](model-capabilities.md#the-openrouter-catalog) (the [precedence](model-capabilities.md#precedence)).
 
 When one model name is served by several deployments (a load-balanced pool), it registers once, with the strictest contributor's token limits, so a request can never exceed whichever deployment serves it.
 
@@ -36,7 +36,7 @@ The picker's and the dashboard's Family column comes from the same data: entries
 | Reasoning | `supports_reasoning`, or `reasoning_effort` among `supported_openai_params` (an explicit `supports_reasoning: false` wins) | The Thinking Effort control in the picker; see [Model parameters](model-parameters.md#reasoning-effort-in-the-model-picker) |
 | Prompt caching | `supports_prompt_caching` | Whether cache breakpoints are placed; see [Settings](settings.md#prompt-caching) |
 
-A wrong flag on the server side is worth fixing there: the extension trusts the declaration in both directions, offering what is declared and withholding what is not.
+A wrong flag on the server side is worth fixing there: the extension trusts the declaration in both directions, offering what is declared and withholding what is not. When the server is not yours to fix, override the flag with [`modelCapabilities`](model-capabilities.md) instead.
 
 ## Multimodal input
 

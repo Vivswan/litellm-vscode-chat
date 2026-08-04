@@ -73,6 +73,44 @@ suite("extension/dashboard/protocol renderers", () => {
 			assert.strictEqual(classifyOverall(servers), "waiting");
 			assert.strictEqual(overallStatusText(servers, 0), "Waiting for first sync");
 		});
+
+		test("expected failures never count as failures: declared models read as connected", () => {
+			const servers = [
+				declaredServer({ modelCount: 4 }),
+				declaredServer({
+					label: "Gateway",
+					state: "error",
+					error: "404 on /models",
+					expected: true,
+					declaredModelCount: 2,
+				}),
+			];
+			assert.strictEqual(classifyOverall(servers), "connected");
+			assert.strictEqual(overallStatusText(servers, 6), "Connected (6 models)");
+		});
+
+		test("all-expected failures with nothing declared read as the neutral needs-declare verdict", () => {
+			const servers = [declaredServer({ state: "error", error: "404 on /models", expected: true })];
+			assert.strictEqual(classifyOverall(servers), "needs-declare");
+			assert.strictEqual(
+				overallStatusText(servers, 0),
+				"Expected discovery failures; no declared models (add _declare entries to modelCapabilities)"
+			);
+		});
+
+		test("an unexpected failure beside an expected one still degrades, not errors", () => {
+			const servers = [
+				declaredServer({ state: "error", error: "refused" }),
+				declaredServer({
+					label: "Gateway",
+					state: "error",
+					error: "404 on /models",
+					expected: true,
+					declaredModelCount: 1,
+				}),
+			];
+			assert.strictEqual(classifyOverall(servers), "degraded");
+		});
 	});
 
 	suite("serverOutcomeText", () => {
@@ -94,12 +132,60 @@ suite("extension/dashboard/protocol renderers", () => {
 			assert.strictEqual(serverOutcomeText(declaredServer({ state: "unchecked" })), "Not checked yet");
 		});
 
+		test("an expected failure with declared models reads as OK, annotated (expected)", () => {
+			const server = declaredServer({
+				state: "error",
+				error: "404 on /models",
+				expected: true,
+				declaredModelCount: 2,
+			});
+			assert.strictEqual(serverOutcomeText(server), "OK (2 declared models) - 404 on /models (expected)");
+			assert.strictEqual(
+				serverOutcomeText(declaredServer({ state: "error", error: "x", expected: true, declaredModelCount: 1 })),
+				"OK (1 declared model) - x (expected)"
+			);
+		});
+
+		test("an expected failure with nothing declared stays an annotated error line", () => {
+			const line = serverOutcomeText(
+				declaredServer({
+					state: "error",
+					error: "404 on /models",
+					expected: true,
+					notices: ["expected-failures-nothing-declared"],
+				})
+			);
+			assert.ok(line.startsWith("Error: 404 on /models (expected)"), line);
+			assert.ok(line.includes("add _declare entries"), line);
+		});
+
 		test("an entry whose group cannot serve its per-entry parameters says so on a healthy line", () => {
 			// The row is healthy, which is exactly why the line must call the
 			// inactive parameters out: this is what users collect into reports.
-			const line = serverOutcomeText(declaredServer({ modelCount: 2, notice: "entry-params-inactive" }));
+			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-params-inactive"] }));
 			assert.ok(line.startsWith("OK (2 models) - per-entry modelParameters are not applied"), line);
 			assert.ok(line.includes("run Sync Models Now"), line);
+		});
+
+		test("the capabilities twin of the params-inactive line names its own fields", () => {
+			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-capabilities-inactive"] }));
+			assert.ok(
+				line.startsWith("OK (2 models) - per-entry modelCapabilities and expectedFailures are not applied"),
+				line
+			);
+			assert.ok(line.includes("run Sync Models Now"), line);
+		});
+
+		test("a row carrying both inactive notices lists them both, params first", () => {
+			const line = serverOutcomeText(
+				declaredServer({ modelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] })
+			);
+			assert.ok(line.includes("per-entry modelParameters are not applied"), line);
+			assert.ok(line.includes("per-entry modelCapabilities and expectedFailures are not applied"), line);
+			assert.ok(
+				line.indexOf("modelParameters are not applied") < line.indexOf("modelCapabilities and expectedFailures"),
+				line
+			);
 		});
 
 		test("the one-line form is exactly the composition of serverOutcomeParts", () => {
@@ -111,16 +197,24 @@ suite("extension/dashboard/protocol renderers", () => {
 				declaredServer({ modelCount: 2, error: "upsert refused" }),
 				declaredServer({ state: "error", error: "connection refused" }),
 				declaredServer({ state: "unchecked" }),
-				declaredServer({ modelCount: 2, notice: "entry-params-inactive" }),
-				declaredServer({ modelCount: 2, error: "upsert refused", notice: "entry-params-inactive" }),
-				declaredServer({ state: "error", error: "connection refused", notice: "entry-params-inactive" }),
-				declaredServer({ state: "unchecked", notice: "entry-params-inactive" }),
+				declaredServer({ modelCount: 2, notices: ["entry-params-inactive"] }),
+				declaredServer({ modelCount: 2, error: "upsert refused", notices: ["entry-params-inactive"] }),
+				declaredServer({ state: "error", error: "connection refused", notices: ["entry-params-inactive"] }),
+				declaredServer({ state: "unchecked", notices: ["entry-params-inactive"] }),
+				declaredServer({ modelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
+				declaredServer({ state: "error", error: "404", expected: true, declaredModelCount: 2 }),
+				declaredServer({
+					state: "error",
+					error: "404",
+					expected: true,
+					notices: ["expected-failures-nothing-declared"],
+				}),
 			];
 			for (const server of cases) {
 				const parts = serverOutcomeParts(server);
 				const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
 				const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
-				const notice = parts.notice === undefined ? "" : ` - ${parts.notice}`;
+				const notice = parts.notice.map((text) => ` - ${text}`).join("");
 				assert.strictEqual(serverOutcomeText(server), `${status}${error}${notice}`);
 			}
 		});

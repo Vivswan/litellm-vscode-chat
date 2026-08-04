@@ -45,6 +45,7 @@ export type NumberSettingId = keyof typeof NUMBER_SETTING_SPECS;
 export const BOOLEAN_SETTING_SPECS = {
 	"promptCaching.enabled": { default: true },
 	maskApiKeyInput: { default: true },
+	"openRouterCatalog.enabled": { default: true },
 } as const satisfies Record<string, BooleanSettingValueSpec>;
 
 export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;

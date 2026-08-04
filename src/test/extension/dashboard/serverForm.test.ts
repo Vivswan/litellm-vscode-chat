@@ -172,7 +172,15 @@ suite("extension/dashboard/serverForm", () => {
 	suite("parseServerForm intent", () => {
 		test("trims fields and omits empty optionals entirely", () => {
 			const intent = intentOf(draft({ label: " Prod ", baseUrl: " http://localhost:4000 ", oauthScopes: "  " }));
-			assert.deepStrictEqual(intent.server, { label: "Prod", baseUrl: "http://localhost:4000" });
+			// The two entry-record fields are the exception: they ride every
+			// intent, even empty, so the save can tell a deliberate clear from
+			// a payload that predates their editors.
+			assert.deepStrictEqual(intent.server, {
+				label: "Prod",
+				baseUrl: "http://localhost:4000",
+				modelCapabilities: {},
+				expectedFailures: [],
+			});
 			assert.strictEqual(intent.replaceLabel, undefined);
 		});
 
@@ -272,6 +280,61 @@ suite("extension/dashboard/serverForm", () => {
 			);
 			assert.deepStrictEqual(intent.server.modelParameters, { "gpt-4": { temperature: 0.2, stop: ["END"] } });
 			assert.ok(!("modelParameters" in intentOf(draft()).server));
+		});
+	});
+
+	suite("per-entry model capabilities and expected failures", () => {
+		test("blocked capability rows surface on the field slot and row-aligned", () => {
+			const parse = parseServerForm(
+				draft({
+					modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "context_length", valueText: "not a number" }] }],
+				})
+			);
+			assert.ok(!parse.ok);
+			assert.notStrictEqual(parse.problems.modelCapabilities, undefined, "the save summary can point at the field");
+			assert.notStrictEqual(parse.modelCapabilityIssues[0]?.rows[0]?.problem, undefined);
+		});
+
+		test("unknown-key hints ride a clean parse without blocking it", () => {
+			const parse = parseServerForm(
+				draft({ modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "supports_pdf_input", valueText: "true" }] }] })
+			);
+			assert.ok(parse.ok, "unknown keys hint, never block");
+			assert.notStrictEqual(parse.modelCapabilityIssues[0]?.rows[0]?.hint, undefined);
+			assert.deepStrictEqual(parse.intent.server.modelCapabilities, { "gpt-4": { supports_pdf_input: true } });
+		});
+
+		test("clean rows and the checkbox list assemble into the intent; empty drafts send both fields empty", () => {
+			const intent = intentOf(
+				draft({
+					modelCapabilities: [
+						{
+							prefix: "my-model",
+							params: [
+								{ key: "context_length", valueText: "128000" },
+								{ key: "supports_vision", valueText: "true" },
+								{ key: "_declare", valueText: "true" },
+								{ key: "_openrouter_model", valueText: "openai/gpt-4o" },
+							],
+						},
+					],
+					expectedFailures: ["modelListing", "modelInfo"],
+				})
+			);
+			assert.deepStrictEqual(intent.server.modelCapabilities, {
+				"my-model": {
+					context_length: 128000,
+					supports_vision: true,
+					_declare: true,
+					_openrouter_model: "openai/gpt-4o",
+				},
+			});
+			assert.deepStrictEqual(intent.server.expectedFailures, ["modelListing", "modelInfo"]);
+			// Empty drafts still send both fields: present-but-empty is the
+			// deliberate clear; absent is reserved for pre-editor payloads.
+			const empty = intentOf(draft()).server;
+			assert.deepStrictEqual(empty.modelCapabilities, {});
+			assert.deepStrictEqual(empty.expectedFailures, []);
 		});
 	});
 
@@ -419,11 +482,46 @@ suite("extension/dashboard/serverForm", () => {
 			});
 		});
 
-		test("CONNECTION_FIELDS is exactly the field catalog minus label and modelParameters", () => {
+		test("CONNECTION_FIELDS is exactly the field catalog minus label and the record and list fields", () => {
 			// The clear-on-edit rule and the field catalog cannot drift: a new
 			// connection-shaped field must join CONNECTION_FIELDS or this fails.
-			const expected = SERVER_FORM_FIELD_ORDER.filter((field) => field !== "label" && field !== "modelParameters");
+			// modelCapabilities and expectedFailures stay out by design: they
+			// shape the probe's OUTCOME presentation (declared counts, expected
+			// downgrades), never the connection it tests.
+			const expected = SERVER_FORM_FIELD_ORDER.filter(
+				(field) =>
+					field !== "label" &&
+					field !== "modelParameters" &&
+					field !== "modelCapabilities" &&
+					field !== "expectedFailures"
+			);
 			assert.deepStrictEqual([...CONNECTION_FIELDS].sort(), [...expected].sort());
+		});
+
+		test("clean capability rows and expectedFailures ride the probe intent; broken rows are dropped, not blocking", () => {
+			const withCaps = parseServerFormForTest(
+				draft({
+					modelCapabilities: [{ prefix: "my-model", params: [{ key: "_declare", valueText: "true" }] }],
+					expectedFailures: ["modelListing"],
+				})
+			);
+			assert.ok(withCaps.ok);
+			assert.deepStrictEqual(withCaps.intent.server.modelCapabilities, { "my-model": { _declare: true } });
+			assert.deepStrictEqual(withCaps.intent.server.expectedFailures, ["modelListing"]);
+
+			const withBrokenCaps = parseServerFormForTest(
+				draft({
+					modelCapabilities: [{ prefix: "my-model", params: [{ key: "context_length", valueText: "not a number" }] }],
+					expectedFailures: ["modelInfo"],
+				})
+			);
+			assert.ok(withBrokenCaps.ok, "broken capability rows never gate a probe");
+			assert.deepStrictEqual(
+				withBrokenCaps.intent.server.modelCapabilities,
+				{},
+				"dropped rows leave the always-present record empty"
+			);
+			assert.deepStrictEqual(withBrokenCaps.intent.server.expectedFailures, ["modelInfo"]);
 		});
 	});
 

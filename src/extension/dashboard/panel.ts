@@ -13,7 +13,10 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import type { LiteLLMChatModelProvider, ServerModelsSnapshot } from "../../provider";
+import type { CapabilityCatalogLookup } from "../../shared/config/capabilityResolution";
 import { CMD } from "../../shared/config/commandIds";
+import type { OpenRouterCatalogSnapshot } from "../../shared/config/openRouterCatalog";
+import { searchCatalogModels } from "../../shared/config/openRouterCatalog";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
@@ -29,6 +32,7 @@ import {
 	deleteServerSecrets,
 	inlineSecretValues,
 	parseServersSetting,
+	readEntryModelCapabilities,
 	readEntryModelParameters,
 	readServerSecrets,
 	updateServerSecret,
@@ -43,9 +47,19 @@ import {
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "./intents";
-import type { DashboardSectionId, ExtensionToWebviewMessage, TransportErrorClassification } from "./protocol";
-import type { EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
-import { buildDashboardState, resolveConfiguredScope, resolveUpdateScope } from "./state";
+import type {
+	CatalogModelSummary,
+	DashboardSectionId,
+	ExtensionToWebviewMessage,
+	TransportErrorClassification,
+} from "./protocol";
+import type { EntryCapabilitiesRecord, EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
+import {
+	buildDashboardState,
+	resolveConfiguredScope,
+	resolveDashboardModelCapabilities,
+	resolveUpdateScope,
+} from "./state";
 import { createDraftConnectionProbe } from "./testDraftConnection";
 
 /** The slice of vscode.Webview the controller uses; createPanel sets the HTML before handing the panel over. */
@@ -56,14 +70,24 @@ interface DashboardWebview {
 
 /**
  * Whether a raw message is a read-only intent safe to handle off the mutation
- * chain (today only the draft-connection probe). A cheap discriminant peek,
- * not a schema parse: an impostor merely claiming the type is still fully
- * re-validated in handleMessage and rejected there. Only genuinely
- * non-mutating, potentially network-blocking intents may be listed here; any
- * intent that writes the servers setting or a secret must stay on the chain.
+ * chain: the draft-connection probe (network-bound) and the two pure
+ * request/response reads the inspector and catalog picker post
+ * (readModelCapabilities, searchCatalog) - a slow search must not stall a
+ * Save queued behind it. A cheap discriminant peek, not a schema parse: an
+ * impostor merely claiming the type is still fully re-validated in
+ * handleMessage and rejected there. Only genuinely non-mutating intents may
+ * be listed here; any intent that writes the servers setting or a secret
+ * must stay on the chain.
  */
+const CONCURRENT_MESSAGE_TYPES = new Set(["testServerDraft", "readModelCapabilities", "searchCatalog"]);
+
 function isConcurrentMessage(raw: unknown): boolean {
-	return typeof raw === "object" && raw !== null && (raw as { type?: unknown }).type === "testServerDraft";
+	return (
+		typeof raw === "object" &&
+		raw !== null &&
+		typeof (raw as { type?: unknown }).type === "string" &&
+		CONCURRENT_MESSAGE_TYPES.has((raw as { type: string }).type)
+	);
 }
 
 /** The slice of vscode.WebviewPanel the controller uses. */
@@ -90,6 +114,12 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	isGroupSnapshot(serverId: string): boolean;
 	/** The request path's per-entry modelParameters resolution for a snapshot's server; see entryParametersResolver. */
 	resolveEntryParameters(serverId: string): EntryParametersResolution | undefined;
+	/** The declared entry's own modelCapabilities for a snapshot's server; the readModelCapabilities responder's entry layer. */
+	resolveEntryCapabilities(serverId: string): EntryCapabilitiesRecord | undefined;
+	/** The OpenRouter catalog as in-memory lookup data; EMPTY_CATALOG_LOOKUP while no snapshot exists. */
+	getCatalogLookup(): CapabilityCatalogLookup;
+	/** Search the catalog snapshot for the picker; the panel bounds the result list before it crosses. */
+	searchCatalog(query: string): readonly CatalogModelSummary[];
 	settingsReader(): SettingsReader;
 	log(message: string, data?: unknown): void;
 	logError(message: string, error: unknown): void;
@@ -108,6 +138,9 @@ export type DashboardMessageOutcome = "ok" | "validation-error" | "ignored-malfo
 function observedIdentityKey(label: string, baseUrl: string): string {
 	return `${label}\n${normalizeBaseUrl(baseUrl)}`;
 }
+
+/** How many catalog search results one response may carry; the picker shows a short list, never the catalog. */
+const CATALOG_RESULT_LIMIT = 20;
 
 export class DashboardController implements vscode.Disposable {
 	private _panel: DashboardPanel | undefined;
@@ -314,6 +347,36 @@ export class DashboardController implements vscode.Disposable {
 			});
 			return "ok";
 		}
+		if (parsed.data.type === "readModelCapabilities") {
+			// The capability inspector's read: resolved extension-side by the
+			// same walk registration runs; the response is the whole answer, so
+			// no state push and no outcome notice.
+			this.postToPanel({
+				type: "modelCapabilities",
+				requestId: parsed.data.requestId,
+				capabilities: resolveDashboardModelCapabilities(
+					{
+						snapshots: this.env.getSnapshots(),
+						reader: this.env.settingsReader(),
+						resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
+						catalog: this.env.getCatalogLookup(),
+					},
+					parsed.data.scopeKey,
+					parsed.data.rawId
+				),
+			});
+			return "ok";
+		}
+		if (parsed.data.type === "searchCatalog") {
+			// The catalog picker's search; the bound keeps a broad query from
+			// pushing the whole catalog across the webview boundary.
+			this.postToPanel({
+				type: "catalogSearchResults",
+				requestId: parsed.data.requestId,
+				results: this.env.searchCatalog(parsed.data.query).slice(0, CATALOG_RESULT_LIMIT),
+			});
+			return "ok";
+		}
 		const intent = parsed.data;
 		const requestId = "requestId" in intent ? intent.requestId : undefined;
 		try {
@@ -467,7 +530,32 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
 		for (const field of SECRET_FIELD_IDS) {
 			secrets[field] = inline[field] !== undefined ? "settings" : "none";
 		}
-		return { label: entry.label, baseUrl: entry.baseUrl, ...pickNonSecretOptionalFields(entry), secrets };
+		return {
+			label: entry.label,
+			baseUrl: entry.baseUrl,
+			...pickNonSecretOptionalFields(entry),
+			...(entry.modelParameters !== undefined ? { modelParameters: entry.modelParameters } : {}),
+			...(entry.modelCapabilities !== undefined ? { modelCapabilities: entry.modelCapabilities } : {}),
+			...(entry.expectedFailures !== undefined ? { expectedFailures: entry.expectedFailures } : {}),
+			secrets,
+		};
+	});
+}
+
+/**
+ * The dashboard's snapshot view: the provider's status-window snapshots with
+ * the declared-model projection appended to each server's model list.
+ * Declared models never enter the status window (they are config-rebuilt on
+ * every serve), so this merge is what keeps the dashboard's model list equal
+ * to the set the picker serves; a snapshot with nothing declared passes
+ * through unchanged.
+ */
+export function declaredMergedSnapshots(
+	provider: Pick<LiteLLMChatModelProvider, "getServerSnapshots" | "declaredModelsForSnapshot">
+): readonly ServerModelsSnapshot[] {
+	return provider.getServerSnapshots().map((snapshot) => {
+		const declared = provider.declaredModelsForSnapshot(snapshot);
+		return declared.length > 0 ? { ...snapshot, models: [...snapshot.models, ...declared] } : snapshot;
 	});
 }
 
@@ -485,11 +573,17 @@ export function registerDashboardCommand(
 	logger: Logger,
 	syncEngine: ServerSyncEngine,
 	registry: ServerRegistry,
-	removals: GroupRemovalStore
+	removals: GroupRemovalStore,
+	// Structurally the OpenRouter catalog store: the snapshot feeds the
+	// picker's search, the lookup feeds the capability inspector.
+	catalog: { readonly lookup: CapabilityCatalogLookup; snapshot(): OpenRouterCatalogSnapshot }
 ): DashboardController {
 	const controller = new DashboardController({
 		createPanel: () => createRealPanel(context.extensionUri),
-		getSnapshots: () => provider.getServerSnapshots(),
+		// Declared models never enter the status window (they are config-rebuilt
+		// on every serve), so the dashboard merges the provider's projection
+		// into each snapshot's model list - the same set the picker serves.
+		getSnapshots: () => declaredMergedSnapshots(provider),
 		getDeclaredServers: () => {
 			// The engine's declared view is authoritative once a pass has run;
 			// right after activation it is still empty, so the setting fills in.
@@ -517,6 +611,16 @@ export function registerDashboardCommand(
 			(serverId) => provider.getGroupServer(serverId),
 			readEntryModelParameters
 		),
+		// Integration seam (settings workstream): the entry layer resolves
+		// through the provider's own identity source (group label, or the
+		// registry sweep's recorded label), so the inspector can never
+		// diverge from the composition requests and registration use.
+		resolveEntryCapabilities: (serverId) => {
+			const identity = provider.capabilityEntryIdentity(serverId);
+			return identity !== undefined ? readEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;
+		},
+		getCatalogLookup: () => catalog.lookup,
+		searchCatalog: (query) => searchCatalogModels(catalog.snapshot(), query),
 		settingsReader: () => {
 			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 			return {

@@ -218,7 +218,7 @@ test("the server form links the entry-fields section of the servers guide", () =
 test("the params-inactive banner links the troubleshooting remedy", () => {
 	const root = mount(<App />);
 	pushToWebview(
-		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", notice: "entry-params-inactive" })] }))
+		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive"] })] }))
 	);
 
 	const banner = root.querySelector(".banner-warn");

@@ -15,10 +15,11 @@ import {
 	isExtensionMessageType,
 	latestCheckedMs,
 } from "../../extension/dashboard/protocol";
+import type { ModelCapabilitiesResponse } from "./capsInspector";
 import { DiagnosticsSection } from "./diagnostics";
 import { IconBug, IconClose } from "./icons";
 import { ModelsSection } from "./models";
-import type { IntentFailure } from "./recordEditors";
+import type { CatalogSearchResponse, IntentFailure } from "./recordEditors";
 import { ServersSection } from "./servers";
 import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
@@ -175,6 +176,10 @@ function overallState(servers: readonly DashboardServer[], legacyServerCount: nu
 			return { tone: "warn", word: l10n.t("Degraded") };
 		case "waiting":
 			return { tone: "muted", word: l10n.t("Waiting for first sync") };
+		case "needs-declare":
+			// Expected failures with nothing declared: neutral, with the way
+			// forward in the word itself.
+			return { tone: "warn", word: l10n.t("No declared models") };
 		case "connected":
 			return { tone: "ok", word: l10n.t("Connected") };
 	}
@@ -323,6 +328,10 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	const [failures, setFailures] = useState<FailuresByIntent>({});
 	const [toasts, setToasts] = useState<readonly ToastItem[]>([]);
 	const [inlineSecrets, setInlineSecrets] = useState<InlineSecretsResponse | undefined>(undefined);
+	// The latest capability-inspector and catalog-search responses; each
+	// consumer matches them against its own requestId, like inlineSecrets.
+	const [capsResponse, setCapsResponse] = useState<ModelCapabilitiesResponse | undefined>(undefined);
+	const [catalogResults, setCatalogResults] = useState<CatalogSearchResponse | undefined>(undefined);
 	// The models list's server scope (a server row's model-count link sets it,
 	// the chip in the models filter bar clears it). Held here rather than in
 	// ModelsSection because the servers table is the other end of the wire.
@@ -357,6 +366,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			}
 			if (message.type === "inlineSecrets") {
 				setInlineSecrets(message);
+				return;
+			}
+			if (message.type === "modelCapabilities") {
+				setCapsResponse(message);
+				return;
+			}
+			if (message.type === "catalogSearchResults") {
+				setCatalogResults(message);
 				return;
 			}
 			seq += 1;
@@ -449,6 +466,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					ack={ack}
 					failures={failures}
 					inlineSecrets={inlineSecrets}
+					catalogResults={catalogResults}
 					onDismissFailure={dismissFailure}
 					onClearInlineSecrets={() => setInlineSecrets(undefined)}
 					onShowModels={showServerModels}
@@ -464,6 +482,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						}
 						requestScopes={state.requestScopes}
 						modelParameters={state.settings.modelParameters.effective}
+						capsResponse={capsResponse}
 					/>
 				) : null}
 			</SectionPanel>

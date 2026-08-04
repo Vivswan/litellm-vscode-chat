@@ -757,6 +757,81 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(attempts.models, 0, "No fallback once a retry succeeds");
 		});
 
+		test("an expected model/info failure gets a single attempt and the fallback log carries the classification", async () => {
+			const attempts = { info: 0, models: 0 };
+			const logged: string[] = [];
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => {
+					attempts.info += 1;
+					return emptyErrorResponse(500);
+				}),
+				http.get(MODELS_URL, () => {
+					attempts.models += 1;
+					return HttpResponse.json({ object: "list", data: [{ id: "fallback-model" }] });
+				})
+			);
+
+			const { models } = await fetchModels({
+				...request((message) => logged.push(message)),
+				expected: { modelInfo: true, modelListing: false },
+			});
+			assert.deepStrictEqual(
+				models.map((m) => m.id),
+				["fallback-model"],
+				"the fallback chain is unchanged: an expected model/info failure still falls back"
+			);
+			assert.strictEqual(attempts.info, 1, "an expected endpoint gets exactly one attempt");
+			assert.ok(
+				logged.some((message) => message.includes("(expected: modelInfo)")),
+				`the existing fallback line carries the expected classification, got: ${JSON.stringify(logged)}`
+			);
+			assert.ok(
+				logged.every((message) => !message.includes("(expected: modelListing)")),
+				"only the declared category is annotated"
+			);
+		});
+
+		test("an expected models failure gets a single attempt and still throws the terminal error", async () => {
+			const attempts = { info: 0, models: 0 };
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => {
+					attempts.info += 1;
+					return emptyErrorResponse(500);
+				}),
+				http.get(MODELS_URL, () => {
+					attempts.models += 1;
+					return emptyErrorResponse(500);
+				})
+			);
+
+			await assert.rejects(
+				fetchModels({ ...request(), expected: { modelInfo: true, modelListing: true } }),
+				RequestError,
+				"error ownership is unchanged: the terminal /models failure still throws"
+			);
+			assert.strictEqual(attempts.info, 1);
+			assert.strictEqual(attempts.models, 1);
+		});
+
+		test("an expected models failure leaves the model/info retry budget alone", async function () {
+			this.timeout(15000);
+			const attempts = { info: 0, models: 0 };
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => {
+					attempts.info += 1;
+					return emptyErrorResponse(500);
+				}),
+				http.get(MODELS_URL, () => {
+					attempts.models += 1;
+					return emptyErrorResponse(500);
+				})
+			);
+
+			await assert.rejects(fetchModels({ ...request(), expected: { modelInfo: false, modelListing: true } }));
+			assert.strictEqual(attempts.info, 3, "the retry budget is per endpoint, not per call");
+			assert.strictEqual(attempts.models, 1);
+		});
+
 		test("a large Retry-After cannot stall discovery past the timeout", async function () {
 			this.timeout(15000);
 			mswServer.use(
@@ -851,6 +926,34 @@ suite("provider/catalog/discovery", () => {
 				"defaults",
 				"a defaults-filled deployment must demote the merged limit, even though the merge stores it in provider fields"
 			);
+		});
+
+		test("limits no deployment reported are not stored back as if the server declared them", () => {
+			// A defaults-filled number stored as a provider field would occupy the
+			// capability walk's server level and block the catalog from
+			// backfilling it; the advertisement must not change either way.
+			const merged = mergeModelDeployments([deployment({}), deployment({ supports_vision: true })], DEFAULTS);
+			assert.strictEqual(merged.provider.context_length, undefined);
+			assert.strictEqual(merged.provider.max_output_tokens, undefined);
+			assert.strictEqual(merged.provider.max_tokens, undefined);
+			assert.strictEqual(merged.provider.max_input_tokens, undefined);
+			assert.deepStrictEqual(
+				deriveTokenConstraints(merged.provider, DEFAULTS),
+				deriveTokenConstraints(deployment({}).provider, DEFAULTS),
+				"the merged advertisement equals the all-defaults standalone one"
+			);
+		});
+
+		test("a limit some deployment reported stays stored as the conservative collapse", () => {
+			const merged = mergeModelDeployments([deployment({ max_output_tokens: 16000 }), deployment({})], DEFAULTS);
+			assert.strictEqual(
+				merged.provider.max_output_tokens,
+				Math.min(16000, DEFAULTS.maxOutputTokens),
+				"a defaults-filled deployment can still contribute the minimum"
+			);
+			// mapModelInfoEntry grounds context_length in max_tokens, so the
+			// reporting deployment reports context too and the collapse stores it.
+			assert.strictEqual(merged.provider.context_length, 16000);
 		});
 
 		test("a passed-through output_limit_source can demote but never promote", () => {

@@ -1,5 +1,6 @@
 import type { LanguageModelChatInformation } from "vscode";
 import { ThemeIcon } from "vscode";
+import type { EffectiveOutputLimitSource, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
 import type { OptionalEntryFieldId } from "../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS } from "../../shared/serverEntry";
 import type { NormalizedBaseUrl } from "../../shared/util/baseUrl";
@@ -9,7 +10,6 @@ import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../shared/util/heade
 import { isRecord } from "../../shared/util/json";
 import type { OAuthConfig, VirtualKeyConfig } from "../transport/auth";
 import { oauthCredentialFingerprint } from "../transport/auth";
-import type { OutputLimitSource } from "./schemas";
 
 /**
  * Support for VS Code-managed provider groups. The host stores one
@@ -40,8 +40,13 @@ export interface GroupServer {
 /** The LiteLLM facts every model object carries, with or without a server attached. */
 interface LiteLLMModelMetadataBase {
 	readonly supportsPromptCaching: boolean;
-	/** Where maxOutputTokens came from; only "provider" values escape the request-side cap. */
-	readonly outputLimitSource: OutputLimitSource;
+	/**
+	 * Where maxOutputTokens came from: server-declared ("provider") and
+	 * user-set ("user", any capability-override level) values escape the
+	 * request-side cap; only "defaults" keeps it, because a guessed limit must
+	 * not be sent as-is.
+	 */
+	readonly outputLimitSource: EffectiveOutputLimitSource;
 	/**
 	 * True when the LiteLLM capability data listed audio among the model's
 	 * input modalities; gates the input_audio message conversion. Optional
@@ -49,6 +54,16 @@ interface LiteLLMModelMetadataBase {
 	 * by older extension versions lack it (absent reads as false).
 	 */
 	readonly supportsAudioInput?: boolean;
+	/** True for a model a `_declare` directive synthesized (discovery does not list it). */
+	readonly declared?: boolean;
+	/**
+	 * True when the model's pricing fields came from the OpenRouter catalog,
+	 * not the server. capabilityOverrides keys on it: a stale-served copy
+	 * re-decorates through the same pass, and only this marker lets it tell a
+	 * price it applied earlier (re-derive, or strip when the directive is
+	 * gone) from a server price (never displaced).
+	 */
+	readonly catalogPricing?: boolean;
 }
 
 /**
@@ -56,9 +71,19 @@ interface LiteLLMModelMetadataBase {
  * the split: the discovery cache, recordServerStatus, and every snapshot the
  * dashboard reads hold this type, and a group-attached copy (whose server
  * embeds the group's credentials) does not compile there.
+ *
+ * `serverDeclared` is registration's post-aggregation server baseline for
+ * the capability resolver (overrides re-resolve against it; the dashboard's
+ * inspector reads the same walk). Required, so a pre-attach entry without a
+ * baseline is unrepresentable rather than silently empty; attach drops it -
+ * the host round trip never needs it, the chat path reads only patched
+ * values.
  */
 export interface PreAttachModelInfo extends LanguageModelChatInformation {
-	readonly litellm: LiteLLMModelMetadataBase & { readonly server?: never };
+	readonly litellm: LiteLLMModelMetadataBase & {
+		readonly serverDeclared: ServerDeclaredCapabilities;
+		readonly server?: never;
+	};
 }
 
 /**
@@ -67,7 +92,10 @@ export interface PreAttachModelInfo extends LanguageModelChatInformation {
  * must never enter a cache, a status snapshot, or a state push.
  */
 export interface AttachedModelInfo extends LanguageModelChatInformation {
-	readonly litellm: LiteLLMModelMetadataBase & { readonly server: GroupServer };
+	readonly litellm: LiteLLMModelMetadataBase & {
+		readonly server: GroupServer;
+		readonly serverDeclared?: never;
+	};
 }
 
 /** The model information this provider returns to (and receives back from) the host. */
@@ -333,8 +361,8 @@ export interface ParsedModelMetadata {
 	readonly supportsAudioInput: boolean;
 	/** The registered imageInput capability, re-narrowed like the litellm fields; gates image message conversion. */
 	readonly imageInput: boolean;
-	/** Anything but an exact "provider" (a missing field, an older extension's metadata) keeps the conservative cap. */
-	readonly outputLimitSource: OutputLimitSource;
+	/** Anything but an exact "provider" or "user" (a missing field, an older extension's metadata) keeps the conservative cap. */
+	readonly outputLimitSource: EffectiveOutputLimitSource;
 }
 
 /**
@@ -395,12 +423,15 @@ function modelSupportsAudioInput(model: LiteLLMModelInfo): boolean {
 
 /**
  * The provenance of model.maxOutputTokens, re-validated because model objects
- * come back across the host boundary: anything but an exact "provider" (a
- * missing field, an older extension's metadata) keeps the conservative cap.
- * Chat requests read this through parseModelMetadata's single parse.
+ * come back across the host boundary: only the exact declared markers
+ * ("provider" for server-declared, "user" for a capability override) lift the
+ * request-side cap; anything else (a missing field, an older extension's
+ * metadata) keeps it. Chat requests read this through parseModelMetadata's
+ * single parse.
  */
-function modelOutputLimitSource(model: LiteLLMModelInfo): OutputLimitSource {
-	return model.litellm?.outputLimitSource === "provider" ? "provider" : "defaults";
+function modelOutputLimitSource(model: LiteLLMModelInfo): EffectiveOutputLimitSource {
+	const source: unknown = model.litellm?.outputLimitSource;
+	return source === "provider" || source === "user" ? source : "defaults";
 }
 
 /** Display label for a group server without a configured label: the host never hands the group NAME to the extension, so the URL host stands in. */

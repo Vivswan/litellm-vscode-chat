@@ -16,7 +16,7 @@ import type { ServerWithKey } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
-import type { FetchModelsResult } from "../catalog/discovery";
+import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
 import { fetchModels } from "../catalog/discovery";
 import type { GroupServer, LiteLLMModelInfo } from "../catalog/groupModels";
 import { groupClientId, parseModelMetadata } from "../catalog/groupModels";
@@ -129,8 +129,12 @@ export class ChatClient {
 		this.clients.prune(serverIds);
 	}
 
-	/** `tokenDefaults` is the caller's per-refresh snapshot; see FetchModelsRequest. */
-	async fetchModels(server: ServerConnection, tokenDefaults: TokenDefaults): Promise<FetchModelsResult> {
+	/** `tokenDefaults` is the caller's per-refresh snapshot and `expected` the entry's declarations; see FetchModelsRequest. */
+	async fetchModels(
+		server: ServerConnection,
+		tokenDefaults: TokenDefaults,
+		expected?: ExpectedDiscoveryFailures
+	): Promise<FetchModelsResult> {
 		this.log("fetchModels called", { baseUrl: server.baseUrl, hasApiKey: !!server.apiKey, hasOAuth: !!server.oauth });
 		const customHeaders = getCustomHeaders(this.log);
 		const discoveryTimeout = getDiscoveryTimeout(this.log);
@@ -149,6 +153,7 @@ export class ChatClient {
 				discoveryTimeout,
 				tokenDefaults,
 				log: this.log,
+				...(expected !== undefined ? { expected } : {}),
 				...(headers !== undefined ? { headers } : {}),
 			});
 		} catch (error) {
@@ -349,13 +354,13 @@ export class ChatClient {
 
 		// The one home of the fallback chain is resolveMaxTokens (shared with the
 		// dashboard's inspector): runtime option, configured parameter, the
-		// server-declared limit honored as-is, else the cap over the
-		// defaults-derived guess.
+		// server-declared or user-overridden limit honored as-is, else the cap
+		// over the defaults-derived guess.
 		const { value: maxTokens } = resolveMaxTokens({
 			runtimeMaxTokens: options.modelOptions?.max_tokens,
 			configuredMaxTokens: modelParams.max_tokens,
 			maxOutputTokens: model.maxOutputTokens,
-			outputLimitDeclared: metadata.outputLimitSource === "provider",
+			outputLimitDeclared: metadata.outputLimitSource !== "defaults",
 		});
 
 		const requestBody = buildRequestBody({

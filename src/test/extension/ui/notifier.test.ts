@@ -60,6 +60,20 @@ suite("extension/ui/notifier", () => {
 		};
 	}
 
+	/** A failure in a category the entry's expectedFailures declares. */
+	function expectedErrorStatus(error: string, serverId = "srv1"): ServerStatus {
+		return {
+			serverId,
+			label: "Default",
+			baseUrl: "http://litellm.test",
+			state: "error",
+			error,
+			logSafeError: publicErrorText(error),
+			expected: true,
+			lastChecked: new Date().toISOString(),
+		};
+	}
+
 	const noServers = (silent = true): AggregatedStatus => ({ serverStatuses: [], totalModels: 0, silent });
 	const allFailed = (
 		error: string,
@@ -182,6 +196,38 @@ suite("extension/ui/notifier", () => {
 		assert.strictEqual(toast.kind, "warning");
 		assert.ok(toast.message.includes("no models"));
 		assert.deepStrictEqual(toast.buttons, ["Check Server", "Reconfigure", "Report Issue"]);
+	});
+
+	test("all failures expected with nothing declared warns needs-declare, not 'returned no models'", () => {
+		// Discovery never returned a list here, so the toast mirrors the
+		// dashboard's and status bar's needs-declare verdict and points at the
+		// fix (_declare entries) instead of misdescribing the servers.
+		const notifier = new Notifier(() => true);
+		notifier.handleAggregatedStatus({
+			serverStatuses: [expectedErrorStatus("404 page not found")],
+			totalModels: 0,
+			silent: true,
+		});
+		assert.strictEqual(toasts.length, 1);
+		const toast = expectDefined(toasts[0]);
+		assert.strictEqual(toast.kind, "warning");
+		assert.ok(toast.message.includes("no models are declared"), toast.message);
+		assert.ok(toast.message.includes("_declare"), toast.message);
+		assert.deepStrictEqual(toast.buttons, ["Reconfigure", "Report Issue"]);
+	});
+
+	test("an expected failure beside a reachable zero-model server keeps the plain no-models warning", () => {
+		// A healthy server DID return an (empty) list, so "returned no models"
+		// is the truthful description; needs-declare needs every server failing
+		// expectedly.
+		const notifier = new Notifier(() => true);
+		notifier.handleAggregatedStatus({
+			serverStatuses: [okStatus(0), expectedErrorStatus("404 page not found", "srv2")],
+			totalModels: 0,
+			silent: true,
+		});
+		assert.strictEqual(toasts.length, 1);
+		assert.ok(expectDefined(toasts[0]).message.includes("returned no models"));
 	});
 
 	test("an empty status window stays silent while servers are configured elsewhere", () => {

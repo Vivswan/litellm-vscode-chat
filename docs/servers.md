@@ -41,9 +41,9 @@ One host limitation cuts across all of this: VS Code's provider-group command ca
 
 ## Entry fields
 
-Each entry carries a label, a base URL, and optionally credentials and per-server model parameters. The dashboard's add/edit form covers the same fields.
+Each entry carries a label, a base URL, and optionally credentials, per-server model parameters and capability overrides, and the discovery failures the server is expected to produce. The dashboard's add/edit form covers the same fields.
 
-- The form's Test connection button probes the draft exactly as entered - unsaved edits included, kept secrets read from wherever they are stored - with one discovery call, and reports the model count or the exact error (linking the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) when the failure looks like a setup problem). It saves and syncs nothing.
+- The form's Test connection button probes the draft exactly as entered - unsaved edits included, kept secrets read from wherever they are stored - with one discovery call, and reports the model count or the exact error (linking the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) when the failure looks like a setup problem). It saves and syncs nothing. The probe honors the draft's `expectedFailures` and `_declare` entries: an expected discovery failure reports the declared models the entry would serve instead of a hard error.
 
 | Setting key | Description |
 |-------------|-------------|
@@ -57,6 +57,8 @@ Each entry carries a label, a base URL, and optionally credentials and per-serve
 | `virtualKeyHeader` | Optional name of a custom header carrying a LiteLLM virtual key, e.g. `x-litellm-api-key`. Naming `Authorization` hands the virtual key that whole header, and no OAuth token is fetched for this server |
 | `virtualKeyValue` | The virtual key itself; keep it in secret storage or write it inline |
 | `modelParameters` | Request parameters applied only to this entry's requests; see [Model parameters](model-parameters.md#per-entry-parameters) |
+| `modelCapabilities` | Capability overrides for this entry's models, `_declare` entries included; see [Model capabilities](model-capabilities.md#per-entry-capabilities) |
+| `expectedFailures` | Discovery endpoints expected to fail here (`"modelListing"`, `"modelInfo"`): a single attempt each, logged as expected, not counted as a server error; see [Model capabilities](model-capabilities.md#expected-discovery-failures) |
 
 ## Secrets and secret storage
 
@@ -128,6 +130,15 @@ An entry can carry its own `modelParameters`: the same prefix-keyed record as th
 - Base-URL scoping cannot tell apart two entries pointing at the same host (say, one per virtual key), so this is how parameters target one of them.
 - The dashboard's edit form has a matching "Model parameters for this server" section.
 - See [Model parameters](model-parameters.md) for the matching and precedence rules, and a worked example.
+
+## Per-server capabilities and expected failures
+
+Two more entry fields cover servers whose discovery data is wrong or missing:
+
+- `modelCapabilities` corrects what discovery reports for this entry's models, and its `_declare` entries register models discovery cannot list.
+- `expectedFailures` names the discovery endpoints this server is expected to fail, so those failures are logged as expected instead of counting as an outage.
+
+Both are covered, with examples, in [Model capabilities](model-capabilities.md).
 
 ## External servers and adoption
 

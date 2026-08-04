@@ -10,6 +10,7 @@ English | [简体中文](zh-cn/README.md) | [繁體中文](zh-tw/README.md)
 
 - [Servers](servers.md) - the `servers` setting, entry fields, secrets and secret storage, OAuth client credentials, virtual keys, and adopting servers added outside the extension.
 - [Model parameters](model-parameters.md) - the request pass-through contract, the `modelParameters` setting, prefix matching and server scoping, per-entry parameters, reasoning effort, and precedence.
+- [Model capabilities](model-capabilities.md) - correcting what discovery reports, declaring models discovery cannot list, the OpenRouter catalog and its privacy switch, and expected discovery failures.
 - [Dashboard](dashboard.md) - the panel's layout, the server list and form, the models table, and the settings editors.
 
 ## Reference

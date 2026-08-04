@@ -9,14 +9,19 @@
 import type * as vscode from "vscode";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { VENDOR_ID } from "../../../shared/config/commandIds";
-import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
+import type {
+	ExpectedFailureCategory,
+	NonSecretOptionalFields,
+	SecretFieldId,
+	SecretLocation,
+} from "../../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
 import type { StoredServerSecrets } from "./secrets";
 import { inlineSecretValues } from "./secrets";
-import type { DeclaredServer, EntryModelParameters } from "./setting";
+import type { DeclaredServer, EntryModelCapabilities, EntryModelParameters } from "./setting";
 import { parseServersSetting, rawDeclaredLabels } from "./setting";
 
 /**
@@ -40,6 +45,10 @@ export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 	/** The entry's per-entry modelParameters (non-secret user configuration); the edit form's prefill. */
 	readonly modelParameters?: EntryModelParameters | undefined;
+	/** The entry's per-entry modelCapabilities (non-secret user configuration); the edit form's prefill. */
+	readonly modelCapabilities?: EntryModelCapabilities | undefined;
+	/** The discovery-failure categories the entry expects; non-secret, like the records above. */
+	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
 	/**
 	 * The group client ID the entry's resolved configuration produces: the same
 	 * identity the provider stamps on its status snapshots, so the dashboard can
@@ -149,8 +158,9 @@ export interface ServerSyncEnv {
  * group name as a configuration property because the host echoes only the
  * configuration back to the provider, never the name; it is what gives
  * entries sharing a base URL and credentials distinct group identities.
- * The entry's modelParameters deliberately stay out: they are read
- * extension-side at request time, so editing them must not change the
+ * The entry's modelParameters, modelCapabilities, and expectedFailures
+ * deliberately stay out: they are read extension-side (at request,
+ * registration, and discovery time), so editing them must not change the
  * fingerprint or churn the group.
  */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
@@ -642,6 +652,8 @@ export class ServerSyncEngine implements vscode.Disposable {
 				baseUrl: entry.baseUrl,
 				...pickNonSecretOptionalFields(entry),
 				...(entry.modelParameters !== undefined ? { modelParameters: entry.modelParameters } : {}),
+				...(entry.modelCapabilities !== undefined ? { modelCapabilities: entry.modelCapabilities } : {}),
+				...(entry.expectedFailures !== undefined ? { expectedFailures: entry.expectedFailures } : {}),
 				secrets: secretLocations(entry, stored),
 				expectedClientId,
 				expectedConnectionId,

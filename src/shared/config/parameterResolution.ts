@@ -24,7 +24,10 @@ export const DEFAULT_MAX_TOKENS_CAP = 4096;
 export type ModelParametersRecord = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
 /** The longest key that prefixes `id`, with its value; undefined when none does. */
-function findLongestPrefixEntry<T>(id: string, entries: Record<string, T>): { key: string; value: T } | undefined {
+export function findLongestPrefixEntry<T>(
+	id: string,
+	entries: Record<string, T>
+): { key: string; value: T } | undefined {
 	let best: { key: string; value: T } | undefined;
 	for (const [key, value] of Object.entries(entries)) {
 		if (id === key || id.startsWith(key)) {

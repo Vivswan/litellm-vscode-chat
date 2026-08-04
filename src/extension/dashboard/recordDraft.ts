@@ -10,13 +10,17 @@
 import * as l10n from "@vscode/l10n";
 import { isHeaderScalar } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
-import type { HeaderScalar } from "./protocol";
+import type { CapabilityFieldName, ExpectedFailureCategory, HeaderScalar } from "./protocol";
 import {
+	CAPABILITY_FIELDS,
+	DECLARE_DIRECTIVE,
+	EXPECTED_FAILURE_CATEGORIES,
 	formatHeaderValue,
 	formatJsonValue,
 	isUnsafeRecordKey,
 	isValidHeaderName,
 	isValidHeaderValue,
+	OPENROUTER_MODEL_DIRECTIVE,
 	parseHeaderValue,
 	parseJsonValue,
 } from "./protocol";
@@ -282,4 +286,178 @@ export function headerRowsFromJsonText(text: string): RecordJsonParse<HeaderRow[
 		ok: false,
 		problem: withKey(rows[index]?.name ?? "", parse.problems[index]?.message ?? l10n.t("Invalid value.")),
 	};
+}
+
+/**
+ * A modelCapabilities record rendered into the same prefix-group rows the
+ * parameters editor uses. Values render through formatJsonValue, except the
+ * `_openrouter_model` directive, whose catalog ID renders bare (and parses
+ * back leniently), so users type plain IDs instead of quoted JSON.
+ */
+export function toCapabilityGroups(value: Readonly<Record<string, Readonly<Record<string, unknown>>>>): PrefixGroup[] {
+	return Object.entries(value).map(([prefix, fields]) => ({
+		prefix,
+		params: Object.entries(fields).map(([key, fieldValue]) => ({
+			key,
+			valueText:
+				key === OPENROUTER_MODEL_DIRECTIVE && typeof fieldValue === "string" ? fieldValue : formatJsonValue(fieldValue),
+		})),
+	}));
+}
+
+/**
+ * One capability row's verdicts: an optional blocking problem (aligned to the
+ * offending input, like RowFieldProblem everywhere else) plus an optional
+ * non-blocking hint. Hints exist because the capability vocabulary is closed
+ * but the setting is lenient: an unknown key survives a save (and is
+ * diagnosed at resolution), so the editor flags it without refusing it.
+ */
+interface CapabilityRowIssue {
+	readonly problem?: RowFieldProblem | undefined;
+	readonly hint?: string | undefined;
+}
+
+/** Row-aligned issues for one capability prefix group: the prefix's own problem and one issue slot per row. */
+export interface CapabilityGroupIssues {
+	readonly prefix: string | undefined;
+	readonly rows: readonly CapabilityRowIssue[];
+}
+
+export type CapabilityGroupsParse =
+	| {
+			readonly ok: true;
+			readonly value: Record<string, Record<string, unknown>>;
+			/** Hints only (nothing blocks on an ok parse); row-aligned like the blocked branch. */
+			readonly issues: readonly CapabilityGroupIssues[];
+	  }
+	| { readonly ok: false; readonly issues: readonly CapabilityGroupIssues[] };
+
+function isCapabilityFieldName(key: string): key is CapabilityFieldName {
+	return Object.hasOwn(CAPABILITY_FIELDS, key);
+}
+
+/** A draft's boolean reading: bare or JSON true/false, nothing else. */
+function parseBooleanText(text: string): boolean | undefined {
+	const trimmed = text.trim();
+	return trimmed === "true" ? true : trimmed === "false" ? false : undefined;
+}
+
+/**
+ * A catalog-ID draft: bare text, with a pasted JSON string unquoted so a
+ * copied formatJsonValue rendering round-trips. Empty means no ID.
+ */
+export function parseCatalogIdText(text: string): string | undefined {
+	const trimmed = text.trim();
+	if (trimmed.length === 0) {
+		return undefined;
+	}
+	try {
+		const parsed: unknown = JSON.parse(trimmed);
+		if (typeof parsed === "string") {
+			return parsed.trim().length > 0 ? parsed.trim() : undefined;
+		}
+	} catch {
+		// Bare text is the normal case.
+	}
+	return trimmed;
+}
+
+/**
+ * Parse capability draft groups into the modelCapabilities record, or the
+ * row-aligned issues that block it. Value typing follows the resolver's
+ * vocabulary (capabilityResolution's parseCapabilityRecord): number fields
+ * take positive integers, boolean fields and `_declare` take true/false,
+ * `_openrouter_model` takes a catalog ID, other underscore keys pass through
+ * as JSON (reserved for future directives), and unknown keys get a
+ * non-blocking hint - the setting keeps them, resolution diagnoses them.
+ */
+export function parseCapabilityGroups(groups: readonly PrefixGroup[]): CapabilityGroupsParse {
+	const duplicatePrefixes = duplicates(groups.map((group) => group.prefix.trim()));
+	const issues: CapabilityGroupIssues[] = [];
+	let blocked = false;
+	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
+	for (const group of groups) {
+		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
+		const prefixProblem = keyProblem(
+			group.prefix.trim(),
+			{ empty: l10n.t("Enter a model ID or prefix"), duplicate: l10n.t("Duplicate model prefix") },
+			duplicatePrefixes
+		);
+		const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+		const rows = group.params.map((param): CapabilityRowIssue => {
+			const key = param.key.trim();
+			const problem = keyProblem(
+				key,
+				{ empty: l10n.t("Enter a capability or directive"), duplicate: l10n.t("Duplicate capability name") },
+				duplicateKeys
+			);
+			if (problem !== undefined) {
+				return { problem: { field: "name", message: problem } };
+			}
+			if (key === DECLARE_DIRECTIVE) {
+				const parsed = parseBooleanText(param.valueText);
+				if (parsed === undefined) {
+					return { problem: { field: "value", message: l10n.t("Enter true or false") } };
+				}
+				fields[key] = parsed;
+				return {};
+			}
+			if (key === OPENROUTER_MODEL_DIRECTIVE) {
+				const id = parseCatalogIdText(param.valueText);
+				if (id === undefined) {
+					return { problem: { field: "value", message: l10n.t("Enter an OpenRouter model ID, e.g. openai/gpt-4o") } };
+				}
+				fields[key] = id;
+				return {};
+			}
+			if (isCapabilityFieldName(key)) {
+				if (CAPABILITY_FIELDS[key] === "number") {
+					const parsed = parseJsonValue(param.valueText);
+					if (!parsed.ok || typeof parsed.value !== "number" || !Number.isInteger(parsed.value) || parsed.value <= 0) {
+						return { problem: { field: "value", message: l10n.t("Enter a positive whole number of tokens") } };
+					}
+					fields[key] = parsed.value;
+					return {};
+				}
+				const parsed = parseBooleanText(param.valueText);
+				if (parsed === undefined) {
+					return { problem: { field: "value", message: l10n.t("Enter true or false") } };
+				}
+				fields[key] = parsed;
+				return {};
+			}
+			// Underscore keys are reserved for future directives and pass
+			// silently; anything else is outside the closed vocabulary, kept but
+			// hinted (resolution will diagnose it the same way).
+			const parsed = parseJsonValue(param.valueText);
+			if (!parsed.ok) {
+				return { problem: { field: "value", message: parsed.error } };
+			}
+			fields[key] = parsed.value;
+			return key.startsWith("_")
+				? {}
+				: { hint: l10n.t('"{0}" is not a known capability field; the extension ignores it', key) };
+		});
+		blocked = blocked || prefixProblem !== undefined || rows.some((row) => row.problem !== undefined);
+		issues.push({ prefix: prefixProblem, rows });
+		if (prefixProblem === undefined) {
+			value[group.prefix.trim()] = { ...fields };
+		}
+	}
+	return blocked ? { ok: false, issues } : { ok: true, value: { ...value }, issues };
+}
+
+/**
+ * Toggle one expected-failure category in the checkbox set's draft list.
+ * Always returns the canonical category order, so two drafts that mean the
+ * same set serialize identically.
+ */
+export function toggleExpectedFailure(
+	current: readonly ExpectedFailureCategory[],
+	category: ExpectedFailureCategory,
+	enabled: boolean
+): ExpectedFailureCategory[] {
+	return EXPECTED_FAILURE_CATEGORIES.filter((candidate) =>
+		candidate === category ? enabled : current.includes(candidate)
+	);
 }

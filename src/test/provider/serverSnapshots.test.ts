@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { http } from "msw";
+import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import {
 	discoveryHandlers,
@@ -10,7 +10,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, withFetch } from "../testUtils";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, withConfig, withFetch } from "../testUtils";
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
 function groupOptions(configuration: unknown, silent = true): { silent: boolean } {
@@ -128,6 +128,45 @@ suite("provider server snapshots", () => {
 		assert.strictEqual(snapshot.models.length, 1);
 	});
 
+	test("snapshots carry the discovered raw IDs, carried forward across failure reports", async () => {
+		// The set behind `_declare` inertness (and the dashboard's declared
+		// projection): what discovery RETURNED, not what registration emitted -
+		// synthetic variants may be the only registered forms of a discovered ID.
+		const provider = makeProvider();
+		let fail = false;
+		const payload = {
+			data: [
+				{
+					id: "multi-model",
+					providers: [
+						{ provider: "groq", status: "active", supports_tools: true },
+						{ provider: "together", status: "active", supports_tools: true },
+					],
+				},
+			],
+		};
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(payload))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(payload)))
+		);
+
+		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+			const healthy = expectDefined(provider.getServerSnapshots()[0]);
+			assert.deepStrictEqual(healthy.discoveredRawIds, ["multi-model"]);
+			assert.ok(
+				healthy.models.every((model) => model.id !== "multi-model"),
+				"only synthetic variants registered, which is why the raw-ID set must ride separately"
+			);
+
+			fail = true;
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+			const failed = expectDefined(provider.getServerSnapshots()[0]);
+			assert.strictEqual(failed.status.state, "error");
+			assert.deepStrictEqual(failed.discoveredRawIds, ["multi-model"], "failure reports carry the set forward");
+		});
+	});
+
 	test("hasSeenGroupConfiguration latches when the host hands a group, before any snapshot exists", async () => {
 		const provider = makeProvider();
 		// A failing discovery, so the group produces no snapshot rows even though
@@ -167,5 +206,61 @@ suite("provider server snapshots", () => {
 
 		assert.strictEqual(provider.hasSeenGroupConfiguration(), true);
 		assert.strictEqual(provider.getServerSnapshots().length, 0, "a malformed group yields no snapshot");
+	});
+
+	test("the declared projection composes exactly like the registry sweep: same IDs, names, and entry layer", async () => {
+		// A multi-server sweep, so exposed IDs are namespaced and names carry
+		// the server prefix: a projection reverting to serverCount 1 would mint
+		// raw IDs and bare names, and one resolving the entry layer from the
+		// snapshot's display label instead of the sweep's recorded identity
+		// would drop the entry-level declaration. Both must fail here.
+		const SECOND_BASE_URL = "http://second.test";
+		const servers = [
+			{ id: "srv1", label: "Gateway", baseUrl: TEST_BASE_URL, apiKey: "k1" },
+			{ id: "srv2", label: "Other", baseUrl: SECOND_BASE_URL, apiKey: "k2" },
+		];
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getServers: () => Promise.resolve(servers),
+			getEntryModelCapabilities: (label, baseUrl) =>
+				label === "Gateway" && baseUrl === TEST_BASE_URL ? { "entry-model": { _declare: true } } : undefined,
+		});
+		mswServer.use(
+			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
+			http.get(`${SECOND_BASE_URL}/v1/model/info`, () => HttpResponse.json({ data: [] })),
+			http.get(`${SECOND_BASE_URL}/v1/models`, () => HttpResponse.json({ data: [] }))
+		);
+		const idAndName = (infos: readonly { id: string; name: string }[]) =>
+			infos.map(({ id, name }) => ({ id, name })).sort((a, b) => a.id.localeCompare(b.id));
+
+		await withConfig(
+			{ modelCapabilities: { [`${TEST_BASE_URL}/declared-model`]: { _declare: true, context_length: 32000 } } },
+			async () => {
+				const infos = await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+				const served = idAndName(infos.filter((info) => info.litellm.declared === true && info.id.startsWith("srv1/")));
+				assert.deepStrictEqual(served, [
+					{ id: "srv1/declared-model", name: "[Gateway] declared-model" },
+					{ id: "srv1/entry-model", name: "[Gateway] entry-model" },
+				]);
+
+				const snapshot = expectDefined(
+					provider.getServerSnapshots().find((candidate) => candidate.status.serverId === "srv1")
+				);
+				assert.deepStrictEqual(
+					idAndName(provider.declaredModelsForSnapshot(snapshot)),
+					served,
+					"the dashboard's projection must mint exactly what the sweep served"
+				);
+
+				// The snapshot's status label is display-facing; identity comes from
+				// the sweep's record, so a display fallback in the status can drop
+				// neither the name prefix nor the entry-level declaration.
+				const relabeled = { ...snapshot, status: { ...snapshot.status, label: "Gateway (display)" } };
+				assert.deepStrictEqual(
+					idAndName(provider.declaredModelsForSnapshot(relabeled)),
+					served,
+					"the projection must resolve identity from the sweep record, never the snapshot's display label"
+				);
+			}
+		);
 	});
 });

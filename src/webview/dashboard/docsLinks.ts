@@ -16,9 +16,13 @@ export const DOCS_LINK_SERVER_FORM =
 export const DOCS_LINK_MODELS = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/models.md";
 export const DOCS_LINK_PARAMS_INSPECTOR =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/dashboard.md#effective-parameters";
+export const DOCS_LINK_CAPS_INSPECTOR =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/dashboard.md#effective-capabilities";
 export const DOCS_LINK_SETTINGS = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/settings.md";
 export const DOCS_LINK_MODEL_PARAMETERS =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/model-parameters.md";
+export const DOCS_LINK_MODEL_CAPABILITIES =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/model-capabilities.md";
 export const DOCS_LINK_PARAMS_INACTIVE =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#per-server-model-parameters-are-inactive";
 export const DOCS_LINK_CHECK_BASE_URL =
@@ -35,8 +39,10 @@ export type DocsUrl =
 	| typeof DOCS_LINK_SERVER_FORM
 	| typeof DOCS_LINK_MODELS
 	| typeof DOCS_LINK_PARAMS_INSPECTOR
+	| typeof DOCS_LINK_CAPS_INSPECTOR
 	| typeof DOCS_LINK_SETTINGS
 	| typeof DOCS_LINK_MODEL_PARAMETERS
+	| typeof DOCS_LINK_MODEL_CAPABILITIES
 	| typeof DOCS_LINK_PARAMS_INACTIVE
 	| typeof DOCS_LINK_CHECK_BASE_URL
 	| typeof DOCS_LINK_PROXY_NOT_RUNNING

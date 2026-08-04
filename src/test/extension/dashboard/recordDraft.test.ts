@@ -1,6 +1,15 @@
 import * as assert from "node:assert";
-import type { GroupsParse, HeaderRowsParse } from "../../../extension/dashboard/recordDraft";
-import { parseGroups, parseHeaderRows, toGroups, toHeaderRows } from "../../../extension/dashboard/recordDraft";
+import type { CapabilityGroupsParse, GroupsParse, HeaderRowsParse } from "../../../extension/dashboard/recordDraft";
+import {
+	parseCapabilityGroups,
+	parseCatalogIdText,
+	parseGroups,
+	parseHeaderRows,
+	toCapabilityGroups,
+	toGroups,
+	toggleExpectedFailure,
+	toHeaderRows,
+} from "../../../extension/dashboard/recordDraft";
 
 /** The ok arm's record; fails the test on a parse with problems. */
 function parsedValue<P extends GroupsParse | HeaderRowsParse>(parse: P): Extract<P, { ok: true }>["value"] {
@@ -125,6 +134,104 @@ suite("extension/dashboard/recordDraft", () => {
 
 			const clean = parsedValue(parseHeaderRows([{ name: "x-key", valueText: "v" }]));
 			assert.strictEqual(Object.getPrototypeOf(clean), Object.prototype, "the prototype stays untouched");
+		});
+	});
+
+	suite("model capability groups", () => {
+		/** The ok arm's record; fails the test on a blocked capability parse. */
+		function capsValue(parse: CapabilityGroupsParse): Record<string, Record<string, unknown>> {
+			if (!parse.ok) {
+				assert.fail(`expected a clean parse, got issues: ${JSON.stringify(parse.issues)}`);
+			}
+			return parse.value;
+		}
+
+		test("configured records round-trip through rows and back, catalog IDs rendered bare", () => {
+			const value = {
+				"gpt-4": { context_length: 128000, supports_vision: true },
+				"my-model": { _declare: true, _openrouter_model: "openai/gpt-4o" },
+			};
+			const groups = toCapabilityGroups(value);
+			assert.strictEqual(
+				groups[1]?.params.find((param) => param.key === "_openrouter_model")?.valueText,
+				"openai/gpt-4o",
+				"catalog IDs render bare, not JSON-quoted"
+			);
+			assert.deepStrictEqual(capsValue(parseCapabilityGroups(groups)), value);
+		});
+
+		test("typed vocabulary: number fields take positive integers, flags take true/false", () => {
+			const bad = parseCapabilityGroups([
+				{
+					prefix: "gpt-4",
+					params: [
+						{ key: "context_length", valueText: "-5" },
+						{ key: "supports_vision", valueText: "yes" },
+						{ key: "_declare", valueText: "1" },
+						{ key: "_openrouter_model", valueText: "  " },
+					],
+				},
+			]);
+			assert.strictEqual(bad.ok, false);
+			const rows = bad.issues[0]?.rows ?? [];
+			for (const [index, row] of rows.entries()) {
+				assert.strictEqual(row?.problem?.field, "value", `row ${index} must block on its value`);
+			}
+		});
+
+		test("unknown keys hint without blocking; underscore keys pass silently as JSON", () => {
+			const parse = parseCapabilityGroups([
+				{
+					prefix: "gpt-4",
+					params: [
+						{ key: "supports_pdf_input", valueText: "true" },
+						{ key: "_future_directive", valueText: '"x"' },
+					],
+				},
+			]);
+			assert.ok(parse.ok);
+			assert.notStrictEqual(parse.issues[0]?.rows[0]?.hint, undefined, "unknown keys carry the hint");
+			assert.strictEqual(parse.issues[0]?.rows[1]?.hint, undefined, "underscore keys are reserved, not unknown");
+			assert.deepStrictEqual(parse.value, { "gpt-4": { supports_pdf_input: true, _future_directive: "x" } });
+		});
+
+		test("empty, reserved, and duplicate keys are flagged like the parameter editor flags them", () => {
+			const parse = parseCapabilityGroups([
+				{
+					prefix: "gpt-4",
+					params: [
+						{ key: "", valueText: "1" },
+						{ key: "__proto__", valueText: "1" },
+						{ key: "context_length", valueText: "1" },
+						{ key: "context_length", valueText: "2" },
+					],
+				},
+				{ prefix: "", params: [] },
+			]);
+			assert.strictEqual(parse.ok, false);
+			assert.notStrictEqual(parse.issues[0]?.rows[0]?.problem, undefined, "empty key");
+			assert.notStrictEqual(parse.issues[0]?.rows[1]?.problem, undefined, "reserved key");
+			assert.notStrictEqual(parse.issues[0]?.rows[3]?.problem, undefined, "duplicate key");
+			assert.notStrictEqual(parse.issues[1]?.prefix, undefined, "empty prefix");
+			assert.strictEqual(({} as Record<string, unknown>).context_length, undefined, "Object.prototype stays clean");
+		});
+
+		test("a quoted catalog ID unquotes on parse, so formatJsonValue output round-trips", () => {
+			assert.strictEqual(parseCatalogIdText('"openai/gpt-4o"'), "openai/gpt-4o");
+			assert.strictEqual(parseCatalogIdText("openai/gpt-4o"), "openai/gpt-4o");
+			assert.strictEqual(parseCatalogIdText('""'), undefined);
+			assert.strictEqual(parseCatalogIdText("  "), undefined);
+		});
+	});
+
+	suite("toggleExpectedFailure", () => {
+		test("toggling keeps the canonical category order regardless of insertion order", () => {
+			assert.deepStrictEqual(toggleExpectedFailure([], "modelInfo", true), ["modelInfo"]);
+			assert.deepStrictEqual(toggleExpectedFailure(["modelInfo"], "modelListing", true), ["modelListing", "modelInfo"]);
+			assert.deepStrictEqual(toggleExpectedFailure(["modelListing", "modelInfo"], "modelListing", false), [
+				"modelInfo",
+			]);
+			assert.deepStrictEqual(toggleExpectedFailure(["modelInfo"], "modelInfo", false), []);
 		});
 	});
 });

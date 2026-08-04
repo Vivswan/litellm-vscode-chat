@@ -169,13 +169,22 @@ function OutcomeGrid({ servers, now }: { servers: readonly DashboardServer[]; no
 			<tbody>
 				{servers.map((server) => {
 					const parts = serverOutcomeParts(server);
-					const tone = parts.status === "Error" ? "tone-error" : parts.status === "OK" ? "tone-ok" : "tone-muted";
+					const tone =
+						parts.status === "Error"
+							? server.expected === true
+								? "tone-warn"
+								: "tone-error"
+							: parts.status === "OK"
+								? "tone-ok"
+								: "tone-muted";
 					const notes: { kind: "error" | "warn"; text: string }[] = [];
 					if (parts.error !== undefined) {
-						notes.push({ kind: "error", text: parts.error });
+						// An expected failure already carries its English "(expected)"
+						// annotation from serverOutcomeParts; the warn tone matches it.
+						notes.push({ kind: server.expected === true ? "warn" : "error", text: parts.error });
 					}
-					if (parts.notice !== undefined) {
-						notes.push({ kind: "warn", text: parts.notice });
+					for (const text of parts.notice) {
+						notes.push({ kind: "warn", text });
 					}
 					return (
 						<Fragment key={`${server.label} ${server.baseUrl}`}>
@@ -195,7 +204,7 @@ function OutcomeGrid({ servers, now }: { servers: readonly DashboardServer[]; no
 							</tr>
 							{notes.map((note, index) => (
 								<tr
-									key={note.kind}
+									key={`${index}-${note.kind}`}
 									class={index < notes.length - 1 ? `diag-note ${note.kind} no-rule` : `diag-note ${note.kind}`}
 								>
 									<td colSpan={5}>{note.text}</td>

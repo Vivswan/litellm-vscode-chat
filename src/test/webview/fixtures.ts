@@ -28,7 +28,7 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 			discoveryTimeout: 30000,
 			discoveryCacheTtl: 3600000,
 		},
-		booleans: { "promptCaching.enabled": true, maskApiKeyInput: true },
+		booleans: { "promptCaching.enabled": true, maskApiKeyInput: true, "openRouterCatalog.enabled": true },
 		configuredScopes: {
 			numbers: {
 				defaultMaxOutputTokens: null,
@@ -38,7 +38,7 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 				discoveryTimeout: null,
 				discoveryCacheTtl: null,
 			},
-			booleans: { "promptCaching.enabled": null, maskApiKeyInput: null },
+			booleans: { "promptCaching.enabled": null, maskApiKeyInput: null, "openRouterCatalog.enabled": null },
 		},
 		modelParameters: { editScope: "global", value: {}, otherScopes: [], effective: {} },
 		headers: { editScope: "global", value: {}, otherScopes: [], effective: {} },

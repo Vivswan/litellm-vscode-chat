@@ -88,6 +88,14 @@ export function serverFieldHelp(field: ServerFormField): string {
 			return l10n.t(
 				"Parameters sent only to this server's models, e.g. temperature 0.2. Runtime options and per-model picker config win; these win over the global Model parameters setting."
 			);
+		case "modelCapabilities":
+			return l10n.t(
+				"Correct or declare what this server's models can do, e.g. context_length 128000 for gpt-4 models. Add _declare true to create a model discovery does not list."
+			);
+		case "expectedFailures":
+			return l10n.t(
+				"Mark discovery endpoints this server is known to lack, e.g. the model list. Marked failures log quietly, skip retries, and never count as errors."
+			);
 	}
 }
 
@@ -118,6 +126,36 @@ export function helpModelParameterName(): string {
 export function helpModelParameterValue(): string {
 	return l10n.t(
 		'JSON, so the type survives: 0.2, true, "text", ["END"], {"effort": "high"}. Values that do not parse block Apply.'
+	);
+}
+
+export function helpCapabilityPrefix(): string {
+	return l10n.t(
+		"Matches model IDs by prefix, longest winning: gpt-4 covers gpt-4-turbo. With _declare, use the exact model ID - prefixes never create models."
+	);
+}
+
+export function helpCapabilityName(): string {
+	return l10n.t(
+		"A capability field like context_length or supports_vision, or a directive: _declare creates the model, _openrouter_model fills fields from the catalog."
+	);
+}
+
+export function helpCapabilityValue(): string {
+	return l10n.t(
+		"Numbers are token counts, e.g. 128000; support flags are true or false. Your values beat what the server reports."
+	);
+}
+
+export function helpCatalogPicker(): string {
+	return l10n.t(
+		"Search the OpenRouter catalog by name or ID, e.g. gpt-4o. Picking an entry fills capability fields the row leaves unset."
+	);
+}
+
+export function helpCapsInspector(): string {
+	return l10n.t(
+		"Where each effective capability comes from, e.g. context_length 128000 from your settings. Higher precedence levels beat server-reported values."
 	);
 }
 

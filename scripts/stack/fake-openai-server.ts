@@ -18,10 +18,15 @@
 //                                 credentials (src/test/fakeStack/oauth.ts)
 //   *    /authed/...              bearer-guarded mirror: a live token strips
 //                                 the prefix and dispatches normally, else 401
+//   *    /nodiscovery/...         no-discovery mirror: the discovery GETs
+//                                 (/v1/models, /v1/model/info) answer 404,
+//                                 everything else dispatches normally
+//                                 (src/test/fakeStack/noDiscovery.ts)
 //   PUT  /_test/custom-scenario   registers {name, config} at runtime (<= 1 MiB)
 //   GET  /_test/last-request      last parsed chat completion body
 //   GET  /_test/oauth-stats       { issued, rejected, live }
 //   POST /_test/oauth-revoke      revoke all live tokens
+//   GET  /_test/nodiscovery-stats per-bearer counts of the blanked discovery GETs
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
@@ -29,6 +34,13 @@ import { URL } from "node:url";
 import type { CommandContext, CommandResult } from "../../src/test/fakeStack/commands";
 import { dispatchCommand, dispatchLine, fallbackReply } from "../../src/test/fakeStack/commands";
 import { FAKE_MODEL_UPSTREAM_IDS } from "../../src/test/fakeStack/models";
+import {
+	createNoDiscoveryState,
+	isDiscoveryRoute,
+	noDiscoveryStats,
+	recordDiscoveryAttempt,
+	stripNoDiscoveryPrefix,
+} from "../../src/test/fakeStack/noDiscovery";
 import {
 	authErrorBody,
 	createOAuthProviderState,
@@ -58,6 +70,7 @@ const VERBOSE = process.env.FAKE_VERBOSE === "1";
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 let lastRequest: Record<string, unknown> | null = null;
 const oauthState = createOAuthProviderState();
+const noDiscoveryState = createNoDiscoveryState();
 
 interface BoundedBody {
 	body: string;
@@ -179,6 +192,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 		return sendJson(res, 200, { revoked: revokeAllTokens(oauthState) });
 	}
 
+	if (req.method === "GET" && url.pathname === "/_test/nodiscovery-stats") {
+		return sendJson(res, 200, noDiscoveryStats(noDiscoveryState));
+	}
+
 	// The /authed prefix is the bearer-guarded mirror of every route below: a
 	// live token (issued by /oauth/token and not yet revoked) strips the
 	// prefix and dispatches to the normal handlers, so the OAuth suites drive
@@ -197,6 +214,21 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 			return sendJson(res, 401, authErrorBody("Authentication Error: invalid or revoked bearer token"));
 		}
 		pathname = pathname.slice("/authed".length) || "/";
+	}
+
+	// The /nodiscovery prefix is the discovery-less mirror: a gateway that
+	// serves chat but cannot list models. Its discovery GETs answer 404 while
+	// every other route (chat completions above all) dispatches normally.
+	const routed = stripNoDiscoveryPrefix(pathname);
+	pathname = routed.pathname;
+	if (routed.noDiscovery && req.method === "GET" && isDiscoveryRoute(pathname)) {
+		recordDiscoveryAttempt(noDiscoveryState, pathname, req.headers.authorization);
+		// The OpenAI SDK never retries a plain 404, which would make the
+		// expectedFailures no-retry assertions vacuous; x-should-retry: true
+		// overrides its policy, so only a zeroed retry budget yields one
+		// attempt against the counters above.
+		res.setHeader("x-should-retry", "true");
+		return sendJson(res, 404, { error: { message: "Not found" } });
 	}
 
 	if (req.method === "GET" && pathname === "/health") {

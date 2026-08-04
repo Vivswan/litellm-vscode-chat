@@ -40,11 +40,17 @@ import { postMessage } from "./vscodeApi";
  */
 const SETTING_GROUPS: readonly {
 	readonly title: () => string;
+	/** A muted note under the group title, e.g. the model-defaults deprecation hint. */
+	readonly hint?: () => string;
 	readonly numbers: readonly NumberSettingId[];
 	readonly booleans: readonly BooleanSettingId[];
 }[] = [
 	{
 		title: () => l10n.t("Model defaults"),
+		hint: () =>
+			l10n.t(
+				'Deprecated: prefer modelCapabilities, e.g. {"gpt-4": {"context_length": 128000}} - per server in the server form, or globally in settings.json.'
+			),
 		numbers: ["defaultMaxOutputTokens", "defaultContextLength", "defaultMaxInputTokens"],
 		booleans: [],
 	},
@@ -319,12 +325,14 @@ function BooleanField({
 
 function SettingGroup({
 	title,
+	hint,
 	numbers,
 	booleans,
 	settings,
 	isVisible,
 }: {
 	title: () => string;
+	hint?: (() => string) | undefined;
 	numbers: readonly NumberSettingId[];
 	booleans: readonly BooleanSettingId[];
 	settings: DashboardSettings;
@@ -335,6 +343,7 @@ function SettingGroup({
 	return (
 		<div class="settings-group" hidden={empty}>
 			<h3 class="settings-group-title">{title()}</h3>
+			{hint !== undefined ? <p class="hint">{hint()}</p> : null}
 			{numbers.map((id) => (
 				<NumberField
 					key={id}
