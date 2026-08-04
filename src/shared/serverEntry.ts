@@ -72,3 +72,21 @@ export function pickNonSecretOptionalFields(source: NonSecretOptionalFields): No
 
 /** Where one secret field of a declared server lives. */
 export type SecretLocation = "settings" | "secure" | "none";
+
+/**
+ * The discovery-endpoint failure categories an entry's `expectedFailures`
+ * field may list: "modelListing" is GET /models, "modelInfo" is GET
+ * /model/info. One list for the dashboard's checkbox set, the setting
+ * parser, and the provider's single-attempt/info-severity demotion. Like an
+ * entry's `modelParameters`, the field stays out of OPTIONAL_ENTRY_FIELDS:
+ * it must never reach the provider-group args or their fingerprint.
+ */
+export const EXPECTED_FAILURE_CATEGORIES = ["modelListing", "modelInfo"] as const;
+
+/** A discovery failure the user told us to expect on an entry's server. */
+export type ExpectedFailureCategory = (typeof EXPECTED_FAILURE_CATEGORIES)[number];
+
+/** The one membership check for the category tokens, shared by the setting parser and the dashboard's form. */
+export function isExpectedFailureCategory(value: unknown): value is ExpectedFailureCategory {
+	return typeof value === "string" && (EXPECTED_FAILURE_CATEGORIES as readonly string[]).includes(value);
+}

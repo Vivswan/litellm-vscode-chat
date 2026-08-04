@@ -289,6 +289,25 @@
 									"type": "object"
 								},
 								"description": "%litellm.config.servers.modelParameters.description%"
+							},
+							"modelCapabilities": {
+								"type": "object",
+								"additionalProperties": {
+									"type": "object"
+								},
+								"description": "%litellm.config.servers.modelCapabilities.description%"
+							},
+							"expectedFailures": {
+								"type": "array",
+								"items": {
+									"type": "string",
+									"enum": [
+										"modelListing",
+										"modelInfo"
+									]
+								},
+								"uniqueItems": true,
+								"description": "%litellm.config.servers.expectedFailures.description%"
 							}
 						}
 					}
@@ -297,13 +316,15 @@
 					"type": "number",
 					"default": 16000,
 					"minimum": 1,
-					"description": "%litellm.config.defaultMaxOutputTokens.description%"
+					"description": "%litellm.config.defaultMaxOutputTokens.description%",
+					"markdownDeprecationMessage": "%litellm.config.defaultMaxOutputTokens.deprecation%"
 				},
 				"litellm-vscode-chat.defaultContextLength": {
 					"type": "number",
 					"default": 128000,
 					"minimum": 1,
-					"description": "%litellm.config.defaultContextLength.description%"
+					"description": "%litellm.config.defaultContextLength.description%",
+					"markdownDeprecationMessage": "%litellm.config.defaultContextLength.deprecation%"
 				},
 				"litellm-vscode-chat.defaultMaxInputTokens": {
 					"type": [
@@ -312,7 +333,8 @@
 					],
 					"default": null,
 					"minimum": 1,
-					"description": "%litellm.config.defaultMaxInputTokens.description%"
+					"description": "%litellm.config.defaultMaxInputTokens.description%",
+					"markdownDeprecationMessage": "%litellm.config.defaultMaxInputTokens.deprecation%"
 				},
 				"litellm-vscode-chat.promptCaching.enabled": {
 					"type": "boolean",
@@ -326,6 +348,19 @@
 					"additionalProperties": {
 						"type": "object"
 					}
+				},
+				"litellm-vscode-chat.modelCapabilities": {
+					"type": "object",
+					"default": {},
+					"markdownDescription": "%litellm.config.modelCapabilities.description%",
+					"additionalProperties": {
+						"type": "object"
+					}
+				},
+				"litellm-vscode-chat.openRouterCatalog.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "%litellm.config.openRouterCatalog.enabled.description%"
 				},
 				"litellm-vscode-chat.headers": {
 					"type": "object",
@@ -367,7 +402,7 @@
 	},
 	"scripts": {
 		"prepare": "husky",
-		"vscode:prepublish": "tsc -p tsconfig.prod.json && bun run bundle",
+		"vscode:prepublish": "tsc -p tsconfig.prod.json && bun scripts/dev/fetch-openrouter-catalog.ts && bun run bundle",
 		"compile": "tsc -p ./",
 		"bundle": "bun scripts/dev/esbuild.mts --production && bun scripts/dev/generate-third-party-notices.ts",
 		"bundle:dev": "bun scripts/dev/esbuild.mts",

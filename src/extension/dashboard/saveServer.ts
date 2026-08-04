@@ -193,7 +193,12 @@ export async function applySaveServerSetting(
 	});
 
 	// The final entry's non-secret fields, needed for the pairing checks below.
-	const newEntry: Record<string, string | Readonly<Record<string, Readonly<Record<string, unknown>>>>> = {
+	// This rebuild is the whole entry: any payload field not copied here is
+	// silently DELETED by the save (panelIntegration pins the round trip).
+	const newEntry: Record<
+		string,
+		string | Readonly<Record<string, Readonly<Record<string, unknown>>>> | readonly string[]
+	> = {
 		label,
 		baseUrl: intent.server.baseUrl.trim(),
 	};
@@ -208,6 +213,18 @@ export async function applySaveServerSetting(
 	// one.
 	if (intent.server.modelParameters !== undefined && Object.keys(intent.server.modelParameters).length > 0) {
 		newEntry.modelParameters = intent.server.modelParameters;
+	}
+	// For these two the form always sends the field, so absent means the
+	// payload predates the editor: carry the stored values instead of
+	// silently deleting hand-written configuration. Present-but-empty is a
+	// deliberate clear and writes nothing, like the records above.
+	const capabilities = intent.server.modelCapabilities ?? existing?.modelCapabilities;
+	if (capabilities !== undefined && Object.keys(capabilities).length > 0) {
+		newEntry.modelCapabilities = capabilities;
+	}
+	const expectedFailures = intent.server.expectedFailures ?? existing?.expectedFailures;
+	if (expectedFailures !== undefined && expectedFailures.length > 0) {
+		newEntry.expectedFailures = expectedFailures;
 	}
 
 	// OAuth is one unit, mirroring serverForm's exact rules: the request path

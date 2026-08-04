@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "../../../extension/dashboard/adopt";
+import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import type { DashboardIntent } from "../../../extension/dashboard/intentSchema";
 import { webviewMessageSchema } from "../../../extension/dashboard/intentSchema";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
@@ -35,12 +36,14 @@ import {
 	buildDashboardState,
 	readDashboardSettings,
 	resolveConfiguredScope,
+	resolveDashboardModelCapabilities,
 	resolveUpdateScope,
 } from "../../../extension/dashboard/state";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { RequestError } from "../../../provider/transport/errorMapping";
+import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
 
@@ -127,7 +130,7 @@ interface RecordedEnv {
 	externalLookups: [string, string][];
 	/** Every probeDraftConnection call's resolved connection; probeResult/probeError shape the outcome. */
 	probes: DraftConnection[];
-	probeResult: number;
+	probeResult: readonly string[];
 	probeError?: Error;
 	/** Every hideGroup call. */
 	hidden: { label: string; baseUrl: string }[];
@@ -153,7 +156,7 @@ function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		adoptionLookups: [],
 		externalLookups: [],
 		probes: [],
-		probeResult: 0,
+		probeResult: [],
 		hidden: [],
 		unhidden: [],
 		unhideResult: true,
@@ -259,8 +262,13 @@ suite("extension/dashboard/state", () => {
 		test("maps server statuses to dashboard servers, sorted by label", () => {
 			const state = buildDashboardState(
 				[
-					{ status: makeServerStatus({ serverId: "b", label: "Zeta", hasApiKey: true }), models: [] },
 					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "b", label: "Zeta", hasApiKey: true }),
+						models: [],
+					},
+					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "a",
 							label: "Alpha",
@@ -295,6 +303,7 @@ suite("extension/dashboard/state", () => {
 			const external = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
 						models: [],
 					},
@@ -307,6 +316,7 @@ suite("extension/dashboard/state", () => {
 			const declared = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
 						models: [],
 					},
@@ -321,6 +331,7 @@ suite("extension/dashboard/state", () => {
 			const synced = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
 						models: [],
 					},
@@ -341,14 +352,26 @@ suite("extension/dashboard/state", () => {
 			// the classification crosses the boundary (enum ids, never text).
 			const classification = { kind: "connection", setupHint: "proxy-not-running" } as const;
 			const external = buildDashboardState(
-				[{ status: makeServerStatus({ state: "error", error: "boom", classification }), models: [] }],
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ state: "error", error: "boom", classification }),
+						models: [],
+					},
+				],
 				makeReader({})
 			);
 			assert.strictEqual(external.servers[0]?.origin, "external");
 			assert.deepStrictEqual(external.servers[0]?.classification, classification);
 
 			const declared = buildDashboardState(
-				[{ status: makeServerStatus({ state: "error", error: "boom", classification }), models: [] }],
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ state: "error", error: "boom", classification }),
+						models: [],
+					},
+				],
 				makeReader({}),
 				[makeDeclared()]
 			);
@@ -358,7 +381,7 @@ suite("extension/dashboard/state", () => {
 			// An unclassified failure carries no field at all (conditional spread,
 			// never an explicit undefined).
 			const unclassified = buildDashboardState(
-				[{ status: makeServerStatus({ state: "error", error: "boom" }), models: [] }],
+				[{ discoveredRawIds: [], status: makeServerStatus({ state: "error", error: "boom" }), models: [] }],
 				makeReader({})
 			);
 			const unclassifiedRow = unclassified.servers[0];
@@ -368,7 +391,13 @@ suite("extension/dashboard/state", () => {
 			// masked error's classification: the hint would advise on a failure
 			// the row is not displaying.
 			const synced = buildDashboardState(
-				[{ status: makeServerStatus({ state: "error", error: "boom", classification }), models: [] }],
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ state: "error", error: "boom", classification }),
+						models: [],
+					},
+				],
 				makeReader({}),
 				[makeDeclared({ syncError: "sync failed", syncErrorClass: "upsertFailed" })]
 			);
@@ -379,7 +408,7 @@ suite("extension/dashboard/state", () => {
 
 		test("legacy registry servers with no row of their own are counted, never listed", () => {
 			const state = buildDashboardState(
-				[{ status: makeServerStatus(), models: [] }],
+				[{ discoveredRawIds: [], status: makeServerStatus(), models: [] }],
 				makeReader({}),
 				[],
 				[
@@ -413,6 +442,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Prod", state: "error", error: "unreachable" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -430,7 +460,13 @@ suite("extension/dashboard/state", () => {
 
 		test("declared entries merge with their live group by label and base URL", () => {
 			const state = buildDashboardState(
-				[{ status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", modelCount: 4 }), models: [] }],
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", modelCount: 4 }),
+						models: [],
+					},
+				],
 				makeReader({}),
 				[
 					makeDeclared({
@@ -461,6 +497,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "g1",
 							label: "x.example",
@@ -487,10 +524,12 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "s1", label: "Staging", baseUrl: "http://x.test", modelCount: 1 }),
 						models: [],
 					},
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "s2", label: "Prod", baseUrl: "http://x.test", modelCount: 9 }),
 						models: [],
 					},
@@ -516,6 +555,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-staging:http://x.test",
 							label: "x.test",
@@ -525,6 +565,7 @@ suite("extension/dashboard/state", () => {
 						models: [],
 					},
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-prod:http://x.test",
 							label: "x.test",
@@ -558,6 +599,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-old:http://x.test",
 							label: "x.test",
@@ -584,6 +626,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -627,6 +670,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -667,6 +711,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -709,6 +754,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -748,6 +794,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -782,6 +829,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:labeled:fp-a:http://x.test",
 							label: "Prod",
@@ -791,6 +839,7 @@ suite("extension/dashboard/state", () => {
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:labeled:fp-b:http://x.test",
 							label: "Staging",
@@ -829,6 +878,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -857,15 +907,16 @@ suite("extension/dashboard/state", () => {
 			);
 
 			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
-			assert.strictEqual(byLabel.get("Prod")?.notice, "entry-params-inactive");
+			assert.deepStrictEqual(byLabel.get("Prod")?.notices, ["entry-params-inactive"]);
 			assert.strictEqual(byLabel.get("Prod")?.state, "ok", "the notice never degrades the live status");
-			assert.strictEqual(byLabel.get("Staging")?.notice, undefined, "no entry parameters, nothing to flag");
+			assert.strictEqual(byLabel.get("Staging")?.notices, undefined, "no entry parameters, nothing to flag");
 		});
 
 		test("an entry with modelParameters joined by its exact labeled identity carries no notice", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-prod-labeled:http://x.test",
 							label: "x.test",
@@ -887,7 +938,7 @@ suite("extension/dashboard/state", () => {
 				]
 			);
 
-			assert.strictEqual(state.servers[0]?.notice, undefined, "a labeled group serves the entry's parameters");
+			assert.strictEqual(state.servers[0]?.notices, undefined, "a labeled group serves the entry's parameters");
 		});
 
 		test("an entry with modelParameters joined by the label-and-URL fallback still flags them", () => {
@@ -898,6 +949,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
@@ -919,7 +971,7 @@ suite("extension/dashboard/state", () => {
 				]
 			);
 
-			assert.strictEqual(state.servers[0]?.notice, "entry-params-inactive");
+			assert.deepStrictEqual(state.servers[0]?.notices, ["entry-params-inactive"]);
 			assert.strictEqual(state.servers[0]?.state, "ok", "the notice never degrades the live status");
 		});
 
@@ -927,6 +979,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
@@ -948,7 +1001,7 @@ suite("extension/dashboard/state", () => {
 				]
 			);
 
-			assert.strictEqual(state.servers[0]?.notice, "entry-params-inactive");
+			assert.deepStrictEqual(state.servers[0]?.notices, ["entry-params-inactive"]);
 		});
 
 		test("the shared pass never crosses connections: a different-credential entry keeps its own outcome", () => {
@@ -959,6 +1012,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-a:http://x.test",
 							label: "x.test",
@@ -1012,6 +1066,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 4 }),
 						models: [],
 					},
@@ -1029,6 +1084,7 @@ suite("extension/dashboard/state", () => {
 		test("external rows carry an opaque, push-stable adopt handle; declared rows do not", () => {
 			const snapshots = [
 				{
+					discoveredRawIds: [],
 					status: makeServerStatus({
 						serverId: "group:fp-a:http://ext.test",
 						label: "ext.test",
@@ -1037,6 +1093,7 @@ suite("extension/dashboard/state", () => {
 					models: [],
 				},
 				{
+					discoveredRawIds: [],
 					status: makeServerStatus({
 						serverId: "group:fp-b:http://prod.test",
 						label: "Prod",
@@ -1063,7 +1120,7 @@ suite("extension/dashboard/state", () => {
 
 		test("no secret value ever reaches the state, only locations", () => {
 			const state = buildDashboardState(
-				[{ status: makeServerStatus({ hasApiKey: true }), models: [] }],
+				[{ discoveredRawIds: [], status: makeServerStatus({ hasApiKey: true }), models: [] }],
 				makeReader({}),
 				[makeDeclared({ secrets: { apiKey: "settings", oauthClientSecret: "secure", virtualKeyValue: "none" } })]
 			);
@@ -1077,14 +1134,16 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "s1", label: "litellm.test", baseUrl: "http://litellm.test" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "s2", label: "litellm.test", baseUrl: "http://litellm.test" }),
 						models: [makeModelInfo({ id: "m2", name: "m2" })],
 					},
-					{ status: makeServerStatus({ serverId: "s3", label: "Other" }), models: [] },
+					{ discoveredRawIds: [], status: makeServerStatus({ serverId: "s3", label: "Other" }), models: [] },
 				],
 				makeReader({})
 			);
@@ -1101,7 +1160,13 @@ suite("extension/dashboard/state", () => {
 
 		test("no serverId reaches the state", () => {
 			const state = buildDashboardState(
-				[{ status: makeServerStatus({ serverId: "group:secret-fingerprint:http://x" }), models: [makeModelInfo()] }],
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "group:secret-fingerprint:http://x" }),
+						models: [makeModelInfo()],
+					},
+				],
 				makeReader({})
 			);
 
@@ -1121,16 +1186,23 @@ suite("extension/dashboard/state", () => {
 				longContextOutputCost: 22.5,
 				capabilities: { toolCalling: true, imageInput: true },
 				configurationSchema: REASONING_EFFORT_SCHEMA,
-				litellm: { supportsPromptCaching: true, outputLimitSource: "provider" },
+				litellm: {
+					supportsPromptCaching: true,
+					outputLimitSource: "provider",
+					serverDeclared: { kind: "discovered", values: {}, outputDeclared: true },
+				},
 			});
-			const state = buildDashboardState([{ status: makeServerStatus(), models: [info] }], makeReader({}));
+			const state = buildDashboardState(
+				[{ discoveredRawIds: [], status: makeServerStatus(), models: [info] }],
+				makeReader({})
+			);
 
 			assert.strictEqual(state.models.length, 1);
 			const model = state.models[0];
 			assert.deepStrictEqual(model, {
 				id: "claude",
 				rawId: "claude",
-				scopeKey: "s0",
+				scopeKey: modelScopeKey("srv1"),
 				name: "claude",
 				family: "anthropic",
 				serverLabel: "Prod",
@@ -1153,7 +1225,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("models without pricing or capabilities stay minimal", () => {
-			const state = buildDashboardState([{ status: makeServerStatus(), models: [makeModelInfo()] }], makeReader({}));
+			const state = buildDashboardState(
+				[{ discoveredRawIds: [], status: makeServerStatus(), models: [makeModelInfo()] }],
+				makeReader({})
+			);
 
 			const model = state.models[0];
 			assert.strictEqual(model?.inputCost, undefined);
@@ -1167,10 +1242,12 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "srv2", label: "Zeta" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "srv1", label: "Alpha" }),
 						models: [makeModelInfo({ id: "b", name: "b" }), makeModelInfo({ id: "a", name: "a" })],
 					},
@@ -1190,10 +1267,12 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g2", label: "Live", baseUrl: "http://live.test" }),
 						models: [makeModelInfo({ id: "m2", name: "m2" })],
 					},
@@ -1222,8 +1301,16 @@ suite("extension/dashboard/state", () => {
 			// (1)" and "Dup (2)"; the tombstone still stores the raw identity.
 			const state = buildDashboardState(
 				[
-					{ status: makeServerStatus({ serverId: "g1", label: "Dup", baseUrl: "http://a.test" }), models: [] },
-					{ status: makeServerStatus({ serverId: "g2", label: "Dup", baseUrl: "http://b.test" }), models: [] },
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g1", label: "Dup", baseUrl: "http://a.test" }),
+						models: [],
+					},
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g2", label: "Dup", baseUrl: "http://b.test" }),
+						models: [],
+					},
 				],
 				makeReader({}),
 				[],
@@ -1242,7 +1329,13 @@ suite("extension/dashboard/state", () => {
 			// The engine auto-clears such a tombstone on its next pass; until then
 			// the declared entry the user just wrote must keep rendering.
 			const state = buildDashboardState(
-				[{ status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test" }), models: [] }],
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test" }),
+						models: [],
+					},
+				],
 				makeReader({}),
 				[makeDeclared()],
 				[],
@@ -1297,6 +1390,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "registry-1", label: "Legacy", baseUrl: "http://legacy.test" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -1320,7 +1414,7 @@ suite("extension/dashboard/state", () => {
 
 		test("group-backed external rows are hideable by default", () => {
 			const state = buildDashboardState(
-				[{ status: makeServerStatus({ serverId: "g1", label: "Prod" }), models: [] }],
+				[{ discoveredRawIds: [], status: makeServerStatus({ serverId: "g1", label: "Prod" }), models: [] }],
 				makeReader({})
 			);
 			assert.strictEqual(state.servers[0]?.hideable, true);
@@ -1329,8 +1423,16 @@ suite("extension/dashboard/state", () => {
 		test("external rows carry their recorded provenance; unrecorded rows carry none", () => {
 			const state = buildDashboardState(
 				[
-					{ status: makeServerStatus({ serverId: "g1", label: "Old", baseUrl: "http://host.test" }), models: [] },
-					{ status: makeServerStatus({ serverId: "g2", label: "Other", baseUrl: "http://other.test" }), models: [] },
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g1", label: "Old", baseUrl: "http://host.test" }),
+						models: [],
+					},
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g2", label: "Other", baseUrl: "http://other.test" }),
+						models: [],
+					},
 				],
 				makeReader({}),
 				[],
@@ -1359,6 +1461,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "srv1" }),
 						models: [makeModelInfo({ id: "srv1/gpt-4", name: "gpt-4" })],
 					},
@@ -1373,13 +1476,18 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1" }),
 						models: [
 							makeModelInfo({ id: "gpt-4", name: "a" }),
 							makeModelInfo({
 								id: "claude",
 								name: "b",
-								litellm: { supportsPromptCaching: false, outputLimitSource: "provider" },
+								litellm: {
+									supportsPromptCaching: false,
+									outputLimitSource: "provider",
+									serverDeclared: { kind: "discovered", values: {}, outputDeclared: true },
+								},
 							}),
 						],
 					},
@@ -1399,6 +1507,7 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test/" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -1419,10 +1528,12 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Team", baseUrl: "http://prod.test" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g2", label: "Team", baseUrl: "http://prod.test" }),
 						models: [makeModelInfo({ id: "m2", name: "m2" })],
 					},
@@ -1453,10 +1564,12 @@ suite("extension/dashboard/state", () => {
 			const state = buildDashboardState(
 				[
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Hidden", baseUrl: "http://hidden.test" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
+						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g2", label: "Live", baseUrl: "http://live.test" }),
 						models: [makeModelInfo({ id: "m2", name: "m2" })],
 					},
@@ -1473,6 +1586,343 @@ suite("extension/dashboard/state", () => {
 			for (const model of state.models) {
 				assert.ok(state.requestScopes[model.scopeKey] !== undefined, "every surviving model's scope resolves");
 			}
+		});
+	});
+
+	suite("buildDashboardState: capabilities and expected failures", () => {
+		test("the config prefill carries the entry's modelCapabilities and expectedFailures", () => {
+			const state = buildDashboardState([], makeReader({}), [
+				makeDeclared({
+					modelCapabilities: { "my-model": { _declare: true, context_length: 128000 } },
+					expectedFailures: ["modelListing"],
+				}),
+			]);
+			const server = state.servers[0];
+			assert.ok(server?.origin === "declared");
+			assert.deepStrictEqual(server.config.modelCapabilities, {
+				"my-model": { _declare: true, context_length: 128000 },
+			});
+			assert.deepStrictEqual(server.config.expectedFailures, ["modelListing"]);
+		});
+
+		test("a non-identity join flags capabilities and expected failures inactive, beside the params notice", () => {
+			const state = buildDashboardState(
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({
+							serverId: "group:fp-other:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+							modelCount: 3,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-labeled:http://x.test",
+						expectedConnectionId: "group:fp-conn:http://x.test",
+						modelParameters: { "gpt-4": { temperature: 0.2 } },
+						modelCapabilities: { "gpt-4": { supports_vision: true } },
+					}),
+				]
+			);
+			assert.deepStrictEqual(state.servers[0]?.notices, ["entry-params-inactive", "entry-capabilities-inactive"]);
+		});
+
+		test("expectedFailures alone also raises the capabilities-inactive notice on a non-identity join", () => {
+			const state = buildDashboardState(
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({
+							serverId: "group:fp-other:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-labeled:http://x.test",
+						expectedConnectionId: "group:fp-conn:http://x.test",
+						expectedFailures: ["modelInfo"],
+					}),
+				]
+			);
+			assert.deepStrictEqual(state.servers[0]?.notices, ["entry-capabilities-inactive"]);
+		});
+
+		test("an expected failure rides the row with its declared count as the model count", () => {
+			const state = buildDashboardState(
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({
+							serverId: "group:fp-prod-labeled:http://x.test",
+							label: "Prod",
+							baseUrl: "http://x.test",
+							state: "error",
+							error: "404 on /models",
+							expected: true,
+							declaredModelCount: 2,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-prod-labeled:http://x.test",
+						expectedFailures: ["modelListing"],
+					}),
+				]
+			);
+			const server = state.servers[0];
+			assert.ok(server?.state === "error");
+			assert.strictEqual(server.expected, true);
+			assert.strictEqual(server.declaredModelCount, 2);
+			assert.strictEqual(server.modelCount, 2, "declared models join the row's count");
+			assert.strictEqual(server.notices, undefined, "declared models mean nothing to flag");
+		});
+
+		test("an expected failure with nothing declared raises the needs-declare notice", () => {
+			const state = buildDashboardState(
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({
+							serverId: "group:fp-prod-labeled:http://x.test",
+							label: "Prod",
+							baseUrl: "http://x.test",
+							state: "error",
+							error: "404 on /models",
+							expected: true,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-prod-labeled:http://x.test",
+						expectedFailures: ["modelListing"],
+					}),
+				]
+			);
+			const server = state.servers[0];
+			assert.ok(server?.state === "error");
+			assert.strictEqual(server.modelCount, 0);
+			assert.deepStrictEqual(server.notices, ["expected-failures-nothing-declared"]);
+		});
+
+		test("a declared model's badge marker rides the dashboard model; discovered models carry none", () => {
+			const state = buildDashboardState(
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g1" }),
+						models: [
+							makeModelInfo({ id: "gpt-4", name: "a" }),
+							makeModelInfo({
+								id: "my-model",
+								name: "b",
+								litellm: {
+									supportsPromptCaching: false,
+									outputLimitSource: "defaults",
+									declared: true,
+									serverDeclared: { kind: "declared" },
+								},
+							}),
+						],
+					},
+				],
+				makeReader({})
+			);
+			assert.deepStrictEqual(
+				state.models.map((model) => [model.rawId, model.declared]),
+				[
+					["gpt-4", undefined],
+					["my-model", true],
+				]
+			);
+		});
+	});
+
+	suite("resolveDashboardModelCapabilities", () => {
+		const snapshots = [
+			{
+				discoveredRawIds: [],
+				status: makeServerStatus({ serverId: "g1", baseUrl: "http://x.test" }),
+				models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
+			},
+		];
+
+		test("resolves through the shared walk: entry beats global beats the floor, shadowed values kept", () => {
+			const capabilities = resolveDashboardModelCapabilities(
+				{
+					snapshots,
+					reader: makeReader({ modelCapabilities: { "gpt-4": { context_length: 111 } } }),
+					resolveEntryCapabilities: () => ({ "gpt-4": { context_length: 222 } }),
+					catalog: EMPTY_CATALOG_LOOKUP,
+				},
+				modelScopeKey("g1"),
+				"gpt-4"
+			);
+			assert.ok(capabilities !== undefined);
+			assert.strictEqual(capabilities.fields.context_length.value, 222);
+			assert.strictEqual(capabilities.fields.context_length.level, "entry");
+			assert.deepStrictEqual(
+				capabilities.fields.context_length.shadowed.map((shadow) => [shadow.level, shadow.value]),
+				[["global", 111]]
+			);
+			assert.strictEqual(capabilities.fields.supports_vision.level, "floor");
+			assert.strictEqual(capabilities.outputLimitSource, "defaults");
+		});
+
+		test("a server baseline riding the model metadata resolves at the server level", () => {
+			const withBaseline = [
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({ serverId: "g1", baseUrl: "http://x.test" }),
+					models: [
+						makeModelInfo({
+							id: "gpt-4",
+							name: "gpt-4",
+							litellm: {
+								supportsPromptCaching: false,
+								outputLimitSource: "provider",
+								serverDeclared: {
+									kind: "discovered",
+									values: { context_length: 999, max_output_tokens: 500 },
+									outputDeclared: true,
+								},
+							},
+						}),
+					],
+				},
+			];
+			const capabilities = resolveDashboardModelCapabilities(
+				{
+					snapshots: withBaseline,
+					reader: makeReader({}),
+					resolveEntryCapabilities: () => undefined,
+					catalog: EMPTY_CATALOG_LOOKUP,
+				},
+				modelScopeKey("g1"),
+				"gpt-4"
+			);
+			assert.ok(capabilities !== undefined);
+			assert.strictEqual(capabilities.fields.context_length.value, 999);
+			assert.strictEqual(capabilities.fields.context_length.level, "server");
+			assert.strictEqual(capabilities.outputLimitSource, "provider");
+		});
+
+		test("an explicitly configured default* setting resolves at the default-setting level", () => {
+			const capabilities = resolveDashboardModelCapabilities(
+				{
+					snapshots,
+					reader: makeReader({ defaultContextLength: 55000 }),
+					resolveEntryCapabilities: () => undefined,
+					catalog: EMPTY_CATALOG_LOOKUP,
+				},
+				modelScopeKey("g1"),
+				"gpt-4"
+			);
+			assert.ok(capabilities !== undefined);
+			assert.strictEqual(capabilities.fields.context_length.value, 55000);
+			assert.strictEqual(capabilities.fields.context_length.level, "default-setting");
+		});
+
+		test("a claimed snapshot whose entry label differs from the group's still resolves its models", () => {
+			// The population the entry-capabilities-inactive notice exists for:
+			// entry "Prod", group label "x.test". The model rows render under the
+			// entry label, and their scope keys must still answer - the key hashes
+			// the server ID, so no label enters the resolution at all.
+			const divergent = [
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({
+						serverId: "group:fp-other:http://x.test",
+						label: "x.test",
+						baseUrl: "http://x.test",
+					}),
+					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
+				},
+			];
+			const state = buildDashboardState(divergent, makeReader({}), [
+				makeDeclared({ label: "Prod", baseUrl: "http://x.test" }),
+			]);
+			assert.strictEqual(state.models[0]?.serverLabel, "Prod", "the row renders under the claimant label");
+			const capabilities = resolveDashboardModelCapabilities(
+				{
+					snapshots: divergent,
+					reader: makeReader({}),
+					resolveEntryCapabilities: () => undefined,
+					catalog: EMPTY_CATALOG_LOOKUP,
+				},
+				state.models[0]?.scopeKey ?? "",
+				state.models[0]?.rawId ?? ""
+			);
+			assert.ok(capabilities !== undefined, "a divergent-label row must still resolve");
+		});
+
+		test("two groups on one host resolve their own capabilities despite the ordinal display labels", () => {
+			const twoGroups = [
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({ serverId: "g-a", label: "Prod", baseUrl: "http://x.test" }),
+					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
+				},
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({ serverId: "g-b", label: "Prod", baseUrl: "http://x.test" }),
+					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
+				},
+			];
+			const state = buildDashboardState(twoGroups, makeReader({}));
+			const keys = state.models.map((model) => model.scopeKey);
+			assert.strictEqual(new Set(keys).size, 2, "each group's models carry their own key");
+			for (const model of state.models) {
+				const capabilities = resolveDashboardModelCapabilities(
+					{
+						snapshots: twoGroups,
+						reader: makeReader({}),
+						resolveEntryCapabilities: () => undefined,
+						catalog: EMPTY_CATALOG_LOOKUP,
+					},
+					model.scopeKey,
+					model.rawId
+				);
+				assert.ok(capabilities !== undefined, `the ${model.serverLabel} row must resolve`);
+			}
+		});
+
+		test("a stale scope key, a malformed one, or an unknown raw ID answers undefined", () => {
+			const query = {
+				snapshots,
+				reader: makeReader({}),
+				resolveEntryCapabilities: () => undefined,
+				catalog: EMPTY_CATALOG_LOOKUP,
+			};
+			assert.strictEqual(resolveDashboardModelCapabilities(query, "s0", "gpt-4"), undefined);
+			assert.strictEqual(resolveDashboardModelCapabilities(query, "bogus", "gpt-4"), undefined);
+			assert.strictEqual(resolveDashboardModelCapabilities(query, modelScopeKey("g1"), "no-such-model"), undefined);
+			// A key minted for a server that left the window de-resolves; it can
+			// never re-point at whatever server the snapshot list now holds.
+			assert.strictEqual(resolveDashboardModelCapabilities(query, modelScopeKey("gone"), "gpt-4"), undefined);
 		});
 	});
 
@@ -2934,6 +3384,10 @@ suite("extension/dashboard/state", () => {
 	});
 
 	suite("executeDashboardIntent: testServerDraft", () => {
+		// Every probe carries the draft's expectedFailures in discovery's
+		// per-endpoint shape, so expected endpoints probe with a single
+		// attempt like production; a draft without any declares both false.
+		const NO_EXPECTED = { modelInfo: false, modelListing: false };
 		const draftTest = (
 			recorded: RecordedEnv,
 			partial: Partial<Extract<DashboardIntent, { type: "testServerDraft" }>> = {}
@@ -2986,7 +3440,9 @@ suite("extension/dashboard/state", () => {
 				secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-draft" } },
 			});
 
-			assert.deepStrictEqual(recorded.probes, [{ baseUrl: "http://prod.test", apiKey: "sk-draft" }]);
+			assert.deepStrictEqual(recorded.probes, [
+				{ baseUrl: "http://prod.test", apiKey: "sk-draft", expected: NO_EXPECTED },
+			]);
 			assert.strictEqual(notice, "Connected - 0 models");
 			// The no-mutation contract: a probe leaves every store untouched.
 			assert.deepStrictEqual(recorded.serverWrites, []);
@@ -2997,10 +3453,81 @@ suite("extension/dashboard/state", () => {
 
 		test("the success notice is static classification plus count, singular and plural", async () => {
 			const recorded = makeEnv([]);
-			recorded.probeResult = 1;
+			recorded.probeResult = ["m1"];
 			assert.strictEqual(await draftTest(recorded), "Connected - 1 model");
-			recorded.probeResult = 12;
+			recorded.probeResult = Array.from({ length: 12 }, (_, index) => `m${index}`);
 			assert.strictEqual(await draftTest(recorded), "Connected - 12 models");
+		});
+
+		test("draft _declare models join the count when not discovered; discovered ones stay inert", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeResult = ["gpt-4"];
+			const notice = await draftTest(recorded, {
+				server: {
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					modelCapabilities: {
+						"my-model": { _declare: true },
+						"gpt-4": { _declare: true },
+					},
+				},
+			});
+			// gpt-4 is discovered, so its declaration is inert; my-model adds one.
+			assert.strictEqual(notice, "Connected - 2 models (1 declared)");
+		});
+
+		test("a lone declared model on an empty discovery keeps the singular reading", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeResult = [];
+			const notice = await draftTest(recorded, {
+				server: {
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					modelCapabilities: { "my-model": { _declare: true } },
+				},
+			});
+			assert.strictEqual(notice, "Connected - 1 model (declared)");
+		});
+
+		test("an expected modelListing failure reports the declared models instead of failing", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
+			const notice = await draftTest(recorded, {
+				server: {
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					expectedFailures: ["modelListing"],
+					modelCapabilities: { "my-model": { _declare: true } },
+				},
+			});
+			assert.strictEqual(notice, "Discovery failed (expected) - serving 1 declared model");
+			// The draft's expectedFailures reach the probe in discovery's
+			// per-endpoint shape, so the expected endpoint probes with a single
+			// attempt exactly like production discovery.
+			assert.deepStrictEqual(recorded.probes, [
+				{ baseUrl: "http://prod.test", apiKey: "", expected: { modelInfo: false, modelListing: true } },
+			]);
+		});
+
+		test("an expected modelListing failure with nothing declared still reports the expected outcome", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
+			const notice = await draftTest(recorded, {
+				server: { label: "Prod", baseUrl: "http://prod.test", expectedFailures: ["modelListing"] },
+			});
+			assert.strictEqual(notice, "Discovery failed (expected) - serving 0 declared models");
+		});
+
+		test("a failure outside the expected categories still fails the intent", async () => {
+			const recorded = makeEnv([]);
+			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
+			await assert.rejects(
+				() =>
+					draftTest(recorded, {
+						server: { label: "Prod", baseUrl: "http://prod.test", expectedFailures: ["modelInfo"] },
+					}),
+				(error: unknown) => error instanceof DashboardValidationError
+			);
 		});
 
 		test("keep while editing resolves inline from the accepted entry and secure from the stored blob", async () => {
@@ -3038,6 +3565,7 @@ suite("extension/dashboard/state", () => {
 						clientSecret: "oa-secret",
 						scopes: "read write",
 					},
+					expected: NO_EXPECTED,
 				},
 			]);
 		});
@@ -3047,7 +3575,9 @@ suite("extension/dashboard/state", () => {
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-orphan" });
 			await draftTest(recorded);
 
-			assert.deepStrictEqual(recorded.probes, [{ baseUrl: "http://prod.test", apiKey: "sk-orphan" }]);
+			assert.deepStrictEqual(recorded.probes, [
+				{ baseUrl: "http://prod.test", apiKey: "sk-orphan", expected: NO_EXPECTED },
+			]);
 		});
 
 		test("clear probes without the credential even when one is stored", async () => {
@@ -3057,7 +3587,7 @@ suite("extension/dashboard/state", () => {
 				replaceLabel: "Prod",
 			});
 
-			assert.deepStrictEqual(recorded.probes, [{ baseUrl: "http://prod.test", apiKey: "" }]);
+			assert.deepStrictEqual(recorded.probes, [{ baseUrl: "http://prod.test", apiKey: "", expected: NO_EXPECTED }]);
 			assert.deepStrictEqual(recorded.secretOps, [], "clear on a test deletes nothing");
 		});
 
@@ -3068,7 +3598,12 @@ suite("extension/dashboard/state", () => {
 				secrets: { ...KEEP_ALL, virtualKeyValue: { action: "set", location: "secure", value: "vk-1" } },
 			});
 			assert.deepStrictEqual(recorded.probes, [
-				{ baseUrl: "http://prod.test", apiKey: "", virtualKey: { header: "x-vk", value: "vk-1" } },
+				{
+					baseUrl: "http://prod.test",
+					apiKey: "",
+					virtualKey: { header: "x-vk", value: "vk-1" },
+					expected: NO_EXPECTED,
+				},
 			]);
 
 			await assert.rejects(
@@ -3249,6 +3784,7 @@ suite("extension/dashboard/state", () => {
 		]);
 		const lookup = (serverId: string) => groupServers.get(serverId);
 		const snapshotFor = (serverId: string) => ({
+			discoveredRawIds: [],
 			status: makeServerStatus({ serverId, label: "ext.test", baseUrl: "http://ext.test" }),
 			models: [],
 		});
@@ -3331,6 +3867,7 @@ suite("extension/dashboard/state", () => {
 			);
 			const registryOnly = [
 				{
+					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "registry-1", label: "ext.test", baseUrl: "http://ext.test" }),
 					models: [],
 				},
@@ -3377,6 +3914,7 @@ suite("extension/dashboard/state", () => {
 		test("resolveExternalGroupIdentity refuses registry-backed snapshots: there is no group to silence", () => {
 			const registryOnly = [
 				{
+					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "registry-1", label: "ext.test", baseUrl: "http://ext.test" }),
 					models: [],
 				},

@@ -10,15 +10,20 @@ import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { SERVERS_SETTING_KEY } from "../../../shared/config/settings";
 import { SERVER_SYNC_FINGERPRINTS_KEY, SYNCED_ENTRY_BASE_URLS_KEY } from "../../../shared/config/storageKeys";
 import type { Logger } from "../../../shared/logger";
-import type { SecretFieldId } from "../../../shared/serverEntry";
+import type { ExpectedFailureCategory, SecretFieldId } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import { showActionableMessage } from "../../ui/notifier";
 import type { GroupRemovalStore } from "../groupRemovals";
 import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
 import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./secrets";
-import type { EntryModelParameters } from "./setting";
-import { entryModelParametersFor, parseServersSetting } from "./setting";
+import type { EntryModelCapabilities, EntryModelParameters } from "./setting";
+import {
+	entryExpectedFailuresFor,
+	entryModelCapabilitiesFor,
+	entryModelParametersFor,
+	parseServersSetting,
+} from "./setting";
 
 /** The one button every removal notice carries: it opens the models file, where group deletion actually lives. */
 const openGroupsFileAction = () => ({
@@ -102,7 +107,7 @@ export function createServerSyncEnv(
 		);
 	}
 	return {
-		readServersSetting: () => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
+		readServersSetting: readRawServersSetting,
 		readSecrets: (label) => readServerSecrets(context.secrets, label),
 		addProviderGroup: (args) => vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", args),
 		confirmFingerprintsDurable: async () => (await fingerprintSalt.confirmDurable()) === "durable",
@@ -206,6 +211,11 @@ export function createServerSyncEnv(
 	};
 }
 
+/** The raw servers setting from the same live channel the sync engine reads. */
+function readRawServersSetting(): unknown {
+	return vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
+}
+
 /**
  * The request path's read of one declared entry's per-entry modelParameters:
  * the same live settings channel the sync engine reads, resolved through
@@ -215,8 +225,28 @@ export function createServerSyncEnv(
  * (label, baseUrl) pair no declared entry carries yields undefined.
  */
 export function readEntryModelParameters(label: string, baseUrl: string): EntryModelParameters | undefined {
-	const raw: unknown = vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY);
-	return entryModelParametersFor(raw, label, baseUrl);
+	return entryModelParametersFor(readRawServersSetting(), label, baseUrl);
+}
+
+/**
+ * The registration path's read of one declared entry's per-entry
+ * modelCapabilities; the same live read and label-plus-URL match as
+ * readEntryModelParameters, injected the same way.
+ */
+export function readEntryModelCapabilities(label: string, baseUrl: string): EntryModelCapabilities | undefined {
+	return entryModelCapabilitiesFor(readRawServersSetting(), label, baseUrl);
+}
+
+/**
+ * The discovery path's read of one declared entry's expectedFailures; the
+ * same live read and label-plus-URL match as readEntryModelParameters,
+ * injected the same way.
+ */
+export function readEntryExpectedFailures(
+	label: string,
+	baseUrl: string
+): readonly ExpectedFailureCategory[] | undefined {
+	return entryExpectedFailuresFor(readRawServersSetting(), label, baseUrl);
 }
 
 /**
@@ -245,9 +275,7 @@ export function registerSetServerSecretCommand(
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.setServerSecret, async () => {
-			const { entries } = parseServersSetting(
-				vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY)
-			);
+			const { entries } = parseServersSetting(readRawServersSetting());
 			if (entries.length === 0) {
 				void vscode.window.showInformationMessage(
 					vscode.l10n.t(

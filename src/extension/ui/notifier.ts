@@ -289,8 +289,13 @@ export class Notifier implements vscode.Disposable {
 			};
 		}
 		const failures = status.serverStatuses.filter(isErrorServerStatus);
-		const firstFailure = failures[0];
-		if (firstFailure !== undefined && failures.length === status.serverStatuses.length) {
+		// Expected failures never toast red: the entry declared them normal. The
+		// all-failed rule mirrors the status bar and classifyOverall (red only
+		// when EVERY server failed unexpectedly), so the toast can never
+		// contradict the surfaces it points at.
+		const unexpectedFailures = failures.filter((failure) => failure.expected !== true);
+		const firstFailure = unexpectedFailures[0];
+		if (firstFailure !== undefined && unexpectedFailures.length === status.serverStatuses.length) {
 			return {
 				tag: "all-failed",
 				// The dedup signature is an internal English key, never displayed.
@@ -307,6 +312,20 @@ export class Notifier implements vscode.Disposable {
 			};
 		}
 		if (status.totalModels === 0) {
+			// All-expected failures with nothing declared get the needs-declare
+			// message the dashboard and status bar show: discovery never
+			// returned a list, so "returned no models" would misdescribe it.
+			if (unexpectedFailures.length === 0 && failures.length === status.serverStatuses.length && failures.length > 0) {
+				return {
+					tag: "no-models",
+					signature: "needs-declare",
+					kind: "warning",
+					message: vscode.l10n.t(
+						"LiteLLM: Discovery is declared unavailable and no models are declared. Add _declare entries under modelCapabilities."
+					),
+					actions: [reconfigureAction(), reportIssueAction()],
+				};
+			}
 			return {
 				tag: "no-models",
 				signature: "no-models",

@@ -8,8 +8,11 @@
  * and the Edit-as-JSON side door.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { render } from "preact";
+import { act } from "preact/test-utils";
 import { App } from "../../../webview/dashboard/app";
 import { helpModelParameterPrefix } from "../../../webview/dashboard/helpText";
+import { CatalogPicker } from "../../../webview/dashboard/recordEditors";
 import { SettingsSection } from "../../../webview/dashboard/settings";
 import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
@@ -559,4 +562,106 @@ test("the settings filter hides an editor with a dirty draft via hidden, and the
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	expect(postedMessages).toEqual([{ type: "setHeaders", value: { "x-draft": "survives" } }]);
+});
+
+test("the catalog picker debounces searchCatalog and picking a result writes the ID", async () => {
+	const root = mount(
+		<CatalogPicker value="gpt" disabled={false} invalid={false} results={undefined} onValue={() => {}} debounceMs={1} />
+	);
+	const input = root.querySelector("input") as HTMLInputElement;
+	void act(() => {
+		input.dispatchEvent(new Event("focus"));
+	});
+	// Under the debounce window nothing is posted yet.
+	expect(postedMessages).toEqual([]);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	const request = postedMessages.at(-1) as unknown as { type: string; query: string; requestId: string };
+	expect(request.type).toBe("searchCatalog");
+	expect(request.query).toBe("gpt");
+
+	// The correlated response renders the result list; picking writes the ID.
+	const picked: string[] = [];
+	void act(() => {
+		render(
+			<CatalogPicker
+				value="gpt"
+				disabled={false}
+				invalid={false}
+				results={{
+					type: "catalogSearchResults",
+					requestId: request.requestId,
+					results: [{ id: "openai/gpt-4o", name: "GPT-4o" }],
+				}}
+				onValue={(next) => picked.push(next)}
+				debounceMs={1}
+			/>,
+			root
+		);
+	});
+	const option = root.querySelector(".catalog-results button") as HTMLButtonElement;
+	expect(option?.textContent).toContain("openai/gpt-4o");
+	void act(() => {
+		option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+	});
+	expect(picked).toEqual(["openai/gpt-4o"]);
+});
+
+test("a stale catalog response for another request renders no result list", () => {
+	const root = mount(
+		<CatalogPicker
+			value="gpt"
+			disabled={false}
+			invalid={false}
+			results={{ type: "catalogSearchResults", requestId: "stale", results: [{ id: "x", name: "X" }] }}
+			onValue={() => {}}
+			debounceMs={1}
+		/>
+	);
+	expect(root.querySelector(".catalog-results")).toBeNull();
+});
+
+test("the catalog picker is keyboard-operable: arrows move the highlight, Enter picks, Escape closes", async () => {
+	const picked: string[] = [];
+	const root = mount(
+		<CatalogPicker
+			value="gpt"
+			disabled={false}
+			invalid={false}
+			results={undefined}
+			onValue={(id) => picked.push(id)}
+			debounceMs={1}
+		/>
+	);
+	const input = root.querySelector("input") as HTMLInputElement;
+	void act(() => {
+		input.dispatchEvent(new Event("focus"));
+	});
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	const request = postedMessages.at(-1) as unknown as { requestId: string };
+	void act(() => {
+		render(
+			<CatalogPicker
+				value="gpt"
+				disabled={false}
+				invalid={false}
+				results={{
+					type: "catalogSearchResults",
+					requestId: request.requestId,
+					results: [
+						{ id: "openai/gpt-4o", name: "GPT-4o" },
+						{ id: "openai/gpt-4o-mini", name: "GPT-4o mini" },
+					],
+				}}
+				onValue={(id) => picked.push(id)}
+				debounceMs={1}
+			/>,
+			root
+		);
+	});
+	fireKeyDown(input, "ArrowDown");
+	fireKeyDown(input, "ArrowDown");
+	expect(root.querySelector(".catalog-results button.active")?.textContent).toContain("gpt-4o-mini");
+	fireKeyDown(input, "Enter");
+	expect(picked).toEqual(["openai/gpt-4o-mini"]);
+	expect(root.querySelector(".catalog-results")).toBeNull();
 });

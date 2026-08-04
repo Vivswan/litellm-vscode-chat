@@ -49,7 +49,11 @@ const model = {
 	maxInputTokens: 100000,
 	maxOutputTokens: 8000,
 	capabilities: {},
-	litellm: { supportsPromptCaching: false, outputLimitSource: "defaults" },
+	litellm: {
+		supportsPromptCaching: false,
+		outputLimitSource: "defaults",
+		serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+	},
 } satisfies LiteLLMModelInfo;
 
 const messages: vscode.LanguageModelChatRequestMessage[] = [

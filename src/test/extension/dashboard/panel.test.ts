@@ -1,16 +1,23 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import type { DashboardControllerEnv, DashboardPanel } from "../../../extension/dashboard/panel";
 import {
 	DashboardController,
+	declaredMergedSnapshots,
 	declaredViewsFromSetting,
 	entryParametersResolver,
 } from "../../../extension/dashboard/panel";
-import type { ExtensionToWebviewMessage } from "../../../extension/dashboard/protocol";
-import type { EntryParametersResolution, SettingsReader } from "../../../extension/dashboard/state";
+import type { CatalogModelSummary, ExtensionToWebviewMessage } from "../../../extension/dashboard/protocol";
+import type {
+	EntryCapabilitiesRecord,
+	EntryParametersResolution,
+	SettingsReader,
+} from "../../../extension/dashboard/state";
 import { entryModelParametersFor } from "../../../extension/servers/serverSync";
 import { RequestError } from "../../../provider/transport/errorMapping";
-import { makeModelInfo, makeServerStatus } from "../../testUtils";
+import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
+import { expectDefined, makeModelInfo, makeServerStatus } from "../../testUtils";
 
 interface FakePanel {
 	panel: DashboardPanel;
@@ -76,6 +83,11 @@ interface Harness {
 	legacyServers: { baseUrl: string }[];
 	/** What resolveEntryParameters answers per snapshot server ID. */
 	entryResolutions: Record<string, EntryParametersResolution>;
+	/** What resolveEntryCapabilities answers per snapshot server ID. */
+	entryCapabilities: Record<string, EntryCapabilitiesRecord>;
+	/** Every searchCatalog query, with catalogResults as the canned answer. */
+	catalogQueries: string[];
+	catalogResults: CatalogModelSummary[];
 	/** When set, every updateSetting call rejects with this error. */
 	failUpdates?: Error;
 	/** When set, storeServerSecret rejects with this error on deletes (value === undefined). */
@@ -106,12 +118,20 @@ function makeHarness(): Harness {
 			panels.push(fake);
 			return fake.panel;
 		},
-		getSnapshots: () => [{ status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] }],
+		getSnapshots: () => [
+			{ discoveredRawIds: [], status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] },
+		],
 		getDeclaredServers: () => [],
 		getLegacyServers: () => harness.legacyServers,
 		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
 		isGroupSnapshot: () => true,
 		resolveEntryParameters: (serverId) => harness.entryResolutions[serverId],
+		resolveEntryCapabilities: (serverId) => harness.entryCapabilities[serverId],
+		getCatalogLookup: () => EMPTY_CATALOG_LOOKUP,
+		searchCatalog: (query) => {
+			harness.catalogQueries.push(query);
+			return harness.catalogResults;
+		},
 		settingsReader: () => reader,
 		updateSetting: async (key, value) => {
 			if (harness.failUpdates !== undefined) {
@@ -151,12 +171,14 @@ function makeHarness(): Harness {
 		hideGroup: async () => {},
 		unhideGroup: async () => false,
 		// The probe is gated so tests can hold it open (a slow discovery) and
-		// prove a later Save is not queued behind it; ungated it resolves 0.
+		// prove a later Save is not queued behind it; ungated it resolves empty.
 		probeDraftConnection: () => {
 			if (harness.probeError !== undefined) {
 				return Promise.reject(harness.probeError);
 			}
-			return harness.probeGate === undefined ? Promise.resolve(0) : harness.probeGate.then(() => 0);
+			return harness.probeGate === undefined
+				? Promise.resolve<readonly string[]>([])
+				: harness.probeGate.then<readonly string[]>(() => []);
 		},
 		executeCommand: async (command, ...args) => {
 			commands.push([command, ...args]);
@@ -182,6 +204,9 @@ function makeHarness(): Harness {
 		serversSetting: [],
 		legacyServers: [],
 		entryResolutions: {},
+		entryCapabilities: {},
+		catalogQueries: [],
+		catalogResults: [],
 	};
 	return harness;
 }
@@ -384,6 +409,29 @@ suite("extension/dashboard/panel", () => {
 			assert.ok(!JSON.stringify(views).includes("sk-inline"), "the view carries locations, never values");
 		});
 
+		test("carries the entry's record fields, matching the engine's post-sync view", () => {
+			// The fallback covers the window before the first sync pass lands;
+			// dropping these fields there would blank the edit form's prefill
+			// (and, for a saved-through draft, silently delete them).
+			const views = declaredViewsFromSetting([
+				{
+					label: "Prod",
+					baseUrl: "http://a.test",
+					modelParameters: { "gpt-4": { temperature: 0.2 } },
+					modelCapabilities: { "gpt-4": { supports_vision: true } },
+					expectedFailures: ["modelInfo"],
+				},
+				{ label: "Bare", baseUrl: "http://b.test" },
+			]);
+
+			assert.deepStrictEqual(views[0]?.modelParameters, { "gpt-4": { temperature: 0.2 } });
+			assert.deepStrictEqual(views[0]?.modelCapabilities, { "gpt-4": { supports_vision: true } });
+			assert.deepStrictEqual(views[0]?.expectedFailures, ["modelInfo"]);
+			const bare = views[1];
+			assert.ok(bare);
+			assert.ok(!("modelParameters" in bare) && !("modelCapabilities" in bare) && !("expectedFailures" in bare));
+		});
+
 		test("junk settings read as empty", () => {
 			assert.deepStrictEqual(declaredViewsFromSetting("not an array"), []);
 			assert.deepStrictEqual(declaredViewsFromSetting([{ label: 42 }]), []);
@@ -477,6 +525,64 @@ suite("extension/dashboard/panel", () => {
 			| ExtensionToWebviewMessage
 			| undefined;
 		assert.ok(probeAck?.type === "intentSucceeded" && probeAck.message === "Connected - 0 models");
+	});
+
+	test("readModelCapabilities answers with the resolved walk, and a stale scope answers honestly empty", async () => {
+		const harness = makeHarness();
+		harness.settingsValues.modelCapabilities = { m1: { supports_vision: true } };
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		fake.receiveMessage({
+			type: "readModelCapabilities",
+			scopeKey: modelScopeKey("srv1"),
+			rawId: "m1",
+			requestId: "caps-1",
+		});
+		fake.receiveMessage({
+			type: "readModelCapabilities",
+			scopeKey: modelScopeKey("no-such-server"),
+			rawId: "m1",
+			requestId: "caps-2",
+		});
+		await settle();
+
+		const answered = fake.posted.filter(
+			(message) => (message as ExtensionToWebviewMessage).type === "modelCapabilities"
+		) as Extract<ExtensionToWebviewMessage, { type: "modelCapabilities" }>[];
+		assert.strictEqual(answered.length, 2);
+		const [live, stale] = answered;
+		assert.strictEqual(live?.requestId, "caps-1");
+		assert.strictEqual(live?.capabilities?.fields.supports_vision.value, true);
+		assert.strictEqual(live?.capabilities?.fields.supports_vision.level, "global");
+		assert.strictEqual(stale?.requestId, "caps-2");
+		assert.strictEqual(stale?.capabilities, undefined, "a de-resolved scope answers without inventing values");
+		assert.ok(
+			!fake.posted.some((message) => {
+				const type = (message as ExtensionToWebviewMessage).type;
+				return type === "intentSucceeded" || type === "intentFailed";
+			}),
+			"pure reads produce no outcome notices"
+		);
+	});
+
+	test("searchCatalog answers with the bounded result list and echoes the requestId", async () => {
+		const harness = makeHarness();
+		harness.catalogResults = Array.from({ length: 25 }, (_, index) => ({ id: `v/m${index}`, name: `M${index}` }));
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		fake.receiveMessage({ type: "searchCatalog", query: "gpt", requestId: "cat-1" });
+		await settle();
+
+		assert.deepStrictEqual(harness.catalogQueries, ["gpt"]);
+		const answer = fake.posted.find(
+			(message) => (message as ExtensionToWebviewMessage).type === "catalogSearchResults"
+		) as Extract<ExtensionToWebviewMessage, { type: "catalogSearchResults" }> | undefined;
+		assert.strictEqual(answer?.requestId, "cat-1");
+		assert.strictEqual(answer?.results.length, 20, "the panel bounds what crosses the boundary");
 	});
 
 	test("a failing intent is reported back to the webview as a retryable failure, with our validation text", async () => {
@@ -670,6 +776,50 @@ suite("extension/dashboard/panel", () => {
 			messages.slice(ackIndex + 1).some((m) => m.type === "state"),
 			"a state push follows the ack"
 		);
+	});
+
+	test("editing an entry from the dashboard carries its modelCapabilities and expectedFailures", async () => {
+		// The save rebuilds the entry from the intent, and the form has no
+		// editor for these two fields yet: without the carry-forward a key
+		// rotation or URL fix would silently delete hand-written configuration.
+		const harness = makeHarness();
+		harness.serversSetting = [
+			{
+				label: "Prod",
+				baseUrl: "http://prod.test",
+				modelCapabilities: { "gpt-4": { supports_vision: true } },
+				expectedFailures: ["modelInfo"],
+			},
+		];
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		fake.receiveMessage({
+			type: "saveServerSetting",
+			server: { label: "Prod", baseUrl: "http://prod.test" },
+			secrets: {
+				apiKey: { action: "set", location: "settings", value: "sk-rotated" },
+				oauthClientSecret: { action: "keep" },
+				virtualKeyValue: { action: "keep" },
+			},
+			replaceLabel: "Prod",
+			requestId: "req-carry",
+		});
+		await settle();
+		await settle();
+
+		assert.deepStrictEqual(harness.serverWrites, [
+			[
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					modelCapabilities: { "gpt-4": { supports_vision: true } },
+					expectedFailures: ["modelInfo"],
+					apiKey: "sk-rotated",
+				},
+			],
+		]);
 	});
 
 	test("an adoption without resolvable credentials acks success with the caveat message", async () => {
@@ -1080,6 +1230,44 @@ suite("extension/dashboard/panel", () => {
 		test("an entry without modelParameters resolves to nothing, like the request path", () => {
 			const resolve = resolver({ g1: { label: "No Params", baseUrl: "http://prod.test" } });
 			assert.strictEqual(resolve("g1"), undefined);
+		});
+	});
+
+	suite("declaredMergedSnapshots", () => {
+		// The real getSnapshots closure registerDashboardCommand wires: the
+		// provider's snapshots with the declared projection appended, so the
+		// dashboard's model list equals the set the picker serves.
+		const withDeclared = {
+			discoveredRawIds: ["m1"],
+			status: makeServerStatus({ serverId: "srv-declared" }),
+			models: [makeModelInfo({ id: "m1", name: "m1" })],
+		};
+		const withoutDeclared = {
+			discoveredRawIds: [],
+			status: makeServerStatus({ serverId: "srv-plain" }),
+			models: [makeModelInfo({ id: "m2", name: "m2" })],
+		};
+
+		test("projected declared models are appended to the snapshot's discovered models", () => {
+			const declaredInfo = makeModelInfo({ id: "my-declared", name: "my-declared" });
+			const merged = declaredMergedSnapshots({
+				getServerSnapshots: () => [withDeclared],
+				declaredModelsForSnapshot: (snapshot) => (snapshot === withDeclared ? [declaredInfo] : []),
+			});
+			assert.deepStrictEqual(
+				merged.map((snapshot) => snapshot.models.map((model) => model.id)),
+				[["m1", "my-declared"]],
+				"declared models append after the discovered ones"
+			);
+			assert.strictEqual(expectDefined(merged[0]).status, withDeclared.status);
+		});
+
+		test("a snapshot with nothing declared passes through with object identity", () => {
+			const merged = declaredMergedSnapshots({
+				getServerSnapshots: () => [withoutDeclared],
+				declaredModelsForSnapshot: () => [],
+			});
+			assert.strictEqual(merged[0], withoutDeclared, "no-op merges must not rebuild the snapshot");
 		});
 	});
 });

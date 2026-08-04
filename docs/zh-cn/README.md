@@ -10,6 +10,7 @@
 
 - [服务器](servers.md) - `servers` 设置、条目字段、密钥与密钥存储、OAuth 客户端凭据、虚拟密钥, 以及采用在扩展之外添加的服务器。
 - [模型参数](model-parameters.md) - 请求透传契约、`modelParameters` 设置、前缀匹配与服务器限定、每条目参数、推理强度和优先级。
+- [模型能力](model-capabilities.md) - 纠正发现报告的内容、声明发现列不出的模型、OpenRouter 目录及其隐私开关, 以及预期的发现失败。
 - [仪表板](dashboard.md) - 面板布局、服务器列表和表单、模型表格, 以及设置编辑器。
 
 ## 参考

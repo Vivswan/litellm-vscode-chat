@@ -1,9 +1,10 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import type { DiscoveredGroupModels } from "../../../provider";
 import { LiteLLMChatModelProvider } from "../../../provider";
 import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
-import { groupClientId, type PreAttachModelInfo } from "../../../provider/catalog/groupModels";
+import { groupClientId } from "../../../provider/catalog/groupModels";
 import type { AggregatedStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
@@ -125,6 +126,48 @@ suite("provider/catalog/discoveryCache", () => {
 		assert.strictEqual(loads, 1, "the next fetch after the clear must load again");
 	});
 
+	test("a fetch after clear() starts a fresh load instead of joining a pre-clear one", async () => {
+		// clear() is how configuration changes reach the cache (the default*
+		// token settings are baked into loaded results), so a post-clear fetch
+		// joining a pre-clear load would hand its caller results built under
+		// the old configuration - and nothing would ever correct them, because
+		// the epoch guard only keeps the stale result out of the store.
+		const cache = new DiscoveryCache<string>(makeClock().now);
+		let releasePre: (() => void) | undefined;
+		const preGate = new Promise<void>((resolve) => {
+			releasePre = resolve;
+		});
+		let releasePost: (() => void) | undefined;
+		const postGate = new Promise<void>((resolve) => {
+			releasePost = resolve;
+		});
+
+		const preClear = cache.fetch("k", async () => {
+			await preGate;
+			return "pre-clear";
+		});
+		cache.clear();
+		const postClear = cache.fetch("k", async () => {
+			await postGate;
+			return "post-clear";
+		});
+
+		// The detached load finishes first, while the fresh one is still in
+		// flight: its cleanup must not orphan the fresh load's in-flight entry.
+		expectDefined(releasePre)();
+		assert.strictEqual(await preClear, "pre-clear", "the detached load still resolves for its original caller");
+		const joiner = cache.fetch("k", async () => "a third load would prove the fresh entry was orphaned");
+		expectDefined(releasePost)();
+
+		assert.strictEqual(await postClear, "post-clear", "the post-clear caller must not receive the pre-clear load");
+		assert.strictEqual(await joiner, "post-clear", "later fetches still coalesce onto the fresh in-flight load");
+		assert.strictEqual(
+			cache.lookup("k", Number.MAX_SAFE_INTEGER),
+			"post-clear",
+			"the detached load's late finish must not displace the fresh load's stored result"
+		);
+	});
+
 	test("keys are independent and invalidate/clear drop stored results", async () => {
 		const cache = new DiscoveryCache<string>(makeClock().now);
 		await cache.fetch("a", async () => "A");
@@ -241,7 +284,7 @@ suite("provider group discovery caching", () => {
 		const clock = makeClock();
 		const provider = new LiteLLMChatModelProvider({
 			userAgent: "GitHubCopilotChat/test VSCode/test",
-			discoveryCache: new DiscoveryCache<readonly PreAttachModelInfo[]>(clock.now),
+			discoveryCache: new DiscoveryCache<DiscoveredGroupModels>(clock.now),
 		});
 		const counter = countingHandlers();
 		await provider.provideLanguageModelChatInformation(groupOptions(GROUP), cancellation());

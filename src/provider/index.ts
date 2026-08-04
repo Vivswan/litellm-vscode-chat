@@ -9,12 +9,23 @@ import type {
 	ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 import { CancellationError, EventEmitter } from "vscode";
-import { getDiscoveryCacheTtl, getTokenDefaults } from "../shared/config/settings";
+import type { CapabilityCatalogLookup, ModelCapabilitiesRecord } from "../shared/config/capabilityResolution";
+import { EMPTY_CATALOG_LOOKUP } from "../shared/config/capabilityResolution";
+import {
+	getCapabilityTokenDefaults,
+	getDiscoveryCacheTtl,
+	getModelCapabilitiesConfig,
+	getTokenDefaults,
+} from "../shared/config/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import type { Logger, LogSafeErrorText } from "../shared/logger";
-import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../shared/servers";
+import type { ExpectedFailureCategory } from "../shared/serverEntry";
+import type { AggregatedStatus, ServerConfig, ServerStatus, ServerWithKey } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
+import type { CapabilityOverrideOptions, DeclaredModelSynthesis } from "./catalog/capabilityOverrides";
+import { applyCapabilityOverrides, synthesizeDeclaredModels } from "./catalog/capabilityOverrides";
+import type { ExpectedDiscoveryFailures } from "./catalog/discovery";
 import { DiscoveryCache } from "./catalog/discoveryCache";
 import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./catalog/groupModels";
 import {
@@ -40,6 +51,19 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * One server's cached discovery result: the registered infos plus the raw
+ * model IDs discovery returned. Cache hits need the raw-ID set for `_declare`
+ * inertness - the registered infos alone may hold only synthetic variants
+ * (`foo:cheapest`) of a discovered `foo`, and a `_declare` on `foo` must stay
+ * inert. The cache stays configuration-free: overrides and declared models
+ * are applied where models are served, never stored.
+ */
+export interface DiscoveredGroupModels {
+	readonly infos: readonly PreAttachModelInfo[];
+	readonly discoveredRawIds: readonly string[];
+}
+
 export interface LiteLLMChatModelProviderOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
@@ -49,6 +73,30 @@ export interface LiteLLMChatModelProviderOptions {
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
 		| undefined;
+	/**
+	 * Registration-time resolver for a declared entry's per-entry
+	 * modelCapabilities, matched by label and normalized base URL exactly like
+	 * getEntryModelParameters. Injected by the extension layer; consumed where
+	 * capability overrides are applied to attached models.
+	 */
+	getEntryModelCapabilities?: ((label: string, baseUrl: string) => ModelCapabilitiesRecord | undefined) | undefined;
+	/**
+	 * Discovery-time resolver for a declared entry's expectedFailures
+	 * categories, matched like getEntryModelCapabilities. A listed category's
+	 * endpoint gets a single discovery attempt and its failure is downgraded
+	 * to an expected, info-severity outcome.
+	 */
+	getExpectedFailures?:
+		| ((label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined)
+		| undefined;
+	/**
+	 * The OpenRouter capability catalog as in-memory lookup data, injected by
+	 * the extension layer (the catalog store owns files, network, and the
+	 * opt-out; this layer only resolves). Read at serve time so a refreshed
+	 * snapshot reaches the next attach without a rebuild. Defaults to the
+	 * empty lookup: every catalog level answers not-found.
+	 */
+	getCatalogLookup?: (() => CapabilityCatalogLookup) | undefined;
 	/**
 	 * Gate for refreshes that arrive without a group configuration: while it
 	 * returns true (the default) they serve the server registry; once the
@@ -65,7 +113,7 @@ export interface LiteLLMChatModelProviderOptions {
 	 * suppressed.
 	 */
 	isGroupSuppressed?: ((label: string, baseUrl: string) => boolean) | undefined;
-	discoveryCache?: DiscoveryCache<readonly PreAttachModelInfo[]> | undefined;
+	discoveryCache?: DiscoveryCache<DiscoveredGroupModels> | undefined;
 	/** The status window's only clock seam; tests inject a fake. The default reads Date.now at call time. */
 	now?: (() => number) | undefined;
 }
@@ -82,10 +130,26 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// legacy registry sweep is deliberately uncached: it fetches all servers
 	// at once and aggregates errors, and it only serves pre-migration and
 	// non-production hosts.
-	private readonly _discoveryCache: DiscoveryCache<readonly PreAttachModelInfo[]>;
+	private readonly _discoveryCache: DiscoveryCache<DiscoveredGroupModels>;
 	private readonly logger?: Logger | undefined;
 	private _statusCallback?: (status: AggregatedStatus) => void;
 	private readonly _getServers: () => Promise<ServerWithKey[]>;
+	/**
+	 * The last registry sweep's server count and per-server identities, so
+	 * declaredModelsForSnapshot and the dashboard's entry-layer resolution
+	 * compose registry snapshots exactly as that sweep did (ID minting is
+	 * count-dependent, entry resolution label-keyed).
+	 */
+	private _registrySweep: {
+		serverCount: number;
+		servers: ReadonlyMap<string, { label: string; baseUrl: string }>;
+	} = { serverCount: 1, servers: new Map() };
+	private readonly _getEntryModelCapabilities: (label: string, baseUrl: string) => ModelCapabilitiesRecord | undefined;
+	private readonly _getExpectedFailures: (
+		label: string,
+		baseUrl: string
+	) => readonly ExpectedFailureCategory[] | undefined;
+	private readonly _getCatalogLookup: () => CapabilityCatalogLookup;
 	private _configurationPrompt?: ConfigurationPrompt;
 	private readonly _grouplessRegistryEnabled: () => boolean;
 	private readonly _isGroupSuppressed: (label: string, baseUrl: string) => boolean;
@@ -109,6 +173,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	constructor(options: LiteLLMChatModelProviderOptions) {
 		this.logger = options.logger;
 		this._getServers = options.getServers ?? (() => Promise.resolve([]));
+		this._getEntryModelCapabilities = options.getEntryModelCapabilities ?? (() => undefined);
+		this._getExpectedFailures = options.getExpectedFailures ?? (() => undefined);
+		this._getCatalogLookup = options.getCatalogLookup ?? (() => EMPTY_CATALOG_LOOKUP);
 		this._grouplessRegistryEnabled = options.grouplessRegistryEnabled ?? (() => true);
 		this._isGroupSuppressed = options.isGroupSuppressed ?? (() => false);
 		this._client = new ChatClient({
@@ -158,6 +225,108 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
+	 * The capability configuration one serve pass resolves against, assembled
+	 * from the injected seams. `entryLabel` names the declared entry candidate
+	 * (a group's configured label, a registry server's own); the injected
+	 * resolver answers only when label and base URL identify the same declared
+	 * entry, mirroring the request path's entry-parameters match.
+	 */
+	private capabilityOptions(server: ServerConfig, entryLabel: string | undefined): CapabilityOverrideOptions {
+		return {
+			globalCapabilities: getModelCapabilitiesConfig(),
+			entryCapabilities:
+				entryLabel !== undefined ? this._getEntryModelCapabilities(entryLabel, server.baseUrl) : undefined,
+			catalog: this._getCatalogLookup(),
+			tokenDefaults: getCapabilityTokenDefaults(),
+			log: (message, data) => this.log(message, data),
+		};
+	}
+
+	/**
+	 * Everything a serve pass hands out, derived from one discovery result and
+	 * the CURRENT configuration: the discovered infos with capability
+	 * overrides applied, and the `_declare`d models discovery did not list
+	 * (inert against the discovered raw-ID set, suppressed on collision with a
+	 * registered ID). Applied outside the discovery cache and the status
+	 * window on purpose - a configuration edit reaches the next serve without
+	 * a cache clear, and a removed `_declare` disappears immediately.
+	 */
+	private decorateServedModels(
+		discovered: DiscoveredGroupModels,
+		server: ServerConfig,
+		serverCount: number,
+		entryLabel: string | undefined
+	): { overridden: readonly PreAttachModelInfo[]; declared: DeclaredModelSynthesis } {
+		const opts = this.capabilityOptions(server, entryLabel);
+		const overridden = applyCapabilityOverrides(discovered.infos, server, opts);
+		const declared = synthesizeDeclaredModels(
+			new Set(discovered.discoveredRawIds),
+			new Set(overridden.map((info) => info.id)),
+			server,
+			serverCount,
+			opts
+		);
+		return { overridden, declared };
+	}
+
+	/**
+	 * The label+URL identity the serve path resolves entry configuration
+	 * (modelCapabilities, expectedFailures) against for one served server, or
+	 * undefined when no entry can match (an unlabeled group, or a registry
+	 * server no sweep has seen). The dashboard's inspector resolves its entry
+	 * layer through this so it can never diverge from what requests use.
+	 */
+	capabilityEntryIdentity(serverId: string): { label: string; baseUrl: string } | undefined {
+		const groupServer = this.getGroupServer(serverId);
+		if (groupServer !== undefined) {
+			return groupServer.label !== undefined ? { label: groupServer.label, baseUrl: groupServer.baseUrl } : undefined;
+		}
+		return this._registrySweep.servers.get(serverId);
+	}
+
+	/**
+	 * The `_declare`d models the current configuration synthesizes for one
+	 * status-window snapshot, for the dashboard's state builder:
+	 * getServerSnapshots() stays discovered-only (declared models are
+	 * config-rebuilt every serve and never stored), so the dashboard merges
+	 * this projection into each server's model list. The composition mirrors
+	 * the serve paths exactly - groups decorate with count 1 and the group's
+	 * own label, the registry sweep with its recorded count and per-server
+	 * labels (status labels can be display fallbacks) - so the dashboard
+	 * shows the same IDs, names, and entry-layer resolution the picker
+	 * serves. Display-only, so record problems and suppressions do not
+	 * re-log on every state push; the serve path already logged them.
+	 */
+	declaredModelsForSnapshot(snapshot: ServerModelsSnapshot): readonly PreAttachModelInfo[] {
+		const { status } = snapshot;
+		const identity = this.capabilityEntryIdentity(status.serverId);
+		const serverCount = this.getGroupServer(status.serverId) !== undefined ? 1 : this._registrySweep.serverCount;
+		const server: ServerConfig = {
+			id: status.serverId,
+			label: identity?.label ?? status.label,
+			baseUrl: status.baseUrl,
+		};
+		return synthesizeDeclaredModels(
+			new Set(snapshot.discoveredRawIds),
+			new Set(snapshot.models.map((info) => info.id)),
+			server,
+			serverCount,
+			{ ...this.capabilityOptions(server, identity?.label), log: () => {} }
+		).infos;
+	}
+
+	/** The declared entry's expectedFailures for this server, or none for unlabeled and unmatched servers. */
+	private expectedFailuresFor(entryLabel: string | undefined, baseUrl: string): readonly ExpectedFailureCategory[] {
+		return (entryLabel !== undefined ? this._getExpectedFailures(entryLabel, baseUrl) : undefined) ?? [];
+	}
+
+	/** The entry's categories in discovery's per-endpoint shape; see ExpectedDiscoveryFailures. */
+	private expectedDiscoveryFailures(entryLabel: string | undefined, baseUrl: string): ExpectedDiscoveryFailures {
+		const categories = this.expectedFailuresFor(entryLabel, baseUrl);
+		return { modelInfo: categories.includes("modelInfo"), modelListing: categories.includes("modelListing") };
+	}
+
+	/**
 	 * Evict per-server state for servers no longer being served: SDK clients
 	 * and cached discovery results move in lockstep, because both embed the
 	 * server's credentials (a rotated key mints a new group client ID, so the
@@ -174,7 +343,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			return;
 		}
 		const serverStatuses = this._statusWindow.snapshots().map((snapshot) => snapshot.status);
-		const totalModels = serverStatuses.reduce((sum, s) => sum + (s.state === "ok" ? s.modelCount : 0), 0);
+		// Declared models serve through ANY discovery failure (config-rebuilt,
+		// never discovered): the picker lists them, so the aggregate count must
+		// match it whether or not the failure was expected.
+		const totalModels = serverStatuses.reduce(
+			(sum, s) => sum + (s.state === "ok" ? s.modelCount : (s.declaredModelCount ?? 0)),
+			0
+		);
 		this._statusCallback({ serverStatuses, totalModels, silent });
 	}
 
@@ -225,7 +400,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const results = await Promise.all(
 			servers.map(async (server) => {
 				try {
-					const result = await this._client.fetchModels(server, tokenDefaults);
+					const result = await this._client.fetchModels(
+						server,
+						tokenDefaults,
+						this.expectedDiscoveryFailures(server.label, server.baseUrl)
+					);
 					return { server, outcome: { ok: true as const, models: result.models } };
 				} catch (reason) {
 					return { server, outcome: { ok: false as const, reason } };
@@ -236,32 +415,70 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const serverStatuses: ServerStatus[] = [];
 		const allInfos: PreAttachModelInfo[] = [];
 		const allRoutes = new Map<string, ModelRoute>();
+		// Declared-model routes, kept apart so a total outage can still register
+		// them additively (see the applyRegistration call below).
+		const declaredRoutes = new Map<string, ModelRoute>();
 		const modelsByServer = new Map<string, readonly PreAttachModelInfo[]>();
+		const rawIdsByServer = new Map<string, readonly string[]>();
 
 		const successfulCount = results.filter(({ outcome }) => outcome.ok).length;
 		const serverCount = servers.length;
-		// The original thrown value of the first failing server, kept so the
-		// all-failed throw below rethrows it instead of rebuilding an Error
-		// from the display string (which would lose the classification and
-		// leak the body when the caller logs it).
+		// The sweep's composition facts, recorded for declaredModelsForSnapshot:
+		// the projection must mint the same IDs and resolve the same entry
+		// layer as this pass did (status labels can be display fallbacks).
+		this._registrySweep = {
+			serverCount,
+			servers: new Map(servers.map((s) => [s.id, { label: s.label, baseUrl: s.baseUrl }])),
+		};
+		// The original thrown value of the first UNEXPECTED failing server, kept
+		// so the all-failed throw below rethrows it instead of rebuilding an
+		// Error from the display string (which would lose the classification and
+		// leak the body when the caller logs it). Expected failures never set it
+		// but keep their own first original for the all-expected rethrow.
 		let firstFailureReason: unknown;
+		let firstExpectedFailureReason: unknown;
 
 		for (const { server, outcome } of results) {
 			if (!outcome.ok) {
-				if (firstFailureReason === undefined) {
-					firstFailureReason = outcome.reason;
+				const expected = this.expectedFailuresFor(server.label, server.baseUrl).includes("modelListing");
+				// Declared models serve despite the failure, rebuilt from current
+				// configuration (nothing was discovered, so nothing is inert).
+				const { declared } = this.decorateServedModels(
+					{ infos: [], discoveredRawIds: [] },
+					server,
+					serverCount,
+					server.label
+				);
+				if (expected) {
+					if (firstExpectedFailureReason === undefined) {
+						firstExpectedFailureReason = outcome.reason;
+					}
+					// The one boundary log for an expected terminal failure: an info
+					// classification instead of an error, keeping the issue-report
+					// buffer clean of failures the user declared normal.
+					this.log(`Model discovery failed (expected: modelListing) for server "${server.label}"`);
+				} else {
+					if (firstFailureReason === undefined) {
+						firstFailureReason = outcome.reason;
+					}
+					this.logError(`Failed to fetch models from server "${server.label}"`, outcome.reason);
 				}
 				const texts = statusErrorTexts(outcome.reason);
-				this.logError(`Failed to fetch models from server "${server.label}"`, outcome.reason);
 				serverStatuses.push({
 					serverId: server.id,
 					label: server.label,
 					baseUrl: server.baseUrl,
 					state: "error",
 					...texts,
+					...(expected ? { expected: true } : {}),
+					...(declared.infos.length > 0 ? { declaredModelCount: declared.infos.length } : {}),
 					lastChecked: new Date().toISOString(),
 					hasApiKey: server.apiKey.length > 0,
 				});
+				allInfos.push(...declared.infos);
+				for (const [k, v] of declared.routes) {
+					declaredRoutes.set(k, v);
+				}
 				continue;
 			}
 
@@ -269,10 +486,24 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			this.log(`Server "${server.label}" returned ${models.length} models`);
 
 			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg), tokenDefaults);
-			allInfos.push(...reg.infos);
-			modelsByServer.set(server.id, reg.infos);
+			const discoveredRawIds = models.map((model) => model.id);
+			const { overridden, declared } = this.decorateServedModels(
+				{ infos: reg.infos, discoveredRawIds },
+				server,
+				serverCount,
+				server.label
+			);
+			allInfos.push(...overridden, ...declared.infos);
+			// The window keeps the DISCOVERED models only; declared models are
+			// config-rebuilt on every serve and the dashboard merges them via
+			// declaredModelsForSnapshot.
+			modelsByServer.set(server.id, overridden);
+			rawIdsByServer.set(server.id, discoveredRawIds);
 			for (const [k, v] of reg.routes) {
 				allRoutes.set(k, v);
+			}
+			for (const [k, v] of declared.routes) {
+				declaredRoutes.set(k, v);
 			}
 
 			serverStatuses.push({
@@ -280,33 +511,58 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				label: server.label,
 				baseUrl: server.baseUrl,
 				state: "ok",
-				modelCount: reg.infos.length,
+				modelCount: overridden.length + declared.infos.length,
 				lastChecked: new Date().toISOString(),
 				hasApiKey: server.apiKey.length > 0,
 			});
 		}
 
+		for (const [k, v] of declaredRoutes) {
+			allRoutes.set(k, v);
+		}
 		// Registrations are only replaced after at least one server answered, so
-		// existing routes survive a total outage.
+		// existing routes survive a total outage. Declared routes still land on
+		// a total outage - additively, never replacing valid prior discovery
+		// routes - because they are the only way registry-path chat can route a
+		// declared model (the sole-server fallback cannot serve multi-server
+		// setups).
 		if (successfulCount > 0) {
 			this._client.applyRegistration(allRoutes, true);
+		} else if (declaredRoutes.size > 0) {
+			this._client.applyRegistration(declaredRoutes, false);
 		}
 
 		this.log("Final model count:", allInfos.length);
 
 		for (const status of serverStatuses) {
-			this._statusWindow.record(status, modelsByServer.get(status.serverId) ?? [], { kind: "registry" });
+			this._statusWindow.record(
+				status,
+				modelsByServer.get(status.serverId) ?? [],
+				{ kind: "registry" },
+				rawIdsByServer.get(status.serverId) ?? []
+			);
 		}
 		this.reportMergedStatus(options.silent);
 
 		const firstFailure = serverStatuses.find(isErrorServerStatus);
 		if (successfulCount === 0 && firstFailure !== undefined) {
 			if (options.silent) {
-				return [];
+				// The all-failed silent sweep still serves the declared models
+				// (empty when none are declared, as it always was).
+				return allInfos;
+			}
+			if (firstFailureReason === undefined && allInfos.length > 0) {
+				// Every failure was expected and declarations exist: like the group
+				// path's Test Connection rule, serve the declared set instead of
+				// throwing; the statuses above keep the truthful errors.
+				return allInfos;
 			}
 			// Like the group site below: the ORIGINAL error is rethrown so its
-			// classification, kind, and status survive to the caller's log.
-			throw firstFailureReason instanceof Error ? firstFailureReason : new Error(firstFailure.error);
+			// classification, kind, and status survive to the caller's log (an
+			// all-expected sweep without declarations rethrows ITS first original
+			// for the same reason).
+			const reason = firstFailureReason ?? firstExpectedFailureReason;
+			throw reason instanceof Error ? reason : new Error(firstFailure.error);
 		}
 
 		return allInfos;
@@ -381,7 +637,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			this.log("Provider group is hidden by an explicit user removal; serving no models", {
 				baseUrl: server.baseUrl,
 			});
-			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: 0 }, []);
+			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: 0 }, [], []);
 			return [];
 		}
 
@@ -391,28 +647,60 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			const ttl = getDiscoveryCacheTtl((msg, data) => this.log(msg, data));
 			const cached = this._discoveryCache.lookup(server.id, ttl);
 			if (cached !== undefined) {
+				const { overridden, declared } = this.decorateServedModels(cached, server, 1, groupServer.label);
 				this.log("Serving provider group models from the discovery cache", {
 					baseUrl: server.baseUrl,
-					count: cached.length,
+					count: overridden.length + declared.infos.length,
 				});
-				this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: cached.length }, cached);
-				return attach(cached);
+				this.reportGroupStatus(
+					server,
+					groupServer,
+					silent,
+					{ state: "ok", modelCount: overridden.length + declared.infos.length },
+					overridden,
+					cached.discoveredRawIds
+				);
+				return attach([...overridden, ...declared.infos]);
 			}
 		}
 
 		this.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });
+		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
 		try {
-			const infos = await this._discoveryCache.fetch(server.id, async () => {
+			const discovered = await this._discoveryCache.fetch(server.id, async () => {
 				// One defaults snapshot for this group's refresh; see the sweep above.
 				const tokenDefaults = getTokenDefaults();
-				const { models } = await this._client.fetchModels(server, tokenDefaults);
-				return buildModelInfos(models, server, 1, (msg) => this.log(msg), tokenDefaults).infos;
+				const { models } = await this._client.fetchModels(server, tokenDefaults, expectedFailures);
+				return {
+					infos: buildModelInfos(models, server, 1, (msg) => this.log(msg), tokenDefaults).infos,
+					discoveredRawIds: models.map((model) => model.id),
+				};
 			});
-			this.log(`Provider group at ${server.baseUrl} returned ${infos.length} models`);
-			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: infos.length }, infos);
-			return attach(infos);
+			// Overrides and declared models are applied to what is SERVED, never
+			// to what is cached or recorded: the cache and the window stay
+			// configuration-free, so an edit reaches the very next serve.
+			const { overridden, declared } = this.decorateServedModels(discovered, server, 1, groupServer.label);
+			this.log(`Provider group at ${server.baseUrl} returned ${discovered.infos.length} models`);
+			this.reportGroupStatus(
+				server,
+				groupServer,
+				silent,
+				{ state: "ok", modelCount: overridden.length + declared.infos.length },
+				overridden,
+				discovered.discoveredRawIds
+			);
+			return attach([...overridden, ...declared.infos]);
 		} catch (error) {
-			this.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
+			const expected = expectedFailures.modelListing;
+			if (expected) {
+				// The one boundary log for an expected terminal failure: an info
+				// classification instead of an error (see the registry sweep).
+				this.log(`Model discovery failed (expected: modelListing) for provider group`, {
+					baseUrl: server.baseUrl,
+				});
+			} else {
+				this.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
+			}
 			// Like the registry sweep: both status renderings are constructed at
 			// this boundary (see statusErrorTexts).
 			const texts = statusErrorTexts(error);
@@ -426,18 +714,41 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// failure serves the empty list, as it always did. The window is the
 			// honest source here - it is this session's live state, unlike the
 			// extension layer's persisted status, which can be a stale prior
-			// session's. Test Connection (non-silent) still throws.
+			// session's. Declared models are rebuilt from the current
+			// configuration and merged in un-staled (they never depend on the
+			// success anchor and never enter the window); a `_declare`d ID the
+			// last discovery listed stays inert against the stale set. Test
+			// Connection (non-silent) still throws, except that an expected
+			// failure with declared models serves the declared set instead.
 			const stale = this._statusWindow.staleServableModels(server.id);
-			if (stale !== undefined) {
-				this.reportGroupStatus(server, groupServer, silent, { state: "error", ...texts }, stale.models);
-				if (silent) {
-					return markStale(attach(stale.models), new Date(stale.lastSuccessAt).toLocaleString());
-				}
-			} else {
-				this.reportGroupStatus(server, groupServer, silent, { state: "error", ...texts }, []);
-				if (silent) {
-					return [];
-				}
+			const { overridden, declared } = this.decorateServedModels(
+				stale !== undefined
+					? { infos: stale.models, discoveredRawIds: stale.discoveredRawIds }
+					: { infos: [], discoveredRawIds: [] },
+				server,
+				1,
+				groupServer.label
+			);
+			this.reportGroupStatus(
+				server,
+				groupServer,
+				silent,
+				{
+					state: "error",
+					...texts,
+					...(expected ? { expected: true } : {}),
+					...(declared.infos.length > 0 ? { declaredModelCount: declared.infos.length } : {}),
+				},
+				stale?.models ?? [],
+				stale?.discoveredRawIds ?? []
+			);
+			if (silent) {
+				const staleServed =
+					stale !== undefined ? markStale(attach(overridden), new Date(stale.lastSuccessAt).toLocaleString()) : [];
+				return [...staleServed, ...attach(declared.infos)];
+			}
+			if (expected && declared.infos.length > 0) {
+				return attach(declared.infos);
 			}
 			throw error instanceof Error ? error : new Error(texts.error);
 		}
@@ -517,9 +828,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 					error: string;
 					logSafeError: LogSafeErrorText;
 					classification?: TransportErrorClassification;
+					/** See ServerStatusError: the truthful error stays; presentation derives the downgrade. */
+					expected?: boolean;
+					declaredModelCount?: number;
 			  },
-		/** Pre-attach infos only; StatusWindow.record's type enforces it. */
-		models: readonly PreAttachModelInfo[]
+		/** Discovered pre-attach infos only; declared models are config-rebuilt every serve and never recorded. */
+		models: readonly PreAttachModelInfo[],
+		/** The raw IDs discovery returned for `models`; see ServerModelsSnapshot.discoveredRawIds. */
+		discoveredRawIds: readonly string[]
 	): void {
 		this._groupStatusReportCount += 1;
 		this._statusWindow.record(
@@ -534,7 +850,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				...outcome,
 			},
 			models,
-			{ kind: "group", groupServer }
+			{ kind: "group", groupServer },
+			discoveredRawIds
 		);
 		this.reportMergedStatus(silent);
 	}

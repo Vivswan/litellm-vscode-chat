@@ -15,6 +15,7 @@ import {
 	buttonByText,
 	cleanup,
 	fireBlur,
+	fireCheck,
 	fireClick,
 	fireInput,
 	inputByLabel,
@@ -75,7 +76,7 @@ test("with no servers the guided start renders and its call to action opens the 
 
 test("a noticed entry renders the params-inactive badge and the remedy paragraph", () => {
 	const root = mountSection([
-		makeDeclaredServer({ label: "Prod", notice: "entry-params-inactive" }),
+		makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive"] }),
 		makeDeclaredServer({ label: "Quiet", baseUrl: "http://quiet.test" }),
 	]);
 
@@ -251,7 +252,15 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	expect(postedMessages.length).toBe(1);
 	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
 	expect(saved.type).toBe("saveServerSetting");
-	expect(saved.server).toEqual({ label: "Prod", baseUrl: "http://localhost:4000" });
+	// The two entry-record fields ride every save, even empty: absent is
+	// reserved for payloads that predate their editors (the save carries the
+	// stored values forward for those instead of deleting them).
+	expect(saved.server).toEqual({
+		label: "Prod",
+		baseUrl: "http://localhost:4000",
+		modelCapabilities: {},
+		expectedFailures: [],
+	});
 
 	// An ack for some other intent must not close it.
 	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: "someone-elses" });
@@ -511,7 +520,12 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 	// Exact key set, like the adopt test: a smuggled extra field must fail here.
 	expect(Object.keys(posted).sort()).toEqual(["requestId", "secrets", "server", "type"]);
 	expect(posted.type).toBe("testServerDraft");
-	expect(posted.server).toEqual({ label: "", baseUrl: "http://localhost:4000" });
+	expect(posted.server).toEqual({
+		label: "",
+		baseUrl: "http://localhost:4000",
+		modelCapabilities: {},
+		expectedFailures: [],
+	});
 	expect(posted.secrets).toEqual({
 		apiKey: { action: "keep" },
 		oauthClientSecret: { action: "keep" },
@@ -786,4 +800,161 @@ test("a test in flight does not block Cancel; the form closes and the outcome la
 	});
 	expect(root.querySelector(".test-result")).toBeNull();
 	expect(root.querySelector(".banner-error")).toBeNull();
+});
+
+test("the edit form round-trips model capabilities and expected failures into the save intent", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelCapabilities: { "my-model": { context_length: 128000, _declare: true } },
+				expectedFailures: ["modelListing"],
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+
+	// The entry already carries capabilities, so the disclosure opens
+	// prefilled: the number field as a number input, _declare as a checkbox,
+	// and the expected-failure category ticked.
+	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or prefix"]');
+	expect(prefixInput?.value).toBe("my-model");
+	const numberInput = root.querySelector<HTMLInputElement>('input[placeholder^="Tokens"]');
+	expect(numberInput?.value).toBe("128000");
+	const declareBox = [...root.querySelectorAll("label.capability-flag")]
+		.find((label) => label.textContent?.includes("declare this model"))
+		?.querySelector("input");
+	expect(declareBox?.checked).toBe(true);
+	const listing = [...root.querySelectorAll(".expected-failures label")].find((label) =>
+		label.textContent?.includes("/models")
+	);
+	expect(listing?.querySelector("input")?.checked).toBe(true);
+	const info = [...root.querySelectorAll(".expected-failures label")].find((label) =>
+		label.textContent?.includes("/model/info")
+	);
+	expect(info?.querySelector("input")?.checked).toBe(false);
+
+	// An invalid token count blocks Save without posting anything.
+	if (numberInput === null) {
+		throw new Error("the capability rows did not render");
+	}
+	fireInput(numberInput, "");
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages).toEqual([]);
+	expect(root.textContent).toContain("Cannot save: fix Model capabilities");
+
+	// Fixed, plus ticking the second category: the save intent carries both.
+	fireInput(numberInput, "200000");
+	fireCheck(info?.querySelector("input") as HTMLInputElement, true);
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages.length).toBe(1);
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.server.modelCapabilities).toEqual({ "my-model": { context_length: 200000, _declare: true } });
+	expect(saved.server.expectedFailures).toEqual(["modelListing", "modelInfo"]);
+});
+
+test("an unknown capability key hints without blocking the save", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
+	fireClick(buttonByText(root, "Edit"));
+	fireClick(buttonByText(root, "Add capability prefix"));
+	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or prefix"]');
+	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
+	if (prefixInput === null || keyInput === null) {
+		throw new Error("the capability rows did not render");
+	}
+	fireInput(prefixInput, "gpt-4");
+	fireInput(keyInput, "supports_pdf_input");
+	// A boolean-shaped unknown key gets a JSON value input, not a checkbox.
+	const valueInput = root.querySelector<HTMLInputElement>('input[placeholder="JSON value"]');
+	if (valueInput === null) {
+		throw new Error("the unknown-key value input did not render");
+	}
+	fireInput(valueInput, "true");
+	expect(root.textContent).toContain('"supports_pdf_input" is not a known capability field');
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages.length).toBe(1);
+});
+
+test("switching a row's key onto a support flag seeds it true and renders the checkbox", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
+	fireClick(buttonByText(root, "Edit"));
+	fireClick(buttonByText(root, "Add capability prefix"));
+	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
+	if (keyInput === null) {
+		throw new Error("the capability rows did not render");
+	}
+	fireInput(keyInput, "supports_vision");
+	const flag = root.querySelector("label.capability-flag input") as HTMLInputElement;
+	expect(flag?.checked).toBe(true);
+});
+
+test("an expected failure renders the warn pill, the declared-count badge, and the warn banner, never the red one", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			state: "error",
+			error: "404 on /models",
+			expected: true,
+			declaredModelCount: 2,
+			modelCount: 2,
+		}),
+	]);
+	// Serving declared models reads Connected (one state, one name across
+	// tabs), in the warn tone that says the connection is not what it seems.
+	const pill = [...root.querySelectorAll("td .pill")].find((el) => el.textContent?.includes("Connected"));
+	expect(pill).toBeDefined();
+	expect(pill?.classList.contains("tone-warn")).toBe(true);
+	const badge = [...root.querySelectorAll("span.badge")].find((el) => el.textContent?.includes("2 declared models"));
+	expect(badge).toBeDefined();
+	expect(root.querySelector(".banner-error")).toBeNull();
+	const warn = root.querySelector(".banner-warn");
+	expect(warn?.textContent).toContain("Gateway: 404 on /models (expected)");
+});
+
+test("an expected failure with nothing declared raises the capabilities-and-declare guidance banners", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			state: "error",
+			error: "404 on /models",
+			expected: true,
+			notices: ["expected-failures-nothing-declared"],
+		}),
+	]);
+	const banners = [...root.querySelectorAll(".banner-warn")].map((el) => el.textContent ?? "");
+	expect(banners.some((text) => text.includes("nothing is declared"))).toBe(true);
+	expect(banners.some((text) => text.includes("Add _declare entries"))).toBe(true);
+});
+
+test("the capabilities-inactive notice renders its own badge and remedy banner beside the params one", () => {
+	const root = mountSection([
+		makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
+	]);
+	const badges = [...root.querySelectorAll("span.badge.state-warn")].map((el) => el.textContent?.trim());
+	expect(badges).toContain("params inactive");
+	expect(badges).toContain("capabilities inactive");
+	const banners = [...root.querySelectorAll(".banner-warn")].map((el) => el.textContent ?? "");
+	expect(banners.some((text) => text.includes("per-server model parameters are not applied"))).toBe(true);
+	expect(
+		banners.some((text) => text.includes("per-server model capabilities and expected failures are not applied"))
+	).toBe(true);
+});
+
+test("editing a capability row or an expected-failure checkbox clears a standing test result", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
+	fireClick(buttonByText(root, "Edit"));
+	fireClick(buttonByText(root, "Test connection"));
+	const probe = postedMessages.at(-1) as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	expect(probe.type).toBe("testServerDraft");
+	// The in-flight state is visible; a capability edit abandons the probe,
+	// because its outcome (declared count, expected downgrade) depends on it.
+	expect(root.textContent).toContain("Testing...");
+	fireClick(buttonByText(root, "Add capability prefix"));
+	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or prefix"]');
+	if (prefixInput === null) {
+		throw new Error("the capability rows did not render");
+	}
+	fireInput(prefixInput, "gpt");
+	expect(root.textContent).not.toContain("Testing...");
 });

@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ModelsSection } from "../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";
-import { cleanup, fireClick, fireInput, mount, resetPosted } from "../harness";
+import { cleanup, fireClick, fireInput, mount, postedMessages, resetPosted } from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -148,4 +148,34 @@ test("a server scope narrows the rows before the text filter and renders as a cl
 	// Clearing is the owner's job: the chip's button only reports back.
 	fireClick(root.querySelector("button[aria-label='Clear the server filter']") as HTMLElement);
 	expect(cleared).toBe(1);
+});
+
+test("a declared model wears the declared badge with its explanatory tip; discovered models do not", () => {
+	const root = mount(
+		<ModelsSection
+			models={[makeModel({ id: "my-model", name: "Mine", declared: true }), makeModel({ id: "gpt", name: "Found" })]}
+			serverCount={1}
+			requestScopes={{}}
+			modelParameters={{}}
+		/>
+	);
+	const rows = Array.from(root.querySelectorAll("tbody tr"));
+	const badges = rows.map((row) => row.querySelector(".model-name .badge")?.textContent ?? null);
+	// Unsorted, so the rows keep the given order: Mine first, Found second.
+	expect(badges).toEqual(["declared", null]);
+	const tip = rows[0]?.querySelector(".model-name .tip-wrap .help-tip");
+	expect(tip?.textContent).toContain("_declare directive");
+});
+
+test("the Caps action opens the capability inspector, which posts its read for the clicked row", () => {
+	const model = makeModel({ id: "gpt-4", rawId: "gpt-4", scopeKey: "s3" });
+	const root = mount(<ModelsSection models={[model]} serverCount={1} requestScopes={{}} modelParameters={{}} />);
+	const caps = root.querySelector("button[aria-label='Show effective capabilities for GPT Test on Prod']");
+	expect(caps).not.toBeNull();
+	fireClick(caps as HTMLElement);
+	expect(root.textContent).toContain("Resolving capabilities...");
+	const request = postedMessages.at(-1) as unknown as { type: string; scopeKey: string; rawId: string };
+	expect(request.type).toBe("readModelCapabilities");
+	expect(request.scopeKey).toBe("s3");
+	expect(request.rawId).toBe("gpt-4");
 });

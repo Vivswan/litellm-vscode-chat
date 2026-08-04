@@ -52,6 +52,16 @@ export interface ServerStatusError extends ServerStatusCommon {
 	 * and every consumer renders exactly today's UI.
 	 */
 	classification?: TransportErrorClassification | undefined;
+	/**
+	 * True when the failure hit a category the entry's expectedFailures
+	 * declares. The outcome stays a truthful error (the stale anchor and
+	 * failure counting depend on it); presentation layers derive the
+	 * "(expected)" downgrade from this flag. Rides like classification:
+	 * absent means not expected.
+	 */
+	expected?: boolean | undefined;
+	/** How many `_declare`d models the server keeps serving despite the failure; absent means none. */
+	declaredModelCount?: number | undefined;
 	modelCount?: undefined;
 }
 

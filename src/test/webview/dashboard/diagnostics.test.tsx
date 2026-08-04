@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { App } from "../../../webview/dashboard/app";
+import { DiagnosticsSection } from "../../../webview/dashboard/diagnostics";
 import { DOCS_LINK_GETTING_STARTED } from "../../../webview/dashboard/docsLinks";
 import * as feedbackLinks from "../../../webview/dashboard/feedbackLinks";
 import {
@@ -210,7 +211,7 @@ test("Test connection posts its command, and disables with nothing configured", 
 
 test("a params-inactive notice renders as a warn note under its server's row", () => {
 	const root = mountDiagnostics({
-		servers: [makeDeclaredServer({ label: "Prod", modelCount: 2, notice: "entry-params-inactive" })],
+		servers: [makeDeclaredServer({ label: "Prod", modelCount: 2, notices: ["entry-params-inactive"] })],
 		models: [makeModel(), makeModel({ id: "second", name: "Second" })],
 	});
 	const grid = root.querySelector("#panel-diagnostics table.diag-grid") as HTMLTableElement;
@@ -343,4 +344,56 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 		}
 		expect(anchor.querySelectorAll("svg.icon").length, text).toBe(2);
 	}
+});
+
+test("an expected failure renders warn-toned with its English (expected) annotation and declared count", () => {
+	const root = mount(
+		<DiagnosticsSection
+			servers={[
+				makeDeclaredServer({
+					label: "Gateway",
+					state: "error",
+					error: "404 on /models",
+					expected: true,
+					declaredModelCount: 2,
+					modelCount: 2,
+				}),
+			]}
+			modelCount={2}
+			legacyServerCount={0}
+			now={Date.now()}
+		/>
+	);
+	const grid = root.querySelector("table.diag-grid");
+	// serverOutcomeParts reads the expected row as OK-with-declared-models.
+	expect(grid?.querySelector(".pill")?.textContent).toContain("OK");
+	const note = grid?.querySelector("tr.diag-note");
+	expect(note?.classList.contains("warn")).toBe(true);
+	expect(note?.textContent).toContain("404 on /models (expected)");
+});
+
+test("an expected failure with nothing declared keeps the Error status but warns instead of erroring", () => {
+	const root = mount(
+		<DiagnosticsSection
+			servers={[
+				makeDeclaredServer({
+					label: "Gateway",
+					state: "error",
+					error: "404 on /models",
+					expected: true,
+					notices: ["expected-failures-nothing-declared"],
+				}),
+			]}
+			modelCount={0}
+			legacyServerCount={0}
+			now={Date.now()}
+		/>
+	);
+	const grid = root.querySelector("table.diag-grid");
+	const pill = grid?.querySelector(".pill");
+	expect(pill?.textContent).toContain("Error");
+	expect(pill?.classList.contains("tone-warn")).toBe(true);
+	const notes = [...(grid?.querySelectorAll("tr.diag-note") ?? [])].map((el) => el.textContent ?? "");
+	expect(notes.some((text) => text.includes("(expected)"))).toBe(true);
+	expect(notes.some((text) => text.includes("add _declare entries"))).toBe(true);
 });

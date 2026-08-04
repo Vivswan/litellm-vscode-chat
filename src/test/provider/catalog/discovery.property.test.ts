@@ -1,12 +1,20 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { mapModelInfoEntry, mergeModelDeployments, parseModelInfoItem } from "../../../provider/catalog/discovery";
+import { HttpResponse, http } from "msw";
+import {
+	fetchModels,
+	mapModelInfoEntry,
+	mergeModelDeployments,
+	parseModelInfoItem,
+} from "../../../provider/catalog/discovery";
 import { deriveTokenConstraints } from "../../../provider/catalog/modelCatalog";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMProvider, ModelInfoFields } from "../../../provider/catalog/schemas";
 import { supportsTools } from "../../../provider/catalog/schemas";
+import { createServerClient } from "../../../provider/transport/clients";
 import type { TokenDefaults } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";
+import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { expectDefined } from "../../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -102,6 +110,69 @@ suite("provider/discovery deployment merge properties", () => {
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+});
+
+suite("provider/discovery expectedFailures retry properties", () => {
+	useMsw();
+
+	/**
+	 * The per-endpoint retry invariant over every expectedFailures combination
+	 * and every endpoint-failure combination: an expected endpoint gets exactly
+	 * one attempt, an unexpected one keeps the full budget, a model/info
+	 * success skips the fallback entirely, and expectations never change WHICH
+	 * failure is terminal. Attempts are counted through msw (5xx via
+	 * emptyErrorResponse, the retryable shape). Run count is capped: retried
+	 * 5xx attempts pay the SDK's real backoff sleeps, and the sixteen
+	 * combinations are covered well within the cap.
+	 */
+	test("expected endpoints get one attempt, unexpected ones the full budget, per endpoint", async function () {
+		this.timeout(120000);
+		const expectedArb = fc.record({ modelInfo: fc.boolean(), modelListing: fc.boolean() });
+		await fc.assert(
+			fc.asyncProperty(expectedArb, fc.boolean(), fc.boolean(), async (expected, infoFails, listingFails) => {
+				mswServer.resetHandlers();
+				const attempts = { info: 0, models: 0 };
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => {
+						attempts.info += 1;
+						return infoFails
+							? emptyErrorResponse(500)
+							: HttpResponse.json({ data: [{ model_name: "m", model_info: { supports_function_calling: true } }] });
+					}),
+					http.get(MODELS_URL, () => {
+						attempts.models += 1;
+						return listingFails ? emptyErrorResponse(500) : HttpResponse.json({ object: "list", data: [{ id: "m" }] });
+					})
+				);
+				const client = createServerClient({
+					serverId: "srv1",
+					baseUrl: TEST_BASE_URL,
+					apiKey: "test-key",
+					userAgent: "test-agent",
+					customHeaders: {},
+				});
+				const call = fetchModels({
+					client,
+					baseUrl: TEST_BASE_URL,
+					discoveryTimeout: 30000,
+					tokenDefaults: { maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined },
+					expected,
+					log: () => {},
+				});
+				if (infoFails && listingFails) {
+					await assert.rejects(call, "only a /models failure is terminal, expected or not");
+				} else {
+					const { models } = await call;
+					assert.ok(models.length > 0);
+				}
+				const budget = (isExpected: boolean) => (isExpected ? 1 : 3);
+				assert.strictEqual(attempts.info, infoFails ? budget(expected.modelInfo) : 1, "model/info attempt count");
+				const expectedModelsAttempts = !infoFails ? 0 : listingFails ? budget(expected.modelListing) : 1;
+				assert.strictEqual(attempts.models, expectedModelsAttempts, "models attempt count");
+			}),
+			{ numRuns: Math.min(NUM_RUNS, 16), seed: SEED }
 		);
 	});
 });

@@ -155,11 +155,13 @@ const persistedServerStatusSchema = z.discriminatedUnion("state", [
 		baseUrl: z.string(),
 		// A message-less (or empty) error element cannot render honestly, so it
 		// is malformed and drops; a junk serverId/lastChecked/hasApiKey/
-		// classification only drops that field (the catch), never the whole
-		// element.
+		// classification/expected/declaredModelCount only drops that field (the
+		// catch), never the whole element.
 		error: z.string().min(1),
 		logSafeError: z.string().min(1).optional().catch(undefined),
 		classification: persistedClassificationSchema,
+		expected: z.boolean().optional().catch(undefined),
+		declaredModelCount: z.number().int().nonnegative().optional().catch(undefined),
 		serverId: z.string().optional().catch(undefined),
 		lastChecked: z.string().optional().catch(undefined),
 		hasApiKey: z.boolean().optional().catch(undefined),
@@ -195,6 +197,8 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 				...(element.classification !== undefined
 					? { classification: restoredClassification(element.classification) }
 					: {}),
+				...(element.expected !== undefined ? { expected: element.expected } : {}),
+				...(element.declaredModelCount !== undefined ? { declaredModelCount: element.declaredModelCount } : {}),
 			};
 }
 
@@ -369,7 +373,11 @@ export class StatusBarManager {
 			}
 			case "degraded": {
 				const count = current.totalModels;
-				const failedCount = current.serverStatuses.filter(isErrorServerStatus).length;
+				// Expected failures are not "unreachable" in the verdict's sense;
+				// only unexpected ones count (see handleAggregatedStatus).
+				const failedCount = current.serverStatuses.filter(
+					(status) => isErrorServerStatus(status) && status.expected !== true
+				).length;
 				const available =
 					count === 1 ? vscode.l10n.t("1 model available") : vscode.l10n.t("{0} models available", count);
 				const unreachable =
@@ -418,10 +426,24 @@ export class StatusBarManager {
 		}
 
 		const failures = serverStatuses.filter(isErrorServerStatus);
-		const firstFailure = failures[0];
-		const okCount = serverStatuses.length - failures.length;
+		// Failures the entry's expectedFailures declares are excluded from the
+		// failure verdicts (they are outcomes the user called normal), and an
+		// expected failure still serving `_declare`d models counts as serving.
+		// The branch rules mirror classifyOverall exactly - red only when EVERY
+		// server failed unexpectedly, degraded on any unexpected failure - so
+		// the dashboard headline and this status bar can never disagree on a
+		// line users paste into issue reports; the pinning test asserts both.
+		const unexpectedFailures = failures.filter((failure) => failure.expected !== true);
+		const firstFailure = unexpectedFailures[0];
+		// Declared models serve through ANY discovery failure (config-rebuilt,
+		// never discovered), so a failed server with declarations still counts
+		// as serving; expectedness decides the verdict, not the count.
+		const servingCount =
+			serverStatuses.length -
+			failures.length +
+			failures.filter((failure) => (failure.declaredModelCount ?? 0) > 0).length;
 
-		if (firstFailure !== undefined && okCount === 0) {
+		if (firstFailure !== undefined && unexpectedFailures.length === serverStatuses.length) {
 			// logSafeError, never error: this line lands in the issue-report buffer.
 			this.logger.log(`All servers failed: ${firstFailure.logSafeError}`);
 			void this.updateStatusBar({
@@ -433,8 +455,10 @@ export class StatusBarManager {
 				totalModels: 0,
 				lastChecked: now,
 			});
-		} else if (failures.length > 0) {
-			this.logger.log(`Partial success: ${okCount} ok, ${failures.length} failed, ${totalModels} models`);
+		} else if (firstFailure !== undefined) {
+			this.logger.log(
+				`Partial success: ${servingCount} serving, ${unexpectedFailures.length} failed, ${totalModels} models`
+			);
 			void this.updateStatusBar({
 				state: "degraded",
 				serverStatuses,
@@ -442,6 +466,14 @@ export class StatusBarManager {
 				lastChecked: now,
 			});
 		} else if (totalModels === 0) {
+			if (servingCount === 0) {
+				// Every server failed expectedly with nothing declared: the status
+				// bar's twin of classifyOverall's needs-declare verdict - the
+				// actionable warning presentation, never the zero-model red branch.
+				this.logger.log("All discovery failures are expected and no models are declared");
+				void this.updateStatusBar({ state: "connecting", attention: true, lastChecked: now });
+				return;
+			}
 			this.logger.log("Warning: All servers returned 0 models");
 			void this.updateStatusBar({
 				state: "error",
@@ -454,7 +486,7 @@ export class StatusBarManager {
 				lastChecked: now,
 			});
 		} else {
-			this.logger.log(`Successfully fetched ${totalModels} models from ${okCount} server(s)`);
+			this.logger.log(`Successfully fetched ${totalModels} models from ${servingCount} server(s)`);
 			void this.updateStatusBar({
 				state: "connected",
 				serverStatuses,

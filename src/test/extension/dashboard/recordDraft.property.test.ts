@@ -1,7 +1,14 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { HeaderScalar } from "../../../extension/dashboard/protocol";
-import { parseGroups, parseHeaderRows, toGroups, toHeaderRows } from "../../../extension/dashboard/recordDraft";
+import {
+	parseCapabilityGroups,
+	parseGroups,
+	parseHeaderRows,
+	toCapabilityGroups,
+	toGroups,
+	toHeaderRows,
+} from "../../../extension/dashboard/recordDraft";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -18,6 +25,27 @@ const recordKey = fc
 
 const paramsRecord = fc.dictionary(recordKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 5 });
 const modelParametersRecord = fc.dictionary(recordKey, paramsRecord, { maxKeys: 5 });
+
+// The clean capability domain: known fields with correctly typed values,
+// plus the two directives. Unknown keys are legal too (hint, not block) but
+// stay out of the clean round-trip domain because their values are free JSON.
+const capabilityFieldEntry: fc.Arbitrary<[string, unknown]> = fc.oneof(
+	fc.tuple(
+		fc.constantFrom("context_length", "max_input_tokens", "max_output_tokens"),
+		fc.integer({ min: 1, max: 10_000_000 })
+	),
+	fc.tuple(
+		fc.constantFrom("supports_function_calling", "supports_vision", "supports_reasoning", "supports_audio_input"),
+		fc.boolean()
+	),
+	fc.tuple(fc.constant("_declare"), fc.boolean()),
+	fc.tuple(fc.constant("_openrouter_model"), recordKey)
+);
+const capabilityRecord = fc.dictionary(
+	recordKey,
+	fc.array(capabilityFieldEntry, { maxLength: 6 }).map((entries) => Object.fromEntries(entries)),
+	{ maxKeys: 5, noNullPrototype: true }
+);
 
 const headerNameChar = fc.constantFrom(
 	..."!#$%&'*+.^_|~-",
@@ -67,6 +95,22 @@ suite("extension/dashboard/recordDraft round-trip properties", () => {
 		);
 	});
 
+	test("clean modelCapabilities records parse clean and reassemble unchanged", () => {
+		fc.assert(
+			fc.property(capabilityRecord, (value) => {
+				const parse = parseCapabilityGroups(toCapabilityGroups(value));
+				assert.ok(parse.ok, "the clean domain must parse clean");
+				assert.deepStrictEqual(parse.value, value);
+				for (const group of parse.issues) {
+					for (const row of group.rows) {
+						assert.strictEqual(row.hint, undefined, "the clean domain carries no hints");
+					}
+				}
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
 	test("clean header records parse clean and reassemble with their scalar types intact", () => {
 		fc.assert(
 			fc.property(headersRecord, (value) => {
@@ -87,6 +131,15 @@ suite("extension/dashboard/recordDraft hostile-input properties", () => {
 
 				const parsedGroups = parseGroups(groups);
 				const parsedHeaders = parseHeaderRows(rows);
+				const parsedCaps = parseCapabilityGroups(groups);
+
+				if (parsedCaps.ok) {
+					assert.strictEqual(
+						Object.getPrototypeOf(parsedCaps.value),
+						Object.prototype,
+						"capability prototype stays ordinary"
+					);
+				}
 
 				if (parsedGroups.ok) {
 					assert.strictEqual(

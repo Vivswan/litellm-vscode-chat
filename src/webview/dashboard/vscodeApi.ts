@@ -13,3 +13,12 @@ const api = acquireVsCodeApi();
 export function postMessage(message: WebviewToExtensionMessage): void {
 	api.postMessage(message);
 }
+
+/** A correlation ID for one posted request; matched against the response or outcome notice it echoes. */
+export function newRequestId(): string {
+	const cryptoApi = globalThis.crypto;
+	if (typeof cryptoApi?.randomUUID === "function") {
+		return cryptoApi.randomUUID();
+	}
+	return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}

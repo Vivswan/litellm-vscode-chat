@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-cn/model-parameters.md) | [繁體中文](zh-tw/model-parameters.md)
 
-The extension never decides request parameters for you: beyond the fields it owns (model, messages, streaming plumbing, `max_tokens`, and tool wiring), only parameters you set somewhere reach LiteLLM, and they reach it unchanged. This page covers the places you can set them and how they combine when several match the same request.
+The extension never decides request parameters for you: beyond the fields it owns (model, messages, streaming plumbing, `max_tokens`, and tool wiring), only parameters you set somewhere reach LiteLLM, and they reach it unchanged. This page covers the places you can set them and how they combine when several match the same request. Parameters are what a request asks for; what a model *can do* (context length, vision, tool support) is [Model capabilities](model-capabilities.md)' job.
 
 ## The pass-through contract
 
@@ -13,7 +13,7 @@ When you configure nothing, your model provider's own defaults apply:
 - Provider-owned fields (`model`, `messages`, `stream`, and friends) cannot be overridden.
 - Keys starting with `_` are reserved for extension metadata and never forwarded.
 
-The one documented exception is `max_tokens`: when nothing sets it, the extension sends the output limit your server declares in model info, or at most 4096 when the server declares none.
+The one documented exception is `max_tokens`: when nothing sets it, the extension sends the output limit your server declares in model info, or at most 4096 when the server declares none. A `max_output_tokens` set in [`modelCapabilities`](model-capabilities.md) counts as a declared limit and is sent as-is.
 
 ## The global setting
 

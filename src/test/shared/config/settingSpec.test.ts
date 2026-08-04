@@ -7,13 +7,14 @@ import {
 	CONFIG_SECTION,
 	MIN_TIMEOUT_MS,
 	NUMBER_SETTING_SPECS,
-	type NumberSettingId,
 } from "../../../shared/config/settingSpec";
 import {
 	HEADERS_SETTING_KEY,
+	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	SERVERS_SETTING_KEY,
 } from "../../../shared/config/settings";
+import { EXPECTED_FAILURE_CATEGORIES } from "../../../shared/serverEntry";
 import type { HeaderScalar } from "../../../shared/util/headers";
 import { HEADER_SCALAR_TYPES } from "../../../shared/util/headers";
 import { resolveNls } from "../../util/nls";
@@ -35,7 +36,9 @@ interface SettingSchema {
 	readonly additionalProperties?: boolean | { readonly type?: string | readonly string[] };
 	readonly description?: string;
 	readonly markdownDescription?: string;
-	readonly items?: { readonly properties?: Record<string, SettingSchema> };
+	readonly markdownDeprecationMessage?: string;
+	readonly enum?: readonly string[];
+	readonly items?: SettingSchema & { readonly properties?: Record<string, SettingSchema> };
 }
 
 interface PackageJson {
@@ -158,27 +161,33 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 });
 
 suite("shared/config/settingSpec: docs drift guard", () => {
-	test("the settings-reference table covers every number setting and shows the spec's default", () => {
+	test("the settings-reference table covers every scalar setting and shows the spec's default", () => {
 		// Rows look like: | `litellm-vscode-chat.requestTimeout` | `300000` | ... |
-		// Every spec'd setting must have a row, and the row must show its
-		// default in the second column; a dropped row fails the set compare.
+		// Every spec'd number and boolean setting must have a row, and the row
+		// must show its default in the second column; a dropped row fails the
+		// set compare.
+		const defaults = new Map<string, string>(
+			[...Object.entries(NUMBER_SETTING_SPECS), ...Object.entries(BOOLEAN_SETTING_SPECS)].map(([id, spec]) => [
+				id,
+				String(spec.default),
+			])
+		);
 		const row = new RegExp(`^\\|\\s*\`${CONFIG_SECTION}\\.([\\w.]+)\`\\s*\\|\\s*\`([^\`]*)\``);
 		const covered: string[] = [];
 		for (const line of readSettingsDoc().split("\n")) {
 			const match = row.exec(line);
 			const id = match?.[1];
 			const shown = match?.[2];
-			if (id === undefined || shown === undefined || !Object.hasOwn(NUMBER_SETTING_SPECS, id)) {
+			if (id === undefined || shown === undefined || !defaults.has(id)) {
 				continue;
 			}
 			covered.push(id);
-			const spec = NUMBER_SETTING_SPECS[id as NumberSettingId];
-			assert.strictEqual(shown, String(spec.default), `docs/settings.md default column for ${id}`);
+			assert.strictEqual(shown, defaults.get(id), `docs/settings.md default column for ${id}`);
 		}
 		assert.deepStrictEqual(
 			covered.sort(),
-			Object.keys(NUMBER_SETTING_SPECS).sort(),
-			"the docs/settings.md reference table names every number setting exactly once"
+			[...defaults.keys()].sort(),
+			"the docs/settings.md reference table names every scalar setting exactly once"
 		);
 	});
 
@@ -271,5 +280,48 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 		assert.ok(schema, "the servers items schema declares no modelParameters property");
 		assert.strictEqual(schema.type, "object");
 		assert.deepStrictEqual(schema.additionalProperties, { type: "object" });
+	});
+
+	test("the modelCapabilities setting is contributed under MODEL_CAPABILITIES_SETTING_KEY as a record of objects", () => {
+		const { properties } = readPackageJson().contributes.configuration;
+		const schema = settingSchema(properties, MODEL_CAPABILITIES_SETTING_KEY);
+		assert.strictEqual(schema.type, "object");
+		assert.deepStrictEqual(schema.additionalProperties, { type: "object" });
+		const description = resolveNls(schema.markdownDescription ?? "");
+		assert.ok(description.length > 0, "the setting carries a markdownDescription (it renders code examples)");
+	});
+
+	test("a servers entry declares per-entry modelCapabilities shaped like the global setting", () => {
+		const { properties } = readPackageJson().contributes.configuration;
+		const entryProperties = settingSchema(properties, SERVERS_SETTING_KEY).items?.properties;
+		assert.ok(entryProperties);
+		const schema = entryProperties.modelCapabilities;
+		assert.ok(schema, "the servers items schema declares no modelCapabilities property");
+		assert.strictEqual(schema.type, "object");
+		assert.deepStrictEqual(schema.additionalProperties, { type: "object" });
+	});
+
+	test("a servers entry declares expectedFailures as an array over exactly the shared categories", () => {
+		const { properties } = readPackageJson().contributes.configuration;
+		const entryProperties = settingSchema(properties, SERVERS_SETTING_KEY).items?.properties;
+		assert.ok(entryProperties);
+		const schema = entryProperties.expectedFailures;
+		assert.ok(schema, "the servers items schema declares no expectedFailures property");
+		assert.strictEqual(schema.type, "array");
+		// The enum mirrors EXPECTED_FAILURE_CATEGORIES, order included: the
+		// parser, the provider's demotion, and the dashboard's checkbox set all
+		// derive from that one list.
+		assert.deepStrictEqual(schema.items?.enum, [...EXPECTED_FAILURE_CATEGORIES]);
+	});
+
+	test("the deprecated default* trio carries a markdownDeprecationMessage naming modelCapabilities", () => {
+		// The trio's replacement is the modelCapabilities catch-all prefix; each
+		// deprecation must resolve through package.nls.json and point there.
+		for (const id of ["defaultMaxOutputTokens", "defaultContextLength", "defaultMaxInputTokens"] as const) {
+			const { properties } = readPackageJson().contributes.configuration;
+			const schema = settingSchema(properties, id);
+			const message = resolveNls(schema.markdownDeprecationMessage ?? "");
+			assert.ok(message.includes("modelCapabilities"), `${id} deprecation names the replacement setting`);
+		}
 	});
 });

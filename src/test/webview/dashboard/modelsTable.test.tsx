@@ -180,11 +180,12 @@ test("the copy button lives inside the model-name cell; the trailing column hold
 	// the full text stays in the DOM.
 	expect(nameCell.querySelector(".model-name-text")?.textContent).toBe("Omni");
 	expect(nameCell.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']")).not.toBeNull();
-	// The last cell carries the Params action; copy and Params are the row's only controls.
+	// The last cell carries the Params and Caps actions; copy, Params, and
+	// Caps are the row's only controls.
 	const lastCell = cells[cells.length - 1] as HTMLElement;
 	expect(lastCell.classList.contains("actions")).toBe(true);
-	expect(lastCell.querySelector("button.params-action")).not.toBeNull();
-	expect(row.querySelectorAll("button").length).toBe(2);
+	expect(lastCell.querySelectorAll("button.params-action").length).toBe(2);
+	expect(row.querySelectorAll("button").length).toBe(3);
 });
 
 test("the hideable columns carry their col- classes on header and cells, and the Params action is not hover-revealed", () => {

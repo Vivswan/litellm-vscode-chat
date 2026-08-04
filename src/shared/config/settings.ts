@@ -4,6 +4,7 @@ import type { HeaderScalar } from "../util/headers";
 import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../util/headers";
 import { isUnsafeRecordKey } from "../util/json";
 import { normalizePositiveNumber } from "../util/numbers";
+import type { CapabilityTokenDefaults } from "./capabilityResolution";
 import type { BooleanSettingId, NumberSettingId } from "./settingSpec";
 import { BOOLEAN_SETTING_SPECS, CONFIG_SECTION, MIN_TIMEOUT_MS, NUMBER_SETTING_SPECS } from "./settingSpec";
 
@@ -19,6 +20,7 @@ export { MIN_TIMEOUT_MS };
  * contributions against them.
  */
 export const HEADERS_SETTING_KEY = "headers";
+export const MODEL_CAPABILITIES_SETTING_KEY = "modelCapabilities";
 export const MODEL_PARAMETERS_SETTING_KEY = "modelParameters";
 export const SERVERS_SETTING_KEY = "servers";
 
@@ -145,37 +147,125 @@ export function getTokenDefaults(): TokenDefaults {
 	};
 }
 
-const modelParametersEntrySchema = z.record(z.string(), z.unknown());
+const prefixKeyedEntrySchema = z.record(z.string(), z.unknown());
 
 /**
- * Narrow a raw modelParameters value to the record-of-records shape.
- * Validated entry-by-entry so one malformed entry drops only itself, not the
- * whole map; prototype-polluting keys are dropped outright. Shared by the
- * request path and the dashboard's settings view.
+ * Narrow a raw prefix-keyed setting (modelParameters, modelCapabilities) to
+ * the record-of-records shape. Validated entry-by-entry so one malformed
+ * entry drops only itself, not the whole map; prototype-polluting keys are
+ * dropped outright.
  */
-export function normalizeModelParameters(raw: unknown): Record<string, Record<string, unknown>> {
+function normalizePrefixKeyedRecords(raw: unknown): Record<string, Record<string, unknown>> {
 	const parsed = settingsRecordSchema.safeParse(raw);
 	if (!parsed.success) {
 		return {};
 	}
 
-	const modelParameters: Record<string, Record<string, unknown>> = {};
+	const records: Record<string, Record<string, unknown>> = {};
 	for (const [modelId, value] of Object.entries(parsed.data)) {
 		if (isUnsafeRecordKey(modelId)) {
 			continue;
 		}
-		const entry = modelParametersEntrySchema.safeParse(value);
+		const entry = prefixKeyedEntrySchema.safeParse(value);
 		if (entry.success) {
-			modelParameters[modelId] = entry.data;
+			records[modelId] = entry.data;
 		}
 	}
-	return modelParameters;
+	return records;
+}
+
+/**
+ * Narrow a raw modelParameters value to the record-of-records shape. Shared
+ * by the request path and the dashboard's settings view.
+ */
+export function normalizeModelParameters(raw: unknown): Record<string, Record<string, unknown>> {
+	return normalizePrefixKeyedRecords(raw);
 }
 
 export function getModelParametersConfig(): Record<string, Record<string, unknown>> {
 	return normalizeModelParameters(getConfig().get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY, {}));
 }
 
+/**
+ * Narrow a raw modelCapabilities value to the record-of-records shape. Shape
+ * only, deliberately as lenient as normalizeModelParameters: the capability
+ * vocabulary and value typing are enforced in one place,
+ * capabilityResolution's parseCapabilityRecord, which also produces the
+ * diagnostics the dashboard renders.
+ */
+export function normalizeModelCapabilities(raw: unknown): Record<string, Record<string, unknown>> {
+	return normalizePrefixKeyedRecords(raw);
+}
+
+export function getModelCapabilitiesConfig(): Record<string, Record<string, unknown>> {
+	return normalizeModelCapabilities(getConfig().get<Record<string, unknown>>(MODEL_CAPABILITIES_SETTING_KEY, {}));
+}
+
+/** The per-scope values inspect() reports for one setting; the seam that lets the dashboard reuse the same rule. */
+export interface NumberSettingInspection {
+	readonly globalValue?: unknown;
+	readonly workspaceValue?: unknown;
+	readonly workspaceFolderValue?: unknown;
+}
+
+/**
+ * The value a user really set for one number setting, at any scope; undefined
+ * when the setting is untouched or unusable. Read through inspect() because
+ * get() cannot tell a built-in default from an explicitly configured equal
+ * value, and the capability walk treats only the latter as user intent. The
+ * highest configured scope wins outright, VS Code style: an explicit null at
+ * a higher scope disables a lower scope's value rather than falling through
+ * to it.
+ */
+function explicitPositiveNumber(inspection: NumberSettingInspection | undefined): number | undefined {
+	if (inspection === undefined) {
+		return undefined;
+	}
+	const configured = [inspection.workspaceFolderValue, inspection.workspaceValue, inspection.globalValue].find(
+		(value) => value !== undefined
+	);
+	return normalizePositiveNumber(configured);
+}
+
+/**
+ * The deprecated default* trio as capabilityResolution's precedence walk
+ * consumes it, judged from injected inspections. The single owner of the
+ * explicitly-configured rule: the registration path reads it through
+ * getCapabilityTokenDefaults, the dashboard's capability responder through
+ * its own SettingsReader, so the two sides cannot drift.
+ */
+export function capabilityTokenDefaultsFrom(
+	inspect: (id: NumberSettingId) => NumberSettingInspection | undefined
+): CapabilityTokenDefaults {
+	const contextLength = explicitPositiveNumber(inspect("defaultContextLength"));
+	const maxOutputTokens = explicitPositiveNumber(inspect("defaultMaxOutputTokens"));
+	return {
+		contextLength: {
+			value: contextLength ?? DEFAULT_CONTEXT_LENGTH,
+			explicitlyConfigured: contextLength !== undefined,
+		},
+		maxOutputTokens: {
+			value: maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+			explicitlyConfigured: maxOutputTokens !== undefined,
+		},
+		maxInputTokens: explicitPositiveNumber(inspect("defaultMaxInputTokens")),
+	};
+}
+
+export function getCapabilityTokenDefaults(): CapabilityTokenDefaults {
+	return capabilityTokenDefaultsFrom((id) => getConfig().inspect<unknown>(id));
+}
+
 export function getMaskApiKeyInput(): boolean {
 	return getBooleanSetting("maskApiKeyInput");
+}
+
+/**
+ * The OpenRouter catalog opt-out. Disabling stops the periodic refresh (all
+ * catalog network) and the implicit by-raw-ID lookup; explicit
+ * `_openrouter_model` directives keep answering from the bundled or cached
+ * snapshot.
+ */
+export function isOpenRouterCatalogEnabled(): boolean {
+	return getBooleanSetting("openRouterCatalog.enabled");
 }

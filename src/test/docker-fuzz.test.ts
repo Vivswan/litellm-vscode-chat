@@ -1,7 +1,10 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { CONFIG_SECTION } from "../shared/config/settingSpec";
+import { MODEL_CAPABILITIES_SETTING_KEY } from "../shared/config/settings";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
+import { NO_DISCOVERY_PREFIX } from "./fakeStack/noDiscovery";
 import type { FuzzEvent } from "./fuzzCorpus";
 import { FUZZ_CORPUS } from "./fuzzCorpus";
 import { fuzzShardSalt, logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
@@ -34,7 +37,10 @@ import { expectDefined } from "./testUtils";
  * Two targets share the generator: through the LiteLLM proxy, and directly
  * against the fake backend. Direct mode additionally generates what the
  * proxy would reject (malformed chunks, multi-part refusals), fuzzing the
- * extension's leniency contract over a real socket. A random-cancellation
+ * extension's leniency contract over a real socket. A third target runs the
+ * direct shapes through a `_declare`d model on the fake backend's
+ * no-discovery mirror, so every fuzzed stream also exercises the
+ * declared-model registration and routing path. A random-cancellation
  * pass checks streams die promptly and silently when cancelled.
  *
  * Failures shrink to a minimal failing event list before reporting, and the
@@ -42,9 +48,12 @@ import { expectDefined } from "./testUtils";
  * with `FUZZ_SEED=<seed> bun run test:docker` (the seed is always logged).
  */
 
-const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
+const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
-const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
+// Trailing slashes stripped: the declared target's scoped `_declare` key must
+// match normalizeBaseUrl(baseUrl), and the prefix concatenation below must
+// not mint a double slash.
+const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
 // Explicit seeds reproduce exactly, including 0; anything unset or invalid
 // draws a fresh seed, shard-salted so parallel CI shards diverge even when
 // they start in the same instant (see src/test/fuzzSeed.ts).
@@ -161,28 +170,49 @@ async function fuzzIteration(
 	}
 }
 
-function fuzzSuite(title: string, directMode: boolean, serverUrl: string, serverKey: string): void {
-	suite(title, () => {
+/** One server the fuzzed streams run against, and the model that carries them. */
+interface FuzzTarget {
+	readonly title: string;
+	/** Direct-mode targets skip the proxy, so the generator adds the shapes LiteLLM would reject. */
+	readonly directMode: boolean;
+	readonly serverUrl: string;
+	readonly serverKey: string;
+	/** The model id every fuzzed stream is sent through. */
+	readonly modelId: string;
+	/** XORed into SEED so each target draws its own event sequences from the shared seed. */
+	readonly seedSalt: number;
+	/** Configuration the target needs before its server is added, and the undo. */
+	readonly prepare?: () => Promise<void>;
+	readonly cleanup?: () => Promise<void>;
+}
+
+function fuzzSuite(target: FuzzTarget): void {
+	suite(target.title, () => {
 		let fuzzModel: vscode.LanguageModelChat;
 
 		suiteSetup(async function () {
 			this.timeout(90000);
 			await ensureActivated();
 			await clearServers();
-			await addServer(title, serverUrl, serverKey);
-			// Single-deployment on purpose: responses cannot vary by routing.
-			const wantedId = directMode ? "fake-mini" : "gpt-5.2-mini";
+			await target.prepare?.();
+			await addServer(target.title, target.serverUrl, target.serverKey);
+			// Single-deployment targets on purpose: responses cannot vary by routing.
 			const models = await waitForHostModels(
 				60000,
-				(candidates) => candidates.some((m) => m.id === wantedId),
-				`host to expose ${wantedId}`
+				(candidates) => candidates.some((m) => m.id === target.modelId),
+				`host to expose ${target.modelId}`
 			);
-			fuzzModel = expectDefined(models.find((m) => m.id === wantedId));
+			fuzzModel = expectDefined(models.find((m) => m.id === target.modelId));
+		});
+
+		suiteTeardown(async function () {
+			this.timeout(30000);
+			await target.cleanup?.();
 		});
 
 		test("replays the regression corpus", async function () {
 			this.timeout(Math.max(60000, FUZZ_CORPUS.length * 5000));
-			const mode = directMode ? "direct" : "proxy";
+			const mode = target.directMode ? "direct" : "proxy";
 			for (const entry of FUZZ_CORPUS) {
 				if (entry.mode !== "both" && entry.mode !== mode) {
 					continue;
@@ -193,12 +223,12 @@ function fuzzSuite(title: string, directMode: boolean, serverUrl: string, server
 
 		test(`fuzzes ${ITERATIONS} generated streams (seed ${SEED})`, async function () {
 			this.timeout(Math.max(120000, ITERATIONS * 10000));
-			const mode = directMode ? "direct" : "proxy";
+			const mode = target.directMode ? "direct" : "proxy";
 			logFuzzSeed(SEED, ITERATIONS, mode);
-			const random = mulberry32(directMode ? SEED ^ 0x5f375a86 : SEED);
+			const random = mulberry32(SEED ^ target.seedSalt);
 
 			for (let iteration = 0; iteration < ITERATIONS; iteration++) {
-				const events = generateEvents(random, directMode);
+				const events = generateEvents(random, target.directMode);
 				await fuzzIteration(
 					fuzzModel,
 					`fuzz-${SEED}-${iteration}`,
@@ -266,11 +296,62 @@ if (!BASE_URL) {
 		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
 	});
 } else {
+	/** The declared fuzz target's model: created only by the `_declare` below, never listed by discovery. */
+	const DECLARED_FUZZ_MODEL = "fake-declared-fuzz";
+	let originalCapabilitiesSetting: unknown;
+
+	// Reasoning on to match the direct target's fake-mini: the direct-mode
+	// generator emits reasoning deltas. Everything else rides the built-in
+	// floor (tools on), which is exactly what a bare `_declare` gives a model.
+	const seedDeclaredFuzzModel = async (): Promise<void> => {
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		originalCapabilitiesSetting = config.inspect(MODEL_CAPABILITIES_SETTING_KEY)?.globalValue;
+		await config.update(
+			MODEL_CAPABILITIES_SETTING_KEY,
+			{
+				[`${FAKE_URL}${NO_DISCOVERY_PREFIX}/${DECLARED_FUZZ_MODEL}`]: { _declare: true, supports_reasoning: true },
+			},
+			vscode.ConfigurationTarget.Global
+		);
+	};
+	const restoreCapabilitiesSetting = async (): Promise<void> => {
+		await vscode.workspace
+			.getConfiguration(CONFIG_SECTION)
+			.update(MODEL_CAPABILITIES_SETTING_KEY, originalCapabilitiesSetting, vscode.ConfigurationTarget.Global);
+	};
+
 	// Through the proxy: LiteLLM re-serializes everything, so only shapes it
 	// forwards faithfully are generated.
-	fuzzSuite("Docker LiteLLM stream fuzzer (proxy)", false, BASE_URL, API_KEY);
+	fuzzSuite({
+		title: "Docker LiteLLM stream fuzzer (proxy)",
+		directMode: false,
+		serverUrl: BASE_URL,
+		serverKey: API_KEY,
+		modelId: "gpt-5.2-mini",
+		seedSalt: 0,
+	});
 	// Directly against the fake backend (the extension treats it as a LiteLLM
 	// server via the /v1/models discovery fallback): adds the shapes the proxy
 	// rejects, fuzzing the extension's leniency contract over a real socket.
-	fuzzSuite("Docker LiteLLM stream fuzzer (direct)", true, FAKE_URL, "fake-key");
+	fuzzSuite({
+		title: "Docker LiteLLM stream fuzzer (direct)",
+		directMode: true,
+		serverUrl: FAKE_URL,
+		serverKey: "fake-key",
+		modelId: "fake-mini",
+		seedSalt: 0x5f375a86,
+	});
+	// The direct shapes again, but through a `_declare`d model on the fake
+	// backend's no-discovery mirror: discovery cannot list anything there, so
+	// every stream rides the declared-model registration and routes.
+	fuzzSuite({
+		title: "Docker LiteLLM stream fuzzer (declared)",
+		directMode: true,
+		serverUrl: `${FAKE_URL}${NO_DISCOVERY_PREFIX}`,
+		serverKey: "fake-key",
+		modelId: DECLARED_FUZZ_MODEL,
+		seedSalt: 0x85ebca6b,
+		prepare: seedDeclaredFuzzModel,
+		cleanup: restoreCapabilitiesSetting,
+	});
 }

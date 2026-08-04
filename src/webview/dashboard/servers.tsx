@@ -4,15 +4,16 @@ import { useEffect, useState } from "preact/hooks";
 import type {
 	DashboardIntentType,
 	DashboardServer,
+	ExpectedFailureCategory,
 	HiddenGroup,
 	SecretFieldId,
 	SecretLocation,
 	SetupHintKind,
 	TransportErrorClassification,
 } from "../../extension/dashboard/protocol";
-import { SECRET_FIELD_IDS } from "../../extension/dashboard/protocol";
+import { EXPECTED_FAILURE_CATEGORIES, SECRET_FIELD_IDS } from "../../extension/dashboard/protocol";
 import type { GroupProblems } from "../../extension/dashboard/recordDraft";
-import { toGroups } from "../../extension/dashboard/recordDraft";
+import { toCapabilityGroups, toGroups, toggleExpectedFailure } from "../../extension/dashboard/recordDraft";
 import type {
 	SecretFieldDraft,
 	ServerFormDraft,
@@ -38,6 +39,7 @@ import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_CHECK_BASE_URL,
 	DOCS_LINK_CONFIGURE_API_KEY,
+	DOCS_LINK_MODEL_CAPABILITIES,
 	DOCS_LINK_PARAMS_INACTIVE,
 	DOCS_LINK_PROXY_NOT_RUNNING,
 	DOCS_LINK_SERVER_FORM,
@@ -46,10 +48,11 @@ import {
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpEntryModelParameterPrefix, helpSecretStorage, helpServersSection, serverFieldHelp } from "./helpText";
 import { IconAdd } from "./icons";
-import { ParamGroupsFields } from "./recordEditors";
+import type { CatalogSearchResponse } from "./recordEditors";
+import { CapabilityGroupsFields, ParamGroupsFields } from "./recordEditors";
 import { SlideOver } from "./slideOver";
 import { relativeTime } from "./time";
-import { postMessage } from "./vscodeApi";
+import { newRequestId, postMessage } from "./vscodeApi";
 
 /**
  * How long a pending adopt may hold the modal before the notice bar arms its
@@ -58,20 +61,13 @@ import { postMessage } from "./vscodeApi";
  */
 const ADOPT_ESCAPE_AFTER_MS = 10000;
 
-/** A correlation ID for one posted intent; matched against intentSucceeded/intentFailed notices. */
-function newRequestId(): string {
-	const cryptoApi = globalThis.crypto;
-	if (typeof cryptoApi?.randomUUID === "function") {
-		return cryptoApi.randomUUID();
-	}
-	return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 /**
  * The row's status pill: tone dot, plain-language verdict, and how long ago
  * discovery last looked. An "ok" row that still carries an error (a live
- * group kept serving while its sync failed) shows the warn tone; the error
- * text itself renders in the section's banner, where it is selectable.
+ * group kept serving while its sync failed) shows the warn tone, as does an
+ * expected discovery failure (the entry declared it, so red would be a lie);
+ * the error text itself renders in the section's banner, where it is
+ * selectable.
  */
 function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 	const checked = server.lastChecked === undefined ? undefined : relativeTime(server.lastChecked, now);
@@ -100,6 +96,32 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 		);
 	}
 	if (server.state === "error") {
+		if (server.expected === true) {
+			const declared = server.declaredModelCount ?? 0;
+			// One state, one name across tabs: a row still serving declared
+			// models reads Connected here exactly as the Diagnostics grid reads
+			// it OK, with the warn tone and tip carrying the expected failure.
+			return (
+				<HoverTip
+					focusable
+					tip={
+						declared > 0
+							? l10n.t(
+									"Discovery failed in a category this entry expects; its declared models keep serving. The banner below has the details."
+								)
+							: l10n.t(
+									"Discovery failed in a category this entry expects. Nothing is declared, so no models are served; add _declare entries to modelCapabilities."
+								)
+					}
+				>
+					<span class="pill tone-warn">
+						<span class="dot" />
+						{declared > 0 ? l10n.t("Connected") : l10n.t("Expected failure")}
+						{time}
+					</span>
+				</HoverTip>
+			);
+		}
 		return (
 			<span class="pill tone-error">
 				<span class="dot" />
@@ -222,6 +244,22 @@ function secretDraft(existing: SecretLocation): SecretFieldDraft {
 	return { value: "", location: existing === "settings" ? "settings" : "secure", clear: false, existing };
 }
 
+/** One expected-failure category's checkbox label; endpoint paths stay English (protocol terms). */
+function expectedFailureLabel(category: ExpectedFailureCategory): string {
+	switch (category) {
+		case "modelListing":
+			return l10n.t({
+				message: "Model listing (/models)",
+				comment: ["Do not translate /models; it is an HTTP endpoint path."],
+			});
+		case "modelInfo":
+			return l10n.t({
+				message: "Model info (/model/info)",
+				comment: ["Do not translate /model/info; it is an HTTP endpoint path."],
+			});
+	}
+}
+
 function draftFor(target: ServerFormTarget): ServerFormDraft {
 	if (target.kind === "add") {
 		return EMPTY_SERVER_FORM;
@@ -238,6 +276,8 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 		oauthClientSecret: secretDraft(original.config.secrets.oauthClientSecret),
 		virtualKeyValue: secretDraft(original.config.secrets.virtualKeyValue),
 		modelParameters: toGroups(original.config.modelParameters ?? {}),
+		modelCapabilities: toCapabilityGroups(original.config.modelCapabilities ?? {}),
+		expectedFailures: original.config.expectedFailures ?? [],
 	};
 }
 
@@ -265,7 +305,7 @@ function TextField({
 	placeholder,
 	props,
 }: {
-	field: Exclude<ServerFormField, SecretFieldId | "modelParameters">;
+	field: Exclude<ServerFormField, SecretFieldId | "modelParameters" | "modelCapabilities" | "expectedFailures">;
 	placeholder?: string;
 	props: FieldRenderProps;
 }) {
@@ -423,13 +463,14 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 }
 
 /**
- * Whether a field "holds content" for problem visibility. Model-parameter
- * problems only exist on rows the user (or the prefill) put there, so any
- * rows count as content; text and secret fields count their text.
+ * Whether a field "holds content" for problem visibility. Record-row and
+ * list-valued fields only carry problems on entries the user (or the
+ * prefill) put there, so any entries count as content; text and secret
+ * fields count their text.
  */
 function fieldHasContent(draft: ServerFormDraft, field: ServerFormField): boolean {
-	if (field === "modelParameters") {
-		return draft.modelParameters.length > 0;
+	if (field === "modelParameters" || field === "modelCapabilities" || field === "expectedFailures") {
+		return draft[field].length > 0;
 	}
 	const value = draft[field];
 	return typeof value === "string" ? value.length > 0 : value.value.length > 0;
@@ -449,6 +490,7 @@ function ServerForm({
 	ack,
 	failures,
 	inlineSecrets,
+	catalogResults,
 	declaredLabels,
 	onUserEdit,
 	onClose,
@@ -458,6 +500,8 @@ function ServerForm({
 	ack: IntentAck | undefined;
 	failures: FailuresByIntent;
 	inlineSecrets: InlineSecretsResponse | undefined;
+	/** The latest catalogSearchResults response, for the capability rows' `_openrouter_model` picker. */
+	catalogResults: CatalogSearchResponse | undefined;
 	declaredLabels: readonly string[];
 	/** Reports the first user edit; the slide-over's close-with-confirm keys on it. */
 	onUserEdit: () => void;
@@ -470,10 +514,17 @@ function ServerForm({
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [testState, setTestState] = useState<TestState>({ kind: "idle" });
 	const [oauthOpen, setOauthOpen] = useState(false);
-	// The per-entry parameters disclosure opens by itself only for an entry
-	// that already carries some; adding rows to a bare entry is opt-in.
+	// The per-entry parameters and capabilities disclosures open by themselves
+	// only for an entry that already carries some; adding rows to a bare entry
+	// is opt-in.
 	const [paramsOpen, setParamsOpen] = useState(
 		() => target.kind === "edit" && Object.keys(target.original.config.modelParameters ?? {}).length > 0
+	);
+	const [capsOpen, setCapsOpen] = useState(
+		() =>
+			target.kind === "edit" &&
+			(Object.keys(target.original.config.modelCapabilities ?? {}).length > 0 ||
+				(target.original.config.expectedFailures ?? []).length > 0)
 	);
 	const saving = phase.phase === "saving";
 	// Save holds until the prefill response lands (phase "prefill"): saving
@@ -590,9 +641,11 @@ function ServerForm({
 		}
 	}
 	const modelParameterProblems: readonly GroupProblems[] = parse.ok ? [] : parse.modelParameterProblems;
+	const modelCapabilityIssues = parse.modelCapabilityIssues;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
 	const oauthProblemVisible = OAUTH_SECTION_FIELDS.some((field) => visibleProblems[field] !== undefined);
 	const paramsProblemVisible = visibleProblems.modelParameters !== undefined;
+	const capsProblemVisible = visibleProblems.modelCapabilities !== undefined;
 	// A problem surfacing inside a collapsed disclosure opens it once
 	// (otherwise Save would refuse over an error the user cannot see); beyond
 	// that the element is the user's: closing it again sticks, and it does not
@@ -607,6 +660,11 @@ function ServerForm({
 			setParamsOpen(true);
 		}
 	}, [paramsProblemVisible]);
+	useEffect(() => {
+		if (capsProblemVisible) {
+			setCapsOpen(true);
+		}
+	}, [capsProblemVisible]);
 
 	const save = () => {
 		if (phase.phase !== "editing") {
@@ -623,6 +681,9 @@ function ServerForm({
 			}
 			if (parse.problems.modelParameters !== undefined) {
 				setParamsOpen(true);
+			}
+			if (parse.problems.modelCapabilities !== undefined) {
+				setCapsOpen(true);
 			}
 			return;
 		}
@@ -672,10 +733,17 @@ function ServerForm({
 			// counts: it selects which stored or orphan secret a "keep" directive
 			// resolves extension-side, so a rename can silently change the
 			// effective credentials the probe would use.
+			// modelCapabilities and expectedFailures stay out of CONNECTION_FIELDS
+			// (they never gate a probe) but still clear a standing result: they
+			// shape its OUTCOME - the declared count and the expected downgrade.
 			if (
 				testState.kind !== "idle" &&
 				Object.keys(patch).some(
-					(field) => field === "label" || (CONNECTION_FIELDS as readonly string[]).includes(field)
+					(field) =>
+						field === "label" ||
+						field === "modelCapabilities" ||
+						field === "expectedFailures" ||
+						(CONNECTION_FIELDS as readonly string[]).includes(field)
 				)
 			) {
 				setTestState({ kind: "idle" });
@@ -769,6 +837,65 @@ function ServerForm({
 				>
 					<IconAdd /> {l10n.t("Add model prefix")}
 				</button>
+			</details>
+			<details open={capsOpen} onToggle={(event) => setCapsOpen(event.currentTarget.open)}>
+				<summary>
+					{l10n.t("Model capabilities for this server (optional)")} <Help text={serverFieldHelp("modelCapabilities")} />{" "}
+					<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
+				</summary>
+				<p class="hint">
+					{l10n.t(
+						"Corrects what discovery reports for matching models, and _declare creates models discovery does not list. Your values beat server-reported ones."
+					)}
+				</p>
+				<CapabilityGroupsFields
+					groups={draft.modelCapabilities}
+					issues={modelCapabilityIssues}
+					disabled={saving}
+					catalogResults={catalogResults}
+					onChange={(next) => props.patch({ modelCapabilities: next })}
+				/>
+				<button
+					type="button"
+					class="secondary"
+					disabled={saving}
+					onClick={() =>
+						props.patch({
+							modelCapabilities: [...draft.modelCapabilities, { prefix: "", params: [{ key: "", valueText: "" }] }],
+						})
+					}
+				>
+					<IconAdd /> {l10n.t("Add capability prefix")}
+				</button>
+				<fieldset class="expected-failures">
+					<legend class="label-row">
+						{serverFormFieldLabel("expectedFailures")} <Help text={serverFieldHelp("expectedFailures")} />
+					</legend>
+					<p class="hint">
+						{l10n.t(
+							"Discovery endpoints this server is known to lack: marked failures log quietly, skip retries, and never count as errors."
+						)}
+					</p>
+					{EXPECTED_FAILURE_CATEGORIES.map((category) => (
+						<label key={category} class="setting-check">
+							<input
+								type="checkbox"
+								checked={draft.expectedFailures.includes(category)}
+								disabled={saving}
+								onChange={(event) =>
+									props.patch({
+										expectedFailures: toggleExpectedFailure(
+											draft.expectedFailures,
+											category,
+											event.currentTarget.checked
+										),
+									})
+								}
+							/>
+							{expectedFailureLabel(category)}
+						</label>
+					))}
+				</fieldset>
 			</details>
 			<p class="hint">
 				{l10n.t(
@@ -1115,13 +1242,38 @@ function ServerRow({
 						<span class="badge">{l10n.t("external")}</span>
 					</HoverTip>
 				) : null}
-				{server.notice === "entry-params-inactive" ? (
+				{/* Gated on expected: only expected failures fold the declared count
+				    into the row's served models; an unexpected failure's declarations
+				    are extension bookkeeping, and a badge beside a zero count would
+				    contradict the row. */}
+				{server.state === "error" && server.expected === true && (server.declaredModelCount ?? 0) > 0 ? (
+					<HoverTip
+						focusable
+						tip={l10n.t("Models created by _declare directives; they keep serving while discovery fails.")}
+					>
+						<span class="badge">
+							{(server.declaredModelCount ?? 0) === 1
+								? l10n.t("1 declared model")
+								: l10n.t("{0} declared models", server.declaredModelCount ?? 0)}
+						</span>
+					</HoverTip>
+				) : null}
+				{server.notices?.includes("entry-params-inactive") === true ? (
 					<HoverTip
 						tip={l10n.t(
 							"Per-server model parameters are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
 						)}
 					>
 						<span class="badge state-warn">{l10n.t("params inactive")}</span>
+					</HoverTip>
+				) : null}
+				{server.notices?.includes("entry-capabilities-inactive") === true ? (
+					<HoverTip
+						tip={l10n.t(
+							"Per-server model capabilities and expected failures are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
+						)}
+					>
+						<span class="badge state-warn">{l10n.t("capabilities inactive")}</span>
 					</HoverTip>
 				) : null}
 			</td>
@@ -1223,6 +1375,7 @@ export function ServersSection({
 	ack,
 	failures,
 	inlineSecrets,
+	catalogResults,
 	onDismissFailure,
 	onClearInlineSecrets,
 	onShowModels,
@@ -1236,6 +1389,8 @@ export function ServersSection({
 	ack: IntentAck | undefined;
 	failures: FailuresByIntent;
 	inlineSecrets: InlineSecretsResponse | undefined;
+	/** The latest catalogSearchResults response, for the edit form's `_openrouter_model` picker. */
+	catalogResults?: CatalogSearchResponse | undefined;
 	/** Drop the latest failure notice for one intent type (Cancel dismisses a stale save failure). */
 	onDismissFailure: (intentType: DashboardIntentType) => void;
 	/** Drop the held inlineSecrets response; called when the edit form closes so the value leaves webview memory. */
@@ -1413,6 +1568,7 @@ export function ServersSection({
 							ack={ack}
 							failures={failures}
 							inlineSecrets={inlineSecrets}
+							catalogResults={catalogResults}
 							declaredLabels={declaredLabels}
 							onUserEdit={() => setFormDirty(true)}
 							onClose={closeForm}
@@ -1570,11 +1726,11 @@ export function ServersSection({
 				</div>
 			)}
 			<HiddenGroupsLine hidden={hidden} />
-			{servers.some((server) => server.error !== undefined) ? (
+			{servers.some((server) => server.error !== undefined && server.expected !== true) ? (
 				<div class="banner banner-error">
 					<p class="error">
 						{servers
-							.filter((server) => server.error !== undefined)
+							.filter((server) => server.error !== undefined && server.expected !== true)
 							.map((server, index) => (
 								// Keyed identity (origin plus the external row's opaque handle
 								// or the declared row's setting-unique label) so reconciliation
@@ -1604,13 +1760,30 @@ export function ServersSection({
 					</p>
 				</div>
 			) : null}
-			{servers.some((server) => server.notice === "entry-params-inactive") ? (
+			{servers.some((server) => server.error !== undefined && server.expected === true) ? (
+				<div class="banner banner-warn">
+					<p class="state-warn">
+						{servers
+							.filter((server) => server.error !== undefined && server.expected === true)
+							.map((server, index) => (
+								<Fragment key={`${server.origin}:${server.adoptHandle ?? server.label}`}>
+									{index > 0 ? "; " : ""}
+									{/* Warn tone, never the red banner: the entry declared this
+									    category, so the failure is stated with its localized
+									    annotation instead of raised as a problem. */}
+									{l10n.t("{0}: {1} (expected)", server.label, server.error ?? "")}
+								</Fragment>
+							))}
+					</p>
+				</div>
+			) : null}
+			{servers.some((server) => server.notices?.includes("entry-params-inactive") === true) ? (
 				<div class="banner banner-warn">
 					<p class="state-warn">
 						{l10n.t(
 							"{0}: per-server model parameters are not applied (the group serving the entry predates its label or a rename). To activate them:",
 							servers
-								.filter((server) => server.notice === "entry-params-inactive")
+								.filter((server) => server.notices?.includes("entry-params-inactive") === true)
 								.map((server) => server.label)
 								.join(", ")
 						)}{" "}
@@ -1624,6 +1797,41 @@ export function ServersSection({
 							{l10n.t("Reload the window, then run Sync Models Now - or save the entry under a new label instead.")}
 						</li>
 					</ol>
+				</div>
+			) : null}
+			{servers.some((server) => server.notices?.includes("entry-capabilities-inactive") === true) ? (
+				<div class="banner banner-warn">
+					<p class="state-warn">
+						{l10n.t(
+							"{0}: per-server model capabilities and expected failures are not applied (the group serving the entry predates its label or a rename). To activate them:",
+							servers
+								.filter((server) => server.notices?.includes("entry-capabilities-inactive") === true)
+								.map((server) => server.label)
+								.join(", ")
+						)}{" "}
+						<DocsLink href={DOCS_LINK_PARAMS_INACTIVE} label={l10n.t("Learn more in the troubleshooting guide")}>
+							{l10n.t("Learn more")}
+						</DocsLink>
+					</p>
+					<ol class="notice-steps">
+						<li>{l10n.t("Delete the group's object from the models file (chatLanguageModels.json).")}</li>
+						<li>
+							{l10n.t("Reload the window, then run Sync Models Now - or save the entry under a new label instead.")}
+						</li>
+					</ol>
+				</div>
+			) : null}
+			{servers.some((server) => server.notices?.includes("expected-failures-nothing-declared") === true) ? (
+				<div class="banner banner-warn">
+					<p class="state-warn">
+						{l10n.t(
+							"{0}: discovery fails in an expected category and nothing is declared, so no models are served. Add _declare entries to the entry's model capabilities to serve models without discovery.",
+							servers
+								.filter((server) => server.notices?.includes("expected-failures-nothing-declared") === true)
+								.map((server) => server.label)
+								.join(", ")
+						)}
+					</p>
 				</div>
 			) : null}
 		</section>

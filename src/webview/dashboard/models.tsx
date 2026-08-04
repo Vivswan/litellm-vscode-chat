@@ -1,6 +1,8 @@
 import * as l10n from "@vscode/l10n";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { DashboardModel, ModelParametersRecord, RequestScope } from "../../extension/dashboard/protocol";
+import type { ModelCapabilitiesResponse } from "./capsInspector";
+import { CapsInspector } from "./capsInspector";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpModelsSection } from "./helpText";
@@ -199,6 +201,7 @@ export function ModelsSection({
 	scope,
 	requestScopes,
 	modelParameters,
+	capsResponse,
 }: {
 	models: readonly DashboardModel[];
 	serverCount: number;
@@ -212,6 +215,8 @@ export function ModelsSection({
 	requestScopes: Readonly<Record<string, RequestScope>>;
 	/** The scope-merged modelParameters setting, as the request path reads it. */
 	modelParameters: ModelParametersRecord;
+	/** The latest modelCapabilities response, for the capability inspector; see CapsInspector. */
+	capsResponse?: ModelCapabilitiesResponse | undefined;
 }) {
 	const [filter, setFilter] = useState("");
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
@@ -224,9 +229,10 @@ export function ModelsSection({
 	// identity because it is what distinguishes two snapshots whose rows could
 	// otherwise render the same ID under the same display label - matching on
 	// it keeps the inspector on the exact snapshot whose action was clicked.
-	const [inspecting, setInspecting] = useState<{ id: string; serverLabel: string; scopeKey: string } | undefined>(
-		undefined
-	);
+	// `view` names which inspector is open; one row, one slide-over at a time.
+	const [inspecting, setInspecting] = useState<
+		{ id: string; serverLabel: string; scopeKey: string; view: "params" | "caps" } | undefined
+	>(undefined);
 	const scrollRef = useRef<HTMLElement>(null);
 	const copySeq = useRef(0);
 
@@ -422,6 +428,16 @@ export function ModelsSection({
 												    names; the full name stays in the DOM (and in the inspector's
 												    heading), only its rendering trims. */}
 												<span class="model-name-text">{model.name}</span>
+												{model.declared === true ? (
+													<HoverTip
+														focusable
+														tip={l10n.t(
+															"Created by a _declare directive in modelCapabilities; the server's discovery does not list it."
+														)}
+													>
+														<span class="badge">{l10n.t("declared")}</span>
+													</HoverTip>
+												) : null}
 												{/* Beside the name because the name is what it copies. The
 												    server label keeps the accessible name unique when one raw
 												    ID is registered through several servers. */}
@@ -457,19 +473,44 @@ export function ModelsSection({
 												) : null}
 											</td>
 											<td class="actions">
-												{/* A quiet text action, not an icon: "Params" says what opens,
-												    and the uniform row height survives (no taller chrome). It
-												    stays visible at rest - it is the inspector's only entry
-												    point, so hover-reveal would make it undiscoverable. */}
+												{/* Quiet text actions, not icons: "Params" and "Caps" say
+												    what opens, and the uniform row height survives (no
+												    taller chrome). They stay visible at rest - each is its
+												    inspector's only entry point, so hover-reveal would make
+												    it undiscoverable. */}
 												<button
 													type="button"
 													class="quiet params-action"
 													aria-label={l10n.t("Show effective parameters for {0} on {1}", model.name, model.serverLabel)}
 													onClick={() =>
-														setInspecting({ id: model.id, serverLabel: model.serverLabel, scopeKey: model.scopeKey })
+														setInspecting({
+															id: model.id,
+															serverLabel: model.serverLabel,
+															scopeKey: model.scopeKey,
+															view: "params",
+														})
 													}
 												>
 													{l10n.t("Params")}
+												</button>
+												<button
+													type="button"
+													class="quiet params-action"
+													aria-label={l10n.t(
+														"Show effective capabilities for {0} on {1}",
+														model.name,
+														model.serverLabel
+													)}
+													onClick={() =>
+														setInspecting({
+															id: model.id,
+															serverLabel: model.serverLabel,
+															scopeKey: model.scopeKey,
+															view: "caps",
+														})
+													}
+												>
+													{l10n.t("Caps")}
 												</button>
 											</td>
 										</tr>
@@ -488,13 +529,16 @@ export function ModelsSection({
 						</table>
 					</section>
 					{sorted.length === 0 ? <p class="empty">{l10n.t("No models match the filter.")}</p> : null}
-					{inspected !== undefined ? (
+					{inspected !== undefined && inspecting?.view === "params" ? (
 						<ParamsInspector
 							model={inspected}
 							scope={requestScopes[inspected.scopeKey]}
 							globalParameters={modelParameters}
 							onClose={() => setInspecting(undefined)}
 						/>
+					) : null}
+					{inspected !== undefined && inspecting?.view === "caps" ? (
+						<CapsInspector model={inspected} response={capsResponse} onClose={() => setInspecting(undefined)} />
 					) : null}
 				</>
 			)}

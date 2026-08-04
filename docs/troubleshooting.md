@@ -43,6 +43,7 @@ Your prompts, attachments, and completions travel only between VS Code and the e
 
 - Chat and model-discovery requests go to your LiteLLM servers' base URLs.
 - OAuth credentials go only to the token endpoint set on the server entry.
+- One default-on exception: about once a week the extension refreshes its bundled [OpenRouter model catalog](model-capabilities.md#the-openrouter-catalog) from `https://openrouter.ai/api/v1/models` - a public, unauthenticated model list; the request carries no prompts, no usage, and nothing about you or your servers. Set `litellm-vscode-chat.openRouterCatalog.enabled` to `false` to stop all catalog network.
 - The extension has no telemetry and no backend of its own; nothing is sent to the publisher.
 - The one other outbound surface is the [issue reporter](#reporting-an-issue), which prepares everything locally, carries environment details and the extension's own logs (versions, platform, connection state, error classifications and stacks - never prompt or response text, never key values), and opens in your browser for review before anything is submitted.
 
@@ -52,7 +53,7 @@ Where credentials are stored, and what syncs between machines, is covered in [Se
 
 The two timeout settings are hard bounds on the whole call, streaming and any retries included; see [Settings](settings.md#request-timeouts) for their defaults.
 
-- Model discovery requests are idempotent GETs, so a failed one is retried (up to twice, with the whole call still bounded by `discoveryTimeout`).
+- Model discovery requests are idempotent GETs, so a failed one is retried (up to twice, with the whole call still bounded by `discoveryTimeout`) - unless the server entry lists the endpoint in [`expectedFailures`](model-capabilities.md#expected-discovery-failures), which limits it to a single attempt.
 - Chat completions are never retried: a completion may have side effects (spend, tool calls), so the extension surfaces the failure instead of silently paying for a second attempt. If long requests get cut off, raise `requestTimeout`.
 - When a background model refresh fails but the last successful discovery is recent (under ten minutes old), the extension keeps serving the last known model list, flagged stale with a warning icon, instead of dropping your models mid-session.
 
@@ -121,7 +122,7 @@ VS Code's provider-group API can add groups but not remove them, so the extensio
 
 ## Per-server model parameters are inactive
 
-The dashboard shows a "params inactive" badge (and a banner naming the affected entries) when a server entry declares per-entry `modelParameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `modelParameters` setting.
+The dashboard shows a "params inactive" badge (and a banner naming the affected entries) when a server entry declares per-entry `modelParameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `modelParameters` setting. The twin "capabilities inactive" badge means the same thing for an entry's `modelCapabilities` and `expectedFailures`, and has the same fixes.
 
 Two ways to fix it:
 
