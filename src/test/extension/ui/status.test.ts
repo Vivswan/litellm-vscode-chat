@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
+import { classifyOverall } from "../../../extension/dashboard/protocol";
 import { StatusBarManager } from "../../../extension/ui/status";
 import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
@@ -218,6 +219,153 @@ suite("extension/ui/status", () => {
 
 			assert.strictEqual(manager.connectionStatus.state, "connecting");
 			assert.strictEqual(manager.connectingAttention, false, "loading must not invent attention it never carried");
+		});
+	});
+
+	suite("expected failures", () => {
+		const expectedFailure = (declaredModelCount?: number): ServerStatus => ({
+			serverId: "srv1",
+			label: "Gateway",
+			baseUrl: "http://gw.test",
+			state: "error",
+			error: "discovery down",
+			logSafeError: markLogSafe("RequestError(http, status 404)"),
+			expected: true,
+			...(declaredModelCount !== undefined ? { declaredModelCount } : {}),
+			lastChecked: new Date().toISOString(),
+		});
+		const okServer: ServerStatus = {
+			serverId: "srv2",
+			label: "Prod",
+			baseUrl: "http://prod.test",
+			state: "ok",
+			modelCount: 3,
+			lastChecked: new Date().toISOString(),
+		};
+		const unexpectedFailure: ServerStatus = {
+			serverId: "srv3",
+			label: "Down",
+			baseUrl: "http://down.test",
+			state: "error",
+			error: "boom",
+			logSafeError: markLogSafe("RequestError(connection)"),
+			lastChecked: new Date().toISOString(),
+		};
+
+		test("the all-expected/no-declared case is neutral on BOTH surfaces: needs-declare and the attention warning", () => {
+			// The two headline surfaces must move together (the settled status
+			// semantics): the dashboard's shared verdict says needs-declare, and
+			// the status bar shows the actionable warning presentation instead of
+			// the zero-model red branch.
+			assert.strictEqual(classifyOverall([{ state: "error", expected: true }]), "needs-declare");
+			const manager = createManager(undefined, () => true);
+			manager.handleAggregatedStatus({ serverStatuses: [expectedFailure()], totalModels: 0, silent: true });
+			assert.deepStrictEqual(
+				{ state: manager.connectionStatus.state, attention: manager.connectingAttention },
+				{ state: "connecting", attention: true },
+				"never the red zero-model branch"
+			);
+		});
+
+		test("an expected failure serving declared models reads as connected, not degraded", () => {
+			assert.strictEqual(
+				classifyOverall([{ state: "error", expected: true, declaredModelCount: 2 }]),
+				"connected",
+				"the shared dashboard verdict"
+			);
+			const manager = createManager(undefined, () => true);
+			const serving = expectedFailure(2);
+			manager.handleAggregatedStatus({ serverStatuses: [serving], totalModels: 2, silent: true });
+			const status = manager.connectionStatus;
+			assert.ok(status.state === "connected", `expected connected, got ${status.state}`);
+			assert.strictEqual(status.totalModels, 2);
+			assert.deepStrictEqual(status.serverStatuses, [serving]);
+		});
+
+		test("an expected failure beside a healthy server never degrades the verdict", () => {
+			assert.strictEqual(classifyOverall([{ state: "ok" }, { state: "error", expected: true }]), "connected");
+			const manager = createManager(undefined, () => true);
+			manager.handleAggregatedStatus({ serverStatuses: [okServer, expectedFailure()], totalModels: 3, silent: true });
+			assert.strictEqual(manager.connectionStatus.state, "connected");
+		});
+
+		test("an unexpected failure degrades; red needs EVERY server failing unexpectedly, mirroring classifyOverall", () => {
+			const manager = createManager(undefined, () => true);
+			manager.handleAggregatedStatus({
+				serverStatuses: [okServer, unexpectedFailure, expectedFailure()],
+				totalModels: 3,
+				silent: true,
+			});
+			const degraded = manager.connectionStatus;
+			assert.strictEqual(degraded.state, "degraded");
+
+			// The mixed all-failed case pins both surfaces together: an expected
+			// failure beside an unexpected one is degraded, never the red
+			// all-failed verdict, on the dashboard AND the status bar.
+			assert.strictEqual(
+				classifyOverall([{ state: "error" }, { state: "error", expected: true }]),
+				"degraded",
+				"the shared dashboard verdict"
+			);
+			manager.handleAggregatedStatus({
+				serverStatuses: [unexpectedFailure, expectedFailure()],
+				totalModels: 0,
+				silent: true,
+			});
+			const mixed = manager.connectionStatus;
+			assert.strictEqual(mixed.state, "degraded");
+
+			assert.strictEqual(classifyOverall([{ state: "error" }]), "error");
+			manager.handleAggregatedStatus({ serverStatuses: [unexpectedFailure], totalModels: 0, silent: true });
+			const red = manager.connectionStatus;
+			assert.ok(red.state === "error");
+			assert.strictEqual(red.error, "boom");
+		});
+
+		test("an expected failure with declared models rescues an otherwise all-failed report to degraded", () => {
+			const manager = createManager(undefined, () => true);
+			manager.handleAggregatedStatus({
+				serverStatuses: [unexpectedFailure, expectedFailure(1)],
+				totalModels: 1,
+				silent: true,
+			});
+			assert.strictEqual(manager.connectionStatus.state, "degraded", "a declared-serving server counts as serving");
+		});
+
+		test("expected and declaredModelCount survive the persisted round trip; junk drops the field only", () => {
+			const manager = createManager({
+				state: "degraded",
+				totalModels: 1,
+				serverStatuses: [
+					{
+						state: "error",
+						label: "Gateway",
+						baseUrl: "http://gw.test",
+						error: "discovery down",
+						logSafeError: "RequestError(http, status 404)",
+						expected: true,
+						declaredModelCount: 1,
+					},
+					{
+						state: "error",
+						label: "Junky",
+						baseUrl: "http://junk.test",
+						error: "boom",
+						logSafeError: "RequestError(connection)",
+						expected: "yes",
+						declaredModelCount: -3,
+					},
+				],
+			});
+			const status = manager.connectionStatus;
+			assert.ok(status.state === "degraded");
+			const [restored, junky] = status.serverStatuses;
+			assert.ok(restored?.state === "error");
+			assert.strictEqual(restored.expected, true);
+			assert.strictEqual(restored.declaredModelCount, 1);
+			assert.ok(junky?.state === "error", "junk optional fields never drop the element");
+			assert.ok(!("expected" in junky) || junky.expected === undefined);
+			assert.ok(!("declaredModelCount" in junky) || junky.declaredModelCount === undefined);
 		});
 	});
 

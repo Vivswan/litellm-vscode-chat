@@ -9,13 +9,15 @@
 | 設定 | 預設值 | 說明 |
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | 宣告的 LiteLLM 伺服器; 參閱[伺服器](servers.md) |
-| `litellm-vscode-chat.defaultMaxOutputTokens` | `16000` | 伺服器未宣告時, 模型的最大輸出 token 數 |
-| `litellm-vscode-chat.defaultContextLength` | `128000` | 伺服器未宣告時, 模型的上下文視窗 |
-| `litellm-vscode-chat.defaultMaxInputTokens` | `null` | 最大輸入 token 數; 為 null 時採用伺服器宣告的上限或推算值 |
+| `litellm-vscode-chat.defaultMaxOutputTokens` | `16000` | 已淘汰, 建議改用 `modelCapabilities`; 伺服器未宣告時, 模型的最大輸出 token 數 |
+| `litellm-vscode-chat.defaultContextLength` | `128000` | 已淘汰, 建議改用 `modelCapabilities`; 伺服器未宣告時, 模型的上下文視窗 |
+| `litellm-vscode-chat.defaultMaxInputTokens` | `null` | 已淘汰, 建議改用 `modelCapabilities`; 最大輸入 token 數, 甚至覆寫伺服器宣告的上限 |
 | `litellm-vscode-chat.requestTimeout` | `300000` | 聊天完成請求的逾時, 以毫秒計 (5 分鐘) |
 | `litellm-vscode-chat.discoveryTimeout` | `30000` | 模型探索請求的逾時, 以毫秒計 (30 秒) |
 | `litellm-vscode-chat.discoveryCacheTtl` | `3600000` | 已探索的模型清單重複使用多久, 以毫秒計 (1 小時) |
 | `litellm-vscode-chat.modelParameters` | `{}` | 各模型的請求參數; 參閱[模型參數](model-parameters.md) |
+| `litellm-vscode-chat.modelCapabilities` | `{}` | 各模型能力覆寫與 `_declare` 項目; 參閱[模型能力](model-capabilities.md) |
+| `litellm-vscode-chat.openRouterCatalog.enabled` | `true` | 以 OpenRouter 目錄填補缺少的模型能力, 約每週重新整理; 參閱[下文](#openrouter-目錄) |
 | `litellm-vscode-chat.headers` | `{}` | 加到每個請求的自訂 HTTP 標頭 |
 | `litellm-vscode-chat.promptCaching.enabled` | `true` | 在支援的模型上啟用提示快取 |
 | `litellm-vscode-chat.maskApiKeyInput` | `true` | 設定伺服器時遮罩 API 金鑰輸入欄位 |
@@ -24,7 +26,7 @@
 
 ## Token 上限
 
-延伸模組從您 LiteLLM 伺服器的模型資訊讀取 token 上限, 所以大多數模型在這裡不需要任何設定。三個 `default*` 設定遵循兩種不同的規則。
+延伸模組從您 LiteLLM 伺服器的模型資訊讀取 token 上限, 所以大多數模型在這裡不需要任何設定。三個 `default*` 設定都已淘汰, 建議改用 [`modelCapabilities`](model-capabilities.md), 它可以鎖定特定模型, 而且與這些後備值不同, 也能覆寫伺服器已宣告的上限; 它們仍然有效, 遵循兩種不同的規則。
 
 **`defaultMaxOutputTokens` 與 `defaultContextLength` 是後備值:**
 
@@ -37,6 +39,10 @@
 - 一旦設定, 它就固定每個模型的輸入上限, 連伺服器宣告的也會被蓋過。
 
 輸入額度會在請求送出前, 依本機的 token 估計強制執行; 由此產生的「訊息超過 token 上限」錯誤參閱[疑難排解](troubleshooting.md#常見問題)。
+
+## OpenRouter 目錄
+
+`litellm-vscode-chat.openRouterCatalog.enabled` (預設 `true`) 讓延伸模組以內建的 OpenRouter 公開模型目錄快照填補能力缺口, 並約每週從 `openrouter.ai` 重新整理一次 - 這是唯一一個不送往您所設定伺服器的對外請求 (只有公開的模型中繼資料; 不會傳送任何關於您或您伺服器的資訊)。設為 `false` 可停止重新整理與自動比對; 明確的 `_openrouter_model` 指示詞繼續離線運作。詳細資料與隱私說明參閱[模型能力](model-capabilities.md#openrouter-目錄)。
 
 ## 請求逾時
 

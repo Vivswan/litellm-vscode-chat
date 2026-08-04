@@ -14,9 +14,14 @@ import type { ServerModelsSnapshot } from "../../provider";
 import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
 import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
+import type { CapabilityCatalogLookup, EffectiveCapabilities } from "../../shared/config/capabilityResolution";
+import { resolveModelCapabilities } from "../../shared/config/capabilityResolution";
 import {
+	capabilityTokenDefaultsFrom,
 	HEADERS_SETTING_KEY,
+	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
+	normalizeModelCapabilities,
 	normalizeModelParameters,
 } from "../../shared/config/settings";
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
@@ -25,13 +30,14 @@ import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isHeaderScalar } from "../../shared/util/headers";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView } from "../servers/serverSync";
-import { adoptSourceHandle } from "./adoptHandle";
+import { adoptSourceHandle, modelScopeKey } from "./adoptHandle";
 import type {
 	BooleanSettingId,
 	DashboardModel,
 	DashboardServer,
 	DashboardSettings,
 	DashboardState,
+	DeclaredServerNotice,
 	ExternalServerProvenance,
 	HeaderScalar,
 	HiddenGroup,
@@ -250,6 +256,8 @@ function declaredOutcome(
 			error: string;
 			errorEnglish?: string | undefined;
 			classification?: TransportErrorClassification | undefined;
+			expected?: boolean | undefined;
+			declaredModelCount?: number | undefined;
 	  }
 	| { state: "unchecked"; modelCount: number } {
 	if (status?.state === "ok") {
@@ -260,10 +268,15 @@ function declaredOutcome(
 			? { state: "error", modelCount: 0, error: syncError }
 			: {
 					state: "error",
-					modelCount: 0,
+					// Declared models keep serving through ANY discovery failure
+					// (they are config-rebuilt, not discovered), so the row's count
+					// must match the picker whether or not the failure was expected.
+					modelCount: status.declaredModelCount ?? 0,
 					error: status.error,
 					errorEnglish: status.logSafeError,
 					...(status.classification !== undefined ? { classification: status.classification } : {}),
+					...(status.expected === true ? { expected: true } : {}),
+					...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
 				};
 	}
 	return syncError !== undefined
@@ -353,10 +366,25 @@ function buildServers(
 		// resolution keys on. Any other pass - the label-agnostic connection
 		// identity (pre-label groups), or the label/URL fallbacks (a group
 		// predating a rename, different credentials, someone else's label) -
-		// means the entry's modelParameters may silently not apply, and the
+		// means the entry's entry-only fields may silently not apply, and the
 		// row must say so instead of rendering silently healthy; the copy
-		// renders webview-side from this classification.
-		const entryParamsInactive = match !== undefined && match.pass !== "identity" && view.modelParameters !== undefined;
+		// renders webview-side from these classifications. modelParameters and
+		// the capability/expected-failure pair get separate classifications so
+		// a row names exactly what is inactive.
+		const entryFieldsInactive = match !== undefined && match.pass !== "identity";
+		const notices: DeclaredServerNotice[] = [];
+		if (entryFieldsInactive && view.modelParameters !== undefined) {
+			notices.push("entry-params-inactive");
+		}
+		if (entryFieldsInactive && (view.modelCapabilities !== undefined || view.expectedFailures !== undefined)) {
+			notices.push("entry-capabilities-inactive");
+		}
+		const outcome = declaredOutcome(matched?.snapshot.status, view.syncError);
+		if (outcome.state === "error" && outcome.expected === true && (outcome.declaredModelCount ?? 0) === 0) {
+			// An expected failure with nothing declared serves nothing; only a
+			// _declare directive can fix that, so the row says so.
+			notices.push("expected-failures-nothing-declared");
+		}
 		servers.push({
 			label: view.label,
 			baseUrl: view.baseUrl,
@@ -368,9 +396,13 @@ function buildServers(
 				...pickNonSecretOptionalFields(view),
 				secrets: view.secrets,
 				...(view.modelParameters !== undefined ? { modelParameters: view.modelParameters } : {}),
+				...(view.modelCapabilities !== undefined ? { modelCapabilities: view.modelCapabilities } : {}),
+				...(view.expectedFailures !== undefined && view.expectedFailures.length > 0
+					? { expectedFailures: view.expectedFailures }
+					: {}),
 			},
-			...(entryParamsInactive ? { notice: "entry-params-inactive" as const } : {}),
-			...declaredOutcome(matched?.snapshot.status, view.syncError),
+			...(notices.length > 0 ? { notices } : {}),
+			...outcome,
 		});
 	});
 	for (const entry of unmatched) {
@@ -416,7 +448,7 @@ function buildModel(info: PreAttachModelInfo, serverLabel: string, serverId: str
 		serverLabel,
 		maxInputTokens: info.maxInputTokens,
 		maxOutputTokens: info.maxOutputTokens,
-		outputLimitDeclared: info.litellm.outputLimitSource === "provider",
+		outputLimitDeclared: info.litellm.outputLimitSource !== "defaults",
 		inputCost: info.inputCost,
 		outputCost: info.outputCost,
 		cacheReadCost: info.cacheCost,
@@ -429,6 +461,7 @@ function buildModel(info: PreAttachModelInfo, serverLabel: string, serverId: str
 		imageInput: Boolean(info.capabilities?.imageInput),
 		promptCaching: modelSupportsPromptCaching(info),
 		reasoning: info.configurationSchema !== undefined,
+		...(info.litellm.declared === true ? { declared: true } : {}),
 	};
 }
 
@@ -639,14 +672,17 @@ export function buildDashboardState(
 		.filter((identity) => wasGroupObserved(identity.label, identity.baseUrl))
 		.map((identity) => ({ label: identity.label, baseUrl: identity.baseUrl }))
 		.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
-	// One request scope per snapshot, keyed positionally within this push
-	// (never by label: two same-label groups must not swap entry parameters).
-	// The scope states what a request through this server resolves: the
-	// base-URL scope its modelParameters matching runs under, plus the
-	// declared entry's own parameters when the production resolver finds one.
+	// One request scope per snapshot, keyed by the salted hash of the server
+	// ID (modelScopeKey) - never by label (two same-label groups must not swap
+	// entry parameters) and never by position (a snapshot list that changes
+	// between a push and a readModelCapabilities request must de-resolve the
+	// stale key, not re-point it at another server). The scope states what a
+	// request through this server resolves: the base-URL scope its
+	// modelParameters matching runs under, plus the declared entry's own
+	// parameters when the production resolver finds one.
 	const requestScopes: Record<string, RequestScope> = {};
-	const scopeKeys = labeled.map(({ snapshot }, index) => {
-		const scopeKey = `s${index}`;
+	const scopeKeys = labeled.map(({ snapshot }) => {
+		const scopeKey = modelScopeKey(snapshot.status.serverId);
 		const entry = resolveEntryParameters(snapshot.status.serverId);
 		requestScopes[scopeKey] = {
 			baseUrlScope: normalizeBaseUrl(snapshot.status.baseUrl),
@@ -661,7 +697,12 @@ export function buildDashboardState(
 			.flatMap(({ snapshot, label }, index) =>
 				(snapshotLabels[index] ?? [label]).flatMap((serverLabel) =>
 					snapshot.models.map((info) =>
-						buildModel(info, serverLabel, snapshot.status.serverId, scopeKeys[index] ?? `s${index}`)
+						buildModel(
+							info,
+							serverLabel,
+							snapshot.status.serverId,
+							scopeKeys[index] ?? modelScopeKey(snapshot.status.serverId)
+						)
 					)
 				)
 			)
@@ -684,4 +725,60 @@ export function resolveUpdateScope(
 	inspection: Pick<SettingsInspection, "workspaceValue"> | undefined
 ): "global" | "workspace" {
 	return inspection?.workspaceValue !== undefined ? "workspace" : "global";
+}
+
+/** A per-entry modelCapabilities record as the request-scope resolution hands it over. */
+export type EntryCapabilitiesRecord = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
+/** What the readModelCapabilities responder resolves against; panel.ts supplies the live stores. */
+export interface ModelCapabilitiesQuery {
+	readonly snapshots: readonly ServerModelsSnapshot[];
+	readonly reader: SettingsReader;
+	/** The declared entry's own modelCapabilities for a snapshot's server, resolved like entry modelParameters. */
+	readonly resolveEntryCapabilities: (serverId: string) => EntryCapabilitiesRecord | undefined;
+	/** The OpenRouter catalog as in-memory lookup; EMPTY_CATALOG_LOOKUP when no snapshot exists. */
+	readonly catalog: CapabilityCatalogLookup;
+}
+
+/**
+ * Answer one readModelCapabilities request: locate the model behind the
+ * scope key and raw ID, then run the SAME resolveModelCapabilities walk
+ * registration runs, over the same layers (entry record, global setting,
+ * server baseline, deprecated defaults, catalog, floor). A store change
+ * between the push and the request can de-resolve the key (its snapshot left
+ * the window); undefined tells the inspector the state moved on instead of
+ * inventing values.
+ */
+export function resolveDashboardModelCapabilities(
+	query: ModelCapabilitiesQuery,
+	scopeKey: string,
+	rawId: string
+): EffectiveCapabilities | undefined {
+	// Scope keys hash the server ID (modelScopeKey), so a stale key - one
+	// minted for a snapshot that has since left the window - resolves to
+	// nothing rather than to another server; no positional arithmetic exists
+	// to go wrong.
+	const labeled = labeledSnapshots(query.snapshots).find(
+		(entry) => modelScopeKey(entry.snapshot.status.serverId) === scopeKey
+	);
+	if (labeled === undefined) {
+		return undefined;
+	}
+	const { snapshot } = labeled;
+	const serverId = snapshot.status.serverId;
+	const info = snapshot.models.find((model) => rawModelIdFromExposed(model.id, serverId) === rawId);
+	if (info === undefined) {
+		return undefined;
+	}
+	return resolveModelCapabilities({
+		rawModelId: rawId,
+		globalCapabilities: normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
+		serverScopes: [normalizeBaseUrl(snapshot.status.baseUrl)],
+		entryCapabilities: query.resolveEntryCapabilities(serverId),
+		catalog: query.catalog,
+		// Registration's post-aggregation baseline, riding every pre-attach
+		// model: the inspector resolves over the same walk registration serves.
+		serverDeclared: info.litellm.serverDeclared,
+		tokenDefaults: capabilityTokenDefaultsFrom((id) => query.reader.inspect(id)),
+	});
 }

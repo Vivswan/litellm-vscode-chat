@@ -80,6 +80,16 @@ export const MIGRATED_ENTRY_PARAMETER_COPIES_KEY = "litellm.migratedEntryParamet
  */
 export const MIGRATED_SERVER_IDS_KEY = "litellm.migratedServerIds";
 
+/**
+ * globalState: advisory refresh metadata for the OpenRouter capability
+ * catalog ({ lastSuccessAt }), used only to schedule the next weekly refresh.
+ * The catalog itself is a file under globalStorage - globalState is not
+ * transactional and can revert, so a lost or reverted timestamp costs at most
+ * an early refresh, never catalog data. Owned by
+ * src/extension/openRouterCatalog.ts.
+ */
+export const OPENROUTER_CATALOG_METADATA_KEY = "litellm.openRouterCatalogMetadata";
+
 /** SecretStorage: API key for one registered server. */
 export function apiKeySecret(serverId: string): string {
 	return `litellm.apiKey.${serverId}`;

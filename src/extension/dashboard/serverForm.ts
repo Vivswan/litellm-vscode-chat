@@ -11,6 +11,7 @@
 
 import * as l10n from "@vscode/l10n";
 import type {
+	ExpectedFailureCategory,
 	NonSecretOptionalFieldId,
 	SaveServerPayload,
 	SecretDirective,
@@ -24,8 +25,8 @@ import {
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	SECRET_FIELD_IDS,
 } from "./protocol";
-import type { GroupProblems, PrefixGroup } from "./recordDraft";
-import { parseGroups } from "./recordDraft";
+import type { CapabilityGroupIssues, GroupProblems, PrefixGroup } from "./recordDraft";
+import { parseCapabilityGroups, parseGroups } from "./recordDraft";
 
 /**
  * One secret field as the form edits it. `existing` is where the value lives
@@ -46,13 +47,16 @@ export interface SecretFieldDraft {
 /**
  * The whole draft, its field set derived from the entry descriptor: label and
  * base URL, the non-secret optional fields as plain text inputs, one
- * SecretFieldDraft per secret field, and the entry's per-entry
- * modelParameters as the same draft rows the global editor edits.
+ * SecretFieldDraft per secret field, the entry's per-entry modelParameters
+ * and modelCapabilities as the same draft rows the record editors edit, and
+ * the expected-failure categories as the checkbox set's list.
  */
 export type ServerFormDraft = {
 	readonly label: string;
 	readonly baseUrl: string;
 	readonly modelParameters: readonly PrefixGroup[];
+	readonly modelCapabilities: readonly PrefixGroup[];
+	readonly expectedFailures: readonly ExpectedFailureCategory[];
 } & Readonly<Record<NonSecretOptionalFieldId, string>> &
 	Readonly<Record<SecretFieldId, SecretFieldDraft>>;
 
@@ -69,6 +73,8 @@ export const EMPTY_SERVER_FORM: ServerFormDraft = {
 	oauthClientSecret: EMPTY_SECRET,
 	virtualKeyValue: EMPTY_SECRET,
 	modelParameters: [],
+	modelCapabilities: [],
+	expectedFailures: [],
 };
 
 export type ServerFormField = keyof ServerFormDraft;
@@ -85,6 +91,8 @@ export const SERVER_FORM_FIELD_ORDER: readonly ServerFormField[] = [
 	"virtualKeyHeader",
 	"virtualKeyValue",
 	"modelParameters",
+	"modelCapabilities",
+	"expectedFailures",
 ];
 
 /**
@@ -114,6 +122,10 @@ export function serverFormFieldLabel(field: ServerFormField): string {
 			return l10n.t("Virtual key value");
 		case "modelParameters":
 			return l10n.t("Model parameters");
+		case "modelCapabilities":
+			return l10n.t("Model capabilities");
+		case "expectedFailures":
+			return l10n.t("Expected failures");
 	}
 }
 
@@ -193,7 +205,16 @@ export interface ServerFormIntent {
 }
 
 export type ServerFormParse =
-	| { readonly ok: true; readonly intent: ServerFormIntent }
+	| {
+			readonly ok: true;
+			readonly intent: ServerFormIntent;
+			/**
+			 * Row-aligned capability issues from the same parseCapabilityGroups
+			 * pass that assembled the intent. Non-empty even on a clean parse:
+			 * unknown-key hints never block a save but must still render.
+			 */
+			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
+	  }
 	| {
 			readonly ok: false;
 			readonly problems: ServerFormProblems;
@@ -204,6 +225,8 @@ export type ServerFormParse =
 			 * the field-level summary for the save toolbar.
 			 */
 			readonly modelParameterProblems: readonly GroupProblems[];
+			/** Row-aligned capability issues; see the ok branch. */
+			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
 	  };
 
 /**
@@ -277,17 +300,34 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 
 	// The per-entry model-parameter rows share the global editor's parse, so a
 	// draft that renders clean there is exactly a draft that saves here; the
-	// rows carry their own problems and the field slot holds the summary.
+	// rows carry their own problems and the field slot holds the summary. The
+	// capability rows follow the same pattern with their own parser (typed
+	// vocabulary instead of free JSON).
 	const groupsParse = parseGroups(draft.modelParameters);
 	if (!groupsParse.ok) {
 		problems.modelParameters = l10n.t("Fix the model parameter rows");
 	}
-
-	if (Object.values(problems).some((problem) => problem !== undefined)) {
-		return { ok: false, problems, modelParameterProblems: groupsParse.ok ? [] : groupsParse.problems };
+	const capabilitiesParse = parseCapabilityGroups(draft.modelCapabilities);
+	if (!capabilitiesParse.ok) {
+		problems.modelCapabilities = l10n.t("Fix the model capability rows");
 	}
 
-	const server: { label: string; baseUrl: string; modelParameters?: Record<string, Record<string, unknown>> } & {
+	if (Object.values(problems).some((problem) => problem !== undefined)) {
+		return {
+			ok: false,
+			problems,
+			modelParameterProblems: groupsParse.ok ? [] : groupsParse.problems,
+			modelCapabilityIssues: capabilitiesParse.issues,
+		};
+	}
+
+	const server: {
+		label: string;
+		baseUrl: string;
+		modelParameters?: Record<string, Record<string, unknown>>;
+		modelCapabilities?: Record<string, Record<string, unknown>>;
+		expectedFailures?: readonly ExpectedFailureCategory[];
+	} & {
 		-readonly [K in NonSecretOptionalFieldId]?: string;
 	} = {
 		label,
@@ -300,10 +340,17 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		}
 	}
 	// groupsParse.ok always holds here (a blocked parse returned above); the
-	// guard is the narrowing.
+	// guard is the narrowing. Same for capabilitiesParse below.
 	if (groupsParse.ok && Object.keys(groupsParse.value).length > 0) {
 		server.modelParameters = groupsParse.value;
 	}
+	// Always present, even empty: the save distinguishes a deliberate clear
+	// (empty here) from a payload that predates these fields (absent), which
+	// carries the stored values forward instead of deleting them.
+	if (capabilitiesParse.ok) {
+		server.modelCapabilities = capabilitiesParse.value;
+	}
+	server.expectedFailures = draft.expectedFailures;
 	const directives: Record<SecretFieldId, SecretDirective> = {
 		apiKey: secrets.apiKey.directive,
 		oauthClientSecret: secrets.oauthClientSecret.directive,
@@ -316,6 +363,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 			secrets: directives,
 			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
 		},
+		modelCapabilityIssues: capabilitiesParse.issues,
 	};
 }
 
@@ -352,22 +400,33 @@ export type ServerTestParse =
  * Parse a draft into the testServerDraft intent, or the connection-relevant
  * problems that block it. One probe must test exactly what a save would send,
  * so this reuses parseServerForm wholesale rather than re-deriving any rule:
- * the parse runs on the draft with a placeholder label and no parameter rows,
- * which by construction leaves exactly the CONNECTION_FIELDS problems - a
- * missing or colliding label and broken parameter rows do not gate a probe.
- * The assembled intent carries the draft's real trimmed label (it addresses
- * "keep" resolution extension-side, including an orphan secret blob a fresh
- * label would inherit) and the edited entry's label as replaceLabel.
+ * the parse runs on the draft with a placeholder label and no parameter or
+ * capability rows, which by construction leaves exactly the CONNECTION_FIELDS
+ * problems - a missing or colliding label and broken record rows do not gate
+ * a probe. The assembled intent carries the draft's real trimmed label (it
+ * addresses "keep" resolution extension-side, including an orphan secret blob
+ * a fresh label would inherit) and the edited entry's label as replaceLabel.
+ * Capability rows ride along only when they parse clean - the probe applies
+ * their `_declare` directives and the draft's expectedFailures to report a
+ * declared-count or expected outcome, but broken rows never block or distort
+ * a connection probe.
  */
 export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFormContext = {}): ServerTestParse {
-	const parse = parseServerForm({ ...draft, label: "draft", modelParameters: [] });
+	const parse = parseServerForm({ ...draft, label: "draft", modelParameters: [], modelCapabilities: [] });
 	if (!parse.ok) {
 		return { ok: false, problems: parse.problems };
 	}
+	const capabilitiesParse = parseCapabilityGroups(draft.modelCapabilities);
+	const capabilities =
+		capabilitiesParse.ok && Object.keys(capabilitiesParse.value).length > 0 ? capabilitiesParse.value : undefined;
 	return {
 		ok: true,
 		intent: {
-			server: { ...parse.intent.server, label: draft.label.trim() },
+			server: {
+				...parse.intent.server,
+				label: draft.label.trim(),
+				...(capabilities !== undefined ? { modelCapabilities: capabilities } : {}),
+			},
 			secrets: parse.intent.secrets,
 			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
 		},

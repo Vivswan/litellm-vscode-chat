@@ -57,8 +57,9 @@ export async function withFetch<T>(mock: FetchMock, fn: () => Promise<T>): Promi
  * Run `fn` with `vscode.workspace.getConfiguration` overridden for the
  * "litellm-vscode-chat" section. Keys present in `sectionValues` are returned
  * as-is (including explicit null); absent keys fall back to the caller's
- * default value. Other sections delegate to the real implementation. The
- * original function is restored in a finally block.
+ * default value, and inspect() reports them as globally configured (absent
+ * keys inspect as untouched). Other sections delegate to the real
+ * implementation. The original function is restored in a finally block.
  */
 export async function withConfig<T>(
 	sectionValues: Record<string, unknown>,
@@ -70,6 +71,8 @@ export async function withConfig<T>(
 			return {
 				get: (key: string, defaultValue?: unknown) =>
 					Object.hasOwn(sectionValues, key) ? sectionValues[key] : defaultValue,
+				inspect: (key: string) =>
+					Object.hasOwn(sectionValues, key) ? { key, globalValue: sectionValues[key] } : { key },
 			} as unknown as vscode.WorkspaceConfiguration;
 		}
 		return originalGetConfiguration(section, scope);
@@ -116,7 +119,11 @@ export function makeModelInfo(overrides: Partial<PreAttachModelInfo> = {}): PreA
 		maxInputTokens: 100000,
 		maxOutputTokens: 8000,
 		capabilities: {},
-		litellm: { supportsPromptCaching: false, outputLimitSource: "defaults" },
+		litellm: {
+			supportsPromptCaching: false,
+			outputLimitSource: "defaults",
+			serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+		},
 		...overrides,
 	};
 }
@@ -233,7 +240,14 @@ type ServerStatusOverrides = Partial<
 > &
 	(
 		| { state?: "ok"; modelCount?: number }
-		| { state: "error"; error: string; logSafeError?: string; classification?: TransportErrorClassification }
+		| {
+				state: "error";
+				error: string;
+				logSafeError?: string;
+				classification?: TransportErrorClassification;
+				expected?: boolean;
+				declaredModelCount?: number;
+		  }
 	);
 
 /** A ServerStatus with sensible defaults for status-driven tests. */
@@ -255,6 +269,8 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 				logSafeError:
 					overrides.logSafeError !== undefined ? markLogSafe(overrides.logSafeError) : publicErrorText(overrides.error),
 				...(overrides.classification !== undefined ? { classification: overrides.classification } : {}),
+				...(overrides.expected !== undefined ? { expected: overrides.expected } : {}),
+				...(overrides.declaredModelCount !== undefined ? { declaredModelCount: overrides.declaredModelCount } : {}),
 			}
 		: { ...common, state: "ok", modelCount: overrides.modelCount ?? 4 };
 }

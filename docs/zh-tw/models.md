@@ -2,7 +2,7 @@
 
 [English](../models.md) | [简体中文](../zh-cn/models.md) | 繁體中文
 
-延伸模組讀取每個伺服器的模型資訊, 並把讀到的內容註冊給 Copilot Chat: 模型的 token 上限、價格與功能旗標全都來自那裡。功能決定模型被提供來做什麼 (工具、圖片、推理); 它們永遠不改變延伸模組要求模型做什麼, 那是[模型參數](model-parameters.md)的職責。
+延伸模組讀取每個伺服器的模型資訊, 並把讀到的內容註冊給 Copilot Chat: 模型的 token 上限、價格與功能旗標全都來自那裡, 並由您在[模型能力](model-capabilities.md)中設定的任何內容修正與補充。功能決定模型被提供來做什麼 (工具、圖片、推理); 它們永遠不改變延伸模組要求模型做什麼, 那是[模型參數](model-parameters.md)的職責。
 
 ## 註冊哪些模型
 
@@ -12,7 +12,7 @@
 
 - `model_info.mode` 指名非聊天端點 (`embedding`、`image_generation`、`audio_speech`、`audio_transcription`、`rerank`、`moderation`) 的模型是刻意排除的, 因為對它們發出聊天請求只會失敗。未宣告 mode 的模型一律註冊。
 - Proxy 已暫停的部署 (`model_info.blocked`) 會被略過。
-- 其他一概不過濾: 完全沒有功能資料的模型仍會註冊, 並使用[設定](settings.md#token-上限)中的後備 token 上限。
+- 其他一概不過濾: 完全沒有功能資料的模型仍會註冊, 其缺口由 [`modelCapabilities`](model-capabilities.md)、[設定](settings.md#token-上限)中的後備 token 上限或 [OpenRouter 目錄比對](model-capabilities.md#openrouter-目錄)填補 ([優先順序](model-capabilities.md#優先順序))。
 
 當同一個模型名稱由多個部署提供 (負載平衡集區) 時, 它只註冊一次, 並採用最嚴格貢獻者的 token 上限, 這樣不論由哪個部署服務, 請求都不會超限。
 
@@ -36,7 +36,7 @@
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中有 `reasoning_effort` (明確的 `supports_reasoning: false` 優先) | 選擇器中的「Thinking Effort」控制項; 參閱[模型參數](model-parameters.md#模型選擇器中的推理程度) |
 | 提示快取 | `supports_prompt_caching` | 是否放置快取中斷點; 參閱[設定](settings.md#提示快取) |
 
-伺服器端的錯誤旗標值得在那一側修正: 延伸模組雙向信任宣告, 提供已宣告的, 未宣告的則不提供。
+伺服器端的錯誤旗標值得在那一側修正: 延伸模組雙向信任宣告, 提供已宣告的, 未宣告的則不提供。當伺服器不歸您修時, 請改以 [`modelCapabilities`](model-capabilities.md) 覆寫該旗標。
 
 ## 多模態輸入
 

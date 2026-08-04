@@ -9,13 +9,15 @@ Every `litellm-vscode-chat.*` setting, with its default and what it does. Open t
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | The declared LiteLLM servers; see [Servers](servers.md) |
-| `litellm-vscode-chat.defaultMaxOutputTokens` | `16000` | Max output tokens for models whose server declares none |
-| `litellm-vscode-chat.defaultContextLength` | `128000` | Context window for models whose server declares none |
-| `litellm-vscode-chat.defaultMaxInputTokens` | `null` | Max input tokens; when null, the server's declared limit or a derived one |
+| `litellm-vscode-chat.defaultMaxOutputTokens` | `16000` | Deprecated, prefer `modelCapabilities`; max output tokens for models whose server declares none |
+| `litellm-vscode-chat.defaultContextLength` | `128000` | Deprecated, prefer `modelCapabilities`; context window for models whose server declares none |
+| `litellm-vscode-chat.defaultMaxInputTokens` | `null` | Deprecated, prefer `modelCapabilities`; max input tokens, overriding even server-declared limits |
 | `litellm-vscode-chat.requestTimeout` | `300000` | Timeout for chat completion requests, in milliseconds (5 minutes) |
 | `litellm-vscode-chat.discoveryTimeout` | `30000` | Timeout for model discovery requests, in milliseconds (30 seconds) |
 | `litellm-vscode-chat.discoveryCacheTtl` | `3600000` | How long discovered model lists are reused, in milliseconds (1 hour) |
 | `litellm-vscode-chat.modelParameters` | `{}` | Per-model request parameters; see [Model parameters](model-parameters.md) |
+| `litellm-vscode-chat.modelCapabilities` | `{}` | Per-model capability overrides and `_declare` entries; see [Model capabilities](model-capabilities.md) |
+| `litellm-vscode-chat.openRouterCatalog.enabled` | `true` | Fill missing model capabilities from the OpenRouter catalog, refreshed weekly; see [below](#the-openrouter-catalog) |
 | `litellm-vscode-chat.headers` | `{}` | Custom HTTP headers added to every request |
 | `litellm-vscode-chat.promptCaching.enabled` | `true` | Prompt caching on models that support it |
 | `litellm-vscode-chat.maskApiKeyInput` | `true` | Mask the API key input field when configuring a server |
@@ -24,7 +26,7 @@ The sections below cover the settings whose behavior has more to it than one lin
 
 ## Token limits
 
-The extension reads token limits from your LiteLLM server's model info, so most models need no configuration here. The three `default*` settings follow two different rules.
+The extension reads token limits from your LiteLLM server's model info, so most models need no configuration here. All three `default*` settings are deprecated in favor of [`modelCapabilities`](model-capabilities.md), which targets specific models and, unlike the fallbacks, also overrides limits a server does declare; they keep working, following two different rules.
 
 **`defaultMaxOutputTokens` and `defaultContextLength` are fallbacks:**
 
@@ -37,6 +39,10 @@ The extension reads token limits from your LiteLLM server's model info, so most 
 - Set it, and it pins the input limit for every model, outranking even server-declared ones.
 
 The input budget is enforced before a request is sent, from a local token estimate; see [Troubleshooting](troubleshooting.md#common-issues) for the "Message exceeds token limit" error this produces.
+
+## The OpenRouter catalog
+
+`litellm-vscode-chat.openRouterCatalog.enabled` (default `true`) lets the extension fill capability gaps from a bundled snapshot of OpenRouter's public model catalog, refreshed about weekly from `openrouter.ai` - the one outbound request that does not go to a server you configured (public model metadata only; nothing about you or your servers is sent). Set it to `false` to stop the refresh and the automatic matching; explicit `_openrouter_model` directives keep working offline. Details and the privacy notes are in [Model capabilities](model-capabilities.md#the-openrouter-catalog).
 
 ## Request timeouts
 

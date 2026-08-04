@@ -116,10 +116,11 @@ export interface IntentEnvironment {
 	 * testServerDraft intent). Read-only by contract - no settings write, no
 	 * group or status mutation, no caching across probes - bounded by the
 	 * discoveryTimeout setting, and the connection's credential values are
-	 * never logged. Resolves to the discovered model count; throws the
+	 * never logged. Resolves to the discovered raw model IDs (the caller
+	 * counts them and checks `_declare` inertness against them); throws the
 	 * transport's classified error on failure.
 	 */
-	probeDraftConnection(connection: DraftConnection): Promise<number>;
+	probeDraftConnection(connection: DraftConnection): Promise<readonly string[]>;
 }
 
 const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readonly unknown[] }> = {
@@ -258,6 +259,15 @@ export function validateSaveServerSetting(
 			return `modelParameters: ${problem}`;
 		}
 	}
+	if (server.modelCapabilities !== undefined) {
+		// Same record-of-records shape, same reserved-key rules; capability
+		// vocabulary and value typing stay with the resolver's parse, which
+		// diagnoses rather than refuses (the setting is lenient by design).
+		const problem = validateModelParametersRecord(server.modelCapabilities);
+		if (problem !== undefined) {
+			return `modelCapabilities: ${problem}`;
+		}
+	}
 	return undefined;
 }
 
@@ -381,12 +391,22 @@ export async function executeDashboardIntent(
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
 			}
-			const modelCount = await applyTestServerDraft(intent, env);
-			// Static classification plus the discovered count, composed here so
-			// the webview renders it verbatim; never payload or response text.
-			return modelCount === 1
+			const outcome = await applyTestServerDraft(intent, env);
+			// Static classification plus counts, composed here so the webview
+			// renders it verbatim; never payload or response text.
+			if (outcome.kind === "expected-failure") {
+				return outcome.declaredCount === 1
+					? vscode.l10n.t("Discovery failed (expected) - serving 1 declared model")
+					: vscode.l10n.t("Discovery failed (expected) - serving {0} declared models", outcome.declaredCount);
+			}
+			if (outcome.declaredCount > 0) {
+				return outcome.modelCount === 1
+					? vscode.l10n.t("Connected - 1 model (declared)")
+					: vscode.l10n.t("Connected - {0} models ({1} declared)", outcome.modelCount, outcome.declaredCount);
+			}
+			return outcome.modelCount === 1
 				? vscode.l10n.t("Connected - 1 model")
-				: vscode.l10n.t("Connected - {0} models", modelCount);
+				: vscode.l10n.t("Connected - {0} models", outcome.modelCount);
 		}
 		case "removeServerSetting": {
 			const entries = rawServerEntries(env.readServersSetting());

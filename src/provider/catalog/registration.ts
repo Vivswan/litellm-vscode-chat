@@ -4,7 +4,12 @@ import type { ServerWithKey } from "../../shared/servers";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
 import type { PreAttachModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
-import { buildExposedModelId, collapseTokenConstraints, deriveTokenConstraints } from "./modelCatalog";
+import {
+	buildExposedModelId,
+	collapseTokenConstraints,
+	deriveTokenConstraints,
+	discoveredCapabilityBaseline,
+} from "./modelCatalog";
 import { REASONING_EFFORT_SCHEMA, supportsReasoningEffort } from "./modelConfiguration";
 import type { LiteLLMModelItem, LiteLLMProvider } from "./schemas";
 import { supportsTools } from "./schemas";
@@ -42,9 +47,22 @@ type LongContextPricingKey =
 	| "longContextOutputCost"
 	| "longContextCacheCost"
 	| "longContextCacheWriteCost";
-type ModelPricing = Pick<
+export type ModelPricing = Pick<
 	LanguageModelChatInformation,
 	BasePricingKey | LongContextPricingKey | "priceCategory" | "pricing"
+>;
+
+/** The per-token cost fields pricingFromCosts converts; a LiteLLMProvider satisfies it as-is. */
+export type PerTokenCosts = Pick<
+	LiteLLMProvider,
+	| "input_cost_per_token"
+	| "output_cost_per_token"
+	| "cache_read_input_token_cost"
+	| "cache_creation_input_token_cost"
+	| "long_context_input_cost_per_token"
+	| "long_context_output_cost_per_token"
+	| "long_context_cache_read_input_token_cost"
+	| "long_context_cache_creation_input_token_cost"
 >;
 
 /**
@@ -109,8 +127,12 @@ function configurationSchemaFor(
  * typical LiteLLM user the label is the only cost line that hover can show;
  * the Manage Models markdown hover renders label and numbers together, one
  * accepted duplicated line.
+ *
+ * Exported for capabilityOverrides.ts, which converts OpenRouter catalog
+ * pricing through the same rules (including the zero-pair-is-undeclared one),
+ * so a catalog price can never render differently from a server price.
  */
-function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
+export function pricingFromCosts(costs: PerTokenCosts): ModelPricing {
 	// LiteLLM (observed on v1.93) stamps input/output_cost_per_token: 0 onto
 	// /model/info entries that declare no pricing at all, so a zero pair is
 	// "undeclared", not "free": rendering $0 would mislead the picker and any
@@ -119,8 +141,8 @@ function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
 	// display under this rule; behind LiteLLM that shape is indistinguishable
 	// from the stamp, and unknown-as-free is the worse failure.
 	if (
-		normalizeCostPerToken(provider.input_cost_per_token) === 0 &&
-		normalizeCostPerToken(provider.output_cost_per_token) === 0
+		normalizeCostPerToken(costs.input_cost_per_token) === 0 &&
+		normalizeCostPerToken(costs.output_cost_per_token) === 0
 	) {
 		return {};
 	}
@@ -145,24 +167,19 @@ function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
 			fields[longKey] = long;
 		}
 	};
-	set("inputCost", "longContextInputCost", provider.input_cost_per_token, provider.long_context_input_cost_per_token);
-	set(
-		"outputCost",
-		"longContextOutputCost",
-		provider.output_cost_per_token,
-		provider.long_context_output_cost_per_token
-	);
+	set("inputCost", "longContextInputCost", costs.input_cost_per_token, costs.long_context_input_cost_per_token);
+	set("outputCost", "longContextOutputCost", costs.output_cost_per_token, costs.long_context_output_cost_per_token);
 	set(
 		"cacheCost",
 		"longContextCacheCost",
-		provider.cache_read_input_token_cost,
-		provider.long_context_cache_read_input_token_cost
+		costs.cache_read_input_token_cost,
+		costs.long_context_cache_read_input_token_cost
 	);
 	set(
 		"cacheWriteCost",
 		"longContextCacheWriteCost",
-		provider.cache_creation_input_token_cost,
-		provider.long_context_cache_creation_input_token_cost
+		costs.cache_creation_input_token_cost,
+		costs.long_context_cache_creation_input_token_cost
 	);
 	// The relative-cost badge and the display label need both sides of the
 	// price (one-sided pricing is an incomplete signal) and derive from the
@@ -185,6 +202,44 @@ function pricingFromProvider(provider: LiteLLMProvider): ModelPricing {
 	return fields;
 }
 
+/**
+ * Fields every registered model carries. isBYOK marks the model as served
+ * with user-supplied credentials; the host currently derives true for
+ * non-builtin providers, and the explicit flag pins the value against a
+ * future host default change. isUserSelectable must be an explicit true:
+ * the host's MCP sampling-model picker and local chat sessions use plain
+ * truthy checks, so an absent flag excluded these models there. Shared with
+ * capabilityOverrides.ts, whose synthesized `_declare`d models must carry
+ * the same registration-wide fields.
+ */
+export const COMMON_MODEL_FIELDS = {
+	version: "1.0.0",
+	isBYOK: true,
+	isUserSelectable: true,
+} as const;
+
+/** The display identity a server's registrations share; see serverDisplayContext. */
+export interface ServerDisplayContext {
+	readonly detail: string;
+	readonly namePrefix: string;
+	/** The base tooltip (deployment and bare entries); group-shape entries compose their own. */
+	readonly tooltip: string;
+}
+
+/**
+ * How a server's models identify themselves in the picker: multi-server
+ * registrations carry the server label (detail, a name prefix, the tooltip);
+ * a sole server stays plain "LiteLLM". Shared with capabilityOverrides.ts so
+ * synthesized `_declare`d models render like their discovered neighbors.
+ */
+export function serverDisplayContext(server: Pick<ServerWithKey, "label">, serverCount: number): ServerDisplayContext {
+	return {
+		detail: serverCount > 1 ? server.label : "LiteLLM",
+		namePrefix: serverCount > 1 ? `[${server.label}] ` : "",
+		tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+	};
+}
+
 export function buildModelInfos(
 	models: LiteLLMModelItem[],
 	server: ServerWithKey,
@@ -203,32 +258,29 @@ export function buildModelInfos(
 		});
 	};
 
-	const detail = serverCount > 1 ? server.label : "LiteLLM";
-	const namePrefix = serverCount > 1 ? `[${server.label}] ` : "";
-	/**
-	 * Fields every registered model carries. isBYOK marks the model as served
-	 * with user-supplied credentials; the host currently derives true for
-	 * non-builtin providers, and the explicit flag pins the value against a
-	 * future host default change. isUserSelectable must be an explicit true:
-	 * the host's MCP sampling-model picker and local chat sessions use plain
-	 * truthy checks, so an absent flag excluded these models there.
-	 */
+	const { detail, namePrefix, tooltip } = serverDisplayContext(server, serverCount);
 	const common = {
 		detail,
-		version: "1.0.0",
-		isBYOK: true,
-		isUserSelectable: true,
+		...COMMON_MODEL_FIELDS,
 	} as const;
 
 	/** The registered entries for one model, switched on its discovery-decided shape. */
 	function entriesForModel(m: LiteLLMModelItem): PreAttachModelInfo[] {
 		const shape = m.shape;
-		const modalities = m.architecture?.input_modalities ?? [];
-		const vision = Array.isArray(modalities) && modalities.includes("image");
+		const rawModalities = m.architecture?.input_modalities;
+		// The server reported modalities only when the array is present, which
+		// is what the baseline keys its vision/audio presence on; the gates
+		// below read the empty stand-in instead, so an unreported modality is
+		// exactly a missing one and both flags stay strictly boolean.
+		const modalities = Array.isArray(rawModalities) ? rawModalities : undefined;
+		const reportedModalities = modalities ?? [];
+		const vision = reportedModalities.includes("image");
 		// LiteLLM capability data only (supports_audio_input via discovery, or a
 		// server-declared architecture); VS Code has no audio capability flag,
 		// so this rides the litellm metadata and gates message conversion.
-		const audioInput = Array.isArray(modalities) && modalities.includes("audio");
+		const audioInput = reportedModalities.includes("audio");
+		const baselineFor = (providers: readonly LiteLLMProvider[], toolCalling: boolean, reasoning: boolean) =>
+			discoveredCapabilityBaseline({ providers, tokenDefaults, modalities, toolCalling, reasoning });
 
 		switch (shape.kind) {
 			case "deployment": {
@@ -241,7 +293,7 @@ export function buildModelInfos(
 						...common,
 						id: exposedId,
 						name: `${namePrefix}${m.id}`,
-						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+						tooltip,
 						family: familyFromProvider(provider),
 						maxInputTokens: constraints.maxInputTokens,
 						maxOutputTokens: constraints.maxOutputTokens,
@@ -249,12 +301,13 @@ export function buildModelInfos(
 							toolCalling: supportsTools(provider),
 							imageInput: vision,
 						},
-						...pricingFromProvider(provider),
+						...pricingFromCosts(provider),
 						...configurationSchemaFor([provider]),
 						litellm: {
 							supportsPromptCaching: provider.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,
+							serverDeclared: baselineFor([provider], supportsTools(provider), supportsReasoningEffort(provider)),
 						},
 					} satisfies PreAttachModelInfo,
 				];
@@ -269,7 +322,7 @@ export function buildModelInfos(
 						...common,
 						id: exposedId,
 						name: `${namePrefix}${m.id}`,
-						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+						tooltip,
 						family: "litellm",
 						maxInputTokens: constraints.maxInputTokens,
 						maxOutputTokens: constraints.maxOutputTokens,
@@ -281,6 +334,7 @@ export function buildModelInfos(
 							supportsPromptCaching: false,
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,
+							serverDeclared: baselineFor([], true, false),
 						},
 					} satisfies PreAttachModelInfo,
 				];
@@ -303,6 +357,7 @@ export function buildModelInfos(
 						supportsPromptCaching: aggregatePromptCaching,
 						outputLimitSource: constraints.outputLimitSource,
 						supportsAudioInput: audioInput,
+						serverDeclared: baselineFor(toolProviders, true, toolProviders.every(supportsReasoningEffort)),
 					};
 					const aggregateConfigurationSchema = configurationSchemaFor(toolProviders);
 					const aggregateCapabilities = {
@@ -360,12 +415,13 @@ export function buildModelInfos(
 							toolCalling: true,
 							imageInput: vision,
 						},
-						...pricingFromProvider(p),
+						...pricingFromCosts(p),
 						...configurationSchemaFor([p]),
 						litellm: {
 							supportsPromptCaching: p.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,
+							serverDeclared: baselineFor([p], true, supportsReasoningEffort(p)),
 						},
 					} satisfies PreAttachModelInfo);
 					registerRoute(exposedId, rawId);
@@ -384,7 +440,7 @@ export function buildModelInfos(
 						...common,
 						id: exposedId,
 						name: `${namePrefix}${m.id}`,
-						tooltip: serverCount > 1 ? `LiteLLM via ${server.label}` : "LiteLLM",
+						tooltip,
 						family: familyFromProvider(base),
 						maxInputTokens: constraints.maxInputTokens,
 						maxOutputTokens: constraints.maxOutputTokens,
@@ -397,6 +453,7 @@ export function buildModelInfos(
 							supportsPromptCaching: providers.every((p) => p.supports_prompt_caching === true),
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,
+							serverDeclared: baselineFor(providers, false, providers.every(supportsReasoningEffort)),
 						},
 					} satisfies PreAttachModelInfo);
 					registerRoute(exposedId, m.id);

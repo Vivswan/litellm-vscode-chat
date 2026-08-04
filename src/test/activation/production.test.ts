@@ -5,7 +5,7 @@ import * as vscode from "vscode";
 import { activate } from "../../extension";
 import type { LiteLLMChatModelProvider } from "../../provider";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
+import { MODEL_CAPABILITIES_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
 import {
 	FINGERPRINT_SALT_SECRET,
 	GROUP_MIGRATION_COMPLETE_KEY,
@@ -225,5 +225,115 @@ suite("production activation", () => {
 			!channelLines.some((line) => line.includes("Fetching models from servers")),
 			"a broken gate would fetch the seeded registry server"
 		);
+	});
+
+	/** The next model-change event from the captured provider, however the listener triggers it. */
+	function nextModelChangeEvent(registered: LiteLLMChatModelProvider): Promise<void> {
+		return new Promise<void>((resolve) => {
+			const subscription = registered.onDidChangeLanguageModelChatInformation(() => {
+				subscription.dispose();
+				resolve();
+			});
+		});
+	}
+
+	/** Resolves once no model-change event has fired for 600ms (bounded at 5s), absorbing activation's own notifies. */
+	async function eventsQuiesced(registered: LiteLLMChatModelProvider): Promise<void> {
+		const deadline = Date.now() + 5000;
+		let lastEvent = Date.now();
+		const subscription = registered.onDidChangeLanguageModelChatInformation(() => {
+			lastEvent = Date.now();
+		});
+		try {
+			while (Date.now() - lastEvent < 600 && Date.now() < deadline) {
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+		} finally {
+			subscription.dispose();
+		}
+	}
+
+	test("a setting outside the listener's branches fires no model-change event", async function () {
+		// Runs before the positive listener tests below, so no pending debounce
+		// from their config restores can leak into this observation window.
+		this.timeout(15000);
+		const registered = expectDefined(provider, "activation must register the provider");
+		// Activation itself owes one legitimate event this test must not count:
+		// the catalog store's initialize() notifies when a bundled or cached
+		// snapshot installs (a production `bundle` leaves dist/openrouter-models.json
+		// behind, so local runs after one see that notify; artifact-less runs do
+		// not). Absorb it by waiting for the event stream to go quiet first.
+		await eventsQuiesced(registered);
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const before = config.inspect<boolean>("maskApiKeyInput")?.globalValue;
+		let fired = 0;
+		const subscription = registered.onDidChangeLanguageModelChatInformation(() => {
+			fired += 1;
+		});
+		try {
+			await config.update("maskApiKeyInput", false, vscode.ConfigurationTarget.Global);
+			// Longer than the 400ms debounce: a mis-scoped branch would have
+			// fired by now.
+			await new Promise((resolve) => setTimeout(resolve, 1200));
+			assert.strictEqual(fired, 0, "the listener notifies only for the model-affecting settings");
+		} finally {
+			subscription.dispose();
+			await config.update("maskApiKeyInput", before, vscode.ConfigurationTarget.Global);
+		}
+	});
+
+	test("a modelCapabilities edit fires the debounced model-change event", async function () {
+		this.timeout(15000);
+		const registered = expectDefined(provider, "activation must register the provider");
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const before = config.inspect<Record<string, unknown>>(MODEL_CAPABILITIES_SETTING_KEY)?.globalValue;
+		const fired = nextModelChangeEvent(registered);
+		try {
+			// Capability overrides apply where models attach, so the listener's
+			// notify is the whole re-registration story: no sync pass, no cache
+			// clear, just the host re-resolving through the provider.
+			await config.update(
+				MODEL_CAPABILITIES_SETTING_KEY,
+				{ "gpt-4": { supports_vision: true } },
+				vscode.ConfigurationTarget.Global
+			);
+			await fired;
+		} finally {
+			await config.update(MODEL_CAPABILITIES_SETTING_KEY, before, vscode.ConfigurationTarget.Global);
+		}
+	});
+
+	test("an OpenRouter catalog opt-out edit fires the debounced model-change event", async function () {
+		this.timeout(15000);
+		const registered = expectDefined(provider, "activation must register the provider");
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const before = config.inspect<boolean>("openRouterCatalog.enabled")?.globalValue;
+		const fired = nextModelChangeEvent(registered);
+		try {
+			// Opting out changes which capability fields the catalog may fill,
+			// so registered models must re-resolve; the notify is the listener's
+			// registration effect (the catalog store's refresh timer is its own).
+			await config.update("openRouterCatalog.enabled", false, vscode.ConfigurationTarget.Global);
+			await fired;
+		} finally {
+			await config.update("openRouterCatalog.enabled", before, vscode.ConfigurationTarget.Global);
+		}
+	});
+
+	test("a deprecated default* token setting edit fires the debounced model-change event", async function () {
+		this.timeout(15000);
+		const registered = expectDefined(provider, "activation must register the provider");
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const before = config.inspect<number>("defaultContextLength")?.globalValue;
+		const fired = nextModelChangeEvent(registered);
+		try {
+			// The trio's values are baked into cached discovery results; the
+			// listener clears the injected discovery cache before this notify,
+			// so the host's re-resolution reads through an empty cache.
+			await config.update("defaultContextLength", 65536, vscode.ConfigurationTarget.Global);
+			await fired;
+		} finally {
+			await config.update("defaultContextLength", before, vscode.ConfigurationTarget.Global);
+		}
 	});
 });

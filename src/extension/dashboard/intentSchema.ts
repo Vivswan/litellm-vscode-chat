@@ -12,6 +12,7 @@ import type { DashboardIntentType, HeaderScalar, SecretDirective, WebviewToExten
 import {
 	BOOLEAN_SETTING_IDS,
 	DASHBOARD_COMMAND_IDS,
+	EXPECTED_FAILURE_CATEGORIES,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	NUMBER_SETTING_IDS,
 	REVEALABLE_SETTING_IDS,
@@ -44,6 +45,8 @@ const saveServerSchema = z.strictObject({
 	baseUrl: z.string(),
 	...recordFromKeys(NON_SECRET_OPTIONAL_FIELD_IDS, () => z.string().optional()),
 	modelParameters: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+	modelCapabilities: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+	expectedFailures: z.array(asEnum(EXPECTED_FAILURE_CATEGORIES)).optional(),
 });
 
 const secretDirectivesSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretDirectiveSchema));
@@ -126,6 +129,21 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 		requestId: requestIdSchema,
 	}),
 	z.strictObject({ type: z.literal("readInlineSecrets"), label: z.string(), requestId: requestIdSchema }),
+	z.strictObject({
+		// The capability inspector's read: the opaque scope key plus the
+		// model's raw ID, both length-bounded like every webview-minted token.
+		type: z.literal("readModelCapabilities"),
+		scopeKey: z.string().min(1).max(REQUEST_ID_MAX_LENGTH),
+		rawId: z.string().min(1).max(512),
+		requestId: requestIdSchema,
+	}),
+	z.strictObject({
+		// The catalog picker's search; the query is filter text, bounded so a
+		// hostile page cannot balloon the message.
+		type: z.literal("searchCatalog"),
+		query: z.string().max(200),
+		requestId: requestIdSchema,
+	}),
 	z.strictObject({
 		type: z.literal("adoptServer"),
 		label: z.string(),

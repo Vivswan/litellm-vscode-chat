@@ -28,6 +28,13 @@ const STATUS_TTL_MS = 10 * 60 * 1000;
 export interface ServerModelsSnapshot {
 	readonly status: ServerStatus;
 	readonly models: readonly PreAttachModelInfo[];
+	/**
+	 * The raw model IDs discovery last returned for this server, carried
+	 * forward across failure reports like lastSuccessAt. `_declare` inertness
+	 * is judged against this set, never against `models`: registration may
+	 * emit only synthetic variants (`foo:cheapest`) for a discovered `foo`.
+	 */
+	readonly discoveredRawIds: readonly string[];
 }
 
 /**
@@ -50,6 +57,7 @@ type StatusWindowEntry = {
 	lastSuccessAt: number | undefined;
 	status: ServerStatus;
 	models: readonly PreAttachModelInfo[];
+	discoveredRawIds: readonly string[];
 } & StatusWindowSource;
 
 /**
@@ -118,7 +126,13 @@ export class StatusWindow {
 	 * attached copies embed the server's credentials, so AttachedModelInfo
 	 * does not compile here.
 	 */
-	record(status: ServerStatus, models: readonly PreAttachModelInfo[], source: StatusWindowSource): void {
+	record(
+		status: ServerStatus,
+		models: readonly PreAttachModelInfo[],
+		source: StatusWindowSource,
+		/** The raw IDs discovery returned when it succeeded; failure reports carry the previous set forward. */
+		discoveredRawIds: readonly string[] = []
+	): void {
 		const previous = this.entries.get(status.serverId);
 		this.entries.set(status.serverId, {
 			cycle: this.cycle,
@@ -126,13 +140,18 @@ export class StatusWindow {
 			lastSuccessAt: status.state === "ok" ? this.now() : previous?.lastSuccessAt,
 			status,
 			models,
+			discoveredRawIds: status.state === "ok" ? discoveredRawIds : (previous?.discoveredRawIds ?? []),
 			...source,
 		});
 	}
 
 	/** The window's current view for read-only consumers; see ServerModelsSnapshot. */
 	snapshots(): ServerModelsSnapshot[] {
-		return [...this.entries.values()].map((entry) => ({ status: entry.status, models: entry.models }));
+		return [...this.entries.values()].map((entry) => ({
+			status: entry.status,
+			models: entry.models,
+			discoveredRawIds: entry.discoveredRawIds,
+		}));
 	}
 
 	/**
@@ -171,12 +190,14 @@ export class StatusWindow {
 	 * (or the server never succeeded), at which point the failure serves the
 	 * empty list, as it always did.
 	 */
-	staleServableModels(serverId: string): { models: readonly PreAttachModelInfo[]; lastSuccessAt: number } | undefined {
+	staleServableModels(
+		serverId: string
+	): { models: readonly PreAttachModelInfo[]; discoveredRawIds: readonly string[]; lastSuccessAt: number } | undefined {
 		const entry = this.entries.get(serverId);
 		const lastSuccessAt = entry?.lastSuccessAt;
 		if (entry === undefined || lastSuccessAt === undefined || this.now() - lastSuccessAt > STATUS_TTL_MS) {
 			return undefined;
 		}
-		return { models: entry.models, lastSuccessAt };
+		return { models: entry.models, discoveredRawIds: entry.discoveredRawIds, lastSuccessAt };
 	}
 }

@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../provider";
 import { buildModelInfos } from "../../provider/catalog/registration";
 import { RequestError } from "../../provider/transport/errorMapping";
+import type { AggregatedStatus } from "../../shared/servers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { expectDefined, makeModelInfo, makeProvider, userMessage, withFetch } from "../testUtils";
@@ -209,6 +210,54 @@ suite("provider", () => {
 					return true;
 				}
 			);
+		});
+
+		test("an all-failed silent registry sweep still serves the declared models with their routes", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => HttpResponse.json({ error: "down" }, { status: 400 })),
+				http.get(MODELS_URL, () => HttpResponse.json({ error: "down" }, { status: 400 }))
+			);
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryModelCapabilities: (label, baseUrl) =>
+					label === "Default" && baseUrl === TEST_BASE_URL ? { "declared-model": { _declare: true } } : undefined,
+			});
+
+			const infos = await provider.provideLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
+			);
+			assert.deepStrictEqual(
+				infos.map((info) => info.id),
+				["declared-model"],
+				"declarations survive a total outage"
+			);
+			assert.strictEqual(expectDefined(infos[0]).litellm.declared, true);
+		});
+
+		test("an all-expected non-silent registry sweep serves the declared models instead of throwing", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => HttpResponse.json({ error: "down" }, { status: 400 })),
+				http.get(MODELS_URL, () => HttpResponse.json({ error: "down" }, { status: 400 }))
+			);
+			const statuses: AggregatedStatus[] = [];
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getExpectedFailures: () => ["modelListing"],
+				getEntryModelCapabilities: () => ({ "declared-model": { _declare: true } }),
+			});
+			provider.setStatusCallback((status) => statuses.push(status));
+
+			const infos = await provider.provideLanguageModelChatInformation(
+				{ silent: false },
+				new vscode.CancellationTokenSource().token
+			);
+			assert.deepStrictEqual(
+				infos.map((info) => info.id),
+				["declared-model"]
+			);
+			const status = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
+			assert.strictEqual(status.state, "error", "the sweep's outcome stays a truthful error");
+			assert.strictEqual(status.state === "error" && status.expected, true);
+			assert.strictEqual(status.state === "error" && status.declaredModelCount, 1);
 		});
 	});
 

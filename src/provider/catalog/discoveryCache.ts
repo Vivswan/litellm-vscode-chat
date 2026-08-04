@@ -45,7 +45,8 @@ export class DiscoveryCache<T> {
 	 * Load `key`, sharing one in-flight `load` among concurrent callers; a
 	 * rejection propagates to every caller of the shared load. A load already
 	 * in flight is joined even by callers that just invalidated the key: it is
-	 * a live network call, not a stale stored result.
+	 * a live network call, not a stale stored result. Only clear() detaches
+	 * in-flight loads (see there).
 	 */
 	fetch(key: string, load: () => Promise<T>): Promise<T> {
 		const pending = this.inFlight.get(key);
@@ -54,17 +55,22 @@ export class DiscoveryCache<T> {
 		}
 		const startEpoch = this.epoch;
 		const loading = (async () => {
-			try {
-				const value = await load();
-				if (this.epoch === startEpoch) {
-					this.entries.set(key, { value, storedAt: this.now() });
-				}
-				return value;
-			} finally {
-				this.inFlight.delete(key);
+			const value = await load();
+			if (this.epoch === startEpoch) {
+				this.entries.set(key, { value, storedAt: this.now() });
 			}
+			return value;
 		})();
 		this.inFlight.set(key, loading);
+		// Presence-checked cleanup: a clear() may have detached this load and a
+		// fresh one may already be in flight under the key; deleting
+		// unconditionally would orphan that newer load's coalescing.
+		const cleanup = () => {
+			if (this.inFlight.get(key) === loading) {
+				this.inFlight.delete(key);
+			}
+		};
+		void loading.then(cleanup, cleanup);
 		return loading;
 	}
 
@@ -74,9 +80,19 @@ export class DiscoveryCache<T> {
 		this.epoch += 1;
 	}
 
-	/** Drop every stored result. In-flight loads still resolve for their callers but are not stored. */
+	/**
+	 * Drop every stored result AND detach in-flight loads. Detaching matters
+	 * because clear() is how configuration changes reach the cache (the
+	 * deprecated default* token settings are baked into loaded results): a
+	 * fetch after the clear must start a fresh load under the new
+	 * configuration, never join a load that began under the old one - the
+	 * epoch guard alone would only keep the stale result out of the store,
+	 * not out of the joiners' hands. Detached loads still resolve for their
+	 * original callers.
+	 */
 	clear(): void {
 		this.entries.clear();
+		this.inFlight.clear();
 		this.epoch += 1;
 	}
 

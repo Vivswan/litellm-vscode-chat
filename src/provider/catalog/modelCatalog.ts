@@ -1,3 +1,4 @@
+import type { CapabilityFieldValues, ServerDeclaredCapabilities } from "../../shared/config/capabilityResolution";
 import type { TokenDefaults } from "../../shared/config/settings";
 import { normalizePositiveNumber } from "../../shared/util/numbers";
 import type { LiteLLMProvider, OutputLimitSource } from "./schemas";
@@ -108,4 +109,81 @@ export function collapseTokenConstraints(
 		contextLength: Math.min(...standalone.map((c) => c.contextLength)),
 		maxInputTokens: Math.min(...standalone.map((c) => c.maxInputTokens)),
 	};
+}
+
+/** A contributor's own output limit, before any defaults fill; the same field priority deriveTokenConstraints uses. */
+function reportedOutputTokens(provider: LiteLLMProvider): number | undefined {
+	return normalizePositiveNumber(provider.max_output_tokens) ?? normalizePositiveNumber(provider.max_tokens);
+}
+
+export interface DiscoveredBaselineInput {
+	/** The provider entries backing this registered entry; empty for bare /v1/models entries. */
+	readonly providers: readonly LiteLLMProvider[];
+	/** The refresh pass's one defaults snapshot, the same one registration derives constraints with. */
+	readonly tokenDefaults: TokenDefaults;
+	/** The input modalities exactly when the server supplied the array; undefined means unreported. */
+	readonly modalities: readonly string[] | undefined;
+	/** The toolCalling capability this entry advertises (registration's answer for its shape). */
+	readonly toolCalling: boolean;
+	/** Whether this entry advertises the reasoning-effort control (registration's answer for its shape). */
+	readonly reasoning: boolean;
+}
+
+/**
+ * The server-reported capability baseline of one registered entry: the walk's
+ * level-4 input, carried on PreAttachModelInfo.litellm.serverDeclared. Two
+ * separate facts ride here. The VALUES are the conservative aggregation
+ * results exactly as registration advertises them (per-field minima over the
+ * contributors' standalone constraints), present whenever ANY contributor
+ * reported the field - so a lower-precedence catalog guess can never displace
+ * a conservative server minimum, while a field no contributor reported stays
+ * absent and lets the deprecated defaults and the catalog fill it.
+ * `outputDeclared` is the stricter every-contributor rule
+ * (combinedOutputLimitSource) and controls only whether the output limit
+ * bypasses the request-side cap.
+ *
+ * max_input_tokens deliberately ignores a configured defaultMaxInputTokens
+ * (the quirk of that setting beating the server's own limit belongs to the
+ * walk's default-setting level, not to the server baseline), so the baseline
+ * always states what the server said. It is present whenever ANY numeric
+ * limit was reported, not only max_input_tokens itself: the collapse fills a
+ * missing input limit from the reported context and output limits (min over
+ * the per-contributor guesses), and that server-grounded number is what
+ * registration advertises - re-deriving it from the collapsed context and
+ * output instead can overstate it, because min(ctx_i - out_i) undercuts
+ * min(ctx) - min(out). Boolean fields count as reported when
+ * any contributor carried the explicit flag (or, for reasoning, the
+ * supported-params list); modality flags count as reported when the server
+ * supplied a modality array at all - a model_info entry that explicitly
+ * disclaims vision drops its architecture on the way here, an accepted
+ * conflation of "reported false" with "unreported".
+ */
+export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): ServerDeclaredCapabilities {
+	const { providers, modalities, toolCalling, reasoning } = input;
+	const [first, ...rest] = providers;
+	// Quirk-free on purpose: see the doc above. Context and output are
+	// unaffected (the quirk only feeds maxInputTokens).
+	const constraints =
+		first === undefined
+			? undefined
+			: collapseTokenConstraints([first, ...rest], { ...input.tokenDefaults, maxInputTokens: undefined });
+	const contextReported = providers.some((p) => normalizePositiveNumber(p.context_length) !== undefined);
+	const inputReported = providers.some((p) => normalizePositiveNumber(p.max_input_tokens) !== undefined);
+	const outputReported = providers.some((p) => reportedOutputTokens(p) !== undefined);
+	const anyLimitReported = contextReported || inputReported || outputReported;
+	const toolsReported = providers.some((p) => typeof p.supports_tools === "boolean");
+	const reasoningReported = providers.some(
+		(p) => typeof p.supports_reasoning === "boolean" || Array.isArray(p.supported_openai_params)
+	);
+	const values: Partial<CapabilityFieldValues> = {
+		...(constraints !== undefined && contextReported ? { context_length: constraints.contextLength } : {}),
+		...(constraints !== undefined && anyLimitReported ? { max_input_tokens: constraints.maxInputTokens } : {}),
+		...(constraints !== undefined && outputReported ? { max_output_tokens: constraints.maxOutputTokens } : {}),
+		...(toolsReported ? { supports_function_calling: toolCalling } : {}),
+		...(reasoningReported ? { supports_reasoning: reasoning } : {}),
+		...(modalities !== undefined
+			? { supports_vision: modalities.includes("image"), supports_audio_input: modalities.includes("audio") }
+			: {}),
+	};
+	return { kind: "discovered", values, outputDeclared: constraints?.outputLimitSource === "provider" };
 }

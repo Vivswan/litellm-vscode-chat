@@ -12,6 +12,23 @@
  * from workspace configuration; nothing here is persisted anywhere.
  */
 
+// The capability inspector renders the extension-resolved EffectiveCapabilities
+// it receives over the message protocol; only the types (and the small pure
+// vocabulary constants the editor keys its inputs off) cross into the webview
+// bundle - never the resolver itself or any catalog data.
+export type {
+	CapabilityDiagnostic,
+	CapabilityFieldName,
+	CapabilityLevel,
+	EffectiveCapabilities,
+	EffectiveCapabilityField,
+	ShadowedCapabilityValue,
+} from "../../shared/config/capabilityResolution";
+export {
+	CAPABILITY_FIELDS,
+	DECLARE_DIRECTIVE,
+	OPENROUTER_MODEL_DIRECTIVE,
+} from "../../shared/config/capabilityResolution";
 // The effective-values inspector renders through the same resolution the
 // request path runs; the webview may import only this module, so the pure
 // functions are re-exported here (the isValidHeaderName precedent).
@@ -29,21 +46,35 @@ export { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 // never message text, so it is safe across the webview boundary (the same
 // rule the logs follow).
 export type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
-export type { NonSecretOptionalFieldId, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
-export { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+export type {
+	ExpectedFailureCategory,
+	NonSecretOptionalFieldId,
+	SecretFieldId,
+	SecretLocation,
+} from "../../shared/serverEntry";
+export { EXPECTED_FAILURE_CATEGORIES, NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 export type { HeaderScalar } from "../../shared/util/headers";
 export { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 export { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 
 import * as l10n from "@vscode/l10n";
+import type { EffectiveCapabilities } from "../../shared/config/capabilityResolution";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
-import type { NonSecretOptionalFields, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
+import type {
+	ExpectedFailureCategory,
+	NonSecretOptionalFields,
+	SecretFieldId,
+	SecretLocation,
+} from "../../shared/serverEntry";
 import type { HeaderScalar } from "../../shared/util/headers";
 
 /** A per-entry modelParameters record: model-ID prefix to request parameters. Non-secret user configuration. */
 type EntryModelParametersPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
+/** A per-entry modelCapabilities record: model-ID prefix to capability fields and directives. Non-secret. */
+type EntryModelCapabilitiesPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
 /** The non-secret configuration of a declared server, for the edit form's prefill. */
 interface DashboardServerConfig extends NonSecretOptionalFields {
@@ -51,6 +82,10 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 	/** The entry's own modelParameters, when it has any; the edit form's prefill. */
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
+	/** The entry's own modelCapabilities, when it has any; the edit form's prefill. */
+	readonly modelCapabilities?: EntryModelCapabilitiesPayload | undefined;
+	/** The entry's expected discovery-failure categories, when it declares any. */
+	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
 }
 
 /**
@@ -59,13 +94,24 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
  * is rendered webview-side - the same rule the logs follow (classifications,
  * never free text).
  *
- * "entry-params-inactive": the entry declares per-entry modelParameters, but
- * the live group serving it did not join by the entry's exact labeled
- * identity - it predates entry labels, predates a rename, or carries someone
- * else's label - so the request path's label-and-URL check does not apply
- * those parameters. Recreating the group activates them.
+ * "entry-params-inactive" / "entry-capabilities-inactive": the entry declares
+ * an entry-only field (per-entry modelParameters; per-entry modelCapabilities
+ * or expectedFailures), but the live group serving it did not join by the
+ * entry's exact labeled identity - it predates entry labels, predates a
+ * rename, or carries someone else's label - so the request path's
+ * label-and-URL check does not apply those fields. Recreating the group
+ * activates them. One classification per field family so a row can name
+ * exactly what is inactive.
+ *
+ * "expected-failures-nothing-declared": discovery failed in a category the
+ * entry expects, and no `_declare` directive supplies models - the server is
+ * healthy by its own declaration but serves nothing, which only a declared
+ * model can fix.
  */
-type DeclaredServerNotice = "entry-params-inactive";
+export type DeclaredServerNotice =
+	| "entry-params-inactive"
+	| "entry-capabilities-inactive"
+	| "expected-failures-nothing-declared";
 
 /**
  * Where an external provider group came from, when the extension's removal
@@ -128,8 +174,8 @@ export type DashboardServer = DashboardServerBase &
 				readonly origin: "declared";
 				readonly config: DashboardServerConfig;
 				readonly adoptHandle?: undefined;
-				/** A warning classification for the row, when one applies; see DeclaredServerNotice. */
-				readonly notice?: DeclaredServerNotice | undefined;
+				/** Warning classifications for the row, when any apply; see DeclaredServerNotice. */
+				readonly notices?: readonly DeclaredServerNotice[] | undefined;
 				readonly provenance?: undefined;
 				readonly hideable?: undefined;
 		  }
@@ -146,7 +192,7 @@ export type DashboardServer = DashboardServerBase &
 				readonly origin: "external";
 				readonly adoptHandle: string;
 				readonly config?: undefined;
-				readonly notice?: undefined;
+				readonly notices?: undefined;
 				/** Why the group exists, when a removal or rename explains it; see ExternalServerProvenance. */
 				readonly provenance?: ExternalServerProvenance | undefined;
 				/**
@@ -163,6 +209,8 @@ export type DashboardServer = DashboardServerBase &
 				readonly error?: string | undefined;
 				readonly errorEnglish?: string | undefined;
 				readonly classification?: undefined;
+				readonly expected?: undefined;
+				readonly declaredModelCount?: undefined;
 		  }
 		| {
 				readonly state: "error";
@@ -178,12 +226,24 @@ export type DashboardServer = DashboardServerBase &
 				 * link, exactly like the intentFailed notice's classification.
 				 */
 				readonly classification?: TransportErrorClassification | undefined;
+				/**
+				 * True when the failure hit a category the entry's expectedFailures
+				 * declares: the discovery outcome stays a truthful error (the stale
+				 * anchor and counts depend on it), but every presentation surface
+				 * treats it as expected - excluded from failure verdicts, annotated
+				 * "(expected)" instead of rendered red.
+				 */
+				readonly expected?: boolean | undefined;
+				/** How many `_declare`d models this server keeps serving despite the failure. */
+				readonly declaredModelCount?: number | undefined;
 		  }
 		| {
 				readonly state: "unchecked";
 				readonly error?: undefined;
 				readonly errorEnglish?: undefined;
 				readonly classification?: undefined;
+				readonly expected?: undefined;
+				readonly declaredModelCount?: undefined;
 		  }
 	);
 
@@ -193,25 +253,38 @@ export type DashboardServer = DashboardServerBase &
  * renders it differently (the hero as a colored word, the tab as a line with
  * model counts and the first error), but the classification itself lives
  * here once. Only real failures count as failures: declared entries a
- * discovery pass has not reached yet stay neutral.
+ * discovery pass has not reached yet stay neutral, and so do failures the
+ * entry's expectedFailures declares - an expected failure serving declared
+ * models counts as connected, and one serving nothing yields the neutral
+ * "needs-declare" verdict instead of a red claim.
  */
-export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected";
+export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected" | "needs-declare";
 
-export function classifyOverall(servers: readonly Pick<DashboardServer, "state">[]): OverallVerdict {
+export function classifyOverall(
+	servers: readonly Pick<DashboardServer, "state" | "expected" | "declaredModelCount">[]
+): OverallVerdict {
 	if (servers.length === 0) {
 		return "not-configured";
 	}
-	const errors = servers.filter((server) => server.state === "error").length;
+	const errors = servers.filter((server) => server.state === "error" && server.expected !== true).length;
 	if (errors === servers.length) {
 		return "error";
 	}
 	if (errors > 0) {
 		return "degraded";
 	}
-	if (servers.every((server) => server.state === "unchecked")) {
-		return "waiting";
+	const serving = servers.some(
+		(server) => server.state === "ok" || (server.state === "error" && (server.declaredModelCount ?? 0) > 0)
+	);
+	if (serving) {
+		return "connected";
 	}
-	return "connected";
+	// Nothing serves and nothing failed unexpectedly: expected failures with no
+	// declared models are the actionable case, plain unchecked entries wait.
+	if (servers.some((server) => server.state === "error")) {
+		return "needs-declare";
+	}
+	return "waiting";
 }
 
 /**
@@ -244,6 +317,8 @@ export function overallStatusText(
 			return `Degraded (${modelCount} models, some servers failed)`;
 		case "waiting":
 			return "Waiting for first sync";
+		case "needs-declare":
+			return "Expected discovery failures; no declared models (add _declare entries to modelCapabilities)";
 		case "connected":
 			return `Connected (${modelCount} models)`;
 	}
@@ -260,11 +335,31 @@ export function overallStatusText(
 const ENTRY_PARAMS_INACTIVE_TEXT =
 	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
 
+/** The capabilities twin of ENTRY_PARAMS_INACTIVE_TEXT; English by the same issue-report policy. */
+const ENTRY_CAPABILITIES_INACTIVE_TEXT =
+	"per-entry modelCapabilities and expectedFailures are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+
+/** The expected-failure-with-nothing-to-serve line; English by the same issue-report policy. */
+const EXPECTED_FAILURES_NOTHING_DECLARED_TEXT =
+	"discovery fails in an expected category and no models are declared; add _declare entries to the entry's modelCapabilities to serve models without discovery";
+
+/** One notice classification's fixed diagnostics prose; see the constants above. */
+function noticeText(notice: DeclaredServerNotice): string {
+	switch (notice) {
+		case "entry-params-inactive":
+			return ENTRY_PARAMS_INACTIVE_TEXT;
+		case "entry-capabilities-inactive":
+			return ENTRY_CAPABILITIES_INACTIVE_TEXT;
+		case "expected-failures-nothing-declared":
+			return EXPECTED_FAILURES_NOTHING_DECLARED_TEXT;
+	}
+}
+
 /**
  * serverOutcomeText decomposed, for surfaces that render the pieces
  * separately (the Diagnostics tab's outcome grid): the status verdict, the
  * model-count clause an "ok" line carries, the error the row carries, and the
- * params-inactive warning. The one-line form composes exactly these parts
+ * row's warning notices. The one-line form composes exactly these parts
  * (protocol.test.ts pins the equality), so a grid cell and the copied line
  * cannot drift apart in wording.
  */
@@ -274,22 +369,36 @@ export interface ServerOutcomeParts {
 	/** The model-count clause an "ok" line parenthesizes ("3 models"); absent on other states. */
 	readonly models?: string | undefined;
 	/**
-	 * The row's error: an "error" state's message, or the sync failure an "ok"
-	 * row can still carry (a declared entry whose group upsert failed while an
-	 * already-live group keeps serving).
+	 * The row's error: an "error" state's message (with the English
+	 * "(expected)" annotation when the entry expects the category), or the
+	 * sync failure an "ok" row can still carry (a declared entry whose group
+	 * upsert failed while an already-live group keeps serving).
 	 */
 	readonly error?: string | undefined;
-	/** The entry-params-inactive warning, fixed classification text. */
-	readonly notice?: string | undefined;
+	/** The row's warning notices, fixed classification text, one line each. */
+	readonly notice: readonly string[];
 }
 
 export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts {
-	const notice = server.notice === "entry-params-inactive" ? ENTRY_PARAMS_INACTIVE_TEXT : undefined;
+	const notice = (server.notices ?? []).map(noticeText);
 	switch (server.state) {
 		case "ok":
 			return { status: "OK", models: `${server.modelCount} models`, error: server.error, notice };
-		case "error":
+		case "error": {
+			if (server.expected === true) {
+				// Truthful error, expected presentation: the annotation stays
+				// English (it lands in issue reports), and a row still serving
+				// declared models reads as OK-with-note rather than a failure.
+				const error = `${server.error} (expected)`;
+				const declared = server.declaredModelCount ?? 0;
+				if (declared > 0) {
+					const models = declared === 1 ? "1 declared model" : `${declared} declared models`;
+					return { status: "OK", models, error, notice };
+				}
+				return { status: "Error", error, notice };
+			}
 			return { status: "Error", error: server.error, notice };
+		}
 		case "unchecked":
 			return { status: "Not checked yet", notice };
 	}
@@ -306,9 +415,9 @@ export function serverOutcomeText(server: DashboardServer): string {
 	// OK line as an aside and an Error line as its object.
 	const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
 	const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
-	// The notice rides alongside whatever the state line says: a noticed row
-	// is usually healthy ("ok"), which is exactly why it needs calling out.
-	const notice = parts.notice === undefined ? "" : ` - ${parts.notice}`;
+	// Notices ride alongside whatever the state line says: a noticed row is
+	// usually healthy ("ok"), which is exactly why it needs calling out.
+	const notice = parts.notice.map((text) => ` - ${text}`).join("");
 	return `${status}${error}${notice}`;
 }
 
@@ -353,6 +462,8 @@ export interface DashboardModel {
 	readonly promptCaching: boolean;
 	/** True when the model advertises the reasoning-effort configuration control. */
 	readonly reasoning: boolean;
+	/** True for a model a `_declare` directive created (discovery does not list it); drives the declared badge. */
+	readonly declared?: boolean | undefined;
 }
 
 /**
@@ -564,6 +675,11 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 			return {
 				label: l10n.t("Mask API key input"),
 				description: l10n.t("Hide the API key while typing it into configuration prompts."),
+			};
+		case "openRouterCatalog.enabled":
+			return {
+				label: l10n.t("OpenRouter catalog"),
+				description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
 			};
 	}
 }
@@ -834,6 +950,31 @@ export type ExtensionToWebviewMessage =
 			readonly values: Readonly<Partial<Record<SecretFieldId, string>>>;
 	  }
 	| {
+			/**
+			 * The answer to a readModelCapabilities request: the extension-resolved
+			 * effective capabilities of one model, produced by the same
+			 * resolveModelCapabilities walk registration runs, so the inspector
+			 * cannot drift from what is served. Absent `capabilities` means the
+			 * requested scope or model no longer resolves (the store changed
+			 * between the push and the request); the inspector says so instead of
+			 * inventing values.
+			 */
+			readonly type: "modelCapabilities";
+			readonly requestId: string;
+			readonly capabilities?: EffectiveCapabilities | undefined;
+	  }
+	| {
+			/**
+			 * The answer to a searchCatalog request: a bounded id/name list from
+			 * the extension-side OpenRouter catalog snapshot. The catalog data
+			 * itself never enters the webview bundle; only these summaries cross,
+			 * per request.
+			 */
+			readonly type: "catalogSearchResults";
+			readonly requestId: string;
+			readonly results: readonly CatalogModelSummary[];
+	  }
+	| {
 			readonly type: "intentSucceeded";
 			readonly intentType: DashboardIntentType;
 			readonly requestId: string;
@@ -868,6 +1009,12 @@ export type ExtensionToWebviewMessage =
 			readonly classification?: TransportErrorClassification | undefined;
 	  };
 
+/** One OpenRouter catalog entry as the picker lists it; id is what `_openrouter_model` takes. */
+export interface CatalogModelSummary {
+	readonly id: string;
+	readonly name: string;
+}
+
 /**
  * The intent types that carry a correlation requestId, derived from the
  * message union itself. Intersected with DashboardIntentType so pure
@@ -886,6 +1033,8 @@ const EXTENSION_MESSAGE_TYPES: Readonly<Record<ExtensionToWebviewMessage["type"]
 	state: true,
 	focusSection: true,
 	inlineSecrets: true,
+	modelCapabilities: true,
+	catalogSearchResults: true,
 	intentSucceeded: true,
 	intentFailed: true,
 };
@@ -962,6 +1111,10 @@ export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly baseUrl: string;
 	/** The entry's per-entry modelParameters; absent or empty means the saved entry carries none. */
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
+	/** The entry's per-entry modelCapabilities; absent or empty means the saved entry carries none. */
+	readonly modelCapabilities?: EntryModelCapabilitiesPayload | undefined;
+	/** The entry's expected discovery-failure categories; absent or empty means none. */
+	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
 }
 
 /** Webview-to-extension intents. The extension re-validates every one: the webview is a trust boundary. */
@@ -1044,6 +1197,30 @@ export type WebviewToExtensionMessage =
 	  }
 	| {
 			/**
+			 * Ask for one model's effective capabilities (the capability
+			 * inspector; see the modelCapabilities response). Names the model by
+			 * its scope key (an opaque per-session server handle, so a stale key
+			 * de-resolves instead of hitting another server) plus its raw ID;
+			 * the extension resolves everything itself - no capability data
+			 * rides the request.
+			 */
+			readonly type: "readModelCapabilities";
+			readonly scopeKey: string;
+			readonly rawId: string;
+			readonly requestId: string;
+	  }
+	| {
+			/**
+			 * Search the extension-side OpenRouter catalog snapshot (the
+			 * `_openrouter_model` picker; see the catalogSearchResults response).
+			 * The query is user-typed filter text, never a secret.
+			 */
+			readonly type: "searchCatalog";
+			readonly query: string;
+			readonly requestId: string;
+	  }
+	| {
+			/**
 			 * Adopt an external provider group into the servers setting: the entry
 			 * is written under `label`, and the group's credentials (which exist
 			 * extension-side only; the webview never sees them) are resolved by
@@ -1063,10 +1240,14 @@ export type WebviewToExtensionMessage =
 
 /**
  * The intents that can fail and be reported back; the ready handshake has no
- * failure mode, and readInlineSecrets is a read answered by its own response
- * message (an unknown label simply yields no values).
+ * failure mode, and the pure request/response reads (readInlineSecrets,
+ * readModelCapabilities, searchCatalog) are each answered by their own
+ * response message (an unknown label or scope simply yields no values).
  */
-export type DashboardIntentType = Exclude<WebviewToExtensionMessage["type"], "ready" | "readInlineSecrets">;
+export type DashboardIntentType = Exclude<
+	WebviewToExtensionMessage["type"],
+	"ready" | "readInlineSecrets" | "readModelCapabilities" | "searchCatalog"
+>;
 
 export type ParsedJsonValue =
 	| { readonly ok: true; readonly value: unknown }

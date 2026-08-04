@@ -14,18 +14,19 @@ English | [简体中文](zh-cn/dashboard.md) | [繁體中文](zh-tw/dashboard.md
 
 The server list shows every server the extension knows about: entries declared in the `litellm-vscode-chat.servers` setting, and "external" servers that exist only as VS Code provider groups (added outside this extension).
 
-Each row's Status pill is one of four states:
+Each row's Status pill is one of five states:
 
 | Status | Meaning |
 |--------|---------|
 | Connected | Discovery succeeded |
 | Error | The last check failed |
 | Sync issue | The server answers, but its last settings sync reported a problem, typically the [group update limitation](servers.md#the-servers-setting) |
+| Expected failure | Discovery failed only in categories the entry's [`expectedFailures`](model-capabilities.md#expected-discovery-failures) declares, and nothing is declared to serve |
 | Not checked | Declared, but no discovery pass has seen it yet |
 
-The error text behind an Error or Sync issue state renders selectable in a banner under the table; [Troubleshooting](troubleshooting.md) covers the recovery steps.
+The error text behind an Error or Sync issue state renders selectable in a banner under the table; [Troubleshooting](troubleshooting.md) covers the recovery steps. One deliberate softening: an expected discovery failure is never shown red - the row stays Connected while its `_declare`d models keep serving, or shows "Expected failure" when nothing is declared.
 
-The add/edit form opens in a side panel; it writes the servers setting, so edits made here and edits made in settings.json are the same thing. Test connection, beside Save, probes the draft before you commit it - one discovery call with the URL and credentials as currently entered, answering "Connected - 12 models" or the exact error, and saving nothing. Failures the extension recognizes as setup problems (a wrong base URL, an unreachable proxy, a rejected key) add a link to the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) under the message. Edit on an external row adopts it into the setting; see [Servers](servers.md#external-servers-and-adoption).
+The add/edit form opens in a side panel; it writes the servers setting, so edits made here and edits made in settings.json are the same thing. Beyond the connection fields it carries the per-entry sections: "Model parameters for this server", "Model capabilities for this server" (whose rows offer an OpenRouter catalog picker for `_openrouter_model` and a "declare this model" toggle for `_declare`), and the expected-failures checkboxes (see [Model capabilities](model-capabilities.md)). Test connection, beside Save, probes the draft before you commit it - one discovery call with the URL and credentials as currently entered, answering "Connected - 12 models" or the exact error, and saving nothing; the probe honors the draft's expected failures and declared models, so a discovery-less gateway reports what it would serve instead of a hard failure. Failures the extension recognizes as setup problems (a wrong base URL, an unreachable proxy, a rejected key) add a link to the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) under the message. Edit on an external row adopts it into the setting; see [Servers](servers.md#external-servers-and-adoption).
 
 For each secret field the form lets you choose between VS Code secret storage (the default) and an inline settings value:
 
@@ -35,7 +36,8 @@ For each secret field the form lets you choose between VS Code secret storage (t
 
 ### Notices
 
-- **"params inactive"** (a badge on the server row, with a matching banner under the table): the entry declares per-server model parameters, but the provider group serving it does not carry the entry's labeled identity (the group predates entry labels, or a rename left a stale group), so those parameters are not being applied. The fix is to delete the group's object from the models file (chatLanguageModels.json), reload the window, and re-sync - or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
+- **"params inactive"** (a badge on the server row, with a matching banner under the table): the entry declares per-server model parameters, but the provider group serving it does not carry the entry's labeled identity (the group predates entry labels, or a rename left a stale group), so those parameters are not being applied. Entries whose per-server `modelCapabilities` or `expectedFailures` are inactive for the same reason get a twin "capabilities inactive" badge. The fix is the same for both: delete the group's object from the models file (chatLanguageModels.json), reload the window, and re-sync - or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
+- **An expected discovery failure with nothing declared** gets its own banner: discovery failed only in categories the entry expects, but no `_declare` entries exist, so the server serves no models; the banner points at [`modelCapabilities`](model-capabilities.md#declaring-models-discovery-cannot-list).
 - **After adopting an external server**, a one-time notice reminds you that the original group still exists and its models appear twice until you delete its object from the models file (the notice's button opens it) and reload the window.
 
 ## Models
@@ -44,6 +46,7 @@ Every model your servers report, as registered with Copilot Chat, in a sortable 
 
 - Clicking a server's model count in the servers table narrows this table to that server's models; a chip beside the filter box shows the active scope and clears it.
 - Each row carries a copy action (visible on hover) for the model's exact ID, which is what a [`modelParameters` prefix](model-parameters.md#prefix-matching-and-server-scoping) matches against.
+- Models registered by a [`_declare` entry](model-capabilities.md#declaring-models-discovery-cannot-list) rather than discovered on the server carry a "declared" badge.
 - Lists are cached ([discoveryCacheTtl](settings.md#model-list-caching)); the Sync models button asks the servers again now.
 
 Where the table's columns come from, what each capability gates, and why a model might be missing are covered in [Models and capabilities](models.md).
@@ -59,14 +62,25 @@ Each row's quiet Params action (visible on hover) opens a side panel answering o
 
 The panel renders from the same resolution code the request path runs, so it cannot drift from real requests. Two things it honestly cannot show: runtime options the chat client sets on each request (they override any forwarded parameter listed), and a reasoning model's Configure Model pick, which VS Code stores on its side.
 
+### Effective capabilities
+
+The Params action's twin, the quiet Caps action on each row, answers the other question: what does the extension believe this model can do, and why?
+
+- Every capability field is listed with its resolved value and source - a server entry's or the settings' `modelCapabilities` key, an OpenRouter catalog entry, the server's own report, a deprecated `default*` setting, the context-minus-output derivation, or the built-in default - with overridden values shown beneath the winner (the full [precedence](model-capabilities.md#precedence)).
+- A line under the table states whether the output limit goes out uncapped (user-set or server-declared) or capped at 4096 (a guessed default).
+- Configuration problems in the matched records - unknown keys, invalid values, an `_openrouter_model` ID the catalog does not know - are called out here.
+
+It renders from the same resolver the registration path runs, so what it shows is what Copilot Chat was told.
+
 ## Settings
 
 The Settings tab renders the same settings the native Settings editor shows, as form rows with their defaults and a Reset action.
 
-- Two settings are easier to edit here than in the Settings UI: `modelParameters` and `headers` are objects the native settings GUI cannot edit, so the dashboard gives them row editors.
+- Two settings are easier to edit here than in the Settings UI: `modelParameters` and `headers` are objects the native settings GUI cannot edit, so the dashboard gives them row editors. The global `modelCapabilities` record has no editor here yet; edit it in settings.json, or per server in the server form's capabilities section.
 - Model parameter values are JSON (`0.2`, `true`, `"text"`, `["stop"]`); invalid input is flagged and Apply stays disabled until every row parses.
 - Because VS Code merges object settings across scopes, each record editor works on one scope at a time (the one your edits write to) and lists entries from other scopes read only, so applying a change never copies user-scope values into workspace files.
 - Header values are settings, not secrets: they show up exactly as they do in the Settings editor, so keep secret headers in User scope rather than workspace scope.
+- The deprecated model-defaults group carries a hint pointing at its replacement, [`modelCapabilities`](model-capabilities.md); the [OpenRouter catalog](model-capabilities.md#the-openrouter-catalog) opt-out renders as an ordinary toggle.
 
 ## Diagnostics
 

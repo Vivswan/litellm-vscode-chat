@@ -251,17 +251,29 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
  *
  * Token limits: the deployments' provider entries collapse through
  * collapseTokenConstraints (the one home of the min-collapse rule, shared
- * with registration's aggregates), and those effective values are stored on
- * the merged provider, which deriveTokenConstraints reproduces verbatim:
- * `defaults` is the refresh pass's one snapshot, threaded to both this merge
- * and registration, so the reproduction cannot drift when settings change
- * mid-refresh. This guarantees the merged advertisement never exceeds what
- * any deployment would have advertised on its own, whichever combination of
- * raw limit fields each one set. Because a defaults-filled deployment can
- * contribute the minimum, the merged provider also records whether the
- * stored output limit counts as server-declared (the collapse's
- * outputLimitSource); without the marker, storing effective values back into
- * provider fields would launder the defaults guess into a declared limit.
+ * with registration's aggregates), and the collapsed effective values are
+ * stored on the merged provider - but a field is stored ONLY when some
+ * deployment reported it: deriveTokenConstraints fills an absent field with
+ * exactly the defaults the collapse would have used, so the merged
+ * advertisement is identical either way, while the capability baseline
+ * (discoveredCapabilityBaseline) can still tell a server-reported minimum
+ * from a defaults fill - a defaults-filled number stored as if reported
+ * would occupy the walk's server level and block the catalog from
+ * backfilling it. `defaults` is the refresh pass's one snapshot, threaded to
+ * both this merge and registration, so the reproduction cannot drift when
+ * settings change mid-refresh. This guarantees the merged advertisement
+ * never exceeds what any deployment would have advertised on its own,
+ * whichever combination of raw limit fields each one set. The stored input
+ * limit is collapsed WITHOUT the defaultMaxInputTokens quirk (that setting
+ * outranks even server-declared limits, so deriveTokenConstraints applies it
+ * on top either way) and is stored whenever ANY limit was reported: the
+ * collapse grounds a missing input limit in the reported context and output,
+ * and re-deriving it from the collapsed pair can overstate it. Because a
+ * defaults-filled deployment can contribute the output minimum, the merged
+ * provider also records whether the stored output limit counts as
+ * server-declared (the collapse's outputLimitSource); without the marker,
+ * storing effective values back into provider fields would launder the
+ * defaults guess into a declared limit.
  * Capability flags hold only when every deployment advertises them, and
  * input modalities and supported_openai_params intersect. Pricing carries
  * over only when every
@@ -286,14 +298,21 @@ export function mergeModelDeployments(deployments: ModelDeployments, defaults: T
 		...rest.map((deployment) => deployment.provider),
 	];
 	const collapsed = collapseTokenConstraints(providers, defaults);
+	const quirkFreeInput = collapseTokenConstraints(providers, { ...defaults, maxInputTokens: undefined }).maxInputTokens;
+	const contextReported = providers.some((p) => normalizePositiveNumber(p.context_length) !== undefined);
+	const inputReported = providers.some((p) => normalizePositiveNumber(p.max_input_tokens) !== undefined);
+	const outputReported = providers.some(
+		(p) => (normalizePositiveNumber(p.max_output_tokens) ?? normalizePositiveNumber(p.max_tokens)) !== undefined
+	);
+	const anyLimitReported = contextReported || inputReported || outputReported;
 	const provider: LiteLLMProvider = {
 		provider: first.provider.provider,
 		status: first.provider.status,
 		supports_tools: providers.every(supportsTools),
-		context_length: collapsed.contextLength,
-		max_tokens: collapsed.maxOutputTokens,
-		max_input_tokens: collapsed.maxInputTokens,
-		max_output_tokens: collapsed.maxOutputTokens,
+		context_length: contextReported ? collapsed.contextLength : undefined,
+		max_tokens: outputReported ? collapsed.maxOutputTokens : undefined,
+		max_input_tokens: anyLimitReported ? quirkFreeInput : undefined,
+		max_output_tokens: outputReported ? collapsed.maxOutputTokens : undefined,
 		output_limit_source: collapsed.outputLimitSource,
 		supports_prompt_caching: everyDeploymentSupports(providers.map((p) => p.supports_prompt_caching)),
 		supports_response_schema: everyDeploymentSupports(providers.map((p) => p.supports_response_schema)),
@@ -323,6 +342,19 @@ export interface FetchModelsResult {
 	models: LiteLLMModelItem[];
 }
 
+/**
+ * The caller's expected-failure declarations, per endpoint: an expected
+ * endpoint gets exactly one attempt (its retry budget drops to zero - the
+ * failure is anticipated, so retrying only stretches the whole-call timeout),
+ * and the nonfatal /model/info fallback log carries the "(expected)"
+ * classification. Which endpoint's failure is terminal never changes: only a
+ * /models failure aborts discovery, expected or not.
+ */
+export interface ExpectedDiscoveryFailures {
+	readonly modelInfo: boolean;
+	readonly modelListing: boolean;
+}
+
 export interface FetchModelsRequest {
 	/** Transport for this server, from clients.ts; static auth and headers live there. */
 	client: OpenAI;
@@ -336,6 +368,8 @@ export interface FetchModelsRequest {
 	 * two stages cannot disagree when settings change mid-refresh.
 	 */
 	tokenDefaults: TokenDefaults;
+	/** Failure categories the server's entry declares expected; see ExpectedDiscoveryFailures. */
+	expected?: ExpectedDiscoveryFailures;
 	/** Per-request headers resolved by the caller, e.g. a freshly exchanged OAuth bearer token. */
 	headers?: Record<string, string>;
 	log: (message: string, data?: unknown) => void;
@@ -492,7 +526,7 @@ function narrowModelInfoData(
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, discoveryTimeout, tokenDefaults, headers, log } = request;
+	const { client, baseUrl, discoveryTimeout, tokenDefaults, expected, headers, log } = request;
 
 	log("Fetching from:", modelInfoUrl(baseUrl));
 
@@ -500,14 +534,15 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// The per-request timeout keeps the SDK's own 600 s default from
 		// overriding ours; boundedBySignal makes the signal a hard whole-call
 		// bound across retries. Retries are safe here (idempotent GET) and stay
-		// off for chat requests.
+		// off for chat requests - and off entirely for an endpoint whose failure
+		// the entry declares expected.
 		const infoSignal = AbortSignal.timeout(discoveryTimeout);
 		const parsedInfo: unknown = coerceJsonPayload(
 			await boundedBySignal(
 				client.get(MODEL_INFO_PATH, {
 					signal: infoSignal,
 					timeout: discoveryTimeout,
-					maxRetries: DISCOVERY_MAX_RETRIES,
+					maxRetries: expected?.modelInfo === true ? 0 : DISCOVERY_MAX_RETRIES,
 					headers,
 				}),
 				infoSignal
@@ -535,8 +570,13 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// Response-derived text can echo credentials into the issue-report
 		// buffer (the raw SDK message and even mapped messages for non-401 API
 		// errors embed the body), so the log carries only the classification.
+		// When the entry declares this failure expected the same line carries
+		// the "(expected)" marker - discovery's one expected-failure log seam,
+		// because a /model/info failure is nonfatal and never reaches the
+		// provider boundary.
 		const mapped = mapSdkError(error, { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout });
-		log(`model/info failed, falling back to ${modelsUrl(baseUrl)}`, {
+		const expectedNote = expected?.modelInfo === true ? " (expected: modelInfo)" : "";
+		log(`model/info failed, falling back to ${modelsUrl(baseUrl)}${expectedNote}`, {
 			error: mapped.name,
 			...(mapped instanceof RequestError
 				? { kind: mapped.kind, ...(mapped.status !== undefined ? { status: mapped.status } : {}) }
@@ -554,7 +594,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				client.get(MODELS_PATH, {
 					signal: timeoutSignal,
 					timeout: discoveryTimeout,
-					maxRetries: DISCOVERY_MAX_RETRIES,
+					maxRetries: expected?.modelListing === true ? 0 : DISCOVERY_MAX_RETRIES,
 					headers,
 				}),
 				timeoutSignal

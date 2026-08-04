@@ -18,6 +18,7 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 - Multimodal input (vision, PDF/document attachments, text/JSON data) and generated image/audio output
 - Streaming, function calling, and thinking/reasoning tokens
 - Broad model options pass-through (`response_format`, `reasoning_effort`, `seed`, and more)
+- Per-model capability overrides and declared models: correct what a gateway reports, or register models it cannot list at all, with gaps auto-filled from the OpenRouter catalog ([details](docs/model-capabilities.md))
 - A dashboard panel for servers, models, and settings, with plain VS Code settings behind it
 - Self-hosted or cloud-based deployment options
 
@@ -52,6 +53,7 @@ The extension also ships a walkthrough covering these steps: run "Welcome: Open 
 - [Servers](docs/servers.md) - multiple servers, secrets and secret storage, OAuth, virtual keys, adopting external servers
 - [Models and capabilities](docs/models.md) - what registers, capability gating, multimodal input and output, usage reporting
 - [Model parameters](docs/model-parameters.md) - per-model request parameters, prefix matching, precedence, reasoning effort
+- [Model capabilities](docs/model-capabilities.md) - capability overrides, declared models, the OpenRouter catalog, expected discovery failures
 - [Settings](docs/settings.md) - every setting with its default: token limits, timeouts, caching, headers
 - [Dashboard](docs/dashboard.md) - the panel's tabs, the server form, and the record editors
 - [Troubleshooting](docs/troubleshooting.md) - diagnostics, issue reporting, common problems, privacy, uninstall cleanup, migration notes
@@ -67,6 +69,10 @@ bun run compile
 ```
 
 Press `F5` to launch the Extension Development Host. [Development](docs/development.md) covers the local LiteLLM stack and the test suites; [CONTRIBUTING.md](CONTRIBUTING.md) covers how to submit a change.
+
+## Privacy
+
+Your prompts and completions travel only between VS Code and the LiteLLM servers you configure. One default-on exception: about once a week the extension refreshes its bundled catalog of model capabilities from `https://openrouter.ai/api/v1/models`, a public, unauthenticated model list - the request carries no prompts, no usage, and nothing about you or your servers. Set `litellm-vscode-chat.openRouterCatalog.enabled` to `false` to turn the refresh and the automatic matching off; explicit `_openrouter_model` directives keep working offline from the bundled snapshot. Details in [Model capabilities](docs/model-capabilities.md#the-openrouter-catalog) and [Privacy and data](docs/troubleshooting.md#privacy-and-data).
 
 ## Acknowledgments
 

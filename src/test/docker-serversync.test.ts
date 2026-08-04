@@ -4,13 +4,22 @@ import type { DeclaredServerView } from "../extension/servers/serverSync";
 import { GROUP_UPDATE_UNAVAILABLE_MESSAGE } from "../extension/servers/serverSync";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
-import { SERVERS_SETTING_KEY } from "../shared/config/settings";
+import { MODEL_CAPABILITIES_SETTING_KEY, SERVERS_SETTING_KEY } from "../shared/config/settings";
 import type { SecretFieldId } from "../shared/serverEntry";
+import type { ServerStatus } from "../shared/servers";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
+import { NO_DISCOVERY_PREFIX, type NoDiscoveryAttemptCounts } from "./fakeStack/noDiscovery";
 import { FAKE_OAUTH_CLIENT_ID, FAKE_OAUTH_CLIENT_SECRET, FAKE_OAUTH_TOKEN_PREFIX } from "./fakeStack/oauth";
-import { collectStream, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";
+import {
+	addServer,
+	clearServers,
+	collectStream,
+	ensureActivated,
+	extractText,
+	waitForHostModels,
+} from "./hostApiHelpers";
 import { expectDefined } from "./testUtils";
 
 /**
@@ -29,9 +38,14 @@ import { expectDefined } from "./testUtils";
  * created. Run via `bun run test:docker`.
  */
 
-const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
+// Env-derived URLs feed scoped modelCapabilities keys, which match against
+// normalizeBaseUrl(baseUrl) (trailing slashes stripped); stripping here keeps
+// a slash-suffixed env value from silently unmatching every scoped key.
+const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
-const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
+const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
+/** The fake backend's discovery-less mirror: chat serves, the discovery GETs 404. */
+const NO_DISCOVERY_URL = `${FAKE_URL}${NO_DISCOVERY_PREFIX}`;
 
 /** Discovery through a proxy group registers the consolidated aliases; this one anchors "models appeared". */
 const ALIAS = PLAYBACK_MODEL.alias;
@@ -46,13 +60,36 @@ const LABEL_OAUTH_BAD = "SyncSuite OAuth Bad";
 const LABEL_OAUTH = "SyncSuite OAuth";
 const LABEL_PARAMS_A = "SyncSuite Params A";
 const LABEL_PARAMS_B = "SyncSuite Params B";
+const LABEL_CAPS = "SyncSuite Caps";
+const LABEL_DECLARED_REGISTRY = "SyncSuite Declared Registry";
+const LABEL_EXPECTED = "SyncSuite Expected";
+
+/**
+ * Scenario 9's override target: llama-4-scout declares no token limits, so
+ * without an override every request carries the min(4096, guess) output cap.
+ * A fake- prefixed ID never matches the OpenRouter catalog implicitly, but
+ * this realistic alias can, so the un-overridden copies are asserted against
+ * the clamp bound rather than one exact guess.
+ */
+const CAPS_MODEL = "llama-4-scout";
+/** Scenario 10's registry-path declared model; the ID is not in the fake catalog, only `_declare` creates it. */
+const REGISTRY_DECLARED_MODEL = "fake-declared";
+/** Scenario 10's registry server key: its bucket in the fake backend's discovery-attempt counters. */
+const REGISTRY_DECLARED_KEY = "declared-registry-key";
+/** Scenario 11's entry-declared model. */
+const EXPECTED_DECLARED_MODEL = "fake-expected";
+/** Scenario 11's entry key, unique so its discovery-attempt bucket counts only its own group. */
+const EXPECTED_FAILURES_KEY = "expected-failures-key";
 
 /** Scenario 3's dormant stored value; scenario 5d scans the log buffer for it. */
 const GARBAGE_KEY = "sk-garbage-MARKER";
 /** Scenario 5a's rejected client secret; scenario 5d scans the log buffer for it. */
 const WRONG_OAUTH_SECRET = "not-the-secret";
 
-type ServersSettingEntry = Record<string, string | Readonly<Record<string, Readonly<Record<string, unknown>>>>>;
+type ServersSettingEntry = Record<
+	string,
+	string | readonly string[] | Readonly<Record<string, Readonly<Record<string, unknown>>>>
+>;
 
 interface OAuthStats {
 	issued: number;
@@ -72,9 +109,18 @@ suite("Docker server sync", () => {
 	/** The OAuth group's model object, captured in 5b for the revocation scenario. */
 	let oauthModel: vscode.LanguageModelChat | undefined;
 	let originalServersSetting: unknown;
+	let originalCapabilitiesSetting: unknown;
 
 	function serversConfig(): vscode.WorkspaceConfiguration {
 		return vscode.workspace.getConfiguration(CONFIG_SECTION);
+	}
+
+	function readCapabilitiesSetting(): Record<string, Record<string, unknown>> {
+		return { ...(serversConfig().get<Record<string, Record<string, unknown>>>(MODEL_CAPABILITIES_SETTING_KEY) ?? {}) };
+	}
+
+	async function writeCapabilitiesSetting(value: Record<string, Record<string, unknown>> | undefined): Promise<void> {
+		await serversConfig().update(MODEL_CAPABILITIES_SETTING_KEY, value, vscode.ConfigurationTarget.Global);
 	}
 
 	function readServersSetting(): ServersSettingEntry[] {
@@ -146,6 +192,36 @@ suite("Docker server sync", () => {
 		return (await response.json()) as OAuthStats;
 	}
 
+	/** The fake backend's per-bearer counts of blanked discovery GETs (see fakeStack/noDiscovery.ts). */
+	async function discoveryAttempts(bearer: string): Promise<NoDiscoveryAttemptCounts> {
+		const response = await fetch(`${FAKE_URL}/_test/nodiscovery-stats`);
+		assert.ok(response.ok, `GET /_test/nodiscovery-stats failed: ${response.status}`);
+		const stats = (await response.json()) as Record<string, NoDiscoveryAttemptCounts>;
+		return stats[bearer] ?? { models: 0, modelInfo: 0 };
+	}
+
+	/**
+	 * The counters move whenever the host resolves the failing group (failures
+	 * are never cached), so a meaningful snapshot must sit between sweeps:
+	 * poll until the bearer's counts hold still for a beat.
+	 */
+	async function quiescedDiscoveryAttempts(bearer: string): Promise<NoDiscoveryAttemptCounts> {
+		let last = await discoveryAttempts(bearer);
+		let stableSince = Date.now();
+		const deadline = Date.now() + 30000;
+		while (Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			const next = await discoveryAttempts(bearer);
+			if (next.models !== last.models || next.modelInfo !== last.modelInfo) {
+				last = next;
+				stableSince = Date.now();
+			} else if (Date.now() - stableSince >= 1500) {
+				return last;
+			}
+		}
+		throw new Error(`Timeout (30000ms) waiting for the discovery-attempt counters of "${bearer}" to settle`);
+	}
+
 	async function waitUntil(what: string, timeoutMs: number, check: () => Promise<boolean>): Promise<void> {
 		const deadline = Date.now() + timeoutMs;
 		while (Date.now() < deadline) {
@@ -161,6 +237,7 @@ suite("Docker server sync", () => {
 		this.timeout(90000);
 		await ensureActivated();
 		originalServersSetting = serversConfig().inspect(SERVERS_SETTING_KEY)?.globalValue;
+		originalCapabilitiesSetting = serversConfig().inspect(MODEL_CAPABILITIES_SETTING_KEY)?.globalValue;
 		assert.deepStrictEqual(readServersSetting(), [], "the suite needs a fresh host with no declared servers");
 		// A recycled tmpdir pid can inherit provider groups from an earlier run,
 		// so the count oracle baselines on what the host already serves instead
@@ -176,6 +253,12 @@ suite("Docker server sync", () => {
 		// prunes the suite labels from the persisted fingerprint map.
 		await setStoredSecret(LABEL_STORED, "apiKey", undefined);
 		await setStoredSecret(LABEL_PRECEDENCE, "apiKey", undefined);
+		await vscode.commands.executeCommand("litellm._test.clearServers");
+		await serversConfig().update(
+			MODEL_CAPABILITIES_SETTING_KEY,
+			originalCapabilitiesSetting,
+			vscode.ConfigurationTarget.Global
+		);
 		await serversConfig().update(SERVERS_SETTING_KEY, originalServersSetting, vscode.ConfigurationTarget.Global);
 		await syncNow();
 	});
@@ -450,5 +533,191 @@ suite("Docker server sync", () => {
 			}
 		}
 		assert.deepStrictEqual(temperatures.sort(), ["0.31", "0.62"]);
+	});
+
+	test("scenario 9: entry and global modelCapabilities patch a listed model and lift the output clamp", async function () {
+		this.timeout(180000);
+		// The global record is scoped to the proxy URL, so every group's copy of
+		// the model advertises the patched input limit; the entry record applies
+		// to the new entry's group alone (label + base URL match) and merges
+		// key by key over the global winner, so only that copy's requests may
+		// carry the overridden output limit.
+		await writeCapabilitiesSetting({
+			...readCapabilitiesSetting(),
+			[`${BASE_URL}/${CAPS_MODEL}`]: { max_input_tokens: 90000 },
+		});
+		await declareServer({
+			label: LABEL_CAPS,
+			baseUrl: BASE_URL,
+			apiKey: API_KEY,
+			modelCapabilities: { [CAPS_MODEL]: { max_output_tokens: 5000 } },
+		});
+		proxyGroups += 1;
+		const models = await waitForHostModels(
+			60000,
+			(candidates) =>
+				countModels(candidates, ALIAS) >= proxyGroups &&
+				countModels(candidates, CAPS_MODEL) === proxyGroups &&
+				candidates.filter((m) => m.id === CAPS_MODEL).every((m) => m.maxInputTokens === 90000),
+			`every ${CAPS_MODEL} copy to advertise the scoped global input limit`
+		);
+		// The host does not expose group identity on the model object (see
+		// scenario 4), so the chat runs through EVERY copy and collects the
+		// max_tokens each request carried to the fake backend. Exactly one copy
+		// (the entry's group) sends the overridden declared limit; the model
+		// declares no limits itself, so every other copy keeps the
+		// min(4096, guess) cap.
+		const capsModels = models.filter((candidate) => candidate.id === CAPS_MODEL);
+		const maxTokens: number[] = [];
+		for (const model of capsModels) {
+			const reply = await chat(model, `${COMMAND_SIGIL}params`);
+			const match = /max_tokens: `(\d+)`/.exec(reply);
+			maxTokens.push(Number(expectDefined(match?.[1], `max_tokens in "${reply}"`)));
+		}
+		assert.strictEqual(
+			maxTokens.filter((value) => value === 5000).length,
+			1,
+			`exactly the entry's group sends the overridden declared limit, got: ${maxTokens.join(", ")}`
+		);
+		assert.ok(
+			maxTokens.every((value) => value === 5000 || value <= 4096),
+			`every other copy must keep a clamped guess, got: ${maxTokens.join(", ")}`
+		);
+	});
+
+	test("scenario 10: a URL-scoped _declare registers a chat-capable model on a discovery-less registry server", async function () {
+		this.timeout(120000);
+		// The registry path (litellm._test.addServer) serves the legacy chain;
+		// its declared models ride the URL-scoped global setting because a
+		// registry server has no entry. The scoped key is dropped again in the
+		// finally so scenario 11's group at the same base URL cannot inherit
+		// this declaration.
+		const withoutDeclare = readCapabilitiesSetting();
+		await writeCapabilitiesSetting({
+			...withoutDeclare,
+			[`${NO_DISCOVERY_URL}/${REGISTRY_DECLARED_MODEL}`]: {
+				_declare: true,
+				max_input_tokens: 123000,
+				max_output_tokens: 9000,
+				supports_vision: true,
+			},
+		});
+		try {
+			// A recycled user-data directory can inherit registry servers from an
+			// earlier run; the exact-equality assertion below needs none.
+			await clearServers();
+			const { modelIds } = await addServer(LABEL_DECLARED_REGISTRY, NO_DISCOVERY_URL, REGISTRY_DECLARED_KEY);
+			assert.deepStrictEqual(
+				modelIds,
+				[REGISTRY_DECLARED_MODEL],
+				"discovery fails on this server, so the declared model is the whole registry serve"
+			);
+			const infos = (await vscode.commands.executeCommand(
+				"litellm._test.refreshModelInfos"
+			)) as vscode.LanguageModelChatInformation[];
+			const info = expectDefined(
+				infos.find((candidate) => candidate.id === REGISTRY_DECLARED_MODEL),
+				`${REGISTRY_DECLARED_MODEL} in refreshModelInfos`
+			);
+			assert.strictEqual(info.maxInputTokens, 123000, "the declared max_input_tokens drives registration");
+			assert.strictEqual(info.maxOutputTokens, 9000, "the declared max_output_tokens drives registration");
+			assert.strictEqual(info.capabilities?.imageInput, true, "the declared supports_vision registers as imageInput");
+			const models = await waitForHostModels(
+				60000,
+				(candidates) => candidates.some((model) => model.id === REGISTRY_DECLARED_MODEL),
+				`the host to expose ${REGISTRY_DECLARED_MODEL}`
+			);
+			const model = expectDefined(models.find((candidate) => candidate.id === REGISTRY_DECLARED_MODEL));
+			const played = await chat(model, `${COMMAND_SIGIL}play:long-text`);
+			assert.ok(
+				played.includes("Blue is the color of the daytime sky"),
+				`the declared model must stream the canned scenario, got: "${played}"`
+			);
+			const params = await chat(model, `${COMMAND_SIGIL}params`);
+			assert.match(params, /max_tokens: `9000`/, "a user-declared output limit reaches the wire uncapped");
+		} finally {
+			await writeCapabilitiesSetting(withoutDeclare);
+			// Without its declaration the registry server would just fail every
+			// later sweep, churning error lines into the log buffer scenario 11
+			// scans; nothing after this test uses the registry.
+			await clearServers();
+		}
+	});
+
+	test("scenario 11: expectedFailures downgrades the discovery failure and takes one attempt per endpoint", async function () {
+		this.timeout(180000);
+		await declareServer({
+			label: LABEL_EXPECTED,
+			baseUrl: NO_DISCOVERY_URL,
+			apiKey: EXPECTED_FAILURES_KEY,
+			expectedFailures: ["modelListing", "modelInfo"],
+			modelCapabilities: {
+				[EXPECTED_DECLARED_MODEL]: { _declare: true, context_length: 32000, max_output_tokens: 4000 },
+			},
+		});
+		const models = await waitForHostModels(
+			60000,
+			(candidates) => candidates.some((model) => model.id === EXPECTED_DECLARED_MODEL),
+			`the expected-failures group to expose ${EXPECTED_DECLARED_MODEL}`
+		);
+		const model = expectDefined(models.find((candidate) => candidate.id === EXPECTED_DECLARED_MODEL));
+		assert.strictEqual(
+			model.maxInputTokens,
+			28000,
+			"the input limit derives from the declared context length minus the output limit"
+		);
+		const view = await declaredFor(LABEL_EXPECTED);
+		assert.strictEqual(view.syncError, undefined, "the group add must succeed");
+
+		// The status window records the TRUE outcome - an error - tagged
+		// expected with the declared count riding along; the presentation
+		// layers derive the ok-with-note verdict from those fields.
+		const statuses = (await vscode.commands.executeCommand("litellm._test.getServerStatuses")) as ServerStatus[];
+		const status = expectDefined(
+			statuses.find((candidate) => candidate.label === LABEL_EXPECTED),
+			`status for ${LABEL_EXPECTED}`
+		);
+		assert.strictEqual(status.state, "error", "the window keeps the truthful discovery outcome");
+		assert.strictEqual(status.expected, true, "the failure carries the expected tag");
+		assert.strictEqual(status.declaredModelCount, 1, "the declared model rides the error status");
+
+		// Info-level logging: the model/info fallback line and the boundary
+		// classification both carry the expected marker. Polled rather than
+		// snapshotted: the log buffer is a small ring that one sweep over this
+		// many groups can overflow, and every sweep of this group re-emits
+		// both lines.
+		await waitUntil("the expected-failure classifications to appear in the log buffer", 30000, async () => {
+			const logs = (await vscode.commands.executeCommand("litellm._test.getRecentLogs")) as string[];
+			return (
+				logs.some((line) => line.includes("(expected: modelInfo)")) &&
+				logs.some((line) => line.includes("Model discovery failed (expected: modelListing) for provider group"))
+			);
+		});
+		// Best effort, like scenario 5d: the ring buffer proves the error-level
+		// line is absent from the current window, not that it never existed.
+		const logs = (await vscode.commands.executeCommand("litellm._test.getRecentLogs")) as string[];
+		assert.ok(
+			logs.every((line) => !line.includes(`Failed to fetch models for provider group at ${NO_DISCOVERY_URL}`)),
+			"an expected terminal failure must never log at error level"
+		);
+
+		// One attempt per endpoint: snapshot the settled counters, force one
+		// full host round trip, and the entry's bucket moves by exactly one
+		// models attempt and one model/info attempt. The blanked 404s carry
+		// x-should-retry: true (the SDK never retries a plain 404), so only
+		// the zeroed per-endpoint retry budgets can hold these deltas at one.
+		const before = await quiescedDiscoveryAttempts(EXPECTED_FAILURES_KEY);
+		await syncNow();
+		await waitUntil(
+			"the forced sync's discovery pass to reach the fake backend",
+			30000,
+			async () => (await discoveryAttempts(EXPECTED_FAILURES_KEY)).models > before.models
+		);
+		const after = await quiescedDiscoveryAttempts(EXPECTED_FAILURES_KEY);
+		assert.strictEqual(after.models - before.models, 1, "one models-listing attempt, no retries");
+		assert.strictEqual(after.modelInfo - before.modelInfo, 1, "one model/info attempt, no retries");
+
+		// The declared model stays usable end to end under the expected outage.
+		assert.strictEqual(await chat(model, `${COMMAND_SIGIL}echo:expected declared chat`), "expected declared chat");
 	});
 });

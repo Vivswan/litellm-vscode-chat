@@ -16,6 +16,8 @@ import {
 	copyServerSecrets,
 	createServerSyncEnv,
 	deleteServerSecrets,
+	entryExpectedFailuresFor,
+	entryModelCapabilitiesFor,
 	entryModelParametersFor,
 	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
 	GROUP_UPSERT_FAILED_MESSAGE,
@@ -1448,6 +1450,132 @@ suite("extension/servers/serverSync", () => {
 				{ "gpt-4": { temperature: 0.9 } },
 				"the dashboard view still tracks the live setting"
 			);
+			engine.dispose();
+		});
+	});
+
+	suite("per-entry modelCapabilities and expectedFailures", () => {
+		test("parseServersSetting keeps usable values and drops malformed shapes without rejecting the entry", () => {
+			const { entries, problems } = parseServersSetting([
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					modelCapabilities: JSON.parse(
+						'{"gpt-4": {"context_length": 200000, "supports_vision": true}, "claude": "not a record", "__proto__": {"polluted": true}}'
+					) as unknown,
+					expectedFailures: ["modelInfo", "modelListing", "modelInfo", "not-a-category", 42],
+				},
+				{ label: "Junk", baseUrl: "http://junk.test", modelCapabilities: "junk", expectedFailures: "junk" },
+				{ label: "Empty", baseUrl: "http://empty.test", modelCapabilities: {}, expectedFailures: [] },
+				{ label: "Bare", baseUrl: "http://bare.test" },
+			]);
+
+			// Unknown expectedFailures values are counted, never echoed: the
+			// problems are logged and the tokens are user text.
+			assert.deepStrictEqual(problems, ["entry 1 lists 2 unknown expectedFailures value(s), ignored"]);
+			assert.deepStrictEqual(entries[0]?.modelCapabilities, {
+				"gpt-4": { context_length: 200000, supports_vision: true },
+			});
+			assert.deepStrictEqual(entries[0]?.expectedFailures, ["modelInfo", "modelListing"], "known tokens, deduplicated");
+			for (const entry of entries.slice(1)) {
+				assert.ok(!("modelCapabilities" in entry), `"${entry.label}" must read as carrying no entry capabilities`);
+				assert.ok(!("expectedFailures" in entry), `"${entry.label}" must read as expecting no failures`);
+			}
+		});
+
+		test("the accessors resolve only when the label and the normalized base URL agree", () => {
+			const raw = [
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test/",
+					modelCapabilities: { "gpt-4": { supports_reasoning: true } },
+					expectedFailures: ["modelInfo"],
+				},
+				{ label: "Stage", baseUrl: "http://stage.test", modelCapabilities: { "gpt-4": { supports_vision: true } } },
+			];
+			assert.deepStrictEqual(
+				entryModelCapabilitiesFor(raw, "Prod", "http://prod.test"),
+				{ "gpt-4": { supports_reasoning: true } },
+				"trailing slashes are insignificant on both sides"
+			);
+			assert.deepStrictEqual(entryExpectedFailuresFor(raw, "Prod", "http://prod.test"), ["modelInfo"]);
+			assert.strictEqual(
+				entryModelCapabilitiesFor(raw, "Prod", "http://stage.test"),
+				undefined,
+				"a label match at another entry's URL resolves to nothing"
+			);
+			assert.strictEqual(
+				entryExpectedFailuresFor(raw, "Prod", "http://stage.test"),
+				undefined,
+				"a label match at another entry's URL resolves to nothing"
+			);
+			assert.strictEqual(
+				entryModelCapabilitiesFor(raw, "Nope", "http://prod.test"),
+				undefined,
+				"a URL match under an undeclared label resolves to nothing"
+			);
+			assert.strictEqual(
+				entryExpectedFailuresFor(raw, "Stage", "http://stage.test"),
+				undefined,
+				"an entry without the field resolves to nothing"
+			);
+		});
+
+		test("neither field enters the group args or their fingerprint", () => {
+			const bare: DeclaredServer = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1" };
+			const withFields: DeclaredServer = {
+				...bare,
+				modelCapabilities: { "gpt-4": { context_length: 200000 } },
+				expectedFailures: ["modelListing", "modelInfo"],
+			};
+			const stored: StoredServerSecrets = { virtualKeyValue: "vk-1" };
+
+			assert.deepStrictEqual(buildGroupArgs(withFields, stored), buildGroupArgs(bare, stored));
+			assert.strictEqual(
+				fingerprint(JSON.stringify(buildGroupArgs(withFields, stored))),
+				fingerprint(JSON.stringify(buildGroupArgs(bare, stored)))
+			);
+		});
+
+		test("editing an entry's capabilities or expectedFailures neither re-pushes its group nor changes its fingerprint", async () => {
+			const recorded = makeSyncEnv([
+				{
+					label: "A",
+					baseUrl: "http://a.test",
+					modelCapabilities: { "gpt-4": { supports_vision: true } },
+					expectedFailures: ["modelInfo"],
+				},
+			]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1);
+			assert.ok(
+				!("modelCapabilities" in (recorded.upserts[0] ?? {})),
+				"capabilities stay out of the host configuration"
+			);
+			assert.ok(!("expectedFailures" in (recorded.upserts[0] ?? {})), "expectedFailures stay out too");
+			const printed = recorded.fingerprints.A;
+			assert.ok(printed !== undefined);
+			assert.deepStrictEqual(engine.getDeclared()[0]?.modelCapabilities, { "gpt-4": { supports_vision: true } });
+			assert.deepStrictEqual(engine.getDeclared()[0]?.expectedFailures, ["modelInfo"]);
+
+			recorded.setting = [
+				{
+					label: "A",
+					baseUrl: "http://a.test",
+					modelCapabilities: { "gpt-4": { supports_vision: false, context_length: 1000000 } },
+					expectedFailures: ["modelListing"],
+				},
+			];
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 1, "an unforced pass reads the entry as unchanged");
+			assert.strictEqual(recorded.fingerprints.A, printed);
+			assert.deepStrictEqual(
+				engine.getDeclared()[0]?.modelCapabilities,
+				{ "gpt-4": { supports_vision: false, context_length: 1000000 } },
+				"the dashboard view still tracks the live setting"
+			);
+			assert.deepStrictEqual(engine.getDeclared()[0]?.expectedFailures, ["modelListing"]);
 			engine.dispose();
 		});
 	});

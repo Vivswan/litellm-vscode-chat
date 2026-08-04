@@ -164,6 +164,27 @@ jobs:
           DOCKER_ONLY: ${{ matrix.labels }}
         run: xvfb-run -a bun run test:docker --only "$DOCKER_ONLY"
 
+  # Live-URL schema watch for the OpenRouter capability catalog: the fetch
+  # script's --check mode validates the live payload and the mapping without
+  # writing dist/, so payload drift is caught here instead of by users. The
+  # endpoint is unauthenticated and the failure text distinguishes
+  # "unreachable (transient)" from "schema drift"; unconditional on purpose
+  # (a skipped job would count green in the gate, see the header note).
+  openrouter-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Validate the live OpenRouter catalog payload
+        run: bun scripts/dev/fetch-openrouter-catalog.ts --check
+
   # Biome ci, helper-script typecheck, knip, type-aware promise lint,
   # @types/vscode vs engines.vscode, and the packaged-file-list check.
   format-check:

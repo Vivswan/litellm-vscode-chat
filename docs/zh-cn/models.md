@@ -2,7 +2,7 @@
 
 [English](../models.md) | 简体中文 | [繁體中文](../zh-tw/models.md)
 
-扩展读取每个服务器的模型信息, 并把发现的内容注册给 Copilot Chat: 模型的 token 限制、定价和能力标志都来自那里。能力决定模型被提供来做什么 (工具、图像、推理); 它们从不改变扩展要求模型做什么, 那是[模型参数](model-parameters.md)的职责。
+扩展读取每个服务器的模型信息, 并把发现的内容注册给 Copilot Chat: 模型的 token 限制、定价和能力标志都来自那里, 并由你在[模型能力](model-capabilities.md)中设置的任何内容纠正和补充。能力决定模型被提供来做什么 (工具、图像、推理); 它们从不改变扩展要求模型做什么, 那是[模型参数](model-parameters.md)的职责。
 
 ## 哪些模型会注册
 
@@ -12,7 +12,7 @@
 
 - `model_info.mode` 指向非聊天终结点 (`embedding`、`image_generation`、`audio_speech`、`audio_transcription`、`rerank`、`moderation`) 的模型被有意排除, 因为对它们的聊天请求只会失败。未声明 mode 的模型始终注册。
 - 代理已暂停的部署 (`model_info.blocked`) 被跳过。
-- 不过滤其他任何东西: 完全没有能力数据的模型仍会注册, 使用[设置](settings.md#token-限制)中的回退 token 限制。
+- 不过滤其他任何东西: 完全没有能力数据的模型仍会注册, 其空缺由 [`modelCapabilities`](model-capabilities.md)、[设置](settings.md#token-限制)中的回退 token 限制或 [OpenRouter 目录匹配](model-capabilities.md#openrouter-目录)填补 ([优先级](model-capabilities.md#优先级))。
 
 当一个模型名称由多个部署提供服务 (负载均衡池) 时, 它只注册一次, 采用最严格贡献者的 token 限制, 这样请求永远不会超出实际服务它的那个部署。
 
@@ -36,7 +36,7 @@
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中含 `reasoning_effort` (显式的 `supports_reasoning: false` 胜出) | 选择器中的「Thinking Effort」控件; 参见[模型参数](model-parameters.md#模型选择器中的推理强度) |
 | 提示缓存 | `supports_prompt_caching` | 是否放置缓存断点; 参见[设置](settings.md#提示缓存) |
 
-服务器端的错误标志值得在服务器端修复: 扩展在两个方向上都信任声明, 提供声明了的, 不提供未声明的。
+服务器端的错误标志值得在服务器端修复: 扩展在两个方向上都信任声明, 提供声明了的, 不提供未声明的。当服务器不由你修复时, 请改用 [`modelCapabilities`](model-capabilities.md) 覆盖该标志。
 
 ## 多模态输入
 

@@ -3,27 +3,34 @@
  * declared entries live here and nowhere else.
  */
 
-import { normalizeModelParameters } from "../../../shared/config/settings";
-import type { OptionalEntryFieldId, OptionalEntryFields } from "../../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS } from "../../../shared/serverEntry";
+import type { ModelCapabilitiesRecord } from "../../../shared/config/capabilityResolution";
+import { normalizeModelCapabilities, normalizeModelParameters } from "../../../shared/config/settings";
+import type { ExpectedFailureCategory, OptionalEntryFieldId, OptionalEntryFields } from "../../../shared/serverEntry";
+import { isExpectedFailureCategory, OPTIONAL_ENTRY_FIELDS } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 
 /** An entry's per-entry modelParameters: model-ID prefix to request parameters, like the global setting. */
 export type EntryModelParameters = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
+/** An entry's per-entry modelCapabilities: model-ID prefix to capability record, like the global setting. */
+export type EntryModelCapabilities = ModelCapabilitiesRecord;
+
 /**
  * One parsed servers-setting entry: label and baseUrl usable, other fields
- * present only with usable text. `modelParameters` is present only when the
- * raw entry carries a non-empty record of records; it scopes request
- * parameters to models served through this entry and is read extension-side
- * at request time - it never enters the group configuration or its
- * fingerprint (buildGroupArgs does not emit it).
+ * present only with usable text. `modelParameters`, `modelCapabilities`, and
+ * `expectedFailures` are present only when the raw entry carries usable
+ * content; they scope request parameters, capability overrides, and expected
+ * discovery failures to models served through this entry and are read
+ * extension-side - they never enter the group configuration or its
+ * fingerprint (buildGroupArgs does not emit them).
  */
 export type DeclaredServer = {
 	readonly label: string;
 	readonly baseUrl: string;
 	readonly modelParameters?: EntryModelParameters;
+	readonly modelCapabilities?: EntryModelCapabilities;
+	readonly expectedFailures?: readonly ExpectedFailureCategory[];
 } & OptionalEntryFields;
 
 function usableString(value: unknown): string | undefined {
@@ -59,28 +66,37 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
 	const accepted: { index: number; entry: DeclaredServer }[] = [];
 	const seen = new Set<string>();
 	raw.forEach((item: unknown, index) => {
-		const reject = (why: string) => problems?.push(`entry ${index + 1} ${why}`);
+		// One prefix for everything reported about this entry, rejecting or
+		// not: the problems are logged, so they reference the entry by index
+		// only, never by user text.
+		const report = (what: string) => problems?.push(`entry ${index + 1} ${what}`);
 		if (!isRecord(item)) {
-			reject("is not an object");
+			report("is not an object");
 			return;
 		}
 		const record = item;
 		const label = usableString(record.label);
 		const baseUrl = usableString(record.baseUrl);
 		if (label === undefined || baseUrl === undefined) {
-			reject("is missing a label or baseUrl");
+			report("is missing a label or baseUrl");
 			return;
 		}
 		if (isUnsafeRecordKey(label)) {
-			reject("uses a reserved label");
+			report("uses a reserved label");
 			return;
 		}
 		if (seen.has(label)) {
-			reject("repeats an earlier entry's label; the first entry wins");
+			report("repeats an earlier entry's label; the first entry wins");
 			return;
 		}
 		seen.add(label);
-		const entry: { label: string; baseUrl: string; modelParameters?: EntryModelParameters } & {
+		const entry: {
+			label: string;
+			baseUrl: string;
+			modelParameters?: EntryModelParameters;
+			modelCapabilities?: EntryModelCapabilities;
+			expectedFailures?: readonly ExpectedFailureCategory[];
+		} & {
 			-readonly [K in OptionalEntryFieldId]?: string;
 		} = {
 			label,
@@ -98,6 +114,25 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
 		const modelParameters = normalizeModelParameters(record.modelParameters);
 		if (Object.keys(modelParameters).length > 0) {
 			entry.modelParameters = modelParameters;
+		}
+		// Shape-lenient like modelParameters; the capability vocabulary is
+		// enforced downstream by parseCapabilityRecord, which owns the
+		// diagnostics the dashboard renders.
+		const modelCapabilities = normalizeModelCapabilities(record.modelCapabilities);
+		if (Object.keys(modelCapabilities).length > 0) {
+			entry.modelCapabilities = modelCapabilities;
+		}
+		if (Array.isArray(record.expectedFailures)) {
+			const known = record.expectedFailures.filter(isExpectedFailureCategory);
+			if (known.length < record.expectedFailures.length) {
+				// Counted, never echoed: unknown tokens are user text.
+				const unknownCount = record.expectedFailures.length - known.length;
+				report(`lists ${unknownCount} unknown expectedFailures value(s), ignored`);
+			}
+			const categories = [...new Set(known)];
+			if (categories.length > 0) {
+				entry.expectedFailures = categories;
+			}
 		}
 		accepted.push({ index, entry });
 	});
@@ -152,25 +187,47 @@ export function rawDeclaredLabels(raw: unknown): Set<string> {
 }
 
 /**
- * The request path's resolution of one declared entry's per-entry
- * modelParameters: the entry acceptedEntry resolves for `label`, and only
- * when that entry also declares the server the request is routed to (base
- * URLs compared under the shared normalization). The match is label plus
- * URL - credentials deliberately play no part - so any group carrying the
- * entry's label at the entry's URL resolves, a hand-labeled native group
- * included. What the URL check excludes is a label that proves nothing
- * about the connection: a same-label group at another URL (a stale group
- * outliving a label reuse or a baseUrl edit) resolves to nothing here and
- * gets only the global modelParameters setting.
+ * The declared entry the extension-side per-entry reads resolve against: the
+ * entry acceptedEntry resolves for `label`, and only when that entry also
+ * declares the server the request or refresh is routed to (base URLs compared
+ * under the shared normalization). The match is label plus URL - credentials
+ * deliberately play no part - so any group carrying the entry's label at the
+ * entry's URL resolves, a hand-labeled native group included. What the URL
+ * check excludes is a label that proves nothing about the connection: a
+ * same-label group at another URL (a stale group outliving a label reuse or
+ * a baseUrl edit) resolves to nothing and gets only the global settings.
  */
+function matchedEntryFor(raw: unknown, label: string, baseUrl: string): DeclaredServer | undefined {
+	const match = acceptedEntry(raw, label);
+	if (match === undefined || normalizeBaseUrl(match.entry.baseUrl) !== normalizeBaseUrl(baseUrl)) {
+		return undefined;
+	}
+	return match.entry;
+}
+
+/** The request path's resolution of one declared entry's per-entry modelParameters; see matchedEntryFor. */
 export function entryModelParametersFor(
 	raw: unknown,
 	label: string,
 	baseUrl: string
 ): EntryModelParameters | undefined {
-	const match = acceptedEntry(raw, label);
-	if (match === undefined || normalizeBaseUrl(match.entry.baseUrl) !== normalizeBaseUrl(baseUrl)) {
-		return undefined;
-	}
-	return match.entry.modelParameters;
+	return matchedEntryFor(raw, label, baseUrl)?.modelParameters;
+}
+
+/** The registration path's resolution of one declared entry's per-entry modelCapabilities; see matchedEntryFor. */
+export function entryModelCapabilitiesFor(
+	raw: unknown,
+	label: string,
+	baseUrl: string
+): EntryModelCapabilities | undefined {
+	return matchedEntryFor(raw, label, baseUrl)?.modelCapabilities;
+}
+
+/** The discovery path's resolution of one declared entry's expectedFailures; see matchedEntryFor. */
+export function entryExpectedFailuresFor(
+	raw: unknown,
+	label: string,
+	baseUrl: string
+): readonly ExpectedFailureCategory[] | undefined {
+	return matchedEntryFor(raw, label, baseUrl)?.expectedFailures;
 }

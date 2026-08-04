@@ -380,7 +380,12 @@ suite("provider/catalog/groupModels", () => {
 			const server = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k" }));
 			const audioModel = attachGroupServer(
 				makeModelInfo({
-					litellm: { supportsPromptCaching: false, outputLimitSource: "defaults", supportsAudioInput: true },
+					litellm: {
+						supportsPromptCaching: false,
+						outputLimitSource: "defaults",
+						supportsAudioInput: true,
+						serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+					},
 				}),
 				server
 			);

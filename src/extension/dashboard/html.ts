@@ -538,6 +538,9 @@ const STYLES = `
 		white-space: nowrap;
 	}
 	.badge + .badge { margin-left: 4px; }
+	/* The declared badge beside a model name: breathing room from the last
+	   letter, centered on the name's line. */
+	td.model-name .badge { margin-left: 6px; vertical-align: middle; }
 	/* The hidden-groups line under the servers table: one muted sentence
 	   stating the count, and a quiet row per group when expanded. */
 	.hidden-groups { margin: 4px 0 8px; color: var(--vscode-descriptionForeground); }
@@ -569,6 +572,54 @@ const STYLES = `
 	.row .cell input.key, .row .cell input.value { grid-column: auto; flex: 1; min-width: 0; }
 	.row button { grid-column: 3; justify-self: start; }
 	.row .error { grid-column: 1 / -1; font-size: 0.9em; margin: 0; }
+	/* Inside the slide-over form the row grid must shrink with the panel:
+	   fixed column floors overflow the form card and clip the value help
+	   glyph against the edge. The value column gets the larger share - it
+	   holds the longer content (catalog IDs, token counts). */
+	.form-card .row { grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.4fr) auto; }
+	/* A capability row's non-blocking hint (unknown key) rides under the row
+	   like an error line, in the muted tone. */
+	.row .hint { grid-column: 1 / -1; font-size: 0.9em; margin: 0; }
+	/* The boolean capability control: one checkbox with its short reading. */
+	.capability-flag { display: flex; gap: 6px; align-items: center; }
+	/* The _openrouter_model catalog picker: the value input anchors its own
+	   dropdown, styled like the hover widget so it reads as transient UI. */
+	.catalog-picker { position: relative; }
+	.catalog-results {
+		position: absolute;
+		z-index: 30;
+		top: 100%;
+		right: 0;
+		/* Right-anchored and wider than a narrow value input, so catalog IDs
+		   stay on one line; the popup grows leftwards over the row's chrome. */
+		min-width: 260px;
+		margin: 2px 0 0;
+		padding: 2px;
+		max-height: 180px;
+		overflow-y: auto;
+		background: var(--vscode-editorHoverWidget-background);
+		color: var(--vscode-editorHoverWidget-foreground);
+		border: 1px solid var(--vscode-editorHoverWidget-border);
+		border-radius: 4px;
+		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+	}
+	.catalog-results button {
+		display: block;
+		width: 100%;
+		text-align: left;
+		padding: 3px 6px;
+		border-radius: 3px;
+	}
+	.catalog-results button:hover,
+	.catalog-results button.active { background: var(--vscode-list-hoverBackground); }
+	/* The ID on its own line, the display name muted beneath: every item
+	   reads the same regardless of how long either half is. */
+	.catalog-results .catalog-id { display: block; font-family: var(--vscode-editor-font-family, monospace); }
+	/* The expected-failures checkbox set inside the capabilities disclosure. */
+	.expected-failures { border: none; margin: 12px 0 0; padding: 0; }
+	.expected-failures legend { padding: 0; font-weight: 600; }
+	.expected-failures .setting-check { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+	.expected-failures > .hint { margin: 2px 0 6px; font-size: 0.9em; }
 	.group {
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 		border-radius: 4px;
@@ -612,6 +663,9 @@ const STYLES = `
 	}
 	.params-inspector .param-not-sent td { color: var(--vscode-descriptionForeground); }
 	.params-inspector .param-skip { color: var(--vscode-descriptionForeground); }
+	/* Capability values are short (a token count, yes/no); wrapping "128,000"
+	   mid-number reads as two values, so the value cell never wraps there. */
+	.caps-inspector .param-value { white-space: nowrap; }
 	.params-inspector .param-shadowed td {
 		color: var(--vscode-descriptionForeground);
 		font-size: 0.9em;
@@ -619,6 +673,16 @@ const STYLES = `
 		padding-top: 0;
 	}
 	.params-inspector .param-shadowed .param-value { text-decoration: line-through; }
+	/* Shadow rows group under THEIR field: the rule moves from between a field
+	   and its shadows to after the last shadow, so the struck-through values
+	   never read as belonging to the next field down. */
+	.params-inspector table.params tr:not(.param-shadowed):has(+ tr.param-shadowed) td { border-bottom: none; }
+	.params-inspector .param-shadowed:not(:has(+ .param-shadowed)) td {
+		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+	}
+	/* Capability names are localized human labels, not settings keys; only the
+	   params twin's real keys keep the monospace register. */
+	.caps-inspector .param-name { font-family: var(--vscode-font-family); }
 	.params-inspector .params-replaced ul {
 		list-style: none;
 		margin: 4px 0 8px;

@@ -991,6 +991,107 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 	});
 });
 
+// ── Declared Models (capture) ────────────────────────────────────────────────
+
+suite("Host-Fidelity Tests (declared models)", () => {
+	if (IS_LIVE) {
+		test("SKIPPED: running in live mode, capture tests disabled", () => {});
+		return;
+	}
+
+	/** Created only by the `_declare` below; the capture server never lists it. */
+	const DECLARED_MODEL_ID = "declared-probe-model";
+
+	let server: CaptureServer;
+	let declaredModel: vscode.LanguageModelChat;
+	let modelIds: string[] = [];
+	let originalCapabilities: unknown;
+
+	suiteSetup(async function () {
+		this.timeout(20000);
+
+		server = createCaptureServer();
+		await server.start();
+		const baseUrl = `http://localhost:${server.port}`;
+
+		await ensureActivated();
+		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
+		originalCapabilities = config.inspect("modelCapabilities")?.globalValue;
+		// The first record declares a model discovery cannot list; the second
+		// names the DISCOVERED model, so its _declare must stay inert.
+		await config.update(
+			"modelCapabilities",
+			{
+				[`${baseUrl}/${DECLARED_MODEL_ID}`]: {
+					_declare: true,
+					max_input_tokens: 150000,
+					max_output_tokens: 8192,
+					supports_vision: true,
+				},
+				[`${baseUrl}/${CAPTURE_MODEL_ID}`]: { _declare: true },
+			},
+			vscode.ConfigurationTarget.Global
+		);
+
+		await clearServers();
+		({ modelIds } = await addServer("Declared", baseUrl, "test-key"));
+		const models = await waitForHostModels(
+			15000,
+			(candidates) => hostMatches(candidates, modelIds),
+			`host to expose the discovered and declared models (${modelIds.join(", ")})`
+		);
+		declaredModel = expectDefined(
+			models.find((m) => m.id === DECLARED_MODEL_ID),
+			"host returned no declared model"
+		);
+	});
+
+	suiteTeardown(async () => {
+		await vscode.workspace
+			.getConfiguration("litellm-vscode-chat")
+			.update("modelCapabilities", originalCapabilities, vscode.ConfigurationTarget.Global);
+		await clearServers();
+		if (server) {
+			await server.close();
+		}
+	});
+
+	test("a _declare on an unlisted ID registers it; one on a discovered ID stays inert", () => {
+		assert.deepStrictEqual(
+			[...modelIds].sort(),
+			[CAPTURE_MODEL_ID, DECLARED_MODEL_ID].sort(),
+			"exactly the discovered model plus the declared one, no duplicates"
+		);
+	});
+
+	test("the declared model registers with its declared capabilities", async () => {
+		const infos = (await vscode.commands.executeCommand(
+			"litellm._test.refreshModelInfos"
+		)) as vscode.LanguageModelChatInformation[];
+		const info = expectDefined(
+			infos.find((candidate) => candidate.id === DECLARED_MODEL_ID),
+			`${DECLARED_MODEL_ID} in refreshModelInfos`
+		);
+		assert.strictEqual(info.maxInputTokens, 150000, "the declared max_input_tokens drives registration");
+		assert.strictEqual(info.maxOutputTokens, 8192, "the declared max_output_tokens drives registration");
+		assert.strictEqual(info.capabilities?.imageInput, true, "the declared supports_vision registers as imageInput");
+	});
+
+	test("chat through the declared model reaches the wire with the declared output limit", async () => {
+		server.setScenario("text-only");
+		const response = await declaredModel.sendRequest(
+			[vscode.LanguageModelChatMessage.User("hi")],
+			{},
+			new vscode.CancellationTokenSource().token
+		);
+		const text = extractText(await collectStream(response));
+		assert.ok(text.includes("Hello from capture server"), `expected the captured reply, got: "${text}"`);
+		const body = server.getLastRequest() ?? {};
+		assert.strictEqual(body.model, DECLARED_MODEL_ID, "the declared raw ID routes to the wire");
+		assert.strictEqual(body.max_tokens, 8192, "a user-declared output limit passes uncapped, not min(4096, ...)");
+	});
+});
+
 // ── Group-Configuration Label Round Trip (capture) ──────────────────────────
 
 suite("Host-Fidelity Tests (group label round trip)", () => {

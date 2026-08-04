@@ -198,6 +198,60 @@ suite("extension/dashboard/panelIntegration", () => {
 		assert.ok(!JSON.stringify(globalValue ?? {}).includes("PanelIT"), "the settings entry must be gone");
 	});
 
+	test("saveServerSetting round-trips modelCapabilities and expectedFailures through the entry rebuild", async function () {
+		this.timeout(30000);
+		// The apply path rebuilds the whole entry from the intent, so a field
+		// missed anywhere in the chain is silently DELETED on save; this pins
+		// the round trip for both new fields, across an edit-in-place rebuild.
+		const capabilities = { "my-model": { _declare: true, context_length: 128000 } };
+		const saved = await inject({
+			type: "saveServerSetting",
+			server: {
+				label: "PanelIT-Caps",
+				baseUrl: "http://localhost:49999",
+				modelCapabilities: capabilities,
+				expectedFailures: ["modelListing"],
+			},
+			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
+			requestId: "pi-caps-1",
+		});
+		assert.strictEqual(saved, "ok");
+
+		const entryAfter = () => {
+			const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
+			assert.ok(Array.isArray(globalValue), "the servers setting must hold an array");
+			return globalValue.find((entry: unknown) => (entry as { label?: string }).label === "PanelIT-Caps") as Record<
+				string,
+				unknown
+			>;
+		};
+		assert.deepStrictEqual(entryAfter().modelCapabilities, capabilities);
+		assert.deepStrictEqual(entryAfter().expectedFailures, ["modelListing"]);
+
+		// The edit-in-place rebuild: the same fields posted again must survive
+		// the whole intent -> schema -> saveServer chain, not silently vanish.
+		const edited = await inject({
+			type: "saveServerSetting",
+			server: {
+				label: "PanelIT-Caps",
+				baseUrl: "http://localhost:49999",
+				modelCapabilities: capabilities,
+				expectedFailures: ["modelListing", "modelInfo"],
+			},
+			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
+			replaceLabel: "PanelIT-Caps",
+			requestId: "pi-caps-2",
+		});
+		assert.strictEqual(edited, "ok");
+		assert.deepStrictEqual(entryAfter().modelCapabilities, capabilities);
+		assert.deepStrictEqual(entryAfter().expectedFailures, ["modelListing", "modelInfo"]);
+
+		assert.strictEqual(
+			await inject({ type: "removeServerSetting", label: "PanelIT-Caps", requestId: "pi-caps-rm" }),
+			"ok"
+		);
+	});
+
 	test("an executeCommand intent dispatches through the real vscode.commands bridge", async function () {
 		this.timeout(20000);
 		// syncModels is a real registered command; with nothing declared it

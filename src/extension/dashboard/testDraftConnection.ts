@@ -15,15 +15,18 @@
  */
 
 import * as vscode from "vscode";
+import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
-import { getTokenDefaults } from "../../shared/config/settings";
+import { extractDeclaredModels } from "../../shared/config/capabilityResolution";
+import { getModelCapabilitiesConfig, getTokenDefaults } from "../../shared/config/settings";
 import { transportClassificationOf } from "../../shared/errorClassification";
+import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError, rawServerEntries } from "./intents";
-import type { SecretFieldId } from "./protocol";
+import type { SaveServerPayload, SecretFieldId } from "./protocol";
 import { readKeepSources, resolveKeptSecret } from "./saveServer";
 
 /**
@@ -36,6 +39,8 @@ export interface DraftConnection {
 	readonly apiKey: string;
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
+	/** The draft's expectedFailures in discovery's per-endpoint shape: expected endpoints probe with a single attempt, like production. */
+	readonly expected?: ExpectedDiscoveryFailures | undefined;
 }
 
 /** An optional payload field trimmed to content, or undefined; the save path's empty-means-absent rule. */
@@ -45,21 +50,50 @@ function trimmedOptional(value: string | undefined): string | undefined {
 }
 
 /**
+ * A draft probe's outcome, for the success notice intents.ts composes.
+ * "connected" carries the total the saved entry would register (discovered
+ * plus `_declare`d models discovery does not list - inert declarations do
+ * not double-count); "expected-failure" means discovery failed in a category
+ * the draft's expectedFailures declares, so the outcome is the declared
+ * models the entry would serve anyway, not a hard failure.
+ */
+export type DraftProbeOutcome =
+	| { readonly kind: "connected"; readonly modelCount: number; readonly declaredCount: number }
+	| { readonly kind: "expected-failure"; readonly declaredCount: number };
+
+/**
+ * The models the draft's `_declare` directives create, resolved exactly like
+ * registration resolves them: the draft's own capability records as the entry
+ * layer, the live global setting scoped to the draft's base URL.
+ */
+function draftDeclaredModelIds(server: SaveServerPayload): readonly string[] {
+	return extractDeclaredModels({
+		globalCapabilities: getModelCapabilitiesConfig(),
+		serverScopes: [normalizeBaseUrl(server.baseUrl.trim())],
+		entryCapabilities: server.modelCapabilities,
+	}).models.map((model) => model.rawId);
+}
+
+/**
  * Apply one testServerDraft intent: resolve each secret directive to the
  * value the draft means (set: the typed value; clear: nothing; keep: the
  * stored value the entry `replaceLabel` names resolves, inline winning over
  * secure like the sync engine), enforce the same cross-field pairing rules a
  * save enforces (a partial OAuth or virtual-key configuration would probe
  * unauthenticated and report a lie), and hand the assembled connection to the
- * injected probe. Resolves to the discovered model count; transport failures
- * are re-thrown as validation-kind errors carrying the transport's specific
- * user-facing message (the same text a server row's error state renders), so
- * the panel boundary logs a classification only, never response text.
+ * injected probe. Resolves to the probe outcome (model counts, with the
+ * draft's `_declare`d models joining the total); a terminal discovery
+ * failure in a category the draft's expectedFailures declares resolves to
+ * the expected-failure outcome instead of throwing, and every other
+ * transport failure is re-thrown as a validation-kind error carrying the
+ * transport's specific user-facing message (the same text a server row's
+ * error state renders), so the panel boundary logs a classification only,
+ * never response text.
  */
 export async function applyTestServerDraft(
 	intent: Extract<DashboardIntent, { type: "testServerDraft" }>,
 	env: IntentEnvironment
-): Promise<number> {
+): Promise<DraftProbeOutcome> {
 	const label = intent.server.label.trim();
 	const targetLabel = (intent.replaceLabel ?? intent.server.label).trim();
 	const entries = rawServerEntries(env.readServersSetting());
@@ -131,11 +165,27 @@ export async function applyTestServerDraft(
 		...(virtualKeyHeader !== undefined && virtualKeyValue !== undefined
 			? { virtualKey: { header: virtualKeyHeader, value: virtualKeyValue } }
 			: {}),
+		expected: {
+			modelInfo: intent.server.expectedFailures?.includes("modelInfo") === true,
+			modelListing: intent.server.expectedFailures?.includes("modelListing") === true,
+		},
 	};
 	try {
-		return await env.probeDraftConnection(connection);
+		const discovered = await env.probeDraftConnection(connection);
+		// Inertness matches registration: a declared ID discovery already lists
+		// adds nothing, so only the others join the would-be-registered total.
+		const discoveredSet = new Set(discovered);
+		const declaredCount = draftDeclaredModelIds(intent.server).filter((rawId) => !discoveredSet.has(rawId)).length;
+		return { kind: "connected", modelCount: discovered.length + declaredCount, declaredCount };
 	} catch (error) {
 		if (error instanceof RequestError) {
+			// A terminal discovery failure is a /models failure; when the draft
+			// expects that category, the outcome mirrors production's non-silent
+			// refresh contract - the declared models the entry would serve
+			// anyway, as a note instead of a hard failure.
+			if (intent.server.expectedFailures?.includes("modelListing") === true) {
+				return { kind: "expected-failure", declaredCount: draftDeclaredModelIds(intent.server).length };
+			}
 			// The transport's message is user-facing by the same convention as a
 			// server row's error state; validation-kind because nothing durable
 			// changed (the probe is read-only), so the form stays editable. The
@@ -166,7 +216,7 @@ const DRAFT_PROBE_SERVER_ID = "dashboard-draft-probe";
  */
 export function createDraftConnectionProbe(
 	context: vscode.ExtensionContext
-): (connection: DraftConnection) => Promise<number> {
+): (connection: DraftConnection) => Promise<readonly string[]> {
 	// The same User-Agent activation composes for the provider; recomputed here
 	// because the probe outlives no request and activation does not export it.
 	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
@@ -182,8 +232,9 @@ export function createDraftConnectionProbe(
 				...(connection.oauth !== undefined ? { oauth: connection.oauth } : {}),
 				...(connection.virtualKey !== undefined ? { virtualKey: connection.virtualKey } : {}),
 			},
-			getTokenDefaults()
+			getTokenDefaults(),
+			connection.expected
 		);
-		return models.length;
+		return models.map((model) => model.id);
 	};
 }

@@ -77,9 +77,12 @@ jobs:
       # logs/ and coverage/ get seeded the same way: the dev launcher and
       # test:coverage write them locally but nothing in this job does, so
       # without the seeding their exclusion would never actually be exercised.
+      # The strict catalog fetch mirrors vscode:prepublish, so the listing
+      # below checks the exact file set a release build would package.
       - name: Verify the packaged file list stays clean
         run: |
           bun run compile
+          bun scripts/dev/fetch-openrouter-catalog.ts
           bun run bundle
           mkdir -p logs coverage
           touch logs/ci-proof.log coverage/ci-proof.json
@@ -91,7 +94,7 @@ jobs:
           # noticed). Anything new must be added here deliberately, including
           # new asset types and new localization catalogs. POSIX bracket
           # expressions treat \w literally, hence the spelled-out class.
-          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js)$|^assets/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$'
+          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js|dist/openrouter-models\.json)$|^assets/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$'
           if echo "$listing" | grep -Ev "$allowed"; then
             echo "::error::vsce would package files outside the allowed set (matches above)"
             exit 1
@@ -102,6 +105,20 @@ jobs:
           fi
           if ! echo "$listing" | grep -qx 'dist/webview/dashboard.js'; then
             echo "::error::dist/webview/dashboard.js is missing from the packaged file list"
+            exit 1
+          fi
+          # The OpenRouter catalog artifact must ship AND carry a real model
+          # set: a size floor alone cannot catch a semantically empty file.
+          # The floor is read from CATALOG_MODEL_COUNT_FLOOR so it cannot
+          # drift from the fetch script's own validation.
+          if ! echo "$listing" | grep -qx 'dist/openrouter-models.json'; then
+            echo "::error::dist/openrouter-models.json is missing from the packaged file list"
+            exit 1
+          fi
+          catalog_floor="$(bun -e 'console.log(require("./src/shared/config/openRouterCatalog.ts").CATALOG_MODEL_COUNT_FLOOR)')"
+          catalog_count="$(jq '.data | length // 0' dist/openrouter-models.json)"
+          if ! [[ "$catalog_count" =~ ^[0-9]+$ ]] || [ "$catalog_count" -lt "$catalog_floor" ]; then
+            echo "::error::dist/openrouter-models.json parses to ${catalog_count} models (floor ${catalog_floor})"
             exit 1
           fi
           # The localization catalogs must ship: without package.nls.json the

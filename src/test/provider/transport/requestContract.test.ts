@@ -761,7 +761,12 @@ suite("provider/request contract", () => {
 			const withAudio = await captureRequestBody(
 				createConfiguredProvider(),
 				makeModelInfo({
-					litellm: { supportsPromptCaching: false, outputLimitSource: "defaults", supportsAudioInput: true },
+					litellm: {
+						supportsPromptCaching: false,
+						outputLimitSource: "defaults",
+						supportsAudioInput: true,
+						serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+					},
 				}),
 				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
 				{ messages: [audioMessage()] }
@@ -868,6 +873,27 @@ suite("provider/request contract", () => {
 				)
 			);
 			assert.strictEqual(body.max_tokens, 32000, "an admin's declared limit must not be clamped to 4096");
+		});
+
+		test("a user-overridden output limit (modelCapabilities) is sent uncapped like a declared one", async () => {
+			// The capability override path stamps outputLimitSource: "user" on the
+			// model; the request path must honor it across the host round trip
+			// exactly like "provider" - the user's number is not a guess.
+			const body = await withConfig({ modelParameters: {} }, () =>
+				captureRequestBody(
+					createConfiguredProvider(),
+					makeModelInfo({
+						maxOutputTokens: 32000,
+						litellm: {
+							supportsPromptCaching: false,
+							outputLimitSource: "user",
+							serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+						},
+					}),
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto }
+				)
+			);
+			assert.strictEqual(body.max_tokens, 32000, "a user-set limit must not be clamped to 4096");
 		});
 
 		test("a defaults-derived output limit stays capped at 4096", async () => {

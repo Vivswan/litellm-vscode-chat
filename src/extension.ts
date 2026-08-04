@@ -6,6 +6,7 @@ import { configureSharedL10n } from "./extension/l10nConfig";
 import type { MigrationContext } from "./extension/migrations";
 import { runMigrations } from "./extension/migrations";
 import { isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
+import { createOpenRouterCatalogStore } from "./extension/openRouterCatalog";
 import { GroupRemovalStore } from "./extension/servers/groupRemovals";
 import {
 	type ManagementUiMode,
@@ -16,6 +17,8 @@ import { ServerRegistry } from "./extension/servers/serverRegistry";
 import {
 	createServerSyncEnv,
 	parseServersSetting,
+	readEntryExpectedFailures,
+	readEntryModelCapabilities,
 	readEntryModelParameters,
 	registerSetServerSecretCommand,
 	ServerSyncEngine,
@@ -38,15 +41,39 @@ import {
 } from "./extension/ui/notifier";
 import { registerOpenSettingKeyCommand } from "./extension/ui/openSettingKey";
 import { StatusBarManager } from "./extension/ui/status";
+import type { DiscoveredGroupModels } from "./provider";
 import { LiteLLMChatModelProvider } from "./provider";
+import { DiscoveryCache } from "./provider/catalog/discoveryCache";
 import { CMD, VENDOR_ID } from "./shared/config/commandIds";
+import type { BooleanSettingId, NumberSettingId } from "./shared/config/settingSpec";
 import { CONFIG_SECTION } from "./shared/config/settingSpec";
-import { SERVERS_SETTING_KEY } from "./shared/config/settings";
+import {
+	isOpenRouterCatalogEnabled,
+	MODEL_CAPABILITIES_SETTING_KEY,
+	SERVERS_SETTING_KEY,
+} from "./shared/config/settings";
 import { HAS_SHOWN_WELCOME_KEY } from "./shared/config/storageKeys";
 import type { DevSeed } from "./shared/devSeed";
 import { Logger } from "./shared/logger";
 import type { AggregatedStatus } from "./shared/servers";
+import { debounced } from "./shared/util/debounce";
 import { GITHUB_DOCS_URL } from "./shared/util/links";
+
+/**
+ * The deprecated default* trio: their values are baked into cached discovery
+ * results, so an edit must drop the discovery cache before models re-resolve
+ * (see the configuration listener in activate).
+ */
+const TOKEN_DEFAULT_SETTING_IDS = [
+	"defaultMaxOutputTokens",
+	"defaultContextLength",
+	"defaultMaxInputTokens",
+] as const satisfies readonly NumberSettingId[];
+
+const OPENROUTER_CATALOG_SETTING_ID = "openRouterCatalog.enabled" satisfies BooleanSettingId;
+
+/** How long configuration-change bursts (settings.json keystrokes) coalesce before models re-resolve. */
+const CONFIG_CHANGE_DEBOUNCE_MS = 400;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	// Before anything renders a string: shared modules localize through
@@ -91,13 +118,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// removal works by tombstoning): the provider consults the store on every
 	// group refresh, and tombstone changes fire the model-change event below.
 	const groupRemovals = new GroupRemovalStore(context.globalState);
+	// Owned here rather than defaulted inside the provider so the
+	// configuration listener below can drop it when the deprecated default*
+	// token settings change (their values are baked into cached results).
+	const discoveryCache = new DiscoveryCache<DiscoveredGroupModels>();
+	// The OpenRouter capability catalog: bundled snapshot, globalStorage cache,
+	// weekly refresh. Created before the provider because the provider's
+	// catalog seam reads its lookup; the snapshot loads later (see the
+	// initialize call below), and lookups answer not-found until it lands.
+	const catalogStore = createOpenRouterCatalogStore({
+		extensionUri: context.extensionUri,
+		globalStorageUri: context.globalStorageUri,
+		globalState: context.globalState,
+		logger,
+		isEnabled: isOpenRouterCatalogEnabled,
+	});
+	context.subscriptions.push(catalogStore);
 	const provider = new LiteLLMChatModelProvider({
 		userAgent: ua,
 		logger,
 		getServers: () => registry.getServersWithKeys(),
 		getEntryModelParameters: readEntryModelParameters,
+		getEntryModelCapabilities: readEntryModelCapabilities,
+		getExpectedFailures: readEntryExpectedFailures,
+		getCatalogLookup: () => catalogStore.lookup,
 		grouplessRegistryEnabled: () => REGISTRY_SERVED_IN_MODE[getManagementUiMode()],
 		isGroupSuppressed: (label, baseUrl) => groupRemovals.isTombstoned(label, baseUrl),
+		discoveryCache,
 	});
 
 	// The setting itself is the truth here, not the sync engine's view: the
@@ -149,14 +196,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// provider groups. Created before the dashboard, which edits the setting
 	// and reads the engine's declared-server view.
 	const syncEngine = new ServerSyncEngine(createServerSyncEnv(context, logger, fingerprintSalt, groupRemovals));
+	// One debounced notify shared by every configuration branch below, so a
+	// multi-setting edit re-resolves models once. Errors are isolated like the
+	// other notify call sites: a throw must not escape into the timer.
+	const notifyModelsChanged = debounced(() => {
+		try {
+			provider.notifyModelInformationChanged();
+		} catch (error) {
+			logger.error("Configuration-change model notification failed", error);
+		}
+	}, CONFIG_CHANGE_DEBOUNCE_MS);
 	context.subscriptions.push(
 		// Disposal withdraws an armed no-servers claim, so its deferred toast
 		// cannot fire from a deactivated extension.
 		notifier,
 		syncEngine,
+		notifyModelsChanged,
 		vscode.workspace.onDidChangeConfiguration((event) => {
-			if (event.affectsConfiguration(`${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`)) {
+			const affects = (id: string) => event.affectsConfiguration(`${CONFIG_SECTION}.${id}`);
+			if (affects(SERVERS_SETTING_KEY)) {
+				// The sync alone cannot re-attach models for an entry whose
+				// modelCapabilities or expectedFailures changed: those fields stay
+				// out of the group args and the sync fingerprint, so the debounced
+				// notify is what makes the host re-resolve the groups.
 				syncEngine.requestSync();
+				notifyModelsChanged.schedule();
+			}
+			if (affects(MODEL_CAPABILITIES_SETTING_KEY)) {
+				// Capability overrides are applied where models attach, outside the
+				// discovery cache, so a notify alone suffices: no cache clear, no
+				// network.
+				notifyModelsChanged.schedule();
+			}
+			if (affects(OPENROUTER_CATALOG_SETTING_ID)) {
+				// Opting out cancels the pending refresh (all catalog network) and
+				// opting back in reschedules it; the registration effect - the
+				// implicit lookup turning on or off - is the notify.
+				catalogStore.applyEnabledSetting();
+				notifyModelsChanged.schedule();
+			}
+			if (TOKEN_DEFAULT_SETTING_IDS.some(affects)) {
+				// The trio's values are baked into cached discovery results, so the
+				// re-resolve must read through an empty cache. Cleared immediately
+				// (idempotent; the epoch guard covers in-flight loads), notify
+				// debounced with the rest.
+				discoveryCache.clear();
+				notifyModelsChanged.schedule();
 			}
 		})
 	);
@@ -164,8 +249,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Also registers litellm.showDiagnostics: the command deep-links to the
 	// dashboard's Diagnostics tab, and the dashboard states the legacy
 	// registry's leftovers, which is why it takes the registry.
-	const dashboard = registerDashboardCommand(context, provider, logger, syncEngine, registry, groupRemovals);
+	const dashboard = registerDashboardCommand(
+		context,
+		provider,
+		logger,
+		syncEngine,
+		registry,
+		groupRemovals,
+		catalogStore
+	);
 	syncEngine.onDidSync = () => dashboard.refresh();
+	// A refreshed catalog snapshot must become visible without waiting for an
+	// unrelated refresh: the debounced notify re-attaches models (catalog
+	// levels re-resolve at attach) and the dashboard re-push re-renders the
+	// inspector's catalog rows.
+	context.subscriptions.push(
+		catalogStore.onDidUpdate(() => {
+			notifyModelsChanged.schedule();
+			try {
+				dashboard.refresh();
+			} catch (error) {
+				logger.error("Dashboard refresh failed", error);
+			}
+		})
+	);
+	// Load the cached or bundled snapshot off the activation path (never
+	// throws), then notify exactly when something was installed: models the
+	// host resolved before the load must not keep the empty catalog until an
+	// unrelated refresh, while a dev build without the artifact changes
+	// nothing and must not fire a spurious re-resolve.
+	void catalogStore.initialize().then(() => {
+		if (catalogStore.snapshot().models.length > 0) {
+			notifyModelsChanged.schedule();
+		}
+	});
 	// A tombstone change must reach the picker and the dashboard at once: the
 	// model-change event makes the host re-resolve every group (a hidden group
 	// then answers empty; an unhidden one serves again), and the refresh
