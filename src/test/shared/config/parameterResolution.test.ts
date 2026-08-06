@@ -1,7 +1,9 @@
 import * as assert from "node:assert";
 import { buildRequestBody } from "../../../provider/transport/request";
 import {
+	CATCH_ALL_PREFIX,
 	DEFAULT_MAX_TOKENS_CAP,
+	findLongestPrefixEntry,
 	findLongestPrefixMatch,
 	findScopedMatch,
 	PROVIDER_OWNED_KEYS,
@@ -217,6 +219,96 @@ suite("shared/config parameterResolution", () => {
 
 		test("findLongestPrefixMatch still answers plain prefix lookups", () => {
 			assert.strictEqual(findLongestPrefixMatch("gpt-4o", { "gpt-4": "short" }), "short");
+		});
+	});
+
+	suite('the "*" catch-all alias', () => {
+		test('a bare "*" matches every ID at specificity zero, exactly like ""', () => {
+			for (const id of ["gpt-4", "claude-opus", "", "*weird"]) {
+				const viaStar = findLongestPrefixEntry(id, { [CATCH_ALL_PREFIX]: "hit" });
+				const viaEmpty = findLongestPrefixEntry(id, { "": "hit" });
+				assert.deepStrictEqual(viaStar, { key: "*", value: "hit" }, `id ${JSON.stringify(id)}`);
+				assert.deepStrictEqual(viaEmpty, { key: "", value: "hit" }, `id ${JSON.stringify(id)}`);
+			}
+		});
+
+		test('any longer real prefix beats "*"', () => {
+			assert.deepStrictEqual(findLongestPrefixEntry("gpt-4", { "*": "star", g: "letter" }), {
+				key: "g",
+				value: "letter",
+			});
+		});
+
+		test('a record carrying both "*" and "" resolves to "*" deterministically, in either declaration order', () => {
+			assert.strictEqual(findLongestPrefixEntry("gpt-4", { "": "empty", "*": "star" })?.key, "*");
+			assert.strictEqual(findLongestPrefixEntry("gpt-4", { "*": "star", "": "empty" })?.key, "*");
+		});
+
+		test('"*" no longer literal-matches IDs that start with an asterisk; longer asterisk keys stay literal', () => {
+			// Before the alias, "*" was a length-1 literal prefix and would have
+			// beaten "" for the (hypothetical) ID "*model". Now both sit at
+			// specificity zero and the "*"-wins tie-break decides; a real literal
+			// like "*mo" still wins on length.
+			assert.strictEqual(findLongestPrefixEntry("*model", { "*": "star", "*mo": "literal" })?.key, "*mo");
+			assert.strictEqual(findLongestPrefixEntry("gpt-4", { "*mo": "literal" }), undefined);
+		});
+
+		test('the scoped form "<scope>/*" matches every ID of that scope and loses to longer scoped prefixes', () => {
+			const entries = {
+				"http://a.test/*": { temperature: 0.1 },
+				"http://a.test/gpt-4": { temperature: 0.2 },
+			};
+			const specific = findScopedMatch("gpt-4-turbo", ["http://a.test"], entries);
+			assert.strictEqual(specific?.key, "http://a.test/gpt-4");
+			const catchAll = findScopedMatch("claude-opus", ["http://a.test"], entries);
+			assert.deepStrictEqual(catchAll, { key: "http://a.test/*", specificity: 0, value: { temperature: 0.1 } });
+		});
+
+		test('within one scope "<scope>/*" beats "<scope>/", in either declaration order', () => {
+			const scopes = ["http://a.test"];
+			assert.strictEqual(
+				findScopedMatch("gpt-4", scopes, { "http://a.test/": "empty", "http://a.test/*": "star" })?.key,
+				"http://a.test/*"
+			);
+			assert.strictEqual(
+				findScopedMatch("gpt-4", scopes, { "http://a.test/*": "star", "http://a.test/": "empty" })?.key,
+				"http://a.test/*"
+			);
+		});
+
+		test("scope-order ties still resolve to the earlier scope, catch-alls included", () => {
+			const match = findScopedMatch("gpt-4", ["http://a.test", "http://b.test"], {
+				"http://b.test/*": "b-star",
+				"http://a.test/*": "a-star",
+			});
+			assert.strictEqual(match?.value, "a-star");
+		});
+
+		test('a mixed specificity-zero tie across scopes keeps the earlier scope: "<A>/" is not displaced by "<B>/*"', () => {
+			// The tie-break upgrades "*" over "" only within one scope; across
+			// scopes the earlier scope still wins regardless of which spelling of
+			// the catch-all each carries.
+			const entries = { "http://a.test/": "a-empty", "http://b.test/*": "b-star" };
+			assert.strictEqual(findScopedMatch("gpt-4", ["http://a.test", "http://b.test"], entries)?.value, "a-empty");
+			assert.strictEqual(findScopedMatch("gpt-4", ["http://b.test", "http://a.test"], entries)?.value, "b-star");
+		});
+
+		test('a scoped "*" record replaces the whole unscoped record, and entry "*" merges over it', () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: {
+					"gpt-4": { temperature: 0.8, seed: 7 },
+					"http://litellm.test/*": { temperature: 0.2 },
+				},
+				serverScopes: ["http://litellm.test"],
+				entryParameters: { "*": { top_p: 0.5 } },
+			});
+			assert.deepStrictEqual(resolved.params, { temperature: 0.2, top_p: 0.5 });
+			assert.deepStrictEqual(resolved.replacedUnscoped, { key: "gpt-4", record: { temperature: 0.8, seed: 7 } });
+			assert.deepStrictEqual(resolved.sources.get("top_p"), {
+				source: { layer: "entry", key: "*" },
+				shadowed: [],
+			});
 		});
 	});
 

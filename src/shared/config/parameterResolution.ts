@@ -23,20 +23,49 @@ export const DEFAULT_MAX_TOKENS_CAP = 4096;
 /** A modelParameters record: model-ID prefix (optionally base-URL scoped) to request parameters. */
 export type ModelParametersRecord = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
-/** The longest key that prefixes `id`, with its value; undefined when none does. */
+/**
+ * The catch-all prefix key: a bare "*" matches every model ID at specificity
+ * zero, exactly like the empty string (the friendlier spelling of the same
+ * thing). Both settings and both scoping forms share the alias through
+ * prefixSpecificity below.
+ */
+export const CATCH_ALL_PREFIX = "*";
+
+/**
+ * How many characters `prefix` pins down of `id`, or undefined when it does
+ * not match. The bare catch-all is an alias of "" (specificity 0, matches
+ * everything) - as a consequence, "*" never literal-matches a hypothetical ID
+ * that starts with an asterisk (no real model IDs do); longer keys like "*x"
+ * stay literal prefixes.
+ */
+function prefixSpecificity(id: string, prefix: string): number | undefined {
+	if (prefix === CATCH_ALL_PREFIX) {
+		return 0;
+	}
+	return id === prefix || id.startsWith(prefix) ? prefix.length : undefined;
+}
+
+/**
+ * The most specific key matching `id`, with its value; undefined when none
+ * does. The only possible specificity tie is "" against "*" (any other two
+ * keys of equal specificity that both prefix `id` are the same key), and "*"
+ * wins it deterministically.
+ */
 export function findLongestPrefixEntry<T>(
 	id: string,
 	entries: Record<string, T>
 ): { key: string; value: T } | undefined {
-	let best: { key: string; value: T } | undefined;
+	let best: { key: string; specificity: number; value: T } | undefined;
 	for (const [key, value] of Object.entries(entries)) {
-		if (id === key || id.startsWith(key)) {
-			if (!best || key.length > best.key.length) {
-				best = { key, value };
-			}
+		const specificity = prefixSpecificity(id, key);
+		if (specificity === undefined) {
+			continue;
+		}
+		if (!best || specificity > best.specificity || (specificity === best.specificity && key === CATCH_ALL_PREFIX)) {
+			best = { key, specificity, value };
 		}
 	}
-	return best;
+	return best === undefined ? undefined : { key: best.key, value: best.value };
 }
 
 export function findLongestPrefixMatch<T>(id: string, entries: Record<string, T>): T | undefined {
@@ -45,17 +74,19 @@ export function findLongestPrefixMatch<T>(id: string, entries: Record<string, T>
 
 /**
  * The most specific scoped entry across all scopes. Specificity is the length
- * of the model prefix after the scope, not of the whole key. Scoped keys must
+ * of the model prefix after the scope, not of the whole key; "<scope>/*" is
+ * the scoped catch-all (specificity 0, same as "<scope>/"). Scoped keys must
  * contain the full "<scope>/" prefix. Ties on model prefix length resolve to
- * the earlier scope in `scopes`, then to configuration object order. The
- * winning key rides along so attribution can name it.
+ * the earlier scope in `scopes`, then to configuration object order - except
+ * that within one scope "*" beats "" (the one tie two distinct keys can
+ * produce). The winning key rides along so attribution can name it.
  */
 export function findScopedMatch<T>(
 	rawId: string,
 	scopes: readonly string[],
 	entries: Record<string, T>
 ): { key: string; specificity: number; value: T } | undefined {
-	let best: { key: string; specificity: number; value: T } | undefined;
+	let best: { key: string; specificity: number; value: T; scope: string; modelPrefix: string } | undefined;
 	for (const scope of scopes) {
 		const scopePrefix = `${scope}/`;
 		for (const [key, value] of Object.entries(entries)) {
@@ -63,14 +94,22 @@ export function findScopedMatch<T>(
 				continue;
 			}
 			const modelPrefix = key.slice(scopePrefix.length);
-			if (rawId === modelPrefix || rawId.startsWith(modelPrefix)) {
-				if (!best || modelPrefix.length > best.specificity) {
-					best = { key, specificity: modelPrefix.length, value };
-				}
+			const specificity = prefixSpecificity(rawId, modelPrefix);
+			if (specificity === undefined) {
+				continue;
+			}
+			const beatsTie =
+				best !== undefined &&
+				specificity === best.specificity &&
+				best.scope === scope &&
+				modelPrefix === CATCH_ALL_PREFIX &&
+				best.modelPrefix === "";
+			if (!best || specificity > best.specificity || beatsTie) {
+				best = { key, specificity, value, scope, modelPrefix };
 			}
 		}
 	}
-	return best;
+	return best === undefined ? undefined : { key: best.key, specificity: best.specificity, value: best.value };
 }
 
 /**
