@@ -27,6 +27,7 @@ export type {
 export {
 	CAPABILITY_FIELDS,
 	DECLARE_DIRECTIVE,
+	FALLBACK_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 } from "../../shared/config/capabilityResolution";
 // The effective-values inspector renders through the same resolution the
@@ -35,11 +36,17 @@ export {
 export type {
 	EffectiveParameterRow,
 	ModelParametersRecord,
+	ParameterDiagnostic,
 	ParameterSourceRef,
 	ProjectedMaxTokens,
 	ShadowedParameterValue,
 } from "../../shared/config/parameterResolution";
-export { DEFAULT_MAX_TOKENS_CAP, projectEffectiveParameters } from "../../shared/config/parameterResolution";
+export {
+	DEFAULT_MAX_TOKENS_CAP,
+	FORCE_DIRECTIVE,
+	parameterSkipReason,
+	projectEffectiveParameters,
+} from "../../shared/config/parameterResolution";
 export type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 export { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 // The intentFailed notice's classification: enum ids and a status number,

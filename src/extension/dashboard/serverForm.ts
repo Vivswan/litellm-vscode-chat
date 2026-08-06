@@ -25,7 +25,7 @@ import {
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	SECRET_FIELD_IDS,
 } from "./protocol";
-import type { CapabilityGroupIssues, GroupProblems, PrefixGroup } from "./recordDraft";
+import type { CapabilityGroupIssues, GroupHints, GroupProblems, PrefixGroup } from "./recordDraft";
 import { parseCapabilityGroups, parseGroups } from "./recordDraft";
 
 /**
@@ -214,6 +214,8 @@ export type ServerFormParse =
 			 * unknown-key hints never block a save but must still render.
 			 */
 			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
+			/** Row-aligned model-parameter hints (the _force semantic warnings); non-blocking, like the capability issues. */
+			readonly modelParameterHints: readonly GroupHints[];
 	  }
 	| {
 			readonly ok: false;
@@ -227,6 +229,8 @@ export type ServerFormParse =
 			readonly modelParameterProblems: readonly GroupProblems[];
 			/** Row-aligned capability issues; see the ok branch. */
 			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
+			/** Row-aligned model-parameter hints; see the ok branch. */
+			readonly modelParameterHints: readonly GroupHints[];
 	  };
 
 /**
@@ -318,6 +322,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 			problems,
 			modelParameterProblems: groupsParse.ok ? [] : groupsParse.problems,
 			modelCapabilityIssues: capabilitiesParse.issues,
+			modelParameterHints: groupsParse.hints,
 		};
 	}
 
@@ -364,6 +369,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
 		},
 		modelCapabilityIssues: capabilitiesParse.issues,
+		modelParameterHints: groupsParse.hints,
 	};
 }
 

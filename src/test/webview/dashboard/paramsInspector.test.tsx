@@ -143,6 +143,25 @@ test("without forced rows the runtime caveat keeps its unconditional wording", (
 	expect(root.textContent).toContain("they override every row above.");
 });
 
+test("_force diagnostics render like the capability inspector's: unforceable keys and malformed lists", () => {
+	const root = mountInspector({
+		globalParameters: { "gpt-4": { temperature: 0.2, model: "other", _force: ["model", "typo_entry"] } },
+	});
+	expect(root.textContent).toContain("Configuration problems in the matched records:");
+	// The refused provider-owned key names itself and the record that carried it.
+	expect(root.textContent).toContain('"model" cannot be forced and its mark is skipped');
+	// A listed name the record does not set malforms the directive; the copy
+	// leads with the shape that works and must not claim the whole directive is
+	// dead - valid entries stay forced.
+	expect(root.textContent).toContain('"_force" must be true or a list of parameters the record sets');
+	expect(root.textContent).toContain('e.g. ["temperature"]; offending entries are ignored (settings key gpt-4)');
+});
+
+test("clean configuration renders no diagnostics block", () => {
+	const root = mountInspector({ globalParameters: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } } });
+	expect(root.textContent).not.toContain("Configuration problems in the matched records:");
+});
+
 test("the max_tokens derivation states the configured branch with its attribution", () => {
 	const root = mountInspector({ globalParameters: { "gpt-4": { max_tokens: 2222 } } });
 	expect(textOf(root, ".params-max-tokens")).toBe("max_tokens 2222 set by Settings - gpt-4");

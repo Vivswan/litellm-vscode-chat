@@ -889,6 +889,128 @@ test("switching a row's key onto a support flag seeds it true and renders the ch
 	expect(flag?.checked).toBe(true);
 });
 
+test("fallback checkbox: marking a capability row saves the explicit _fallback list", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelCapabilities: { "gpt-4": { context_length: 128000 } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+
+	const box = root.querySelector<HTMLInputElement>(".directive-flag input");
+	if (box === null) {
+		throw new Error("the fallback checkbox did not render");
+	}
+	expect(box.getAttribute("aria-label")).toBe('Fall back for "context_length"');
+	expect(box.checked).toBe(false);
+	expect(box.disabled).toBe(false);
+	fireCheck(box, true);
+
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages.length).toBe(1);
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.server.modelCapabilities).toEqual({
+		"gpt-4": { context_length: 128000, _fallback: ["context_length"] },
+	});
+});
+
+test("fallback checkbox: a support-flag row carries its own box beside the value checkbox", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelCapabilities: { "gpt-4": { supports_vision: true } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+
+	// The row already renders the boolean value control (label.capability-flag);
+	// the fallback mark is the separate .directive-flag box.
+	const valueBox = root.querySelector<HTMLInputElement>("label.capability-flag input");
+	expect(valueBox?.checked).toBe(true);
+	const fallbackBox = root.querySelector<HTMLInputElement>(".directive-flag input");
+	if (fallbackBox === null) {
+		throw new Error("the fallback checkbox did not render");
+	}
+	expect(fallbackBox.getAttribute("aria-label")).toBe('Fall back for "supports_vision"');
+	fireCheck(fallbackBox, true);
+
+	fireClick(buttonByText(root, "Save"));
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.server.modelCapabilities).toEqual({
+		"gpt-4": { supports_vision: true, _fallback: ["supports_vision"] },
+	});
+});
+
+test("fallback checkbox: disabled with the reason while the row group declares, re-enabled when it stops", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelCapabilities: { "my-model": { context_length: 128000, _declare: true } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+
+	const box = () => root.querySelector<HTMLInputElement>(".directive-flag input") as HTMLInputElement;
+	expect(box().disabled).toBe(true);
+	// The help beside the disabled box explains the ban; the tip text is
+	// mounted in the DOM.
+	expect(root.textContent).toContain("Locked while _declare is on");
+
+	// Turning _declare off re-enables the mark.
+	const declareBox = [...root.querySelectorAll("label.capability-flag")]
+		.find((label) => label.textContent?.includes("declare this model"))
+		?.querySelector("input");
+	fireCheck(declareBox as HTMLInputElement, false);
+	expect(box().disabled).toBe(false);
+});
+
+test("fallback checkbox: a hand-written _fallback true loads checked and saves unrewritten", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelCapabilities: { "gpt-4": { context_length: 128000, _fallback: true } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+
+	const box = root.querySelector<HTMLInputElement>(".directive-flag input");
+	expect(box?.checked).toBe(true);
+
+	// Saving without touching the mark keeps the user's literal true.
+	fireClick(buttonByText(root, "Save"));
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.server.modelCapabilities).toEqual({ "gpt-4": { context_length: 128000, _fallback: true } });
+});
+
+test("the _declare plus _fallback combination hints on the row without blocking the save", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelCapabilities: { "my-model": { context_length: 128000, _declare: true, _fallback: ["context_length"] } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+	expect(root.textContent).toContain("_fallback does nothing for the model _declare creates");
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages.length).toBe(1);
+});
+
 test("an expected failure renders the warn pill, the declared-count badge, and the warn banner, never the red one", () => {
 	const root = mountSection([
 		makeDeclaredServer({

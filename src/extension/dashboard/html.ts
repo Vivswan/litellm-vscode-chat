@@ -557,7 +557,7 @@ const STYLES = `
 	.rows { margin: 4px 0 8px; }
 	.row {
 		display: grid;
-		grid-template-columns: 220px minmax(200px, 1fr) auto;
+		grid-template-columns: 220px minmax(200px, 1fr) auto auto;
 		gap: 4px 8px;
 		align-items: center;
 		margin: 4px 0;
@@ -572,11 +572,23 @@ const STYLES = `
 	.row .cell input.key, .row .cell input.value { grid-column: auto; flex: 1; min-width: 0; }
 	.row button { grid-column: 3; justify-self: start; }
 	.row .error { grid-column: 1 / -1; font-size: 0.9em; margin: 0; }
+	/* The per-row fallback/force mark: a muted checkbox in its own trailing
+	   column, after the row action - the Remove buttons keep their shared
+	   third column on every row, marked or not, so nothing zigzags. */
+	.row .directive-flag {
+		grid-column: 4;
+		display: flex;
+		gap: 4px;
+		align-items: center;
+		white-space: nowrap;
+		font-size: 0.9em;
+		color: var(--vscode-descriptionForeground);
+	}
 	/* Inside the slide-over form the row grid must shrink with the panel:
 	   fixed column floors overflow the form card and clip the value help
 	   glyph against the edge. The value column gets the larger share - it
 	   holds the longer content (catalog IDs, token counts). */
-	.form-card .row { grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.4fr) auto; }
+	.form-card .row { grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.4fr) auto auto; }
 	/* A capability row's non-blocking hint (unknown key) rides under the row
 	   like an error line, in the muted tone. */
 	.row .hint { grid-column: 1 / -1; font-size: 0.9em; margin: 0; }
@@ -1088,6 +1100,7 @@ const STYLES = `
 		.row { grid-template-columns: 1fr; }
 		.row input.key, .row input.value, .row button, .row .error { grid-column: 1; }
 		.row .cell.key, .row .cell.value { grid-column: 1; }
+		.row .directive-flag { grid-column: 1; }
 	}
 `;
 
