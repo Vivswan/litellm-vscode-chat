@@ -14,6 +14,7 @@ import * as fc from "fast-check";
 import type {
 	BooleanCapabilityField,
 	CapabilityCatalogLookup,
+	CapabilityFallbackLevel,
 	CapabilityFieldName,
 	CapabilityFieldValues,
 	CapabilityLevel,
@@ -33,6 +34,7 @@ import {
 	CAPABILITY_FLOOR,
 	DECLARE_DIRECTIVE,
 	extractDeclaredModels,
+	FALLBACK_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 	resolveCapabilityOverrides,
 	resolveModelCapabilities,
@@ -50,6 +52,7 @@ const BOOLEAN_FIELD_NAMES = FIELD_NAMES.filter(
 	(name): name is BooleanCapabilityField => CAPABILITY_FIELDS[name] === "boolean"
 );
 const OVERRIDE_LEVELS: readonly CapabilityOverrideLevel[] = ["entry", "global", "directive"];
+const USER_SET_LEVELS: readonly CapabilityLevel[] = [...OVERRIDE_LEVELS, "entry-fallback", "global-fallback"];
 
 // Slash-free so a scoped key "<scope>/<prefix>" can never collide with an
 // unscoped key or match a scope other than its own.
@@ -95,12 +98,23 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 		}),
 		fc.option(fc.oneof(fc.constantFrom<unknown>(...DIRECTIVE_POOL), fc.constantFrom<unknown>("", 7)), {
 			nil: undefined,
-		})
+		}),
+		// _fallback: all-fields, a list of names (valid and bogus alike), or an
+		// invalid shape - each of the parse branches stays a common case.
+		fc.option(
+			fc.oneof(
+				{ arbitrary: fc.boolean(), weight: 2 },
+				{ arbitrary: fc.subarray([...FIELD_NAMES, "supports_pdf_input"]), weight: 2 },
+				{ arbitrary: fc.constantFrom<unknown>("yes", 7, null), weight: 1 }
+			),
+			{ nil: undefined }
+		)
 	)
-	.map(([base, declare, openrouterModel]) => ({
+	.map(([base, declare, openrouterModel, fallback]) => ({
 		...base,
 		...(declare !== undefined ? { [DECLARE_DIRECTIVE]: declare } : {}),
 		...(openrouterModel !== undefined ? { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel } : {}),
+		...(fallback !== undefined ? { [FALLBACK_DIRECTIVE]: fallback } : {}),
 	}));
 
 const serverDeclaredArb: fc.Arbitrary<ServerDeclaredCapabilities> = fc.oneof(
@@ -146,9 +160,10 @@ interface Scenario {
 /**
  * A raw ID plus capability records whose keys are cuts of it (matches are the
  * common case), a cut of an unrelated ID keeping the no-match branch alive,
- * zero-length cuts keeping the empty-key edge alive, directives pointing into
- * and past the generated catalog, and independent server, defaults, and
- * catalog layers.
+ * zero-length cuts and the catch-all "*" keeping the specificity-zero edge
+ * alive, directives pointing into and past the generated catalog, and
+ * independent server, defaults (possibly absent entirely), and catalog
+ * layers.
  */
 const scenario: fc.Arbitrary<Scenario> = fc
 	.record({
@@ -158,13 +173,16 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			fc.record({
 				cut: fc.nat(),
 				foreign: fc.boolean(),
+				star: fc.boolean(),
 				scope: fc.option(fc.constantFrom(...scopePool), { nil: undefined }),
 				record: capabilityRecordArb,
 			}),
 			{ maxLength: 4 }
 		),
 		entrySpecs: fc.option(
-			fc.array(fc.record({ cut: fc.nat(), foreign: fc.boolean(), record: capabilityRecordArb }), { maxLength: 3 }),
+			fc.array(fc.record({ cut: fc.nat(), foreign: fc.boolean(), star: fc.boolean(), record: capabilityRecordArb }), {
+				maxLength: 3,
+			}),
 			{ nil: undefined }
 		),
 		scopes: fc.subarray([...scopePool]),
@@ -173,23 +191,28 @@ const scenario: fc.Arbitrary<Scenario> = fc
 		implicitFields: fc.option(validFieldsArb, { nil: undefined }),
 		implicitAmbiguous: fc.boolean(),
 		serverDeclared: serverDeclaredArb,
-		tokenDefaults: tokenDefaultsArb,
+		tokenDefaults: fc.option(tokenDefaultsArb, { nil: undefined }),
 	})
 	.map((spec) => {
-		const prefixOf = (cut: number, foreign: boolean) => {
+		const prefixOf = (cut: number, foreign: boolean, star: boolean) => {
+			if (star) {
+				return "*";
+			}
 			const base = foreign ? spec.otherId : spec.rawModelId;
 			return base.slice(0, cut % (base.length + 1));
 		};
 		const globalCapabilities: Record<string, Record<string, unknown>> = {};
 		for (const globalSpec of spec.globalSpecs) {
-			const prefix = prefixOf(globalSpec.cut, globalSpec.foreign);
+			const prefix = prefixOf(globalSpec.cut, globalSpec.foreign, globalSpec.star);
 			const key = globalSpec.scope === undefined ? prefix : `${globalSpec.scope}/${prefix}`;
 			globalCapabilities[key] = globalSpec.record;
 		}
 		const entryCapabilities =
 			spec.entrySpecs === undefined
 				? undefined
-				: Object.fromEntries(spec.entrySpecs.map((entry) => [prefixOf(entry.cut, entry.foreign), entry.record]));
+				: Object.fromEntries(
+						spec.entrySpecs.map((entry) => [prefixOf(entry.cut, entry.foreign, entry.star), entry.record])
+					);
 		const catalog = makeCatalog({
 			...(spec.catalogOne !== undefined ? { "cat/one": spec.catalogOne } : {}),
 			...(spec.catalogTwo !== undefined ? { "cat/two": spec.catalogTwo } : {}),
@@ -214,8 +237,10 @@ const scenario: fc.Arbitrary<Scenario> = fc
 /**
  * The independent statement of what parseCapabilityRecord accepts, so the
  * fallthrough property below is not the parser checking itself: keep validly
- * typed capability fields, boolean `_declare`, and non-blank
- * `_openrouter_model`; drop everything else.
+ * typed capability fields, boolean `_declare`, non-blank `_openrouter_model`,
+ * and boolean-or-array `_fallback` (its element validation matches the parse:
+ * an element that is not a validly kept field is diagnosed and skipped either
+ * way); drop everything else.
  */
 function sanitizeRecord(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
 	const sanitized: Record<string, unknown> = {};
@@ -226,6 +251,10 @@ function sanitizeRecord(record: Readonly<Record<string, unknown>>): Record<strin
 			}
 		} else if (key === OPENROUTER_MODEL_DIRECTIVE) {
 			if (typeof value === "string" && value.trim() !== "") {
+				sanitized[key] = value;
+			}
+		} else if (key === FALLBACK_DIRECTIVE) {
+			if (typeof value === "boolean" || Array.isArray(value)) {
 				sanitized[key] = value;
 			}
 		} else if (Object.hasOwn(CAPABILITY_FIELDS, key)) {
@@ -260,6 +289,7 @@ suite("shared/config capabilityResolution properties", () => {
 					entryCapabilities: sanitizeRecords(input.entryCapabilities),
 				});
 				assert.deepStrictEqual(resolved.fields, sanitized.fields);
+				assert.deepStrictEqual(resolved.fallbackFields, sanitized.fallbackFields);
 				assert.deepStrictEqual(resolved.directive, sanitized.directive);
 				assert.strictEqual(resolved.declare, sanitized.declare);
 				assert.deepStrictEqual(resolved.implicitCatalog, sanitized.implicitCatalog);
@@ -297,7 +327,7 @@ suite("shared/config capabilityResolution properties", () => {
 					assert.deepStrictEqual(max_input_tokens.shadowed, [], "the derivation only runs when nothing shadows it");
 				}
 
-				const expectedSource: EffectiveOutputLimitSource = OVERRIDE_LEVELS.some(
+				const expectedSource: EffectiveOutputLimitSource = USER_SET_LEVELS.some(
 					(level) => level === max_output_tokens.level
 				)
 					? "user"
@@ -312,7 +342,7 @@ suite("shared/config capabilityResolution properties", () => {
 		);
 	});
 
-	test("precedence is monotonic: an exact entry field beats whatever the walk resolved without it", () => {
+	test("precedence is monotonic: an exact entry override field beats whatever the walk resolved without it", () => {
 		const injection = fc.record({
 			name: fc.constantFrom(...FIELD_NAMES),
 			number: validNumber,
@@ -322,7 +352,11 @@ suite("shared/config capabilityResolution properties", () => {
 			fc.property(scenario, injection, ({ input }, { name, number, boolean }) => {
 				const value: CapabilityFieldValues[CapabilityFieldName] =
 					CAPABILITY_FIELDS[name] === "number" ? number : boolean;
-				const exactRecord = { ...input.entryCapabilities?.[input.rawModelId], [name]: value };
+				// The injected field must be an override, so any generated _fallback
+				// on the exact record is dropped (a fallback-demoted field sits
+				// below server by design and would not beat the walk).
+				const { [FALLBACK_DIRECTIVE]: _fallback, ...base } = input.entryCapabilities?.[input.rawModelId] ?? {};
+				const exactRecord = { ...base, [name]: value };
 				const effective = resolveModelCapabilities({
 					...input,
 					entryCapabilities: { ...input.entryCapabilities, [input.rawModelId]: exactRecord },
@@ -343,19 +377,30 @@ suite("shared/config capabilityResolution properties", () => {
 				const effective = resolveModelCapabilities(input);
 				for (const name of FIELD_NAMES) {
 					const override: ResolvedCapabilityOverrideField<number | boolean> | undefined = overrideFields[name];
+					const field = effective.fields[name];
 					if (override === undefined) {
-						const level: CapabilityLevel = effective.fields[name].level;
+						const level: CapabilityLevel = field.level;
 						assert.ok(
 							!OVERRIDE_LEVELS.some((overrideLevel) => overrideLevel === level),
 							`${name} resolved at ${level} without an override setting it`
 						);
-						continue;
+					} else {
+						assert.strictEqual(field.value, override.value);
+						assert.strictEqual(field.level, override.level);
+						assert.strictEqual(field.key, override.key);
+						assert.deepStrictEqual(field.shadowed.slice(0, override.shadowed.length), override.shadowed);
 					}
-					const field = effective.fields[name];
-					assert.strictEqual(field.value, override.value);
-					assert.strictEqual(field.level, override.level);
-					assert.strictEqual(field.key, override.key);
-					assert.deepStrictEqual(field.shadowed.slice(0, override.shadowed.length), override.shadowed);
+					// A field the walk resolves at a fallback level is exactly the
+					// first fallback candidate - nothing above it carried a value.
+					if (field.level === "entry-fallback" || field.level === "global-fallback") {
+						const level: CapabilityFallbackLevel = field.level;
+						const [candidate] = overrides.fallbackFields[name] ?? [];
+						assert.deepStrictEqual(
+							candidate,
+							{ level, key: field.key, value: field.value },
+							`${name} resolved at ${level} must be the leading fallback candidate`
+						);
+					}
 				}
 				assert.deepStrictEqual(effective.directive, overrides.directive);
 				assert.strictEqual(effective.declare, overrides.declare);

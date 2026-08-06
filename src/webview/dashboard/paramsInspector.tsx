@@ -153,6 +153,9 @@ function ParameterRow({ row, entryLabel }: { row: EffectiveParameterRow; entryLa
 				<td>
 					{sourceName(row.source, entryLabel)}
 					{row.skipReason !== undefined ? <span class="param-skip"> ({skipReasonText(row.skipReason)})</span> : null}
+					{row.forced === true ? (
+						<span class="param-skip"> ({l10n.t("forced: overrides runtime options and the picker")})</span>
+					) : null}
 				</td>
 			</tr>
 			{row.shadowed.map((shadow) => (
@@ -284,7 +287,11 @@ export function ParamsInspector({
 				<dl class="params-caveats">
 					<div>
 						<dt class="params-caveat-label">{l10n.t("Runtime options")}</dt>
-						<dd class="hint">{l10n.t("Set per request by the chat client; they override every row above.")}</dd>
+						<dd class="hint">
+							{projection.rows.some((row) => row.forced === true)
+								? l10n.t("Set per request by the chat client; they override every row above except forced rows.")
+								: l10n.t("Set per request by the chat client; they override every row above.")}
+						</dd>
 					</div>
 					{model.reasoning ? (
 						<div>

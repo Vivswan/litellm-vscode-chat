@@ -1,4 +1,8 @@
-import { parameterSkipReason, resolveModelParameters } from "../../shared/config/parameterResolution";
+import {
+	parameterSkipReason,
+	type ResolvedModelParameters,
+	resolveModelParameters,
+} from "../../shared/config/parameterResolution";
 import { getModelParametersConfig } from "../../shared/config/settings";
 import type { ToolConfig } from "../../shared/conversion/tools";
 import type { OpenAIChatMessage } from "../../shared/conversion/wire";
@@ -24,7 +28,9 @@ export const MAX_TOOLS_PER_REQUEST = 128;
  * `entryModelParameters` is the declared server entry's own record (already
  * scoped to one entry, so plain longest-prefix matching applies); its
  * matching parameters override the global result key by key, mirroring how
- * the picker configuration and runtime options later override both.
+ * the picker configuration and runtime options later override both -
+ * except `forcedParams` (the records' `_force`d fields), which
+ * buildRequestBody applies above runtime options and the picker.
  * The merge itself lives in resolveModelParameters (shared with the
  * dashboard's inspector); this wrapper only resolves the raw ID and reads
  * the live configuration.
@@ -34,15 +40,16 @@ export function getModelParameters(
 	modelRoutes: Map<string, ModelRoute>,
 	serverScopes: readonly string[] = [],
 	entryModelParameters?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
-): Record<string, unknown> {
+): Pick<ResolvedModelParameters, "params" | "forcedParams"> {
 	const route = modelRoutes.get(modelId);
 	const rawId = route?.rawModelId ?? modelId;
-	return resolveModelParameters({
+	const { params, forcedParams } = resolveModelParameters({
 		rawModelId: rawId,
 		globalParameters: getModelParametersConfig(),
 		serverScopes,
 		entryParameters: entryModelParameters,
-	}).params;
+	});
+	return { params, forcedParams };
 }
 
 export interface RequestBodyParams {
@@ -50,6 +57,8 @@ export interface RequestBodyParams {
 	openaiMessages: OpenAIChatMessage[];
 	maxTokens: number;
 	modelParams: Record<string, unknown>;
+	/** The `_force`d configured parameters; applied above every other pass-through source. */
+	forcedParams?: Readonly<Record<string, unknown>> | undefined;
 	/** Tools and tool_choice as one unit (see ToolConfig); absent means the request carries neither. */
 	toolConfig: ToolConfig | undefined;
 	/** Wire params resolved from the host's modelConfiguration, i.e. the user's model-picker choices. */
@@ -63,10 +72,20 @@ export interface RequestBodyParams {
  * apply. User-set sources apply in ascending precedence: modelParameters
  * config (global, overridden by the declared entry's own; getModelParameters
  * merges the two into `modelParams`), then the model-picker configuration,
- * then runtime modelOptions.
+ * then runtime modelOptions, then the config records' `_force`d fields
+ * (which is what "forced" means: not even runtime options override them).
  */
 export function buildRequestBody(params: RequestBodyParams): Record<string, unknown> {
-	const { rawModelId, openaiMessages, maxTokens, modelParams, toolConfig, modelConfiguration, modelOptions } = params;
+	const {
+		rawModelId,
+		openaiMessages,
+		maxTokens,
+		modelParams,
+		forcedParams,
+		toolConfig,
+		modelConfiguration,
+		modelOptions,
+	} = params;
 
 	const body: Record<string, unknown> = {
 		model: rawModelId,
@@ -79,7 +98,7 @@ export function buildRequestBody(params: RequestBodyParams): Record<string, unkn
 	// parameterSkipReason owns the drop rules: provider-owned keys (max_tokens
 	// included; the chain above already decided its value) and
 	// underscore-prefixed internal keys never pass through, on any source.
-	const passThrough = (source: Record<string, unknown>) => {
+	const passThrough = (source: Readonly<Record<string, unknown>>) => {
 		for (const [key, value] of Object.entries(source)) {
 			if (parameterSkipReason(key) !== undefined) {
 				continue;
@@ -94,6 +113,9 @@ export function buildRequestBody(params: RequestBodyParams): Record<string, unkn
 	}
 	if (modelOptions) {
 		passThrough(modelOptions);
+	}
+	if (forcedParams) {
+		passThrough(forcedParams);
 	}
 
 	if (toolConfig) {

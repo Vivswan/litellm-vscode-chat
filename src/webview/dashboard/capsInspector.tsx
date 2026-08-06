@@ -82,6 +82,10 @@ function levelName(level: CapabilityLevel, key: string | undefined): string {
 			return l10n.t("OpenRouter catalog (via _openrouter_model {0})", key ?? "");
 		case "server":
 			return l10n.t("Server-reported");
+		case "entry-fallback":
+			return l10n.t("Server entry fallback - {0}", key ?? "");
+		case "global-fallback":
+			return l10n.t("Settings fallback - {0}", key ?? "");
 		case "default-setting":
 			return l10n.t("Deprecated default setting");
 		case "catalog":

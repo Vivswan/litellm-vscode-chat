@@ -1,12 +1,13 @@
 /**
  * The single owner of the modelCapabilities vocabulary, its precedence walk,
- * and the `_declare`/`_openrouter_model` directives. Pure (no vscode, no DOM,
- * no Node) on purpose: the provider's registration path patches attached
- * models through resolveModelCapabilities, and the dashboard's capability
- * inspector renders its projection through the protocol module's re-exports -
- * one implementation, so the inspector cannot drift from what registration
- * serves. Everything out is serializable data (records and arrays, no Maps),
- * so results ride the dashboard message protocol unchanged.
+ * and the `_declare`/`_openrouter_model`/`_fallback` directives. Pure (no
+ * vscode, no DOM, no Node) on purpose: the provider's registration path
+ * patches attached models through resolveModelCapabilities, and the
+ * dashboard's capability inspector renders its projection through the
+ * protocol module's re-exports - one implementation, so the inspector cannot
+ * drift from what registration serves. Everything out is serializable data
+ * (records and arrays, no Maps), so results ride the dashboard message
+ * protocol unchanged.
  *
  * Unlike modelParameters (an open pass-through), capabilities are a closed
  * vocabulary: parseCapabilityRecord is the one boundary where keys and value
@@ -16,11 +17,12 @@
  * unscoped record, the entry record wins key by key - with one addition: each
  * layer's winning record is parsed independently BEFORE the merge, so an
  * invalid value in a higher layer falls through to a valid lower one instead
- * of shadowing it.
+ * of shadowing it. A record's `_fallback` directive demotes all or the listed
+ * fields from override level (above server) to fallback level (below server),
+ * the flag riding from each field's source record through the merge.
  */
 
 import { CATCH_ALL_PREFIX, findLongestPrefixEntry, findScopedMatch } from "./parameterResolution";
-import { NUMBER_SETTING_SPECS } from "./settingSpec";
 
 /**
  * The closed capability vocabulary, keyed by wire name (aligned with
@@ -67,6 +69,17 @@ export const DECLARE_DIRECTIVE = "_declare";
 /** Names an OpenRouter catalog entry whose capabilities backfill fields the record leaves unset. */
 export const OPENROUTER_MODEL_DIRECTIVE = "_openrouter_model";
 
+/**
+ * Demotes all (`true`) or the listed capability fields of its record from
+ * override level to fallback level: applied BELOW the server-reported value
+ * instead of above it (fill-when-missing semantics). Combining with a
+ * `_declare` that creates the resolved model is diagnosed and the fallback
+ * ignored for that model (a declared model has no server side to fall back
+ * under, so its fields stay overrides while the declaration works); the same
+ * record matching other models by prefix keeps its fallback semantics.
+ */
+export const FALLBACK_DIRECTIVE = "_fallback";
+
 /** A modelCapabilities record: model-ID prefix (optionally base-URL scoped) to capability fields and directives. */
 export type ModelCapabilitiesRecord = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
@@ -94,6 +107,8 @@ export interface ParsedCapabilityRecord {
 	readonly declare: boolean;
 	/** The `_openrouter_model` directive's catalog ID, when validly set. */
 	readonly openrouterModel?: string | undefined;
+	/** The field names `_fallback` marks; always keys of `fields`. Empty when absent, false, or ignored. */
+	readonly fallback: readonly CapabilityFieldName[];
 	readonly diagnostics: readonly CapabilityRecordDiagnostic[];
 }
 
@@ -106,8 +121,12 @@ export interface ParsedCapabilityRecord {
  * for keys that cannot name a server plus exact model ID (unscoped global
  * keys, empty-ID keys, and the catch-all), turning `_declare: true` into an
  * unscoped-declare diagnostic. `_openrouter_model` must be a non-blank
- * string. Other underscore keys are ignored without diagnosis (forward
- * compatibility).
+ * string. `_fallback` must be `true` (all of the record's valid fields), a
+ * list of field names the record validly sets (anything else in the list is
+ * an invalid-directive diagnostic), or `false`. The `_declare` + `_fallback`
+ * combination is judged by resolveCapabilityOverrides, not here: whether the
+ * fallback is honored depends on which model the record resolves for. Other
+ * underscore keys are ignored without diagnosis (forward compatibility).
  */
 export function parseCapabilityRecord(
 	record: Readonly<Record<string, unknown>>,
@@ -158,10 +177,36 @@ export function parseCapabilityRecord(
 		}
 	}
 
+	const fields = { ...numbers, ...booleans };
+	const fallback: CapabilityFieldName[] = [];
+	if (Object.hasOwn(record, FALLBACK_DIRECTIVE)) {
+		const directive = record[FALLBACK_DIRECTIVE];
+		if (directive === true) {
+			fallback.push(...(Object.keys(fields) as CapabilityFieldName[]));
+		} else if (Array.isArray(directive)) {
+			let invalidEntry = false;
+			for (const name of directive) {
+				if (typeof name === "string" && isCapabilityFieldName(name) && Object.hasOwn(fields, name)) {
+					if (!fallback.includes(name)) {
+						fallback.push(name);
+					}
+				} else {
+					invalidEntry = true;
+				}
+			}
+			if (invalidEntry) {
+				diagnostics.push({ kind: "invalid-directive", key: FALLBACK_DIRECTIVE });
+			}
+		} else if (directive !== false) {
+			diagnostics.push({ kind: "invalid-directive", key: FALLBACK_DIRECTIVE });
+		}
+	}
+
 	return {
-		fields: { ...numbers, ...booleans },
+		fields,
 		declare: isDeclared,
 		...(openrouterModel !== undefined ? { openrouterModel } : {}),
+		fallback,
 		diagnostics,
 	};
 }
@@ -312,14 +357,25 @@ export const EMPTY_CATALOG_LOOKUP: CapabilityCatalogLookup = {
 /** The override levels user configuration sets directly; anything resolved here counts as user-set. */
 export type CapabilityOverrideLevel = "entry" | "global" | "directive";
 
+/** The `_fallback`-demoted levels: user-set values that apply only where the server reports nothing. */
+export type CapabilityFallbackLevel = "entry-fallback" | "global-fallback";
+
 /**
  * Where one effective capability value came from, precedence-ordered:
  * entry and global explicit fields, `_openrouter_model`-derived fields, the
- * server-reported value, an explicitly configured default* setting, the
- * implicit catalog match, the context-minus-output derivation (only
- * max_input_tokens), and the built-in floor.
+ * server-reported value, `_fallback`-demoted entry and global fields, an
+ * explicitly configured default* setting, the implicit catalog match, the
+ * context-minus-output derivation (only max_input_tokens), and the built-in
+ * floor.
  */
-export type CapabilityLevel = CapabilityOverrideLevel | "server" | "default-setting" | "catalog" | "derived" | "floor";
+export type CapabilityLevel =
+	| CapabilityOverrideLevel
+	| "server"
+	| CapabilityFallbackLevel
+	| "default-setting"
+	| "catalog"
+	| "derived"
+	| "floor";
 
 /** A lower-precedence level's value for a field some higher level won. */
 export interface ShadowedCapabilityValue {
@@ -340,6 +396,19 @@ export interface ResolvedCapabilityOverrideField<V extends number | boolean> {
 
 export type ResolvedCapabilityOverrideFields = {
 	readonly [K in CapabilityFieldName]?: ResolvedCapabilityOverrideField<CapabilityFieldValue<K>> | undefined;
+};
+
+/** One `_fallback`-demoted value, ready to slot into the walk below the server level. */
+export interface CapabilityFallbackCandidate<V extends number | boolean> {
+	readonly level: CapabilityFallbackLevel;
+	/** The record key that set it; scoped global keys keep their base-URL prefix. */
+	readonly key: string;
+	readonly value: V;
+}
+
+/** Per field, the fallback candidates in precedence order (entry-fallback before global-fallback). */
+export type ResolvedCapabilityFallbackFields = {
+	readonly [K in CapabilityFieldName]?: readonly CapabilityFallbackCandidate<CapabilityFieldValue<K>>[] | undefined;
 };
 
 /** Whether the `_openrouter_model` directive found its catalog entry; not-found feeds the warning badge. */
@@ -363,6 +432,8 @@ export interface ResolveCapabilityOverridesInput {
 
 export interface ResolvedCapabilityOverrides {
 	readonly fields: ResolvedCapabilityOverrideFields;
+	/** The `_fallback`-demoted fields, applied below the server level in the walk. */
+	readonly fallbackFields: ResolvedCapabilityFallbackFields;
 	/** Present exactly when a winning record carried `_openrouter_model`. */
 	readonly directive?: DirectiveOutcome | undefined;
 	/** The implicit catalog lookup by the model's own raw ID, for the walk's catalog level. */
@@ -385,9 +456,13 @@ export interface ResolvedCapabilityOverrides {
  * scoped global match replaces the whole unscoped record, then the entry
  * record's longest-prefix match overrides key by key), except that each
  * layer's winning record is parsed independently before merging - an invalid
- * value never shadows a valid lower one. The `_openrouter_model` directive
- * resolves through the same two layers like any key, and its catalog-derived
- * fields fill only fields no explicit value set.
+ * value never shadows a valid lower one. A field its source record marks
+ * `_fallback` leaves the override chain and comes back as a fallback
+ * candidate (below server in the walk); the two chains merge independently,
+ * so a global override still beats an entry fallback. The
+ * `_openrouter_model` directive resolves through the same two layers like
+ * any key, and its catalog-derived fields fill only fields no explicit
+ * override set.
  */
 export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInput): ResolvedCapabilityOverrides {
 	const { rawModelId, globalCapabilities, serverScopes, entryCapabilities, catalog } = input;
@@ -422,17 +497,43 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 	const directiveFields: Readonly<Partial<CapabilityFieldValues>> =
 		directiveLookup?.kind === "found" ? directiveLookup.fields : {};
 
+	// The `_declare` + `_fallback` ban, applied exactly where its rationale
+	// holds: a record whose declaration CREATES this model has no server side
+	// to fall back under, so its fallback marks are diagnosed and ignored
+	// (fields stay overrides; the declaration still works). The same record
+	// resolving another model by prefix - or a declaration extraction refuses
+	// - keeps its fallback semantics, so a discovered model's server values
+	// are never silently overridden by fields the user demoted.
+	const entryBanned =
+		parsedEntry?.declare === true &&
+		parsedEntry.fallback.length > 0 &&
+		entryWinner !== undefined &&
+		entryWinner.key !== "" &&
+		entryWinner.key !== CATCH_ALL_PREFIX &&
+		entryWinner.key === rawModelId;
+	const globalBanned =
+		parsedGlobal?.declare === true &&
+		parsedGlobal.fallback.length > 0 &&
+		globalWinner !== undefined &&
+		scopedDeclarableId(globalWinner.key, serverScopes) === rawModelId;
+	const entryFallback: readonly CapabilityFieldName[] = entryBanned ? [] : (parsedEntry?.fallback ?? []);
+	const globalFallback: readonly CapabilityFieldName[] = globalBanned ? [] : (parsedGlobal?.fallback ?? []);
+
 	const overrideField = <K extends CapabilityFieldName>(
 		name: K
 	): ResolvedCapabilityOverrideField<CapabilityFieldValue<K>> | undefined => {
 		const layered: { level: CapabilityOverrideLevel; key: string; value: CapabilityFieldValue<K> }[] = [];
-		const entryValue = parsedEntry?.fields[name];
-		if (entryValue !== undefined && entryWinner !== undefined) {
-			layered.push({ level: "entry", key: entryWinner.key, value: entryValue });
+		if (parsedEntry !== undefined && entryWinner !== undefined && !entryFallback.includes(name)) {
+			const entryValue = parsedEntry.fields[name];
+			if (entryValue !== undefined) {
+				layered.push({ level: "entry", key: entryWinner.key, value: entryValue });
+			}
 		}
-		const globalValue = parsedGlobal?.fields[name];
-		if (globalValue !== undefined && globalWinner !== undefined) {
-			layered.push({ level: "global", key: globalWinner.key, value: globalValue });
+		if (parsedGlobal !== undefined && globalWinner !== undefined && !globalFallback.includes(name)) {
+			const globalValue = parsedGlobal.fields[name];
+			if (globalValue !== undefined) {
+				layered.push({ level: "global", key: globalWinner.key, value: globalValue });
+			}
 		}
 		const derivedValue = directiveFields[name];
 		if (derivedValue !== undefined && directiveId !== undefined) {
@@ -442,6 +543,25 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		return winner === undefined ? undefined : { ...winner, shadowed };
 	};
 
+	const fallbackField = <K extends CapabilityFieldName>(
+		name: K
+	): readonly CapabilityFallbackCandidate<CapabilityFieldValue<K>>[] | undefined => {
+		const candidates: CapabilityFallbackCandidate<CapabilityFieldValue<K>>[] = [];
+		if (parsedEntry !== undefined && entryWinner !== undefined && entryFallback.includes(name)) {
+			const entryValue = parsedEntry.fields[name];
+			if (entryValue !== undefined) {
+				candidates.push({ level: "entry-fallback", key: entryWinner.key, value: entryValue });
+			}
+		}
+		if (parsedGlobal !== undefined && globalWinner !== undefined && globalFallback.includes(name)) {
+			const globalValue = parsedGlobal.fields[name];
+			if (globalValue !== undefined) {
+				candidates.push({ level: "global-fallback", key: globalWinner.key, value: globalValue });
+			}
+		}
+		return candidates.length > 0 ? candidates : undefined;
+	};
+
 	const diagnostics: CapabilityDiagnostic[] = [];
 	const attribute = (
 		parsed: ParsedCapabilityRecord,
@@ -449,11 +569,32 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		recordKey: string
 	): CapabilityDiagnostic[] =>
 		parsed.diagnostics.filter((d) => d.key !== DECLARE_DIRECTIVE).map((d) => ({ ...d, layer, recordKey }));
+	// The ban's diagnostic dedupes against the parse: a malformed _fallback on
+	// a banned record already carries the same kind and key from the parse, and
+	// the inspector keys its diagnostic list by exactly that triple.
+	const fallbackDiagnosed = (parsed: ParsedCapabilityRecord): boolean =>
+		parsed.diagnostics.some((d) => d.kind === "invalid-directive" && d.key === FALLBACK_DIRECTIVE);
 	if (parsedEntry !== undefined && entryWinner !== undefined) {
 		diagnostics.push(...attribute(parsedEntry, "entry", entryWinner.key));
+		if (entryBanned && !fallbackDiagnosed(parsedEntry)) {
+			diagnostics.push({
+				kind: "invalid-directive",
+				key: FALLBACK_DIRECTIVE,
+				layer: "entry",
+				recordKey: entryWinner.key,
+			});
+		}
 	}
 	if (parsedGlobal !== undefined && globalWinner !== undefined) {
 		diagnostics.push(...attribute(parsedGlobal, "global", globalWinner.key));
+		if (globalBanned && !fallbackDiagnosed(parsedGlobal)) {
+			diagnostics.push({
+				kind: "invalid-directive",
+				key: FALLBACK_DIRECTIVE,
+				layer: "global",
+				recordKey: globalWinner.key,
+			});
+		}
 	}
 
 	// Declaration is extraction's semantics, not the winner's: a scoped record
@@ -475,6 +616,15 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 			supports_vision: overrideField("supports_vision"),
 			supports_reasoning: overrideField("supports_reasoning"),
 			supports_audio_input: overrideField("supports_audio_input"),
+		},
+		fallbackFields: {
+			context_length: fallbackField("context_length"),
+			max_input_tokens: fallbackField("max_input_tokens"),
+			max_output_tokens: fallbackField("max_output_tokens"),
+			supports_function_calling: fallbackField("supports_function_calling"),
+			supports_vision: fallbackField("supports_vision"),
+			supports_reasoning: fallbackField("supports_reasoning"),
+			supports_audio_input: fallbackField("supports_audio_input"),
 		},
 		...(directive !== undefined ? { directive } : {}),
 		implicitCatalog: catalog.byRawModelId(rawModelId),
@@ -521,14 +671,23 @@ export interface CapabilityTokenDefaults {
 }
 
 /**
+ * The built-in floor totals as literals, exported for every consumer of the
+ * two numbers (pure and webview-safe). The deprecated defaultContextLength /
+ * defaultMaxOutputTokens settings' built-in defaults mirror these until their
+ * removal.
+ */
+export const FLOOR_CONTEXT_LENGTH = 128000;
+export const FLOOR_MAX_OUTPUT_TOKENS = 16000;
+
+/**
  * The built-in backstop of the walk: tools on, vision/audio/reasoning off,
- * and the token settings' built-in defaults for the two floor-total numbers.
- * max_input_tokens has no floor - the context-minus-output derivation is its
- * backstop, and it is total because both inputs are.
+ * and the floor totals for the two numbers. max_input_tokens has no floor -
+ * the context-minus-output derivation is its backstop, and it is total
+ * because both inputs are.
  */
 export const CAPABILITY_FLOOR: Readonly<Omit<CapabilityFieldValues, "max_input_tokens">> = {
-	context_length: NUMBER_SETTING_SPECS.defaultContextLength.default,
-	max_output_tokens: NUMBER_SETTING_SPECS.defaultMaxOutputTokens.default,
+	context_length: FLOOR_CONTEXT_LENGTH,
+	max_output_tokens: FLOOR_MAX_OUTPUT_TOKENS,
 	supports_function_calling: true,
 	supports_vision: false,
 	supports_reasoning: false,
@@ -559,7 +718,8 @@ export type EffectiveCapabilityFields = {
 
 export interface ResolveModelCapabilitiesInput extends ResolveCapabilityOverridesInput {
 	readonly serverDeclared: ServerDeclaredCapabilities;
-	readonly tokenDefaults: CapabilityTokenDefaults;
+	/** The deprecated default* trio; omitting it simply skips the default-setting level. */
+	readonly tokenDefaults?: CapabilityTokenDefaults | undefined;
 }
 
 export interface EffectiveCapabilities {
@@ -605,11 +765,20 @@ function resolveField<V extends number | boolean>(
 	};
 }
 
+/** The levels whose values count as user-set for output-limit provenance. */
+const USER_SET_LEVELS: ReadonlySet<CapabilityLevel> = new Set([
+	"entry",
+	"global",
+	"directive",
+	"entry-fallback",
+	"global-fallback",
+]);
+
 /**
  * The one function every consumer calls: the full precedence walk over the
- * user-set overrides, the server-reported baseline, the deprecated default*
- * settings, the implicit catalog match, and the built-in floor - per field,
- * top wins:
+ * user-set overrides, the server-reported baseline, the `_fallback`-demoted
+ * fields, the deprecated default* settings, the implicit catalog match, and
+ * the built-in floor - per field, top wins:
  *
  *  1. explicit field in the entry record
  *  2. explicit field in the global record (scoped replaces unscoped whole)
@@ -617,14 +786,17 @@ function resolveField<V extends number | boolean>(
  *  4. server-reported value (skipped for `_declare`d models)
  *     - except defaultMaxInputTokens, which keeps its quirk of slotting
  *       between 3 and 4 for max_input_tokens until removal
- *  5. explicitly configured default* setting
- *  6. implicit catalog lookup by the model's own raw ID
- *  7. built-in floor; max_input_tokens instead derives
+ *  5. `_fallback`-marked field in the entry record
+ *  6. `_fallback`-marked field in the global record
+ *  7. explicitly configured default* setting (when tokenDefaults is given)
+ *  8. implicit catalog lookup by the model's own raw ID
+ *  9. built-in floor; max_input_tokens instead derives
  *     max(1, context - output) from the effective values
  *
- * Levels 1-3 count as user-declared output limits ("user"); the server level
- * is "provider" only under the every-contributor declaredness rule; every
- * other level stays "defaults" so guessed limits keep the wire clamp.
+ * Levels 1-3 and 5-6 count as user-declared output limits ("user"); the
+ * server level is "provider" only under the every-contributor declaredness
+ * rule; every other level stays "defaults" so guessed limits keep the wire
+ * clamp.
  */
 export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): EffectiveCapabilities {
 	const overrides = resolveCapabilityOverrides(input);
@@ -637,23 +809,32 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 		const value = serverValues[name];
 		return value !== undefined ? [{ level: "server", value }] : [];
 	};
+	const fromFallback = <K extends CapabilityFieldName>(name: K): LevelCandidate<CapabilityFieldValue<K>>[] => [
+		...(overrides.fallbackFields[name] ?? []),
+	];
 	const fromCatalog = <K extends CapabilityFieldName>(name: K): LevelCandidate<CapabilityFieldValue<K>>[] => {
 		const value = catalogMatch?.fields[name];
 		return value !== undefined && catalogMatch !== undefined ? [{ level: "catalog", key: catalogMatch.id, value }] : [];
 	};
-	const fromExplicitDefault = (setting: CapabilityTokenDefault): LevelCandidate<number>[] =>
-		setting.explicitlyConfigured ? [{ level: "default-setting", value: setting.value }] : [];
+	const fromExplicitDefault = (setting: CapabilityTokenDefault | undefined): LevelCandidate<number>[] =>
+		setting?.explicitlyConfigured ? [{ level: "default-setting", value: setting.value }] : [];
 
 	const contextLength = resolveField(
 		overrides.fields.context_length,
-		[...fromServer("context_length"), ...fromExplicitDefault(defaults.contextLength), ...fromCatalog("context_length")],
+		[
+			...fromServer("context_length"),
+			...fromFallback("context_length"),
+			...fromExplicitDefault(defaults?.contextLength),
+			...fromCatalog("context_length"),
+		],
 		{ level: "floor", value: CAPABILITY_FLOOR.context_length }
 	);
 	const maxOutputTokens = resolveField(
 		overrides.fields.max_output_tokens,
 		[
 			...fromServer("max_output_tokens"),
-			...fromExplicitDefault(defaults.maxOutputTokens),
+			...fromFallback("max_output_tokens"),
+			...fromExplicitDefault(defaults?.maxOutputTokens),
 			...fromCatalog("max_output_tokens"),
 		],
 		{ level: "floor", value: CAPABILITY_FLOOR.max_output_tokens }
@@ -661,27 +842,27 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 	const maxInputTokens = resolveField(
 		overrides.fields.max_input_tokens,
 		[
-			...(defaults.maxInputTokens !== undefined
+			...(defaults?.maxInputTokens !== undefined
 				? [{ level: "default-setting" as const, value: defaults.maxInputTokens }]
 				: []),
 			...fromServer("max_input_tokens"),
+			...fromFallback("max_input_tokens"),
 			...fromCatalog("max_input_tokens"),
 		],
 		{ level: "derived", value: Math.max(1, contextLength.value - maxOutputTokens.value) }
 	);
 	const booleanField = (name: BooleanCapabilityField): EffectiveCapabilityField<boolean> =>
-		resolveField(overrides.fields[name], [...fromServer(name), ...fromCatalog(name)], {
+		resolveField(overrides.fields[name], [...fromServer(name), ...fromFallback(name), ...fromCatalog(name)], {
 			level: "floor",
 			value: CAPABILITY_FLOOR[name],
 		});
 
 	const outputLevel = maxOutputTokens.level;
-	const outputLimitSource: EffectiveOutputLimitSource =
-		outputLevel === "entry" || outputLevel === "global" || outputLevel === "directive"
-			? "user"
-			: outputLevel === "server" && input.serverDeclared.kind === "discovered" && input.serverDeclared.outputDeclared
-				? "provider"
-				: "defaults";
+	const outputLimitSource: EffectiveOutputLimitSource = USER_SET_LEVELS.has(outputLevel)
+		? "user"
+		: outputLevel === "server" && input.serverDeclared.kind === "discovered" && input.serverDeclared.outputDeclared
+			? "provider"
+			: "defaults";
 
 	return {
 		fields: {
