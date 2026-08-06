@@ -53,6 +53,7 @@ LiteLLM VSCode Chat: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered b
 
 <!-- Add project-specific instructions below. This section survives template
      updates via three-way merge. -->
+<!-- repo-platform:local-section -->
 
 Keep shared project facts here; the code is the source of truth for
 implementation detail.

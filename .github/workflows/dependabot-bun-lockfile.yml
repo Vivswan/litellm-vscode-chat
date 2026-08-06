@@ -56,11 +56,11 @@ jobs:
       # Every tracked lockfile, not just the root one: a repository can
       # commit several (repo-platform itself locks each composite action's
       # directory). '*/bun.lock' is a git pathspec, where '*' crosses '/',
-      # so it matches at any depth. Deleting before regenerating matters: bun accepts the
-      # stale lockfile as a valid resolution and keeps it, so only a
-      # from-scratch resolve drops the stale entries. The side effect is a
-      # refresh of every in-range pin, which package.json ranges and the
-      # PR's own CI still bound.
+      # so it matches at any depth. Deleting before regenerating matters:
+      # bun accepts the stale lockfile as a valid resolution and keeps it,
+      # so only a from-scratch resolve drops the stale entries. The side
+      # effect is a refresh of every in-range pin, which package.json
+      # ranges and the PR's own CI still bound.
       - name: Regenerate bun lockfiles
         shell: bash
         run: |
