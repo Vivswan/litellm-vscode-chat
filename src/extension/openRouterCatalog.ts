@@ -189,14 +189,13 @@ class Store implements OpenRouterCatalogStore {
 			this.cancelScheduled = undefined;
 			return;
 		}
-		if (this.cancelScheduled === undefined && this.inFlight === undefined) {
-			this.scheduleFromMetadata();
-		}
+		this.ensureScheduled();
 	}
 
 	refreshNow(): Promise<void> {
 		this.inFlight ??= this.runRefresh().finally(() => {
 			this.inFlight = undefined;
+			this.ensureScheduled();
 		});
 		return this.inFlight;
 	}
@@ -251,6 +250,19 @@ class Store implements OpenRouterCatalogStore {
 						REFRESH_INTERVAL_MS
 					);
 		this.schedule(delay);
+	}
+
+	/**
+	 * Re-establish the scheduling invariant - enabled implies a pending timer
+	 * or a refresh in flight - by arming the metadata-based schedule when
+	 * neither exists. A refresh that bails early (disabled or disposed
+	 * mid-flight) arms no follow-up itself, so its completion funnels through
+	 * here; schedule() stays a no-op while disabled or disposed.
+	 */
+	private ensureScheduled(): void {
+		if (this.cancelScheduled === undefined && this.inFlight === undefined) {
+			this.scheduleFromMetadata();
+		}
 	}
 
 	private schedule(ms: number): void {
