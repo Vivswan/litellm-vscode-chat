@@ -1,6 +1,46 @@
 # Contributing to litellm-vscode-chat
 
-Thanks for your interest in improving `litellm-vscode-chat`! This guide covers how to set up the project, run checks, and submit a pull request.
+Thanks for contributing! This document covers the conventions every change
+in this repository goes through.
+
+CI, settings, and standards files here (including this document above the
+marker at the bottom) are managed by
+[Vivswan/repo-platform](https://github.com/vivswan/repo-platform);
+local edits to managed files are replaced on the next template sync.
+
+## Pull requests
+
+- Changes land through pull requests and are squash-merged; the PR title
+  becomes the commit subject on the default branch.
+- The PR title and every pushed commit subject must be a
+  [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/),
+  for example `feat: add X` or `fix(parser): handle Y`. Releases are
+  versioned from these subjects.
+
+## CI
+
+- CI gates on a single status check, `all-green`, which needs every
+  gating CI job (the convention is documented in
+  [repo-platform's all-green guide](https://github.com/vivswan/repo-platform/blob/main/docs/all-green.md)).
+- Repository-specific checks live in `.github/workflows/checks.yml`; run
+  the commands it lists locally before pushing.
+- A typography gate enforces plain ASCII punctuation: no curly quotes,
+  em-dashes, or invisible unicode.
+
+## Security
+
+Never report vulnerabilities in issues or pull requests - see
+[SECURITY.md](SECURITY.md) for the private reporting route.
+
+## Code of conduct
+
+Participation in this project is governed by the
+[code of conduct](CODE_OF_CONDUCT.md).
+
+<!-- Repository-specific contributing documentation (dev setup, build and
+     test commands, review expectations) goes below this line. It survives
+     template updates via three-way merge. -->
+<!-- repo-platform:local-section -->
 
 ## Prerequisites
 
@@ -49,10 +89,5 @@ Conventions live in [AGENTS.md](AGENTS.md). In short:
 ## Submitting a pull request
 
 1. Fork the repo and create a branch for your change.
-2. Make sure `bun run lint:actions`, `bun run lint`, `bun run compile`, and `bun run test` pass.
-3. Use a Conventional Commit PR title such as `fix: handle model timeout` or `feat: add server diagnostics`; release-please uses squash commit messages to choose versions.
-4. Open a PR. Merges to `main` are squash-only.
-
-## Security
-
-Please do not report security vulnerabilities through public issues. See [SECURITY.md](SECURITY.md) for how to disclose them responsibly.
+2. Make sure the checks under "Running checks" pass locally.
+3. Open a PR with a Conventional Commit title (see "Pull requests" above).
