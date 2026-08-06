@@ -19,7 +19,7 @@
  * of shadowing it.
  */
 
-import { findLongestPrefixEntry, findScopedMatch } from "./parameterResolution";
+import { CATCH_ALL_PREFIX, findLongestPrefixEntry, findScopedMatch } from "./parameterResolution";
 import { NUMBER_SETTING_SPECS } from "./settingSpec";
 
 /**
@@ -104,9 +104,10 @@ export interface ParsedCapabilityRecord {
  * a lower precedence layer's valid value can still win. `_declare` must be a
  * boolean and is only honored when `allowDeclare` is set - callers pass false
  * for keys that cannot name a server plus exact model ID (unscoped global
- * keys and empty-ID keys), turning `_declare: true` into an unscoped-declare
- * diagnostic. `_openrouter_model` must be a non-blank string. Other
- * underscore keys are ignored without diagnosis (forward compatibility).
+ * keys, empty-ID keys, and the catch-all), turning `_declare: true` into an
+ * unscoped-declare diagnostic. `_openrouter_model` must be a non-blank
+ * string. Other underscore keys are ignored without diagnosis (forward
+ * compatibility).
  */
 export function parseCapabilityRecord(
 	record: Readonly<Record<string, unknown>>,
@@ -181,7 +182,8 @@ function isUrlScopedKey(key: string): boolean {
  * the matching scopes (the shortest scope, consistent with findScopedMatch
  * preferring the longest model prefix), so the record that declares a model
  * is the record that later matches it. undefined when no scope matches or
- * the remainder is empty - such a key cannot name a model.
+ * the remainder is empty or the catch-all "*" - such a key cannot name a
+ * model.
  */
 function scopedDeclarableId(key: string, scopes: readonly string[]): string | undefined {
 	let remainder: string | undefined;
@@ -193,7 +195,7 @@ function scopedDeclarableId(key: string, scopes: readonly string[]): string | un
 			}
 		}
 	}
-	return remainder !== "" ? remainder : undefined;
+	return remainder === "" || remainder === CATCH_ALL_PREFIX ? undefined : remainder;
 }
 
 export interface ExtractDeclaredModelsInput {
@@ -252,7 +254,9 @@ export function extractDeclaredModels(input: ExtractDeclaredModelsInput): Extrac
 	};
 
 	for (const [key, record] of Object.entries(input.entryCapabilities ?? {})) {
-		scan("entry", key, key !== "" ? key : undefined, record);
+		// The empty key and the catch-all "*" match every model and can name
+		// none, so neither may declare.
+		scan("entry", key, key !== "" && key !== CATCH_ALL_PREFIX ? key : undefined, record);
 	}
 	for (const [key, record] of Object.entries(input.globalCapabilities)) {
 		if (input.serverScopes.some((scope) => key.startsWith(`${scope}/`))) {

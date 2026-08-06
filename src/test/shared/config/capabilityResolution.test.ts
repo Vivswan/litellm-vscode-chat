@@ -221,6 +221,25 @@ suite("shared/config capabilityResolution extractDeclaredModels", () => {
 		]);
 	});
 
+	test('the catch-all "*" cannot declare, in the entry and scoped-global layers alike', () => {
+		const viaEntry = extractDeclaredModels({
+			globalCapabilities: {},
+			serverScopes: [],
+			entryCapabilities: { "*": { _declare: true } },
+		});
+		assert.deepStrictEqual(viaEntry.models, []);
+		assert.deepStrictEqual(viaEntry.diagnostics, [diagnostic("unscoped-declare", DECLARE_DIRECTIVE, "entry", "*")]);
+
+		const viaScoped = extractDeclaredModels({
+			globalCapabilities: { "http://a.test/*": { _declare: true } },
+			serverScopes: ["http://a.test"],
+		});
+		assert.deepStrictEqual(viaScoped.models, []);
+		assert.deepStrictEqual(viaScoped.diagnostics, [
+			diagnostic("unscoped-declare", DECLARE_DIRECTIVE, "global", "http://a.test/*"),
+		]);
+	});
+
 	test("the same ID declared in both layers dedupes entry-over-global; two scopes dedupe first-wins", () => {
 		const extracted = extractDeclaredModels({
 			globalCapabilities: {
