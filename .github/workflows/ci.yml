@@ -73,7 +73,8 @@ jobs:
   # scans the event's commit range (fetch-depth: 0 so any range
   # resolves); audit the OLD history once with a local `gitleaks git`.
   # Personal-account repos need no GITLEAKS_LICENSE; allowlist false
-  # positives in a repo-owned .gitleaks.toml at the repository root.
+  # positives in the repo-owned .gitleaks.toml at the repository root
+  # (seeded by the template, never overwritten by sync).
   # pull-requests read: the action lists the PR's commits to build the
   # scan range. Comments off keeps that scope at read; leaks still land
   # in the job summary and SARIF artifact.
@@ -86,10 +87,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
+          # The action's default binary (8.24.3) predates .gitleaks.toml's
+          # minVersion floor AND skips that check silently; pin one meeting
+          # the floor so CI honors the same config local runs do.
+          GITLEAKS_VERSION: "8.30.1"
 
   yamllint:
     runs-on: ubuntu-latest
@@ -99,6 +104,24 @@ jobs:
         run: python3 -m pip install --quiet yamllint
       - name: Lint YAML
         run: yamllint -s .
+
+  # Fails when a PR introduces dependencies with known vulnerabilities, by
+  # diffing the dependency graph between base and head. Public renders only:
+  # the dependency-graph API behind it is free just for public repositories.
+  # Only PR events have a diff to review, so the skip lives on the steps:
+  # all-green treats a skipped needed job as failure, so the job itself
+  # stays unconditional.
+  dependency-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+      - uses: actions/dependency-review-action@v5
+        if: github.event_name == 'pull_request'
+        with:
+          # Deliberate strictest threshold (also the action's default,
+          # pinned so a default change cannot loosen the gate silently).
+          fail-on-severity: low
 
   # CodeQL analysis runs inside the gate (one job per language), so a failed
   # scan blocks merges. Each job grants the scan permissions - a caller
@@ -114,6 +137,34 @@ jobs:
       security-events: write
       actions: read
 
+
+  # Fails when the release-please PR head lacks main's tip at CHECK time:
+  # a stale release PR cuts a release whose version and changelog miss
+  # commits already on main. A main push after this run is only caught by
+  # release-please's refresh re-running CI. Other PRs stay mergeable while
+  # behind (required checks are not strict). The skip lives on the STEPS:
+  # all-green treats a skipped needed job as failure.
+  release-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')
+        with:
+          # Full history: the ancestor check needs origin/main.
+          fetch-depth: 0
+          # PR head, not the default merge ref - the merge ref already
+          # contains main's tip, so it would always pass.
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Require the release PR to contain the tip of main
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')
+        run: |
+          tip="$(git rev-parse "origin/${GITHUB_BASE_REF}")"
+          if git merge-base --is-ancestor "$tip" HEAD; then
+            echo "release PR contains the ${GITHUB_BASE_REF} tip (${tip})"
+          else
+            echo "::error::Release PR is behind ${GITHUB_BASE_REF} (tip ${tip}); its version and changelog would miss commits already on ${GITHUB_BASE_REF}. Do not merge; release-please refreshes the PR after the next green run on ${GITHUB_BASE_REF}."
+            exit 1
+          fi
 
   # Conventional Commit PR title, checked inside the gate so branch
   # protection blocks on it. PRs are squash-merged, so the PR title becomes
@@ -142,7 +193,9 @@ jobs:
       - actionlint
       - gitleaks
       - yamllint
+      - dependency-review
       - codeql-javascript
+      - release-freshness
       - pr-title
     runs-on: ubuntu-latest
     steps:
