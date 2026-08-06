@@ -363,6 +363,63 @@ suite("extension openRouterCatalog store", () => {
 		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
 	});
 
+	test("re-enabling while a bailed refresh is still settling leaves the next refresh armed", async () => {
+		let enabled = true;
+		const harness = makeHarness({ bundled: fixtureText, enabled: () => enabled });
+		await harness.store.initialize();
+		const [initial] = pendingSchedules(harness.scheduled);
+		assert.ok(initial !== undefined);
+		// The user disables, but the armed timer fires before the config
+		// listener runs: the refresh starts and bails on the disabled check,
+		// with its in-flight promise not yet settled.
+		enabled = false;
+		initial.cb();
+		harness.store.applyEnabledSetting();
+		// The user re-enables while that refresh is still settling. This must
+		// leave a timer pending or a refresh outstanding - previously the
+		// in-flight guard skipped scheduling and the bailed refresh armed no
+		// follow-up, killing the weekly cadence for the session.
+		enabled = true;
+		harness.store.applyEnabledSetting();
+		// Deliberately the same in-flight promise (nothing has yielded since
+		// cb()): this drains the settling refresh, never starts a new one.
+		await harness.store.refreshNow();
+		assert.strictEqual(harness.fetchCalls, 0, "the disabled refresh reached the network");
+		assert.deepStrictEqual(
+			pendingSchedules(harness.scheduled).map((call) => call.ms),
+			[MIN_DELAY_MS]
+		);
+	});
+
+	test("a refresh aborted mid-retry by opt-out re-arms on the next enable", async () => {
+		let enabled = true;
+		const harness = makeHarness({
+			bundled: fixtureText,
+			enabled: () => enabled,
+			fetchCatalog: async () => {
+				if (harness.fetchCalls === 2) {
+					enabled = false;
+				}
+				throw new Error("transient failure");
+			},
+		});
+		await harness.store.initialize();
+		const [initial] = pendingSchedules(harness.scheduled);
+		assert.ok(initial !== undefined);
+		initial.cb();
+		await harness.store.refreshNow();
+		assert.strictEqual(harness.fetchCalls, 2, "retries continued after the opt-out");
+		assert.ok(!harness.logLines.some((line) => line.includes("refresh failed")));
+		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
+
+		enabled = true;
+		harness.store.applyEnabledSetting();
+		assert.deepStrictEqual(
+			pendingSchedules(harness.scheduled).map((call) => call.ms),
+			[MIN_DELAY_MS]
+		);
+	});
+
 	test("dispose cancels the pending refresh", async () => {
 		const harness = makeHarness({ bundled: fixtureText });
 		await harness.store.initialize();
