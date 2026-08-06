@@ -137,19 +137,43 @@ export function helpCapabilityPrefix(): string {
 
 export function helpCapabilityName(): string {
 	return l10n.t(
-		"A capability field like context_length or supports_vision, or a directive: _declare creates the model, _openrouter_model fills fields from the catalog."
+		"A capability field like context_length or supports_vision, or a directive: _declare creates the model, _openrouter_model fills fields from the catalog, _fallback demotes fields below the server's report."
 	);
 }
 
 export function helpCapabilityValue(): string {
 	return l10n.t(
-		"Numbers are token counts, e.g. 128000; support flags are true or false. Your values beat what the server reports."
+		"Numbers are token counts, e.g. 128000; support flags are true or false. Your values beat what the server reports unless the row is marked fallback."
 	);
 }
 
 export function helpCatalogPicker(): string {
 	return l10n.t(
 		"Search the OpenRouter catalog by name or ID, e.g. gpt-4o. Picking an entry fills capability fields the row leaves unset."
+	);
+}
+
+export function helpFallbackFlag(): string {
+	return l10n.t(
+		"Applies this value only when the server reports nothing, e.g. filling a missing context_length. Unchecked, your value overrides the server's."
+	);
+}
+
+export function helpFallbackFlagDisabled(): string {
+	return l10n.t(
+		"Locked while _declare is on: the model it creates has no server value to fall back under. Models this prefix merely matches keep existing _fallback marks."
+	);
+}
+
+export function helpForceFlag(): string {
+	return l10n.t(
+		"Sends this value even when the chat client or the model picker sets the same key, e.g. pinning temperature 0.2. Unchecked, runtime options win."
+	);
+}
+
+export function helpForceFlagDisabled(): string {
+	return l10n.t(
+		"Cannot be forced: provider-owned fields like model and keys starting with _ always stay extension-owned."
 	);
 }
 

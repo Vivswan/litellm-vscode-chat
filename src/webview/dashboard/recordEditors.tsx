@@ -11,22 +11,28 @@ import type {
 import {
 	CAPABILITY_FIELDS,
 	DECLARE_DIRECTIVE,
+	FALLBACK_DIRECTIVE,
+	FORCE_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 	settingScopeLabel,
 } from "../../extension/dashboard/protocol";
 import type {
 	CapabilityGroupIssues,
+	GroupHints,
 	GroupProblems,
 	HeaderRow,
 	PrefixGroup,
 	RowFieldProblem,
 } from "../../extension/dashboard/recordDraft";
 import {
+	directiveEligible,
+	directiveMarkedFields,
 	groupsFromJsonText,
 	headerRowsFromJsonText,
 	parseGroups,
 	parseHeaderRowsDetailed,
 	toGroups,
+	toggleDirectiveField,
 	toHeaderRows,
 } from "../../extension/dashboard/recordDraft";
 import { DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
@@ -37,6 +43,10 @@ import {
 	helpCapabilityValue,
 	helpCatalogPicker,
 	helpCustomHeadersSection,
+	helpFallbackFlag,
+	helpFallbackFlagDisabled,
+	helpForceFlag,
+	helpForceFlagDisabled,
 	helpModelParameterName,
 	helpModelParameterPrefix,
 	helpModelParametersSection,
@@ -230,6 +240,7 @@ function OtherScopeNote({ scope }: { scope: SettingScope }) {
 export function ParamGroupsFields({
 	groups,
 	problems,
+	hints,
 	disabled,
 	readOnly,
 	prefixPlaceholder,
@@ -241,6 +252,8 @@ export function ParamGroupsFields({
 }: {
 	groups: readonly PrefixGroup[];
 	problems: readonly GroupProblems[];
+	/** Row-aligned non-blocking notes from the same parse (the _force semantic warnings). */
+	hints?: readonly GroupHints[];
 	disabled?: boolean;
 	/** Render as a static display: inputs disabled, add/remove actions gone (the other-scope records). */
 	readOnly?: boolean;
@@ -270,108 +283,162 @@ export function ParamGroupsFields({
 	};
 	return (
 		<>
-			{groups.map((group, groupIndex) => (
+			{groups.map((group, groupIndex) => {
+				// The group's `_force` marks, derived once per render from the same
+				// rows the checkboxes rewrite, so box state and row text cannot drift.
+				const forcedFields = directiveMarkedFields(group, FORCE_DIRECTIVE);
 				// Rows are positional while being edited; the index is the identity.
-				<div class="group" key={groupIndex}>
-					<div class="row">
-						<span class="cell key">
-							<input
-								type="text"
-								class={`key${problems[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
-								aria-invalid={problems[groupIndex]?.prefix !== undefined}
-								placeholder={prefixPlaceholder}
-								value={group.prefix}
-								disabled={inert}
-								list={prefixListId}
-								onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
-								onKeyDown={prefixListId === undefined ? onKeyDown : undefined}
-							/>
-							<Help text={prefixHelp} />
-						</span>
+				return (
+					<div class="group" key={groupIndex}>
+						<div class="row">
+							<span class="cell key">
+								<input
+									type="text"
+									class={`key${problems[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
+									aria-invalid={problems[groupIndex]?.prefix !== undefined}
+									placeholder={prefixPlaceholder}
+									value={group.prefix}
+									disabled={inert}
+									list={prefixListId}
+									onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
+									onKeyDown={prefixListId === undefined ? onKeyDown : undefined}
+								/>
+								<Help text={prefixHelp} />
+							</span>
+							{readOnly === true ? null : (
+								<button
+									type="button"
+									class="quiet"
+									disabled={disabled}
+									onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
+								>
+									<IconTrash /> {l10n.t("Remove prefix")}
+								</button>
+							)}
+							{problems[groupIndex]?.prefix !== undefined ? (
+								<span class="error">{problems[groupIndex]?.prefix}</span>
+							) : null}
+						</div>
+						<div class="rows">
+							{group.params.map((param, paramIndex) => (
+								<div class="row" key={paramIndex}>
+									<span class="cell key">
+										<input
+											type="text"
+											class={`key${problems[groupIndex]?.params[paramIndex]?.field === "name" ? " invalid" : ""}`}
+											aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
+											placeholder={l10n.t("Parameter, e.g. temperature")}
+											value={param.key}
+											disabled={inert}
+											list={paramNameListId}
+											onInput={(event) =>
+												patchGroup(groupIndex, {
+													params: group.params.map((p, i) =>
+														i === paramIndex ? { ...p, key: event.currentTarget.value } : p
+													),
+												})
+											}
+											onKeyDown={paramNameListId === undefined ? onKeyDown : undefined}
+										/>
+										<Help text={helpModelParameterName()} />
+									</span>
+									<span class="cell value">
+										<input
+											type="text"
+											class={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
+											aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
+											placeholder={l10n.t("JSON value, e.g. 0.2")}
+											value={param.valueText}
+											disabled={inert}
+											onInput={(event) =>
+												patchGroup(groupIndex, {
+													params: group.params.map((p, i) =>
+														i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
+													),
+												})
+											}
+											onKeyDown={onKeyDown}
+										/>
+										<Help text={helpModelParameterValue()} />
+									</span>
+									{readOnly === true ? null : (
+										<button
+											type="button"
+											class="quiet"
+											disabled={disabled}
+											onClick={() =>
+												patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
+											}
+										>
+											<IconTrash /> {l10n.t("Remove")}
+										</button>
+									)}
+									{/* The per-row force mark, trailing the row action in DOM and on
+									    screen alike, so the Remove buttons keep one shared column.
+									    Unnamed rows and the directive row itself carry no box;
+									    unforceable keys keep it visible but disabled, with the help
+									    naming why. */}
+									{param.key.trim() === FORCE_DIRECTIVE || param.key.trim().length === 0 ? null : (
+										<span class="cell directive-flag">
+											<label>
+												<input
+													type="checkbox"
+													aria-label={l10n.t('Force "{0}"', param.key.trim())}
+													checked={forcedFields.has(param.key.trim())}
+													disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key.trim())}
+													onChange={(event) =>
+														onChange(
+															groups.map((g, i) =>
+																i === groupIndex
+																	? toggleDirectiveField(
+																			g,
+																			FORCE_DIRECTIVE,
+																			param.key.trim(),
+																			event.currentTarget.checked
+																		)
+																	: g
+															)
+														)
+													}
+												/>
+												{l10n.t({
+													message: "force",
+													comment: [
+														"Checkbox label on a parameter row; marks the value as forced over runtime options.",
+													],
+												})}
+											</label>
+											<Help
+												text={
+													directiveEligible(FORCE_DIRECTIVE, param.key.trim())
+														? helpForceFlag()
+														: helpForceFlagDisabled()
+												}
+											/>
+										</span>
+									)}
+									{problems[groupIndex]?.params[paramIndex] !== undefined ? (
+										<span class="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
+									) : null}
+									{hints?.[groupIndex]?.params[paramIndex] !== undefined ? (
+										<span class="hint">{hints[groupIndex]?.params[paramIndex]}</span>
+									) : null}
+								</div>
+							))}
+						</div>
 						{readOnly === true ? null : (
 							<button
 								type="button"
-								class="quiet"
+								class="secondary"
 								disabled={disabled}
-								onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
+								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
 							>
-								<IconTrash /> {l10n.t("Remove prefix")}
+								<IconAdd /> {l10n.t("Add parameter")}
 							</button>
 						)}
-						{problems[groupIndex]?.prefix !== undefined ? (
-							<span class="error">{problems[groupIndex]?.prefix}</span>
-						) : null}
 					</div>
-					<div class="rows">
-						{group.params.map((param, paramIndex) => (
-							<div class="row" key={paramIndex}>
-								<span class="cell key">
-									<input
-										type="text"
-										class={`key${problems[groupIndex]?.params[paramIndex]?.field === "name" ? " invalid" : ""}`}
-										aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
-										placeholder={l10n.t("Parameter, e.g. temperature")}
-										value={param.key}
-										disabled={inert}
-										list={paramNameListId}
-										onInput={(event) =>
-											patchGroup(groupIndex, {
-												params: group.params.map((p, i) =>
-													i === paramIndex ? { ...p, key: event.currentTarget.value } : p
-												),
-											})
-										}
-										onKeyDown={paramNameListId === undefined ? onKeyDown : undefined}
-									/>
-									<Help text={helpModelParameterName()} />
-								</span>
-								<span class="cell value">
-									<input
-										type="text"
-										class={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
-										aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
-										placeholder={l10n.t("JSON value, e.g. 0.2")}
-										value={param.valueText}
-										disabled={inert}
-										onInput={(event) =>
-											patchGroup(groupIndex, {
-												params: group.params.map((p, i) =>
-													i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
-												),
-											})
-										}
-										onKeyDown={onKeyDown}
-									/>
-									<Help text={helpModelParameterValue()} />
-								</span>
-								{readOnly === true ? null : (
-									<button
-										type="button"
-										class="quiet"
-										disabled={disabled}
-										onClick={() => patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })}
-									>
-										<IconTrash /> {l10n.t("Remove")}
-									</button>
-								)}
-								{problems[groupIndex]?.params[paramIndex] !== undefined ? (
-									<span class="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
-								) : null}
-							</div>
-						))}
-					</div>
-					{readOnly === true ? null : (
-						<button
-							type="button"
-							class="secondary"
-							disabled={disabled}
-							onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
-						>
-							<IconAdd /> {l10n.t("Add parameter")}
-						</button>
-					)}
-				</div>
-			))}
+				);
+			})}
 		</>
 	);
 }
@@ -379,10 +446,11 @@ export function ParamGroupsFields({
 /** The latest catalogSearchResults response; pickers match it against their own request ID. */
 export type CatalogSearchResponse = Extract<ExtensionToWebviewMessage, { type: "catalogSearchResults" }>;
 
-/** The key suggestions the capability rows offer: the closed vocabulary plus the two directives. */
+/** The key suggestions the capability rows offer: the closed vocabulary plus the directives. */
 const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = [
 	...Object.keys(CAPABILITY_FIELDS),
 	DECLARE_DIRECTIVE,
+	FALLBACK_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 ];
 
@@ -565,121 +633,164 @@ export function CapabilityGroupsFields({
 					<option key={key} value={key} />
 				))}
 			</datalist>
-			{groups.map((group, groupIndex) => (
+			{groups.map((group, groupIndex) => {
+				// The group's `_fallback` marks and its `_declare` state, derived once
+				// per render from the rows the checkboxes rewrite. A declared record's
+				// fallback marks are resolver-ignored, so the boxes disable wholesale.
+				const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
+				const groupDeclared = group.params.some(
+					(p) => p.key.trim() === DECLARE_DIRECTIVE && p.valueText.trim() === "true"
+				);
 				// Rows are positional while being edited; the index is the identity.
-				<div class="group" key={groupIndex}>
-					<div class="row">
-						<span class="cell key">
-							<input
-								type="text"
-								class={`key${issues[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
-								aria-invalid={issues[groupIndex]?.prefix !== undefined}
-								placeholder={l10n.t("Model ID or prefix, e.g. gpt-4")}
-								value={group.prefix}
+				return (
+					<div class="group" key={groupIndex}>
+						<div class="row">
+							<span class="cell key">
+								<input
+									type="text"
+									class={`key${issues[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
+									aria-invalid={issues[groupIndex]?.prefix !== undefined}
+									placeholder={l10n.t("Model ID or prefix, e.g. gpt-4")}
+									value={group.prefix}
+									disabled={inert}
+									onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
+								/>
+								<Help text={helpCapabilityPrefix()} />
+							</span>
+							<button
+								type="button"
+								class="quiet"
 								disabled={inert}
-								onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
-							/>
-							<Help text={helpCapabilityPrefix()} />
-						</span>
-						<button
-							type="button"
-							class="quiet"
-							disabled={inert}
-							onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
-						>
-							<IconTrash /> {l10n.t("Remove prefix")}
-						</button>
-						{issues[groupIndex]?.prefix !== undefined ? <span class="error">{issues[groupIndex]?.prefix}</span> : null}
-					</div>
-					<div class="rows">
-						{group.params.map((param, paramIndex) => {
-							const issue = issues[groupIndex]?.rows[paramIndex];
-							const key = param.key.trim();
-							const kind = capabilityValueKind(key);
-							const patchRow = (patch: Partial<{ key: string; valueText: string }>) =>
-								patchGroup(groupIndex, {
-									params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
-								});
-							return (
-								<div class="row" key={paramIndex}>
-									<span class="cell key">
-										<input
-											type="text"
-											class={`key${issue?.problem?.field === "name" ? " invalid" : ""}`}
-											aria-invalid={issue?.problem?.field === "name"}
-											placeholder={l10n.t("Capability, e.g. context_length")}
-											value={param.key}
-											disabled={inert}
-											list={CAPABILITY_KEY_LIST_ID}
-											onInput={(event) => {
-												const nextKey = event.currentTarget.value;
-												// A row just switched onto a support flag or _declare
-												// means "turn it on"; seeding true keeps the checkbox
-												// and the parse in agreement without an extra click.
-												const seedsTrue =
-													capabilityValueKind(nextKey.trim()) === "boolean" && param.valueText.trim().length === 0;
-												patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
-											}}
-										/>
-										<Help text={helpCapabilityName()} />
-									</span>
-									{kind === "boolean" ? (
-										<label class="cell value capability-flag">
+								onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
+							>
+								<IconTrash /> {l10n.t("Remove prefix")}
+							</button>
+							{issues[groupIndex]?.prefix !== undefined ? (
+								<span class="error">{issues[groupIndex]?.prefix}</span>
+							) : null}
+						</div>
+						<div class="rows">
+							{group.params.map((param, paramIndex) => {
+								const issue = issues[groupIndex]?.rows[paramIndex];
+								const key = param.key.trim();
+								const kind = capabilityValueKind(key);
+								const patchRow = (patch: Partial<{ key: string; valueText: string }>) =>
+									patchGroup(groupIndex, {
+										params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
+									});
+								return (
+									<div class="row" key={paramIndex}>
+										<span class="cell key">
 											<input
-												type="checkbox"
-												checked={param.valueText.trim() === "true"}
+												type="text"
+												class={`key${issue?.problem?.field === "name" ? " invalid" : ""}`}
+												aria-invalid={issue?.problem?.field === "name"}
+												placeholder={l10n.t("Capability, e.g. context_length")}
+												value={param.key}
 												disabled={inert}
-												onChange={(event) => patchRow({ valueText: event.currentTarget.checked ? "true" : "false" })}
+												list={CAPABILITY_KEY_LIST_ID}
+												onInput={(event) => {
+													const nextKey = event.currentTarget.value;
+													// A row just switched onto a support flag or _declare
+													// means "turn it on"; seeding true keeps the checkbox
+													// and the parse in agreement without an extra click.
+													const seedsTrue =
+														capabilityValueKind(nextKey.trim()) === "boolean" && param.valueText.trim().length === 0;
+													patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
+												}}
 											/>
-											{key === DECLARE_DIRECTIVE ? l10n.t("declare this model") : l10n.t("supported")}
-										</label>
-									) : kind === "catalog-id" ? (
-										<CatalogPicker
-											value={param.valueText}
-											disabled={inert}
-											invalid={issue?.problem?.field === "value"}
-											results={catalogResults}
-											onValue={(next) => patchRow({ valueText: next })}
-										/>
-									) : (
-										<span class="cell value">
-											<input
-												type={kind === "number" ? "number" : "text"}
-												min={kind === "number" ? 1 : undefined}
-												class={`value${issue?.problem?.field === "value" ? " invalid" : ""}`}
-												aria-invalid={issue?.problem?.field === "value"}
-												placeholder={kind === "number" ? l10n.t("Tokens, e.g. 128000") : l10n.t("JSON value")}
+											<Help text={helpCapabilityName()} />
+										</span>
+										{kind === "boolean" ? (
+											<label class="cell value capability-flag">
+												<input
+													type="checkbox"
+													checked={param.valueText.trim() === "true"}
+													disabled={inert}
+													onChange={(event) => patchRow({ valueText: event.currentTarget.checked ? "true" : "false" })}
+												/>
+												{key === DECLARE_DIRECTIVE ? l10n.t("declare this model") : l10n.t("supported")}
+											</label>
+										) : kind === "catalog-id" ? (
+											<CatalogPicker
 												value={param.valueText}
 												disabled={inert}
-												onInput={(event) => patchRow({ valueText: event.currentTarget.value })}
+												invalid={issue?.problem?.field === "value"}
+												results={catalogResults}
+												onValue={(next) => patchRow({ valueText: next })}
 											/>
-											<Help text={helpCapabilityValue()} />
-										</span>
-									)}
-									<button
-										type="button"
-										class="quiet"
-										disabled={inert}
-										onClick={() => patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })}
-									>
-										<IconTrash /> {l10n.t("Remove")}
-									</button>
-									{issue?.problem !== undefined ? <span class="error">{issue.problem.message}</span> : null}
-									{issue?.hint !== undefined ? <span class="hint">{issue.hint}</span> : null}
-								</div>
-							);
-						})}
+										) : (
+											<span class="cell value">
+												<input
+													type={kind === "number" ? "number" : "text"}
+													min={kind === "number" ? 1 : undefined}
+													class={`value${issue?.problem?.field === "value" ? " invalid" : ""}`}
+													aria-invalid={issue?.problem?.field === "value"}
+													placeholder={kind === "number" ? l10n.t("Tokens, e.g. 128000") : l10n.t("JSON value")}
+													value={param.valueText}
+													disabled={inert}
+													onInput={(event) => patchRow({ valueText: event.currentTarget.value })}
+												/>
+												<Help text={helpCapabilityValue()} />
+											</span>
+										)}
+										<button
+											type="button"
+											class="quiet"
+											disabled={inert}
+											onClick={() =>
+												patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
+											}
+										>
+											<IconTrash /> {l10n.t("Remove")}
+										</button>
+										{/* The per-row fallback mark, trailing the row action like the
+									    parameter editor's force mark; only the closed vocabulary's
+									    fields carry one (directives and unknown keys have no server
+									    value to fall under). Disabled wholesale while _declare is on:
+									    the mark would do nothing for the declared model itself. */}
+										{Object.hasOwn(CAPABILITY_FIELDS, key) ? (
+											<span class="cell directive-flag">
+												<label>
+													<input
+														type="checkbox"
+														aria-label={l10n.t('Fall back for "{0}"', key)}
+														checked={fallbackFields.has(key)}
+														disabled={inert || groupDeclared}
+														onChange={(event) =>
+															patchGroup(
+																groupIndex,
+																toggleDirectiveField(group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
+															)
+														}
+													/>
+													{l10n.t({
+														message: "fallback",
+														comment: [
+															"Checkbox label on a capability row; applies the value only where the server reports none.",
+														],
+													})}
+												</label>
+												<Help text={groupDeclared ? helpFallbackFlagDisabled() : helpFallbackFlag()} />
+											</span>
+										) : null}
+										{issue?.problem !== undefined ? <span class="error">{issue.problem.message}</span> : null}
+										{issue?.hint !== undefined ? <span class="hint">{issue.hint}</span> : null}
+									</div>
+								);
+							})}
+						</div>
+						<button
+							type="button"
+							class="secondary"
+							disabled={inert}
+							onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
+						>
+							<IconAdd /> {l10n.t("Add capability")}
+						</button>
 					</div>
-					<button
-						type="button"
-						class="secondary"
-						disabled={inert}
-						onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
-					>
-						<IconAdd /> {l10n.t("Add capability")}
-					</button>
-				</div>
-			))}
+				);
+			})}
 		</>
 	);
 }
@@ -919,6 +1030,7 @@ export function ModelParametersEditor({
 					<ParamGroupsFields
 						groups={groups}
 						problems={problems}
+						hints={parse.hints}
 						prefixPlaceholder={l10n.t("Model prefix, e.g. gpt-4 or http://host:4000/gpt-4")}
 						prefixHelp={helpModelParameterPrefix()}
 						prefixListId={MODEL_PREFIX_LIST_ID}

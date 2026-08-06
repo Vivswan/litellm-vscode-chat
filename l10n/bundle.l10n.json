@@ -1,10 +1,16 @@
 {
 	"\"{0}\" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.": "\"{0}\" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.",
+	"\"{0}\" cannot be forced and its mark is skipped: provider-owned fields and _ keys stay extension-owned ({1})": "\"{0}\" cannot be forced and its mark is skipped: provider-owned fields and _ keys stay extension-owned ({1})",
+	"\"{0}\" cannot be forced: provider-owned fields and _ keys stay extension-owned": "\"{0}\" cannot be forced: provider-owned fields and _ keys stay extension-owned",
 	"\"{0}\" carries an invalid directive value and is ignored ({1})": "\"{0}\" carries an invalid directive value and is ignored ({1})",
 	"\"{0}\" has an invalid value and is ignored ({1})": "\"{0}\" has an invalid value and is ignored ({1})",
 	"\"{0}\" is a reserved name and cannot be used": "\"{0}\" is a reserved name and cannot be used",
+	"\"{0}\" is not a capability field this prefix sets; its fallback mark is ignored": "\"{0}\" is not a capability field this prefix sets; its fallback mark is ignored",
 	"\"{0}\" is not a known capability field ({1})": "\"{0}\" is not a known capability field ({1})",
 	"\"{0}\" is not a known capability field; the extension ignores it": "\"{0}\" is not a known capability field; the extension ignores it",
+	"\"{0}\" is not a parameter this prefix sets; its force mark is ignored": "\"{0}\" is not a parameter this prefix sets; its force mark is ignored",
+	"\"{0}\" must be true or a list of fields the record sets, e.g. [\"context_length\"], and cannot demote the model _declare creates; offending marks are ignored ({1})": "\"{0}\" must be true or a list of fields the record sets, e.g. [\"context_length\"], and cannot demote the model _declare creates; offending marks are ignored ({1})",
+	"\"{0}\" must be true or a list of parameters the record sets, e.g. [\"temperature\"]; offending entries are ignored ({1})": "\"{0}\" must be true or a list of parameters the record sets, e.g. [\"temperature\"]; offending entries are ignored ({1})",
 	"$(add) Add Server": "$(add) Add Server",
 	"$(book) Documentation": "$(book) Documentation",
 	"$(bug) Report Bug": "$(bug) Report Bug",
@@ -32,7 +38,7 @@
 	"1 model available": "1 model available",
 	"1 model available from {0} servers": "1 model available from {0} servers",
 	"1 server unreachable": "1 server unreachable",
-	"A capability field like context_length or supports_vision, or a directive: _declare creates the model, _openrouter_model fills fields from the catalog.": "A capability field like context_length or supports_vision, or a directive: _declare creates the model, _openrouter_model fills fields from the catalog.",
+	"A capability field like context_length or supports_vision, or a directive: _declare creates the model, _openrouter_model fills fields from the catalog, _fallback demotes fields below the server's report.": "A capability field like context_length or supports_vision, or a directive: _declare creates the model, _openrouter_model fills fields from the catalog, _fallback demotes fields below the server's report.",
 	"A hard bound on one model-list fetch; type 30s, 1m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
 		"message": "A hard bound on one model-list fetch; type 30s, 1m, or plain ms.",
 		"comment": [
@@ -67,6 +73,7 @@
 	"Always sent": "Always sent",
 	"An entry with this label already exists": "An entry with this label already exists",
 	"An entry with this label already exists; saving replaces it.": "An entry with this label already exists; saving replaces it.",
+	"Applies this value only when the server reports nothing, e.g. filling a missing context_length. Unchecked, your value overrides the server's.": "Applies this value only when the server reports nothing, e.g. filling a missing context_length. Unchecked, your value overrides the server's.",
 	"Apply": "Apply",
 	"Applying...": "Applying...",
 	"Audio input": "Audio input",
@@ -80,6 +87,7 @@
 	"Caching": "Caching",
 	"Cancel": "Cancel",
 	"Cannot adopt: fix Label": "Cannot adopt: fix Label",
+	"Cannot be forced: provider-owned fields like model and keys starting with _ always stay extension-owned.": "Cannot be forced: provider-owned fields like model and keys starting with _ always stay extension-owned.",
 	"Cannot have more than {0} tools per request.": "Cannot have more than {0} tools per request.",
 	"Cannot save: fix {0}": "Cannot save: fix {0}",
 	"Capabilities": "Capabilities",
@@ -115,7 +123,7 @@
 	"Copy diagnostics": "Copy diagnostics",
 	"Copy model ID {0} from {1}": "Copy model ID {0} from {1}",
 	"Correct or declare what this server's models can do, e.g. context_length 128000 for gpt-4 models. Add _declare true to create a model discovery does not list.": "Correct or declare what this server's models can do, e.g. context_length 128000 for gpt-4 models. Add _declare true to create a model discovery does not list.",
-	"Corrects what discovery reports for matching models, and _declare creates models discovery does not list. Your values beat server-reported ones.": "Corrects what discovery reports for matching models, and _declare creates models discovery does not list. Your values beat server-reported ones.",
+	"Corrects what discovery reports for matching models, and _declare creates models discovery does not list. Your values beat server-reported ones unless marked fallback.": "Corrects what discovery reports for matching models, and _declare creates models discovery does not list. Your values beat server-reported ones unless marked fallback.",
 	"Created by a _declare directive in modelCapabilities; the server's discovery does not list it.": "Created by a _declare directive in modelCapabilities; the server's discovery does not list it.",
 	"Currently in {0}; leave the field empty to keep it.": "Currently in {0}; leave the field empty to keep it.",
 	"Custom headers": "Custom headers",
@@ -176,6 +184,8 @@
 	"Enter the key sent in this header": "Enter the key sent in this header",
 	"Enter the server URL": "Enter the server URL",
 	"Enter the server's URL - for a local proxy that is usually http://localhost:4000.": "Enter the server's URL - for a local proxy that is usually http://localhost:4000.",
+	"Enter true or a list of capability fields, e.g. [\"context_length\"]": "Enter true or a list of capability fields, e.g. [\"context_length\"]",
+	"Enter true or a list of parameter names, e.g. [\"temperature\"]": "Enter true or a list of parameter names, e.g. [\"temperature\"]",
 	"Enter true or false": "Enter true or false",
 	"Error": "Error",
 	"Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.": "Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.",
@@ -192,6 +202,7 @@
 	"Failed to parse LiteLLM models response from {0}: {1}": "Failed to parse LiteLLM models response from {0}: {1}",
 	"Failed to parse OAuth token response from {0}: expected JSON with a non-empty \"access_token\".": "Failed to parse OAuth token response from {0}: expected JSON with a non-empty \"access_token\".",
 	"Failed to parse OAuth token response from {0}: the access token contains characters that are not valid in an HTTP header.": "Failed to parse OAuth token response from {0}: the access token contains characters that are not valid in an HTTP header.",
+	"Fall back for \"{0}\"": "Fall back for \"{0}\"",
 	"Family": "Family",
 	"Feedback & links": "Feedback & links",
 	"Fetching models...": "Fetching models...",
@@ -203,6 +214,7 @@
 	"Fix the model capability rows": "Fix the model capability rows",
 	"Fix the model parameter rows": "Fix the model parameter rows",
 	"Fixed to the group being adopted; edit the server afterwards to change it.": "Fixed to the group being adopted; edit the server afterwards to change it.",
+	"Force \"{0}\"": "Force \"{0}\"",
 	"GitHub repository": "GitHub repository",
 	"HTTP headers added to every request sent to LiteLLM, e.g. x-litellm-api-key for a gateway. Keep secret values in User settings, not Workspace settings.": "HTTP headers added to every request sent to LiteLLM, e.g. x-litellm-api-key for a gateway. Keep secret values in User settings, not Workspace settings.",
 	"Hard bound for one chat completion call.": "Hard bound for one chat completion call.",
@@ -293,6 +305,7 @@
 	"LiteLLM: {0}": "LiteLLM: {0}",
 	"Loading": "Loading",
 	"Loading stored values...": "Loading stored values...",
+	"Locked while _declare is on: the model it creates has no server value to fall back under. Models this prefix merely matches keep existing _fallback marks.": "Locked while _declare is on: the model it creates has no server value to fall back under. Models this prefix merely matches keep existing _fallback marks.",
 	"Long context ($/M)": "Long context ($/M)",
 	"Manage LiteLLM Provider": "Manage LiteLLM Provider",
 	"Manage server \"{0}\" ({1})": "Manage server \"{0}\" ({1})",
@@ -372,7 +385,7 @@
 	"Not configured - click to set up": "Not configured - click to set up",
 	"Not valid JSON.": "Not valid JSON.",
 	"Not valid JSON. Quote strings, e.g. \"text\".": "Not valid JSON. Quote strings, e.g. \"text\".",
-	"Numbers are token counts, e.g. 128000; support flags are true or false. Your values beat what the server reports.": "Numbers are token counts, e.g. 128000; support flags are true or false. Your values beat what the server reports.",
+	"Numbers are token counts, e.g. 128000; support flags are true or false. Your values beat what the server reports unless the row is marked fallback.": "Numbers are token counts, e.g. 128000; support flags are true or false. Your values beat what the server reports unless the row is marked fallback.",
 	"OAuth and virtual key (optional)": "OAuth and virtual key (optional)",
 	"OAuth authentication failed: the token endpoint at {0} rejected the client credentials ({1}). Check the OAuth client ID, client secret, and scopes in the provider configuration.": "OAuth authentication failed: the token endpoint at {0} rejected the client credentials ({1}). Check the OAuth client ID, client secret, and scopes in the provider configuration.",
 	"OAuth client ID": "OAuth client ID",
@@ -474,6 +487,7 @@
 	"Secret storage keeps the value encrypted and out of settings.json; Settings writes it there in plain text. When editing later, leave a secret field empty to keep what is stored.": "Secret storage keeps the value encrypted and out of settings.json; Settings writes it there in plain text. When editing later, leave a secret field empty to keep what is stored.",
 	"Select an action": "Select an action",
 	"Select an action or server to manage": "Select an action or server to manage",
+	"Sends this value even when the chat client or the model picker sets the same key, e.g. pinning temperature 0.2. Unchecked, runtime options win.": "Sends this value even when the chat client or the model picker sets the same key, e.g. pinning temperature 0.2. Unchecked, runtime options win.",
 	"Sent on every request as Authorization bearer plus an X-API-Key copy; with OAuth below, the token takes Authorization and the key rides only X-API-Key. Leave empty if the server needs none.": "Sent on every request as Authorization bearer plus an X-API-Key copy; with OAuth below, the token takes Authorization and the key rides only X-API-Key. Leave empty if the server needs none.",
 	"Sent only with requests routed through this entry; overrides the global Model parameters setting for the same keys. Matching is by model ID prefix, longest prefix wins.": "Sent only with requests routed through this entry; overrides the global Model parameters setting for the same keys. Matching is by model ID prefix, longest prefix wins.",
 	"Sent with every LiteLLM request. Prefer User settings for values that are secrets.": "Sent with every LiteLLM request. Prefer User settings for values that are secrets.",
@@ -594,6 +608,7 @@
 	"You reload the window, then run Sync Models Now.": "You reload the window, then run Sync Models Now.",
 	"You remove this server's object from the models file (chatLanguageModels.json).": "You remove this server's object from the models file (chatLanguageModels.json).",
 	"_declare needs a server-scoped or entry key and is ignored ({0})": "_declare needs a server-scoped or entry key and is ignored ({0})",
+	"_fallback does nothing for the model _declare creates (no server value to fall back under); models matched by prefix keep it": "_fallback does nothing for the model _declare creates (no server value to fall back under); models matched by prefix keep it",
 	"an entry with this label already exists": "an entry with this label already exists",
 	"cache read {0}": "cache read {0}",
 	"cache write {0}": "cache write {0}",
@@ -618,6 +633,18 @@
 	"enter the key sent in this header": "enter the key sent in this header",
 	"every refresh": "every refresh",
 	"external": "external",
+	"fallback/Checkbox label on a capability row; applies the value only where the server reports none.": {
+		"message": "fallback",
+		"comment": [
+			"Checkbox label on a capability row; applies the value only where the server reports none."
+		]
+	},
+	"force/Checkbox label on a parameter row; marks the value as forced over runtime options.": {
+		"message": "force",
+		"comment": [
+			"Checkbox label on a parameter row; marks the value as forced over runtime options."
+		]
+	},
 	"forced: overrides runtime options and the picker": "forced: overrides runtime options and the picker",
 	"h/Abbreviation for hours in durations like '1 h 30 min'.": {
 		"message": "h",
