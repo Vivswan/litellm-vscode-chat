@@ -92,7 +92,7 @@ suite("provider/request scoped modelParameters properties", () => {
 				const unscopedKey = rawId.slice(0, Math.max(lenA, lenB));
 				const params = await withConfig(
 					{ modelParameters: { [unscopedKey]: { source: "unscoped" }, [scopedKey]: { source: "scoped" } } },
-					() => getModelParameters(rawId, new Map(), [scope])
+					() => getModelParameters(rawId, new Map(), [scope]).params
 				);
 				assert.deepStrictEqual(params, { source: "scoped" });
 			}),
@@ -118,12 +118,14 @@ suite("provider/request scoped modelParameters properties", () => {
 						[`${scopeB}/${rawId.slice(0, lenB)}`]: { source: "b" },
 					};
 					const expected = { source: lenA > lenB ? "a" : "b" };
-					const forward = await withConfig({ modelParameters: entries }, () =>
-						getModelParameters(rawId, new Map(), [scopeA, scopeB])
+					const forward = await withConfig(
+						{ modelParameters: entries },
+						() => getModelParameters(rawId, new Map(), [scopeA, scopeB]).params
 					);
 					assert.deepStrictEqual(forward, expected);
-					const reversed = await withConfig({ modelParameters: entries }, () =>
-						getModelParameters(rawId, new Map(), [scopeB, scopeA])
+					const reversed = await withConfig(
+						{ modelParameters: entries },
+						() => getModelParameters(rawId, new Map(), [scopeB, scopeA]).params
 					);
 					assert.deepStrictEqual(reversed, expected);
 				}
@@ -141,12 +143,14 @@ suite("provider/request scoped modelParameters properties", () => {
 					[`${scopeA}/${prefix}`]: { source: "a" },
 					[`${scopeB}/${prefix}`]: { source: "b" },
 				};
-				const forward = await withConfig({ modelParameters: entries }, () =>
-					getModelParameters(rawId, new Map(), [scopeA, scopeB])
+				const forward = await withConfig(
+					{ modelParameters: entries },
+					() => getModelParameters(rawId, new Map(), [scopeA, scopeB]).params
 				);
 				assert.deepStrictEqual(forward, { source: "a" });
-				const reversed = await withConfig({ modelParameters: entries }, () =>
-					getModelParameters(rawId, new Map(), [scopeB, scopeA])
+				const reversed = await withConfig(
+					{ modelParameters: entries },
+					() => getModelParameters(rawId, new Map(), [scopeB, scopeA]).params
 				);
 				assert.deepStrictEqual(reversed, { source: "b" });
 			}),

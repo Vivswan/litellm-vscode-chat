@@ -1,8 +1,14 @@
 import * as assert from "node:assert";
 import { buildRequestBody } from "../../../provider/transport/request";
+import type {
+	ParameterConfigLayer,
+	ParameterDiagnostic,
+	ParameterRecordDiagnostic,
+} from "../../../shared/config/parameterResolution";
 import {
 	CATCH_ALL_PREFIX,
 	DEFAULT_MAX_TOKENS_CAP,
+	FORCE_DIRECTIVE,
 	findLongestPrefixEntry,
 	findLongestPrefixMatch,
 	findScopedMatch,
@@ -12,6 +18,16 @@ import {
 	resolveMaxTokens,
 	resolveModelParameters,
 } from "../../../shared/config/parameterResolution";
+
+/** Shorthand for an expected attributed diagnostic; the parameter types double as the shape pin. */
+function forceDiagnostic(
+	kind: ParameterRecordDiagnostic["kind"],
+	key: string,
+	layer: ParameterConfigLayer,
+	recordKey: string
+): ParameterDiagnostic {
+	return { kind, key, layer, recordKey };
+}
 
 suite("shared/config parameterResolution", () => {
 	suite("parameterSkipReason", () => {
@@ -309,6 +325,231 @@ suite("shared/config parameterResolution", () => {
 				source: { layer: "entry", key: "*" },
 				shadowed: [],
 			});
+		});
+	});
+
+	suite("the _force directive", () => {
+		test("forced fields ride forcedParams, entry over global key by key", () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.8, seed: 7, _force: true } },
+				serverScopes: [],
+				entryParameters: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } },
+			});
+			assert.deepStrictEqual(resolved.params, { temperature: 0.2, seed: 7 });
+			assert.deepStrictEqual(resolved.forcedParams, { temperature: 0.2, seed: 7 });
+			assert.deepStrictEqual(resolved.sources.get("temperature"), {
+				source: { layer: "entry", key: "gpt-4" },
+				shadowed: [{ layer: "global", key: "gpt-4", value: 0.8 }],
+				forced: true,
+			});
+			assert.deepStrictEqual(resolved.diagnostics, []);
+		});
+
+		test("a globally forced key beats an unforced entry value and keeps the global attribution", () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.8, _force: ["temperature"] } },
+				serverScopes: [],
+				entryParameters: { "gpt-4": { temperature: 0.2 } },
+			});
+			assert.deepStrictEqual(resolved.params, { temperature: 0.8 }, "the merge reports the forced winner");
+			assert.deepStrictEqual(resolved.forcedParams, { temperature: 0.8 }, "the forced value is the global one");
+			assert.deepStrictEqual(resolved.sources.get("temperature"), {
+				source: { layer: "global", key: "gpt-4" },
+				shadowed: [{ layer: "entry", key: "gpt-4", value: 0.2 }],
+				forced: true,
+			});
+		});
+
+		test("_force: true skips underscore and provider-owned fields silently", () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.5, _internal: 1, stream: false, _force: true } },
+				serverScopes: [],
+			});
+			assert.deepStrictEqual(resolved.forcedParams, { temperature: 0.5 });
+			assert.deepStrictEqual(resolved.diagnostics, []);
+			assert.deepStrictEqual(resolved.params, { temperature: 0.5, _internal: 1, stream: false });
+		});
+
+		test("naming a provider-owned or underscore key refuses it with an unforceable-key diagnostic", () => {
+			for (const name of [...PROVIDER_OWNED_KEYS, "_internal"]) {
+				const resolved = resolveModelParameters({
+					rawModelId: "gpt-4",
+					globalParameters: { "gpt-4": { temperature: 0.5, [name]: 1, _force: [name, "temperature"] } },
+					serverScopes: [],
+				});
+				assert.deepStrictEqual(resolved.forcedParams, { temperature: 0.5 }, name);
+				assert.deepStrictEqual(resolved.diagnostics, [forceDiagnostic("unforceable-key", name, "global", "gpt-4")]);
+			}
+		});
+
+		test("a listed field the record does not set diagnoses invalid-directive and forces nothing", () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.5, _force: ["top_p"] } },
+				serverScopes: [],
+			});
+			assert.deepStrictEqual(resolved.forcedParams, {});
+			assert.deepStrictEqual(resolved.diagnostics, [
+				forceDiagnostic("invalid-directive", FORCE_DIRECTIVE, "global", "gpt-4"),
+			]);
+		});
+
+		test("invalid directive shapes diagnose once and are ignored; _force: false is inert", () => {
+			for (const directive of ["yes", 1, {}, null]) {
+				const resolved = resolveModelParameters({
+					rawModelId: "gpt-4",
+					globalParameters: { "gpt-4": { temperature: 0.5, _force: directive } },
+					serverScopes: [],
+				});
+				assert.deepStrictEqual(resolved.forcedParams, {}, String(directive));
+				assert.deepStrictEqual(resolved.diagnostics, [
+					forceDiagnostic("invalid-directive", FORCE_DIRECTIVE, "global", "gpt-4"),
+				]);
+			}
+
+			const inert = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.5, _force: false } },
+				serverScopes: [],
+			});
+			assert.deepStrictEqual(inert.forcedParams, {});
+			assert.deepStrictEqual(inert.diagnostics, []);
+		});
+
+		test("non-string list elements diagnose without voiding the valid ones", () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.5, _force: [42, "temperature"] } },
+				serverScopes: [],
+			});
+			assert.deepStrictEqual(resolved.forcedParams, { temperature: 0.5 });
+			assert.deepStrictEqual(resolved.diagnostics, [
+				forceDiagnostic("invalid-directive", FORCE_DIRECTIVE, "global", "gpt-4"),
+			]);
+		});
+
+		test("the directive key never joins params, rows, or the wire", () => {
+			const input = {
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.5, _force: true } },
+				serverScopes: [],
+				maxOutputTokens: 8000,
+				outputLimitDeclared: false,
+			};
+			const resolved = resolveModelParameters(input);
+			assert.ok(!Object.hasOwn(resolved.params, FORCE_DIRECTIVE));
+			const projection = projectEffectiveParameters(input);
+			assert.deepStrictEqual(
+				projection.rows.map((row) => row.name),
+				["temperature"]
+			);
+		});
+
+		test("_force works in a URL-scoped global record", () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "http://litellm.test/*": { temperature: 0.3, _force: true } },
+				serverScopes: ["http://litellm.test"],
+			});
+			assert.deepStrictEqual(resolved.forcedParams, { temperature: 0.3 });
+		});
+
+		test("an own __proto__ key stays an inert not-sent row under _force: true and never gets forced", () => {
+			const globalParameters = JSON.parse(
+				'{"gpt-4": {"__proto__": {"polluted": true}, "temperature": 0.2, "_force": true}}'
+			) as Record<string, Record<string, unknown>>;
+			const resolved = resolveModelParameters({ rawModelId: "gpt-4", globalParameters, serverScopes: [] });
+			assert.deepStrictEqual(resolved.forcedParams, { temperature: 0.2 }, "only the wire-eligible field is forced");
+			assert.ok(Object.hasOwn(resolved.params, "__proto__"), "the key survives as an inert own property");
+			assert.ok(!("polluted" in {}), "nothing reached Object.prototype");
+			assert.deepStrictEqual(resolved.diagnostics, []);
+		});
+
+		test("naming an absent provider-owned key still refuses it as unforceable, not as a missing field", () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.5, _force: ["stream"] } },
+				serverScopes: [],
+			});
+			assert.deepStrictEqual(resolved.forcedParams, {});
+			assert.deepStrictEqual(resolved.diagnostics, [forceDiagnostic("unforceable-key", "stream", "global", "gpt-4")]);
+		});
+
+		test("one record can carry several distinct diagnostics; only exact duplicates deduplicate", () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: {
+					"gpt-4": { temperature: 0.5, _force: ["stream", "tools", "top_p", "top_p", "stream"] },
+				},
+				serverScopes: [],
+			});
+			assert.deepStrictEqual(resolved.diagnostics, [
+				forceDiagnostic("unforceable-key", "stream", "global", "gpt-4"),
+				forceDiagnostic("unforceable-key", "tools", "global", "gpt-4"),
+				forceDiagnostic("invalid-directive", FORCE_DIRECTIVE, "global", "gpt-4"),
+			]);
+		});
+
+		test("buildRequestBody applies forced values above runtime options and the picker", () => {
+			const resolved = resolveModelParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.5, reasoning_effort: "low", _force: true } },
+				serverScopes: [],
+			});
+			const body = buildRequestBody({
+				rawModelId: "gpt-4",
+				openaiMessages: [{ role: "user", content: "hi" }],
+				maxTokens: 4096,
+				modelParams: resolved.params,
+				forcedParams: resolved.forcedParams,
+				toolConfig: undefined,
+				modelConfiguration: { reasoning_effort: "high" },
+				modelOptions: { temperature: 0.9, seed: 42 },
+			});
+			assert.strictEqual(body.temperature, 0.5, "forced beats the runtime option");
+			assert.strictEqual(body.reasoning_effort, "low", "forced beats the picker");
+			assert.strictEqual(body.seed, 42, "unforced runtime keys still pass through");
+		});
+
+		test("forced rows project with the forced flag and the forced winner's value", () => {
+			const projection = projectEffectiveParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { temperature: 0.8, _force: ["temperature"] } },
+				serverScopes: [],
+				entryParameters: { "gpt-4": { temperature: 0.2, top_p: 0.9 } },
+				maxOutputTokens: 8000,
+				outputLimitDeclared: false,
+			});
+			assert.deepStrictEqual(
+				projection.rows.map((row) => [row.name, row.value, row.forced]),
+				[
+					["temperature", 0.8, true],
+					["top_p", 0.9, undefined],
+				]
+			);
+			assert.deepStrictEqual(projection.diagnostics, []);
+		});
+
+		test("max_tokens cannot be forced; the configured derivation is untouched", () => {
+			const projection = projectEffectiveParameters({
+				rawModelId: "gpt-4",
+				globalParameters: { "gpt-4": { max_tokens: 2222, _force: ["max_tokens"] } },
+				serverScopes: [],
+				maxOutputTokens: 32000,
+				outputLimitDeclared: true,
+			});
+			assert.deepStrictEqual(projection.rows, []);
+			assert.deepStrictEqual(projection.maxTokens, {
+				value: 2222,
+				source: "configured",
+				configuredSource: { layer: "global", key: "gpt-4" },
+			});
+			assert.deepStrictEqual(projection.diagnostics, [
+				forceDiagnostic("unforceable-key", "max_tokens", "global", "gpt-4"),
+			]);
 		});
 	});
 

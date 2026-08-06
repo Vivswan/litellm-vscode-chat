@@ -4,6 +4,7 @@ import type {
 	CapabilityConfigLayer,
 	CapabilityDiagnostic,
 	CapabilityDiagnosticKind,
+	CapabilityFallbackCandidate,
 	CapabilityFieldValues,
 	CapabilityRecordDiagnostic,
 	CatalogLookupResult,
@@ -15,6 +16,7 @@ import type {
 	ExtractedDeclaredModels,
 	ModelCapabilitiesRecord,
 	ParsedCapabilityRecord,
+	ResolvedCapabilityFallbackFields,
 	ResolvedCapabilityOverrides,
 	ResolveModelCapabilitiesInput,
 	ShadowedCapabilityValue,
@@ -25,12 +27,16 @@ import {
 	DECLARE_DIRECTIVE,
 	EMPTY_CATALOG_LOOKUP,
 	extractDeclaredModels,
+	FALLBACK_DIRECTIVE,
+	FLOOR_CONTEXT_LENGTH,
+	FLOOR_MAX_OUTPUT_TOKENS,
 	OPENROUTER_MODEL_DIRECTIVE,
 	parseCapabilityRecord,
 	resolveCapabilityOverrides,
 	resolveModelCapabilities,
 } from "../../../shared/config/capabilityResolution";
 import { resolveMaxTokens } from "../../../shared/config/parameterResolution";
+import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 
 /** A catalog over literal entries: exact IDs and unambiguous post-vendor suffixes answer found. */
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
@@ -163,6 +169,65 @@ suite("shared/config capabilityResolution parseCapabilityRecord", () => {
 		assert.deepStrictEqual(parsed.fields, { supports_vision: true });
 		assert.deepStrictEqual(parsed.diagnostics, []);
 		assert.ok(!("polluted" in parsed.fields), "nothing of the underscore value survives the boundary");
+	});
+
+	suite("_fallback", () => {
+		test("_fallback: true marks every validly set field; invalid fields stay out", () => {
+			const parsed = parseCapabilityRecord(
+				{ context_length: 100000, supports_vision: true, max_output_tokens: "32k", [FALLBACK_DIRECTIVE]: true },
+				{ allowDeclare: true }
+			);
+			assert.deepStrictEqual(parsed.fallback, ["context_length", "supports_vision"]);
+			assert.deepStrictEqual(parsed.diagnostics, [{ kind: "invalid-value", key: "max_output_tokens" }]);
+		});
+
+		test("a list marks exactly the named fields; unlisted fields stay overrides", () => {
+			const parsed = parseCapabilityRecord(
+				{ context_length: 100000, max_output_tokens: 32000, [FALLBACK_DIRECTIVE]: ["max_output_tokens"] },
+				{ allowDeclare: true }
+			);
+			assert.deepStrictEqual(parsed.fallback, ["max_output_tokens"]);
+			assert.deepStrictEqual(parsed.diagnostics, []);
+		});
+
+		test("list entries must be known field names the record validly sets", () => {
+			for (const entry of ["supports_pdf_input", "max_output_tokens", 42]) {
+				const parsed = parseCapabilityRecord(
+					{ context_length: 100000, [FALLBACK_DIRECTIVE]: [entry, "context_length"] },
+					{ allowDeclare: true }
+				);
+				assert.deepStrictEqual(parsed.fallback, ["context_length"], String(entry));
+				assert.deepStrictEqual(parsed.diagnostics, [{ kind: "invalid-directive", key: FALLBACK_DIRECTIVE }]);
+			}
+		});
+
+		test("invalid directive shapes diagnose and mark nothing; _fallback: false is inert", () => {
+			for (const directive of ["yes", 1, {}, null]) {
+				const parsed = parseCapabilityRecord(
+					{ context_length: 100000, [FALLBACK_DIRECTIVE]: directive },
+					{ allowDeclare: true }
+				);
+				assert.deepStrictEqual(parsed.fallback, [], String(directive));
+				assert.deepStrictEqual(parsed.diagnostics, [{ kind: "invalid-directive", key: FALLBACK_DIRECTIVE }]);
+			}
+
+			const inert = parseCapabilityRecord(
+				{ context_length: 100000, [FALLBACK_DIRECTIVE]: false },
+				{ allowDeclare: true }
+			);
+			assert.deepStrictEqual(inert.fallback, []);
+			assert.deepStrictEqual(inert.diagnostics, []);
+		});
+
+		test("parsing keeps _declare and _fallback side by side; the ban is resolution's per-model call", () => {
+			const parsed = parseCapabilityRecord(
+				{ context_length: 100000, [DECLARE_DIRECTIVE]: true, [FALLBACK_DIRECTIVE]: true },
+				{ allowDeclare: true }
+			);
+			assert.strictEqual(parsed.declare, true);
+			assert.deepStrictEqual(parsed.fallback, ["context_length"]);
+			assert.deepStrictEqual(parsed.diagnostics, []);
+		});
 	});
 });
 
@@ -628,5 +693,269 @@ suite("shared/config capabilityResolution resolveModelCapabilities", () => {
 		const effective = resolve({ catalog });
 		assert.strictEqual(effective.fields.context_length.level, "floor");
 		assert.deepStrictEqual(effective.fields.context_length.shadowed, []);
+	});
+});
+
+suite("shared/config capabilityResolution _fallback resolution", () => {
+	test("fallback-marked fields leave the override chain and ride fallbackFields", () => {
+		const resolved = resolveCapabilityOverrides({
+			rawModelId: "gpt-4",
+			globalCapabilities: { "gpt-4": { context_length: 100000, supports_vision: true, _fallback: ["context_length"] } },
+			serverScopes: [],
+			catalog: EMPTY_CATALOG_LOOKUP,
+		});
+		assert.strictEqual(resolved.fields.context_length, undefined, "a fallback field is not an override");
+		const fallbackFields: ResolvedCapabilityFallbackFields = resolved.fallbackFields;
+		assert.deepStrictEqual(fallbackFields.context_length, [
+			{ level: "global-fallback", key: "gpt-4", value: 100000 },
+		] satisfies CapabilityFallbackCandidate<number>[]);
+		assert.deepStrictEqual(resolved.fields.supports_vision, {
+			value: true,
+			level: "global",
+			key: "gpt-4",
+			shadowed: [],
+		});
+		assert.strictEqual(fallbackFields.supports_vision, undefined);
+	});
+
+	test("a global override still beats an entry fallback; the chains merge independently", () => {
+		const effective = resolve({
+			globalCapabilities: { "gpt-4": { context_length: 100000 } },
+			entryCapabilities: { "gpt-4": { context_length: 50000, _fallback: true } },
+		});
+		assert.strictEqual(effective.fields.context_length.value, 100000);
+		assert.strictEqual(effective.fields.context_length.level, "global");
+	});
+
+	test("the server value beats fallbacks; entry-fallback beats global-fallback below it", () => {
+		const withServer = resolve({
+			globalCapabilities: { "gpt-4": { context_length: 20000, _fallback: true } },
+			entryCapabilities: { "gpt-4": { context_length: 10000, _fallback: true } },
+			serverDeclared: { kind: "discovered", values: { context_length: 50000 }, outputDeclared: false },
+		});
+		assert.deepStrictEqual(withServer.fields.context_length, {
+			value: 50000,
+			level: "server",
+			shadowed: [
+				{ level: "entry-fallback", key: "gpt-4", value: 10000 },
+				{ level: "global-fallback", key: "gpt-4", value: 20000 },
+			] satisfies ShadowedCapabilityValue[],
+		});
+
+		const withoutServer = resolve({
+			globalCapabilities: { "gpt-4": { context_length: 20000, _fallback: true } },
+			entryCapabilities: { "gpt-4": { context_length: 10000, _fallback: true } },
+		});
+		assert.strictEqual(withoutServer.fields.context_length.value, 10000);
+		assert.strictEqual(withoutServer.fields.context_length.level, "entry-fallback");
+	});
+
+	test("fallbacks sit above the default-setting level and the implicit catalog", () => {
+		const effective = resolve({
+			globalCapabilities: { "gpt-4": { context_length: 20000, _fallback: true } },
+			catalog: makeCatalog({ "vendorx/gpt-4": { context_length: 40000 } }),
+			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, contextLength: { value: 60000, explicitlyConfigured: true } },
+		});
+		assert.deepStrictEqual(effective.fields.context_length, {
+			value: 20000,
+			level: "global-fallback",
+			key: "gpt-4",
+			shadowed: [
+				{ level: "default-setting", value: 60000 },
+				{ level: "catalog", key: "vendorx/gpt-4", value: 40000 },
+			],
+		});
+	});
+
+	test("boolean fields fall back below the server value too", () => {
+		const effective = resolve({
+			globalCapabilities: { "gpt-4": { supports_vision: true, _fallback: true } },
+			serverDeclared: { kind: "discovered", values: { supports_vision: false }, outputDeclared: false },
+		});
+		assert.strictEqual(effective.fields.supports_vision.value, false);
+		assert.strictEqual(effective.fields.supports_vision.level, "server");
+
+		const withoutServer = resolve({
+			globalCapabilities: { "gpt-4": { supports_vision: true, _fallback: true } },
+		});
+		assert.strictEqual(withoutServer.fields.supports_vision.value, true);
+		assert.strictEqual(withoutServer.fields.supports_vision.level, "global-fallback");
+	});
+
+	test("a fallback-provided max_output_tokens counts as user-set and lifts the request clamp", () => {
+		const effective = resolve({
+			globalCapabilities: { "gpt-4": { max_output_tokens: 32000, _fallback: true } },
+		});
+		const outputLimitDeclared = effective.outputLimitSource !== "defaults";
+		assert.strictEqual(effective.fields.max_output_tokens.level, "global-fallback");
+		assert.strictEqual(effective.outputLimitSource, "user");
+		const { value } = resolveMaxTokens({
+			runtimeMaxTokens: undefined,
+			configuredMaxTokens: undefined,
+			maxOutputTokens: effective.fields.max_output_tokens.value,
+			outputLimitDeclared,
+		});
+		assert.strictEqual(value, 32000);
+	});
+
+	test("the defaultMaxInputTokens quirk stays above the server value; fallbacks stay below it", () => {
+		const effective = resolve({
+			globalCapabilities: { "gpt-4": { max_input_tokens: 40000, _fallback: true } },
+			serverDeclared: { kind: "discovered", values: { max_input_tokens: 90000 }, outputDeclared: false },
+			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, maxInputTokens: 70000 },
+		});
+		assert.deepStrictEqual(effective.fields.max_input_tokens, {
+			value: 70000,
+			level: "default-setting",
+			shadowed: [
+				{ level: "server", value: 90000 },
+				{ level: "global-fallback", key: "gpt-4", value: 40000 },
+			],
+		});
+	});
+
+	test("the full context_length walk with a fallback layer shadows in chain order", () => {
+		const catalog = makeCatalog({
+			"vendorx/alpha": { context_length: 30000 },
+			"vendorx/gpt-4": { context_length: 40000 },
+		});
+		const effective = resolve({
+			globalCapabilities: {
+				"gpt-4": { context_length: 20000, _fallback: true, _openrouter_model: "vendorx/alpha" },
+			},
+			entryCapabilities: { "gpt-4": { context_length: 10000 } },
+			catalog,
+			serverDeclared: { kind: "discovered", values: { context_length: 50000 }, outputDeclared: false },
+			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, contextLength: { value: 60000, explicitlyConfigured: true } },
+		});
+		assert.deepStrictEqual(effective.fields.context_length, {
+			value: 10000,
+			level: "entry",
+			key: "gpt-4",
+			shadowed: [
+				{ level: "directive", key: "vendorx/alpha", value: 30000 },
+				{ level: "server", value: 50000 },
+				{ level: "global-fallback", key: "gpt-4", value: 20000 },
+				{ level: "default-setting", value: 60000 },
+				{ level: "catalog", key: "vendorx/gpt-4", value: 40000 },
+			] satisfies ShadowedCapabilityValue[],
+		} satisfies EffectiveCapabilityField<number>);
+	});
+
+	test("combining _fallback with _declare keeps the declared model's fields overrides and the declaration alive", () => {
+		const effective = resolve({
+			serverDeclared: { kind: "declared" },
+			entryCapabilities: { "gpt-4": { _declare: true, _fallback: true, context_length: 42000 } },
+		});
+		assert.strictEqual(effective.declare, true);
+		assert.strictEqual(
+			effective.fields.context_length.level,
+			"entry",
+			"the banned fallback leaves the field an override"
+		);
+		assert.deepStrictEqual(effective.diagnostics, [
+			diagnostic("invalid-directive", FALLBACK_DIRECTIVE, "entry", "gpt-4"),
+		]);
+
+		const scopedBan = resolve({
+			serverDeclared: { kind: "declared" },
+			globalCapabilities: { "http://a.test/gpt-4": { _declare: true, _fallback: true, context_length: 42000 } },
+			serverScopes: ["http://a.test"],
+		});
+		assert.strictEqual(scopedBan.fields.context_length.level, "global", "the scoped-global declaring record too");
+		assert.deepStrictEqual(scopedBan.diagnostics, [
+			diagnostic("invalid-directive", FALLBACK_DIRECTIVE, "global", "http://a.test/gpt-4"),
+		]);
+
+		const malformed = resolve({
+			serverDeclared: { kind: "declared" },
+			entryCapabilities: { "gpt-4": { _declare: true, _fallback: ["context_length", "bogus"], context_length: 42000 } },
+		});
+		assert.deepStrictEqual(
+			malformed.diagnostics,
+			[diagnostic("invalid-directive", FALLBACK_DIRECTIVE, "entry", "gpt-4")],
+			"a malformed list on a banned record diagnoses _fallback once, never twice"
+		);
+	});
+
+	test("the ban stops at the declared model: a prefix-matched discovered model keeps the fallback", () => {
+		// The same record declares "gpt-4" but also prefix-matches the discovered
+		// "gpt-4-turbo"; there the fallback must hold, or the demoted field would
+		// silently beat the server's real value.
+		const effective = resolve({
+			rawModelId: "gpt-4-turbo",
+			entryCapabilities: { "gpt-4": { _declare: true, _fallback: true, max_output_tokens: 8000 } },
+			serverDeclared: { kind: "discovered", values: { max_output_tokens: 32000 }, outputDeclared: true },
+		});
+		assert.strictEqual(effective.fields.max_output_tokens.value, 32000, "the server value stays on top");
+		assert.strictEqual(effective.fields.max_output_tokens.level, "server");
+		assert.strictEqual(effective.outputLimitSource, "provider");
+		assert.deepStrictEqual(effective.diagnostics, [], "no ban diagnostic where the fallback works");
+
+		const scoped = resolve({
+			rawModelId: "gpt-4-turbo",
+			globalCapabilities: { "http://a.test/gpt-4": { _declare: true, _fallback: true, max_output_tokens: 8000 } },
+			serverScopes: ["http://a.test"],
+			serverDeclared: { kind: "discovered", values: { max_output_tokens: 32000 }, outputDeclared: true },
+		});
+		assert.strictEqual(scoped.fields.max_output_tokens.level, "server", "the scoped form behaves the same");
+	});
+
+	test("a refused declaration (an unscoped key) keeps the fallback too", () => {
+		// Nothing was declared, so the ban's rationale does not apply: the
+		// unscoped-declare diagnostic belongs to extraction, and the fallback
+		// keeps working for the discovered model.
+		const effective = resolve({
+			globalCapabilities: { "gpt-4": { _declare: true, _fallback: true, context_length: 20000 } },
+			serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+		});
+		assert.strictEqual(effective.fields.context_length.value, 20000);
+		assert.strictEqual(effective.fields.context_length.level, "global-fallback");
+		assert.deepStrictEqual(effective.diagnostics, []);
+	});
+
+	test('a catch-all "*" record resolves capability fields like the empty prefix, fallbacks included', () => {
+		const effective = resolve({
+			globalCapabilities: { "*": { supports_vision: true, context_length: 20000, _fallback: ["context_length"] } },
+			serverDeclared: { kind: "discovered", values: { context_length: 50000 }, outputDeclared: false },
+		});
+		assert.deepStrictEqual(effective.fields.supports_vision, {
+			value: true,
+			level: "global",
+			key: "*",
+			shadowed: [],
+		});
+		assert.strictEqual(effective.fields.context_length.value, 50000, "the fallback stays below the server value");
+		assert.deepStrictEqual(effective.fields.context_length.shadowed, [
+			{ level: "global-fallback", key: "*", value: 20000 },
+		]);
+	});
+});
+
+suite("shared/config capabilityResolution optional token defaults and floor constants", () => {
+	test("omitting tokenDefaults skips the default-setting level and nothing else", () => {
+		const input = {
+			rawModelId: "gpt-4",
+			globalCapabilities: {},
+			serverScopes: [],
+			catalog: makeCatalog({ "vendorx/gpt-4": { context_length: 40000 } }),
+			serverDeclared: { kind: "discovered", values: {}, outputDeclared: false } as const,
+		};
+		const omitted = resolveModelCapabilities(input);
+		const unconfigured = resolveModelCapabilities({ ...input, tokenDefaults: UNCONFIGURED_DEFAULTS });
+		assert.deepStrictEqual(omitted.fields, unconfigured.fields);
+		assert.strictEqual(omitted.fields.context_length.level, "catalog");
+	});
+
+	test("the floor constants are the literals the walk floors to", () => {
+		assert.strictEqual(FLOOR_CONTEXT_LENGTH, 128000);
+		assert.strictEqual(FLOOR_MAX_OUTPUT_TOKENS, 16000);
+		assert.strictEqual(CAPABILITY_FLOOR.context_length, FLOOR_CONTEXT_LENGTH);
+		assert.strictEqual(CAPABILITY_FLOOR.max_output_tokens, FLOOR_MAX_OUTPUT_TOKENS);
+		// Until the deprecated default* settings are removed, their built-in
+		// defaults must mirror the literals - two sources of the same number
+		// must not drift while both exist.
+		assert.strictEqual(NUMBER_SETTING_SPECS.defaultContextLength.default, FLOOR_CONTEXT_LENGTH);
+		assert.strictEqual(NUMBER_SETTING_SPECS.defaultMaxOutputTokens.default, FLOOR_MAX_OUTPUT_TOKENS);
 	});
 });

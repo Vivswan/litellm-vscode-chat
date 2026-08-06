@@ -350,7 +350,12 @@ export class ChatClient {
 			metadata.server?.label !== undefined
 				? this.getEntryModelParameters(metadata.server.label, metadata.server.baseUrl)
 				: undefined;
-		const modelParams = getModelParameters(model.id, this._modelRoutes, connection.serverScopes, entryModelParameters);
+		const { params: modelParams, forcedParams } = getModelParameters(
+			model.id,
+			this._modelRoutes,
+			connection.serverScopes,
+			entryModelParameters
+		);
 
 		// The one home of the fallback chain is resolveMaxTokens (shared with the
 		// dashboard's inspector): runtime option, configured parameter, the
@@ -368,6 +373,7 @@ export class ChatClient {
 			openaiMessages,
 			maxTokens,
 			modelParams,
+			forcedParams,
 			toolConfig: toolConfig && { tools: cachedTools ?? toolConfig.tools, tool_choice: toolConfig.tool_choice },
 			modelConfiguration: requestParamsFromModelConfiguration(options.modelConfiguration),
 			modelOptions: options.modelOptions as Record<string, unknown> | undefined,

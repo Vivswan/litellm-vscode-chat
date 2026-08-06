@@ -131,6 +131,18 @@ test("underscore and provider-owned keys render muted with their not-sent reason
 	expect(root.textContent).toContain("not sent: a provider-owned request field");
 });
 
+test("a forced row states that it overrides runtime options, and the runtime caveat excepts it", () => {
+	const root = mountInspector({ globalParameters: { "gpt-4": { temperature: 0.2, _force: true } } });
+	expect(root.textContent).toContain("forced: overrides runtime options and the picker");
+	expect(root.textContent).toContain("they override every row above except forced rows.");
+});
+
+test("without forced rows the runtime caveat keeps its unconditional wording", () => {
+	const root = mountInspector({ globalParameters: { "gpt-4": { temperature: 0.2 } } });
+	expect(root.textContent).not.toContain("forced:");
+	expect(root.textContent).toContain("they override every row above.");
+});
+
 test("the max_tokens derivation states the configured branch with its attribution", () => {
 	const root = mountInspector({ globalParameters: { "gpt-4": { max_tokens: 2222 } } });
 	expect(textOf(root, ".params-max-tokens")).toBe("max_tokens 2222 set by Settings - gpt-4");
