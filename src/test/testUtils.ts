@@ -2,12 +2,24 @@ import * as assert from "node:assert";
 import { http, type JsonBodyType } from "msw";
 import * as vscode from "vscode";
 import type { FingerprintSaltSession, FingerprintSaltState } from "../extension/fingerprintSalt";
+import type { MigrationContext } from "../extension/migrations";
+import { ServerRegistry } from "../extension/servers/serverRegistry";
 import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";
 import type { LiteLLMModelInfo, PreAttachModelInfo } from "../provider/catalog/groupModels";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
+
+/** A Logger over a recording sink: `lines` collects info lines and `ERROR: `-prefixed error lines. */
+export function makeLogger(): { logger: Logger; lines: string[] } {
+	const lines: string[] = [];
+	const logger = new Logger({
+		info: (message: string) => lines.push(message),
+		error: (message: string) => lines.push(`ERROR: ${message}`),
+	});
+	return { logger, lines };
+}
 
 /** A fixed-state fingerprint-salt session for MigrationContext and sync-env construction in tests. */
 export function fakeFingerprintSaltSession(state: FingerprintSaltState = "durable"): FingerprintSaltSession {
@@ -305,4 +317,71 @@ export function makeExtensionStorage(initialMemento?: Record<string, unknown>): 
 	} as unknown as vscode.SecretStorage;
 
 	return { memento, secrets, mementoStore, secretStore };
+}
+
+/** A MigrationContext over the fake storage; overrides replace individual members. */
+export function makeMigrationContext(
+	storage: FakeExtensionStorage = makeExtensionStorage(),
+	overrides: Partial<MigrationContext> = {}
+): MigrationContext {
+	return {
+		globalState: storage.memento,
+		secrets: storage.secrets,
+		registry: new ServerRegistry(storage.memento, storage.secrets),
+		logger: makeLogger().logger,
+		fingerprintSalt: fakeFingerprintSaltSession(),
+		...overrides,
+	};
+}
+
+type StorageOperation = "mementoUpdate" | "secretGet" | "secretStore" | "secretDelete";
+
+/**
+ * A fault-injecting view over a fake storage: each operation named in `failOn`
+ * consults its trigger per call and rejects with the returned error, while
+ * `undefined` lets the call through to `storage` (so triggers can fail once,
+ * or only for one key). Secret operations fail before mutating;
+ * `mementoUpdate` mutates first and then fails, mirroring VS Code's Memento,
+ * which caches an update optimistically before the async write settles. `ops`
+ * records every store/update/delete attempt in call order for
+ * atomicity-ordering assertions. The backing maps are shared with `storage`,
+ * so tests seed and inspect state through either.
+ */
+export function failingStorage(
+	storage: FakeExtensionStorage,
+	{ failOn }: { failOn: Partial<Record<StorageOperation, (key: string) => Error | undefined>> }
+): FakeExtensionStorage & { ops: string[] } {
+	const ops: string[] = [];
+	const throwIfArmed = (operation: StorageOperation, key: string): void => {
+		const error = failOn[operation]?.(key);
+		if (error !== undefined) {
+			throw error;
+		}
+	};
+	const memento = {
+		get: (key: string, defaultValue?: unknown) => storage.memento.get(key, defaultValue),
+		update: async (key: string, value: unknown) => {
+			ops.push("update");
+			await storage.memento.update(key, value);
+			throwIfArmed("mementoUpdate", key);
+		},
+	} as unknown as vscode.Memento;
+	const secrets = {
+		get: async (key: string) => {
+			throwIfArmed("secretGet", key);
+			return storage.secrets.get(key);
+		},
+		store: async (key: string, value: string) => {
+			ops.push("store");
+			throwIfArmed("secretStore", key);
+			await storage.secrets.store(key, value);
+		},
+		delete: async (key: string) => {
+			ops.push("delete");
+			throwIfArmed("secretDelete", key);
+			await storage.secrets.delete(key);
+		},
+		onDidChange: (_listener: unknown) => ({ dispose() {} }),
+	} as unknown as vscode.SecretStorage;
+	return { memento, secrets, mementoStore: storage.mementoStore, secretStore: storage.secretStore, ops };
 }

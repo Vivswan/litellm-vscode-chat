@@ -1,6 +1,5 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import type { MigrationContext } from "../../../extension/migrations";
 import type { ModelParametersSetting } from "../../../extension/migrations/labelScopedModelParameters";
 import {
 	labelScopedModelParametersMigration,
@@ -10,8 +9,7 @@ import {
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { MODEL_PARAMETERS_SETTING_KEY } from "../../../shared/config/settings";
-import { Logger } from "../../../shared/logger";
-import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
+import { makeExtensionStorage, makeLogger, makeMigrationContext } from "../../testUtils";
 
 interface Layers {
 	globalValue?: Record<string, unknown>;
@@ -59,17 +57,6 @@ function makeSetting(
 		},
 	};
 	return { setting, layers, updates, state };
-}
-
-function makeLogger(): { logger: Logger; lines: string[] } {
-	const lines: string[] = [];
-	return {
-		logger: new Logger({
-			info: (message: string) => lines.push(message),
-			error: (message: string) => lines.push(`ERROR: ${message}`),
-		}),
-		lines,
-	};
 }
 
 /** A fresh entry-copy ledger for tests that do not exercise cross-run provenance. */
@@ -669,13 +656,7 @@ suite("extension/migrations/labelScopedModelParameters: migration wiring", () =>
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		await registry.addServer("Staging", "http://staging.test", "key");
-		const ctx: MigrationContext = {
-			globalState: storage.memento,
-			secrets: storage.secrets,
-			registry,
-			logger: new Logger({ info: () => {}, error: () => {} }),
-			fingerprintSalt: fakeFingerprintSaltSession(),
-		};
+		const ctx = makeMigrationContext(storage, { registry });
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 		const original = config.inspect<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY)?.globalValue;
 		await config.update(

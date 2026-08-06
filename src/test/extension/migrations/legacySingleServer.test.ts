@@ -10,25 +10,14 @@ import {
 	LEGACY_CLEANUP_PENDING_KEY,
 	SERVER_REGISTRY_KEY,
 } from "../../../shared/config/storageKeys";
-import { Logger } from "../../../shared/logger";
 import type { FakeExtensionStorage } from "../../testUtils";
-import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
+import { expectDefined, failingStorage, makeExtensionStorage, makeMigrationContext } from "../../testUtils";
 
 function makeContext(storage: FakeExtensionStorage = makeExtensionStorage()): {
 	ctx: MigrationContext;
 	storage: FakeExtensionStorage;
 } {
-	const logger = new Logger({ info: () => {}, error: () => {} });
-	return {
-		ctx: {
-			globalState: storage.memento,
-			secrets: storage.secrets,
-			registry: new ServerRegistry(storage.memento, storage.secrets),
-			logger,
-			fingerprintSalt: fakeFingerprintSaltSession(),
-		},
-		storage,
-	};
+	return { ctx: makeMigrationContext(storage), storage };
 }
 
 suite("extension/migrations/legacySingleServer", () => {
@@ -91,23 +80,10 @@ suite("extension/migrations/legacySingleServer", () => {
 		const { storage } = makeContext();
 		storage.secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
 		storage.secretStore.set(LEGACY_API_KEY_SECRET, "legacy-key");
-		const failingSecrets = {
-			get: async (key: string) => storage.secretStore.get(key),
-			store: async () => {
-				throw new Error("secret store failed");
-			},
-			delete: async (key: string) => {
-				storage.secretStore.delete(key);
-			},
-			onDidChange: (_listener: unknown) => ({ dispose() {} }),
-		} as unknown as vscode.SecretStorage;
-		const failingCtx: MigrationContext = {
-			globalState: storage.memento,
-			secrets: failingSecrets,
-			registry: new ServerRegistry(storage.memento, failingSecrets),
-			logger: new Logger({ info: () => {}, error: () => {} }),
-			fingerprintSalt: fakeFingerprintSaltSession(),
-		};
+		const failing = failingStorage(storage, {
+			failOn: { secretStore: () => new Error("secret store failed") },
+		});
+		const failingCtx = makeMigrationContext(failing);
 
 		await assert.rejects(legacySingleServerMigration.run(failingCtx), /secret store failed/);
 
@@ -253,13 +229,10 @@ suite("extension/migrations/legacySingleServer", () => {
 					key === SERVER_REGISTRY_KEY ? undefined : shared.memento.get(key, defaultValue),
 				update: (key: string, value: unknown) => shared.memento.update(key, value),
 			} as unknown as vscode.Memento;
-			const bCtx: MigrationContext = {
+			const bCtx = makeMigrationContext(shared, {
 				globalState: staleMemento,
-				secrets: shared.secrets,
 				registry: new ServerRegistry(staleMemento, shared.secrets),
-				logger: new Logger({ info: () => {}, error: () => {} }),
-				fingerprintSalt: fakeFingerprintSaltSession(),
-			};
+			});
 
 			// Window A's registry persist triggers B's whole run before A's
 			// post-write check, so A observes the overwrite and loses.
@@ -316,13 +289,10 @@ suite("extension/migrations/legacySingleServer", () => {
 				},
 				onDidChange: (_listener: unknown) => ({ dispose() {} }),
 			} as unknown as vscode.SecretStorage;
-			const bCtx: MigrationContext = {
-				globalState: shared.memento,
+			const bCtx = makeMigrationContext(shared, {
 				secrets: bSecrets,
 				registry: new ServerRegistry(shared.memento, bSecrets),
-				logger: new Logger({ info: () => {}, error: () => {} }),
-				fingerprintSalt: fakeFingerprintSaltSession(),
-			};
+			});
 
 			assert.strictEqual(await legacySingleServerMigration.run(bCtx), "migrated");
 

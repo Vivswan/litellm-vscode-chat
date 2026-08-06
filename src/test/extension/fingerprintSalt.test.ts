@@ -6,17 +6,7 @@ import * as vscode from "vscode";
 import type { SaltCreationTimings } from "../../extension/fingerprintSalt";
 import { loadFingerprintSalt } from "../../extension/fingerprintSalt";
 import { FINGERPRINT_SALT_SECRET } from "../../shared/config/storageKeys";
-import { Logger } from "../../shared/logger";
-import { makeExtensionStorage } from "../testUtils";
-
-function makeLogger(): { logger: Logger; lines: string[] } {
-	const lines: string[] = [];
-	const logger = new Logger({
-		info: (message: string) => lines.push(message),
-		error: (message: string) => lines.push(`ERROR: ${message}`),
-	});
-	return { logger, lines };
-}
+import { failingStorage, makeExtensionStorage, makeLogger } from "../testUtils";
 
 /** Captures what would be installed process-wide; the real installer latches global state. */
 function capture(): { install: (salt: string) => void; installed: string[] } {
@@ -267,26 +257,22 @@ suite("extension/fingerprintSalt", () => {
 		// A failed read cannot tell "no salt yet" from "keychain unavailable";
 		// storing over a possibly existing salt would churn every identity
 		// permanently, so the session runs degraded instead.
-		const stored: string[] = [];
-		const failingSecrets = {
-			get: async () => {
-				throw new Error("keychain unavailable");
-			},
-			store: async (_key: string, value: string) => {
-				stored.push(value);
-			},
-			delete: async () => {},
-			onDidChange: () => ({ dispose() {} }),
-		} as unknown as vscode.SecretStorage;
+		const storage = failingStorage(makeExtensionStorage(), {
+			failOn: { secretGet: () => new Error("keychain unavailable") },
+		});
 		const { logger, lines } = makeLogger();
 		const { install, installed } = capture();
 
-		const session = await loadFingerprintSalt(failingSecrets, tmpStorage().uri, logger, install, FAST);
+		const session = await loadFingerprintSalt(storage.secrets, tmpStorage().uri, logger, install, FAST);
 
 		assert.strictEqual(session.state(), "session-only");
 		assert.strictEqual(await session.confirmDurable(), "session-only", "session-only never upgrades");
 		assert.strictEqual(installed.length, 1, "the session still gets a working salt");
-		assert.deepStrictEqual(stored, [], "nothing may be written over a possibly existing salt");
+		assert.deepStrictEqual(
+			storage.ops.filter((op) => op === "store"),
+			[],
+			"nothing may be written over a possibly existing salt"
+		);
 		assert.ok(!lines.join("\n").includes(installed[0] ?? "!"), "the salt value never reaches a log line");
 	});
 
