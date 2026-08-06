@@ -14,19 +14,9 @@ import {
 	ServerSyncEngine,
 } from "../../../extension/servers/serverSync";
 import { SERVER_SYNC_FINGERPRINTS_KEY, serverSecretsKey } from "../../../shared/config/storageKeys";
-import { Logger } from "../../../shared/logger";
 import { fingerprint } from "../../../shared/util/fingerprint";
 import type { FakeExtensionStorage } from "../../testUtils";
-import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
-
-function makeLogger(): { logger: Logger; lines: string[] } {
-	const lines: string[] = [];
-	const logger = new Logger({
-		info: (message: string) => lines.push(message),
-		error: (message: string) => lines.push(`ERROR: ${message}`),
-	});
-	return { logger, lines };
-}
+import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage, makeLogger } from "../../testUtils";
 
 function run(setting: unknown, storage: FakeExtensionStorage, options: { salt?: "durable" | "session-only" } = {}) {
 	const { logger } = makeLogger();

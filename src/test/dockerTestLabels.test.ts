@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
-import * as fs from "node:fs";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { DOCKER_TEST_LABELS, parseOnlyLabels } from "./dockerTestLabels";
 
 /**
@@ -58,28 +58,30 @@ suite("dockerTestLabels: parseOnlyLabels", () => {
 });
 
 suite("dockerTestLabels: .vscode-test.mjs mirror", () => {
-	// The orchestrator passes each selected label to `vscode-test --label`,
-	// but .vscode-test.mjs cannot import this module, so the two label sets
-	// would otherwise drift silently: a rename there surfaces only when the
-	// renamed leg next runs, and a new docker leg declared only there would
-	// never run anywhere - not in the orchestrator, not in a CI shard.
-	function declaredLabels(): string[] {
-		const config = fs.readFileSync(path.resolve(__dirname, "..", "..", ".vscode-test.mjs"), "utf8");
-		const declared = [...config.matchAll(/^\s*label: "([^"]+)",$/gm)].map((match) => match[1] as string);
+	// The orchestrator passes each selected label to `vscode-test --label`.
+	// .vscode-test.mjs maps its docker stanzas over DOCKER_TEST_LABELS, so a
+	// plain rename can no longer drift silently - but its host-fidelity
+	// exclusion filter and per-label options record sit outside the type
+	// system (an .mjs), so this pins the resolved config's label set to the
+	// canonical one from the outside.
+	async function declaredLabels(): Promise<string[]> {
+		const configUrl = pathToFileURL(path.resolve(__dirname, "..", "..", ".vscode-test.mjs")).href;
+		const { default: config } = (await import(configUrl)) as { default: { tests: { label: string }[] } };
+		const declared = config.tests.map((entry) => entry.label);
 		assert.ok(declared.length >= DOCKER_TEST_LABELS.length, `found ${declared.length} labels in .vscode-test.mjs`);
 		return declared;
 	}
 
-	test("every canonical label is a vscode-test label", () => {
-		const declared = declaredLabels();
+	test("every canonical label is a vscode-test label", async () => {
+		const declared = await declaredLabels();
 		for (const label of DOCKER_TEST_LABELS) {
 			assert.ok(declared.includes(label), `.vscode-test.mjs declares no "${label}" label`);
 		}
 	});
 
-	test("every docker-prefixed vscode-test label is canonical", () => {
+	test("every docker-prefixed vscode-test label is canonical", async () => {
 		const canonical: ReadonlySet<string> = new Set(DOCKER_TEST_LABELS);
-		for (const label of declaredLabels().filter((name) => name.startsWith("docker"))) {
+		for (const label of (await declaredLabels()).filter((name) => name.startsWith("docker"))) {
 			assert.ok(canonical.has(label), `.vscode-test.mjs label "${label}" is not in DOCKER_TEST_LABELS`);
 		}
 	});

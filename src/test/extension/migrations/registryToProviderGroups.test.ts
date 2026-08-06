@@ -1,7 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { FingerprintSaltSession } from "../../../extension/fingerprintSalt";
-import type { MigrationContext } from "../../../extension/migrations";
 import { getMigratedServerLabels } from "../../../extension/migrations/labelScopedModelParameters";
 import { legacyUnsaltedFingerprint } from "../../../extension/migrations/legacyFingerprint";
 import { legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
@@ -27,19 +26,10 @@ import {
 	SERVER_REGISTRY_KEY,
 	SKIPPED_MIGRATION_SERVERS_KEY,
 } from "../../../shared/config/storageKeys";
-import { Logger } from "../../../shared/logger";
+import type { Logger } from "../../../shared/logger";
 import { fingerprint } from "../../../shared/util/fingerprint";
 import type { FakeExtensionStorage } from "../../testUtils";
-import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
-
-function makeLogger(): { logger: Logger; lines: string[] } {
-	const lines: string[] = [];
-	const sink = {
-		info: (message: string) => lines.push(message),
-		error: (message: string) => lines.push(`ERROR: ${message}`),
-	};
-	return { logger: new Logger(sink), lines };
-}
+import { fakeFingerprintSaltSession, makeExtensionStorage, makeLogger, makeMigrationContext } from "../../testUtils";
 
 interface GroupSubmission {
 	command: string;
@@ -981,13 +971,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		// instructs; its marker must not block the fresh-install completion
 		// forever.
 		const storage = makeExtensionStorage({ [SKIPPED_MIGRATION_SERVERS_KEY]: ["gone1234"] });
-		const ctx: MigrationContext = {
-			globalState: storage.memento,
-			secrets: storage.secrets,
-			registry: new ServerRegistry(storage.memento, storage.secrets),
-			logger: makeLogger().logger,
-			fingerprintSalt: fakeFingerprintSaltSession(),
-		};
+		const ctx = makeMigrationContext(storage);
 
 		const outcome = await registryToProviderGroupsMigration.run(ctx);
 
@@ -1002,13 +986,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		shared.secretStore.set(LEGACY_API_KEY_SECRET, "legacy-key");
 
 		// Window B finishes its pre-registration legacy migration.
-		const bCtx: MigrationContext = {
-			globalState: shared.memento,
-			secrets: shared.secrets,
-			registry: new ServerRegistry(shared.memento, shared.secrets),
-			logger: makeLogger().logger,
-			fingerprintSalt: fakeFingerprintSaltSession(),
-		};
+		const bCtx = makeMigrationContext(shared);
 		assert.strictEqual(await legacySingleServerMigration.run(bCtx), "migrated");
 
 		// Window A raced it: its Memento still serves the pre-import registry
@@ -1019,13 +997,10 @@ suite("extension/migrations/registryToProviderGroups", () => {
 				key === SERVER_REGISTRY_KEY ? undefined : shared.memento.get(key, defaultValue),
 			update: (key: string, value: unknown) => shared.memento.update(key, value),
 		} as unknown as vscode.Memento;
-		const aCtx: MigrationContext = {
+		const aCtx = makeMigrationContext(shared, {
 			globalState: staleMemento,
-			secrets: shared.secrets,
 			registry: new ServerRegistry(staleMemento, shared.secrets),
-			logger: makeLogger().logger,
-			fingerprintSalt: fakeFingerprintSaltSession(),
-		};
+		});
 		await registryToProviderGroupsMigration.run(aCtx);
 		assert.strictEqual(isGroupMigrationComplete(shared.memento), true, "the race must really have happened");
 
@@ -1097,16 +1072,6 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	// The wiring tests only exercise engine paths that never reach the host
 	// command; submission behavior stays pinned by the fake-host tests above.
 	suite("migration wiring", () => {
-		function makeMigrationContext(storage: FakeExtensionStorage): MigrationContext {
-			return {
-				globalState: storage.memento,
-				secrets: storage.secrets,
-				registry: new ServerRegistry(storage.memento, storage.secrets),
-				logger: makeLogger().logger,
-				fingerprintSalt: fakeFingerprintSaltSession(),
-			};
-		}
-
 		test("runs the engine's maintenance and reports nothing-to-do once complete", async () => {
 			const storage = makeExtensionStorage({
 				[GROUP_MIGRATION_COMPLETE_KEY]: true,
@@ -1166,16 +1131,6 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	suite("fresh-install completion", () => {
-		function makeMigrationContext(storage: FakeExtensionStorage): MigrationContext {
-			return {
-				globalState: storage.memento,
-				secrets: storage.secrets,
-				registry: new ServerRegistry(storage.memento, storage.secrets),
-				logger: makeLogger().logger,
-				fingerprintSalt: fakeFingerprintSaltSession(),
-			};
-		}
-
 		test("a fresh install with nothing to migrate is marked complete", async () => {
 			const storage = makeExtensionStorage();
 
