@@ -1,16 +1,19 @@
 /**
  * The single owner of modelParameters prefix resolution, the precedence
- * merge, and the max_tokens fallback branch. Pure (no vscode, no DOM) on
- * purpose: the request path (provider/transport) builds requests from these
- * functions, and the dashboard's effective-values inspector renders its
- * projection through the protocol module's re-exports - one implementation,
- * so the inspector cannot drift from what a request actually carries. The
- * equivalence property suite pins that claim against buildRequestBody.
+ * merge, the `_force` directive, and the max_tokens fallback branch. Pure
+ * (no vscode, no DOM) on purpose: the request path (provider/transport)
+ * builds requests from these functions, and the dashboard's effective-values
+ * inspector renders its projection through the protocol module's re-exports
+ * - one implementation, so the inspector cannot drift from what a request
+ * actually carries. The equivalence property suite pins that claim against
+ * buildRequestBody.
  *
  * Scoping semantics worth stating once: a scoped global match REPLACES the
  * whole unscoped global record (it does not merge with it), and the entry
  * record then merges over the global winner key by key. Runtime options and
- * the picker configuration override later, on the request path only.
+ * the picker configuration override later, on the request path only - except
+ * for `_force`d fields, which beat both (forced entry over forced global,
+ * key by key).
  */
 
 /**
@@ -148,10 +151,102 @@ export function parameterSkipReason(key: string): ParameterSkipReason | undefine
 	return undefined;
 }
 
+/**
+ * Marks all (`true`) or the listed parameter fields of its record as FORCED:
+ * forced fields beat runtime modelOptions and the picker configuration on the
+ * wire. Provider-owned and underscore keys are unforceable (diagnosed and
+ * skipped), so forcing can never touch a request field the extension owns.
+ */
+export const FORCE_DIRECTIVE = "_force";
+
+/** "entry" is the declared server entry's own record; "global" the modelParameters setting. */
+export type ParameterConfigLayer = "entry" | "global";
+
+/**
+ * One problem found while parsing a single parameter record's directives.
+ * `key` is the directive name for shape problems (a non-boolean/non-array
+ * value, a non-string list element, a listed field the record does not set)
+ * and the refused field name for unforceable-key.
+ */
+export interface ParameterRecordDiagnostic {
+	readonly kind: "invalid-directive" | "unforceable-key";
+	readonly key: string;
+}
+
+/** A record diagnostic attributed to its configuration layer and the record key that carried it. */
+export interface ParameterDiagnostic extends ParameterRecordDiagnostic {
+	readonly layer: ParameterConfigLayer;
+	readonly recordKey: string;
+}
+
+interface ParsedParameterRecord {
+	/** Every key of the record except the directive; the open pass-through vocabulary stays open. */
+	readonly fields: Record<string, unknown>;
+	/** The field names the record's `_force` directive marks; always own keys of `fields`. */
+	readonly forced: ReadonlySet<string>;
+	readonly diagnostics: readonly ParameterRecordDiagnostic[];
+}
+
+/**
+ * Split one parameter record into its pass-through fields and its `_force`
+ * directive. `_force: true` forces every wire-eligible field of the record;
+ * a list forces the named fields, refusing provider-owned and underscore
+ * names (unforceable-key) and diagnosing names the record does not set - a
+ * record can only force values it carries itself. Diagnostics deduplicate by
+ * kind and key.
+ */
+function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedParameterRecord {
+	const fields: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(record)) {
+		if (key !== FORCE_DIRECTIVE) {
+			// defineProperty, not assignment: an own "__proto__" key (JSON.parse
+			// or settings.json can produce one) must stay an inert own data
+			// property here, exactly as the raw record spread used to keep it.
+			Object.defineProperty(fields, key, { value, enumerable: true, writable: true, configurable: true });
+		}
+	}
+
+	const forced = new Set<string>();
+	const diagnostics: ParameterRecordDiagnostic[] = [];
+	const seen = new Set<string>();
+	const diagnose = (kind: ParameterRecordDiagnostic["kind"], key: string): void => {
+		if (!seen.has(`${kind}:${key}`)) {
+			seen.add(`${kind}:${key}`);
+			diagnostics.push({ kind, key });
+		}
+	};
+
+	if (Object.hasOwn(record, FORCE_DIRECTIVE)) {
+		const directive = record[FORCE_DIRECTIVE];
+		if (directive === true) {
+			for (const key of Object.keys(fields)) {
+				if (parameterSkipReason(key) === undefined) {
+					forced.add(key);
+				}
+			}
+		} else if (Array.isArray(directive)) {
+			for (const name of directive) {
+				if (typeof name !== "string") {
+					diagnose("invalid-directive", FORCE_DIRECTIVE);
+				} else if (parameterSkipReason(name) !== undefined) {
+					diagnose("unforceable-key", name);
+				} else if (!Object.hasOwn(fields, name)) {
+					diagnose("invalid-directive", FORCE_DIRECTIVE);
+				} else {
+					forced.add(name);
+				}
+			}
+		} else if (directive !== false) {
+			diagnose("invalid-directive", FORCE_DIRECTIVE);
+		}
+	}
+
+	return { fields, forced, diagnostics };
+}
+
 /** Which configuration layer set a value, and under which record key. */
 export interface ParameterSourceRef {
-	/** "entry" is the declared server entry's own record; "global" the modelParameters setting. */
-	readonly layer: "entry" | "global";
+	readonly layer: ParameterConfigLayer;
 	/** The winning record key in that layer; scoped global keys keep their base-URL prefix. */
 	readonly key: string;
 }
@@ -166,6 +261,8 @@ interface ResolvedParameterSource {
 	readonly source: ParameterSourceRef;
 	/** Lower-precedence layers that also set this key; present only when one really did. */
 	readonly shadowed: readonly ShadowedParameterValue[];
+	/** Present exactly when the winning record's `_force` marks this key. */
+	readonly forced?: true;
 }
 
 export interface ResolveModelParametersInput {
@@ -179,8 +276,19 @@ export interface ResolveModelParametersInput {
 }
 
 export interface ResolvedModelParameters {
-	/** The merged record exactly as the request path forwards it into buildRequestBody. */
+	/**
+	 * The effective configured merge: entry over global key by key, then the
+	 * forced winners on top (a globally forced key beats an unforced entry
+	 * value). The `_force` directive key itself never appears; other
+	 * underscore keys stay, dropped later by the wire's skip rule.
+	 */
 	readonly params: Record<string, unknown>;
+	/**
+	 * The forced values, entry over global key by key; always a subset of
+	 * `params` (same values). buildRequestBody re-applies them ABOVE runtime
+	 * options and the picker configuration.
+	 */
+	readonly forcedParams: Readonly<Record<string, unknown>>;
 	/** Attribution per merged key; every own key of `params` has an entry. */
 	readonly sources: ReadonlyMap<string, ResolvedParameterSource>;
 	/**
@@ -189,6 +297,8 @@ export interface ResolvedModelParameters {
 	 * this entire record as shadowed - not just the keys the winner also sets.
 	 */
 	readonly replacedUnscoped?: { readonly key: string; readonly record: Readonly<Record<string, unknown>> } | undefined;
+	/** `_force` problems in the winning records, attributed to their layer and record key. */
+	readonly diagnostics: readonly ParameterDiagnostic[];
 }
 
 /**
@@ -196,7 +306,11 @@ export interface ResolvedModelParameters {
  * The merge itself is the request path's contract verbatim: any scoped global
  * match replaces the whole unscoped record (scoped ?? longest-unscoped), then
  * the entry record's longest-prefix match overrides the global winner key by
- * key. getModelParameters delegates here, so `params` IS what requests carry.
+ * key. One refinement on top: a key the global winner FORCES outranks an
+ * unforced entry value (the forced level merges entry over global and beats
+ * everything below it), so `params` and the attribution both report the
+ * forced winner where the two disagree. getModelParameters delegates here,
+ * so `params` plus `forcedParams` IS what requests carry.
  */
 export function resolveModelParameters(input: ResolveModelParametersInput): ResolvedModelParameters {
 	const { rawModelId, globalParameters, serverScopes, entryParameters } = input;
@@ -207,26 +321,83 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 	const globalWinner = scoped?.value !== undefined ? { key: scoped.key, value: scoped.value } : unscoped;
 	const entry = findLongestPrefixEntry(rawModelId, entryParameters ?? {});
 
-	const params: Record<string, unknown> = { ...globalWinner?.value, ...entry?.value };
-	const sources = new Map<string, ResolvedParameterSource>();
-	if (globalWinner !== undefined) {
-		for (const key of Object.keys(globalWinner.value)) {
-			sources.set(key, { source: { layer: "global", key: globalWinner.key }, shadowed: [] });
+	const parsedGlobal = globalWinner !== undefined ? parseParameterRecord(globalWinner.value) : undefined;
+	const parsedEntry = entry !== undefined ? parseParameterRecord(entry.value) : undefined;
+
+	const params: Record<string, unknown> = { ...parsedGlobal?.fields, ...parsedEntry?.fields };
+	// Plain assignment is safe on both records: forced keys can never be
+	// underscore keys ("__proto__" included) - parseParameterRecord bars them
+	// on the `true` path and the list path alike.
+	const forcedParams: Record<string, unknown> = {};
+	if (parsedGlobal !== undefined) {
+		for (const key of parsedGlobal.forced) {
+			forcedParams[key] = parsedGlobal.fields[key];
 		}
 	}
-	if (entry !== undefined) {
-		for (const key of Object.keys(entry.value)) {
-			const global = globalWinner !== undefined && Object.hasOwn(globalWinner.value, key) ? globalWinner : undefined;
+	if (parsedEntry !== undefined) {
+		for (const key of parsedEntry.forced) {
+			forcedParams[key] = parsedEntry.fields[key];
+		}
+	}
+	for (const [key, value] of Object.entries(forcedParams)) {
+		params[key] = value;
+	}
+
+	const sources = new Map<string, ResolvedParameterSource>();
+	if (globalWinner !== undefined && parsedGlobal !== undefined) {
+		for (const key of Object.keys(parsedGlobal.fields)) {
+			sources.set(key, {
+				source: { layer: "global", key: globalWinner.key },
+				shadowed: [],
+				...(parsedGlobal.forced.has(key) ? { forced: true } : {}),
+			});
+		}
+	}
+	if (entry !== undefined && parsedEntry !== undefined) {
+		for (const key of Object.keys(parsedEntry.fields)) {
+			const globalHasKey = parsedGlobal !== undefined && Object.hasOwn(parsedGlobal.fields, key);
+			// A key only the global layer forces keeps the global attribution:
+			// its forced value beats the unforced entry value on the wire.
+			if (globalHasKey && parsedGlobal.forced.has(key) && !parsedEntry.forced.has(key)) {
+				const existing = sources.get(key);
+				if (existing !== undefined && globalWinner !== undefined) {
+					sources.set(key, {
+						...existing,
+						shadowed: [{ layer: "entry", key: entry.key, value: parsedEntry.fields[key] }],
+					});
+				}
+				continue;
+			}
 			sources.set(key, {
 				source: { layer: "entry", key: entry.key },
-				shadowed: global !== undefined ? [{ layer: "global", key: global.key, value: global.value[key] }] : [],
+				shadowed:
+					globalHasKey && globalWinner !== undefined
+						? [{ layer: "global", key: globalWinner.key, value: parsedGlobal.fields[key] }]
+						: [],
+				...(parsedEntry.forced.has(key) ? { forced: true } : {}),
 			});
 		}
 	}
 
+	const diagnostics: ParameterDiagnostic[] = [];
+	if (entry !== undefined && parsedEntry !== undefined) {
+		diagnostics.push(...parsedEntry.diagnostics.map((d) => ({ ...d, layer: "entry" as const, recordKey: entry.key })));
+	}
+	if (globalWinner !== undefined && parsedGlobal !== undefined) {
+		diagnostics.push(
+			...parsedGlobal.diagnostics.map((d) => ({ ...d, layer: "global" as const, recordKey: globalWinner.key }))
+		);
+	}
+
 	const replacedUnscoped =
 		scoped?.value !== undefined && unscoped !== undefined ? { key: unscoped.key, record: unscoped.value } : undefined;
-	return { params, sources, ...(replacedUnscoped !== undefined ? { replacedUnscoped } : {}) };
+	return {
+		params,
+		forcedParams,
+		sources,
+		...(replacedUnscoped !== undefined ? { replacedUnscoped } : {}),
+		diagnostics,
+	};
 }
 
 export type MaxTokensSource = "runtime" | "configured" | "declared" | "capped-default";
@@ -270,6 +441,8 @@ export interface EffectiveParameterRow {
 	readonly skipReason?: ParameterSkipReason | undefined;
 	readonly source: ParameterSourceRef;
 	readonly shadowed: readonly ShadowedParameterValue[];
+	/** Present exactly when `_force` marks this key: the value beats runtime options and the picker. */
+	readonly forced?: true;
 }
 
 /** The inspector's max_tokens derivation. Runtime options are unknowable ahead of a request, so no "runtime" here. */
@@ -295,6 +468,8 @@ export interface EffectiveParametersProjection {
 	readonly maxTokens: ProjectedMaxTokens;
 	/** See ResolvedModelParameters.replacedUnscoped. */
 	readonly replacedUnscoped?: { readonly key: string; readonly record: Readonly<Record<string, unknown>> } | undefined;
+	/** See ResolvedModelParameters.diagnostics. */
+	readonly diagnostics: readonly ParameterDiagnostic[];
 }
 
 /**
@@ -304,8 +479,9 @@ export interface EffectiveParametersProjection {
  * derivation reports with its attribution. A non-numeric one stays a row,
  * not sent, because buildRequestBody drops the provider-owned key and
  * resolveMaxTokens ignores non-numbers. The equivalence property pins: every
- * row marked sent appears in buildRequestBody's output with the same value,
- * every non-provider-owned body key appears here as sent, and the projected
+ * row marked sent appears in buildRequestBody's output with the same value
+ * (forced rows even against runtime options and the picker), every
+ * non-provider-owned body key appears here as sent, and the projected
  * max_tokens equals the body's.
  */
 export function projectEffectiveParameters(input: EffectiveParametersInput): EffectiveParametersProjection {
@@ -334,6 +510,7 @@ export function projectEffectiveParameters(input: EffectiveParametersInput): Eff
 			...(skipReason !== undefined ? { skipReason } : {}),
 			source: attribution.source,
 			shadowed: attribution.shadowed,
+			...(attribution.forced === true ? { forced: true } : {}),
 		});
 	}
 	rows.sort((a, b) => a.name.localeCompare(b.name));
@@ -356,5 +533,6 @@ export function projectEffectiveParameters(input: EffectiveParametersInput): Eff
 		rows,
 		maxTokens,
 		...(resolved.replacedUnscoped !== undefined ? { replacedUnscoped: resolved.replacedUnscoped } : {}),
+		diagnostics: resolved.diagnostics,
 	};
 }

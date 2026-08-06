@@ -2,19 +2,25 @@
  * The effective-values inspector's safety argument: the projection the
  * dashboard renders and the request body the transport sends are two reads
  * of one shared resolution, and this property pins that they cannot drift.
- * For random global records (scoped and unscoped keys), entry records, raw
- * IDs, base-URL scopes, and model limits: every key the projection marks
- * sent appears in buildRequestBody's output with the same value, every
- * non-provider-owned body key appears in the projection as sent, and the
- * projected max_tokens equals the body's. A second property pins that
- * getModelParameters (the transport's live-configuration wrapper) resolves
- * to exactly the shared resolver's merge.
+ * For random global records (scoped and unscoped keys, catch-all "*" keys,
+ * `_force` directives), entry records, raw IDs, base-URL scopes, and model
+ * limits: every key the projection marks sent appears in buildRequestBody's
+ * output with the right value under the full chain (forced > runtime >
+ * picker > configured), every non-provider-owned body key appears in the
+ * projection as sent, and the projected max_tokens equals the body's. A
+ * differential oracle pins the directive-free sub-language against the
+ * pre-refactor algorithms, an alias property pins "*" == "", and a wrapper
+ * property pins getModelParameters (the transport's live-configuration
+ * wrapper) to the shared resolver's merge.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
+import type { ModelConfigurationRequestParams } from "../../../provider/catalog/modelConfiguration";
 import { buildRequestBody, getModelParameters } from "../../../provider/transport/request";
 import type { ModelParametersRecord } from "../../../shared/config/parameterResolution";
 import {
+	FORCE_DIRECTIVE,
+	parameterSkipReason,
 	projectEffectiveParameters,
 	resolveMaxTokens,
 	resolveModelParameters,
@@ -40,14 +46,40 @@ const noSlashKey = fc
 
 // A small shared pool makes cross-layer key collisions (the shadowing branch)
 // common; owned and underscore keys exercise the not-sent classifications,
-// and max_tokens exercises the derivation hand-off.
+// and max_tokens exercises the derivation hand-off. "_force" is excluded from
+// the random underscore keys: the directive is generated deliberately below,
+// so the directive-free oracle scenarios really are directive-free.
 const paramKey = fc.oneof(
 	{ arbitrary: fc.constantFrom("temperature", "top_p", "seed", "max_tokens"), weight: 3 },
 	{ arbitrary: fc.constantFrom("model", "messages", "stream", "stream_options", "tools", "tool_choice"), weight: 1 },
-	{ arbitrary: noSlashKey.map((key) => `_${key}`), weight: 1 },
+	{ arbitrary: noSlashKey.map((key) => `_${key}`).filter((key) => key !== FORCE_DIRECTIVE), weight: 1 },
 	{ arbitrary: noSlashKey, weight: 1 }
 );
 const paramRecord = fc.dictionary(paramKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 5 });
+
+/** A `_force` value: all-fields, a list cut from the record's own keys plus noise, or an invalid shape. */
+const forceDirective = (record: Record<string, unknown>) =>
+	fc.oneof(
+		{ arbitrary: fc.boolean(), weight: 2 },
+		{
+			arbitrary: fc
+				.tuple(
+					fc.subarray(Object.keys(record)),
+					fc.option(fc.constantFrom<unknown>("absent-key", 42), { nil: undefined })
+				)
+				.map(([names, noise]) => [...names, ...(noise !== undefined ? [noise] : [])]),
+			weight: 2,
+		},
+		{ arbitrary: fc.constantFrom<unknown>("yes", 1, null), weight: 1 }
+	);
+
+/** Optionally add a `_force` directive to a generated record. */
+const paramRecordWithForce = paramRecord.chain((record) =>
+	fc.option(forceDirective(record), { nil: undefined }).map((force) => ({
+		...record,
+		...(force !== undefined ? { [FORCE_DIRECTIVE]: force } : {}),
+	}))
+);
 
 const scopePool = ["http://a.test", "http://b.test:4000"] as const;
 
@@ -64,53 +96,68 @@ interface Scenario {
  * A raw ID plus records whose keys often prefix it: each generated prefix key
  * is a cut of the raw ID (so matches are the common case, not the lottery),
  * optionally scoped for the global record, and a cut of an unrelated ID keeps
- * the no-match branch alive.
+ * the no-match branch alive. With `directives` on, records may carry `_force`
+ * and keys may be the catch-all "*" (both settings' new sub-language); the
+ * differential oracle runs on the directive-free sub-language, where the
+ * legacy algorithms are still the spec.
  */
-const scenario: fc.Arbitrary<Scenario> = fc
-	.record({
-		rawModelId: noSlashKey,
-		otherId: noSlashKey,
-		globalSpecs: fc.array(
-			fc.record({
-				cut: fc.nat(),
-				foreign: fc.boolean(),
-				scope: fc.option(fc.constantFrom(...scopePool), { nil: undefined }),
-				params: paramRecord,
-			}),
-			{ maxLength: 4 }
-		),
-		entrySpecs: fc.option(
-			fc.array(fc.record({ cut: fc.nat(), foreign: fc.boolean(), params: paramRecord }), { maxLength: 3 }),
-			{ nil: undefined }
-		),
-		scopes: fc.subarray([...scopePool]),
-		maxOutputTokens: fc.integer({ min: 1, max: 100000 }),
-		outputLimitDeclared: fc.boolean(),
-	})
-	.map(({ rawModelId, otherId, globalSpecs, entrySpecs, scopes, maxOutputTokens, outputLimitDeclared }) => {
-		const prefixOf = (cut: number, foreign: boolean) => {
-			const base = foreign ? otherId : rawModelId;
-			return base.slice(0, 1 + (cut % base.length));
-		};
-		const globalParameters: Record<string, Record<string, unknown>> = {};
-		for (const spec of globalSpecs) {
-			const prefix = prefixOf(spec.cut, spec.foreign);
-			const key = spec.scope === undefined ? prefix : `${spec.scope}/${prefix}`;
-			globalParameters[key] = spec.params;
-		}
-		const entryParameters =
-			entrySpecs === undefined
-				? undefined
-				: Object.fromEntries(entrySpecs.map((spec) => [prefixOf(spec.cut, spec.foreign), spec.params]));
-		return {
-			rawModelId,
-			globalParameters,
-			serverScopes: scopes,
-			entryParameters,
-			maxOutputTokens,
-			outputLimitDeclared,
-		};
+function scenarioArb(options: { directives: boolean }): fc.Arbitrary<Scenario> {
+	const record = options.directives ? paramRecordWithForce : paramRecord;
+	const spec = fc.record({
+		cut: fc.nat(),
+		foreign: fc.boolean(),
+		star: options.directives ? fc.boolean() : fc.constant(false),
 	});
+	return fc
+		.record({
+			rawModelId: noSlashKey,
+			otherId: noSlashKey,
+			globalSpecs: fc.array(
+				fc.record({
+					spec,
+					scope: fc.option(fc.constantFrom(...scopePool), { nil: undefined }),
+					params: record,
+				}),
+				{ maxLength: 4 }
+			),
+			entrySpecs: fc.option(fc.array(fc.record({ spec, params: record }), { maxLength: 3 }), { nil: undefined }),
+			scopes: fc.subarray([...scopePool]),
+			maxOutputTokens: fc.integer({ min: 1, max: 100000 }),
+			outputLimitDeclared: fc.boolean(),
+		})
+		.map(({ rawModelId, otherId, globalSpecs, entrySpecs, scopes, maxOutputTokens, outputLimitDeclared }) => {
+			const prefixOf = ({ cut, foreign, star }: { cut: number; foreign: boolean; star: boolean }) => {
+				if (star) {
+					return "*";
+				}
+				// Zero-length cuts keep the "" catch-all key (and "<scope>/" scoped
+				// form) in both the oracle's and the directives' sub-language.
+				const base = foreign ? otherId : rawModelId;
+				return base.slice(0, cut % (base.length + 1));
+			};
+			const globalParameters: Record<string, Record<string, unknown>> = {};
+			for (const globalSpec of globalSpecs) {
+				const prefix = prefixOf(globalSpec.spec);
+				const key = globalSpec.scope === undefined ? prefix : `${globalSpec.scope}/${prefix}`;
+				globalParameters[key] = globalSpec.params;
+			}
+			const entryParameters =
+				entrySpecs === undefined
+					? undefined
+					: Object.fromEntries(entrySpecs.map((entry) => [prefixOf(entry.spec), entry.params]));
+			return {
+				rawModelId,
+				globalParameters,
+				serverScopes: scopes,
+				entryParameters,
+				maxOutputTokens,
+				outputLimitDeclared,
+			};
+		});
+}
+
+const oracleScenario = scenarioArb({ directives: false });
+const scenario = scenarioArb({ directives: true });
 
 const MESSAGES: OpenAIChatMessage[] = [{ role: "user", content: "hi" }];
 const BASE_KEYS: ReadonlySet<string> = new Set(["model", "messages", "stream", "stream_options", "max_tokens"]);
@@ -118,9 +165,11 @@ const BASE_KEYS: ReadonlySet<string> = new Set(["model", "messages", "stream", "
 /**
  * The pre-refactor algorithms, frozen verbatim from request.ts and
  * chatClient.ts as they stood before parameterResolution.ts existed: the
- * differential oracle behind the zero-behavior-change claim. Do not "improve"
- * these - their whole value is being the old code, character for character in
- * behavior, so the property below can prove the refactor changed nothing.
+ * differential oracle behind the zero-behavior-change claim for the
+ * directive-free sub-language (no `_force`, no "*" keys - the two deliberate
+ * behavior additions). Do not "improve" these - their whole value is being
+ * the old code, character for character in behavior, so the property below
+ * can prove the refactor changed nothing else.
  */
 function legacyFindLongestPrefixMatch<T>(id: string, entries: Record<string, T>): T | undefined {
 	let best: { key: string; value: T } | undefined;
@@ -190,7 +239,7 @@ function legacyMaxTokens(
 }
 
 suite("shared/config parameterResolution equivalence properties", () => {
-	test("the refactored resolution is the legacy algorithm: same merge, same key order, same max_tokens", () => {
+	test("on the directive-free sub-language the resolution is the legacy algorithm: merge, key order, max_tokens", () => {
 		// The differential oracle for the zero-behavior-change claim. Key ORDER
 		// is asserted too (Object.keys, not just deepStrictEqual) because the
 		// serialized body is only byte-for-byte identical if enumeration order
@@ -199,7 +248,7 @@ suite("shared/config parameterResolution equivalence properties", () => {
 			nil: undefined,
 		});
 		fc.assert(
-			fc.property(scenario, runtimeArb, (s, runtimeMaxTokens) => {
+			fc.property(oracleScenario, runtimeArb, (s, runtimeMaxTokens) => {
 				const params = resolveModelParameters(s).params;
 				const legacyParams = legacyGetModelParameters(
 					s.rawModelId,
@@ -225,50 +274,103 @@ suite("shared/config parameterResolution equivalence properties", () => {
 		);
 	});
 
-	test("the inspector projection and buildRequestBody agree on every sent key, value, and max_tokens", () => {
+	test('the catch-all "*" resolves exactly like "" in every layer and scoping form, key attribution aside', () => {
+		const layerArb = fc.constantFrom("global-unscoped", "global-scoped", "entry" as const);
 		fc.assert(
-			fc.property(scenario, (s) => {
+			fc.property(oracleScenario, paramRecordWithForce, layerArb, (s, record, layer) => {
+				const scope = s.serverScopes[0];
+				if (layer === "global-scoped" && scope === undefined) {
+					return;
+				}
+				const withKey = (key: string): Scenario =>
+					layer === "entry"
+						? { ...s, entryParameters: { ...s.entryParameters, [key]: record } }
+						: { ...s, globalParameters: { ...s.globalParameters, [key]: record } };
+				const starScenario = withKey(layer === "global-scoped" ? `${scope}/*` : "*");
+				const emptyScenario = withKey(layer === "global-scoped" ? `${scope}/` : "");
+
+				const star = resolveModelParameters(starScenario);
+				const empty = resolveModelParameters(emptyScenario);
+				assert.deepStrictEqual(star.params, empty.params);
+				assert.deepStrictEqual(star.forcedParams, empty.forcedParams);
+				assert.deepStrictEqual(
+					projectEffectiveParameters(starScenario).maxTokens.value,
+					projectEffectiveParameters(emptyScenario).maxTokens.value
+				);
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
+	test("the inspector projection and buildRequestBody agree under the full chain, runtime and picker included", () => {
+		const pickerArb = fc.option(fc.constantFrom("none", "low", "medium", "high"), { nil: undefined });
+		const runtimeArb = fc.option(paramRecord, { nil: undefined });
+		fc.assert(
+			fc.property(scenario, runtimeArb, pickerArb, (s, modelOptions, pickerEffort) => {
 				// The transport side, exactly as chatClient.send composes it: the
-				// shared merge, the shared max_tokens chain (no runtime option), then
-				// the pass-through body build.
+				// shared merge, the shared max_tokens chain, then the pass-through
+				// body build over config, picker, runtime, and forced sources.
 				const resolved = resolveModelParameters(s);
 				const { value: maxTokens } = resolveMaxTokens({
-					runtimeMaxTokens: undefined,
+					runtimeMaxTokens: modelOptions?.max_tokens,
 					configuredMaxTokens: resolved.params.max_tokens,
 					maxOutputTokens: s.maxOutputTokens,
 					outputLimitDeclared: s.outputLimitDeclared,
 				});
+				const modelConfiguration: ModelConfigurationRequestParams | undefined =
+					pickerEffort === undefined ? undefined : { reasoning_effort: pickerEffort };
 				const body = buildRequestBody({
 					rawModelId: s.rawModelId,
 					openaiMessages: MESSAGES,
 					maxTokens,
 					modelParams: resolved.params,
+					forcedParams: resolved.forcedParams,
 					toolConfig: undefined,
+					modelConfiguration,
+					modelOptions,
 				});
 
 				const projection = projectEffectiveParameters(s);
 
-				// Every row the inspector marks sent is in the body, same value.
+				// The chain, restated independently: configured sent rows, then the
+				// picker, then runtime options, then the forced rows on top.
+				const expected = new Map<string, unknown>();
 				for (const row of projection.rows) {
-					if (!row.sent) {
-						continue;
+					if (row.sent && row.forced === undefined) {
+						expected.set(row.name, row.value);
 					}
-					assert.ok(Object.hasOwn(body, row.name), `sent row ${row.name} missing from the body`);
-					assert.deepStrictEqual(body[row.name], row.value, `body.${row.name} differs from the projected value`);
+				}
+				if (modelConfiguration !== undefined) {
+					expected.set("reasoning_effort", modelConfiguration.reasoning_effort);
+				}
+				for (const [key, value] of Object.entries(modelOptions ?? {})) {
+					if (parameterSkipReason(key) === undefined) {
+						expected.set(key, value);
+					}
+				}
+				for (const row of projection.rows) {
+					if (row.forced === true) {
+						assert.ok(row.sent, "a forced row is always sent");
+						expected.set(row.name, row.value);
+					}
 				}
 
-				// Every non-provider-owned body key is a sent row, same value.
-				const sentByName = new Map(projection.rows.filter((row) => row.sent).map((row) => [row.name, row.value]));
-				for (const [key, value] of Object.entries(body)) {
-					if (BASE_KEYS.has(key)) {
-						continue;
+				for (const [key, value] of expected) {
+					assert.ok(Object.hasOwn(body, key), `expected key ${key} missing from the body`);
+					assert.deepStrictEqual(body[key], value, `body.${key} differs from the chain's value`);
+				}
+				for (const key of Object.keys(body)) {
+					if (!BASE_KEYS.has(key)) {
+						assert.ok(expected.has(key), `body key ${key} not accounted for by the chain`);
 					}
-					assert.ok(sentByName.has(key), `body key ${key} not projected as sent`);
-					assert.deepStrictEqual(sentByName.get(key), value);
 				}
 
-				// The derivation line states the body's exact max_tokens.
-				assert.strictEqual(projection.maxTokens.value, body.max_tokens);
+				// The derivation line states the body's exact max_tokens whenever the
+				// one thing the projection cannot know (a runtime numeric option) is
+				// absent from the request.
+				if (typeof modelOptions?.max_tokens !== "number") {
+					assert.strictEqual(projection.maxTokens.value, body.max_tokens);
+				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
@@ -285,8 +387,9 @@ suite("shared/config parameterResolution equivalence properties", () => {
 					// The wrapper reads through getModelParametersConfig, which
 					// normalizes; both sides must see the same normalized record.
 					globalParameters: normalizeModelParameters(s.globalParameters),
-				}).params;
-				assert.deepStrictEqual(viaConfig, viaResolver);
+				});
+				assert.deepStrictEqual(viaConfig.params, viaResolver.params);
+				assert.deepStrictEqual(viaConfig.forcedParams, viaResolver.forcedParams);
 			}),
 			{ numRuns: Math.min(NUM_RUNS, 60), seed: SEED }
 		);

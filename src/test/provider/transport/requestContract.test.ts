@@ -236,15 +236,17 @@ suite("provider/request contract", () => {
 		});
 
 		test("exact model ID match returns parameters", async () => {
-			const params = await withConfig({ modelParameters: { "gpt-4": { temperature: 0.8, max_tokens: 8000 } } }, () =>
-				getModelParameters("gpt-4", new Map())
+			const params = await withConfig(
+				{ modelParameters: { "gpt-4": { temperature: 0.8, max_tokens: 8000 } } },
+				() => getModelParameters("gpt-4", new Map()).params
 			);
 			assert.deepEqual(params, { temperature: 0.8, max_tokens: 8000 });
 		});
 
 		test("prefix match returns parameters", async () => {
-			const params = await withConfig({ modelParameters: { "gpt-4": { temperature: 0.7 } } }, () =>
-				getModelParameters("gpt-4-turbo:openai", new Map())
+			const params = await withConfig(
+				{ modelParameters: { "gpt-4": { temperature: 0.7 } } },
+				() => getModelParameters("gpt-4-turbo:openai", new Map()).params
 			);
 			assert.deepEqual(params, { temperature: 0.7 });
 		});
@@ -258,20 +260,21 @@ suite("provider/request contract", () => {
 						"gpt-4-turbo": { temperature: 0.9 },
 					},
 				},
-				() => getModelParameters("gpt-4-turbo:fastest", new Map())
+				() => getModelParameters("gpt-4-turbo:fastest", new Map()).params
 			);
 			assert.deepEqual(params, { temperature: 0.9 });
 		});
 
 		test("no match returns empty object", async () => {
-			const params = await withConfig({ modelParameters: { "gpt-4": { temperature: 0.7 } } }, () =>
-				getModelParameters("claude-opus", new Map())
+			const params = await withConfig(
+				{ modelParameters: { "gpt-4": { temperature: 0.7 } } },
+				() => getModelParameters("claude-opus", new Map()).params
 			);
 			assert.deepEqual(params, {});
 		});
 
 		test("empty configuration returns empty object", async () => {
-			const params = await withConfig({}, () => getModelParameters("gpt-4", new Map()));
+			const params = await withConfig({}, () => getModelParameters("gpt-4", new Map()).params);
 			assert.deepEqual(params, {});
 		});
 
@@ -289,7 +292,7 @@ suite("provider/request contract", () => {
 						},
 					},
 				},
-				() => getModelParameters("test-model", new Map())
+				() => getModelParameters("test-model", new Map()).params
 			);
 			assert.deepEqual(params, {
 				temperature: 0.8,
@@ -309,7 +312,7 @@ suite("provider/request contract", () => {
 						"gpt-4": { temperature: 0.8 },
 					},
 				},
-				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"])
+				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"]).params
 			);
 			assert.deepEqual(params, { temperature: 0.2 });
 		});
@@ -325,7 +328,7 @@ suite("provider/request contract", () => {
 						"gpt-4": { temperature: 0.8 },
 					},
 				},
-				() => getModelParameters("gpt-4", new Map(), ["http://litellm.test"])
+				() => getModelParameters("gpt-4", new Map(), ["http://litellm.test"]).params
 			);
 			assert.deepEqual(params, { temperature: 0.8 });
 		});
@@ -338,7 +341,7 @@ suite("provider/request contract", () => {
 						"http://litellm.test/gpt-4-turbo": { temperature: 0.6 },
 					},
 				},
-				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"])
+				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"]).params
 			);
 			assert.deepEqual(params, { temperature: 0.6 });
 		});
@@ -350,26 +353,30 @@ suite("provider/request contract", () => {
 			attachGroupServer(makeModelInfo(), { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "test-key", label });
 
 		test("entry parameters override the global match key by key", async () => {
-			const params = await withConfig({ modelParameters: { "gpt-4": { temperature: 0.8, top_p: 0.9 } } }, () =>
-				getModelParameters("gpt-4-turbo", new Map(), [], { "gpt-4": { temperature: 0.2 } })
+			const params = await withConfig(
+				{ modelParameters: { "gpt-4": { temperature: 0.8, top_p: 0.9 } } },
+				() => getModelParameters("gpt-4-turbo", new Map(), [], { "gpt-4": { temperature: 0.2 } }).params
 			);
 			assert.deepEqual(params, { temperature: 0.2, top_p: 0.9 });
 		});
 
 		test("entry parameters outrank even a server-scoped global entry", async () => {
-			const params = await withConfig({ modelParameters: { "http://litellm.test/gpt-4": { temperature: 0.4 } } }, () =>
-				getModelParameters("gpt-4", new Map(), ["http://litellm.test"], { "gpt-4": { temperature: 0.1 } })
+			const params = await withConfig(
+				{ modelParameters: { "http://litellm.test/gpt-4": { temperature: 0.4 } } },
+				() => getModelParameters("gpt-4", new Map(), ["http://litellm.test"], { "gpt-4": { temperature: 0.1 } }).params
 			);
 			assert.deepEqual(params, { temperature: 0.1 });
 		});
 
 		test("the longest prefix wins within the entry record; no server scoping applies there", async () => {
-			const params = await withConfig({ modelParameters: {} }, () =>
-				getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"], {
-					gpt: { temperature: 0.5 },
-					"gpt-4": { temperature: 0.7 },
-					"http://litellm.test/gpt-4": { temperature: 0.3 },
-				})
+			const params = await withConfig(
+				{ modelParameters: {} },
+				() =>
+					getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"], {
+						gpt: { temperature: 0.5 },
+						"gpt-4": { temperature: 0.7 },
+						"http://litellm.test/gpt-4": { temperature: 0.3 },
+					}).params
 			);
 			assert.deepEqual(params, { temperature: 0.7 }, "a URL-prefixed entry key is just a non-matching prefix");
 		});
@@ -453,6 +460,25 @@ suite("provider/request contract", () => {
 			assert.strictEqual(body.temperature, 0.9, "runtime options outrank the entry");
 			assert.strictEqual(body.reasoning_effort, "high", "the picker outranks the entry");
 			assert.strictEqual(body.max_tokens, 3333, "the entry's max_tokens outranks the global setting's");
+		});
+
+		test("_force'd parameters outrank runtime options and the picker on the wire", async () => {
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryModelParameters: () => ({
+					"test-model": { temperature: 0.2, reasoning_effort: "low", _force: true },
+				}),
+			});
+			const body = await withConfig({ modelParameters: { "test-model": { seed: 7, _force: ["seed"] } } }, () =>
+				captureRequestBody(provider, labeledModel("team-a"), {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+					modelOptions: { temperature: 0.9, seed: 42 },
+					modelConfiguration: { reasoningEffort: "high" },
+				})
+			);
+			assert.strictEqual(body.temperature, 0.2, "the forced entry value beats the runtime option");
+			assert.strictEqual(body.reasoning_effort, "low", "the forced entry value beats the picker");
+			assert.strictEqual(body.seed, 7, "the forced global value beats the runtime option");
+			assert.strictEqual(body._force, undefined, "the directive key itself never reaches the wire");
 		});
 
 		test("underscore-prefixed entry parameter keys are never forwarded", async () => {
