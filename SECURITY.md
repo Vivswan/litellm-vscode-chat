@@ -26,6 +26,7 @@ a key.
 <!-- Repository-specific security documentation (scope, threat model, review
      expectations for security-relevant changes) goes below this line. It
      survives template updates via three-way merge. -->
+<!-- repo-platform:local-section -->
 
 For this extension, the latest release means the latest VS Code Marketplace
 release; the tip of `main` is supported too. The project is pre-1.0, so

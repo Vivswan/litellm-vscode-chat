@@ -35,6 +35,13 @@ repository:
   allow_auto_merge: true
   enable_vulnerability_alerts: true
   enable_automated_security_fixes: true
+  # Declared so the apply heals out-of-band disables. Public only: without
+  # Advanced Security, private repositories reject this block (422).
+  security_and_analysis:
+    secret_scanning:
+      status: enabled
+    secret_scanning_push_protection:
+      status: enabled
 
 labels:
   - name: dependencies
