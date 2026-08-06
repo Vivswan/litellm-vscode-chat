@@ -22,7 +22,7 @@ import type {
 	ExtensionToWebviewMessage,
 	ShadowedCapabilityValue,
 } from "../../extension/dashboard/protocol";
-import { CAPABILITY_FIELDS } from "../../extension/dashboard/protocol";
+import { CAPABILITY_FIELDS, FALLBACK_DIRECTIVE } from "../../extension/dashboard/protocol";
 import { DOCS_LINK_CAPS_INSPECTOR } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpCapsInspector } from "./helpText";
@@ -134,6 +134,17 @@ function diagnosticText(diagnostic: CapabilityDiagnostic): string {
 		case "invalid-value":
 			return l10n.t('"{0}" has an invalid value and is ignored ({1})', diagnostic.key, where);
 		case "invalid-directive":
+			// `_fallback` gets its own copy: the same diagnostic covers a malformed
+			// value, bad list entries (the valid ones still apply), and the
+			// per-model _declare ban, so the sentence names the rules without
+			// overclaiming - this inspector always speaks about one resolved model.
+			if (diagnostic.key === FALLBACK_DIRECTIVE) {
+				return l10n.t(
+					'"{0}" must be true or a list of fields the record sets, e.g. ["context_length"], and cannot demote the model _declare creates; offending marks are ignored ({1})',
+					diagnostic.key,
+					where
+				);
+			}
 			return l10n.t('"{0}" carries an invalid directive value and is ignored ({1})', diagnostic.key, where);
 		case "unscoped-declare":
 			return l10n.t("_declare needs a server-scoped or entry key and is ignored ({0})", where);

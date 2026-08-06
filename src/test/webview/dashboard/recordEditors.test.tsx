@@ -18,6 +18,7 @@ import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
+	fireCheck,
 	fireClick,
 	fireInput,
 	fireKeyDown,
@@ -49,6 +50,156 @@ function sectionByHeading(root: ParentNode, heading: string): HTMLElement {
 function settingsWithHeaders(value: Record<string, string | number | boolean>) {
 	return makeSettings({ headers: { editScope: "global", value, otherScopes: [], effective: value } });
 }
+
+function settingsWithParams(value: Record<string, Record<string, unknown>>) {
+	return makeSettings({ modelParameters: { editScope: "global", value, otherScopes: [], effective: value } });
+}
+
+test("force checkbox: marking a row writes the explicit _force list and Apply posts it", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const box = section().querySelector<HTMLInputElement>(".directive-flag input");
+	if (box === null) {
+		throw new Error("the force checkbox did not render");
+	}
+	expect(box.checked).toBe(false);
+	fireCheck(box, true);
+
+	// The mark materializes as the _force row's explicit list, visible as text.
+	const values = Array.from(section().querySelectorAll("input.value")).map((i) => (i as HTMLInputElement).value);
+	expect(values).toContain('["temperature"]');
+
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedMessages).toEqual([
+		{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } } },
+	]);
+});
+
+test("force checkbox: unmarking the last field removes the _force row entirely", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, _force: ["temperature"] } }) }))
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const box = section().querySelector<HTMLInputElement>(".directive-flag input");
+	if (box === null) {
+		throw new Error("the force checkbox did not render");
+	}
+	expect(box.checked).toBe(true);
+	fireCheck(box, false);
+
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
+});
+
+test("force checkbox: provider-owned and underscore keys disable with the reason; the _force row has no box", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithParams({ "gpt-4": { model: "other", _meta: 1, temperature: 0.2, _force: true } }),
+			})
+		)
+	);
+	const section = sectionByHeading(root, "Model parameters");
+
+	// One box per row except the directive row itself: model, _meta, temperature.
+	const boxes = Array.from(section.querySelectorAll(".directive-flag input")) as HTMLInputElement[];
+	expect(boxes.length).toBe(3);
+	const byLabel = (key: string) =>
+		boxes.find((box) => box.getAttribute("aria-label") === `Force "${key}"`) as HTMLInputElement;
+	expect(byLabel("model").disabled).toBe(true);
+	expect(byLabel("model").checked).toBe(false);
+	expect(byLabel("_meta").disabled).toBe(true);
+	// A literal true marks exactly the eligible keys.
+	expect(byLabel("temperature").disabled).toBe(false);
+	expect(byLabel("temperature").checked).toBe(true);
+	// The disabled boxes' help names why; the tooltip text is mounted in the DOM.
+	expect(section.textContent).toContain("Cannot be forced: provider-owned fields like model");
+
+	// A hand-written true is preserved on load: nothing was toggled, so the
+	// directive row still reads true and the draft stays clean (Apply disabled).
+	const values = Array.from(section.querySelectorAll("input.value")).map((i) => (i as HTMLInputElement).value);
+	expect(values).toContain("true");
+	expect((buttonByText(section, "Apply") as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("force checkbox: unchecking one field under a literal true rewrites the explicit remainder", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9, _force: true } }) }))
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const boxes = Array.from(section().querySelectorAll(".directive-flag input")) as HTMLInputElement[];
+	const topP = boxes.find((box) => box.getAttribute("aria-label") === 'Force "top_p"') as HTMLInputElement;
+	fireCheck(topP, false);
+
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedMessages).toEqual([
+		{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, top_p: 0.9, _force: ["temperature"] } } },
+	]);
+});
+
+test("a malformed _force value blocks Apply with the example-led message", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { _force: ["x"] } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const valueInput = Array.from(section().querySelectorAll("input.value")).find(
+		(input) => (input as HTMLInputElement).value === '["x"]'
+	) as HTMLInputElement;
+	fireInput(valueInput, '"temperature"');
+	expect(section().textContent).toContain('Enter true or a list of parameter names, e.g. ["temperature"]');
+	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("a partly invalid _force list still checks its string entries while the row blocks", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithParams({ "gpt-4": { temperature: 0.2, _force: [42, "temperature"] } }),
+			})
+		)
+	);
+	const section = sectionByHeading(root, "Model parameters");
+
+	// The resolver salvages the string entries, so the box reflects them; the
+	// strict row parse still blocks Apply until the junk entry is fixed.
+	const box = section.querySelector<HTMLInputElement>("label input[type='checkbox']");
+	expect(box?.checked).toBe(true);
+	expect(section.textContent).toContain('Enter true or a list of parameter names, e.g. ["temperature"]');
+	expect((buttonByText(section, "Apply") as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("an unnamed row carries no force box, and renaming a forced key hints about the stranded mark", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, _force: ["temperature"] } }) }))
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	// Renaming the forced row's key strands "temperature" in the list; the row
+	// hints (resolution ignores the stray name) without blocking Apply.
+	const keyInput = Array.from(section().querySelectorAll("input.key")).find(
+		(input) => (input as HTMLInputElement).value === "temperature"
+	) as HTMLInputElement;
+	fireInput(keyInput, "temp2");
+	expect(section().textContent).toContain('"temperature" is not a parameter this prefix sets');
+	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(false);
+
+	// A fresh row has no key yet, so no box renders for it (the renamed row
+	// keeps its own; the empty row's missing name blocks Apply separately).
+	fireClick(buttonByText(section(), "Add parameter"));
+	expect(section().querySelectorAll(".directive-flag input").length).toBe(1);
+});
 
 test("headers: a dirty draft wins over pushed state, Apply posts parsed rows, the reflecting push drops the applied draft", () => {
 	const root = mount(<App />);
@@ -368,13 +519,16 @@ test("other-scope records render as the disabled row grid with the edit-there hi
 
 	const paramsOther = sectionByHeading(root, "Model parameters").querySelector(".other-scope");
 	expect(paramsOther?.textContent).toContain("Set in Workspace settings - edit there.");
-	const paramValues = Array.from(paramsOther?.querySelectorAll("input") ?? []).map(
+	const paramValues = Array.from(paramsOther?.querySelectorAll('input:not([type="checkbox"])') ?? []).map(
 		(i) => (i as HTMLInputElement).value
 	);
 	expect(paramValues).toEqual(["gpt-4", "temperature", "0.2"]);
 	for (const input of Array.from(paramsOther?.querySelectorAll("input") ?? [])) {
 		expect((input as HTMLInputElement).disabled).toBe(true);
 	}
+	// The force box renders in the static grid too - state is information -
+	// but inert like every other input there (the loop above covers it).
+	expect(paramsOther?.querySelector('.directive-flag input[type="checkbox"]')).not.toBeNull();
 	// A static display offers no row mutations.
 	expect(paramsOther?.querySelector("button.quiet:not(.help)")).toBeNull();
 

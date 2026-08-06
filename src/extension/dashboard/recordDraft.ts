@@ -15,12 +15,15 @@ import {
 	CAPABILITY_FIELDS,
 	DECLARE_DIRECTIVE,
 	EXPECTED_FAILURE_CATEGORIES,
+	FALLBACK_DIRECTIVE,
+	FORCE_DIRECTIVE,
 	formatHeaderValue,
 	formatJsonValue,
 	isUnsafeRecordKey,
 	isValidHeaderName,
 	isValidHeaderValue,
 	OPENROUTER_MODEL_DIRECTIVE,
+	parameterSkipReason,
 	parseHeaderValue,
 	parseJsonValue,
 } from "./protocol";
@@ -83,9 +86,44 @@ export interface GroupProblems {
 	readonly params: readonly (RowFieldProblem | undefined)[];
 }
 
+/**
+ * Row-aligned non-blocking notes for one prefix group: the `_force` row's
+ * semantic warnings (an unforceable or unset name in the list). The setting
+ * keeps such rows and the resolver diagnoses them at request time, so the
+ * editor flags without refusing - the capability editor's hint idiom.
+ */
+export interface GroupHints {
+	readonly params: readonly (string | undefined)[];
+}
+
+/**
+ * A directive draft's reading: strict JSON `true`/`false` or an array of
+ * strings, nothing else. The shared value shape of the `_fallback` and
+ * `_force` rows; both parsers judge the row through this one reading, and the
+ * checkbox helpers below derive membership from it.
+ */
+function parseDirectiveListText(text: string): { ok: true; value: boolean | string[] } | { ok: false } {
+	const parsed = parseJsonValue(text);
+	if (!parsed.ok) {
+		return { ok: false };
+	}
+	if (typeof parsed.value === "boolean") {
+		return { ok: true, value: parsed.value };
+	}
+	if (Array.isArray(parsed.value) && parsed.value.every((entry): entry is string => typeof entry === "string")) {
+		return { ok: true, value: parsed.value };
+	}
+	return { ok: false };
+}
+
 export type GroupsParse =
-	| { readonly ok: true; readonly value: Record<string, Record<string, unknown>> }
-	| { readonly ok: false; readonly problems: readonly GroupProblems[] };
+	| {
+			readonly ok: true;
+			readonly value: Record<string, Record<string, unknown>>;
+			/** Hints only (nothing blocks on an ok parse); row-aligned like the blocked branch. */
+			readonly hints: readonly GroupHints[];
+	  }
+	| { readonly ok: false; readonly problems: readonly GroupProblems[]; readonly hints: readonly GroupHints[] };
 
 /**
  * Parse draft groups into the modelParameters record, or the row-aligned
@@ -95,17 +133,20 @@ export type GroupsParse =
 export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 	const duplicatePrefixes = duplicates(groups.map((group) => group.prefix.trim()));
 	const problems: GroupProblems[] = [];
+	const hints: GroupHints[] = [];
 	let blocked = false;
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
 		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
+		const groupKeys: ReadonlySet<string> = new Set(group.params.map((param) => param.key.trim()));
+		const params: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+		const paramHints: (string | undefined)[] = group.params.map(() => undefined);
 		const prefixProblem = keyProblem(
 			group.prefix.trim(),
 			{ empty: l10n.t("Enter a model prefix"), duplicate: l10n.t("Duplicate model prefix") },
 			duplicatePrefixes
 		);
-		const params: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-		const paramProblems = group.params.map((param): RowFieldProblem | undefined => {
+		const paramProblems = group.params.map((param, index): RowFieldProblem | undefined => {
 			const problem = keyProblem(
 				param.key.trim(),
 				{ empty: l10n.t("Enter a parameter name"), duplicate: l10n.t("Duplicate parameter name") },
@@ -113,6 +154,32 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 			);
 			if (problem !== undefined) {
 				return { field: "name", message: problem };
+			}
+			// The `_force` directive row is typed where plain rows are open JSON:
+			// its value must read as true, false, or a list of parameter names, or
+			// the resolver would diagnose and ignore it at request time. List
+			// entries that would only be diagnosed there (an unforceable or unset
+			// name) hint without blocking, like the capability editor's rows.
+			if (param.key.trim() === FORCE_DIRECTIVE) {
+				const parsed = parseDirectiveListText(param.valueText);
+				if (!parsed.ok) {
+					return {
+						field: "value",
+						message: l10n.t('Enter true or a list of parameter names, e.g. ["temperature"]'),
+					};
+				}
+				params[FORCE_DIRECTIVE] = parsed.value;
+				if (Array.isArray(parsed.value)) {
+					const unforceable = parsed.value.find((name) => parameterSkipReason(name) !== undefined);
+					const unset = parsed.value.find((name) => !groupKeys.has(name));
+					paramHints[index] =
+						unforceable !== undefined
+							? l10n.t('"{0}" cannot be forced: provider-owned fields and _ keys stay extension-owned', unforceable)
+							: unset !== undefined
+								? l10n.t('"{0}" is not a parameter this prefix sets; its force mark is ignored', unset)
+								: undefined;
+				}
+				return undefined;
 			}
 			const parsed = parseJsonValue(param.valueText);
 			if (!parsed.ok) {
@@ -123,11 +190,12 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 		});
 		blocked = blocked || prefixProblem !== undefined || paramProblems.some((problem) => problem !== undefined);
 		problems.push({ prefix: prefixProblem, params: paramProblems });
+		hints.push({ params: paramHints });
 		if (prefixProblem === undefined) {
 			value[group.prefix.trim()] = { ...params };
 		}
 	}
-	return blocked ? { ok: false, problems } : { ok: true, value: { ...value } };
+	return blocked ? { ok: false, problems, hints } : { ok: true, value: { ...value }, hints };
 }
 
 export interface HeaderRow {
@@ -378,6 +446,15 @@ export function parseCapabilityGroups(groups: readonly PrefixGroup[]): Capabilit
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
 		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
+		// The `_fallback` hints' context: the capability fields this group's own
+		// rows set, and whether its `_declare` row is on (the resolver ignores a
+		// declared record's fallback marks, so the editor says so up front).
+		const groupFieldKeys: ReadonlySet<string> = new Set(
+			group.params.map((param) => param.key.trim()).filter(isCapabilityFieldName)
+		);
+		const groupDeclared = group.params.some(
+			(param) => param.key.trim() === DECLARE_DIRECTIVE && param.valueText.trim() === "true"
+		);
 		const prefixProblem = keyProblem(
 			group.prefix.trim(),
 			{ empty: l10n.t("Enter a model ID or prefix"), duplicate: l10n.t("Duplicate model prefix") },
@@ -408,6 +485,37 @@ export function parseCapabilityGroups(groups: readonly PrefixGroup[]): Capabilit
 					return { problem: { field: "value", message: l10n.t("Enter an OpenRouter model ID, e.g. openai/gpt-4o") } };
 				}
 				fields[key] = id;
+				return {};
+			}
+			if (key === FALLBACK_DIRECTIVE) {
+				const parsed = parseDirectiveListText(param.valueText);
+				if (!parsed.ok) {
+					return {
+						problem: {
+							field: "value",
+							message: l10n.t('Enter true or a list of capability fields, e.g. ["context_length"]'),
+						},
+					};
+				}
+				fields[key] = parsed.value;
+				// Non-blocking hints, the resolver's diagnose-and-ignore verdicts
+				// said before the save: the setting keeps the row either way. The
+				// declare combination is per-model, and the hint says so.
+				if (groupDeclared && parsed.value !== false && (parsed.value === true || parsed.value.length > 0)) {
+					return {
+						hint: l10n.t(
+							"_fallback does nothing for the model _declare creates (no server value to fall back under); models matched by prefix keep it"
+						),
+					};
+				}
+				if (Array.isArray(parsed.value)) {
+					const unknown = parsed.value.find((name) => !groupFieldKeys.has(name));
+					if (unknown !== undefined) {
+						return {
+							hint: l10n.t('"{0}" is not a capability field this prefix sets; its fallback mark is ignored', unknown),
+						};
+					}
+				}
 				return {};
 			}
 			if (isCapabilityFieldName(key)) {
@@ -460,4 +568,111 @@ export function toggleExpectedFailure(
 	return EXPECTED_FAILURE_CATEGORIES.filter((candidate) =>
 		candidate === category ? enabled : current.includes(candidate)
 	);
+}
+
+/** The per-row checkbox directives: `_fallback` on capability rows, `_force` on parameter rows. */
+export type FieldDirective = typeof FALLBACK_DIRECTIVE | typeof FORCE_DIRECTIVE;
+
+/**
+ * Whether a row key can carry the directive's mark: `_fallback` marks the
+ * known capability fields, `_force` any wire-eligible parameter (neither
+ * provider-owned nor an underscore key). The editors render a checkbox for
+ * exactly these rows, and a literal `true` directive expands over exactly
+ * these keys when a toggle rewrites it as a list.
+ */
+export function directiveEligible(directive: FieldDirective, key: string): boolean {
+	return directive === FALLBACK_DIRECTIVE
+		? isCapabilityFieldName(key)
+		: key.length > 0 && parameterSkipReason(key) === undefined;
+}
+
+/** The index of the group's directive row (the first, should duplicates exist; those block the parse anyway). */
+function directiveRowIndex(group: PrefixGroup, directive: FieldDirective): number {
+	return group.params.findIndex((param) => param.key.trim() === directive);
+}
+
+/** Every eligible row key of the group, deduplicated in row order: what a literal `true` means. */
+function eligibleRowKeys(group: PrefixGroup, directive: FieldDirective): string[] {
+	return Array.from(new Set(group.params.map((param) => param.key.trim()))).filter((key) =>
+		directiveEligible(directive, key)
+	);
+}
+
+/**
+ * The directive row's membership reading, deliberately more lenient than the
+ * validating parse: the resolver salvages the string entries of a partly
+ * invalid list (a `[42, "temperature"]` still forces temperature), so the
+ * checkboxes must reflect exactly those - the strict parse meanwhile blocks
+ * the row until the junk entry is fixed. `true` means every eligible row key;
+ * anything unreadable means none.
+ */
+function directiveListedEntries(group: PrefixGroup, directive: FieldDirective): readonly string[] {
+	const index = directiveRowIndex(group, directive);
+	const row = index < 0 ? undefined : group.params[index];
+	if (row === undefined) {
+		return [];
+	}
+	const parsed = parseJsonValue(row.valueText);
+	if (!parsed.ok) {
+		return [];
+	}
+	if (parsed.value === true) {
+		return eligibleRowKeys(group, directive);
+	}
+	if (Array.isArray(parsed.value)) {
+		return parsed.value.filter((entry): entry is string => typeof entry === "string");
+	}
+	return [];
+}
+
+/**
+ * The field names the group's directive row currently marks: the row's
+ * string list entries, or every eligible row key for a literal `true`. Empty
+ * when the row is absent, `false`, or unreadable - a malformed row is the
+ * parse's verdict to report; the checkboxes simply start unmarked.
+ */
+export function directiveMarkedFields(group: PrefixGroup, directive: FieldDirective): ReadonlySet<string> {
+	return new Set(directiveListedEntries(group, directive));
+}
+
+/**
+ * Toggle one field's membership in the group's `_fallback`/`_force` list,
+ * returning the updated group. Toggles always write the explicit list form -
+ * a hand-written `true` is preserved untouched on load and expands to the
+ * eligible row keys only on the first toggle - and unmarking the last member
+ * removes the directive row entirely. Existing list entries stay put, the
+ * invalid ones included (a stray name or a non-string element is the user's
+ * text, flagged by the parse, never silently dropped by an unrelated
+ * toggle); only a value that is no list at all is replaced wholesale.
+ */
+export function toggleDirectiveField(
+	group: PrefixGroup,
+	directive: FieldDirective,
+	field: string,
+	enabled: boolean
+): PrefixGroup {
+	const index = directiveRowIndex(group, directive);
+	const row = index < 0 ? undefined : group.params[index];
+	const raw = row === undefined ? { ok: false as const } : parseJsonValue(row.valueText);
+	// The rewrite base keeps every existing array element; `true` expands to
+	// the eligible keys; anything else starts a fresh list.
+	const base: readonly unknown[] = !raw.ok
+		? []
+		: Array.isArray(raw.value)
+			? raw.value
+			: raw.value === true
+				? eligibleRowKeys(group, directive)
+				: [];
+	const next = enabled
+		? base.some((entry) => entry === field)
+			? [...base]
+			: [...base, field]
+		: base.filter((entry) => entry !== field);
+	if (next.length === 0) {
+		return index < 0 ? group : { ...group, params: group.params.filter((_, i) => i !== index) };
+	}
+	const valueText = JSON.stringify(next);
+	return index < 0
+		? { ...group, params: [...group.params, { key: directive, valueText }] }
+		: { ...group, params: group.params.map((param, i) => (i === index ? { ...param, valueText } : param)) };
 }

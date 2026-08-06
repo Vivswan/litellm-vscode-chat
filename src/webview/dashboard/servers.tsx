@@ -641,6 +641,7 @@ function ServerForm({
 		}
 	}
 	const modelParameterProblems: readonly GroupProblems[] = parse.ok ? [] : parse.modelParameterProblems;
+	const modelParameterHints = parse.modelParameterHints;
 	const modelCapabilityIssues = parse.modelCapabilityIssues;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
 	const oauthProblemVisible = OAUTH_SECTION_FIELDS.some((field) => visibleProblems[field] !== undefined);
@@ -820,6 +821,7 @@ function ServerForm({
 				<ParamGroupsFields
 					groups={draft.modelParameters}
 					problems={modelParameterProblems}
+					hints={modelParameterHints}
 					disabled={saving}
 					prefixPlaceholder={l10n.t("Model prefix, e.g. gpt-4")}
 					prefixHelp={helpEntryModelParameterPrefix()}
@@ -845,7 +847,7 @@ function ServerForm({
 				</summary>
 				<p class="hint">
 					{l10n.t(
-						"Corrects what discovery reports for matching models, and _declare creates models discovery does not list. Your values beat server-reported ones."
+						"Corrects what discovery reports for matching models, and _declare creates models discovery does not list. Your values beat server-reported ones unless marked fallback."
 					)}
 				</p>
 				<CapabilityGroupsFields
