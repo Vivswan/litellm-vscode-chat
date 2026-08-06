@@ -13,6 +13,7 @@ import type {
 	DashboardModel,
 	EffectiveParameterRow,
 	ModelParametersRecord,
+	ParameterDiagnostic,
 	ParameterSourceRef,
 	ProjectedMaxTokens,
 	RequestScope,
@@ -105,6 +106,31 @@ function skipReasonText(reason: "underscore" | "provider-owned"): string {
 	return reason === "underscore"
 		? l10n.t("not sent: keys starting with _ are reserved for extension metadata")
 		: l10n.t("not sent: a provider-owned request field, never overridable");
+}
+
+/**
+ * One `_force` problem as prose, the capability inspector's diagnostics idiom:
+ * classifications and the offending keys, never values.
+ */
+function parameterDiagnosticText(diagnostic: ParameterDiagnostic): string {
+	const where =
+		diagnostic.layer === "entry"
+			? l10n.t("server entry key {0}", diagnostic.recordKey)
+			: l10n.t("settings key {0}", diagnostic.recordKey);
+	if (diagnostic.kind === "unforceable-key") {
+		return l10n.t(
+			'"{0}" cannot be forced and its mark is skipped: provider-owned fields and _ keys stay extension-owned ({1})',
+			diagnostic.key,
+			where
+		);
+	}
+	// Deliberately "offending entries", not "ignored": the resolver salvages
+	// the valid names of a partly bad list, so those fields stay forced.
+	return l10n.t(
+		'"{0}" must be true or a list of parameters the record sets, e.g. ["temperature"]; offending entries are ignored ({1})',
+		diagnostic.key,
+		where
+	);
 }
 
 /** The request fields the extension itself owns; rendered as chips, never prose. */
@@ -275,6 +301,18 @@ export function ParamsInspector({
 							{Object.entries(projection.replacedUnscoped.record).map(([name, value]) => (
 								<li key={name}>
 									{name}: {formatJsonValue(value)}
+								</li>
+							))}
+						</ul>
+					</div>
+				) : null}
+				{projection.diagnostics.length > 0 ? (
+					<div class="params-replaced">
+						<p class="hint">{l10n.t("Configuration problems in the matched records:")}</p>
+						<ul>
+							{projection.diagnostics.map((diagnostic) => (
+								<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.kind}/${diagnostic.key}`}>
+									{parameterDiagnosticText(diagnostic)}
 								</li>
 							))}
 						</ul>
