@@ -31,7 +31,7 @@ export function helpModelsSection(): string {
 
 export function helpParamsInspector(): string {
 	return l10n.t(
-		"What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the chat client can still override the forwarded values."
+		"What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the chat client override the forwarded values, except rows marked forced."
 	);
 }
 
@@ -43,7 +43,7 @@ export function helpSettingsSection(): string {
 
 export function helpModelParametersSection(): string {
 	return l10n.t(
-		"Request parameters sent to matching models, e.g. temperature 0.2 for every gpt-4 model. Only parameters you set are sent; options the chat client sets at runtime win over these."
+		"Request parameters sent to matching models, e.g. temperature 0.2 for every gpt-4 model. Only parameters you set are sent; runtime options win over these unless a field is forced with _force."
 	);
 }
 
@@ -86,7 +86,7 @@ export function serverFieldHelp(field: ServerFormField): string {
 			return l10n.t("The key sent in that header on every request to this server.");
 		case "modelParameters":
 			return l10n.t(
-				"Parameters sent only to this server's models, e.g. temperature 0.2. Runtime options and per-model picker config win; these win over the global Model parameters setting."
+				"Parameters sent only to this server's models, e.g. temperature 0.2. Runtime options and per-model picker config win unless a field is forced with _force; these win over the global Model parameters setting."
 			);
 		case "modelCapabilities":
 			return l10n.t(
