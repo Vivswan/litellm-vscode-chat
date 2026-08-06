@@ -1,6 +1,9 @@
 import os from "node:os";
 import path from "node:path";
 import { defineConfig } from "@vscode/test-cli";
+// Compiled by the `compile` step that precedes every vscode-test invocation
+// (see the test scripts and scripts/docker-test.ts).
+import { DOCKER_TEST_LABELS } from "./out/test/dockerTestLabels.js";
 
 // Per-label isolation; VS Code's IPC socket lives inside this dir and must fit macOS's ~104-byte AF_UNIX path cap.
 const launchArgsFor = (label) => [
@@ -9,6 +12,48 @@ const launchArgsFor = (label) => [
 		? path.join(process.env.VSCODE_TEST_USER_DATA_DIR, label)
 		: path.join(os.tmpdir(), `lvt-${process.pid}-${label}`),
 ];
+
+const passthroughEnv = (...names) => Object.fromEntries(names.map((name) => [name, process.env[name] || ""]));
+
+const dockerLabel = (label, { file = label, timeout, extraEnv = {} }) => ({
+	label,
+	files: `out/test/${file}.test.js`,
+	mocha: {
+		ui: "tdd",
+		timeout,
+		color: true,
+	},
+	env: {
+		...passthroughEnv("LITELLM_DOCKER_BASE_URL", "LITELLM_DOCKER_API_KEY", "LITELLM_DOCKER_FAKE_URL"),
+		...extraEnv,
+	},
+	launchArgs: launchArgsFor(label),
+});
+
+// Per-label options for every docker suite. host-fidelity runs against the
+// stack too (scripts/docker-test.ts) but keeps its own stanza below: its env
+// contract is the LITELLM_REAL_* live-server seam, not the docker one.
+const dockerSuites = {
+	docker: { file: "docker-litellm", timeout: 60000 },
+	"docker-transport": { timeout: 120000 },
+	"docker-serversync": { timeout: 120000 },
+	"docker-fuzz": { timeout: 120000, extraEnv: passthroughEnv("FUZZ_SEED", "FUZZ_ITERATIONS", "FUZZ_SHARD") },
+	"docker-conversation": { timeout: 120000, extraEnv: passthroughEnv("FUZZ_SEED", "CONVERSATION_ITERATIONS") },
+	// Whole-walk tests; the suite raises its own per-test budgets on top.
+	"docker-monkey": { timeout: 300000, extraEnv: passthroughEnv("FUZZ_SEED", "FUZZ_SHARD", "MONKEY_ITERATIONS") },
+};
+
+// The runtime analog of docker-test.ts's total Record: a label added to
+// DOCKER_TEST_LABELS without options here (or vice versa) must fail loudly,
+// never silently drop a leg.
+const dockerLabels = DOCKER_TEST_LABELS.filter((label) => label !== "host-fidelity");
+{
+	const configured = Object.keys(dockerSuites).sort().join(", ");
+	const canonical = [...dockerLabels].sort().join(", ");
+	if (configured !== canonical) {
+		throw new Error(`dockerSuites must cover exactly the docker labels: have [${configured}], need [${canonical}]`);
+	}
+}
 
 export default defineConfig({
 	coverage: {
@@ -94,104 +139,6 @@ export default defineConfig({
 			},
 			launchArgs: launchArgsFor("host-fidelity"),
 		},
-		{
-			label: "docker",
-			files: "out/test/docker-litellm.test.js",
-			mocha: {
-				ui: "tdd",
-				timeout: 60000,
-				color: true,
-			},
-			env: {
-				LITELLM_DOCKER_BASE_URL: process.env.LITELLM_DOCKER_BASE_URL || "",
-				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
-				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
-			},
-			launchArgs: launchArgsFor("docker"),
-		},
-		{
-			label: "docker-transport",
-			files: "out/test/docker-transport.test.js",
-			mocha: {
-				ui: "tdd",
-				timeout: 120000,
-				color: true,
-			},
-			env: {
-				LITELLM_DOCKER_BASE_URL: process.env.LITELLM_DOCKER_BASE_URL || "",
-				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
-				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
-			},
-			launchArgs: launchArgsFor("docker-transport"),
-		},
-		{
-			label: "docker-serversync",
-			files: "out/test/docker-serversync.test.js",
-			mocha: {
-				ui: "tdd",
-				timeout: 120000,
-				color: true,
-			},
-			env: {
-				LITELLM_DOCKER_BASE_URL: process.env.LITELLM_DOCKER_BASE_URL || "",
-				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
-				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
-			},
-			launchArgs: launchArgsFor("docker-serversync"),
-		},
-		{
-			label: "docker-fuzz",
-			files: "out/test/docker-fuzz.test.js",
-			mocha: {
-				ui: "tdd",
-				timeout: 120000,
-				color: true,
-			},
-			env: {
-				LITELLM_DOCKER_BASE_URL: process.env.LITELLM_DOCKER_BASE_URL || "",
-				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
-				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
-				FUZZ_SEED: process.env.FUZZ_SEED || "",
-				FUZZ_ITERATIONS: process.env.FUZZ_ITERATIONS || "",
-				FUZZ_SHARD: process.env.FUZZ_SHARD || "",
-			},
-			launchArgs: launchArgsFor("docker-fuzz"),
-		},
-		{
-			label: "docker-conversation",
-			files: "out/test/docker-conversation.test.js",
-			mocha: {
-				ui: "tdd",
-				timeout: 120000,
-				color: true,
-			},
-			env: {
-				LITELLM_DOCKER_BASE_URL: process.env.LITELLM_DOCKER_BASE_URL || "",
-				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
-				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
-				FUZZ_SEED: process.env.FUZZ_SEED || "",
-				CONVERSATION_ITERATIONS: process.env.CONVERSATION_ITERATIONS || "",
-			},
-			launchArgs: launchArgsFor("docker-conversation"),
-		},
-		{
-			label: "docker-monkey",
-			files: "out/test/docker-monkey.test.js",
-			mocha: {
-				ui: "tdd",
-				// Whole-walk tests; the suite raises its own per-test budgets on top.
-				timeout: 300000,
-				color: true,
-			},
-			env: {
-				LITELLM_DOCKER_BASE_URL: process.env.LITELLM_DOCKER_BASE_URL || "",
-				LITELLM_DOCKER_API_KEY: process.env.LITELLM_DOCKER_API_KEY || "",
-				LITELLM_DOCKER_FAKE_URL: process.env.LITELLM_DOCKER_FAKE_URL || "",
-				FUZZ_SEED: process.env.FUZZ_SEED || "",
-				FUZZ_SHARD: process.env.FUZZ_SHARD || "",
-				MONKEY_ITERATIONS: process.env.MONKEY_ITERATIONS || "",
-			},
-			launchArgs: launchArgsFor("docker-monkey"),
-		},
+		...dockerLabels.map((label) => dockerLabel(label, dockerSuites[label])),
 	],
 });

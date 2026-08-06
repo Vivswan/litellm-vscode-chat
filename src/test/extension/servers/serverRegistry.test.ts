@@ -1,8 +1,7 @@
 import * as assert from "node:assert";
-import type * as vscode from "vscode";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { apiKeySecret, SERVER_REGISTRY_KEY } from "../../../shared/config/storageKeys";
-import { makeExtensionStorage } from "../../testUtils";
+import { failingStorage, makeExtensionStorage } from "../../testUtils";
 
 interface Fakes {
 	registry: ServerRegistry;
@@ -100,39 +99,20 @@ suite("extension/servers/serverRegistry", () => {
 		});
 
 		test("addServer rolls back the stored secret when the registry write fails", async () => {
-			const operations: string[] = [];
-			const mementoStore = new Map<string, unknown>();
-			const memento = {
-				get: (key: string, defaultValue?: unknown) => (mementoStore.has(key) ? mementoStore.get(key) : defaultValue),
-				update: async () => {
-					operations.push("update");
-					throw new Error("registry write failed");
-				},
-			} as unknown as vscode.Memento;
-			const secretStore = new Map<string, string>();
-			const secrets = {
-				get: async (key: string) => secretStore.get(key),
-				store: async (key: string, value: string) => {
-					operations.push("store");
-					secretStore.set(key, value);
-				},
-				delete: async (key: string) => {
-					operations.push("delete");
-					secretStore.delete(key);
-				},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
-			} as unknown as vscode.SecretStorage;
-			const registry = new ServerRegistry(memento, secrets);
+			const storage = failingStorage(makeExtensionStorage(), {
+				failOn: { mementoUpdate: () => new Error("registry write failed") },
+			});
+			const registry = new ServerRegistry(storage.memento, storage.secrets);
 
 			await assert.rejects(registry.addServer("Broken", "http://host:4000", "the-key"), /registry write failed/);
 
 			assert.deepStrictEqual(
-				operations,
+				storage.ops,
 				["store", "update", "delete"],
 				"The secret must be stored before the registry write and rolled back after it fails"
 			);
 			assert.strictEqual(registry.getServers().length, 0);
-			assert.strictEqual(secretStore.size, 0, "The stored secret must be rolled back");
+			assert.strictEqual(storage.secretStore.size, 0, "The stored secret must be rolled back");
 		});
 	});
 
@@ -230,30 +210,19 @@ suite("extension/servers/serverRegistry", () => {
 		test("a failed persist's optimistic cache residue is not re-adopted after rollback", async () => {
 			// VS Code's Memento caches an update before the async write settles, so a
 			// failed persist can leave the rejected snapshot readable in the cache.
-			const mementoStore = new Map<string, unknown>();
 			let failNextUpdate = false;
-			const memento = {
-				get: (key: string, defaultValue?: unknown) => (mementoStore.has(key) ? mementoStore.get(key) : defaultValue),
-				update: async (key: string, value: unknown) => {
-					mementoStore.set(key, value);
-					if (failNextUpdate) {
+			const storage = failingStorage(makeExtensionStorage(), {
+				failOn: {
+					mementoUpdate: () => {
+						if (!failNextUpdate) {
+							return undefined;
+						}
 						failNextUpdate = false;
-						throw new Error("persist failed");
-					}
+						return new Error("persist failed");
+					},
 				},
-			} as unknown as vscode.Memento;
-			const secretStore = new Map<string, string>();
-			const secrets = {
-				get: async (key: string) => secretStore.get(key),
-				store: async (key: string, value: string) => {
-					secretStore.set(key, value);
-				},
-				delete: async (key: string) => {
-					secretStore.delete(key);
-				},
-				onDidChange: (_listener: unknown) => ({ dispose() {} }),
-			} as unknown as vscode.SecretStorage;
-			const registry = new ServerRegistry(memento, secrets);
+			});
+			const registry = new ServerRegistry(storage.memento, storage.secrets);
 			const first = await registry.addServer("First", "http://first:4000", "");
 
 			failNextUpdate = true;
@@ -263,7 +232,7 @@ suite("extension/servers/serverRegistry", () => {
 
 			const again = await registry.addServer("Again", "http://again:4000", "");
 			assert.deepStrictEqual(registry.getServers(), [first, again]);
-			assert.deepStrictEqual(mementoStore.get(SERVER_REGISTRY_KEY), { version: 2, servers: [first, again] });
+			assert.deepStrictEqual(storage.mementoStore.get(SERVER_REGISTRY_KEY), { version: 2, servers: [first, again] });
 		});
 	});
 

@@ -8,20 +8,7 @@ import { consumeDevSeed, parseDevSeed } from "../../extension/devSeed";
 import { updateServerSecret } from "../../extension/servers/serverSync";
 import { serverSecretsKey } from "../../shared/config/storageKeys";
 import { DEV_SEED_FILENAME } from "../../shared/devSeed";
-import { Logger } from "../../shared/logger";
-import { makeExtensionStorage } from "../testUtils";
-
-function makeLogger(): Logger {
-	return new Logger({
-		trace: () => {},
-		debug: () => {},
-		info: () => {},
-		warn: () => {},
-		error: () => {},
-		append: () => {},
-		appendLine: () => {},
-	} as unknown as vscode.LogOutputChannel);
-}
+import { makeExtensionStorage, makeLogger } from "../testUtils";
 
 /**
  * A DevSeedEnv over an in-memory setting plus the fake SecretStorage, with the
@@ -107,7 +94,7 @@ suite("extension/devSeed", () => {
 			await originalWrite(value);
 		};
 
-		const seed = await consumeDevSeed(dir, fake.env, makeLogger());
+		const seed = await consumeDevSeed(dir, fake.env, makeLogger().logger);
 
 		assert.strictEqual(seed?.openDashboard, true);
 		assert.deepStrictEqual(
@@ -132,7 +119,7 @@ suite("extension/devSeed", () => {
 			"junk entry",
 		]);
 
-		await consumeDevSeed(dir, fake.env, makeLogger());
+		await consumeDevSeed(dir, fake.env, makeLogger().logger);
 
 		assert.deepStrictEqual(fake.getSetting(), [
 			{ label: "Other", baseUrl: "http://other.test" },
@@ -146,7 +133,7 @@ suite("extension/devSeed", () => {
 		const fake = makeEnv();
 		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-stale");
 
-		await consumeDevSeed(dir, fake.env, makeLogger());
+		await consumeDevSeed(dir, fake.env, makeLogger().logger);
 
 		assert.strictEqual(fake.secretStore.get(serverSecretsKey("Seeded")), undefined);
 		assert.deepStrictEqual(fake.getSetting(), [{ label: "Seeded", baseUrl: "http://localhost:4000" }]);
@@ -156,7 +143,7 @@ suite("extension/devSeed", () => {
 		const dir = await makeSeedDir("not json");
 		const fake = makeEnv();
 
-		const seed = await consumeDevSeed(dir, fake.env, makeLogger());
+		const seed = await consumeDevSeed(dir, fake.env, makeLogger().logger);
 
 		assert.strictEqual(seed, undefined);
 		assert.deepStrictEqual(fake.writes, []);
@@ -171,7 +158,7 @@ suite("extension/devSeed", () => {
 			throw new Error("configuration write refused");
 		};
 
-		const seed = await consumeDevSeed(dir, fake.env, makeLogger());
+		const seed = await consumeDevSeed(dir, fake.env, makeLogger().logger);
 
 		assert.strictEqual(seed?.openDashboard, true, "the dashboard still opens so the user sees the state");
 	});
@@ -186,7 +173,7 @@ suite("extension/devSeed", () => {
 			throw new Error("secret store refused");
 		};
 
-		const seed = await consumeDevSeed(dir, fake.env, makeLogger());
+		const seed = await consumeDevSeed(dir, fake.env, makeLogger().logger);
 
 		assert.strictEqual(seed?.baseUrl, "http://localhost:4000");
 		assert.deepStrictEqual(
@@ -200,7 +187,7 @@ suite("extension/devSeed", () => {
 		const dir = await makeSeedDir();
 		const fake = makeEnv();
 
-		assert.strictEqual(await consumeDevSeed(dir, fake.env, makeLogger()), undefined);
+		assert.strictEqual(await consumeDevSeed(dir, fake.env, makeLogger().logger), undefined);
 		assert.deepStrictEqual(fake.writes, []);
 	});
 
