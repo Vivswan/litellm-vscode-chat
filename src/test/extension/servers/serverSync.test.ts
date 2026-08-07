@@ -238,11 +238,8 @@ suite("extension/servers/serverSync", () => {
 			// args object's key insertion order is durable state: reordering it
 			// (including "tidying" secrets and non-secrets apart - they interleave)
 			// would invalidate every stored fingerprint and force a re-push of all
-			// groups. `label` sits right after baseUrl so that removing it yields
-			// the pre-label key sequence byte for byte - the unsalted-fingerprint
-			// migration's pre-label rendering depends on exactly that. The expected
-			// list is spelled out on purpose; do not derive it from the descriptor
-			// this test exists to pin.
+			// groups. The expected list is spelled out on purpose; do not derive
+			// it from the descriptor this test exists to pin.
 			const args = buildGroupArgs(
 				{
 					label: "Prod",
@@ -932,8 +929,7 @@ suite("extension/servers/serverSync", () => {
 			// The pass-end write is whole-key: a record another window persisted
 			// after this window's session map seeded must ride through a pass
 			// that cannot read the entry's secrets, or the write would destroy
-			// the only copy (for a legacy-form record, the only proof the
-			// unsaltedSyncFingerprints migration can still rewrite).
+			// the only copy.
 			const recorded = makeSyncEnv([]);
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();

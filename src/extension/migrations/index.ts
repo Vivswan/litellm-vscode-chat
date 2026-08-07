@@ -5,7 +5,6 @@ import type { ServerRegistry } from "../servers/serverRegistry";
 import { labelScopedModelParametersMigration } from "./labelScopedModelParameters";
 import { legacySingleServerMigration } from "./legacySingleServer";
 import { registryToProviderGroupsMigration } from "./registryToProviderGroups";
-import { unsaltedSyncFingerprintsMigration } from "./unsaltedSyncFingerprints";
 
 export interface MigrationContext {
 	globalState: vscode.Memento;
@@ -14,11 +13,11 @@ export interface MigrationContext {
 	logger: Logger;
 	/**
 	 * The session's fingerprint-salt view (see extension/fingerprintSalt.ts).
-	 * A migration that persists fingerprints - rewriting stored records,
-	 * seeding provider groups - must call confirmDurable() at decision time
-	 * and defer unless it reports "durable": records written under a salt
-	 * later sessions will not see would match nothing, which is exactly the
-	 * permanent wedge those migrations exist to prevent.
+	 * A migration that persists fingerprints - seeding provider groups - must
+	 * call confirmDurable() at decision time and defer unless it reports
+	 * "durable": records written under a salt later sessions will not see
+	 * would match nothing, which is exactly the permanent wedge those
+	 * migrations exist to prevent.
 	 */
 	fingerprintSalt: FingerprintSaltSession;
 }
@@ -68,7 +67,6 @@ export const MIGRATIONS: readonly ExtensionMigration[] = [
 	legacySingleServerMigration,
 	registryToProviderGroupsMigration,
 	labelScopedModelParametersMigration,
-	unsaltedSyncFingerprintsMigration,
 ];
 
 /** Best-effort: a failing migration logs once and the rest still run; never rejects. */

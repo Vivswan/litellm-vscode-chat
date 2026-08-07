@@ -35,10 +35,9 @@ export interface FingerprintSaltSession {
 	 * Re-read the stored salt and report whether it still is this session's
 	 * installed one. Call immediately before EACH act a later session must
 	 * recognize - each fingerprint-map write, each provider-group seeding
-	 * step, the stored-record rewrite - not once per pass: a mutation
-	 * detected mid-batch must stop the remaining writes. Never throws: an
-	 * unreadable or mismatched store downgrades to session-only, logged once
-	 * as a fixed classification.
+	 * step - not once per pass: a mutation detected mid-batch must stop the
+	 * remaining writes. Never throws: an unreadable or mismatched store
+	 * downgrades to session-only, logged once as a fixed classification.
 	 */
 	confirmDurable(): Promise<FingerprintSaltState>;
 }

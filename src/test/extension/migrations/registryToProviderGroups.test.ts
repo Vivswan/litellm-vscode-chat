@@ -2,7 +2,6 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { FingerprintSaltSession } from "../../../extension/fingerprintSalt";
 import { getMigratedServerLabels } from "../../../extension/migrations/labelScopedModelParameters";
-import { legacyUnsaltedFingerprint } from "../../../extension/migrations/legacyFingerprint";
 import { legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
 import {
 	isGroupMigrationComplete,
@@ -283,34 +282,6 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.strictEqual(registry.getServers().length, 1, "the second server stays for the next activation");
 	});
 
-	test("a seeded record written by a pre-salt version still matches its unchanged server", async () => {
-		// An interrupted migration can span the release that gave fingerprint()
-		// its salt: the record holds the unsalted rendering of the same key,
-		// and rejecting it would strand a correctly migrated server as skipped.
-		const storage = makeExtensionStorage();
-		const registry = new ServerRegistry(storage.memento, storage.secrets);
-		const server = await registry.addServer("Production", "http://prod.test", "prod-key");
-		storage.mementoStore.set(SEEDED_PROVIDER_GROUPS_KEY, [
-			{
-				id: server.id,
-				name: "Production",
-				label: "Production",
-				baseUrl: "http://prod.test",
-				keyFingerprint: legacyUnsaltedFingerprint("prod-key"),
-			},
-		]);
-		const { logger } = makeLogger();
-		const host = makeFakeHost();
-		host.groups.add("Production");
-
-		const completed = await migrate(registry, storage, logger, host.exec);
-
-		assert.strictEqual(completed, true);
-		assert.deepStrictEqual(host.submissions, [], "the pre-salt record still proves the seeding");
-		assert.deepStrictEqual(registry.getServers(), []);
-		assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
-	});
-
 	test("a recorded entry that no longer matches its record is kept, marked skipped, and announced once", async () => {
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
@@ -475,32 +446,6 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.deepStrictEqual(registry.getServers(), []);
 		assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
 		assert.deepStrictEqual(warnings, [], "our own interrupted submission is not a collision to announce");
-	});
-
-	test("a pending marker written by a pre-salt version still names our own submission", async () => {
-		// The crash-then-upgrade case: the marker holds the unsalted rendering
-		// of the same key, and misreading it as a foreign collision would
-		// strand the server as skipped with a spurious warning.
-		const storage = makeExtensionStorage();
-		const registry = new ServerRegistry(storage.memento, storage.secrets);
-		const server = await registry.addServer("Production", "http://prod.test", "prod-key");
-		storage.mementoStore.set(PENDING_GROUP_SUBMISSION_KEY, {
-			id: server.id,
-			name: "Production",
-			baseUrl: "http://prod.test",
-			keyFingerprint: legacyUnsaltedFingerprint("prod-key"),
-		});
-		const { logger } = makeLogger();
-		const host = makeFakeHost();
-		host.groups.add("Production");
-
-		const warnings = await withWarnings(async () => {
-			assert.strictEqual(await migrate(registry, storage, logger, host.exec), true);
-		});
-
-		assert.deepStrictEqual(registry.getServers(), []);
-		assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
-		assert.deepStrictEqual(warnings, [], "the pre-salt marker is still our own submission");
 	});
 
 	test("a marker whose recorded identity no longer matches the server is a foreign collision", async () => {
