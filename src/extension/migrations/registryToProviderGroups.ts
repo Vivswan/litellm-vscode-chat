@@ -18,7 +18,6 @@ import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
 import { getMigratedServerLabels, labelScopedModelParametersMigration } from "./labelScopedModelParameters";
-import { legacyUnsaltedFingerprint } from "./legacyFingerprint";
 import { hasLegacyConfig } from "./legacySingleServer";
 
 /**
@@ -164,22 +163,11 @@ function mergeLabelMap(existing: Record<string, string[]>, seeded: readonly Seed
 	return labelMap;
 }
 
-/**
- * Whether a stored key fingerprint describes this API key. Records written by
- * pre-salt extension versions hold the unsalted rendering, and an interrupted
- * migration can span the upgrade, so both are accepted; new records are
- * always written salted, and these records live only until the migration
- * completes and clears them.
- */
-function keyFingerprintMatches(apiKey: string, stored: string): boolean {
-	return fingerprint(apiKey) === stored || legacyUnsaltedFingerprint(apiKey) === stored;
-}
-
 function matchesSeededConfig(server: ServerWithKey, record: SeededGroup): boolean {
 	return (
 		server.label === record.label &&
 		server.baseUrl === record.baseUrl &&
-		keyFingerprintMatches(server.apiKey, record.keyFingerprint)
+		fingerprint(server.apiKey) === record.keyFingerprint
 	);
 }
 
@@ -262,9 +250,7 @@ async function submitGroupSeed(
 		pending.id === record.id &&
 		pending.name === record.name &&
 		pending.baseUrl === record.baseUrl &&
-		// The record's fingerprint is freshly salted, but a marker left by a
-		// pre-salt session's crash holds the unsalted rendering of the same key.
-		keyFingerprintMatches(current.apiKey, pending.keyFingerprint);
+		fingerprint(current.apiKey) === pending.keyFingerprint;
 	await globalState.update(PENDING_GROUP_SUBMISSION_KEY, {
 		id: record.id,
 		name: record.name,

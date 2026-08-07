@@ -183,17 +183,13 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
 
 /**
  * The fingerprint of one entry's group args as this version persists it:
- * salted, over the frozen JSON rendering buildGroupArgs documents. The
- * unsalted-fingerprint migration recomputes stored records through this same
- * function, so the two can never drift. The engine compares stored records
- * against this rendering ONLY: records persisted by pre-salt versions are the
- * unsaltedSyncFingerprints migration's to recognize and rewrite (it runs
- * pre-registration, before the first pass seeds from the store), so a pass
- * that still meets one is inside a failed-migration window and the entry
- * degrades to the visible name-conflict classification below - carried, never
- * overwritten - until the next successful migration run heals it.
+ * salted, over the frozen JSON rendering buildGroupArgs documents. The engine
+ * compares stored records against this rendering ONLY: an entry whose record
+ * matches nothing degrades to the visible name-conflict classification below
+ * - carried, never overwritten - until the entry is reverted, renamed, or
+ * removed.
  */
-export function groupArgsFingerprint(args: Record<string, string>): string {
+function groupArgsFingerprint(args: Record<string, string>): string {
 	return fingerprint(JSON.stringify(args));
 }
 
@@ -422,13 +418,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 * confirmation leans on (a stale read can only under-report, never invent,
 	 * so a present record is some window's proof of the live group's content,
 	 * while an absence proves nothing). Without the carry the pass-end
-	 * whole-key write would destroy the only copy; for a legacy-form record
-	 * that copy is the only proof the unsaltedSyncFingerprints migration can
-	 * still rewrite. The caller supplies its own single store read, so no
-	 * branch ever takes two reads that could disagree. The preserved record
-	 * goes into the session map at once so a later entry's write-through
-	 * cannot re-clobber it mid-pass, and into `next` so the pass-end write
-	 * keeps it.
+	 * whole-key write would destroy the only copy. The caller supplies its
+	 * own single store read, so no branch ever takes two reads that could
+	 * disagree. The preserved record goes into the session map at once so a
+	 * later entry's write-through cannot re-clobber it mid-pass, and into
+	 * `next` so the pass-end write keeps it.
 	 */
 	private carryLastGood(
 		label: string,
