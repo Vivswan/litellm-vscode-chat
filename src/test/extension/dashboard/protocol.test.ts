@@ -94,7 +94,7 @@ suite("extension/dashboard/protocol renderers", () => {
 			assert.strictEqual(classifyOverall(servers), "needs-declare");
 			assert.strictEqual(
 				overallStatusText(servers, 0),
-				"Expected discovery failures; no declared models (add _declare entries to modelCapabilities)"
+				"Expected discovery failures; no declared models (add IDs to the entry's discovery.declared)"
 			);
 		});
 
@@ -156,7 +156,7 @@ suite("extension/dashboard/protocol renderers", () => {
 				})
 			);
 			assert.ok(line.startsWith("Error: 404 on /models (expected)"), line);
-			assert.ok(line.includes("add _declare entries"), line);
+			assert.ok(line.includes("discovery.declared"), line);
 		});
 
 		test("an entry whose group cannot serve its per-entry parameters says so on a healthy line", () => {

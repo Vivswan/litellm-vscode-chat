@@ -26,11 +26,7 @@ import type {
 	EffectiveCapabilities,
 	ModelCapabilitiesRecord,
 } from "../../../shared/config/capabilityResolution";
-import {
-	DECLARE_DIRECTIVE,
-	OPENROUTER_MODEL_DIRECTIVE,
-	resolveModelCapabilities,
-} from "../../../shared/config/capabilityResolution";
+import { OPENROUTER_MODEL_DIRECTIVE, resolveModelCapabilities } from "../../../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
@@ -144,7 +140,8 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	)
 	.map(([base, declare, openrouterModel]) => ({
 		...base,
-		...(declare !== undefined ? { [DECLARE_DIRECTIVE]: declare } : {}),
+		// The retired _declare directive stays as inert underscore-key noise.
+		...(declare !== undefined ? { _declare: declare } : {}),
 		...(openrouterModel !== undefined ? { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel } : {}),
 	}));
 
@@ -205,6 +202,11 @@ const scenario: fc.Arbitrary<Scenario> = fc
 		),
 		catalogOne: fc.option(validFieldsArb, { nil: undefined }),
 		implicitFields: fc.option(validFieldsArb, { nil: undefined }),
+		// Which of the scenario's IDs the entry declares (discovery.declared):
+		// the discovered ID keeps the inertness branch alive, the other ID the
+		// synthesis branch.
+		declareRaw: fc.boolean(),
+		declareOther: fc.boolean(),
 	})
 	.map((spec) => {
 		const item = { ...spec.item, id: spec.rawModelId };
@@ -231,9 +233,14 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			...(spec.catalogOne !== undefined ? { "cat/one": spec.catalogOne } : {}),
 			...(spec.implicitFields !== undefined ? { [`imp/${spec.rawModelId}`]: spec.implicitFields } : {}),
 		});
+		const entryDeclaredModels = [
+			...(spec.declareRaw ? [spec.rawModelId] : []),
+			...(spec.declareOther ? [spec.otherId] : []),
+		];
 		const opts: CapabilityOverrideOptions = {
 			globalCapabilities,
 			entryCapabilities,
+			...(entryDeclaredModels.length > 0 ? { entryDeclaredModels } : {}),
 			catalog,
 			resolution: new ModelResolutionTable(),
 			log: () => {},

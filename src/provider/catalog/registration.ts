@@ -208,7 +208,7 @@ export function pricingFromCosts(costs: PerTokenCosts): ModelPricing {
  * future host default change. isUserSelectable must be an explicit true:
  * the host's MCP sampling-model picker and local chat sessions use plain
  * truthy checks, so an absent flag excluded these models there. Shared with
- * capabilityOverrides.ts, whose synthesized `_declare`d models must carry
+ * capabilityOverrides.ts, whose synthesized declared models must carry
  * the same registration-wide fields.
  */
 export const COMMON_MODEL_FIELDS = {
@@ -229,7 +229,7 @@ export interface ServerDisplayContext {
  * How a server's models identify themselves in the picker: multi-server
  * registrations carry the server label (detail, a name prefix, the tooltip);
  * a sole server stays plain "LiteLLM". Shared with capabilityOverrides.ts so
- * synthesized `_declare`d models render like their discovered neighbors.
+ * synthesized declared models render like their discovered neighbors.
  */
 export function serverDisplayContext(server: Pick<ServerWithKey, "label">, serverCount: number): ServerDisplayContext {
 	return {

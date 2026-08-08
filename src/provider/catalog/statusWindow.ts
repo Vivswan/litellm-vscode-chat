@@ -30,7 +30,7 @@ export interface ServerModelsSnapshot {
 	readonly models: readonly PreAttachModelInfo[];
 	/**
 	 * The raw model IDs discovery last returned for this server, carried
-	 * forward across failure reports like lastSuccessAt. `_declare` inertness
+	 * forward across failure reports like lastSuccessAt. declared-ID inertness
 	 * is judged against this set, never against `models`: registration may
 	 * emit only synthetic variants (`foo:cheapest`) for a discovered `foo`.
 	 */

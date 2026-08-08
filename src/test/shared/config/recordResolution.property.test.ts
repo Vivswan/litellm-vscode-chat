@@ -342,7 +342,7 @@ suite("shared/config recordResolution inheritance fuzzer", () => {
 	test("the capabilities chain equals the naive oracle: fields, writers, and fallback markings", () => {
 		fc.assert(
 			fc.property(capsScenario, ({ id, records }) => {
-				const engine = engineView(resolveCapabilityLayer(id, "global", records).fields, "_fallback");
+				const engine = engineView(resolveCapabilityLayer(id, records).fields, "_fallback");
 				assert.deepStrictEqual(engine, naiveResolve(id, records, "_fallback"));
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

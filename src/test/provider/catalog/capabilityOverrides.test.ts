@@ -1,5 +1,5 @@
 /**
- * The attach-side override application and `_declare` synthesis: coherent
+ * The attach-side override application and declared-model synthesis: coherent
  * rebuilds (token constraints, capability flags, the reasoning control,
  * outputLimitSource promotion, pricing precedence), the object-identity fast
  * path when no configuration matches, inertness against the DISCOVERED raw-ID
@@ -315,8 +315,9 @@ suite("provider/catalog/capabilityOverrides", () => {
 				1,
 				options({
 					entryCapabilities: {
-						"my-model": { _declare: true, context_length: 64000, max_output_tokens: 8000 },
+						"my-model": { context_length: 64000, max_output_tokens: 8000 },
 					},
+					entryDeclaredModels: ["my-model"],
 				})
 			);
 			const declared = infos[0];
@@ -343,7 +344,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 				new Set(["foo:cheapest", "foo:fastest"]),
 				SERVER,
 				1,
-				options({ entryCapabilities: { foo: { _declare: true } } })
+				options({ entryDeclaredModels: ["foo"] })
 			);
 			assert.deepStrictEqual(infos, [], "the DISCOVERED raw-ID set decides inertness, not the registered set");
 		});
@@ -356,7 +357,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 				SERVER,
 				1,
 				options({
-					entryCapabilities: { "foo:cheapest": { _declare: true } },
+					entryDeclaredModels: ["foo:cheapest"],
 					log: (message, data) => logged.push({ message, data }),
 				})
 			);
@@ -365,13 +366,13 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.ok(logged[0]?.message.includes("Suppressing a declared model"));
 		});
 
-		test("the floor backstops a bare _declare, with the conservative outputLimitSource", () => {
+		test("the floor backstops a bare declared ID, with the conservative outputLimitSource", () => {
 			const { infos } = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
 				1,
-				options({ entryCapabilities: { "bare-model": { _declare: true } } })
+				options({ entryDeclaredModels: ["bare-model"] })
 			);
 			const declared = infos[0];
 			assert.ok(declared !== undefined);
@@ -386,14 +387,14 @@ suite("provider/catalog/capabilityOverrides", () => {
 				new Set(),
 				SERVER,
 				2,
-				options({ entryCapabilities: { "my-model": { _declare: true } } })
+				options({ entryDeclaredModels: ["my-model"] })
 			);
 			assert.strictEqual(infos[0]?.id, "srv1/my-model");
 			assert.strictEqual(infos[0]?.name, "[Default] my-model");
 			assert.strictEqual(routes.get("srv1/my-model")?.rawModelId, "my-model");
 		});
 
-		test("an unscoped global _declare creates nothing and logs the diagnostic", () => {
+		test("a leftover global _declare directive creates nothing and stays silent", () => {
 			const logged: string[] = [];
 			const { infos } = synthesizeDeclaredModels(
 				new Set(),
@@ -406,7 +407,21 @@ suite("provider/catalog/capabilityOverrides", () => {
 				})
 			);
 			assert.deepStrictEqual(infos, []);
-			assert.deepStrictEqual(logged, ["Ignoring a modelCapabilities record problem"]);
+			assert.deepStrictEqual(logged, [], "the retired directive is an unknown underscore key, not a diagnostic");
+		});
+
+		test("a duplicated declared ID synthesizes once", () => {
+			const { infos } = synthesizeDeclaredModels(
+				new Set(),
+				new Set(),
+				SERVER,
+				1,
+				options({ entryDeclaredModels: ["twin", "twin"] })
+			);
+			assert.deepStrictEqual(
+				infos.map((info) => info.id),
+				["twin"]
+			);
 		});
 	});
 });

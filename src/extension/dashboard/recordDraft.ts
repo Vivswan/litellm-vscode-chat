@@ -12,7 +12,6 @@ import { isRecord } from "../../shared/util/json";
 import type { CapabilityFieldName, ExpectedFailureCategory, HeaderScalar } from "./protocol";
 import {
 	CAPABILITY_FIELDS,
-	DECLARE_DIRECTIVE,
 	EXPECTED_FAILURE_CATEGORIES,
 	FALLBACK_DIRECTIVE,
 	FORCE_DIRECTIVE,
@@ -410,7 +409,7 @@ export function parseCatalogIdText(text: string): string | undefined {
  * Parse capability draft groups into the modelCapabilities record, or the
  * row-aligned issues that block it. Value typing follows the resolver's
  * vocabulary (capabilityResolution's parseCapabilityRecord): number fields
- * take positive integers, boolean fields and `_declare` take true/false,
+ * take positive integers, boolean fields take true/false,
  * `_openrouter_model` takes a catalog ID, other underscore keys pass through
  * as JSON (reserved for future directives), and unknown keys get a
  * non-blocking hint - the setting keeps them, resolution diagnoses them.
@@ -422,14 +421,9 @@ export function parseCapabilityGroups(groups: readonly PrefixGroup[]): Capabilit
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
 		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
-		// The `_fallback` hints' context: the capability fields this group's own
-		// rows set, and whether its `_declare` row is on (the resolver ignores a
-		// declared record's fallback marks, so the editor says so up front).
+		// The `_fallback` hints' context: the capability fields this group's own rows set.
 		const groupFieldKeys: ReadonlySet<string> = new Set(
 			group.params.map((param) => param.key.trim()).filter(isCapabilityFieldName)
-		);
-		const groupDeclared = group.params.some(
-			(param) => param.key.trim() === DECLARE_DIRECTIVE && param.valueText.trim() === "true"
 		);
 		const prefixProblem = keyProblem(
 			group.prefix.trim(),
@@ -446,14 +440,6 @@ export function parseCapabilityGroups(groups: readonly PrefixGroup[]): Capabilit
 			);
 			if (problem !== undefined) {
 				return { problem: { field: "name", message: problem } };
-			}
-			if (key === DECLARE_DIRECTIVE) {
-				const parsed = parseBooleanText(param.valueText);
-				if (parsed === undefined) {
-					return { problem: { field: "value", message: l10n.t("Enter true or false") } };
-				}
-				fields[key] = parsed;
-				return {};
 			}
 			if (key === OPENROUTER_MODEL_DIRECTIVE) {
 				const id = parseCatalogIdText(param.valueText);
@@ -474,16 +460,8 @@ export function parseCapabilityGroups(groups: readonly PrefixGroup[]): Capabilit
 					};
 				}
 				fields[key] = parsed.value;
-				// Non-blocking hints, the resolver's diagnose-and-ignore verdicts
-				// said before the save: the setting keeps the row either way. The
-				// declare combination is per-model, and the hint says so.
-				if (groupDeclared && parsed.value !== false && (parsed.value === true || parsed.value.length > 0)) {
-					return {
-						hint: l10n.t(
-							"_fallback does nothing for the model _declare creates (no server value to fall back under); models matched by prefix keep it"
-						),
-					};
-				}
+				// A non-blocking hint, the resolver's diagnose-and-ignore verdict
+				// said before the save: the setting keeps the row either way.
 				if (Array.isArray(parsed.value)) {
 					const unknown = parsed.value.find((name) => !groupFieldKeys.has(name));
 					if (unknown !== undefined) {

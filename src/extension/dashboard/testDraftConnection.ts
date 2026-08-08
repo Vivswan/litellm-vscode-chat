@@ -19,13 +19,12 @@ import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
-import { extractDeclaredModels } from "../../shared/config/capabilityResolution";
-import { getModelCapabilitiesConfig } from "../../shared/config/settings";
 import { transportClassificationOf } from "../../shared/errorClassification";
+import type { DeclaredServer } from "../servers/serverSync";
 import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError, rawServerEntries } from "./intents";
-import type { SaveServerPayload, SecretFieldId } from "./protocol";
+import type { SecretFieldId } from "./protocol";
 import { readKeepSources, resolveKeptSecret } from "./saveServer";
 
 /**
@@ -51,7 +50,7 @@ function trimmedOptional(value: string | undefined): string | undefined {
 /**
  * A draft probe's outcome, for the success notice intents.ts composes.
  * "connected" carries the total the saved entry would register (discovered
- * plus `_declare`d models discovery does not list - inert declarations do
+ * plus declared models discovery does not list - inert declarations do
  * not double-count); "expected-failure" means discovery failed in a category
  * the draft's expectedFailures declares, so the outcome is the declared
  * models the entry would serve anyway, not a hard failure.
@@ -61,16 +60,13 @@ export type DraftProbeOutcome =
 	| { readonly kind: "expected-failure"; readonly declaredCount: number };
 
 /**
- * The models the draft's `_declare` directives create, resolved exactly like
- * registration resolves them: the draft's own capability records as the entry
- * layer (only exact entry keys can declare), the live global setting beside
- * it for its declare diagnostics.
+ * The declared model IDs the saved entry would carry: the form has no
+ * declared-list editor yet, and the save path preserves the edited entry's
+ * existing discovery.declared list verbatim (see applySaveServerSetting), so
+ * the probe reports exactly that list - empty for a brand-new draft.
  */
-function draftDeclaredModelIds(server: SaveServerPayload): readonly string[] {
-	return extractDeclaredModels({
-		globalCapabilities: getModelCapabilitiesConfig(),
-		entryCapabilities: server.modelCapabilities,
-	}).models.map((model) => model.rawId);
+function draftDeclaredModelIds(existing: DeclaredServer | undefined): readonly string[] {
+	return existing?.declaredModels ?? [];
 }
 
 /**
@@ -81,7 +77,7 @@ function draftDeclaredModelIds(server: SaveServerPayload): readonly string[] {
  * save enforces (a partial OAuth or virtual-key configuration would probe
  * unauthenticated and report a lie), and hand the assembled connection to the
  * injected probe. Resolves to the probe outcome (model counts, with the
- * draft's `_declare`d models joining the total); a terminal discovery
+ * entry's declared models joining the total); a terminal discovery
  * failure in a category the draft's expectedFailures declares resolves to
  * the expected-failure outcome instead of throwing, and every other
  * transport failure is re-thrown as a validation-kind error carrying the
@@ -174,7 +170,7 @@ export async function applyTestServerDraft(
 		// Inertness matches registration: a declared ID discovery already lists
 		// adds nothing, so only the others join the would-be-registered total.
 		const discoveredSet = new Set(discovered);
-		const declaredCount = draftDeclaredModelIds(intent.server).filter((rawId) => !discoveredSet.has(rawId)).length;
+		const declaredCount = draftDeclaredModelIds(existing).filter((rawId) => !discoveredSet.has(rawId)).length;
 		return { kind: "connected", modelCount: discovered.length + declaredCount, declaredCount };
 	} catch (error) {
 		if (error instanceof RequestError) {
@@ -183,7 +179,7 @@ export async function applyTestServerDraft(
 			// refresh contract - the declared models the entry would serve
 			// anyway, as a note instead of a hard failure.
 			if (intent.server.expectedFailures?.includes("modelListing") === true) {
-				return { kind: "expected-failure", declaredCount: draftDeclaredModelIds(intent.server).length };
+				return { kind: "expected-failure", declaredCount: draftDeclaredModelIds(existing).length };
 			}
 			// The transport's message is user-facing by the same convention as a
 			// server row's error state; validation-kind because nothing durable

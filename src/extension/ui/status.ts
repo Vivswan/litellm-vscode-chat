@@ -428,7 +428,7 @@ export class StatusBarManager {
 		const failures = serverStatuses.filter(isErrorServerStatus);
 		// Failures the entry's expectedFailures declares are excluded from the
 		// failure verdicts (they are outcomes the user called normal), and an
-		// expected failure still serving `_declare`d models counts as serving.
+		// expected failure still serving declared models counts as serving.
 		// The branch rules mirror classifyOverall exactly - red only when EVERY
 		// server failed unexpectedly, degraded on any unexpected failure - so
 		// the dashboard headline and this status bar can never disagree on a

@@ -515,10 +515,10 @@ export function registerTestCommands(
 		// extension holds, checked against shared/config/storageKeys.ts. SecretStorage
 		// has no enumeration API, so secret keys stay out of reach here.
 		vscode.commands.registerCommand("litellm._test.getStorageKeys", () => [...context.globalState.keys()]),
-		// The host-fidelity suite's entry-capabilities seam: `_declare` lives on
-		// declared server entries only (exact entry keys), and the legacy
-		// registry has no entries, so the suite injects a label-keyed record
-		// here instead of standing up the whole servers-setting sync machinery.
+		// The host-fidelity suite's entry-capabilities seam: entry capability
+		// records live on declared server entries, and the legacy registry has
+		// no entries, so the suite injects a label-keyed record here instead of
+		// standing up the whole servers-setting sync machinery.
 		vscode.commands.registerCommand(
 			"litellm._test.setEntryModelCapabilities",
 			(label: string, record: Record<string, Record<string, unknown>> | undefined) => {
@@ -528,12 +528,27 @@ export function registerTestCommands(
 					testEntryCapabilities.set(label, record);
 				}
 			}
+		),
+		// The declared-models twin: discovery.declared lives on declared server
+		// entries only, so registry-path suites inject the ID list by label.
+		vscode.commands.registerCommand(
+			"litellm._test.setEntryDeclared",
+			(label: string, declared: readonly string[] | undefined) => {
+				if (declared === undefined) {
+					testEntryDeclared.delete(label);
+				} else {
+					testEntryDeclared.set(label, [...declared]);
+				}
+			}
 		)
 	);
 }
 
 /** Test-only entry-capability records by entry label; written solely by litellm._test.setEntryModelCapabilities. */
 const testEntryCapabilities = new Map<string, Record<string, Record<string, unknown>>>();
+
+/** Test-only declared-model lists by entry label; written solely by litellm._test.setEntryDeclared. */
+const testEntryDeclared = new Map<string, readonly string[]>();
 
 /**
  * The test seam's read side, consulted by activate()'s
@@ -543,4 +558,9 @@ const testEntryCapabilities = new Map<string, Record<string, Record<string, unkn
  */
 export function testEntryModelCapabilitiesOverride(label: string): Record<string, Record<string, unknown>> | undefined {
 	return testEntryCapabilities.get(label);
+}
+
+/** The declared-models twin of testEntryModelCapabilitiesOverride; inert in production the same way. */
+export function testEntryDeclaredOverride(label: string): readonly string[] | undefined {
+	return testEntryDeclared.get(label);
 }

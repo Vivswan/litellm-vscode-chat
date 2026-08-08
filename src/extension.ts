@@ -33,6 +33,7 @@ import {
 	registerSyncModelsCommand,
 	registerTestCommands,
 	registerTestConnectionCommand,
+	testEntryDeclaredOverride,
 	testEntryModelCapabilitiesOverride,
 } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
@@ -129,13 +130,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		logger,
 		getServers: () => registry.getServersWithKeys(),
 		getEntryModelParameters: readEntryModelParameters,
-		// The test seam answers first (inert in production; see commands.ts),
-		// so the host-fidelity suite can exercise entry-level declarations on
-		// the registry path without the servers-setting sync machinery.
+		// The test seams answer first (inert in production; see commands.ts),
+		// so the host-fidelity and docker suites can exercise entry-level
+		// capability records and declared models on the registry path without
+		// the servers-setting sync machinery.
 		getEntryModelCapabilities: (label, baseUrl) =>
 			testEntryModelCapabilitiesOverride(label) ?? readEntryModelCapabilities(label, baseUrl),
 		getEntryHeaders: readEntryHeaders,
-		getEntryDeclaredModels: readEntryDeclaredModels,
+		getEntryDeclaredModels: (label, baseUrl) =>
+			testEntryDeclaredOverride(label) ?? readEntryDeclaredModels(label, baseUrl),
 		getExpectedFailures: readEntryExpectedFailures,
 		getCatalogLookup: () => catalogStore.lookup,
 		grouplessRegistryEnabled: () => REGISTRY_SERVED_IN_MODE[getManagementUiMode()],

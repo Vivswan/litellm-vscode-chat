@@ -197,7 +197,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		// The apply path rebuilds the whole entry from the intent, so a field
 		// missed anywhere in the chain is silently DELETED on save; this pins
 		// the round trip for both new fields, across an edit-in-place rebuild.
-		const capabilities = { "my-model": { _declare: true, context_length: 128000 } };
+		const capabilities = { "my-model": { context_length: 128000, supports_vision: true } };
 		const saved = await inject({
 			type: "saveServerSetting",
 			server: {
