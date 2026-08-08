@@ -111,12 +111,12 @@ suite("Host-Fidelity Tests (capture)", () => {
 		fn: () => Promise<T>
 	): Promise<T> {
 		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		const original = config.inspect<Record<string, Record<string, unknown>>>("modelParameters")?.globalValue;
-		await config.update("modelParameters", value, vscode.ConfigurationTarget.Global);
+		const original = config.inspect<Record<string, Record<string, unknown>>>("models.parameters")?.globalValue;
+		await config.update("models.parameters", value, vscode.ConfigurationTarget.Global);
 		try {
 			return await fn();
 		} finally {
-			await config.update("modelParameters", original, vscode.ConfigurationTarget.Global);
+			await config.update("models.parameters", original, vscode.ConfigurationTarget.Global);
 		}
 	}
 
@@ -889,10 +889,10 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			assert.ok(modelFromA, "Should have a model from ServerA");
 
 			const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-			const original = config.inspect<Record<string, Record<string, unknown>>>("modelParameters")?.globalValue;
+			const original = config.inspect<Record<string, Record<string, unknown>>>("models.parameters")?.globalValue;
 
 			await config.update(
-				"modelParameters",
+				"models.parameters",
 				{
 					[CAPTURE_MODEL_ID]: { temperature: 0.5 },
 					[`${baseUrlA}/${CAPTURE_MODEL_ID}`]: { temperature: 0.2 },
@@ -915,7 +915,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 					`server scoping is gone from the global record; got ${body.temperature}`
 				);
 			} finally {
-				await config.update("modelParameters", original, vscode.ConfigurationTarget.Global);
+				await config.update("models.parameters", original, vscode.ConfigurationTarget.Global);
 			}
 		});
 
@@ -928,10 +928,10 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			assert.ok(modelFromB, "Should have a model from ServerB");
 
 			const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-			const original = config.inspect<Record<string, Record<string, unknown>>>("modelParameters")?.globalValue;
+			const original = config.inspect<Record<string, Record<string, unknown>>>("models.parameters")?.globalValue;
 
 			await config.update(
-				"modelParameters",
+				"models.parameters",
 				{
 					// The prefix of the ID without the star is exact and no longer
 					// matches; the glob form does.
@@ -956,7 +956,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 					`the trailing-star glob should match where the bare prefix cannot, got ${body.temperature}`
 				);
 			} finally {
-				await config.update("modelParameters", original, vscode.ConfigurationTarget.Global);
+				await config.update("models.parameters", original, vscode.ConfigurationTarget.Global);
 			}
 		});
 	});

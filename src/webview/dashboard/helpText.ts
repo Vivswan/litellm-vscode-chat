@@ -47,12 +47,6 @@ export function helpModelParametersSection(): string {
 	);
 }
 
-export function helpCustomHeadersSection(): string {
-	return l10n.t(
-		"HTTP headers added to every request sent to LiteLLM, e.g. x-litellm-api-key for a gateway. Keep secret values in User settings, not Workspace settings."
-	);
-}
-
 /** The Add/Edit server form's help, one entry per field, keyed like serverFormFieldLabel. */
 export function serverFieldHelp(field: ServerFormField): string {
 	switch (field) {
@@ -190,41 +184,38 @@ export function helpCapsInspector(): string {
  * the list may live at module level; settingRowHelp holds the strings.
  */
 export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)[] = [
-	"defaultMaxOutputTokens",
-	"defaultMaxInputTokens",
-	"requestTimeout",
-	"discoveryTimeout",
-	"discoveryCacheTtl",
-	"promptCaching.enabled",
+	"chat.timeout",
+	"discovery.timeout",
+	"discovery.cacheTtl",
+	"usage.pollInterval",
+	"chat.promptCaching",
 ];
 
 /** Per-setting help for the ids in SETTING_ROW_HELP_IDS; undefined for rows whose description is enough. */
 export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string | undefined {
 	switch (id) {
-		case "defaultMaxOutputTokens":
-			return l10n.t(
-				"Used for models whose server declares no output limit; a request built from this default is capped at 4096 tokens."
-			);
-		case "defaultMaxInputTokens":
-			return l10n.t(
-				"Usually left empty: the input budget is then context length minus max output tokens. Setting it pins the input limit for every model, overriding even server-declared ones."
-			);
-		case "requestTimeout":
+		case "chat.timeout":
 			return l10n.t({
 				message:
 					"A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
-		case "discoveryTimeout":
+		case "discovery.timeout":
 			return l10n.t({
 				message: "A hard bound on one model-list fetch; type 30s, 1m, or plain ms.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
-		case "discoveryCacheTtl":
+		case "discovery.cacheTtl":
 			return l10n.t(
 				"How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately."
 			);
-		case "promptCaching.enabled":
+		case "usage.pollInterval":
+			return l10n.t({
+				message:
+					"How often spend and budget data refresh in the background; type 5m, 90s, or plain ms. 0 turns polling off - the dashboard and Refresh Usage Now still fetch on demand.",
+				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+			});
+		case "chat.promptCaching":
 			return l10n.t(
 				"On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns instead of re-sending the whole history at full price."
 			);

@@ -16,7 +16,7 @@ import { ensureActivated } from "../../hostApiHelpers";
 suite("extension/dashboard/panelIntegration", () => {
 	const CONFIG = "litellm-vscode-chat";
 	/** Settings this suite writes; each teardown returns them to unset. */
-	const TOUCHED_KEYS = ["defaultMaxOutputTokens", "servers"] as const;
+	const TOUCHED_KEYS = ["usage.pollInterval", "servers"] as const;
 
 	type Outcome = "ok" | "validation-error" | "ignored-malformed";
 
@@ -111,11 +111,8 @@ suite("extension/dashboard/panelIntegration", () => {
 	});
 
 	test("a setNumberSetting intent lands in real user settings via the resolved update scope", async () => {
-		assert.strictEqual(
-			await inject({ type: "setNumberSetting", setting: "defaultMaxOutputTokens", value: 4242 }),
-			"ok"
-		);
-		const inspected = vscode.workspace.getConfiguration(CONFIG).inspect<number>("defaultMaxOutputTokens");
+		assert.strictEqual(await inject({ type: "setNumberSetting", setting: "usage.pollInterval", value: 4242 }), "ok");
+		const inspected = vscode.workspace.getConfiguration(CONFIG).inspect<number>("usage.pollInterval");
 		assert.strictEqual(
 			inspected?.globalValue,
 			4242,
@@ -124,12 +121,9 @@ suite("extension/dashboard/panelIntegration", () => {
 	});
 
 	test("a resetSetting intent removes the configured value with the global fallback", async () => {
-		assert.strictEqual(
-			await inject({ type: "setNumberSetting", setting: "defaultMaxOutputTokens", value: 4242 }),
-			"ok"
-		);
-		assert.strictEqual(await inject({ type: "resetSetting", setting: "defaultMaxOutputTokens" }), "ok");
-		const inspected = vscode.workspace.getConfiguration(CONFIG).inspect<number>("defaultMaxOutputTokens");
+		assert.strictEqual(await inject({ type: "setNumberSetting", setting: "usage.pollInterval", value: 4242 }), "ok");
+		assert.strictEqual(await inject({ type: "resetSetting", setting: "usage.pollInterval" }), "ok");
+		const inspected = vscode.workspace.getConfiguration(CONFIG).inspect<number>("usage.pollInterval");
 		assert.strictEqual(inspected?.globalValue, undefined, "the dashboard claimed a reset; the value must be gone");
 	});
 
@@ -225,8 +219,8 @@ suite("extension/dashboard/panelIntegration", () => {
 				unknown
 			>;
 		};
-		assert.deepStrictEqual(entryAfter().modelCapabilities, capabilities);
-		assert.deepStrictEqual(entryAfter().expectedFailures, ["modelListing"]);
+		assert.deepStrictEqual(entryAfter().models, { capabilities });
+		assert.deepStrictEqual(entryAfter().discovery, { expectedFailures: ["modelListing"] });
 
 		// The edit-in-place rebuild: the same fields posted again must survive
 		// the whole intent -> schema -> saveServer chain, not silently vanish.
@@ -243,8 +237,8 @@ suite("extension/dashboard/panelIntegration", () => {
 			requestId: "pi-caps-2",
 		});
 		assert.strictEqual(edited, "ok");
-		assert.deepStrictEqual(entryAfter().modelCapabilities, capabilities);
-		assert.deepStrictEqual(entryAfter().expectedFailures, ["modelListing", "modelInfo"]);
+		assert.deepStrictEqual(entryAfter().models, { capabilities });
+		assert.deepStrictEqual(entryAfter().discovery, { expectedFailures: ["modelListing", "modelInfo"] });
 
 		assert.strictEqual(
 			await inject({ type: "removeServerSetting", label: "PanelIT-Caps", requestId: "pi-caps-rm" }),

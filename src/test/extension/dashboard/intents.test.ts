@@ -21,19 +21,16 @@ suite("extension/dashboard/intents", () => {
 	suite("executeDashboardIntent", () => {
 		test("setNumberSetting writes the setting key verbatim", async () => {
 			const recorded = makeEnv();
-			await executeDashboardIntent(
-				{ type: "setNumberSetting", setting: "requestTimeout", value: 120000 },
-				recorded.env
-			);
+			await executeDashboardIntent({ type: "setNumberSetting", setting: "chat.timeout", value: 120000 }, recorded.env);
 
-			assert.deepStrictEqual(recorded.updates, [["requestTimeout", 120000]]);
+			assert.deepStrictEqual(recorded.updates, [["chat.timeout", 120000]]);
 			assert.deepStrictEqual(recorded.commands, []);
 		});
 
 		test("setNumberSetting refuses values below the minimum without writing", async () => {
 			const recorded = makeEnv();
 			await assert.rejects(
-				executeDashboardIntent({ type: "setNumberSetting", setting: "requestTimeout", value: 1 }, recorded.env)
+				executeDashboardIntent({ type: "setNumberSetting", setting: "chat.timeout", value: 1 }, recorded.env)
 			);
 
 			assert.deepStrictEqual(recorded.updates, []);
@@ -42,31 +39,31 @@ suite("extension/dashboard/intents", () => {
 		test("setBooleanSetting writes the dotted key", async () => {
 			const recorded = makeEnv();
 			await executeDashboardIntent(
-				{ type: "setBooleanSetting", setting: "promptCaching.enabled", value: false },
+				{ type: "setBooleanSetting", setting: "chat.promptCaching", value: false },
 				recorded.env
 			);
 
-			assert.deepStrictEqual(recorded.updates, [["promptCaching.enabled", false]]);
+			assert.deepStrictEqual(recorded.updates, [["chat.promptCaching", false]]);
 		});
 
 		test("resetSetting removes the key through removeSetting, never a value write", async () => {
 			const recorded = makeEnv();
-			await executeDashboardIntent({ type: "resetSetting", setting: "requestTimeout" }, recorded.env);
-			await executeDashboardIntent({ type: "resetSetting", setting: "maskApiKeyInput" }, recorded.env);
+			await executeDashboardIntent({ type: "resetSetting", setting: "chat.timeout" }, recorded.env);
+			await executeDashboardIntent({ type: "resetSetting", setting: "ui.maskSecretInputs" }, recorded.env);
 
-			assert.deepStrictEqual(recorded.removals, ["requestTimeout", "maskApiKeyInput"]);
+			assert.deepStrictEqual(recorded.removals, ["chat.timeout", "ui.maskSecretInputs"]);
 			assert.deepStrictEqual(recorded.updates, []);
 			assert.deepStrictEqual(recorded.commands, []);
 		});
 
 		test("revealSetting executes the internal open-setting command with the bare key as its argument", async () => {
 			const recorded = makeEnv();
-			await executeDashboardIntent({ type: "revealSetting", setting: "requestTimeout" }, recorded.env);
-			await executeDashboardIntent({ type: "revealSetting", setting: "modelParameters" }, recorded.env);
+			await executeDashboardIntent({ type: "revealSetting", setting: "chat.timeout" }, recorded.env);
+			await executeDashboardIntent({ type: "revealSetting", setting: "models.parameters" }, recorded.env);
 
 			assert.deepStrictEqual(recorded.commands, [
-				["litellm.openSettingKey", "requestTimeout"],
-				["litellm.openSettingKey", "modelParameters"],
+				["litellm.openSettingKey", "chat.timeout"],
+				["litellm.openSettingKey", "models.parameters"],
 			]);
 			// A jump reads; it must never write or sync anything.
 			assert.deepStrictEqual(recorded.updates, []);
@@ -74,22 +71,16 @@ suite("extension/dashboard/intents", () => {
 			assert.strictEqual(recorded.syncRequests, 0);
 		});
 
-		test("setModelParameters and setHeaders write the whole record", async () => {
+		test("setModelParameters writes the whole record", async () => {
 			const recorded = makeEnv();
 			const params = { "gpt-4": { temperature: 0.2 } };
-			const headers = { "x-key": "v" };
 			await executeDashboardIntent({ type: "setModelParameters", value: params }, recorded.env);
-			await executeDashboardIntent({ type: "setHeaders", value: headers }, recorded.env);
 
-			assert.deepStrictEqual(recorded.updates, [
-				["modelParameters", params],
-				["headers", headers],
-			]);
+			assert.deepStrictEqual(recorded.updates, [["models.parameters", params]]);
 		});
 
 		test("record intents that fail validation write nothing", async () => {
 			const recorded = makeEnv();
-			await assert.rejects(executeDashboardIntent({ type: "setHeaders", value: { "bad name": "v" } }, recorded.env));
 			await assert.rejects(
 				executeDashboardIntent(
 					{
@@ -163,7 +154,11 @@ suite("extension/dashboard/intents", () => {
 		test("an edit replaces the entry in place and keep-directives carry its inline secrets over", async () => {
 			const recorded = makeEnv([
 				{ label: "A", baseUrl: "http://a.test" },
-				{ label: "Prod", baseUrl: "http://old.test", apiKey: "sk-inline", virtualKeyHeader: "x-old" },
+				{
+					label: "Prod",
+					baseUrl: "http://old.test",
+					auth: { apiKey: "sk-inline", virtualKey: { header: "x-old" } },
+				},
 				{ label: "Z", baseUrl: "http://z.test" },
 			]);
 			await save(recorded, { server: { label: "Prod", baseUrl: "http://new.test" }, replaceLabel: "Prod" });
@@ -171,12 +166,40 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.serverWrites, [
 				[
 					{ label: "A", baseUrl: "http://a.test" },
-					{ label: "Prod", baseUrl: "http://new.test", apiKey: "sk-inline" },
+					{ label: "Prod", baseUrl: "http://new.test", auth: { apiKey: "sk-inline" } },
 					{ label: "Z", baseUrl: "http://z.test" },
 				],
 			]);
 			assert.deepStrictEqual(recorded.secretCopies, [], "no rename, no copy");
 			assert.deepStrictEqual(recorded.secretDeletes, []);
+		});
+
+		test("an edit carries the entry's headers, declared models, and budget forward (no form editor yet)", async () => {
+			// The save rebuilds the whole entry from the intent, and the form has
+			// no editors for these fields yet: without the carry-forward a key
+			// rotation or URL fix would silently delete hand-written configuration.
+			const recorded = makeEnv([
+				{
+					label: "Prod",
+					baseUrl: "http://old.test",
+					headers: { "x-env": "prod" },
+					discovery: { declared: ["deepseek-r1"] },
+					budget: 50,
+				},
+			]);
+			await save(recorded, { server: { label: "Prod", baseUrl: "http://new.test" }, replaceLabel: "Prod" });
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[
+					{
+						label: "Prod",
+						baseUrl: "http://new.test",
+						headers: { "x-env": "prod" },
+						discovery: { declared: ["deepseek-r1"] },
+						budget: 50,
+					},
+				],
+			]);
 		});
 
 		test("junk sibling entries survive a save verbatim", async () => {
@@ -195,12 +218,15 @@ suite("extension/dashboard/intents", () => {
 			// describes the second entry. The save must replace THAT one; the
 			// invalid sibling survives verbatim like any junk entry, and the
 			// keep-directive carries the accepted entry's inline key.
-			const invalidSibling = { label: "Prod", apiKey: "sk-shadow" };
-			const recorded = makeEnv([invalidSibling, { label: "Prod", baseUrl: "http://old.test", apiKey: "sk-real" }]);
+			const invalidSibling = { label: "Prod", auth: { apiKey: "sk-shadow" } };
+			const recorded = makeEnv([
+				invalidSibling,
+				{ label: "Prod", baseUrl: "http://old.test", auth: { apiKey: "sk-real" } },
+			]);
 			await save(recorded, { server: { label: "Prod", baseUrl: "http://new.test" }, replaceLabel: "Prod" });
 
 			assert.deepStrictEqual(recorded.serverWrites, [
-				[invalidSibling, { label: "Prod", baseUrl: "http://new.test", apiKey: "sk-real" }],
+				[invalidSibling, { label: "Prod", baseUrl: "http://new.test", auth: { apiKey: "sk-real" } }],
 			]);
 		});
 
@@ -220,7 +246,7 @@ suite("extension/dashboard/intents", () => {
 				["Prod", "virtualKeyValue", undefined],
 			]);
 			assert.deepStrictEqual(recorded.serverWrites, [
-				[{ label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-visible" }],
+				[{ label: "Prod", baseUrl: "http://prod.test", auth: { virtualKey: { header: "x-vk", value: "vk-visible" } } }],
 			]);
 			const written = JSON.stringify(recorded.serverWrites);
 			assert.ok(!written.includes("sk-secret"), "secure values never land in the setting");
@@ -232,7 +258,7 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("clear removes the secure copy only after the write lands", async () => {
-			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-old" }]);
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-old" } }]);
 			await save(recorded, {
 				secrets: { ...KEEP_ALL, apiKey: { action: "clear" } },
 				replaceLabel: "Prod",
@@ -244,7 +270,7 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("prefill round trip: an untouched inline value survives a save unchanged, still inline", async () => {
-			const entry = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-inline" };
+			const entry = { label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-inline" } };
 			const recorded = makeEnv([entry]);
 			// The webview's edit flow end to end: prefill the draft from the
 			// entry's inline values, leave everything untouched, assemble, save.
@@ -267,7 +293,7 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("prefill round trip: an edited prefill lands the new value inline", async () => {
-			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-old" }]);
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-old" } }]);
 			const prefilled = applyInlinePrefill(
 				{
 					...EMPTY_SERVER_FORM,
@@ -283,7 +309,7 @@ suite("extension/dashboard/intents", () => {
 			await executeDashboardIntent({ type: "saveServerSetting", ...assembled, requestId: "req-rt2" }, recorded.env);
 
 			assert.deepStrictEqual(recorded.serverWrites, [
-				[{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-rotated" }],
+				[{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-rotated" } }],
 			]);
 		});
 

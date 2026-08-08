@@ -7,26 +7,22 @@
  * pin that the parse is total, that every documented intent shape is
  * admitted, that near-miss mutants (unknown keys, wrong-typed fields,
  * oversized correlation tokens) are refused, that secretDirectiveSchema
- * admits exactly its documented shapes, and that validateHeadersRecord agrees
- * with the shared header predicates it mirrors.
+ * admits exactly its documented shapes.
  */
 
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { secretDirectiveSchema, webviewMessageSchema } from "../../../extension/dashboard/intentSchema";
-import { validateHeadersRecord } from "../../../extension/dashboard/intents";
 import {
 	BOOLEAN_SETTING_IDS,
 	DASHBOARD_COMMAND_IDS,
 	EXPECTED_FAILURE_CATEGORIES,
-	type HeaderScalar,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	NUMBER_SETTING_IDS,
 	REVEALABLE_SETTING_IDS,
 	SECRET_FIELD_IDS,
 	type WebviewToExtensionMessage,
 } from "../../../extension/dashboard/protocol";
-import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../../shared/util/headers";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
@@ -37,8 +33,6 @@ const SEED = resolveFuzzSeed();
 const REQUEST_ID_MAX_LENGTH = 128;
 
 const finiteNumber = fc.double({ noNaN: true, noDefaultInfinity: true });
-
-const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, fc.string());
 
 const requestId = fc.string({ minLength: 1, maxLength: REQUEST_ID_MAX_LENGTH });
 
@@ -106,10 +100,6 @@ const validMessageArbs: Readonly<Record<WebviewToExtensionMessage["type"], fc.Ar
 	setModelParameters: fc.record({
 		type: fc.constant("setModelParameters"),
 		value: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), { maxKeys: 3 }),
-	}),
-	setHeaders: fc.record({
-		type: fc.constant("setHeaders"),
-		value: fc.dictionary(safeRecordKey, headerScalar, { maxKeys: 4 }),
 	}),
 	saveServerSetting: fc.record(
 		{
@@ -291,48 +281,6 @@ suite("extension/dashboard/state secret directive schema properties", () => {
 		fc.assert(
 			fc.property(directiveCandidate, (candidate) => {
 				assert.strictEqual(secretDirectiveSchema.safeParse(candidate).success, isLegalDirective(candidate));
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED }
-		);
-	});
-});
-
-const tokenName = fc.string({
-	unit: fc.constantFrom("a", "z", "A", "Z", "0", "9", "!", "#", "-", ".", "^", "_", "`", "|", "~"),
-	minLength: 1,
-	maxLength: 10,
-});
-
-// "constructor" and "prototype" (and "__proto__") are valid RFC 9110 tokens,
-// so the unsafe-key branch is reachable only through them.
-const headerName = fc.oneof(
-	tokenName,
-	fc.constantFrom("__proto__", "constructor", "prototype", "", "bad name", "bad:name", "na\u00efve", "x\u2603")
-);
-
-const headerRecordValue: fc.Arbitrary<HeaderScalar> = fc.oneof(
-	headerScalar,
-	fc.constantFrom("bad\nvalue", "bad\rvalue", "nul\u0000nul", "snow\u2603man", "ok\tvalue", "")
-);
-
-suite("extension/dashboard/state header record validation properties", () => {
-	test("validateHeadersRecord accepts exactly safe token names with sendable values", () => {
-		fc.assert(
-			fc.property(fc.array(fc.tuple(headerName, headerRecordValue), { maxLength: 6 }), (pairs) => {
-				// Object.fromEntries defines "__proto__" as an own data property, so
-				// the unsafe-key branch really sees it.
-				const record = Object.fromEntries(pairs) as Record<string, HeaderScalar>;
-				const verdict = validateHeadersRecord(record);
-				const hasOffender = Object.entries(record).some(
-					([name, value]) =>
-						isUnsafeRecordKey(name) || !HEADER_NAME_PATTERN.test(name) || !isValidHeaderValue(String(value))
-				);
-				if (verdict === undefined) {
-					assert.strictEqual(hasOffender, false, "an accepted record must hold only safe tokens and sendable values");
-				} else {
-					assert.strictEqual(typeof verdict, "string");
-					assert.ok(hasOffender, "a rejection must point at a real offender");
-				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);

@@ -28,7 +28,7 @@ import { DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpSettingsSection, settingRowHelp } from "./helpText";
 import { IconBraces } from "./icons";
-import { HeadersEditor, headersTitle, ModelParametersEditor, modelParametersTitle } from "./recordEditors";
+import { ModelParametersEditor, modelParametersTitle } from "./recordEditors";
 import { postMessage } from "./vscodeApi";
 
 /**
@@ -40,23 +40,21 @@ import { postMessage } from "./vscodeApi";
  */
 const SETTING_GROUPS: readonly {
 	readonly title: () => string;
-	/** A muted note under the group title, e.g. the model-defaults deprecation hint. */
+	/** A muted note under the group title. */
 	readonly hint?: () => string;
 	readonly numbers: readonly NumberSettingId[];
 	readonly booleans: readonly BooleanSettingId[];
 }[] = [
+	// The manifest's section order (Servers carries no scalar settings).
+	{ title: () => l10n.t("Models"), numbers: [], booleans: ["models.openRouterCatalog"] },
+	{ title: () => l10n.t("Chat"), numbers: ["chat.timeout"], booleans: ["chat.promptCaching"] },
 	{
-		title: () => l10n.t("Model defaults"),
-		hint: () =>
-			l10n.t(
-				'Deprecated: prefer modelCapabilities, e.g. {"gpt-4": {"context_length": 128000}} - per server in the server form, or globally in settings.json.'
-			),
-		numbers: ["defaultMaxOutputTokens", "defaultContextLength", "defaultMaxInputTokens"],
+		title: () => l10n.t("Discovery"),
+		numbers: ["discovery.timeout", "discovery.cacheTtl"],
 		booleans: [],
 	},
-	{ title: () => l10n.t("Timeouts"), numbers: ["requestTimeout", "discoveryTimeout"], booleans: [] },
-	{ title: () => l10n.t("Caching"), numbers: ["discoveryCacheTtl"], booleans: ["promptCaching.enabled"] },
-	{ title: () => l10n.t("Input"), numbers: [], booleans: ["maskApiKeyInput"] },
+	{ title: () => l10n.t("Usage"), numbers: ["usage.pollInterval"], booleans: [] },
+	{ title: () => l10n.t("UI"), numbers: [], booleans: ["ui.maskSecretInputs"] },
 ];
 
 /**
@@ -250,7 +248,6 @@ function NumberField({
 					aria-invalid={error !== undefined}
 					aria-describedby={error === undefined ? unitId : `${unitId} ${errorId}`}
 					value={text}
-					placeholder={presentation.placeholder}
 					onInput={(event) => setText(event.currentTarget.value)}
 					onBlur={settle}
 					onKeyDown={(event) => {
@@ -449,9 +446,8 @@ export function SettingsSection({
 
 	const paramsVisible =
 		needle.length === 0 || recordEditorMatches(needle, modelParametersTitle(), settings.modelParameters);
-	const headersVisible = needle.length === 0 || recordEditorMatches(needle, headersTitle(), settings.headers);
 	const anyScalarVisible = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].some(isVisible);
-	const nothingMatches = !anyScalarVisible && !paramsVisible && !headersVisible;
+	const nothingMatches = !anyScalarVisible && !paramsVisible;
 	return (
 		<section>
 			<h2>
@@ -498,7 +494,6 @@ export function SettingsSection({
 				failure={failures.setModelParameters}
 				hidden={!paramsVisible}
 			/>
-			<HeadersEditor scoped={settings.headers} failure={failures.setHeaders} hidden={!headersVisible} />
 		</section>
 	);
 }

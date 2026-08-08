@@ -89,7 +89,7 @@ function upsertSeedEntry(raw: unknown, seed: DevSeed): unknown[] {
 	const entry = {
 		label: seed.label,
 		baseUrl: seed.baseUrl,
-		...(seed.apiKey.length > 0 ? { apiKey: seed.apiKey } : {}),
+		...(seed.apiKey.length > 0 ? { auth: { apiKey: seed.apiKey } } : {}),
 	};
 	const index = entries.findIndex(
 		(candidate) => isRecord(candidate) && typeof candidate.label === "string" && candidate.label.trim() === seed.label

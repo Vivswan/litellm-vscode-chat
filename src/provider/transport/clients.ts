@@ -66,9 +66,15 @@ function fingerprintOf(config: ServerClientConfig): string {
  * auth headers (Authorization comes from the SDK's bearer auth, X-API-Key is
  * added here for gateway compatibility) and conflicting custom headers are
  * dropped. Keyless servers send no auth header at all unless the user
- * configured their own Authorization header.
+ * configured their own Authorization header. A null value means "send no such
+ * header" (the SDK omits it; plain-fetch consumers skip it). Exported as the
+ * one owner of this precedence rule: the extension-side usage client reuses
+ * it for its root-level GETs, with an explicit Bearer Authorization since no
+ * SDK adds one there.
  */
-function buildDefaultHeaders(config: ServerClientConfig): Record<string, string | null> {
+export function buildDefaultHeaders(
+	config: Pick<ServerClientConfig, "apiKey" | "userAgent" | "customHeaders">
+): Record<string, string | null> {
 	const headers: Record<string, string | null> = { ...config.customHeaders, "User-Agent": config.userAgent };
 	const hasCustomAuthorization = Object.keys(config.customHeaders).some((key) => key.toLowerCase() === "authorization");
 	if (config.apiKey) {

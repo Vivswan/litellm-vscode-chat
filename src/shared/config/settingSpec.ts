@@ -30,22 +30,23 @@ export interface BooleanSettingValueSpec {
 
 /** The number-valued litellm-vscode-chat.* settings, keyed by their setting names. */
 export const NUMBER_SETTING_SPECS = {
-	defaultMaxOutputTokens: { default: 16000, minimum: 1, nullable: false },
-	defaultContextLength: { default: 128000, minimum: 1, nullable: false },
-	defaultMaxInputTokens: { default: null, minimum: 1, nullable: true },
-	requestTimeout: { default: 300000, minimum: MIN_TIMEOUT_MS, nullable: false },
-	discoveryTimeout: { default: 30000, minimum: MIN_TIMEOUT_MS, nullable: false },
+	"chat.timeout": { default: 300000, minimum: MIN_TIMEOUT_MS, nullable: false },
+	"discovery.timeout": { default: 30000, minimum: MIN_TIMEOUT_MS, nullable: false },
 	// A zero TTL is legal: it disables serving from the discovery cache.
-	discoveryCacheTtl: { default: 3600000, minimum: 0, nullable: false },
+	"discovery.cacheTtl": { default: 3600000, minimum: 0, nullable: false },
+	// Milliseconds like the other cadence settings. Zero is legal and disables
+	// usage polling entirely (explicit refresh still works); negatives clamp
+	// to it.
+	"usage.pollInterval": { default: 300000, minimum: 0, nullable: false },
 } as const satisfies Record<string, NumberSettingValueSpec>;
 
 export type NumberSettingId = keyof typeof NUMBER_SETTING_SPECS;
 
 /** The boolean litellm-vscode-chat.* settings, keyed by their setting names. */
 export const BOOLEAN_SETTING_SPECS = {
-	"promptCaching.enabled": { default: true },
-	maskApiKeyInput: { default: true },
-	"openRouterCatalog.enabled": { default: true },
+	"chat.promptCaching": { default: true },
+	"models.openRouterCatalog": { default: true },
+	"ui.maskSecretInputs": { default: true },
 } as const satisfies Record<string, BooleanSettingValueSpec>;
 
 export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;

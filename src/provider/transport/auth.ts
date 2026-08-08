@@ -188,7 +188,7 @@ function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
 function timeoutError(tokenUrl: string, timeoutMs: number, cause?: unknown): RequestError {
 	return new RequestError(
 		l10n.t(
-			'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.discoveryTimeout" setting if your identity provider needs more time.',
+			'OAuth token request to {0} timed out after {1}ms. Increase the "{2}.discovery.timeout" setting if your identity provider needs more time.',
 			tokenUrl,
 			timeoutMs,
 			CONFIG_SECTION
@@ -197,7 +197,7 @@ function timeoutError(tokenUrl: string, timeoutMs: number, cause?: unknown): Req
 		{
 			cause,
 			// The English mirror for the output channel and the issue-report buffer; the display message localizes.
-			englishMessage: `OAuth token request to ${tokenUrl} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discoveryTimeout" setting if your identity provider needs more time.`,
+			englishMessage: `OAuth token request to ${tokenUrl} timed out after ${timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your identity provider needs more time.`,
 		}
 	);
 }

@@ -274,7 +274,7 @@ suite("shared/config parameterResolution equivalence properties", () => {
 	test("the live-configuration read feeds the resolver exactly its normalized record", async () => {
 		await fc.assert(
 			fc.asyncProperty(scenarioArb, async (s) => {
-				const viaConfig = await withConfig({ modelParameters: s.globalParameters as Record<string, unknown> }, () =>
+				const viaConfig = await withConfig({ "models.parameters": s.globalParameters as Record<string, unknown> }, () =>
 					resolveModelParameters({
 						rawModelId: s.rawModelId,
 						globalParameters: getModelParametersConfig(),

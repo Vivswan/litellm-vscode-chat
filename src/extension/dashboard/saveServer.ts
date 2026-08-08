@@ -12,7 +12,7 @@ import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
 import type { SecretFieldId } from "./protocol";
-import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "./protocol";
+import { SECRET_FIELD_IDS } from "./protocol";
 
 /**
  * How one save lands in the servers setting, computed once so the pairing
@@ -192,27 +192,30 @@ export async function applySaveServerSetting(
 		}
 	});
 
-	// The final entry's non-secret fields, needed for the pairing checks below.
-	// This rebuild is the whole entry: any payload field not copied here is
-	// silently DELETED by the save (panelIntegration pins the round trip).
-	const newEntry: Record<
-		string,
-		string | Readonly<Record<string, Readonly<Record<string, unknown>>>> | readonly string[]
-	> = {
+	// The final entry, needed for the pairing checks below. This rebuild is
+	// the whole entry: any payload field not copied here is silently DELETED
+	// by the save (panelIntegration pins the round trip). The settings shape
+	// is nested (auth/headers/models/discovery/budget); the form still edits
+	// the flat credential fields, so this is where they assemble into the
+	// entry's auth object.
+	const newEntry: Record<string, unknown> = {
 		label,
 		baseUrl: intent.server.baseUrl.trim(),
 	};
-	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
-		const value = intent.server[field]?.trim();
-		if (value !== undefined && value.length > 0) {
-			newEntry[field] = value;
-		}
-	}
+	const usable = (value: string | undefined): string | undefined => {
+		const trimmed = value?.trim();
+		return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
+	};
+	const oauthTokenUrl = usable(intent.server.oauthTokenUrl);
+	const oauthClientId = usable(intent.server.oauthClientId);
+	const oauthScopes = usable(intent.server.oauthScopes);
+	const virtualKeyHeader = usable(intent.server.virtualKeyHeader);
 	// An empty record reads as absent everywhere (the parser omits it), so it
 	// is not written either; the saved entry stays as clean as a hand-written
 	// one.
+	const models: Record<string, unknown> = {};
 	if (intent.server.modelParameters !== undefined && Object.keys(intent.server.modelParameters).length > 0) {
-		newEntry.modelParameters = intent.server.modelParameters;
+		models.parameters = intent.server.modelParameters;
 	}
 	// For these two the form always sends the field, so absent means the
 	// payload predates the editor: carry the stored values instead of
@@ -220,33 +223,92 @@ export async function applySaveServerSetting(
 	// deliberate clear and writes nothing, like the records above.
 	const capabilities = intent.server.modelCapabilities ?? existing?.modelCapabilities;
 	if (capabilities !== undefined && Object.keys(capabilities).length > 0) {
-		newEntry.modelCapabilities = capabilities;
+		models.capabilities = capabilities;
 	}
+	if (Object.keys(models).length > 0) {
+		newEntry.models = models;
+	}
+	const discovery: Record<string, unknown> = {};
 	const expectedFailures = intent.server.expectedFailures ?? existing?.expectedFailures;
 	if (expectedFailures !== undefined && expectedFailures.length > 0) {
-		newEntry.expectedFailures = expectedFailures;
+		discovery.expectedFailures = expectedFailures;
+	}
+	// The form does not edit these yet, so every save carries the stored
+	// values: without this the whole-entry rebuild above would silently
+	// delete hand-written configuration on any unrelated edit.
+	if (existing?.declaredModels !== undefined && existing.declaredModels.length > 0) {
+		discovery.declared = existing.declaredModels;
+	}
+	if (Object.keys(discovery).length > 0) {
+		newEntry.discovery = discovery;
+	}
+	if (existing?.headers !== undefined && Object.keys(existing.headers).length > 0) {
+		newEntry.headers = existing.headers;
+	}
+	if (existing?.budget !== undefined) {
+		newEntry.budget = existing.budget;
 	}
 
 	// OAuth is one unit, mirroring serverForm's exact rules: the request path
 	// drops partial configurations silently, so anything OAuth-shaped (a token
 	// URL, a client ID, scopes, or a client secret that would resolve) requires
 	// the token URL and client ID pair.
-	const oauthExtras = planResolves(plans.oauthClientSecret) || newEntry.oauthScopes !== undefined;
-	if ((newEntry.oauthClientId !== undefined || oauthExtras) && newEntry.oauthTokenUrl === undefined) {
+	const oauthExtras = planResolves(plans.oauthClientSecret) || oauthScopes !== undefined;
+	if ((oauthClientId !== undefined || oauthExtras) && oauthTokenUrl === undefined) {
 		throw new DashboardValidationError(`oauthTokenUrl: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
 	}
-	if ((newEntry.oauthTokenUrl !== undefined || oauthExtras) && newEntry.oauthClientId === undefined) {
+	if ((oauthTokenUrl !== undefined || oauthExtras) && oauthClientId === undefined) {
 		throw new DashboardValidationError(`oauthClientId: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 
 	// The virtual key pair is both-or-neither, like the form enforces.
 	const virtualKeyResolves = planResolves(plans.virtualKeyValue);
-	if (newEntry.virtualKeyHeader !== undefined && !virtualKeyResolves) {
+	if (virtualKeyHeader !== undefined && !virtualKeyResolves) {
 		throw new DashboardValidationError(`virtualKeyValue: ${vscode.l10n.t("enter the key sent in this header")}`);
 	}
-	if (newEntry.virtualKeyHeader === undefined && virtualKeyResolves) {
+	if (virtualKeyHeader === undefined && virtualKeyResolves) {
 		throw new DashboardValidationError(`virtualKeyHeader: ${vscode.l10n.t("name the header that carries the key")}`);
 	}
+
+	/**
+	 * Assemble the entry's auth object from the flat fields once the plans'
+	 * inline values are known. Inline values are written into the nested
+	 * shape; values resting in secret storage stay omitted (the parser's
+	 * stored-slot resolution finds them at sync time). With oauth configured
+	 * the other credentials nest inside it as companions; without it an
+	 * apiKey and a virtualKey are the apiKey form and its sibling companion
+	 * (forms rank oauth > apiKey > virtualKey).
+	 */
+	const applyAuth = (inline: Partial<Record<SecretFieldId, string>>): void => {
+		const virtualKey: Record<string, string> | undefined =
+			virtualKeyHeader !== undefined
+				? {
+						header: virtualKeyHeader,
+						...(inline.virtualKeyValue !== undefined ? { value: inline.virtualKeyValue } : {}),
+					}
+				: undefined;
+		const auth: Record<string, unknown> = {};
+		if (oauthTokenUrl !== undefined && oauthClientId !== undefined) {
+			auth.oauth = {
+				tokenUrl: oauthTokenUrl,
+				clientId: oauthClientId,
+				...(inline.oauthClientSecret !== undefined ? { clientSecret: inline.oauthClientSecret } : {}),
+				...(oauthScopes !== undefined ? { scopes: oauthScopes } : {}),
+				...(inline.apiKey !== undefined ? { apiKey: inline.apiKey } : {}),
+				...(virtualKey !== undefined ? { virtualKey } : {}),
+			};
+		} else {
+			if (inline.apiKey !== undefined) {
+				auth.apiKey = inline.apiKey;
+			}
+			if (virtualKey !== undefined) {
+				auth.virtualKey = virtualKey;
+			}
+		}
+		if (Object.keys(auth).length > 0) {
+			newEntry.auth = auth;
+		}
+	};
 
 	// Phases 1 and 2 as one guarded unit: the additive secret operations (a
 	// rename's blob copy, set-secure writes), then the settings write
@@ -257,12 +319,13 @@ export async function applySaveServerSetting(
 		if (mode.kind === "rename") {
 			await env.copyServerSecrets(mode.oldLabel, label);
 		}
+		const inlineValues: { -readonly [K in SecretFieldId]?: string } = {};
 		for (const field of SECRET_FIELD_IDS) {
 			const plan = plans[field];
 			switch (plan.kind) {
 				case "set-inline":
 				case "kept-inline":
-					newEntry[field] = plan.value;
+					inlineValues[field] = plan.value;
 					break;
 				case "set-secure":
 					overwritten.set(field, storedNew[field]);
@@ -274,6 +337,7 @@ export async function applySaveServerSetting(
 					break;
 			}
 		}
+		applyAuth(inlineValues);
 		const next = [...entries];
 		if (mode.kind === "create") {
 			next.push(newEntry);

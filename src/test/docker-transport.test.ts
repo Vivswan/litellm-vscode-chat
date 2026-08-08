@@ -118,12 +118,12 @@ function transportSuite(title: string, directMode: boolean, serverUrl: string, s
 				// whole-call bound that makes the failure observable, so the test
 				// lowers it for this one request and pins the classified timeout.
 				const configuration = vscode.workspace.getConfiguration("litellm-vscode-chat");
-				await configuration.update("requestTimeout", 10000, vscode.ConfigurationTarget.Global);
+				await configuration.update("chat.timeout", 10000, vscode.ConfigurationTarget.Global);
 				let outcome: StreamOutcome;
 				try {
 					outcome = await runToOutcome(model, `${COMMAND_SIGIL}abort:3`);
 				} finally {
-					await configuration.update("requestTimeout", undefined, vscode.ConfigurationTarget.Global);
+					await configuration.update("chat.timeout", undefined, vscode.ConfigurationTarget.Global);
 				}
 				assert.ok(outcome.error !== undefined, "the hung stream must surface the whole-call timeout");
 				assert.ok(outcome.elapsedMs < 30000, `the timeout must bound the hang, took ${outcome.elapsedMs}ms`);
@@ -452,17 +452,17 @@ function errorMappingSuite(title: string, directMode: boolean, serverUrl: string
 			let priorTimeout: unknown;
 
 			suiteSetup(async () => {
-				priorTimeout = vscode.workspace.getConfiguration(CONFIG_SECTION).inspect("requestTimeout")?.globalValue;
+				priorTimeout = vscode.workspace.getConfiguration(CONFIG_SECTION).inspect("chat.timeout")?.globalValue;
 				await vscode.workspace
 					.getConfiguration(CONFIG_SECTION)
-					.update("requestTimeout", 3000, vscode.ConfigurationTarget.Global);
+					.update("chat.timeout", 3000, vscode.ConfigurationTarget.Global);
 			});
 
 			// Runs even when a test fails, so the 3s bound never leaks into later suites.
 			suiteTeardown(async () => {
 				await vscode.workspace
 					.getConfiguration(CONFIG_SECTION)
-					.update("requestTimeout", priorTimeout, vscode.ConfigurationTarget.Global);
+					.update("chat.timeout", priorTimeout, vscode.ConfigurationTarget.Global);
 			});
 
 			test(`${COMMAND_SIGIL}delay:15000 fails at the 3000ms bound, not when the delay elapses`, async function () {

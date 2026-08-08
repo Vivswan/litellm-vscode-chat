@@ -69,7 +69,7 @@ export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 			{ kind: "declare-server", label: "s1", credential: "inline" },
 			{ kind: "remove-server", label: "s1" },
 			{ kind: "chat", verb: "echo", a: 60891, b: 694, pick: 187 },
-			{ kind: "set-headers", valid: true, serial: 11 },
+			{ kind: "set-model-parameters", valid: true, serial: 11 },
 			{ kind: "set-model-parameters", valid: true, serial: 12 },
 		],
 	},
