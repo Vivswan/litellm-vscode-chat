@@ -5,7 +5,7 @@ import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { NO_DISCOVERY_PREFIX } from "./fakeStack/noDiscovery";
 import type { FuzzEvent } from "./fuzzCorpus";
 import { FUZZ_CORPUS } from "./fuzzCorpus";
-import { fuzzShardSalt, logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
+import { logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import { assemble, chunkOf, generateEvents, mulberry32 } from "./fuzzStream";
 import {
 	addServer,
@@ -52,9 +52,8 @@ const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MAS
 // double slash.
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
 // Explicit seeds reproduce exactly, including 0; anything unset or invalid
-// draws a fresh seed, shard-salted so parallel CI shards diverge even when
-// they start in the same instant (see src/test/fuzzSeed.ts).
-const SEED = resolveDockerFuzzSeed(fuzzShardSalt());
+// draws a fresh pid- and time-mixed seed (see src/test/fuzzSeed.ts).
+const SEED = resolveDockerFuzzSeed();
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.FUZZ_ITERATIONS)) || 10);
 const MAX_SHRINK_RUNS = 32;
 

@@ -73,4 +73,27 @@ export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 			{ kind: "set-model-parameters", valid: true, serial: 12 },
 		],
 	},
+	{
+		// FUZZ_SEED=250710 walk 1, shrunk: the first walk over the widened
+		// action space (entry discovery blocks) caught the oracle claiming an
+		// entry-declared model must keep serving after a redeclare. It must
+		// not: the mutated base URL stops identifying the live group, so the
+		// entry's per-entry configuration - declared models included - no
+		// longer reaches it, exactly like per-entry parameters going
+		// inactive. The oracle now expects the declared model to LEAVE on a
+		// redeclare and only asserts presence while entry and group still
+		// match on label and base URL; this trace replays the sequence.
+		name: "redeclare-detaches-entry-declared-model",
+		actions: [
+			{
+				kind: "declare-server",
+				label: "s1",
+				credential: "inline-with-companion",
+				extras: { declared: true, expectedFailures: true },
+			},
+			{ kind: "redeclare-server", label: "s1" },
+			{ kind: "chat", verb: "think", a: 5, b: 0, pick: 671 },
+			{ kind: "set-secret", label: "s1", field: "apiKey", serial: 6 },
+		],
+	},
 ];

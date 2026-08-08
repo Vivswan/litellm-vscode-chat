@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { SERVERS_SETTING_KEY } from "../shared/config/settings";
 import { STACK_DEFAULTS } from "./envFile";
-import { fuzzShardSalt, logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
+import { logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import { mulberry32 } from "./fuzzStream";
 import { ensureActivated } from "./hostApiHelpers";
 import { MONKEY_CORPUS } from "./monkeyCorpus";
@@ -33,11 +33,9 @@ const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
-// Shard-salted like the stream fuzzer: scheduled nightly shards draw
-// diverging fresh seeds instead of duplicating coverage; an explicit
-// FUZZ_SEED reproduces exactly regardless of shard (the salt never touches
-// it - see src/test/fuzzSeed.ts).
-const SEED = resolveDockerFuzzSeed(fuzzShardSalt());
+// An explicit FUZZ_SEED reproduces exactly; otherwise a fresh pid- and
+// time-mixed seed is drawn (see src/test/fuzzSeed.ts).
+const SEED = resolveDockerFuzzSeed();
 const WALKS = Math.max(1, Math.floor(Number(process.env.MONKEY_ITERATIONS)) || 5);
 const MIN_STEPS = 12;
 const MAX_STEPS = 20;
