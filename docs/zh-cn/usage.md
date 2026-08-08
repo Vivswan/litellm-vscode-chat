@@ -27,7 +27,7 @@
 要检查服务器支持什么, 问它扩展问的同一个问题:
 
 ```bash
-curl -s -H "Authorization: Bearer sk-your-key" https://litellm.example.com/key/info
+curl -s -H "Authorization: Bearer $YOUR_LITELLM_KEY" https://litellm.example.com/key/info
 ```
 
 有数据库支撑的服务器回答带 `spend` 和 `max_budget` 字段的 JSON; 没有数据库的服务器回答错误, 因为没有数据库时该路由不提供。如果 curl 成功但扩展什么都不显示, 检查条目的密钥是不是你测试用的那把 - 数据是按密钥的。而且那是密钥在服务器侧的总数: 通过那把密钥消费的每个客户端都计入其中, 不只是 VS Code。
