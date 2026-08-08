@@ -11,12 +11,7 @@ import type {
 import { CancellationError, EventEmitter } from "vscode";
 import type { CapabilityCatalogLookup, ModelCapabilitiesRecord } from "../shared/config/capabilityResolution";
 import { EMPTY_CATALOG_LOOKUP } from "../shared/config/capabilityResolution";
-import {
-	getCapabilityTokenDefaults,
-	getDiscoveryCacheTtl,
-	getModelCapabilitiesConfig,
-	getTokenDefaults,
-} from "../shared/config/settings";
+import { getDiscoveryCacheTtl, getModelCapabilitiesConfig } from "../shared/config/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import type { Logger, LogSafeErrorText } from "../shared/logger";
@@ -113,6 +108,7 @@ export interface LiteLLMChatModelProviderOptions {
 	 * suppressed.
 	 */
 	isGroupSuppressed?: ((label: string, baseUrl: string) => boolean) | undefined;
+	/** Cache seam for tests (fake TTL clock); the provider owns a real one by default. */
 	discoveryCache?: DiscoveryCache<DiscoveredGroupModels> | undefined;
 	/** The status window's only clock seam; tests inject a fake. The default reads Date.now at call time. */
 	now?: (() => number) | undefined;
@@ -237,7 +233,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			entryCapabilities:
 				entryLabel !== undefined ? this._getEntryModelCapabilities(entryLabel, server.baseUrl) : undefined,
 			catalog: this._getCatalogLookup(),
-			tokenDefaults: getCapabilityTokenDefaults(),
 			log: (message, data) => this.log(message, data),
 		};
 	}
@@ -389,11 +384,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
 		this.pruneServerCaches([...servers.map((s) => s.id), ...this._statusWindow.groupClientIds()]);
 
-		// One defaults snapshot for the whole sweep: discovery's deployment
-		// merging and registration below must derive constraints from the same
-		// values even if the settings change while servers are being fetched.
-		const tokenDefaults = getTokenDefaults();
-
 		// Each server's discovery outcome is tagged with its server inside the
 		// map, so the loop below never has to re-pair results with servers by
 		// index. A rejection is caught in place; nothing else here can throw.
@@ -402,7 +392,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				try {
 					const result = await this._client.fetchModels(
 						server,
-						tokenDefaults,
 						this.expectedDiscoveryFailures(server.label, server.baseUrl)
 					);
 					return { server, outcome: { ok: true as const, models: result.models } };
@@ -485,7 +474,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			const { models } = outcome;
 			this.log(`Server "${server.label}" returned ${models.length} models`);
 
-			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg), tokenDefaults);
+			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg));
 			const discoveredRawIds = models.map((model) => model.id);
 			const { overridden, declared } = this.decorateServedModels(
 				{ infos: reg.infos, discoveredRawIds },
@@ -668,11 +657,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
 		try {
 			const discovered = await this._discoveryCache.fetch(server.id, async () => {
-				// One defaults snapshot for this group's refresh; see the sweep above.
-				const tokenDefaults = getTokenDefaults();
-				const { models } = await this._client.fetchModels(server, tokenDefaults, expectedFailures);
+				const { models } = await this._client.fetchModels(server, expectedFailures);
 				return {
-					infos: buildModelInfos(models, server, 1, (msg) => this.log(msg), tokenDefaults).infos,
+					infos: buildModelInfos(models, server, 1, (msg) => this.log(msg)).infos,
 					discoveredRawIds: models.map((model) => model.id),
 				};
 			});

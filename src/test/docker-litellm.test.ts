@@ -653,7 +653,7 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(
 				body.max_tokens,
 				4096,
-				"no declared max output means the defaultMaxOutputTokens-derived min(4096, ...) cap applies"
+				"no declared max output means the floor-derived min(4096, ...) cap applies"
 			);
 		});
 	});

@@ -5,7 +5,6 @@ import {
 	getDiscoveryTimeout,
 	getRequestTimeout,
 	isPromptCachingEnabled,
-	type TokenDefaults,
 } from "../../shared/config/settings";
 import { convertMessages } from "../../shared/conversion/messages";
 import { applyPromptCacheBreakpoints } from "../../shared/conversion/promptCache";
@@ -129,12 +128,8 @@ export class ChatClient {
 		this.clients.prune(serverIds);
 	}
 
-	/** `tokenDefaults` is the caller's per-refresh snapshot and `expected` the entry's declarations; see FetchModelsRequest. */
-	async fetchModels(
-		server: ServerConnection,
-		tokenDefaults: TokenDefaults,
-		expected?: ExpectedDiscoveryFailures
-	): Promise<FetchModelsResult> {
+	/** `expected` carries the entry's expected-failure declarations; see FetchModelsRequest. */
+	async fetchModels(server: ServerConnection, expected?: ExpectedDiscoveryFailures): Promise<FetchModelsResult> {
 		this.log("fetchModels called", { baseUrl: server.baseUrl, hasApiKey: !!server.apiKey, hasOAuth: !!server.oauth });
 		const customHeaders = getCustomHeaders(this.log);
 		const discoveryTimeout = getDiscoveryTimeout(this.log);
@@ -151,7 +146,6 @@ export class ChatClient {
 				client,
 				baseUrl: server.baseUrl,
 				discoveryTimeout,
-				tokenDefaults,
 				log: this.log,
 				...(expected !== undefined ? { expected } : {}),
 				...(headers !== undefined ? { headers } : {}),

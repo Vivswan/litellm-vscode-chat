@@ -14,7 +14,7 @@
 import type {
 	CapabilityCatalogLookup,
 	CapabilityDiagnostic,
-	CapabilityTokenDefaults,
+	CapabilityLevel,
 	CatalogPricing,
 	EffectiveCapabilities,
 	ModelCapabilitiesRecord,
@@ -36,10 +36,28 @@ export interface CapabilityOverrideOptions {
 	/** The matched declared entry's own capability records, when the served server has one. */
 	readonly entryCapabilities?: ModelCapabilitiesRecord | undefined;
 	readonly catalog: CapabilityCatalogLookup;
-	readonly tokenDefaults: CapabilityTokenDefaults;
 	/** Classification-only logging (record keys and field names are user configuration, never response text). */
 	readonly log: (message: string, data?: unknown) => void;
 }
+
+/**
+ * Whether a field resolved at this level means user configuration or the
+ * catalog decided it, so the entry must rebuild instead of taking the
+ * identity fast path. Total over CapabilityLevel on purpose: a level added
+ * to the walk fails compilation here instead of silently skipping rebuilds
+ * (the shipped fast-path staleness when the fallback levels arrived).
+ */
+const LEVEL_TRIGGERS_REBUILD: Readonly<Record<CapabilityLevel, boolean>> = {
+	entry: true,
+	global: true,
+	directive: true,
+	server: false,
+	"entry-fallback": true,
+	"global-fallback": true,
+	catalog: true,
+	derived: false,
+	floor: false,
+};
 
 /**
  * One warning per distinct record problem per pass, so a record shared by
@@ -170,18 +188,13 @@ export function applyCapabilityOverrides(
 			entryCapabilities: opts.entryCapabilities,
 			catalog: opts.catalog,
 			serverDeclared: info.litellm.serverDeclared,
-			tokenDefaults: opts.tokenDefaults,
 		});
 		logDiagnostics(effective.diagnostics);
 		const fields = effective.fields;
-		const fromConfig = Object.values(fields).some(
-			(field) => field.level === "entry" || field.level === "global" || field.level === "directive"
-		);
-		const fromCatalog = Object.values(fields).some((field) => field.level === "catalog");
+		const needsRebuild = Object.values(fields).some((field) => LEVEL_TRIGGERS_REBUILD[field.level]);
 		const pricingPatch = hasServerPricing(info) ? undefined : catalogPricingFields(effective, opts.catalog, rawModelId);
 		if (
-			!fromConfig &&
-			!fromCatalog &&
+			!needsRebuild &&
 			effective.directive === undefined &&
 			pricingPatch === undefined &&
 			info.litellm.catalogPricing !== true &&
@@ -279,7 +292,6 @@ export function synthesizeDeclaredModels(
 			entryCapabilities: opts.entryCapabilities,
 			catalog: opts.catalog,
 			serverDeclared: { kind: "declared" },
-			tokenDefaults: opts.tokenDefaults,
 		});
 		// Field problems in a `_declare`d record usually have no discovered
 		// model to surface through, so this resolve is their one log seam.

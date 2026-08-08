@@ -36,7 +36,6 @@ import {
 	resolveModelCapabilities,
 } from "../../../shared/config/capabilityResolution";
 import { resolveMaxTokens } from "../../../shared/config/parameterResolution";
-import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 
 /** A catalog over literal entries: exact IDs and unambiguous post-vendor suffixes answer found. */
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
@@ -60,12 +59,6 @@ function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): C
 	};
 }
 
-const UNCONFIGURED_DEFAULTS = {
-	contextLength: { value: CAPABILITY_FLOOR.context_length, explicitlyConfigured: false },
-	maxOutputTokens: { value: CAPABILITY_FLOOR.max_output_tokens, explicitlyConfigured: false },
-	maxInputTokens: undefined,
-} as const;
-
 function resolve(partial: Partial<ResolveModelCapabilitiesInput>): EffectiveCapabilities {
 	return resolveModelCapabilities({
 		rawModelId: "gpt-4",
@@ -73,7 +66,6 @@ function resolve(partial: Partial<ResolveModelCapabilitiesInput>): EffectiveCapa
 		serverScopes: [],
 		catalog: EMPTY_CATALOG_LOOKUP,
 		serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
-		tokenDefaults: UNCONFIGURED_DEFAULTS,
 		...partial,
 	});
 }
@@ -543,7 +535,6 @@ suite("shared/config capabilityResolution resolveModelCapabilities", () => {
 			entryCapabilities: { "gpt-4": { context_length: 10000 } },
 			catalog,
 			serverDeclared: { kind: "discovered", values: { context_length: 50000 }, outputDeclared: false },
-			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, contextLength: { value: 60000, explicitlyConfigured: true } },
 		});
 		assert.deepStrictEqual(effective.fields.context_length, {
 			value: 10000,
@@ -553,28 +544,19 @@ suite("shared/config capabilityResolution resolveModelCapabilities", () => {
 				{ level: "global", key: "gpt-4", value: 20000 },
 				{ level: "directive", key: "vendorx/alpha", value: 30000 },
 				{ level: "server", value: 50000 },
-				{ level: "default-setting", value: 60000 },
 				{ level: "catalog", key: "vendorx/gpt-4", value: 40000 },
 			] satisfies ShadowedCapabilityValue[],
 		} satisfies EffectiveCapabilityField<number>);
 	});
 
-	test("peeling the top levels away hands the walk down: server, then default-setting, then catalog, then floor", () => {
+	test("peeling the top levels away hands the walk down: server, then catalog, then floor", () => {
 		const catalog = makeCatalog({ "vendorx/gpt-4": { context_length: 40000 } });
 		const withServer = resolve({
 			catalog,
 			serverDeclared: { kind: "discovered", values: { context_length: 50000 }, outputDeclared: false },
-			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, contextLength: { value: 60000, explicitlyConfigured: true } },
 		});
 		assert.strictEqual(withServer.fields.context_length.value, 50000);
 		assert.strictEqual(withServer.fields.context_length.level, "server");
-
-		const withDefault = resolve({
-			catalog,
-			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, contextLength: { value: 60000, explicitlyConfigured: true } },
-		});
-		assert.strictEqual(withDefault.fields.context_length.value, 60000);
-		assert.strictEqual(withDefault.fields.context_length.level, "default-setting");
 
 		const withCatalog = resolve({ catalog });
 		assert.strictEqual(withCatalog.fields.context_length.value, 40000);
@@ -583,32 +565,6 @@ suite("shared/config capabilityResolution resolveModelCapabilities", () => {
 		const floor = resolve({});
 		assert.strictEqual(floor.fields.context_length.value, CAPABILITY_FLOOR.context_length);
 		assert.strictEqual(floor.fields.context_length.level, "floor");
-	});
-
-	test("an untouched default* setting never joins the walk; only explicit configuration does", () => {
-		const catalog = makeCatalog({ "vendorx/gpt-4": { context_length: 40000 } });
-		const effective = resolve({ catalog });
-		assert.strictEqual(effective.fields.context_length.level, "catalog", "the built-in default must not beat a match");
-	});
-
-	test("defaultMaxInputTokens keeps its quirk: above the server value, below the overrides", () => {
-		const overServer = resolve({
-			serverDeclared: { kind: "discovered", values: { max_input_tokens: 90000 }, outputDeclared: false },
-			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, maxInputTokens: 70000 },
-		});
-		assert.deepStrictEqual(overServer.fields.max_input_tokens, {
-			value: 70000,
-			level: "default-setting",
-			shadowed: [{ level: "server", value: 90000 }],
-		});
-
-		const underEntry = resolve({
-			entryCapabilities: { "gpt-4": { max_input_tokens: 80000 } },
-			serverDeclared: { kind: "discovered", values: { max_input_tokens: 90000 }, outputDeclared: false },
-			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, maxInputTokens: 70000 },
-		});
-		assert.strictEqual(underEntry.fields.max_input_tokens.value, 80000);
-		assert.strictEqual(underEntry.fields.max_input_tokens.level, "entry");
 	});
 
 	test("the empty input resolves totally: floors everywhere and a derived max input", () => {
@@ -750,20 +706,16 @@ suite("shared/config capabilityResolution _fallback resolution", () => {
 		assert.strictEqual(withoutServer.fields.context_length.level, "entry-fallback");
 	});
 
-	test("fallbacks sit above the default-setting level and the implicit catalog", () => {
+	test("fallbacks sit above the implicit catalog", () => {
 		const effective = resolve({
 			globalCapabilities: { "gpt-4": { context_length: 20000, _fallback: true } },
 			catalog: makeCatalog({ "vendorx/gpt-4": { context_length: 40000 } }),
-			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, contextLength: { value: 60000, explicitlyConfigured: true } },
 		});
 		assert.deepStrictEqual(effective.fields.context_length, {
 			value: 20000,
 			level: "global-fallback",
 			key: "gpt-4",
-			shadowed: [
-				{ level: "default-setting", value: 60000 },
-				{ level: "catalog", key: "vendorx/gpt-4", value: 40000 },
-			],
+			shadowed: [{ level: "catalog", key: "vendorx/gpt-4", value: 40000 }],
 		});
 	});
 
@@ -798,19 +750,15 @@ suite("shared/config capabilityResolution _fallback resolution", () => {
 		assert.strictEqual(value, 32000);
 	});
 
-	test("the defaultMaxInputTokens quirk stays above the server value; fallbacks stay below it", () => {
+	test("a max_input_tokens fallback stays below the server's declared input limit", () => {
 		const effective = resolve({
 			globalCapabilities: { "gpt-4": { max_input_tokens: 40000, _fallback: true } },
 			serverDeclared: { kind: "discovered", values: { max_input_tokens: 90000 }, outputDeclared: false },
-			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, maxInputTokens: 70000 },
 		});
 		assert.deepStrictEqual(effective.fields.max_input_tokens, {
-			value: 70000,
-			level: "default-setting",
-			shadowed: [
-				{ level: "server", value: 90000 },
-				{ level: "global-fallback", key: "gpt-4", value: 40000 },
-			],
+			value: 90000,
+			level: "server",
+			shadowed: [{ level: "global-fallback", key: "gpt-4", value: 40000 }],
 		});
 	});
 
@@ -826,7 +774,6 @@ suite("shared/config capabilityResolution _fallback resolution", () => {
 			entryCapabilities: { "gpt-4": { context_length: 10000 } },
 			catalog,
 			serverDeclared: { kind: "discovered", values: { context_length: 50000 }, outputDeclared: false },
-			tokenDefaults: { ...UNCONFIGURED_DEFAULTS, contextLength: { value: 60000, explicitlyConfigured: true } },
 		});
 		assert.deepStrictEqual(effective.fields.context_length, {
 			value: 10000,
@@ -836,7 +783,6 @@ suite("shared/config capabilityResolution _fallback resolution", () => {
 				{ level: "directive", key: "vendorx/alpha", value: 30000 },
 				{ level: "server", value: 50000 },
 				{ level: "global-fallback", key: "gpt-4", value: 20000 },
-				{ level: "default-setting", value: 60000 },
 				{ level: "catalog", key: "vendorx/gpt-4", value: 40000 },
 			] satisfies ShadowedCapabilityValue[],
 		} satisfies EffectiveCapabilityField<number>);
@@ -932,30 +878,11 @@ suite("shared/config capabilityResolution _fallback resolution", () => {
 	});
 });
 
-suite("shared/config capabilityResolution optional token defaults and floor constants", () => {
-	test("omitting tokenDefaults skips the default-setting level and nothing else", () => {
-		const input = {
-			rawModelId: "gpt-4",
-			globalCapabilities: {},
-			serverScopes: [],
-			catalog: makeCatalog({ "vendorx/gpt-4": { context_length: 40000 } }),
-			serverDeclared: { kind: "discovered", values: {}, outputDeclared: false } as const,
-		};
-		const omitted = resolveModelCapabilities(input);
-		const unconfigured = resolveModelCapabilities({ ...input, tokenDefaults: UNCONFIGURED_DEFAULTS });
-		assert.deepStrictEqual(omitted.fields, unconfigured.fields);
-		assert.strictEqual(omitted.fields.context_length.level, "catalog");
-	});
-
+suite("shared/config capabilityResolution floor constants", () => {
 	test("the floor constants are the literals the walk floors to", () => {
 		assert.strictEqual(FLOOR_CONTEXT_LENGTH, 128000);
 		assert.strictEqual(FLOOR_MAX_OUTPUT_TOKENS, 16000);
 		assert.strictEqual(CAPABILITY_FLOOR.context_length, FLOOR_CONTEXT_LENGTH);
 		assert.strictEqual(CAPABILITY_FLOOR.max_output_tokens, FLOOR_MAX_OUTPUT_TOKENS);
-		// Until the deprecated default* settings are removed, their built-in
-		// defaults must mirror the literals - two sources of the same number
-		// must not drift while both exist.
-		assert.strictEqual(NUMBER_SETTING_SPECS.defaultContextLength.default, FLOOR_CONTEXT_LENGTH);
-		assert.strictEqual(NUMBER_SETTING_SPECS.defaultMaxOutputTokens.default, FLOOR_MAX_OUTPUT_TOKENS);
 	});
 });

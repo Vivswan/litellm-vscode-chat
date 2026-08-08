@@ -34,8 +34,7 @@ suite("provider/catalog/schemas", () => {
 				],
 				{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
 				1,
-				() => {},
-				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+				() => {}
 			);
 			assert.deepStrictEqual(
 				infos.map((i) => i.id),

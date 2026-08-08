@@ -1645,22 +1645,6 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(capabilities.outputLimitSource, "provider");
 		});
 
-		test("an explicitly configured default* setting resolves at the default-setting level", () => {
-			const capabilities = resolveDashboardModelCapabilities(
-				{
-					snapshots,
-					reader: makeReader({ defaultContextLength: 55000 }),
-					resolveEntryCapabilities: () => undefined,
-					catalog: EMPTY_CATALOG_LOOKUP,
-				},
-				modelScopeKey("g1"),
-				"gpt-4"
-			);
-			assert.ok(capabilities !== undefined);
-			assert.strictEqual(capabilities.fields.context_length.value, 55000);
-			assert.strictEqual(capabilities.fields.context_length.level, "default-setting");
-		});
-
 		test("a claimed snapshot whose entry label differs from the group's still resolves its models", () => {
 			// The population the entry-capabilities-inactive notice exists for:
 			// entry "Prod", group label "x.test". The model rows render under the

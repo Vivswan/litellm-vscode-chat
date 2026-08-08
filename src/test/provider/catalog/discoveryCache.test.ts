@@ -127,11 +127,10 @@ suite("provider/catalog/discoveryCache", () => {
 	});
 
 	test("a fetch after clear() starts a fresh load instead of joining a pre-clear one", async () => {
-		// clear() is how configuration changes reach the cache (the default*
-		// token settings are baked into loaded results), so a post-clear fetch
-		// joining a pre-clear load would hand its caller results built under
-		// the old configuration - and nothing would ever correct them, because
-		// the epoch guard only keeps the stale result out of the store.
+		// clear() is how explicit refreshes force a real round trip, so a
+		// post-clear fetch joining a pre-clear load would hand its caller
+		// stale results - and nothing would ever correct them, because the
+		// epoch guard only keeps the stale result out of the store.
 		const cache = new DiscoveryCache<string>(makeClock().now);
 		let releasePre: (() => void) | undefined;
 		const preGate = new Promise<void>((resolve) => {

@@ -13,7 +13,7 @@ import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem, ModelShape } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
 import { RequestError } from "../../../provider/transport/errorMapping";
-import type { TokenDefaults } from "../../../shared/config/settings";
+import { CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
 import { publicErrorText } from "../../../shared/logger";
 import {
 	discoveryHandlers,
@@ -24,10 +24,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
-import { expectDefined, withConfig, withFetch } from "../../testUtils";
-
-/** Fixed per-pass defaults snapshot, mirroring the provider's single read per refresh. */
-const TEST_TOKEN_DEFAULTS: TokenDefaults = { maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined };
+import { expectDefined, withFetch } from "../../testUtils";
 
 function request(log: (message: string, data?: unknown) => void = () => {}) {
 	const client = createServerClient({
@@ -41,7 +38,6 @@ function request(log: (message: string, data?: unknown) => void = () => {}) {
 		client,
 		baseUrl: TEST_BASE_URL,
 		discoveryTimeout: 5000,
-		tokenDefaults: TEST_TOKEN_DEFAULTS,
 		log,
 	};
 }
@@ -339,7 +335,7 @@ suite("provider/catalog/discovery", () => {
 				"the merge's provenance marker is discovery-authored, never wire-supplied"
 			);
 			assert.strictEqual(
-				deriveTokenConstraints(provider, TEST_TOKEN_DEFAULTS).outputLimitSource,
+				deriveTokenConstraints(provider).outputLimitSource,
 				"provider",
 				"the declared 8000 output limit stays server-declared despite the forged demotion"
 			);
@@ -670,35 +666,30 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(provider.supports_tools, true, "The blocked deployment must not veto tool support");
 		});
 
-		test("the passed defaults snapshot wins over live settings from discovery through registration", async () => {
-			// The provider reads getTokenDefaults() once per refresh and threads
-			// that snapshot through fetchModels and buildModelInfos. Live settings
-			// diverging mid-pass must not leak into either stage: one deployment
-			// has no output limit, so its standalone limit comes from the
-			// snapshot's default and caps the merged model.
-			const snapshot: TokenDefaults = { maxOutputTokens: 2048, contextLength: 32000, maxInputTokens: undefined };
+		test("a deployment without an output limit caps the merged model at the built-in floor", async () => {
+			// One deployment has no output limit, so its standalone limit is the
+			// floor fill and bounds the merged model regardless of what the other
+			// deployment declares.
 			mswServer.use(
 				...discoveryHandlers({
 					data: [
-						{ model_name: "snapshot-model", model_info: { max_input_tokens: 128000, max_output_tokens: 16000 } },
-						{ model_name: "snapshot-model", model_info: { max_input_tokens: 128000 } },
+						{ model_name: "floor-model", model_info: { max_input_tokens: 128000, max_output_tokens: 32000 } },
+						{ model_name: "floor-model", model_info: { max_input_tokens: 128000 } },
 					],
 				})
 			);
 
-			const infos = await withConfig({ defaultMaxOutputTokens: 999, defaultContextLength: 777 }, async () => {
-				const { models } = await fetchModels({ ...request(), tokenDefaults: snapshot });
-				const server = { id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "test-key" };
-				return buildModelInfos(models, server, 1, () => {}, snapshot).infos;
-			});
+			const { models } = await fetchModels(request());
+			const server = { id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "test-key" };
+			const infos = buildModelInfos(models, server, 1, () => {}).infos;
 
-			const info = expectDefined(infos.find((i) => i.id === "snapshot-model"));
-			assert.strictEqual(info.maxOutputTokens, 2048, "the snapshot's default output limit must win, not the live 999");
+			const info = expectDefined(infos.find((i) => i.id === "floor-model"));
 			assert.strictEqual(
-				info.maxInputTokens,
-				128000,
-				"the deployments' own input limit stays untouched by live settings"
+				info.maxOutputTokens,
+				CAPABILITY_FLOOR.max_output_tokens,
+				"the floor-filled deployment bounds the merged output limit"
 			);
+			assert.strictEqual(info.maxInputTokens, 128000, "the deployments' own input limit is unaffected");
 		});
 
 		test("401 from /v1/models surfaces as an authentication error, not a network error", async () => {
@@ -866,9 +857,6 @@ suite("provider/catalog/discovery", () => {
 	});
 
 	suite("mergeModelDeployments", () => {
-		/** The same fixed snapshot the fetchModels helper threads; tests never read workspace settings. */
-		const DEFAULTS = TEST_TOKEN_DEFAULTS;
-
 		/** Build a deployment through the production parse-and-map path, never by hand. */
 		function deployment(modelInfo: Record<string, unknown>): MappedModelInfo {
 			return mapModelInfoEntry(expectDefined(parseModelInfoItem({ model_name: "balanced", model_info: modelInfo })));
@@ -876,7 +864,7 @@ suite("provider/catalog/discovery", () => {
 
 		test("a single deployment passes through unchanged", () => {
 			const sole = deployment({ max_output_tokens: 8000, supports_prompt_caching: true, supports_vision: true });
-			assert.strictEqual(mergeModelDeployments([sole], DEFAULTS), sole);
+			assert.strictEqual(mergeModelDeployments([sole]), sole);
 		});
 
 		test("merged token advertisement equals the minimum of the standalone advertisements (A/B case)", () => {
@@ -886,10 +874,10 @@ suite("provider/catalog/discovery", () => {
 			// output and advertise more than B could ever serve.
 			const a = deployment({ max_input_tokens: 128000, max_output_tokens: 16000 });
 			const b = deployment({ max_tokens: 8000 });
-			const merged = mergeModelDeployments([a, b], DEFAULTS);
+			const merged = mergeModelDeployments([a, b]);
 
-			const standalone = [a, b].map((d) => deriveTokenConstraints(d.provider, DEFAULTS));
-			const constraints = deriveTokenConstraints(merged.provider, DEFAULTS);
+			const standalone = [a, b].map((d) => deriveTokenConstraints(d.provider));
+			const constraints = deriveTokenConstraints(merged.provider);
 			assert.strictEqual(constraints.maxOutputTokens, Math.min(...standalone.map((c) => c.maxOutputTokens)));
 			assert.strictEqual(constraints.contextLength, Math.min(...standalone.map((c) => c.contextLength)));
 			assert.strictEqual(constraints.maxInputTokens, Math.min(...standalone.map((c) => c.maxInputTokens)));
@@ -898,33 +886,33 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(constraints.maxInputTokens, 1);
 		});
 
-		test("a deployment without any output limit contributes the configured default, not another's value", () => {
-			const limited = deployment({ max_output_tokens: 16000, max_input_tokens: 128000 });
+		test("a deployment without any output limit contributes the built-in floor, not another's value", () => {
+			const limited = deployment({ max_output_tokens: 32000, max_input_tokens: 128000 });
 			const unlimited = deployment({ max_input_tokens: 128000 });
-			const merged = mergeModelDeployments([limited, unlimited], DEFAULTS);
-			const constraints = deriveTokenConstraints(merged.provider, DEFAULTS);
+			const merged = mergeModelDeployments([limited, unlimited]);
+			const constraints = deriveTokenConstraints(merged.provider);
 			assert.strictEqual(
 				constraints.maxOutputTokens,
-				DEFAULTS.maxOutputTokens,
-				"standalone, the second deployment would advertise the default output limit; the merge must not exceed it"
+				CAPABILITY_FLOOR.max_output_tokens,
+				"standalone, the second deployment would advertise the floor output limit; the merge must not exceed it"
 			);
 		});
 
 		test("the merged output limit counts as server-declared only when every deployment declared one", () => {
-			const allDeclared = mergeModelDeployments(
-				[deployment({ max_output_tokens: 16000 }), deployment({ max_tokens: 8000 })],
-				DEFAULTS
-			);
-			assert.strictEqual(deriveTokenConstraints(allDeclared.provider, DEFAULTS).outputLimitSource, "provider");
+			const allDeclared = mergeModelDeployments([
+				deployment({ max_output_tokens: 16000 }),
+				deployment({ max_tokens: 8000 }),
+			]);
+			assert.strictEqual(deriveTokenConstraints(allDeclared.provider).outputLimitSource, "provider");
 
-			const oneUndeclared = mergeModelDeployments(
-				[deployment({ max_output_tokens: 16000 }), deployment({ max_input_tokens: 128000 })],
-				DEFAULTS
-			);
+			const oneUndeclared = mergeModelDeployments([
+				deployment({ max_output_tokens: 16000 }),
+				deployment({ max_input_tokens: 128000 }),
+			]);
 			assert.strictEqual(
-				deriveTokenConstraints(oneUndeclared.provider, DEFAULTS).outputLimitSource,
+				deriveTokenConstraints(oneUndeclared.provider).outputLimitSource,
 				"defaults",
-				"a defaults-filled deployment must demote the merged limit, even though the merge stores it in provider fields"
+				"a floor-filled deployment must demote the merged limit, even though the merge stores it in provider fields"
 			);
 		});
 
@@ -932,28 +920,28 @@ suite("provider/catalog/discovery", () => {
 			// A defaults-filled number stored as a provider field would occupy the
 			// capability walk's server level and block the catalog from
 			// backfilling it; the advertisement must not change either way.
-			const merged = mergeModelDeployments([deployment({}), deployment({ supports_vision: true })], DEFAULTS);
+			const merged = mergeModelDeployments([deployment({}), deployment({ supports_vision: true })]);
 			assert.strictEqual(merged.provider.context_length, undefined);
 			assert.strictEqual(merged.provider.max_output_tokens, undefined);
 			assert.strictEqual(merged.provider.max_tokens, undefined);
 			assert.strictEqual(merged.provider.max_input_tokens, undefined);
 			assert.deepStrictEqual(
-				deriveTokenConstraints(merged.provider, DEFAULTS),
-				deriveTokenConstraints(deployment({}).provider, DEFAULTS),
-				"the merged advertisement equals the all-defaults standalone one"
+				deriveTokenConstraints(merged.provider),
+				deriveTokenConstraints(deployment({}).provider),
+				"the merged advertisement equals the all-floor standalone one"
 			);
 		});
 
 		test("a limit some deployment reported stays stored as the conservative collapse", () => {
-			const merged = mergeModelDeployments([deployment({ max_output_tokens: 16000 }), deployment({})], DEFAULTS);
+			const merged = mergeModelDeployments([deployment({ max_output_tokens: 32000 }), deployment({})]);
 			assert.strictEqual(
 				merged.provider.max_output_tokens,
-				Math.min(16000, DEFAULTS.maxOutputTokens),
-				"a defaults-filled deployment can still contribute the minimum"
+				Math.min(32000, CAPABILITY_FLOOR.max_output_tokens),
+				"a floor-filled deployment can still contribute the minimum"
 			);
 			// mapModelInfoEntry grounds context_length in max_tokens, so the
 			// reporting deployment reports context too and the collapse stores it.
-			assert.strictEqual(merged.provider.context_length, 16000);
+			assert.strictEqual(merged.provider.context_length, 32000);
 		});
 
 		test("a passed-through output_limit_source can demote but never promote", () => {
@@ -962,72 +950,59 @@ suite("provider/catalog/discovery", () => {
 			// deriveTokenConstraints defense in depth: even a provider object that
 			// somehow claims "provider" without declared limit fields must not
 			// lift the cap.
-			const spoofed = deriveTokenConstraints(
-				{ provider: "wire", status: "ok", output_limit_source: "provider" },
-				DEFAULTS
-			);
+			const spoofed = deriveTokenConstraints({ provider: "wire", status: "ok", output_limit_source: "provider" });
 			assert.strictEqual(spoofed.outputLimitSource, "defaults");
 
-			const demoted = deriveTokenConstraints(
-				{ provider: "wire", status: "ok", max_output_tokens: 8000, output_limit_source: "defaults" },
-				DEFAULTS
-			);
+			const demoted = deriveTokenConstraints({
+				provider: "wire",
+				status: "ok",
+				max_output_tokens: 8000,
+				output_limit_source: "defaults",
+			});
 			assert.strictEqual(demoted.outputLimitSource, "defaults");
 			assert.strictEqual(demoted.maxOutputTokens, 8000, "the demoted value still bounds the advertisement");
 		});
 
 		test("tool support holds only when every deployment supports it", () => {
-			const both = mergeModelDeployments(
-				[deployment({ supports_function_calling: true }), deployment({ supports_tool_choice: true })],
-				DEFAULTS
-			);
+			const both = mergeModelDeployments([
+				deployment({ supports_function_calling: true }),
+				deployment({ supports_tool_choice: true }),
+			]);
 			assert.strictEqual(both.provider.supports_tools, true);
-			const oneOut = mergeModelDeployments(
-				[deployment({ supports_function_calling: true }), deployment({ supports_function_calling: false })],
-				DEFAULTS
-			);
+			const oneOut = mergeModelDeployments([
+				deployment({ supports_function_calling: true }),
+				deployment({ supports_function_calling: false }),
+			]);
 			assert.strictEqual(oneOut.provider.supports_tools, false);
 		});
 
 		test("capability flags AND across deployments and stay unknown when any deployment leaves them unknown", () => {
-			const merged = mergeModelDeployments(
-				[
-					deployment({ supports_reasoning: true, supports_prompt_caching: true, supports_pdf_input: true }),
-					deployment({ supports_reasoning: true, supports_prompt_caching: false }),
-				],
-				DEFAULTS
-			);
+			const merged = mergeModelDeployments([
+				deployment({ supports_reasoning: true, supports_prompt_caching: true, supports_pdf_input: true }),
+				deployment({ supports_reasoning: true, supports_prompt_caching: false }),
+			]);
 			assert.strictEqual(merged.provider.supports_reasoning, true);
 			assert.strictEqual(merged.provider.supports_prompt_caching, false);
 			assert.strictEqual(merged.provider.supports_pdf_input, null);
 		});
 
 		test("input modalities intersect across deployments", () => {
-			const merged = mergeModelDeployments(
-				[
-					deployment({ supports_vision: true, supports_pdf_input: true }),
-					deployment({ supports_vision: true }),
-					deployment({ supports_vision: true, supports_pdf_input: true }),
-				],
-				DEFAULTS
-			);
+			const merged = mergeModelDeployments([
+				deployment({ supports_vision: true, supports_pdf_input: true }),
+				deployment({ supports_vision: true }),
+				deployment({ supports_vision: true, supports_pdf_input: true }),
+			]);
 			assert.deepStrictEqual(merged.inputModalities, ["image"]);
 		});
 
 		test("supported_openai_params intersect, and go unknown when any deployment omits them", () => {
-			const intersected = mergeModelDeployments(
-				[
-					deployment({ supported_openai_params: ["temperature", "seed", "top_p"] }),
-					deployment({ supported_openai_params: ["seed", "temperature"] }),
-				],
-				DEFAULTS
-			);
+			const intersected = mergeModelDeployments([
+				deployment({ supported_openai_params: ["temperature", "seed", "top_p"] }),
+				deployment({ supported_openai_params: ["seed", "temperature"] }),
+			]);
 			assert.deepStrictEqual(intersected.provider.supported_openai_params, ["temperature", "seed"]);
 
-			const unknown = mergeModelDeployments(
-				[deployment({ supported_openai_params: ["temperature"] }), deployment({})],
-				DEFAULTS
-			);
+			const unknown = mergeModelDeployments([deployment({ supported_openai_params: ["temperature"] }), deployment({})]);
 			assert.strictEqual(unknown.provider.supported_openai_params, null);
 		});
 
@@ -1045,20 +1020,17 @@ suite("provider/catalog/discovery", () => {
 		});
 
 		test("pricing merges only when every deployment agrees exactly per field", () => {
-			const merged = mergeModelDeployments(
-				[
-					deployment({
-						input_cost_per_token: 0.000003,
-						output_cost_per_token: 0.000015,
-						cache_read_input_token_cost: 0.0000003,
-					}),
-					deployment({
-						input_cost_per_token: 0.000003,
-						output_cost_per_token: 0.00001,
-					}),
-				],
-				DEFAULTS
-			);
+			const merged = mergeModelDeployments([
+				deployment({
+					input_cost_per_token: 0.000003,
+					output_cost_per_token: 0.000015,
+					cache_read_input_token_cost: 0.0000003,
+				}),
+				deployment({
+					input_cost_per_token: 0.000003,
+					output_cost_per_token: 0.00001,
+				}),
+			]);
 			assert.strictEqual(merged.provider.input_cost_per_token, 0.000003, "every deployment agrees, so the cost holds");
 			assert.strictEqual(merged.provider.output_cost_per_token, null, "disagreeing costs must not survive the merge");
 			assert.strictEqual(
@@ -1069,13 +1041,10 @@ suite("provider/catalog/discovery", () => {
 		});
 
 		test("agreement on zero and joint absence both survive the merge honestly", () => {
-			const merged = mergeModelDeployments(
-				[
-					deployment({ input_cost_per_token: 0, output_cost_per_token: 0.000015 }),
-					deployment({ input_cost_per_token: 0, output_cost_per_token: 0.000015 }),
-				],
-				DEFAULTS
-			);
+			const merged = mergeModelDeployments([
+				deployment({ input_cost_per_token: 0, output_cost_per_token: 0.000015 }),
+				deployment({ input_cost_per_token: 0, output_cost_per_token: 0.000015 }),
+			]);
 			assert.strictEqual(merged.provider.input_cost_per_token, 0, "an agreed zero cost is data, not absence");
 			assert.strictEqual(merged.provider.output_cost_per_token, 0.000015, "other agreed fields stay unaffected");
 			assert.strictEqual(
@@ -1165,7 +1134,7 @@ suite("provider/catalog/discovery", () => {
 				output_cost_per_token_above_272k_tokens: 0.00003,
 				cache_read_input_token_cost_above_272k_tokens: 0.0000006,
 			};
-			const merged = mergeModelDeployments([deployment({ ...tierA }), deployment({ ...tierB })], DEFAULTS);
+			const merged = mergeModelDeployments([deployment({ ...tierA }), deployment({ ...tierB })]);
 			assert.strictEqual(
 				merged.provider.long_context_input_cost_per_token,
 				0.000006,
