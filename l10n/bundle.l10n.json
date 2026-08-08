@@ -1,5 +1,8 @@
 {
+	"\"_inherit_from\" names \"{0}\", which is not a key of this record; the rest still applies ({1})": "\"_inherit_from\" names \"{0}\", which is not a key of this record; the rest still applies ({1})",
 	"\"{0}\" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.": "\"{0}\" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.",
+	"\"{0}\" belongs to capability records and is ignored here ({1})": "\"{0}\" belongs to capability records and is ignored here ({1})",
+	"\"{0}\" belongs to parameters records and is ignored here ({1})": "\"{0}\" belongs to parameters records and is ignored here ({1})",
 	"\"{0}\" cannot be forced and its mark is skipped: provider-owned fields and _ keys stay extension-owned ({1})": "\"{0}\" cannot be forced and its mark is skipped: provider-owned fields and _ keys stay extension-owned ({1})",
 	"\"{0}\" cannot be forced: provider-owned fields and _ keys stay extension-owned": "\"{0}\" cannot be forced: provider-owned fields and _ keys stay extension-owned",
 	"\"{0}\" carries an invalid directive value and is ignored ({1})": "\"{0}\" carries an invalid directive value and is ignored ({1})",
@@ -9,8 +12,9 @@
 	"\"{0}\" is not a known capability field ({1})": "\"{0}\" is not a known capability field ({1})",
 	"\"{0}\" is not a known capability field; the extension ignores it": "\"{0}\" is not a known capability field; the extension ignores it",
 	"\"{0}\" is not a parameter this prefix sets; its force mark is ignored": "\"{0}\" is not a parameter this prefix sets; its force mark is ignored",
-	"\"{0}\" must be true or a list of fields the record sets, e.g. [\"context_length\"], and cannot demote the model _declare creates; offending marks are ignored ({1})": "\"{0}\" must be true or a list of fields the record sets, e.g. [\"context_length\"], and cannot demote the model _declare creates; offending marks are ignored ({1})",
-	"\"{0}\" must be true or a list of parameters the record sets, e.g. [\"temperature\"]; offending entries are ignored ({1})": "\"{0}\" must be true or a list of parameters the record sets, e.g. [\"temperature\"]; offending entries are ignored ({1})",
+	"\"{0}\" is not a valid matcher key and never matches: use an exact ID, a trailing-* glob, /regex/, or \"*\" ({1})": "\"{0}\" is not a valid matcher key and never matches: use an exact ID, a trailing-* glob, /regex/, or \"*\" ({1})",
+	"\"{0}\" must be true or a list of fields the record sets, e.g. [\"context_length\"]; offending marks are ignored ({1})": "\"{0}\" must be true or a list of fields the record sets, e.g. [\"context_length\"]; offending marks are ignored ({1})",
+	"\"{0}\" must be true or a list of fields the record sets, e.g. [\"temperature\"]; offending entries are ignored ({1})": "\"{0}\" must be true or a list of fields the record sets, e.g. [\"temperature\"]; offending entries are ignored ({1})",
 	"$(add) Add Server": "$(add) Add Server",
 	"$(book) Documentation": "$(book) Documentation",
 	"$(bug) Report Bug": "$(bug) Report Bug",
@@ -378,7 +382,6 @@
 	},
 	"Not a number": "Not a number",
 	"Not a valid HTTP header name": "Not a valid HTTP header name",
-	"Not applied - Settings {0}: a server-scoped match replaces the whole unscoped record.": "Not applied - Settings {0}: a server-scoped match replaces the whole unscoped record.",
 	"Not checked": "Not checked",
 	"Not configured": "Not configured",
 	"Not configured - click to set up": "Not configured - click to set up",
@@ -606,7 +609,7 @@
 	"Workspace folder": "Workspace folder",
 	"You reload the window, then run Sync Models Now.": "You reload the window, then run Sync Models Now.",
 	"You remove this server's object from the models file (chatLanguageModels.json).": "You remove this server's object from the models file (chatLanguageModels.json).",
-	"_declare needs a server-scoped or entry key and is ignored ({0})": "_declare needs a server-scoped or entry key and is ignored ({0})",
+	"_declare needs an exact-ID server entry key and is ignored ({0})": "_declare needs an exact-ID server entry key and is ignored ({0})",
 	"_fallback does nothing for the model _declare creates (no server value to fall back under); models matched by prefix keep it": "_fallback does nothing for the model _declare creates (no server value to fall back under); models matched by prefix keep it",
 	"an entry with this label already exists": "an entry with this label already exists",
 	"cache read {0}": "cache read {0}",
@@ -644,6 +647,8 @@
 			"Checkbox label on a parameter row; marks the value as forced over runtime options."
 		]
 	},
+	"forced by {0}; overrides runtime options and the picker": "forced by {0}; overrides runtime options and the picker",
+	"forced in configuration; overrides runtime options and the picker": "forced in configuration; overrides runtime options and the picker",
 	"forced: overrides runtime options and the picker": "forced: overrides runtime options and the picker",
 	"h/Abbreviation for hours in durations like '1 h 30 min'.": {
 		"message": "h",
@@ -652,6 +657,7 @@
 		]
 	},
 	"hide": "hide",
+	"inherited from {0}": "inherited from {0}",
 	"just now": "just now",
 	"last sync {0}": "last sync {0}",
 	"long-context tier: {0}": "long-context tier: {0}",

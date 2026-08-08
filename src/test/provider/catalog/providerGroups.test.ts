@@ -446,7 +446,7 @@ suite("provider groups", () => {
 		assert.strictEqual(expectDefined(body).max_tokens, 4096);
 	});
 
-	test("modelParameters scoped to the group's base URL apply to group models", async () => {
+	test("a pre-migration URL-scoped modelParameters key is inert; the plain matcher applies to group models", async () => {
 		const provider = makeProvider();
 		let body: Record<string, unknown> | undefined;
 		mswServer.use(
@@ -461,17 +461,24 @@ suite("provider groups", () => {
 			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
-		await withConfig({ modelParameters: { [`${TEST_BASE_URL}/test-model`]: { temperature: 0.9 } } }, () =>
-			provider.provideLanguageModelChatResponse(
-				expectDefined(infos[0]),
-				[userMessage("hi")],
-				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
-				{ report: () => {} },
-				cancellation()
-			)
+		await withConfig(
+			{
+				modelParameters: {
+					"test-model": { temperature: 0.9 },
+					[`${TEST_BASE_URL}/test-model`]: { temperature: 0.1 },
+				},
+			},
+			() =>
+				provider.provideLanguageModelChatResponse(
+					expectDefined(infos[0]),
+					[userMessage("hi")],
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					cancellation()
+				)
 		);
 
-		assert.strictEqual(expectDefined(body).temperature, 0.9);
+		assert.strictEqual(expectDefined(body).temperature, 0.9, "server scoping is gone from the global record");
 	});
 
 	test("malformed configuration yields no models and a log line", async () => {
@@ -1120,12 +1127,36 @@ suite("provider groups: capability overrides and declared models", () => {
 		assert.strictEqual(discoveryHits, 1, "overrides apply outside the cache: one network fetch serves all three");
 	});
 
-	test("a _declare on the group's base URL serves a synthesized model beside discovery and joins the count", async () => {
-		const provider = makeProvider();
+	test("an entry _declare serves a synthesized model beside discovery and joins the count", async () => {
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryModelCapabilities: (label, baseUrl) =>
+				label === "Gateway" && baseUrl === TEST_BASE_URL
+					? { "declared-model": { _declare: true, context_length: 32000 } }
+					: undefined,
+		});
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 
+		await withConfig({}, async () => {
+			const infos = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" }),
+				cancellation()
+			);
+			assert.deepStrictEqual(
+				infos.map((info) => info.id),
+				["test-model", "declared-model"]
+			);
+			const status = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
+			assert.strictEqual(status.state, "ok");
+			assert.strictEqual(status.modelCount, 2, "the declared model joins the picker count");
+			assert.strictEqual(expectDefined(statuses.at(-1)).totalModels, 2);
+		});
+	});
+
+	test("a URL-scoped global _declare no longer creates models", async () => {
+		const provider = makeProvider();
+		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 		await withConfig(
 			{ modelCapabilities: { [`${TEST_BASE_URL}/declared-model`]: { _declare: true, context_length: 32000 } } },
 			async () => {
@@ -1135,22 +1166,21 @@ suite("provider groups: capability overrides and declared models", () => {
 				);
 				assert.deepStrictEqual(
 					infos.map((info) => info.id),
-					["test-model", "declared-model"]
+					["test-model"],
+					"declaration is per-server: it lives on the entry, never in the global record"
 				);
-				const status = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
-				assert.strictEqual(status.state, "ok");
-				assert.strictEqual(status.modelCount, 2, "the declared model joins the picker count");
-				assert.strictEqual(expectDefined(statuses.at(-1)).totalModels, 2);
 			}
 		);
 	});
 
 	test("a _declare whose ID discovery lists stays inert", async () => {
-		const provider = makeProvider();
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryModelCapabilities: () => ({ "test-model": { _declare: true } }),
+		});
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
-		await withConfig({ modelCapabilities: { [`${TEST_BASE_URL}/test-model`]: { _declare: true } } }, async () => {
+		await withConfig({}, async () => {
 			const infos = await provider.provideLanguageModelChatInformation(
-				groupOptions({ baseUrl: TEST_BASE_URL }),
+				groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" }),
 				cancellation()
 			);
 			assert.deepStrictEqual(
@@ -1225,58 +1255,51 @@ suite("provider groups: capability overrides and declared models", () => {
 	});
 
 	test("a failing refresh merges declared models un-staled with the stale-decorated last known set", async () => {
-		const provider = makeProvider();
+		// The declaration is entry-level and mutable, so the tail of the test
+		// can remove it and pin the immediate mid-outage disappearance.
+		let declared: Record<string, Record<string, unknown>> | undefined = { "declared-model": { _declare: true } };
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryModelCapabilities: () => declared,
+		});
 		let fail = false;
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
 			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
 		);
+		const group = groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" });
 
-		await withConfig(
-			{
-				discoveryCacheTtl: 0,
-				modelCapabilities: { [`${TEST_BASE_URL}/declared-model`]: { _declare: true } },
-			},
-			async () => {
-				await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
-				fail = true;
-				const served = await provider.provideLanguageModelChatInformation(
-					groupOptions({ baseUrl: TEST_BASE_URL }),
-					cancellation()
-				);
-				assert.deepStrictEqual(
-					served.map((info) => info.id),
-					["test-model", "declared-model"]
-				);
-				const stale = expectDefined(served.find((info) => info.id === "test-model"));
-				assert.strictEqual(expectDefined(stale.statusIcon).id, "warning", "the discovered set is stale-decorated");
-				const declared = expectDefined(served.find((info) => info.id === "declared-model"));
-				assert.ok(!("statusIcon" in declared), "declared models never carry the stale decoration");
-
-				// The window keeps discovered models only: a removed _declare
-				// disappears immediately even mid-outage, and the projection is
-				// what the dashboard merges instead.
-				const snapshot = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
-				assert.deepStrictEqual(
-					snapshot.models.map((info) => info.id),
-					["test-model"]
-				);
-				assert.deepStrictEqual(
-					provider.declaredModelsForSnapshot(snapshot).map((info) => info.id),
-					["declared-model"]
-				);
-			}
-		);
-
-		// Outside the withConfig scope the _declare is gone: the next failing
-		// serve drops it mid-outage, no resurrection from stale snapshots.
 		await withConfig({ discoveryCacheTtl: 0 }, async () => {
-			const served = await provider.provideLanguageModelChatInformation(
-				groupOptions({ baseUrl: TEST_BASE_URL }),
-				cancellation()
-			);
+			await provider.provideLanguageModelChatInformation(group, cancellation());
+			fail = true;
+			const served = await provider.provideLanguageModelChatInformation(group, cancellation());
 			assert.deepStrictEqual(
 				served.map((info) => info.id),
+				["test-model", "declared-model"]
+			);
+			const stale = expectDefined(served.find((info) => info.id === "test-model"));
+			assert.strictEqual(expectDefined(stale.statusIcon).id, "warning", "the discovered set is stale-decorated");
+			const declaredInfo = expectDefined(served.find((info) => info.id === "declared-model"));
+			assert.ok(!("statusIcon" in declaredInfo), "declared models never carry the stale decoration");
+
+			// The window keeps discovered models only: a removed _declare
+			// disappears immediately even mid-outage, and the projection is
+			// what the dashboard merges instead.
+			const snapshot = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
+			assert.deepStrictEqual(
+				snapshot.models.map((info) => info.id),
+				["test-model"]
+			);
+			assert.deepStrictEqual(
+				provider.declaredModelsForSnapshot(snapshot).map((info) => info.id),
+				["declared-model"]
+			);
+
+			// With the declaration gone the next failing serve drops it
+			// mid-outage: no resurrection from stale snapshots.
+			declared = undefined;
+			const withoutDeclared = await provider.provideLanguageModelChatInformation(group, cancellation());
+			assert.deepStrictEqual(
+				withoutDeclared.map((info) => info.id),
 				["test-model"],
 				"a removed _declare takes effect immediately even mid-outage"
 			);

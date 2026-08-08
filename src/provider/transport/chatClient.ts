@@ -1,8 +1,10 @@
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
+import { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import {
 	getCustomHeaders,
 	getDiscoveryTimeout,
+	getModelParametersConfig,
 	getRequestTimeout,
 	isPromptCachingEnabled,
 } from "../../shared/config/settings";
@@ -12,7 +14,6 @@ import { estimateMessagesTokens, estimateToolTokens } from "../../shared/convers
 import { convertTools } from "../../shared/conversion/tools";
 import type { Logger } from "../../shared/logger";
 import type { ServerWithKey } from "../../shared/servers";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
 import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/discovery";
@@ -25,7 +26,7 @@ import { resolveServer } from "../config";
 import { type OAuthConfig, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
 import { localizedError, mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
-import { buildRequestBody, getModelParameters, MAX_TOOLS_PER_REQUEST, resolveMaxTokens } from "./request";
+import { buildRequestBody, MAX_TOOLS_PER_REQUEST, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
 
@@ -50,15 +51,13 @@ export interface ServerConnection extends ServerWithKey {
  * Everything one chat request needs to reach its server, resolved in full
  * before anything is sent. Every field is required (undefined must be stated,
  * not omitted), so a resolution branch cannot silently drop the credentials
- * or scopes another branch carries.
+ * another branch carries.
  */
 interface ResolvedConnection {
 	serverId: string;
 	baseUrl: string;
 	apiKey: string;
 	rawModelId: string;
-	/** Scopes for modelParameters matching: the server's normalized base URL. */
-	serverScopes: readonly string[];
 	oauth: OAuthConfig | undefined;
 	virtualKey: VirtualKeyConfig | undefined;
 }
@@ -80,6 +79,13 @@ export interface ChatClientOptions {
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
 		| undefined;
+	/**
+	 * The provider-owned flat resolution table; requests read their configured
+	 * parameters through it so the request path, registration, and the
+	 * dashboard share one cache. Defaults to a private table for callers
+	 * constructed without a provider (tests, the draft-connection probe).
+	 */
+	resolution?: ModelResolutionTable | undefined;
 }
 
 /**
@@ -96,6 +102,7 @@ export class ChatClient {
 	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
 	private readonly clients = new ServerClientCache();
 	private readonly oauthTokens = new OAuthTokenSource();
+	private readonly resolution: ModelResolutionTable;
 	private readonly _modelRoutes = new Map<string, ModelRoute>();
 	private _toolCallIdCounter = 0;
 	// The single owner of tool-call ID generation. next() advances the counter
@@ -112,6 +119,7 @@ export class ChatClient {
 		this.logger = options.logger;
 		this.getServers = options.getServers ?? (() => Promise.resolve([]));
 		this.getEntryModelParameters = options.getEntryModelParameters ?? (() => undefined);
+		this.resolution = options.resolution ?? new ModelResolutionTable();
 	}
 
 	applyRegistration(routes: Map<string, ModelRoute>, clearFirst: boolean): void {
@@ -230,7 +238,6 @@ export class ChatClient {
 				baseUrl: groupServer.baseUrl,
 				apiKey: groupServer.apiKey,
 				rawModelId: model.id,
-				serverScopes: [groupServer.baseUrl],
 				oauth: groupServer.oauth,
 				virtualKey: groupServer.virtualKey,
 			};
@@ -249,7 +256,6 @@ export class ChatClient {
 				baseUrl: server.baseUrl,
 				apiKey: server.apiKey,
 				rawModelId: route.rawModelId,
-				serverScopes: [normalizeBaseUrl(server.baseUrl)],
 				oauth: undefined,
 				virtualKey: undefined,
 			};
@@ -262,7 +268,6 @@ export class ChatClient {
 				baseUrl: soleServer.baseUrl,
 				apiKey: soleServer.apiKey,
 				rawModelId: model.id,
-				serverScopes: [normalizeBaseUrl(soleServer.baseUrl)],
 				oauth: undefined,
 				virtualKey: undefined,
 			};
@@ -329,7 +334,7 @@ export class ChatClient {
 		// settings entry this request is routed through (two entries may share a
 		// base URL, so the label tells them apart). The resolver hands back the
 		// entry's per-entry modelParameters only when both match, and they merge
-		// over the global setting's match inside getModelParameters; unlabeled
+		// over the global setting's match inside the resolution table; unlabeled
 		// servers (external groups, pre-label groups, registry models)
 		// contribute none. The match is label plus URL, deliberately not
 		// credentials: any group carrying the entry's label at the entry's URL
@@ -344,18 +349,20 @@ export class ChatClient {
 			metadata.server?.label !== undefined
 				? this.getEntryModelParameters(metadata.server.label, metadata.server.baseUrl)
 				: undefined;
-		const { params: modelParams, forcedParams } = getModelParameters(
-			model.id,
-			this._modelRoutes,
-			connection.serverScopes,
-			entryModelParameters
+		// Read through the provider-shared flat table: resolution runs only when
+		// the configuration or the model set changed, never per request.
+		const { params: modelParams, forcedParams } = this.resolution.resolveParameters(
+			connection.serverId,
+			connection.rawModelId,
+			{ globalParameters: getModelParametersConfig(), entryParameters: entryModelParameters }
 		);
 
 		// The one home of the fallback chain is resolveMaxTokens (shared with the
-		// dashboard's inspector): runtime option, configured parameter, the
-		// server-declared or user-overridden limit honored as-is, else the cap
-		// over the defaults-derived guess.
+		// dashboard's inspector): forced configured value, runtime option,
+		// configured parameter, the server-declared or user-overridden limit
+		// honored as-is, else the cap over the defaults-derived guess.
 		const { value: maxTokens } = resolveMaxTokens({
+			forcedMaxTokens: forcedParams.max_tokens,
 			runtimeMaxTokens: options.modelOptions?.max_tokens,
 			configuredMaxTokens: modelParams.max_tokens,
 			maxOutputTokens: model.maxOutputTokens,

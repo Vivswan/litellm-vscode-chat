@@ -19,9 +19,9 @@ import type {
 	EffectiveCapabilities,
 	ModelCapabilitiesRecord,
 } from "../../shared/config/capabilityResolution";
-import { extractDeclaredModels, resolveModelCapabilities } from "../../shared/config/capabilityResolution";
+import { extractDeclaredModels } from "../../shared/config/capabilityResolution";
+import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import type { ServerConfig } from "../../shared/servers";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import type { PreAttachModelInfo } from "./groupModels";
 import type { ModelRoute } from "./modelCatalog";
 import { buildExposedModelId, rawModelIdFromExposed } from "./modelCatalog";
@@ -36,6 +36,8 @@ export interface CapabilityOverrideOptions {
 	/** The matched declared entry's own capability records, when the served server has one. */
 	readonly entryCapabilities?: ModelCapabilitiesRecord | undefined;
 	readonly catalog: CapabilityCatalogLookup;
+	/** The provider-shared flat resolution table; every resolve here goes through it. */
+	readonly resolution: ModelResolutionTable;
 	/** Classification-only logging (record keys and field names are user configuration, never response text). */
 	readonly log: (message: string, data?: unknown) => void;
 }
@@ -176,15 +178,12 @@ export function applyCapabilityOverrides(
 	server: ServerConfig,
 	opts: CapabilityOverrideOptions
 ): readonly PreAttachModelInfo[] {
-	const serverScopes = [normalizeBaseUrl(server.baseUrl)];
 	let changed = false;
 	const logDiagnostics = diagnosticLogger(opts.log);
 	const out = infos.map((info) => {
 		const rawModelId = rawModelIdFromExposed(info.id, server.id);
-		const effective = resolveModelCapabilities({
-			rawModelId,
+		const effective = opts.resolution.resolveCapabilities(server.id, rawModelId, {
 			globalCapabilities: opts.globalCapabilities,
-			serverScopes,
 			entryCapabilities: opts.entryCapabilities,
 			catalog: opts.catalog,
 			serverDeclared: info.litellm.serverDeclared,
@@ -262,10 +261,8 @@ export function synthesizeDeclaredModels(
 	serverCount: number,
 	opts: CapabilityOverrideOptions
 ): DeclaredModelSynthesis {
-	const serverScopes = [normalizeBaseUrl(server.baseUrl)];
 	const extracted = extractDeclaredModels({
 		globalCapabilities: opts.globalCapabilities,
-		serverScopes,
 		entryCapabilities: opts.entryCapabilities,
 	});
 	const logDiagnostics = diagnosticLogger(opts.log);
@@ -285,10 +282,8 @@ export function synthesizeDeclaredModels(
 			});
 			continue;
 		}
-		const effective = resolveModelCapabilities({
-			rawModelId: spec.rawId,
+		const effective = opts.resolution.resolveCapabilities(server.id, spec.rawId, {
 			globalCapabilities: opts.globalCapabilities,
-			serverScopes,
 			entryCapabilities: opts.entryCapabilities,
 			catalog: opts.catalog,
 			serverDeclared: { kind: "declared" },
