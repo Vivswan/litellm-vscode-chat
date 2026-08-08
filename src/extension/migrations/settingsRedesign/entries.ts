@@ -419,15 +419,6 @@ function mergeCollidingRecords(
 	const directiveChanges: (readonly [string, unknown])[] = [];
 	for (const { name: directive, eligible } of LIST_DIRECTIVES) {
 		const existingRaw = Object.hasOwn(existing, directive) ? existing[directive] : undefined;
-		if (existingRaw !== undefined && existingRaw !== false && !Array.isArray(existingRaw)) {
-			if (existingRaw === true && arrivingNames.size > 0) {
-				// Expand before the arriving fields widen what `true` covers.
-				directiveChanges.push([directive, eligibleNames(existing, eligible)]);
-				continue;
-			}
-			// A `true` with nothing arriving (or a junk value) stays as written.
-			continue;
-		}
 		const additionRaw = Object.hasOwn(addition, directive) ? addition[directive] : undefined;
 		const additionNames =
 			additionRaw === true
@@ -435,6 +426,21 @@ function mergeCollidingRecords(
 				: Array.isArray(additionRaw)
 					? additionRaw.filter((name): name is string => typeof name === "string" && Object.hasOwn(addition, name))
 					: [];
+		if (existingRaw !== undefined && existingRaw !== false && !Array.isArray(existingRaw)) {
+			if (existingRaw === true && arrivingNames.size > 0) {
+				// Expand before the arriving fields widen what `true` covers - and
+				// the scoped side's marks follow its surviving fields (a scoped
+				// fallback/force landed at its own level in the old world; the
+				// entry's `true` covered only the entry's own fields).
+				const surviving = additionNames.filter((name) => arrivingNames.has(name));
+				directiveChanges.push([directive, [...eligibleNames(existing, eligible), ...surviving]]);
+				continue;
+			}
+			// A `true` with nothing arriving (or a junk value) stays as written;
+			// junk cannot take additions without overwriting the user's text, so
+			// arriving marks are dropped with it (the stays-as-written trade).
+			continue;
+		}
 		// An entry-side name the entry itself does not set marked nothing; keep
 		// it only while the merge leaves it inert.
 		const base = (Array.isArray(existingRaw) ? existingRaw : []).filter(
