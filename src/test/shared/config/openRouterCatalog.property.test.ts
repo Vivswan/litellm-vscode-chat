@@ -164,7 +164,10 @@ suite("shared/config openRouterCatalog properties", () => {
 				}
 				const suffixMatches = snapshot.models.filter((model) => {
 					const slash = model.id.indexOf("/");
-					return slash > 0 && model.id.slice(slash + 1) === rawId;
+					// Mirror the lookup's guard: an empty post-vendor suffix is not a
+					// name and is never indexed, so "" can match nothing implicitly.
+					const suffix = model.id.slice(slash + 1);
+					return slash > 0 && suffix !== "" && suffix === rawId;
 				});
 				if (byId.has(rawId)) {
 					assert.ok(implicit.kind === "found" && implicit.id === rawId);
@@ -178,5 +181,17 @@ suite("shared/config openRouterCatalog properties", () => {
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
+	});
+
+	test("an empty raw ID never implicit-matches an empty post-vendor suffix (nightly seed 606002)", () => {
+		// Shrunk counterexample from nightly run 31275590164 leg unit-2: a
+		// catalog id of "<vendor>/" has an empty suffix, which the lookup
+		// deliberately never indexes - so the empty raw ID matches nothing.
+		const snapshot = parseCatalogSnapshot({ data: [{ id: " /" }] });
+		for (const implicitLookup of [true, false]) {
+			const lookup = createCatalogLookup(snapshot, { implicitLookup });
+			assert.deepStrictEqual(lookup.byRawModelId(""), { kind: "not-found" });
+		}
+		assert.strictEqual(createCatalogLookup(snapshot, { implicitLookup: true }).byExactId(" /").kind, "found");
 	});
 });
