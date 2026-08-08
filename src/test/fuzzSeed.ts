@@ -16,35 +16,23 @@
 export const FUZZ_MODES = ["proxy", "direct", "conversation", "monkey"] as const;
 export type FuzzMode = (typeof FUZZ_MODES)[number];
 
-/**
- * The fresh-draw formula, pure so a test can pin that the shard salt actually
- * diverges the draw (the docker stream fuzzer salts, the conversation suite
- * deliberately does not).
- */
-export function freshFuzzSeed(shardSalt: number, nowMs: number, pid: number): number {
-	return (((nowMs >>> 4) ^ (pid << 8) ^ shardSalt) >>> 0) % 1000000;
+/** The fresh-draw formula, pure so a test can pin its range and determinism. */
+export function freshFuzzSeed(nowMs: number, pid: number): number {
+	return (((nowMs >>> 4) ^ (pid << 8)) >>> 0) % 1000000;
 }
 
 /**
  * Resolve a docker suite's seed. An explicit FUZZ_SEED reproduces exactly,
  * including 0; anything unset or invalid draws a fresh seed (pid- and
- * time-mixed). shardSalt folds FUZZ_SHARD into the fresh draw so parallel CI
- * shards diverge even when they start in the same instant - the stream
- * fuzzer wants that, the conversation suite passes 0 so one seed means one
- * conversation walk regardless of shard. (fuzzStream.ts has its own
- * resolver for the unit property suites: pinned default, no salt.)
+ * time-mixed). (fuzzStream.ts has its own resolver for the unit property
+ * suites: pinned default instead of a fresh draw.)
  */
-export function resolveDockerFuzzSeed(shardSalt: number): number {
+export function resolveDockerFuzzSeed(): number {
 	const seedEnv = Number(process.env.FUZZ_SEED ?? "");
 	if (process.env.FUZZ_SEED?.trim() && Number.isFinite(seedEnv)) {
 		return seedEnv >>> 0;
 	}
-	return freshFuzzSeed(shardSalt, Date.now(), process.pid);
-}
-
-/** The shard salt the stream fuzzer mixes into fresh-seed draws. */
-export function fuzzShardSalt(): number {
-	return (Number(process.env.FUZZ_SHARD) || 0) * 7919;
+	return freshFuzzSeed(Date.now(), process.pid);
 }
 
 /** The greppable core both emitters share. */

@@ -1,13 +1,15 @@
 # Nightly fuzzing on the repo-platform fuzzer starter; repo-platform's
 # docs/fuzzer.md documents the failure-report contract the fuzz steps follow.
 # The night is split into parallel single-purpose legs (one matrix row each):
-# three legs fuzz the unit property suites, three fuzz the seeded docker
-# suites (stream fuzzer, conversation walks, monkey walks), and one runs the
-# remaining unseeded docker suites once - they draw no seed, so repeating
-# them buys nothing. Every seeded leg gets its own deterministic seed derived
-# from the run id, so the legs explore disjoint inputs and a night's coverage
-# is the sum over legs. A failing leg writes a report naming the leg (and,
-# when seeded, its seed), with the exact replay command, under
+# four legs fuzz the unit property suites (widened from three when the
+# settings redesign added the matcher, inheritance, and migration property
+# families - more distinct seeds over a larger property surface), three fuzz
+# the seeded docker suites (stream fuzzer, conversation walks, monkey walks),
+# and one runs the remaining unseeded docker suites once - they draw no seed,
+# so repeating them buys nothing. Every seeded leg gets its own deterministic
+# seed derived from the run id, so the legs explore disjoint inputs and a
+# night's coverage is the sum over legs. A failing leg writes a report naming
+# the leg (and, when seeded, its seed), with the exact replay command, under
 # .fuzz-failures/<leg>/; the report job merges every failing leg's report
 # into the one label-deduplicated nightly-fuzz tracking issue. A green
 # night closes it.
@@ -74,6 +76,9 @@ jobs:
           - leg: unit-3
             family: unit
             salt: 3
+          - leg: unit-4
+            family: unit
+            salt: 8
           - leg: docker-seeded-1
             family: docker
             labels: docker-fuzz,docker-conversation,docker-monkey
@@ -104,7 +109,7 @@ jobs:
       # unit legs all to the same pinned default) and the legs would repeat
       # each other instead of adding coverage. First on purpose - it needs
       # no checkout or toolchain, so a bad dispatch input or matrix row
-      # fails before seven runners spend setup time.
+      # fails before eight runners spend setup time.
       - name: Validate the leg and derive its seed
         shell: bash
         env:

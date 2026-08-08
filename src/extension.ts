@@ -7,6 +7,7 @@ import type { MigrationContext } from "./extension/migrations";
 import { runMigrations } from "./extension/migrations";
 import { isGroupMigrationComplete } from "./extension/migrations/registryToProviderGroups";
 import { createOpenRouterCatalogStore } from "./extension/openRouterCatalog";
+import { registerOpenRouterCatalogTestSeam } from "./extension/openRouterCatalogTestSeam";
 import { GroupRemovalStore } from "./extension/servers/groupRemovals";
 import {
 	type ManagementUiMode,
@@ -320,6 +321,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// exist because the docker-serversync suite reads the engine's declared
 	// views through them and the monkey fuzzer injects dashboard messages.
 	registerTestCommands(context, registry, provider, issueReporter, syncEngine, dashboard);
+	// The docker-resolution suite's deterministic catalog seeding (inert in
+	// production, like the commands above).
+	registerOpenRouterCatalogTestSeam(context, catalogStore);
 	// The first pass runs off the activation path: it may hit the host command
 	// (which validates groups against the provider) and the network. Forced,
 	// so groups edited or deleted natively since the last session reconcile.

@@ -39,7 +39,7 @@ jobs:
       fail-fast: false
       matrix:
         labels:
-          - 'docker,docker-usage,docker-transport'
+          - 'docker,docker-usage,docker-transport,docker-resolution'
           - 'docker-serversync,docker-fuzz,docker-conversation,host-fidelity,docker-monkey'
     uses: ./.github/workflows/test-reusable.yml
     with:

@@ -3,18 +3,19 @@
 // Runs the docker-stack test suites against the dockerized LiteLLM proxy:
 // brings the compose stack up (postgres-backed, with the usage/budget
 // fixture key seeded), runs the `docker` label, then optionally the
-// `docker-usage`, `docker-transport`, `docker-serversync`, `docker-fuzz`,
-// and `docker-conversation` labels, then the host-fidelity live suite
-// pointed at the stack, then the `docker-monkey` label last (it deliberately
-// dirties host state), and tears everything down. --only replaces that
-// selection with an explicit label list (the CI shards use it); the order
-// stays canonical either way.
+// `docker-usage`, `docker-transport`, `docker-serversync`,
+// `docker-resolution`, `docker-fuzz`, and `docker-conversation` labels, then
+// the host-fidelity live suite pointed at the stack, then the
+// `docker-monkey` label last (it deliberately dirties host state), and tears
+// everything down. --only replaces that selection with an explicit label
+// list (the CI shards use it); the order stays canonical either way.
 //
 // Usage:
-//   bun run test:docker                     docker suite + usage + transport + serversync + fuzzer + conversations + host-fidelity live + monkey
+//   bun run test:docker                     docker suite + usage + transport + serversync + resolution + fuzzer + conversations + host-fidelity live + monkey
 //   bun run test:docker --skip-usage        skip the usage/budget smoke suite
 //   bun run test:docker --skip-transport    skip the transport-failure suite
 //   bun run test:docker --skip-serversync   skip the server-sync provider-group suite
+//   bun run test:docker --skip-resolution   skip the catalog/record resolution suite
 //   bun run test:docker --skip-fuzz         skip the stream fuzzer
 //   bun run test:docker --skip-conversation skip the multi-turn conversation suite
 //   bun run test:docker --skip-monkey       skip the interaction (monkey) fuzzer
@@ -26,7 +27,12 @@
 //   KEEP_DOCKER_STACK=1 bun run test:docker leave the stack running afterward
 
 import { execSync } from "node:child_process";
-import { DOCKER_TEST_LABELS, type DockerTestLabel, parseOnlyLabels } from "../src/test/dockerTestLabels";
+import {
+	DOCKER_SKIP_FLAGS,
+	DOCKER_TEST_LABELS,
+	type DockerTestLabel,
+	parseOnlyLabels,
+} from "../src/test/dockerTestLabels";
 import { PLAYBACK_MODEL } from "../src/test/fakeStack/models";
 import { resolveComposeCommand } from "./stack/composeCommand";
 import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } from "./stack/litellmConfig";
@@ -40,23 +46,47 @@ const usageError = (message: string): never => {
 
 // --skip-* carves legs out of the default full run; --only replaces the
 // selection outright (the CI shards use it), so combining the two has no
-// coherent meaning and errors. The base `docker` label has no skip flag.
-const SKIP_FLAGS: Partial<Record<DockerTestLabel, string>> = {
-	"docker-usage": "--skip-usage",
-	"docker-transport": "--skip-transport",
-	"docker-serversync": "--skip-serversync",
-	"docker-fuzz": "--skip-fuzz",
-	"docker-conversation": "--skip-conversation",
-	"host-fidelity": "--skip-host-fidelity",
-	"docker-monkey": "--skip-monkey",
-};
+// coherent meaning and errors. The flag-per-label mapping lives in
+// src/test/dockerTestLabels.ts (DOCKER_SKIP_FLAGS) so the nightly-fuzz
+// drift guard pins the workflow against the same source; the base `docker`
+// label has no skip flag.
+const KNOWN_SKIP_FLAGS: ReadonlySet<string> = new Set(Object.values(DOCKER_SKIP_FLAGS));
+
+/**
+ * Reject any argv token this script does not understand. A mistyped skip
+ * flag used to be ignored (the leg it meant to skip still ran), and extra
+ * positionals after `--only a` were dropped without a word (`--only a b`
+ * silently ran only `a`); both now exit 2 with the known vocabulary.
+ */
+function validateArgs(): void {
+	// The value a bare `--only` consumes is validated by parseOnlyLabels, not
+	// as a standalone token here.
+	const onlyValueIndexes = new Set(args.flatMap((arg, index) => (arg === "--only" ? [index + 1] : [])));
+	for (const [index, arg] of args.entries()) {
+		if (onlyValueIndexes.has(index) || arg === "--only" || arg.startsWith("--only=")) {
+			continue;
+		}
+		if (arg.startsWith("--skip-")) {
+			if (!KNOWN_SKIP_FLAGS.has(arg)) {
+				usageError(`unknown flag "${arg}"; known skip flags: ${[...KNOWN_SKIP_FLAGS].join(", ")}`);
+			}
+			continue;
+		}
+		usageError(
+			`unexpected argument "${arg}"; pass --only with ONE comma-separated label list (no spaces), or --skip-* flags: ${[
+				...KNOWN_SKIP_FLAGS,
+			].join(", ")}`
+		);
+	}
+}
 
 function selectLabels(): ReadonlySet<DockerTestLabel> {
+	validateArgs();
 	const onlyFlags = args.filter((arg) => arg === "--only" || arg.startsWith("--only="));
 	if (onlyFlags.length === 0) {
 		return new Set(
 			DOCKER_TEST_LABELS.filter((label) => {
-				const flag = SKIP_FLAGS[label];
+				const flag = DOCKER_SKIP_FLAGS[label];
 				return flag === undefined || !args.includes(flag);
 			})
 		);
@@ -138,6 +168,7 @@ try {
 		"docker-usage": { banner: "Running the usage/budget smoke suite...", env: suiteEnv },
 		"docker-transport": { banner: "Running the transport-failure suite...", env: suiteEnv },
 		"docker-serversync": { banner: "Running the server-sync suite...", env: suiteEnv },
+		"docker-resolution": { banner: "Running the catalog/record resolution suite...", env: suiteEnv },
 		"docker-fuzz": { banner: "Running the stream fuzzer...", env: suiteEnv },
 		"docker-conversation": { banner: "Running the multi-turn conversation suite...", env: suiteEnv },
 		"host-fidelity": {

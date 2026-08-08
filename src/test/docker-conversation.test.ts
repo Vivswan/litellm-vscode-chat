@@ -38,9 +38,9 @@ const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 
-// No shard salt on purpose: one seed means one conversation walk regardless
-// of which CI shard replays it (see src/test/fuzzSeed.ts).
-const SEED = resolveDockerFuzzSeed(0);
+// An explicit FUZZ_SEED reproduces exactly: one seed means one conversation
+// walk (see src/test/fuzzSeed.ts).
+const SEED = resolveDockerFuzzSeed();
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.CONVERSATION_ITERATIONS)) || 10);
 
 /** Deterministic PRNG (mulberry32), same family as the stream fuzzer. */

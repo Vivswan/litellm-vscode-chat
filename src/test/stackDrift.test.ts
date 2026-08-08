@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { DOCKER_TEST_LABELS } from "./dockerTestLabels";
+import { DOCKER_SKIP_FLAGS, DOCKER_TEST_LABELS } from "./dockerTestLabels";
 import { parseEnvFile, STACK_DEFAULTS } from "./envFile";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { COPILOT_TOKEN_DIR, FAKE_BACKEND_PORT, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
@@ -271,6 +271,125 @@ suite("stack drift guard: checks.yml docker shards", () => {
 		// the gate while every other guard stays green.
 		const sharded = shardLabels("fuzz-docker").flat().sort();
 		assert.deepStrictEqual(sharded, ["docker-conversation", "docker-fuzz", "docker-monkey"], "fuzz-docker shard union");
+	});
+});
+
+suite("stack drift guard: nightly-fuzz legs", () => {
+	/**
+	 * nightly-fuzz.yml restates the orchestrator's label vocabulary twice: the
+	 * seeded docker legs name their labels through --only, and the unseeded
+	 * leg runs the complement through --skip-* flags. Neither list can import
+	 * DOCKER_TEST_LABELS or DOCKER_SKIP_FLAGS, so without these guards a label
+	 * seeded in a new leg but not skipped in the unseeded one would run twice
+	 * per night (once unseeded at default iterations), and a seeded label
+	 * whose skip flag went stale after a rename would silently land in the
+	 * unseeded leg, unfuzzed.
+	 */
+	const workflow = () => read(".github/workflows/nightly-fuzz.yml");
+
+	/** The matrix include rows as key/value records, one per `- leg:` block. */
+	function matrixRows(): Record<string, string>[] {
+		const include = /^ +include:\n((?:(?: {10,}.*)?\n)*)/m.exec(workflow());
+		assert.ok(include, "nightly-fuzz.yml declares a matrix include block");
+		const segments = (include[1] as string).split(/\n(?= *- leg:)/).filter((segment) => segment.includes("- leg:"));
+		assert.ok(segments.length >= 4, `the matrix declares real legs (found ${segments.length})`);
+		return segments.map((segment) => {
+			const row: Record<string, string> = {};
+			for (const line of segment.split("\n")) {
+				const pair = /^ *(?:- )?([a-zA-Z]+): (.*?)\s*$/.exec(line);
+				if (pair && !line.trimStart().startsWith("#")) {
+					row[pair[1] as string] = pair[2] as string;
+				}
+			}
+			return row;
+		});
+	}
+
+	test("every seeded docker leg names known, skippable labels", () => {
+		const known: ReadonlySet<string> = new Set(DOCKER_TEST_LABELS);
+		const seededRows = matrixRows().filter((row) => row.family === "docker" && row.seeded === "true");
+		assert.ok(seededRows.length >= 1, "the matrix declares at least one seeded docker leg");
+		for (const row of seededRows) {
+			const labels = (row.labels ?? "").split(",").map((label) => label.trim());
+			assert.ok(labels.length > 0 && labels[0] !== "", "a seeded docker leg must name its labels");
+			for (const label of labels) {
+				assert.ok(known.has(label), `nightly-fuzz seeded leg lists unknown label "${label}"`);
+				assert.ok(
+					DOCKER_SKIP_FLAGS[label as (typeof DOCKER_TEST_LABELS)[number]] !== undefined,
+					`seeded label "${label}" has no --skip flag, so the unseeded leg cannot exclude it`
+				);
+			}
+		}
+	});
+
+	test("the leg accounting matches the header's floors", () => {
+		// The header comment promises four unit legs and three seeded docker
+		// legs per night, and the complement equation below only holds with
+		// EXACTLY one unseeded docker row (a second one would run the
+		// complement twice; zero would drop it entirely). Floors, not exact
+		// counts, for the fuzzing legs: adding legs adds coverage, deleting
+		// one silently reduces a night's distinct-seed spread.
+		const rows = matrixRows();
+		assert.ok(
+			rows.filter((row) => row.family === "unit").length >= 4,
+			"the matrix keeps at least the four unit property legs"
+		);
+		assert.ok(
+			rows.filter((row) => row.family === "docker" && row.seeded === "true").length >= 3,
+			"the matrix keeps at least the three seeded docker legs"
+		);
+		assert.strictEqual(
+			rows.filter((row) => row.family === "docker" && row.seeded === "false").length,
+			1,
+			"exactly one unseeded docker leg runs the skip-flag complement"
+		);
+		for (const row of rows) {
+			assert.ok(
+				row.family === "unit" || row.family === "docker",
+				`matrix row "${row.leg}" has family "${row.family}", which no fuzz step runs`
+			);
+			// Structural, not by count: the seeded/unseeded split is inferred
+			// from this value, so a typo ("yes", a dropped key) must fail here
+			// rather than quietly turn a seeded leg into a second unseeded run.
+			if (row.family === "docker") {
+				assert.ok(
+					row.seeded === "true" || row.seeded === "false",
+					`docker leg "${row.leg}" must declare seeded as true or false, got "${row.seeded}"`
+				);
+			}
+		}
+	});
+
+	test("the unseeded leg's skip flags are exactly the seeded labels' flags", () => {
+		// This is the coverage equation: the unseeded leg runs the complement
+		// of its skip flags, so skips == seeded labels means every label in
+		// DOCKER_TEST_LABELS runs at night exactly once - seeded legs fuzz
+		// their labels, the unseeded leg picks up everything else (including
+		// any label added later without touching the workflow).
+		const seededLabels = new Set(
+			matrixRows()
+				.filter((row) => row.family === "docker" && row.seeded === "true")
+				.flatMap((row) => (row.labels ?? "").split(",").map((label) => label.trim()))
+		);
+		const skipLine = /^ +set -- (--skip-\S+(?: --skip-\S+)*)$/m.exec(workflow());
+		assert.ok(skipLine, "nightly-fuzz.yml's unseeded branch sets --skip-* flags");
+		const skips = (skipLine[1] as string).split(/\s+/).sort();
+		const expected = [...seededLabels]
+			.map((label) => DOCKER_SKIP_FLAGS[label as (typeof DOCKER_TEST_LABELS)[number]])
+			.filter((flag): flag is string => flag !== undefined)
+			.sort();
+		assert.deepStrictEqual(skips, expected, "unseeded-leg skip flags must mirror the seeded labels");
+	});
+
+	test("every leg carries a distinct salt", () => {
+		// The header's coverage argument rests on per-leg seed divergence; two
+		// legs sharing a salt would replay each other's inputs all night.
+		const salts = matrixRows().map((row) => row.salt);
+		assert.ok(
+			salts.every((salt) => salt !== undefined && /^\d+$/.test(salt)),
+			"every matrix row declares a numeric salt"
+		);
+		assert.strictEqual(new Set(salts).size, salts.length, "matrix salts must be distinct across legs");
 	});
 });
 
