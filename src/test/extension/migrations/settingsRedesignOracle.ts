@@ -3,36 +3,42 @@
  * functions that reduce "what does this configuration mean for (server,
  * model)" to one comparable view.
  *
- * - resolveOldWorld runs THIS BRANCH's live resolvers (the pre-redesign
- *   prefix/scoped semantics) over an old-world snapshot.
- * - resolveNewWorldReference is a test-local interpreter of the redesigned
- *   grammar (tracker semantics) over a MIGRATED snapshot, restricted to the
- *   sublanguage the migration can output: exact keys, trailing globs, "*",
- *   `_force`/`_fallback`, and the trio's `_inheritable` "*" record. No
- *   regex, no `_inherit_from` - the migration never emits them.
+ * - resolveOldWorld runs the FROZEN pre-redesign resolvers (pinned as
+ *   test-local copies in oldWorldResolvers.ts - the live resolvers were
+ *   rewritten for the redesign) over an old-world snapshot.
+ * - resolveNewWorld runs the LIVE redesigned resolvers
+ *   (shared/config/parameterResolution + capabilityResolution, the same
+ *   matcher/inheritance engine requests and registration use) over a
+ *   MIGRATED snapshot.
  *
- * INTEGRATION PLUG (post R1+R2 merge): swap resolveNewWorldReference's body
- * for R1's real resolver (same NewWorldResolve signature - build R1's input
- * from the migrated snapshot and project its flat table down to
- * EffectiveView). The old side's imports break when R1 rewrites
- * parameterResolution/capabilityResolution; at that point freeze the old
- * behavior by pinning this file's old-side imports to copies, or retire the
- * old side and keep reference-vs-R1.
+ * Both sides resolve the entry by the same acceptance rule (label + base URL
+ * identity, first label wins), so the property isolates RESOLVER equivalence;
+ * the entry-parser-vs-migration seam has its own coverage in the serverSync
+ * suites. The walk-level values (the full capability walk, trio included)
+ * compare under a fixed set of server baselines, values only - provenance is
+ * allowed to differ where the redesign upgrades a migrated default to
+ * user-set (the documented clamp-lifting change).
  *
- * Scope notes (documented divergences the property skips or ignores):
+ * Scope notes (documented divergences the property skips, each pinned by a
+ * dedicated test in the property file's divergence suite):
  * - The old "scoped global record replaces the unscoped record WHOLE" rule
- *   cannot survive the move to entry level (entry merges field by field);
- *   samples where the old resolver reports `replacedUnscoped` are skipped.
- * - descopingDiverges skips the two remaining descoping corners: a scoped
- *   winner alongside an unscoped match, and a scoped winner competing with
- *   an entry winner under a DIFFERENT key. Same-KEY collisions (which the
- *   migration merges field by field) and uncontested scoped moves stay in
- *   the property. Both skipped corners are pinned by dedicated tests in the
- *   property file's divergence suite.
- * - The trio's walk-level equivalence (fallback fill below the server
- *   report) needs the full capability walk and lands with R1's resolver;
- *   the shipped property compares the resolver level (overrides, fallbacks,
- *   declared IDs), and a placement property pins the trio merge directly.
+ *   cannot survive the move to entry level (entry merges field by field).
+ *   Skipped only when the replacement actually mattered: the replaced
+ *   unscoped record carried a field the scoped winner does not set, or any
+ *   forced/fallback mark (the narrowed form of the old replacedUnscoped
+ *   skip).
+ * - A scoped winner competing with an entry record under a DIFFERENT key:
+ *   two levels merged field by field, one level now resolves
+ *   most-specific-wholesale. Skipped only when the losing record carries any
+ *   field or mark of its own.
+ * - The old default* trio applied to EVERY model, below records but above
+ *   the floor (and defaultMaxInputTokens even above the server report),
+ *   while the migrated "*" fill participates in the matcher chain like any
+ *   record: a matching record that sets the same field can win it, drain the
+ *   fill at merge time, or block its flow to a more specific winner. The
+ *   walk comparison skips conservatively whenever a configured trio field is
+ *   also set by a matching unscoped global record; the corners are pinned in
+ *   the divergence suite.
  * - Old configs carrying `_inheritable`/`_inherit_from` as then-inert
  *   underscore keys would ACTIVATE under the new grammar; the migration
  *   rides them verbatim by design (generators never emit them), so a corpus
@@ -42,18 +48,26 @@
 import {
 	CAPABILITY_FIELDS,
 	EMPTY_CATALOG_LOOKUP,
-	extractDeclaredModels,
 	resolveCapabilityOverrides,
+	resolveModelCapabilities,
+	type ServerDeclaredCapabilities,
 } from "../../../shared/config/capabilityResolution";
-import {
-	findLongestPrefixEntry,
-	findScopedMatch,
-	parameterSkipReason,
-	resolveModelParameters,
-} from "../../../shared/config/parameterResolution";
+import { resolveModelParameters } from "../../../shared/config/parameterResolution";
 import { normalizeModelCapabilities, normalizeModelParameters } from "../../../shared/config/settings";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
+import { normalizePositiveNumber } from "../../../shared/util/numbers";
+import {
+	extractOldDeclaredModels,
+	findLongestPrefixEntry,
+	findScopedMatch,
+	type OldCapabilityTokenDefaults,
+	parseOldCapabilityRecord,
+	parseOldParameterRecord,
+	resolveOldCapabilityOverrides,
+	resolveOldModelCapabilities,
+	resolveOldModelParameters,
+} from "./oldWorldResolvers";
 
 export interface OracleServer {
 	readonly label: string;
@@ -90,6 +104,21 @@ export function applyPlanToSnapshot(
 	return sections;
 }
 
+/**
+ * The fixed server baselines walk-level values compare under: a declared
+ * model (no server side), a discovered model reporting nothing, and a
+ * discovered model with typical token values.
+ */
+export const WALK_BASELINES: readonly ServerDeclaredCapabilities[] = [
+	{ kind: "declared" },
+	{ kind: "discovered", values: {}, outputDeclared: false },
+	{
+		kind: "discovered",
+		values: { context_length: 100000, max_output_tokens: 8000, max_input_tokens: 90000, supports_vision: true },
+		outputDeclared: true,
+	},
+];
+
 /** One comparable meaning of a configuration for (server, model). */
 export interface EffectiveView {
 	/** The effective configured request parameters (forced winners applied). */
@@ -102,6 +131,8 @@ export interface EffectiveView {
 	readonly capabilityFallbacks: Record<string, unknown>;
 	/** The exact model IDs declared for this server, sorted. */
 	readonly declared: readonly string[];
+	/** Full-walk effective values (trio included) per WALK_BASELINES entry; values only, never provenance. */
+	readonly walks: readonly Record<string, number | boolean>[];
 }
 
 type Snapshot = Readonly<Record<string, { readonly globalValue?: unknown }>>;
@@ -114,7 +145,7 @@ export type OldWorldResolve = (
 
 export type NewWorldResolve = (snapshot: Snapshot, server: OracleServer, modelId: string) => EffectiveView;
 
-/** The old parser's entry acceptance, replicated for both worlds (label+URL identity, first label wins). */
+/** The entry acceptance both worlds share (label+URL identity, first label wins). */
 function acceptedEntryRecord(rawServers: unknown, server: OracleServer): Record<string, unknown> | undefined {
 	if (!Array.isArray(rawServers)) {
 		return undefined;
@@ -159,45 +190,99 @@ export function acceptedServers(rawServers: unknown): OracleServer[] {
 	return servers;
 }
 
+/** The migration's key rewrite, replicated so the comparison uses post-migration key identity. */
+function explicitMatcherKey(prefix: string): string {
+	return prefix === "" || prefix === "*" ? "*" : `${prefix}*`;
+}
+
+/** The record's own contribution, judged by the record type's parse: field keys plus its marks. */
+function recordContribution(
+	record: Readonly<Record<string, unknown>>,
+	type: "params" | "caps"
+): { fieldKeys: ReadonlySet<string>; marked: boolean } {
+	if (type === "params") {
+		const parsed = parseOldParameterRecord(record);
+		return { fieldKeys: new Set(Object.keys(parsed.fields)), marked: parsed.forced.size > 0 };
+	}
+	const parsed = parseOldCapabilityRecord(record, { allowDeclare: true });
+	return { fieldKeys: new Set(Object.keys(parsed.fields)), marked: parsed.fallback.length > 0 };
+}
+
 /**
- * Whether the descoping of one record diverges for this model. A scoped
- * match always won the old global layer outright, and after the move it
- * lives at the ENTRY level instead, so:
- *  - a scoped winner alongside an unscoped match diverges (the unscoped
- *    record was replaced WHOLE, and now merges below the entry level);
- *  - a scoped winner alongside an entry winner under a DIFFERENT key
- *    diverges (two levels merged field by field, one level now resolves
- *    most-specific-wholesale).
- * A scoped winner whose key matches the entry winner's is exactly the
- * same-key collision withEntryRecordAdditions merges field by field, and a
- * scoped winner with no competition simply moves - both stay in the
- * equivalence property.
+ * Whether the descoping of one record diverges for this model - narrowed to
+ * the cases where the moved record's new position actually changes the
+ * outcome (see the header's scope notes):
+ *  - a scoped winner alongside an unscoped match diverges only when the
+ *    replaced unscoped record contributed something the scoped winner does
+ *    not carry (a field key of its own, or any mark);
+ *  - a scoped winner beside an entry winner under a DIFFERENT key diverges
+ *    only when the record that loses the new most-specific-wholesale rule
+ *    carried any contribution of its own.
  */
 function descopingDiverges(
 	global: Record<string, Record<string, unknown>>,
 	entryRecord: Record<string, Record<string, unknown>> | undefined,
 	scope: string,
-	modelId: string
+	modelId: string,
+	type: "params" | "caps"
 ): boolean {
 	const scopedWinner = findScopedMatch(modelId, [scope], global);
 	if (scopedWinner === undefined) {
 		return false;
 	}
+	const scopedContribution = recordContribution(scopedWinner.value, type);
 	const unscopedOnly = Object.fromEntries(Object.entries(global).filter(([key]) => !key.includes("://")));
-	if (findLongestPrefixEntry(modelId, unscopedOnly) !== undefined) {
-		return true;
+	const unscopedWinner = findLongestPrefixEntry(modelId, unscopedOnly);
+	if (unscopedWinner !== undefined) {
+		const replaced = recordContribution(unscopedWinner.value, type);
+		if (replaced.marked || [...replaced.fieldKeys].some((key) => !scopedContribution.fieldKeys.has(key))) {
+			return true;
+		}
 	}
 	const entryWinner = findLongestPrefixEntry(modelId, entryRecord ?? {});
 	if (entryWinner === undefined) {
 		return false;
 	}
 	const remainder = scopedWinner.key.slice(scope.length + 1);
-	return explicitMatcherKey(remainder) !== explicitMatcherKey(entryWinner.key);
+	if (explicitMatcherKey(remainder) === explicitMatcherKey(entryWinner.key)) {
+		// Same post-migration key: the migration merges the two field by field,
+		// which is exactly the old entry-over-scoped merge. Stays in the property.
+		return false;
+	}
+	// Post-migration both live in the entry level and the more specific key
+	// wins wholesale (a longer glob literal; an exact key beats any glob).
+	// The old world merged entry over scoped key by key, so divergence needs
+	// the losing record to have contributed something.
+	const remainderKey = explicitMatcherKey(remainder);
+	const entryKey = explicitMatcherKey(entryWinner.key);
+	const specificity = (key: string): number =>
+		key === "*" ? -1 : key.endsWith("*") ? key.length - 1 : key.length + 1e6;
+	const entryWins = specificity(entryKey) >= specificity(remainderKey);
+	const loser = entryWins ? scopedWinner.value : entryWinner.value;
+	const loserContribution = recordContribution(loser, type);
+	// In the old world the entry always won key by key; a losing scoped record
+	// still contributed its non-overlapping keys, and a losing entry record
+	// contributed everything it had.
+	if (entryWins) {
+		const winnerKeys = recordContribution(entryWinner.value, type).fieldKeys;
+		return loserContribution.marked || [...loserContribution.fieldKeys].some((key) => !winnerKeys.has(key));
+	}
+	return loserContribution.marked || loserContribution.fieldKeys.size > 0;
 }
 
-/** The migration's key rewrite, replicated so the comparison uses post-migration key identity. */
-function explicitMatcherKey(prefix: string): string {
-	return prefix === "" || prefix === "*" ? "*" : `${prefix}*`;
+/** The old default* trio exactly as the walk consumed it (explicitly-configured positives only). */
+function oldTokenDefaults(snapshot: Snapshot): OldCapabilityTokenDefaults {
+	const explicit = (id: string): { value: number; explicitlyConfigured: boolean } => {
+		const configured = normalizePositiveNumber(snapshot[id]?.globalValue);
+		return configured !== undefined
+			? { value: configured, explicitlyConfigured: true }
+			: { value: 0, explicitlyConfigured: false };
+	};
+	return {
+		contextLength: explicit("defaultContextLength"),
+		maxOutputTokens: explicit("defaultMaxOutputTokens"),
+		maxInputTokens: normalizePositiveNumber(snapshot.defaultMaxInputTokens?.globalValue),
+	};
 }
 
 export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
@@ -205,28 +290,121 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	const entry = acceptedEntryRecord(snapshot.servers?.globalValue, server);
 	const globalParameters = normalizeModelParameters(snapshot.modelParameters?.globalValue);
 	const entryParameters = entry !== undefined ? normalizeModelParameters(entry.modelParameters) : undefined;
-	const params = resolveModelParameters({
+	const hasEntryParameters = entryParameters !== undefined && Object.keys(entryParameters).length > 0;
+	const params = resolveOldModelParameters({
 		rawModelId: modelId,
 		globalParameters,
 		serverScopes: scopes,
-		...(entryParameters !== undefined && Object.keys(entryParameters).length > 0 ? { entryParameters } : {}),
+		...(hasEntryParameters ? { entryParameters } : {}),
 	});
 
 	const globalCapabilities = normalizeModelCapabilities(snapshot.modelCapabilities?.globalValue);
 	const entryCapabilities = entry !== undefined ? normalizeModelCapabilities(entry.modelCapabilities) : undefined;
+	const hasEntryCapabilities = entryCapabilities !== undefined && Object.keys(entryCapabilities).length > 0;
 	const capsInput = {
 		rawModelId: modelId,
 		globalCapabilities,
 		serverScopes: scopes,
-		...(entryCapabilities !== undefined && Object.keys(entryCapabilities).length > 0 ? { entryCapabilities } : {}),
+		...(hasEntryCapabilities ? { entryCapabilities } : {}),
+	};
+	const caps = resolveOldCapabilityOverrides(capsInput);
+	const declared = extractOldDeclaredModels(capsInput);
+
+	const tokenDefaults = oldTokenDefaults(snapshot);
+	const walks = WALK_BASELINES.map((serverDeclared) => ({
+		...resolveOldModelCapabilities({ ...capsInput, serverDeclared, tokenDefaults }),
+	}));
+
+	// The trio-fill flow corners (see the header): the OLD trio applied to
+	// every model regardless of other records, while the migrated "*" fill
+	// participates in the matcher chain - a matching record that sets the
+	// same field either wins it in both worlds (no divergence) or blocks the
+	// fill's flow / drains it at merge time (divergence: the old trio still
+	// applied underneath, max_input's above-server quirk included). Skipped
+	// conservatively whenever a configured trio field is also set by any
+	// matching unscoped global record; the drained, blocked, and quirk
+	// corners are each pinned in the property file's divergence suite.
+	const configuredTrioFields = [
+		...(tokenDefaults.contextLength.explicitlyConfigured ? (["context_length"] as const) : []),
+		...(tokenDefaults.maxOutputTokens.explicitlyConfigured ? (["max_output_tokens"] as const) : []),
+		...(tokenDefaults.maxInputTokens !== undefined ? (["max_input_tokens"] as const) : []),
+	];
+	const oldPrefixMatches = (key: string): boolean => key === "*" || modelId === key || modelId.startsWith(key);
+	const trioFlowDiverges =
+		configuredTrioFields.length > 0 &&
+		Object.entries(globalCapabilities).some(
+			([key, record]) =>
+				!key.includes("://") &&
+				oldPrefixMatches(key) &&
+				configuredTrioFields.some((field) =>
+					Object.hasOwn(parseOldCapabilityRecord(record, { allowDeclare: true }).fields, field)
+				)
+		);
+
+	const capabilityOverrides: Record<string, unknown> = {};
+	const capabilityFallbacks: Record<string, unknown> = {};
+	for (const field of Object.keys(CAPABILITY_FIELDS)) {
+		const override = caps.overrides[field as keyof typeof caps.overrides];
+		if (override !== undefined) {
+			capabilityOverrides[field] = override;
+		}
+		const fallback = caps.fallbacks[field as keyof typeof caps.fallbacks];
+		if (fallback !== undefined) {
+			capabilityFallbacks[field] = fallback;
+		}
+	}
+
+	const scope = scopes[0] as string;
+	return {
+		parameters: { ...params.params },
+		forced: { ...params.forcedParams },
+		capabilityOverrides,
+		capabilityFallbacks,
+		declared: [...new Set(declared)].sort(),
+		walks,
+		skipEquivalence:
+			trioFlowDiverges ||
+			descopingDiverges(globalParameters, hasEntryParameters ? entryParameters : undefined, scope, modelId, "params") ||
+			descopingDiverges(
+				globalCapabilities,
+				hasEntryCapabilities ? entryCapabilities : undefined,
+				scope,
+				modelId,
+				"caps"
+			),
+	};
+};
+
+// --- The redesigned world, resolved by the LIVE resolvers -----------------
+
+function newWorldRecord(value: unknown): Record<string, Record<string, unknown>> {
+	return normalizeModelParameters(value);
+}
+
+export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, modelId) => {
+	const entry = acceptedEntryRecord(snapshot.servers?.globalValue, server);
+	const entryModels = entry !== undefined && isRecord(entry.models) ? entry.models : undefined;
+
+	const globalParameters = newWorldRecord(snapshot["models.parameters"]?.globalValue);
+	const entryParameters = entryModels !== undefined ? newWorldRecord(entryModels.parameters) : undefined;
+	const hasEntryParameters = entryParameters !== undefined && Object.keys(entryParameters).length > 0;
+	const params = resolveModelParameters({
+		rawModelId: modelId,
+		globalParameters,
+		...(hasEntryParameters ? { entryParameters } : {}),
+	});
+
+	const globalCapabilities = normalizeModelCapabilities(snapshot["models.capabilities"]?.globalValue);
+	const entryCapabilities =
+		entryModels !== undefined ? normalizeModelCapabilities(entryModels.capabilities) : undefined;
+	const hasEntryCapabilities = entryCapabilities !== undefined && Object.keys(entryCapabilities).length > 0;
+	const capsInput = {
+		rawModelId: modelId,
+		globalCapabilities,
+		...(hasEntryCapabilities ? { entryCapabilities } : {}),
 		catalog: EMPTY_CATALOG_LOOKUP,
 	};
 	const caps = resolveCapabilityOverrides(capsInput);
-	const declared = extractDeclaredModels({
-		globalCapabilities,
-		serverScopes: scopes,
-		...(capsInput.entryCapabilities !== undefined ? { entryCapabilities: capsInput.entryCapabilities } : {}),
-	});
 
 	const capabilityOverrides: Record<string, unknown> = {};
 	const capabilityFallbacks: Record<string, unknown> = {};
@@ -241,186 +419,33 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		}
 	}
 
-	const scope = scopes[0] as string;
+	const walks = WALK_BASELINES.map((serverDeclared) => {
+		const effective = resolveModelCapabilities({ ...capsInput, serverDeclared });
+		return Object.fromEntries(
+			Object.keys(CAPABILITY_FIELDS).map((field) => [
+				field,
+				effective.fields[field as keyof typeof CAPABILITY_FIELDS].value,
+			])
+		);
+	});
+
+	const discovery = entry !== undefined && isRecord(entry.discovery) ? entry.discovery : undefined;
+	const declared = Array.isArray(discovery?.declared)
+		? [
+				...new Set(
+					discovery.declared
+						.map((id) => (typeof id === "string" ? id.trim() : undefined))
+						.filter((id): id is string => id !== undefined && id !== "")
+				),
+			].sort()
+		: [];
+
 	return {
 		parameters: { ...params.params },
 		forced: { ...params.forcedParams },
 		capabilityOverrides,
 		capabilityFallbacks,
-		declared: [...new Set(declared.models.map((model) => model.rawId))].sort(),
-		skipEquivalence:
-			params.replacedUnscoped !== undefined ||
-			caps.replacedUnscoped !== undefined ||
-			descopingDiverges(globalParameters, entryParameters, scope, modelId) ||
-			descopingDiverges(globalCapabilities, entryCapabilities, scope, modelId),
+		declared,
+		walks,
 	};
-};
-
-// --- The new-grammar reference interpreter -------------------------------
-
-interface MatchedRecord {
-	readonly key: string;
-	readonly record: Record<string, unknown>;
-}
-
-/**
- * The redesigned matcher grammar restricted to the migration's output: "*"
- * is the catch-all, a trailing "*" is a glob over its literal prefix (a
- * literal containing another "*" is an invalid matcher and ignored, ruling
- * O1), anything else matches exactly. Specificity: exact > glob with the
- * longer literal > "*".
- */
-function mostSpecificMatch(record: Record<string, unknown>, modelId: string): MatchedRecord | undefined {
-	let exact: MatchedRecord | undefined;
-	let glob: (MatchedRecord & { literal: string }) | undefined;
-	let catchAll: MatchedRecord | undefined;
-	for (const [key, value] of Object.entries(record)) {
-		if (!isRecord(value)) {
-			continue;
-		}
-		if (key === "*") {
-			catchAll = { key, record: value };
-			continue;
-		}
-		if (key.endsWith("*")) {
-			const literal = key.slice(0, -1);
-			if (literal.includes("*")) {
-				continue;
-			}
-			if (modelId.startsWith(literal) && (glob === undefined || literal.length > glob.literal.length)) {
-				glob = { key, record: value, literal };
-			}
-			continue;
-		}
-		if (key.includes("*")) {
-			continue;
-		}
-		if (key === modelId) {
-			exact = { key, record: value };
-		}
-	}
-	return exact ?? glob ?? catchAll;
-}
-
-/** The names a `true | [fields]` directive marks among a record's own non-directive fields. */
-function markedFields(record: Record<string, unknown>, directive: string, eligible: readonly string[]): Set<string> {
-	const raw = record[directive];
-	if (raw === true) {
-		return new Set(eligible);
-	}
-	if (Array.isArray(raw)) {
-		return new Set(raw.filter((name): name is string => typeof name === "string" && eligible.includes(name)));
-	}
-	return new Set();
-}
-
-/** One level's resolved capability chain: override and fallback values with the "*" record's inheritable flow. */
-function capabilityChain(
-	record: Record<string, unknown> | undefined,
-	modelId: string
-): { overrides: Record<string, unknown>; fallbacks: Record<string, unknown> } {
-	const overrides: Record<string, unknown> = {};
-	const fallbacks: Record<string, unknown> = {};
-	if (record === undefined) {
-		return { overrides, fallbacks };
-	}
-	const winner = mostSpecificMatch(record, modelId);
-	if (winner === undefined) {
-		return { overrides, fallbacks };
-	}
-	// Value typing mirrors parseCapabilityRecord: number fields take positive
-	// integers, boolean fields booleans, anything else stays unset (so a
-	// lower level's valid value can win) - and only validly-set fields are
-	// eligible for `_fallback` marking.
-	const isValidField = (source: Record<string, unknown>, name: string): boolean => {
-		const type = CAPABILITY_FIELDS[name as keyof typeof CAPABILITY_FIELDS];
-		const value = source[name];
-		if (type === "number") {
-			return typeof value === "number" && Number.isInteger(value) && value > 0;
-		}
-		return type === "boolean" && typeof value === "boolean";
-	};
-	const fieldNames = (source: Record<string, unknown>): string[] =>
-		Object.keys(source).filter((key) => Object.hasOwn(CAPABILITY_FIELDS, key) && isValidField(source, key));
-	const place = (source: Record<string, unknown>, field: string): void => {
-		const fallbackSet = markedFields(source, "_fallback", fieldNames(source));
-		if (fallbackSet.has(field)) {
-			fallbacks[field] = source[field];
-		} else {
-			overrides[field] = source[field];
-		}
-	};
-	for (const field of fieldNames(winner.record)) {
-		place(winner.record, field);
-	}
-	// Pass-through inheritance from an inheritable "*" record: fields flow to
-	// a more specific winner that does not set them, keeping their source's
-	// fallback marking. The migration emits `_inheritable` only there.
-	const broad = winner.key !== "*" && isRecord(record["*"]) ? (record["*"] as Record<string, unknown>) : undefined;
-	if (broad !== undefined) {
-		const inheritable = markedFields(broad, "_inheritable", fieldNames(broad));
-		for (const field of fieldNames(broad)) {
-			if (!inheritable.has(field) || Object.hasOwn(winner.record, field)) {
-				continue;
-			}
-			place(broad, field);
-		}
-	}
-	return { overrides, fallbacks };
-}
-
-/** One level's resolved parameter chain: pass-through fields plus the `_force` winners. */
-function parameterChain(
-	record: Record<string, unknown> | undefined,
-	modelId: string
-): { fields: Record<string, unknown>; forced: Record<string, unknown> } {
-	const fields: Record<string, unknown> = {};
-	const forced: Record<string, unknown> = {};
-	if (record === undefined) {
-		return { fields, forced };
-	}
-	const winner = mostSpecificMatch(record, modelId);
-	if (winner === undefined) {
-		return { fields, forced };
-	}
-	for (const [key, value] of Object.entries(winner.record)) {
-		if (key !== "_force") {
-			Object.defineProperty(fields, key, { value, enumerable: true, writable: true, configurable: true });
-		}
-	}
-	const eligible = Object.keys(fields).filter((key) => parameterSkipReason(key) === undefined);
-	for (const name of markedFields(winner.record, "_force", eligible)) {
-		forced[name] = fields[name];
-	}
-	return { fields, forced };
-}
-
-function newWorldRecord(value: unknown): Record<string, unknown> | undefined {
-	if (!isRecord(value)) {
-		return undefined;
-	}
-	const cleaned = Object.fromEntries(Object.entries(value).filter(([key]) => !isUnsafeRecordKey(key)));
-	return cleaned;
-}
-
-export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, modelId) => {
-	const entry = acceptedEntryRecord(snapshot.servers?.globalValue, server);
-	const entryModels = entry !== undefined && isRecord(entry.models) ? entry.models : undefined;
-
-	const globalParams = parameterChain(newWorldRecord(snapshot["models.parameters"]?.globalValue), modelId);
-	const entryParams = parameterChain(newWorldRecord(entryModels?.parameters), modelId);
-	const forced = { ...globalParams.forced, ...entryParams.forced };
-	const parameters = { ...globalParams.fields, ...entryParams.fields, ...forced };
-
-	const globalCaps = capabilityChain(newWorldRecord(snapshot["models.capabilities"]?.globalValue), modelId);
-	const entryCaps = capabilityChain(newWorldRecord(entryModels?.capabilities), modelId);
-	const capabilityOverrides = { ...globalCaps.overrides, ...entryCaps.overrides };
-	const capabilityFallbacks = { ...globalCaps.fallbacks, ...entryCaps.fallbacks };
-
-	const discovery = entry !== undefined && isRecord(entry.discovery) ? entry.discovery : undefined;
-	const declared = Array.isArray(discovery?.declared)
-		? [...new Set(discovery.declared.filter((id): id is string => typeof id === "string"))].sort()
-		: [];
-
-	return { parameters, forced, capabilityOverrides, capabilityFallbacks, declared };
 };

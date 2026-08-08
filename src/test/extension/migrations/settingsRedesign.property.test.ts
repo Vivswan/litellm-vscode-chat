@@ -9,13 +9,12 @@
  *  (b) write discipline: value writes land only on new-name ids (plus
  *      `servers`), deletions only on legacy ids - the plan never proposes a
  *      workspace-scope write because the plan carries no scope at all;
- *  (c) lossless behavior equivalence: this branch's live resolvers over the
- *      old snapshot agree with a new-grammar reference interpreter over the
- *      migrated snapshot, for random (server, model) pairs. The reference
- *      is the spec-side oracle until R1's resolver lands - see
+ *  (c) lossless behavior equivalence: the FROZEN pre-redesign resolvers over
+ *      the old snapshot agree with the LIVE redesigned resolvers over the
+ *      migrated snapshot, for random (server, model) pairs - resolver-level
+ *      views and the full capability walk (trio included) alike. See
  *      settingsRedesignOracle.ts for the documented divergence corners the
- *      property skips (each pinned deterministically below) and for the
- *      integration plug that swaps in the real resolver.
+ *      property skips (each pinned deterministically below).
  *
  * Seed-pinned and FUZZ_RUNS-scaled like every property suite; failures pin
  * into MIGRATION_FUZZ_CORPUS (src/test/fuzzCorpus.ts) and replay first.
@@ -37,6 +36,7 @@ import {
 	type EffectiveView,
 	resolveNewWorldReference,
 	resolveOldWorld,
+	WALK_BASELINES,
 } from "./settingsRedesignOracle";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 120;
@@ -444,19 +444,9 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 		);
 	});
 
-	test("lossless equivalence: old resolvers on the old world == new-grammar reference on the migrated world", () => {
+	test("lossless equivalence: old resolvers on the old world == the live resolvers on the migrated world", () => {
 		fc.assert(
-			fc.property(snapshotArb(1), fc.nat(), modelIdArb, (withTrio, pick, modelId) => {
-				// The trio compares at the full capability WALK level (its values
-				// lived below the resolver this oracle projects), so its
-				// equivalence lands with R1's resolver at integration; the
-				// resolver-level property compares trio-free configurations.
-				const {
-					defaultContextLength: _context,
-					defaultMaxInputTokens: _input,
-					defaultMaxOutputTokens: _output,
-					...snapshot
-				} = withTrio;
+			fc.property(snapshotArb(1), fc.nat(), modelIdArb, (snapshot, pick, modelId) => {
 				const servers = acceptedServers(snapshot.servers?.globalValue);
 				fc.pre(servers.length > 0);
 				const server = servers[pick % servers.length];
@@ -464,18 +454,37 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 				const old = resolveOldWorld(snapshot, server as { label: string; baseUrl: string }, modelId);
 				fc.pre(!old.skipEquivalence);
 
-				const plan = planSettingsRedesign(snapshot);
-				const migrated = applyPlanToSnapshot(snapshot, plan.writes);
-				const projected = resolveNewWorldReference(migrated, server as { label: string; baseUrl: string }, modelId);
+				// The resolver-level views compare trio-free: the old trio lived
+				// BELOW the resolver (the walk's default-setting level), so the
+				// migrated "*" fills would otherwise surface as new fallback
+				// fields. The old side's resolver-level projection is
+				// trio-independent, so `old` serves both comparisons.
+				const {
+					defaultContextLength: _context,
+					defaultMaxInputTokens: _input,
+					defaultMaxOutputTokens: _output,
+					...noTrio
+				} = snapshot;
+				const migratedNoTrio = applyPlanToSnapshot(noTrio, planSettingsRedesign(noTrio).writes);
+				const projectedNoTrio = resolveNewWorldReference(
+					migratedNoTrio,
+					server as { label: string; baseUrl: string },
+					modelId
+				);
+				const resolverView = (view: EffectiveView) => ({
+					parameters: view.parameters,
+					forced: view.forced,
+					capabilityOverrides: view.capabilityOverrides,
+					capabilityFallbacks: view.capabilityFallbacks,
+					declared: view.declared,
+				});
+				assert.deepStrictEqual(resolverView(projectedNoTrio), resolverView(old));
 
-				const expected: EffectiveView = {
-					parameters: old.parameters,
-					forced: old.forced,
-					capabilityOverrides: old.capabilityOverrides,
-					capabilityFallbacks: old.capabilityFallbacks,
-					declared: old.declared,
-				};
-				assert.deepStrictEqual(projected, expected);
+				// The walk-level values compare with the trio included: the fills
+				// must reproduce the old default-setting behavior end to end.
+				const migrated = applyPlanToSnapshot(snapshot, planSettingsRedesign(snapshot).writes);
+				const projected = resolveNewWorldReference(migrated, server as { label: string; baseUrl: string }, modelId);
+				assert.deepStrictEqual(projected.walks, old.walks);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED, maxSkipsPerRun: 400 }
 		);
@@ -552,5 +561,76 @@ suite("extension/migrations/settingsRedesign: documented divergence pins", () =>
 		const projected = resolveNewWorldReference(migrated, server, "gpt-5");
 		assert.deepStrictEqual(projected.parameters, { temperature: 1 }, "new: the entry's own value stands");
 		assert.deepStrictEqual(projected.forced, {}, "the scoped mark is dropped, never re-pointed");
+	});
+
+	test("the defaultMaxInputTokens quirk cannot pass a global record that fallback-marks max_input_tokens", () => {
+		// Old: the trio's max_input slot sat ABOVE the server report and the
+		// fallback candidates, so it beat a fallback-marked user value even
+		// when the server reported max_input. New: the migrated "*" fill does
+		// not flow past a record that sets the field, so the server report
+		// wins. The equivalence property skips this corner (the oracle's
+		// maxInputQuirkDiverges), pinned here so the accepted change stays
+		// visible.
+		const snapshot: SettingsSnapshot = {
+			servers: { globalValue: [{ label: "prod", baseUrl: "https://gw" }] },
+			defaultMaxInputTokens: { globalValue: 111000 },
+			modelCapabilities: { globalValue: { "gpt-5": { max_input_tokens: 50000, _fallback: ["max_input_tokens"] } } },
+		};
+		const server = { label: "prod", baseUrl: "https://gw" };
+		const serverReported = WALK_BASELINES[2];
+		assert.ok(serverReported !== undefined && serverReported.kind === "discovered");
+		const old = resolveOldWorld(snapshot, server, "gpt-5");
+		assert.strictEqual(old.skipEquivalence, true, "the oracle skips exactly this corner");
+		assert.strictEqual(old.walks[2]?.max_input_tokens, 111000, "old: the quirk beat the server report");
+
+		const plan = planSettingsRedesign(snapshot);
+		const migrated = applyPlanToSnapshot(snapshot, plan.writes);
+		const projected = resolveNewWorldReference(migrated, server, "gpt-5");
+		assert.strictEqual(
+			projected.walks[2]?.max_input_tokens,
+			serverReported.values.max_input_tokens,
+			"new: the server report wins where the record sets the field"
+		);
+	});
+});
+
+suite("extension/migrations/settingsRedesign: behavior parity spot-checks", () => {
+	const server = { label: "prod", baseUrl: "https://gw" };
+	const migrate = (snapshot: SettingsSnapshot) => applyPlanToSnapshot(snapshot, planSettingsRedesign(snapshot).writes);
+
+	test("a migrated trio context fallback loses to the server-declared context", () => {
+		const snapshot: SettingsSnapshot = {
+			servers: { globalValue: [{ label: "prod", baseUrl: "https://gw" }] },
+			defaultContextLength: { globalValue: 64000 },
+		};
+		const projected = resolveNewWorldReference(migrate(snapshot), server, "gpt-5");
+		// WALK_BASELINES[2] declares context_length 100000.
+		assert.strictEqual(projected.walks[2]?.context_length, 100000, "the server-declared context wins");
+		assert.strictEqual(projected.walks[1]?.context_length, 64000, "with nothing reported, the fill applies");
+	});
+
+	test("a migrated defaultMaxInputTokens override beats the server-reported max input", () => {
+		const snapshot: SettingsSnapshot = {
+			servers: { globalValue: [{ label: "prod", baseUrl: "https://gw" }] },
+			defaultMaxInputTokens: { globalValue: 111000 },
+		};
+		const projected = resolveNewWorldReference(migrate(snapshot), server, "gpt-5");
+		// WALK_BASELINES[2] reports max_input_tokens 90000; the migrated plain
+		// override preserves the old quirk of beating it.
+		assert.strictEqual(projected.walks[2]?.max_input_tokens, 111000);
+	});
+
+	test("the migrated '*' record reaches a model that has a specific record (the _inheritable bit)", () => {
+		const snapshot: SettingsSnapshot = {
+			servers: { globalValue: [{ label: "prod", baseUrl: "https://gw" }] },
+			defaultContextLength: { globalValue: 64000 },
+			modelCapabilities: { globalValue: { "gpt-5": { supports_vision: true } } },
+		};
+		const projected = resolveNewWorldReference(migrate(snapshot), server, "gpt-5");
+		// The specific record wins the chain wholesale, but the "*" fill is
+		// marked _inheritable, so it still flows into the resolved view -
+		// exactly how the old defaults applied to every model.
+		assert.strictEqual(projected.capabilityOverrides.supports_vision, true);
+		assert.strictEqual(projected.walks[1]?.context_length, 64000, "the inheritable fill reaches the specific match");
 	});
 });
