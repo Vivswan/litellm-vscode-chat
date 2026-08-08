@@ -13,6 +13,7 @@ import { collectLegacyHints } from "../../../extension/migrations/settingsRedesi
 import { planSettingsRedesign } from "../../../extension/migrations/settingsRedesign/transform";
 import type { SettingsSnapshot } from "../../../extension/migrations/settingsRedesign/types";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import { matcherMatches, parseMatcherKey } from "../../../shared/config/modelMatcher";
 import { PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
 import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
@@ -148,9 +149,52 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 		assert.deepStrictEqual(globalValueOf(after, "models.parameters"), {
 			"*": { temperature: 1 },
 			"gpt-5*": { top_p: 0.9, _force: ["top_p"] },
-			"gpt-5**": { seed: 1 },
+			// A key with a literal star migrates to an escaped anchored-prefix
+			// regex (ruling): star-appending would mint an invalid matcher and
+			// verbatim would activate glob semantics over a superset.
+			"/gpt-5\\*.*/": { seed: 1 },
 		});
 		assert.strictEqual(globalValueOf(after, "modelParameters"), undefined);
+	});
+
+	test("a star-bearing key's regex form preserves the old literal-prefix match set", () => {
+		const { after } = migrate({
+			modelParameters: { globalValue: { "gpt*": { temperature: 0.4 } } },
+		});
+		const record = globalValueOf(after, "models.parameters") as Record<string, Record<string, unknown>>;
+		const key = expectDefined(Object.keys(record)[0]);
+		assert.strictEqual(key, "/gpt\\*.*/");
+		const parse = parseMatcherKey(key);
+		assert.ok(parse.ok, "the migrated key must be a valid matcher");
+		assert.ok(matcherMatches(parse.matcher, "gpt*"), "the exact old literal still matches");
+		assert.ok(matcherMatches(parse.matcher, "gpt*-turbo"), "old literal-prefix extensions still match");
+		assert.ok(!matcherMatches(parse.matcher, "gpt-4"), "glob semantics must NOT activate: gpt-4 never matched");
+	});
+
+	test("a migrated _force covering max_tokens is minimally rewritten to its old coverage", () => {
+		const { after, plan } = migrate({
+			modelParameters: {
+				globalValue: {
+					// _force: true on a record that sets max_tokens expands to the
+					// old-forceable literal list (max_tokens was unforceable).
+					"gpt-5": { max_tokens: 100, temperature: 0.2, _force: true },
+					// An explicit list drops the max_tokens name the old parser
+					// diagnosed and ignored.
+					"claude-4": { max_tokens: 50, top_p: 0.9, _force: ["max_tokens", "top_p"] },
+					// A record not touching max_tokens rides VERBATIM.
+					deepseek: { temperature: 0.1, _force: true },
+				},
+			},
+		});
+		assert.deepStrictEqual(globalValueOf(after, "models.parameters"), {
+			"gpt-5*": { max_tokens: 100, temperature: 0.2, _force: ["temperature"] },
+			"claude-4*": { max_tokens: 50, top_p: 0.9, _force: ["top_p"] },
+			"deepseek*": { temperature: 0.1, _force: true },
+		});
+		assert.ok(
+			plan.logLines.some((line) => line.includes("Rewrote 2 migrated _force directive(s)")),
+			plan.logLines.join(" | ")
+		);
 	});
 
 	test("'' and '*' side by side collapse to the '*' record, matching the old tie rule", () => {
@@ -419,6 +463,17 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 });
 
 suite("extension/migrations/settingsRedesign: _declare directives", () => {
+	test("a declared ID moves TRIMMED, matching the parser's read of the list", () => {
+		const { after } = migrate({
+			servers: {
+				globalValue: [{ label: "a", baseUrl: "https://gw", modelCapabilities: { " r1 ": { _declare: true } } }],
+			},
+		});
+		const servers = globalValueOf(after, "servers") as Record<string, unknown>[];
+		const discovery = expectDefined(servers[0]).discovery as Record<string, unknown>;
+		assert.deepStrictEqual(discovery.declared, ["r1"]);
+	});
+
 	test("an entry record's _declare moves into discovery.declared and the record describes the model", () => {
 		const before: SettingsSnapshot = {
 			servers: {
@@ -510,6 +565,16 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 		return expectDefined(servers[0]);
 	}
 
+	test("a header-less virtualKey value drops instead of misconfiguring the entry (ruling)", () => {
+		// The parser refuses a headerless virtualKey, so carrying the value
+		// half would kill the whole entry's service; it drops (counted) and a
+		// stored blob under the label survives for a re-added header.
+		const entry = migrateEntry({ label: "a", baseUrl: "https://gw", apiKey: "sk-x", virtualKeyValue: "vk-orphan" });
+		assert.deepStrictEqual(entry, { label: "a", baseUrl: "https://gw", auth: { apiKey: "sk-x" } });
+		const lone = migrateEntry({ label: "b", baseUrl: "https://gw", virtualKeyValue: "vk-orphan" });
+		assert.deepStrictEqual(lone, { label: "b", baseUrl: "https://gw" });
+	});
+
 	test("apiKey alone becomes the apiKey form", () => {
 		const entry = migrateEntry({ label: "a", baseUrl: "https://gw", apiKey: "sk-x" });
 		assert.deepStrictEqual(entry, { label: "a", baseUrl: "https://gw", auth: { apiKey: "sk-x" } });
@@ -556,15 +621,12 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 		});
 	});
 
-	test("virtualKey alone becomes the virtualKey form, half-set pieces included", () => {
+	test("virtualKey alone becomes the virtualKey form; a lone header keeps riding", () => {
 		assert.deepStrictEqual(
 			migrateEntry({ label: "a", baseUrl: "https://gw", virtualKeyHeader: "x-key" }).auth,
 			{ virtualKey: { header: "x-key" } },
 			"a header waiting for its stored secret stays declared"
 		);
-		assert.deepStrictEqual(migrateEntry({ label: "a", baseUrl: "https://gw", virtualKeyValue: "vk" }).auth, {
-			virtualKey: { value: "vk" },
-		});
 	});
 
 	test("lone oauth pieces drain: partial oauth never made a form and would misconfigure the entry", () => {
