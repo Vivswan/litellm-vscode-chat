@@ -2386,6 +2386,19 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(notice, "Connected - 1 model (declared)");
 		});
 
+		test("the probe carries the edited entry's custom headers, exactly what a save preserves", async () => {
+			// A gateway requiring a header must not report a false probe failure
+			// for a configuration that works once saved (the saved entry keeps
+			// its headers verbatim, and the request path sends them).
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", headers: { "x-cf-access": "token-1" } }]);
+			recorded.probeResult = ["m1"];
+			await draftTest(recorded, {
+				server: { label: "Prod", baseUrl: "http://prod.test" },
+				replaceLabel: "Prod",
+			});
+			assert.deepStrictEqual(recorded.probes[0]?.headers, { "x-cf-access": "token-1" });
+		});
+
 		test("an expected modelListing failure reports the declared models instead of failing", async () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", discovery: { declared: ["my-model"] } }]);
 			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
