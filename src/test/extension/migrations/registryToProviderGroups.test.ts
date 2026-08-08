@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { FingerprintSaltSession } from "../../../extension/fingerprintSalt";
-import { getMigratedServerLabels } from "../../../extension/migrations/labelScopedModelParameters";
+import { getMigratedServerLabels, unionLabelSources } from "../../../extension/migrations/labelScopedModelParameters";
 import { legacySingleServerMigration } from "../../../extension/migrations/legacySingleServer";
 import {
 	isGroupMigrationComplete,
@@ -1042,36 +1042,26 @@ suite("extension/migrations/registryToProviderGroups", () => {
 			assert.strictEqual(isGroupMigrationComplete(storage.memento), true);
 		});
 
-		test("a pass that merges new label-map entries reruns the label-scoped copy on the same activation", async () => {
-			// The copy migration runs pre-registration, before this (post-
-			// registration) migration writes the label map, so the wrapper must
-			// invoke it again once new entries merge; otherwise a registry-era
-			// updater's label-scoped keys would wait a full session for their
-			// base-URL copies.
+		test("a pass that merges new label-map entries needs no label-copy rerun: the fold's union already covers them", async () => {
+			// The label-scoped rewrite is folded into the settings-redesign
+			// pipeline (pre-registration), whose label union includes the
+			// REGISTRY SNAPSHOT - so every label this pass can merge into the
+			// map was already visible to the fold before registration, seeded
+			// or not. This pins the premise: the merged map adds nothing the
+			// union did not already carry.
 			const storage = makeExtensionStorage();
+			const registry = new ServerRegistry(storage.memento, storage.secrets);
+			await registry.addServer("Production", "http://prod.test", "key");
+			const unionBefore = unionLabelSources(getMigratedServerLabels(storage.memento), registry.getServers());
+			assert.deepStrictEqual(unionBefore, { "http://prod.test": ["Production"] });
+
 			storage.mementoStore.set(SEEDED_PROVIDER_GROUPS_KEY, [
 				{ id: "aaaa1111", name: "Production", label: "Production", baseUrl: "http://prod.test", keyFingerprint: "0" },
 			]);
-			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-			const original = config.inspect<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY)?.globalValue;
-			await config.update(
-				MODEL_PARAMETERS_SETTING_KEY,
-				{ "Production/gpt-4": { temperature: 0.25 } },
-				vscode.ConfigurationTarget.Global
-			);
+			await registryToProviderGroupsMigration.run(makeMigrationContext(storage, { registry }));
 
-			try {
-				const outcome = await registryToProviderGroupsMigration.run(makeMigrationContext(storage));
-
-				assert.strictEqual(outcome, "migrated");
-				const rewritten = vscode.workspace
-					.getConfiguration(CONFIG_SECTION)
-					.get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY);
-				assert.deepStrictEqual(rewritten?.["http://prod.test/gpt-4"], { temperature: 0.25 });
-				assert.deepStrictEqual(rewritten?.["Production/gpt-4"], { temperature: 0.25 }, "the original key is kept");
-			} finally {
-				await config.update(MODEL_PARAMETERS_SETTING_KEY, original, vscode.ConfigurationTarget.Global);
-			}
+			const unionAfter = unionLabelSources(getMigratedServerLabels(storage.memento), registry.getServers());
+			assert.deepStrictEqual(unionAfter, unionBefore, "seeding merged no label the union had not already derived");
 		});
 	});
 

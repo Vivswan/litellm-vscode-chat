@@ -13,6 +13,7 @@ import { collectLegacyHints } from "../../../extension/migrations/settingsRedesi
 import { planSettingsRedesign } from "../../../extension/migrations/settingsRedesign/transform";
 import type { SettingsSnapshot } from "../../../extension/migrations/settingsRedesign/types";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import { PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
 import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 import { applyPlanToSnapshot } from "./settingsRedesignOracle";
@@ -1274,18 +1275,29 @@ suite("extension/migrations/settingsRedesign: applier", () => {
 		parkedWrites: unknown[];
 		parked: () => unknown;
 	} {
-		let parked = initial;
+		// Keyed like a real Memento: the applier also reads (and clears) the
+		// pre-fold entry-copy ledger under its own key.
+		const values = new Map<string, unknown>();
+		if (initial !== undefined) {
+			values.set(PARKED_GLOBAL_HEADERS_KEY, initial);
+		}
 		const parkedWrites: unknown[] = [];
 		return {
 			store: {
-				get: <T>() => parked as T | undefined,
-				update: async (_key: string, value: unknown) => {
-					parkedWrites.push(value);
-					parked = value;
+				get: <T>(key: string) => values.get(key) as T | undefined,
+				update: async (key: string, value: unknown) => {
+					if (key === PARKED_GLOBAL_HEADERS_KEY) {
+						parkedWrites.push(value);
+					}
+					if (value === undefined) {
+						values.delete(key);
+					} else {
+						values.set(key, value);
+					}
 				},
 			},
 			parkedWrites,
-			parked: () => parked,
+			parked: () => values.get(PARKED_GLOBAL_HEADERS_KEY),
 		};
 	}
 
@@ -1378,26 +1390,28 @@ suite("extension/migrations/settingsRedesign: applier", () => {
 });
 
 suite("extension/migrations/settingsRedesign: migration wiring", () => {
-	// The "migrated" path cannot be driven through the configuration API on
-	// this branch: the host refuses VALUE writes to unregistered keys (pinned
-	// in activation/production.test.ts) and the new ids are exactly that
-	// until the renamed manifest lands. The pure-transform suites above own
-	// the behavior; this proves run(ctx) reads the real configuration and
-	// touches no storage on a profile without legacy state. (The migration is
-	// not storage-free in general: the headers-parking path reads and writes
-	// one globalState key, guarded by plan.parkedHeaders being present, which
-	// it never is here.)
-	test("the registered pre-registration migration no-ops on a clean profile without touching storage", async () => {
+	// The applier end-to-end coverage (seeded legacy ids through the real
+	// configuration API, registered new ids read back) lives in
+	// activation/production.test.ts; this proves run(ctx) no-ops on a profile
+	// without legacy state and WRITES no storage doing so. run() legitimately
+	// READS globalState (the label map union and the pre-fold entry-copy
+	// ledger feed the folded label expansion) and the registry snapshot; only
+	// mutations are forbidden here.
+	test("the registered pre-registration migration no-ops on a clean profile without writing storage", async () => {
 		const storage = makeExtensionStorage();
-		const throwing = <T extends object>(name: string, target: T): T =>
+		const writeForbidding = <T extends object>(name: string, target: T): T =>
 			new Proxy(target, {
-				get() {
-					throw new Error(`${name} must never be touched by the settings-redesign migration`);
+				get(inner, property, receiver) {
+					if (property === "update" || property === "store" || property === "delete") {
+						throw new Error(`${name} must never be written by the settings-redesign migration`);
+					}
+					const value = Reflect.get(inner, property, receiver);
+					return typeof value === "function" ? value.bind(inner) : value;
 				},
 			});
 		const ctx: MigrationContext = {
-			globalState: throwing("globalState", storage.memento),
-			secrets: throwing("secrets", storage.secrets),
+			globalState: writeForbidding("globalState", storage.memento),
+			secrets: writeForbidding("secrets", storage.secrets),
 			registry: new ServerRegistry(storage.memento, storage.secrets),
 			logger: new Logger({ info: () => {}, error: () => {} }),
 			fingerprintSalt: fakeFingerprintSaltSession(),
