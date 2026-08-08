@@ -10,11 +10,54 @@
  * import it.
  */
 
-import type { CapabilityFieldValues, ServerDeclaredCapabilities } from "../../../shared/config/capabilityResolution";
-import { CAPABILITY_FIELDS, CAPABILITY_FLOOR } from "../../../shared/config/capabilityResolution";
-import { parameterSkipReason } from "../../../shared/config/parameterResolution";
+import type { ServerDeclaredCapabilities } from "../../../shared/config/capabilityResolution";
+
+// The pre-redesign vocabulary and policy constants, frozen LOCALLY: importing
+// the live ones would let a future vocabulary or forceability change silently
+// mutate this oracle's old-world behavior.
+const CAPABILITY_FIELDS = {
+	context_length: "number",
+	max_input_tokens: "number",
+	max_output_tokens: "number",
+	supports_function_calling: "boolean",
+	supports_vision: "boolean",
+	supports_reasoning: "boolean",
+	supports_audio_input: "boolean",
+} as const;
 
 type CapabilityFieldName = keyof typeof CAPABILITY_FIELDS;
+
+type CapabilityFieldValues = { readonly [K in CapabilityFieldName]: number | boolean };
+
+const CAPABILITY_FLOOR = {
+	context_length: 128000,
+	max_output_tokens: 16000,
+	supports_function_calling: true,
+	supports_vision: false,
+	supports_reasoning: false,
+	supports_audio_input: false,
+} as const;
+
+/** The pre-redesign skip rule: max_tokens was provider-owned and therefore UNFORCEABLE in the old grammar. */
+const OLD_PROVIDER_OWNED_KEYS: ReadonlySet<string> = new Set([
+	"model",
+	"messages",
+	"stream",
+	"stream_options",
+	"max_tokens",
+	"tools",
+	"tool_choice",
+]);
+
+function parameterSkipReason(key: string): "underscore" | "provider-owned" | undefined {
+	if (key.startsWith("_")) {
+		return "underscore";
+	}
+	if (OLD_PROVIDER_OWNED_KEYS.has(key)) {
+		return "provider-owned";
+	}
+	return undefined;
+}
 
 const CATCH_ALL_PREFIX = "*";
 

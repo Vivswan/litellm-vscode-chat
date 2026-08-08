@@ -187,7 +187,7 @@ export function resolveRecordChain(
 	const diagnostics: RecordDiagnostic[] = [];
 	const seen = new Set<string>();
 	const diagnose = (diagnostic: RecordDiagnostic): void => {
-		const dedupeKey = `${diagnostic.kind} ${diagnostic.recordKey} ${diagnostic.key}`;
+		const dedupeKey = `${diagnostic.kind}\u0000${diagnostic.recordKey}\u0000${diagnostic.key}`;
 		if (!seen.has(dedupeKey)) {
 			seen.add(dedupeKey);
 			diagnostics.push(diagnostic);

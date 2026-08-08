@@ -630,7 +630,7 @@ export function CapabilityGroupsFields({
 									type="text"
 									class={`key${issues[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
 									aria-invalid={issues[groupIndex]?.prefix !== undefined}
-									placeholder={l10n.t("Model ID or prefix, e.g. gpt-4")}
+									placeholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
 									value={group.prefix}
 									disabled={inert}
 									onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
@@ -944,7 +944,7 @@ export function ModelParametersEditor({
 						groups={groups}
 						problems={problems}
 						hints={parse.hints}
-						prefixPlaceholder={l10n.t("Model prefix, e.g. gpt-4 or http://host:4000/gpt-4")}
+						prefixPlaceholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
 						prefixHelp={helpModelParameterPrefix()}
 						prefixListId={MODEL_PREFIX_LIST_ID}
 						paramNameListId={PARAM_NAME_LIST_ID}

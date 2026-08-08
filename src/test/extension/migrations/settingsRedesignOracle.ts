@@ -141,7 +141,12 @@ export type OldWorldResolve = (
 	snapshot: Snapshot,
 	server: OracleServer,
 	modelId: string
-) => EffectiveView & { skipEquivalence: boolean };
+) => EffectiveView & {
+	/** Skip every comparison: the descoping corners change resolver-level outcomes (and therefore walks too). */
+	skipEquivalence: boolean;
+	/** Skip only the walk-level comparison: the trio-fill flow corners live below the resolver views. */
+	skipWalks: boolean;
+};
 
 export type NewWorldResolve = (snapshot: Snapshot, server: OracleServer, modelId: string) => EffectiveView;
 
@@ -195,17 +200,29 @@ function explicitMatcherKey(prefix: string): string {
 	return prefix === "" || prefix === "*" ? "*" : `${prefix}*`;
 }
 
-/** The record's own contribution, judged by the record type's parse: field keys plus its marks. */
+/** The record's own contribution, judged by the record type's parse: field keys plus its mark set. */
 function recordContribution(
 	record: Readonly<Record<string, unknown>>,
 	type: "params" | "caps"
-): { fieldKeys: ReadonlySet<string>; marked: boolean } {
+): { fieldKeys: ReadonlySet<string>; markedFields: ReadonlySet<string>; marked: boolean } {
 	if (type === "params") {
 		const parsed = parseOldParameterRecord(record);
-		return { fieldKeys: new Set(Object.keys(parsed.fields)), marked: parsed.forced.size > 0 };
+		return {
+			fieldKeys: new Set(Object.keys(parsed.fields)),
+			markedFields: new Set(parsed.forced),
+			marked: parsed.forced.size > 0,
+		};
 	}
 	const parsed = parseOldCapabilityRecord(record, { allowDeclare: true });
-	return { fieldKeys: new Set(Object.keys(parsed.fields)), marked: parsed.fallback.length > 0 };
+	return {
+		fieldKeys: new Set(Object.keys(parsed.fields)),
+		markedFields: new Set(parsed.fallback),
+		marked: parsed.fallback.length > 0,
+	};
+}
+
+function intersects(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+	return [...a].some((member) => b.has(member));
 }
 
 /**
@@ -245,9 +262,18 @@ function descopingDiverges(
 	}
 	const remainder = scopedWinner.key.slice(scope.length + 1);
 	if (explicitMatcherKey(remainder) === explicitMatcherKey(entryWinner.key)) {
-		// Same post-migration key: the migration merges the two field by field,
-		// which is exactly the old entry-over-scoped merge. Stays in the property.
-		return false;
+		// Same post-migration key: the migration merges the two field by field
+		// with the entry winning - exactly the old entry-over-scoped merge for
+		// UNMARKED fields. A mark crossing the boundary diverges: a scoped mark
+		// on a field the entry sets is dropped rather than re-pointed (the
+		// divergence pin's _force case), and an entry mark on a field the
+		// scoped record used to win as an override changes its level (the
+		// scoped value dies with the merge).
+		const entryContribution = recordContribution(entryWinner.value, type);
+		return (
+			intersects(scopedContribution.markedFields, entryContribution.fieldKeys) ||
+			intersects(entryContribution.markedFields, scopedContribution.fieldKeys)
+		);
 	}
 	// Post-migration both live in the entry level and the more specific key
 	// wins wholesale (a longer glob literal; an exact key beats any glob).
@@ -320,10 +346,12 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	// participates in the matcher chain - a matching record that sets the
 	// same field either wins it in both worlds (no divergence) or blocks the
 	// fill's flow / drains it at merge time (divergence: the old trio still
-	// applied underneath, max_input's above-server quirk included). Skipped
-	// conservatively whenever a configured trio field is also set by any
-	// matching unscoped global record; the drained, blocked, and quirk
-	// corners are each pinned in the property file's divergence suite.
+	// applied underneath, max_input's above-server quirk included). Skips the
+	// WALK comparison only (the trio lived below the resolver views, so the
+	// resolver-level comparison stays live), conservatively whenever a
+	// configured trio field is also set by any matching unscoped global
+	// record; the drained, blocked, and quirk corners are each pinned in the
+	// property file's divergence suite.
 	const configuredTrioFields = [
 		...(tokenDefaults.contextLength.explicitlyConfigured ? (["context_length"] as const) : []),
 		...(tokenDefaults.maxOutputTokens.explicitlyConfigured ? (["max_output_tokens"] as const) : []),
@@ -355,6 +383,9 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	}
 
 	const scope = scopes[0] as string;
+	const skipEquivalence =
+		descopingDiverges(globalParameters, hasEntryParameters ? entryParameters : undefined, scope, modelId, "params") ||
+		descopingDiverges(globalCapabilities, hasEntryCapabilities ? entryCapabilities : undefined, scope, modelId, "caps");
 	return {
 		parameters: { ...params.params },
 		forced: { ...params.forcedParams },
@@ -362,16 +393,8 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		capabilityFallbacks,
 		declared: [...new Set(declared)].sort(),
 		walks,
-		skipEquivalence:
-			trioFlowDiverges ||
-			descopingDiverges(globalParameters, hasEntryParameters ? entryParameters : undefined, scope, modelId, "params") ||
-			descopingDiverges(
-				globalCapabilities,
-				hasEntryCapabilities ? entryCapabilities : undefined,
-				scope,
-				modelId,
-				"caps"
-			),
+		skipEquivalence,
+		skipWalks: skipEquivalence || trioFlowDiverges,
 	};
 };
 

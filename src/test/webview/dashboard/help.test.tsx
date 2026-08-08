@@ -251,7 +251,7 @@ test("the model-parameters editor explains prefix, parameter name, and JSON valu
 	if (section === undefined) {
 		throw new Error("no Model parameters section");
 	}
-	const prefixCell = section.querySelector("input.key[placeholder^='Model prefix']")?.closest(".cell") ?? null;
+	const prefixCell = section.querySelector("input.key[placeholder^='Model ID or matcher']")?.closest(".cell") ?? null;
 	helpIn(prefixCell, helpModelParameterPrefix());
 	const nameCell = section.querySelector("input.key[placeholder^='Parameter']")?.closest(".cell") ?? null;
 	helpIn(nameCell, helpModelParameterName());

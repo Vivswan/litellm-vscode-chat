@@ -101,13 +101,13 @@ export function helpSecretStorage(): string {
 
 export function helpModelParameterPrefix(): string {
 	return l10n.t(
-		"Matches model IDs by prefix, longest winning: gpt-4 covers gpt-4-turbo. Lead with a base URL, e.g. https://myproxy.example/v1/gpt-4, to scope to one server; scoped entries beat unscoped ones."
+		"Matches model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets; the most specific match wins. Server-specific records belong in the entry's models.parameters, not in URL-prefixed keys."
 	);
 }
 
 export function helpEntryModelParameterPrefix(): string {
 	return l10n.t(
-		"Matches model IDs by prefix, longest winning: gpt-4 covers gpt-4-turbo. Already scoped to this server, so use plain model IDs; a base URL prefix here never matches."
+		"Matches model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets; the most specific match wins. Already scoped to this server, so a base URL in the key never matches."
 	);
 }
 
@@ -125,7 +125,7 @@ export function helpModelParameterValue(): string {
 
 export function helpCapabilityPrefix(): string {
 	return l10n.t(
-		"Matches model IDs by prefix, longest winning: gpt-4 covers gpt-4-turbo. Matching never creates models - declare missing IDs in the entry's discovery.declared."
+		"Matches model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets; the most specific match wins. Matching never creates models - declare missing IDs in the entry's discovery.declared."
 	);
 }
 

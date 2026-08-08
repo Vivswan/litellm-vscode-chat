@@ -118,7 +118,7 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	fireClick(buttonByText(root, "Edit"));
 
 	// The entry already carries parameters, so the disclosure opens prefilled.
-	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model prefix"]');
+	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
 	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Parameter"]');
 	const valueInput = root.querySelector<HTMLInputElement>('input[placeholder^="JSON value"]');
 	if (prefixInput === null || keyInput === null || valueInput === null) {
@@ -128,11 +128,11 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	expect(keyInput.value).toBe("temperature");
 	expect(valueInput.value).toBe("0.2");
 
-	// The entry editor's prefix copy must not advertise URL scoping: entry
+	// The entry editor's matcher copy must not advertise URL keys: entry
 	// keys match model IDs only (the entry is already scoped to its server),
-	// while the global editor keeps the URL-example placeholder and help
+	// while the global editor's help routes server records to entries
 	// (pinned in recordEditors.test.tsx). One shared component, two registers.
-	expect(prefixInput.placeholder).toBe("Model prefix, e.g. gpt-4");
+	expect(prefixInput.placeholder).toBe("Model ID or matcher, e.g. gpt-4 or gpt-4*");
 	const glyph = prefixInput.closest(".cell")?.querySelector("button.help");
 	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
 	expect(tip?.textContent).toBe(helpEntryModelParameterPrefix());
@@ -818,7 +818,7 @@ test("the edit form round-trips model capabilities and expected failures into th
 	// The entry already carries capabilities, so the disclosure opens
 	// prefilled: the number field as a number input, the support flag as a
 	// checkbox, and the expected-failure category ticked.
-	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or prefix"]');
+	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
 	expect(prefixInput?.value).toBe("my-model");
 	const numberInput = root.querySelector<HTMLInputElement>('input[placeholder^="Tokens"]');
 	expect(numberInput?.value).toBe("128000");
@@ -858,7 +858,7 @@ test("an unknown capability key hints without blocking the save", () => {
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));
 	fireClick(buttonByText(root, "Add capability prefix"));
-	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or prefix"]');
+	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
 	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
 	if (prefixInput === null || keyInput === null) {
 		throw new Error("the capability rows did not render");
@@ -1031,7 +1031,7 @@ test("editing a capability row or an expected-failure checkbox clears a standing
 	// because its outcome (declared count, expected downgrade) depends on it.
 	expect(root.textContent).toContain("Testing...");
 	fireClick(buttonByText(root, "Add capability prefix"));
-	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or prefix"]');
+	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
 	if (prefixInput === null) {
 		throw new Error("the capability rows did not render");
 	}

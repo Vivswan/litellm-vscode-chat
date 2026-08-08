@@ -280,22 +280,23 @@ test("model parameters: invalid JSON blocks Apply with the row problem; fixing i
 	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
 });
 
-test("model parameters: the global editor's prefix copy advertises URL scoping (the entry editor's must not)", () => {
+test("model parameters: the global editor's matcher copy points server records at entries (the entry editor's must not)", () => {
 	// The shared ParamGroupsFields takes its prefix placeholder and help as
-	// required props because the two surfaces differ for real: global keys may
-	// lead with a base URL, per-entry keys match model IDs only (URL prefixes
-	// are inert there; servers.test.tsx pins that side). This pins the global
-	// side so the two cannot silently re-merge onto one copy.
+	// required props because the two surfaces differ for real: the global
+	// editor's help routes server-specific records to the entry's
+	// models.parameters, the per-entry editor's says URL keys never match
+	// (servers.test.tsx pins that side). This pins the global side so the two
+	// cannot silently re-merge onto one copy.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	const section = sectionByHeading(root, "Model parameters");
 	fireClick(buttonByText(section, "Add model prefix"));
 
-	const prefixInput = section.querySelector<HTMLInputElement>("input.key[placeholder^='Model prefix']");
+	const prefixInput = section.querySelector<HTMLInputElement>("input.key[placeholder^='Model ID or matcher']");
 	if (prefixInput === null) {
 		throw new Error("no prefix input rendered");
 	}
-	expect(prefixInput.placeholder).toBe("Model prefix, e.g. gpt-4 or http://host:4000/gpt-4");
+	expect(prefixInput.placeholder).toBe("Model ID or matcher, e.g. gpt-4 or gpt-4*");
 	const glyph = prefixInput.closest(".cell")?.querySelector("button.help");
 	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
 	expect(tip?.textContent).toBe(helpModelParameterPrefix());
@@ -379,7 +380,7 @@ test("Enter stays off the datalist-bearing inputs; the value input still applies
 	fireInput(inputs[2] as HTMLInputElement, "0.2");
 
 	resetPosted();
-	fireKeyDown(section().querySelector("input.key[placeholder^='Model prefix']") as HTMLInputElement, "Enter");
+	fireKeyDown(section().querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement, "Enter");
 	fireKeyDown(section().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement, "Enter");
 	expect(postedMessages).toEqual([]);
 	fireKeyDown(section().querySelector("input.value") as HTMLInputElement, "Enter");
@@ -458,7 +459,7 @@ test("a parameter-row problem marks only the offending input: bad JSON flags the
 	const nameInput = () => section().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement;
 	const valueInput = () => section().querySelector("input.value") as HTMLInputElement;
 
-	fireInput(section().querySelector("input.key[placeholder^='Model prefix']") as HTMLInputElement, "gpt-4");
+	fireInput(section().querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement, "gpt-4");
 	fireInput(nameInput(), "temperature");
 	fireInput(valueInput(), "not json");
 	expect(valueInput().classList.contains("invalid")).toBe(true);
@@ -508,7 +509,7 @@ test("the prefix and parameter-name inputs offer datalists: discovered model IDs
 	const section = sectionByHeading(root, "Model parameters");
 	fireClick(buttonByText(section, "Add model prefix"));
 
-	const prefixInput = section.querySelector("input.key[placeholder^='Model prefix']") as HTMLInputElement;
+	const prefixInput = section.querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement;
 	const prefixList = document.getElementById(prefixInput.getAttribute("list") ?? "");
 	expect(prefixList?.tagName.toLowerCase()).toBe("datalist");
 	expect(Array.from(prefixList?.querySelectorAll("option") ?? []).map((o) => o.getAttribute("value"))).toEqual([
@@ -602,7 +603,9 @@ test("Edit as JSON: invalid input blocks Apply and the way back to rows, with th
 	fireInput(textarea(), '{"gpt-4": {"temperature": 1}}');
 	expect(apply().disabled).toBe(false);
 	fireClick(buttonByText(section(), "Edit as rows"));
-	expect((section().querySelector("input.key[placeholder^='Model prefix']") as HTMLInputElement).value).toBe("gpt-4");
+	expect((section().querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement).value).toBe(
+		"gpt-4"
+	);
 });
 
 test("each editor heading carries a settings.json jump posting revealSetting with its record key", () => {
