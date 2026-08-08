@@ -136,7 +136,6 @@
 	"Default max output tokens": "Default max output tokens",
 	"Degraded": "Degraded",
 	"Delete the group's object from the models file (chatLanguageModels.json).": "Delete the group's object from the models file (chatLanguageModels.json).",
-	"Deprecated default setting": "Deprecated default setting",
 	"Deprecated: prefer modelCapabilities, e.g. {\"gpt-4\": {\"context_length\": 128000}} - per server in the server form, or globally in settings.json.": "Deprecated: prefer modelCapabilities, e.g. {\"gpt-4\": {\"context_length\": 128000}} - per server in the server form, or globally in settings.json.",
 	"Derived (context length minus output tokens)": "Derived (context length minus output tokens)",
 	"Diagnostics": "Diagnostics",

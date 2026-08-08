@@ -3,9 +3,9 @@
  * do and where each fact came from. The paramsInspector's twin with one
  * structural difference: parameters project from data the state push already
  * carries, but capabilities resolve against extension-side stores (the server
- * baseline, the OpenRouter catalog, the deprecated defaults), so this page is
- * request/response-fed - it posts readModelCapabilities on open and renders
- * the EffectiveCapabilities the extension resolves with the SAME walk
+ * baseline, the OpenRouter catalog), so this page is request/response-fed -
+ * it posts readModelCapabilities on open and renders the
+ * EffectiveCapabilities the extension resolves with the SAME walk
  * registration runs. No resolver logic and no catalog data live in the
  * webview; the answer is data.
  */
@@ -86,8 +86,6 @@ function levelName(level: CapabilityLevel, key: string | undefined): string {
 			return l10n.t("Server entry fallback - {0}", key ?? "");
 		case "global-fallback":
 			return l10n.t("Settings fallback - {0}", key ?? "");
-		case "default-setting":
-			return l10n.t("Deprecated default setting");
 		case "catalog":
 			return l10n.t("OpenRouter catalog match {0}", key ?? "");
 		case "derived":

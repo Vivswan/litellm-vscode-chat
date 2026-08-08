@@ -1,10 +1,8 @@
 import * as assert from "node:assert";
-import type { CapabilityTokenDefault } from "../../../shared/config/capabilityResolution";
 import {
 	DEFAULT_DISCOVERY_CACHE_TTL_MS,
 	DEFAULT_DISCOVERY_TIMEOUT_MS,
 	DEFAULT_REQUEST_TIMEOUT_MS,
-	getCapabilityTokenDefaults,
 	getDiscoveryCacheTtl,
 	getDiscoveryTimeout,
 	getModelCapabilitiesConfig,
@@ -197,55 +195,6 @@ suite("shared/config/settings normalizeModelCapabilities", () => {
 		});
 		await withConfig({}, () => {
 			assert.deepStrictEqual(getModelCapabilitiesConfig(), {});
-		});
-	});
-});
-
-suite("shared/config/settings getCapabilityTokenDefaults", () => {
-	test("untouched settings report the built-in values as not explicitly configured", async () => {
-		await withConfig({}, () => {
-			const defaults = getCapabilityTokenDefaults();
-			assert.deepStrictEqual(defaults.contextLength, {
-				value: 128000,
-				explicitlyConfigured: false,
-			} satisfies CapabilityTokenDefault);
-			assert.deepStrictEqual(defaults.maxOutputTokens, { value: 16000, explicitlyConfigured: false });
-			assert.strictEqual(defaults.maxInputTokens, undefined);
-		});
-	});
-
-	test("configured values flag as explicit, even when they equal the built-in default", async () => {
-		await withConfig(
-			{ defaultContextLength: 128000, defaultMaxOutputTokens: 32000, defaultMaxInputTokens: 90000 },
-			() => {
-				const defaults = getCapabilityTokenDefaults();
-				assert.deepStrictEqual(defaults.contextLength, { value: 128000, explicitlyConfigured: true });
-				assert.deepStrictEqual(defaults.maxOutputTokens, { value: 32000, explicitlyConfigured: true });
-				assert.strictEqual(defaults.maxInputTokens, 90000);
-			}
-		);
-	});
-
-	test("unusable configured values fall back to the built-ins and stay non-explicit", async () => {
-		for (const raw of [-5, 0, 1.5, "128k", null, Number.NaN]) {
-			await withConfig({ defaultContextLength: raw, defaultMaxInputTokens: raw }, () => {
-				const defaults = getCapabilityTokenDefaults();
-				assert.deepStrictEqual(
-					defaults.contextLength,
-					{ value: 128000, explicitlyConfigured: false },
-					`configured value ${String(raw)} must not count as explicit`
-				);
-				assert.strictEqual(defaults.maxInputTokens, undefined);
-			});
-		}
-	});
-
-	test("an explicit null counts as configured-off, never as absent", async () => {
-		// defaultMaxInputTokens defaults to null ("unset, derive it"); a user
-		// writing null at some scope disables the override there, and the reader
-		// must not fall through past it to a lower scope's number.
-		await withConfig({ defaultMaxInputTokens: null }, () => {
-			assert.strictEqual(getCapabilityTokenDefaults().maxInputTokens, undefined);
 		});
 	});
 });

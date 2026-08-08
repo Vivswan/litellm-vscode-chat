@@ -17,7 +17,6 @@ import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
 import type { CapabilityCatalogLookup, EffectiveCapabilities } from "../../shared/config/capabilityResolution";
 import { resolveModelCapabilities } from "../../shared/config/capabilityResolution";
 import {
-	capabilityTokenDefaultsFrom,
 	HEADERS_SETTING_KEY,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -744,10 +743,9 @@ export interface ModelCapabilitiesQuery {
  * Answer one readModelCapabilities request: locate the model behind the
  * scope key and raw ID, then run the SAME resolveModelCapabilities walk
  * registration runs, over the same layers (entry record, global setting,
- * server baseline, deprecated defaults, catalog, floor). A store change
- * between the push and the request can de-resolve the key (its snapshot left
- * the window); undefined tells the inspector the state moved on instead of
- * inventing values.
+ * server baseline, catalog, floor). A store change between the push and the
+ * request can de-resolve the key (its snapshot left the window); undefined
+ * tells the inspector the state moved on instead of inventing values.
  */
 export function resolveDashboardModelCapabilities(
 	query: ModelCapabilitiesQuery,
@@ -779,6 +777,5 @@ export function resolveDashboardModelCapabilities(
 		// Registration's post-aggregation baseline, riding every pre-attach
 		// model: the inspector resolves over the same walk registration serves.
 		serverDeclared: info.litellm.serverDeclared,
-		tokenDefaults: capabilityTokenDefaultsFrom((id) => query.reader.inspect(id)),
 	});
 }

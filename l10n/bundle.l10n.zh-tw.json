@@ -126,7 +126,6 @@
 	"Default max output tokens": "預設最大輸出 token 數",
 	"Degraded": "部分異常",
 	"Delete the group's object from the models file (chatLanguageModels.json).": "從模型檔案 (chatLanguageModels.json) 中刪除該群組的物件。",
-	"Deprecated default setting": "已淘汰的預設設定",
 	"Deprecated: prefer modelCapabilities, e.g. {\"gpt-4\": {\"context_length\": 128000}} - per server in the server form, or globally in settings.json.": "已淘汰: 建議改用 modelCapabilities, 例如 {\"gpt-4\": {\"context_length\": 128000}} - 可在伺服器表單中依伺服器設定, 或在 settings.json 中全域設定。",
 	"Derived (context length minus output tokens)": "衍生值 (上下文長度減去輸出權杖數)",
 	"Diagnostics": "診斷",

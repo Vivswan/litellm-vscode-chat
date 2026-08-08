@@ -85,57 +85,22 @@ suite("provider/request contract", () => {
 			assert.ok(!("metadata" in providerEntry), "the pre-1.120 metadata duplicate is retired");
 		});
 
-		test("uses workspace settings as fallback when provider fields absent", async () => {
-			mswServer.use(...discoveryHandlers(singleProviderListing({})));
-			const infos = await withConfig(
-				{ defaultMaxOutputTokens: 20000, defaultContextLength: 200000, defaultMaxInputTokens: null },
-				() =>
-					makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
-						{ silent: true },
-						new vscode.CancellationTokenSource().token
-					)
-			);
-			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
-			assert.ok(providerEntry);
-			assert.equal(providerEntry.maxOutputTokens, 20000);
-			assert.equal(providerEntry.maxInputTokens, 180000);
-		});
-
-		test("uses configured defaultMaxInputTokens as an explicit override", async () => {
-			mswServer.use(
-				...discoveryHandlers(
-					singleProviderListing({ context_length: 100000, max_output_tokens: 8000, max_input_tokens: 90000 })
-				)
-			);
-			const infos = await withConfig({ defaultMaxInputTokens: 50000 }, () =>
-				makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
-					{ silent: true },
-					new vscode.CancellationTokenSource().token
-				)
-			);
-			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
-			assert.ok(providerEntry);
-			assert.equal(providerEntry.maxInputTokens, 50000);
-		});
-
-		test("treats null provider max_input_tokens as missing and falls back to workspace setting", async () => {
+		test("treats null provider max_input_tokens as missing and derives context minus output", async () => {
 			mswServer.use(
 				...discoveryHandlers(
 					singleProviderListing({ context_length: 100000, max_output_tokens: 8000, max_input_tokens: null })
 				)
 			);
-			const infos = await withConfig({ defaultMaxInputTokens: 48000 }, () =>
-				makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
-					{ silent: true },
-					new vscode.CancellationTokenSource().token
-				)
+			const infos = await makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
+				{ silent: true },
+				new vscode.CancellationTokenSource().token
 			);
 			const providerEntry = infos.find((i) => i.id === "test-model:test-provider");
 			assert.ok(providerEntry);
-			assert.equal(providerEntry.maxInputTokens, 48000);
+			assert.equal(providerEntry.maxInputTokens, 92000);
 		});
 
-		test("uses hardcoded defaults when provider and settings absent", async () => {
+		test("uses the built-in floors when the provider declares nothing", async () => {
 			mswServer.use(...discoveryHandlers(singleProviderListing({})));
 			const infos = await withConfig({}, () =>
 				makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
@@ -923,7 +888,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("a defaults-derived output limit stays capped at 4096", async () => {
-			const body = await withConfig({ modelParameters: {}, defaultMaxOutputTokens: 16000 }, () =>
+			const body = await withConfig({ modelParameters: {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -931,7 +896,7 @@ suite("provider/request contract", () => {
 					{ discoveryPayload: infoListing({}), useDiscoveredModel: true }
 				)
 			);
-			assert.strictEqual(body.max_tokens, 4096, "the defaultMaxOutputTokens guess must not escape the cap");
+			assert.strictEqual(body.max_tokens, 4096, "the floor-guessed output limit must not escape the cap");
 		});
 
 		test("runtime and configured max_tokens still outrank a server-declared limit", async () => {
@@ -973,7 +938,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("a merged model with an undeclared deployment falls back to the cap", async () => {
-			const body = await withConfig({ modelParameters: {}, defaultMaxOutputTokens: 16000 }, () =>
+			const body = await withConfig({ modelParameters: {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -1000,7 +965,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("an aggregate entry falls back to the cap when any provider left its limit to defaults", async () => {
-			const body = await withConfig({ modelParameters: {}, defaultMaxOutputTokens: 16000 }, () =>
+			const body = await withConfig({ modelParameters: {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					makeModelInfo({ id: "test-model:fastest" }),
@@ -1016,7 +981,7 @@ suite("provider/request contract", () => {
 			// carry the merge's internal output_limit_source marker. Discovery,
 			// registration, and the chat request together must treat the claim as
 			// noise: with no declared limit, the request stays under the cap.
-			const body = await withConfig({ modelParameters: {}, defaultMaxOutputTokens: 16000 }, () =>
+			const body = await withConfig({ modelParameters: {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					makeModelInfo({ id: "test-model:provider-0" }),

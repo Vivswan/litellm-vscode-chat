@@ -1,12 +1,11 @@
 import type OpenAI from "openai";
 import { l10n } from "vscode";
-import type { TokenDefaults } from "../../shared/config/settings";
 import { errorMessageText } from "../../shared/logger";
 import { isRecord } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
 import { mapSdkError, RequestError, timeoutRequestError } from "../transport/errorMapping";
-import { collapseTokenConstraints } from "./modelCatalog";
+import { collapseTokenConstraints, reportedLimits } from "./modelCatalog";
 import type {
 	LiteLLMArchitecture,
 	LiteLLMModelInfoItem,
@@ -254,26 +253,21 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
  * with registration's aggregates), and the collapsed effective values are
  * stored on the merged provider - but a field is stored ONLY when some
  * deployment reported it: deriveTokenConstraints fills an absent field with
- * exactly the defaults the collapse would have used, so the merged
+ * exactly the floor values the collapse would have used, so the merged
  * advertisement is identical either way, while the capability baseline
  * (discoveredCapabilityBaseline) can still tell a server-reported minimum
- * from a defaults fill - a defaults-filled number stored as if reported
- * would occupy the walk's server level and block the catalog from
- * backfilling it. `defaults` is the refresh pass's one snapshot, threaded to
- * both this merge and registration, so the reproduction cannot drift when
- * settings change mid-refresh. This guarantees the merged advertisement
- * never exceeds what any deployment would have advertised on its own,
- * whichever combination of raw limit fields each one set. The stored input
- * limit is collapsed WITHOUT the defaultMaxInputTokens quirk (that setting
- * outranks even server-declared limits, so deriveTokenConstraints applies it
- * on top either way) and is stored whenever ANY limit was reported: the
- * collapse grounds a missing input limit in the reported context and output,
- * and re-deriving it from the collapsed pair can overstate it. Because a
- * defaults-filled deployment can contribute the output minimum, the merged
- * provider also records whether the stored output limit counts as
- * server-declared (the collapse's outputLimitSource); without the marker,
- * storing effective values back into provider fields would launder the
- * defaults guess into a declared limit.
+ * from a floor fill - a floor-filled number stored as if reported would
+ * occupy the walk's server level and block the catalog from backfilling it.
+ * This guarantees the merged advertisement never exceeds what any deployment
+ * would have advertised on its own, whichever combination of raw limit
+ * fields each one set. The stored input limit is stored whenever ANY limit
+ * was reported: the collapse grounds a missing input limit in the reported
+ * context and output, and re-deriving it from the collapsed pair can
+ * overstate it. Because a floor-filled deployment can contribute the output
+ * minimum, the merged provider also records whether the stored output limit
+ * counts as server-declared (the collapse's outputLimitSource); without the
+ * marker, storing effective values back into provider fields would launder
+ * the floor guess into a declared limit.
  * Capability flags hold only when every deployment advertises them, and
  * input modalities and supported_openai_params intersect. Pricing carries
  * over only when every
@@ -288,7 +282,7 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
  * registration surfaces the provider name as the model family, so a merged
  * model's family is its first deployment's litellm_provider.
  */
-export function mergeModelDeployments(deployments: ModelDeployments, defaults: TokenDefaults): MappedModelInfo {
+export function mergeModelDeployments(deployments: ModelDeployments): MappedModelInfo {
 	const [first, ...rest] = deployments;
 	if (rest.length === 0) {
 		return first;
@@ -297,22 +291,16 @@ export function mergeModelDeployments(deployments: ModelDeployments, defaults: T
 		first.provider,
 		...rest.map((deployment) => deployment.provider),
 	];
-	const collapsed = collapseTokenConstraints(providers, defaults);
-	const quirkFreeInput = collapseTokenConstraints(providers, { ...defaults, maxInputTokens: undefined }).maxInputTokens;
-	const contextReported = providers.some((p) => normalizePositiveNumber(p.context_length) !== undefined);
-	const inputReported = providers.some((p) => normalizePositiveNumber(p.max_input_tokens) !== undefined);
-	const outputReported = providers.some(
-		(p) => (normalizePositiveNumber(p.max_output_tokens) ?? normalizePositiveNumber(p.max_tokens)) !== undefined
-	);
-	const anyLimitReported = contextReported || inputReported || outputReported;
+	const collapsed = collapseTokenConstraints(providers);
+	const reported = reportedLimits(providers);
 	const provider: LiteLLMProvider = {
 		provider: first.provider.provider,
 		status: first.provider.status,
 		supports_tools: providers.every(supportsTools),
-		context_length: contextReported ? collapsed.contextLength : undefined,
-		max_tokens: outputReported ? collapsed.maxOutputTokens : undefined,
-		max_input_tokens: anyLimitReported ? quirkFreeInput : undefined,
-		max_output_tokens: outputReported ? collapsed.maxOutputTokens : undefined,
+		context_length: reported.context ? collapsed.contextLength : undefined,
+		max_tokens: reported.output ? collapsed.maxOutputTokens : undefined,
+		max_input_tokens: reported.any ? collapsed.maxInputTokens : undefined,
+		max_output_tokens: reported.output ? collapsed.maxOutputTokens : undefined,
 		output_limit_source: collapsed.outputLimitSource,
 		supports_prompt_caching: everyDeploymentSupports(providers.map((p) => p.supports_prompt_caching)),
 		supports_response_schema: everyDeploymentSupports(providers.map((p) => p.supports_response_schema)),
@@ -361,13 +349,6 @@ export interface FetchModelsRequest {
 	baseUrl: string;
 	/** Pre-validated by settings.getDiscoveryTimeout(); used as-is. */
 	discoveryTimeout: number;
-	/**
-	 * The refresh pass's one defaults snapshot, read at the top of the
-	 * provider's refresh. Deployment merging bakes effective constraints with
-	 * it, and registration derives constraints from the same snapshot, so the
-	 * two stages cannot disagree when settings change mid-refresh.
-	 */
-	tokenDefaults: TokenDefaults;
 	/** Failure categories the server's entry declares expected; see ExpectedDiscoveryFailures. */
 	expected?: ExpectedDiscoveryFailures;
 	/** Per-request headers resolved by the caller, e.g. a freshly exchanged OAuth bearer token. */
@@ -474,11 +455,7 @@ const NON_CHAT_MODES: readonly string[] = [
  * deployments and provably non-chat modes are dropped, and deployments
  * sharing one model id merge into a single model in first-seen order.
  */
-function narrowModelInfoData(
-	data: unknown[],
-	tokenDefaults: TokenDefaults,
-	log: FetchModelsRequest["log"]
-): NarrowedModelInfoData {
+function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): NarrowedModelInfoData {
 	let usableEntryCount = 0;
 	type Slot =
 		| { kind: "deployments"; group: [MappedModelInfo, ...MappedModelInfo[]] }
@@ -520,13 +497,13 @@ function narrowModelInfoData(
 		log("Skipping malformed model/info entry", { entry: truncateForLog(entry) });
 	}
 	const models = slots.map((slot) =>
-		slot.kind === "deployments" ? toModelItem(mergeModelDeployments(slot.group, tokenDefaults)) : slot.model
+		slot.kind === "deployments" ? toModelItem(mergeModelDeployments(slot.group)) : slot.model
 	);
 	return { models, usableEntryCount };
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, discoveryTimeout, tokenDefaults, expected, headers, log } = request;
+	const { client, baseUrl, discoveryTimeout, expected, headers, log } = request;
 
 	log("Fetching from:", modelInfoUrl(baseUrl));
 
@@ -553,7 +530,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			const data: unknown[] = parsedInfo.data;
 			log("Parsed model/info response:", { modelCount: data.length });
 
-			const { models, usableEntryCount } = narrowModelInfoData(data, tokenDefaults, log);
+			const { models, usableEntryCount } = narrowModelInfoData(data, log);
 			if (data.length > 0 && usableEntryCount === 0) {
 				log("model/info returned data but no usable models; falling back", {
 					dataLength: data.length,

@@ -124,13 +124,6 @@ const serverDeclaredArb: fc.Arbitrary<ServerDeclaredCapabilities> = fc.oneof(
 		.map(({ values, outputDeclared }): ServerDeclaredCapabilities => ({ kind: "discovered", values, outputDeclared }))
 );
 
-const tokenDefaultArb = fc.record({ value: validNumber, explicitlyConfigured: fc.boolean() });
-const tokenDefaultsArb = fc.record({
-	contextLength: tokenDefaultArb,
-	maxOutputTokens: tokenDefaultArb,
-	maxInputTokens: fc.option(validNumber, { nil: undefined }),
-});
-
 /** Exact IDs and unambiguous post-vendor suffixes answer found, several suffix hits answer ambiguous. */
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
 	const byExactId = (id: string): CatalogLookupResult => {
@@ -162,8 +155,7 @@ interface Scenario {
  * common case), a cut of an unrelated ID keeping the no-match branch alive,
  * zero-length cuts and the catch-all "*" keeping the specificity-zero edge
  * alive, directives pointing into and past the generated catalog, and
- * independent server, defaults (possibly absent entirely), and catalog
- * layers.
+ * independent server and catalog layers.
  */
 const scenario: fc.Arbitrary<Scenario> = fc
 	.record({
@@ -191,7 +183,6 @@ const scenario: fc.Arbitrary<Scenario> = fc
 		implicitFields: fc.option(validFieldsArb, { nil: undefined }),
 		implicitAmbiguous: fc.boolean(),
 		serverDeclared: serverDeclaredArb,
-		tokenDefaults: fc.option(tokenDefaultsArb, { nil: undefined }),
 	})
 	.map((spec) => {
 		const prefixOf = (cut: number, foreign: boolean, star: boolean) => {
@@ -229,7 +220,6 @@ const scenario: fc.Arbitrary<Scenario> = fc
 				entryCapabilities,
 				catalog,
 				serverDeclared: spec.serverDeclared,
-				tokenDefaults: spec.tokenDefaults,
 			},
 		};
 	});
