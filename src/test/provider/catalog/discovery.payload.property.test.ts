@@ -10,7 +10,6 @@ import {
 } from "../../../provider/catalog/discovery";
 import type { LiteLLMProvider, RawModelItem } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
-import type { TokenDefaults } from "../../../shared/config/settings";
 import { normalizeCostPerToken } from "../../../shared/util/numbers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
@@ -19,8 +18,6 @@ import { expectDefined } from "../../testUtils";
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.
 const SEED = resolveFuzzSeed();
-
-const TEST_TOKEN_DEFAULTS: TokenDefaults = { maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined };
 
 /**
  * Wire-payload properties for discovery's normalization layer: parsing is
@@ -258,7 +255,7 @@ suite("provider/discovery fetchModels payload properties", () => {
 			userAgent: "test-agent",
 			customHeaders: {},
 		});
-		return { client, baseUrl: TEST_BASE_URL, discoveryTimeout: 5000, tokenDefaults: TEST_TOKEN_DEFAULTS, log: noLog };
+		return { client, baseUrl: TEST_BASE_URL, discoveryTimeout: 5000, log: noLog };
 	}
 
 	test("no usable unblocked model is ever dropped, and blocked-only payloads yield an empty list", async function () {

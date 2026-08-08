@@ -20,7 +20,7 @@ import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/aut
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { extractDeclaredModels } from "../../shared/config/capabilityResolution";
-import { getModelCapabilitiesConfig, getTokenDefaults } from "../../shared/config/settings";
+import { getModelCapabilitiesConfig } from "../../shared/config/settings";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import type { DashboardIntent } from "./intentSchema";
@@ -232,7 +232,6 @@ export function createDraftConnectionProbe(
 				...(connection.oauth !== undefined ? { oauth: connection.oauth } : {}),
 				...(connection.virtualKey !== undefined ? { virtualKey: connection.virtualKey } : {}),
 			},
-			getTokenDefaults(),
 			connection.expected
 		);
 		return models.map((model) => model.id);

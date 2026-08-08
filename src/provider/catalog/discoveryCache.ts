@@ -82,13 +82,12 @@ export class DiscoveryCache<T> {
 
 	/**
 	 * Drop every stored result AND detach in-flight loads. Detaching matters
-	 * because clear() is how configuration changes reach the cache (the
-	 * deprecated default* token settings are baked into loaded results): a
-	 * fetch after the clear must start a fresh load under the new
-	 * configuration, never join a load that began under the old one - the
-	 * epoch guard alone would only keep the stale result out of the store,
-	 * not out of the joiners' hands. Detached loads still resolve for their
-	 * original callers.
+	 * because clear() is how explicit refreshes (Test Connection, Sync Models
+	 * Now) force a real round trip: a fetch after the clear must start a
+	 * fresh load, never join a load that began before it - the epoch guard
+	 * alone would only keep the stale result out of the store, not out of
+	 * the joiners' hands. Detached loads still resolve for their original
+	 * callers.
 	 */
 	clear(): void {
 		this.entries.clear();

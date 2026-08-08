@@ -19,19 +19,11 @@ import { makeModelInfo } from "../../testUtils";
 const SERVER = { id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" };
 const SCOPE = "http://litellm.test";
 
-/** The registration-path defaults snapshot matching untouched settings. */
-const TOKEN_DEFAULTS = { maxOutputTokens: 16000, contextLength: 128000, maxInputTokens: undefined };
-
 function options(overrides: Partial<CapabilityOverrideOptions> = {}): CapabilityOverrideOptions {
 	return {
 		globalCapabilities: {},
 		entryCapabilities: undefined,
 		catalog: EMPTY_CATALOG_LOOKUP,
-		tokenDefaults: {
-			contextLength: { value: 128000, explicitlyConfigured: false },
-			maxOutputTokens: { value: 16000, explicitlyConfigured: false },
-			maxInputTokens: undefined,
-		},
 		log: () => {},
 		...overrides,
 	};
@@ -44,7 +36,7 @@ function catalogOf(entries: Record<string, CatalogLookupResult>): CapabilityCata
 
 /** A registered deployment entry for `id`, built through the production registration path. */
 function registered(item: LiteLLMModelItem) {
-	const { infos } = buildModelInfos([item], SERVER, 1, () => {}, TOKEN_DEFAULTS);
+	const { infos } = buildModelInfos([item], SERVER, 1, () => {});
 	const info = infos[0];
 	assert.ok(info !== undefined);
 	return info;
@@ -90,6 +82,29 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(healed[0]?.maxOutputTokens, 32000, "the server-declared limit returns");
 			assert.strictEqual(healed[0]?.litellm.outputLimitSource, "provider");
 			assert.strictEqual(healed[0]?.configurationSchema, undefined, "the promoted control is demoted again");
+		});
+
+		test("a fallback-provided field triggers the rebuild path, never the identity fast path", () => {
+			// The fast path's level classification is total over CapabilityLevel
+			// (LEVEL_TRIGGERS_REBUILD); this pins the fallback levels in it. The
+			// server declares no output limit, so registration advertised the
+			// floor fill, and the _fallback value must rebuild the model.
+			const undeclaredOutput: LiteLLMModelItem = {
+				id: "gpt-test",
+				shape: {
+					kind: "deployment",
+					provider: { provider: "openai", status: "ok", supports_tools: true, max_input_tokens: 180000 },
+				},
+			};
+			const infos = [registered(undeclaredOutput)];
+			const out = applyCapabilityOverrides(
+				infos,
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { _fallback: true, max_output_tokens: 23456 } } })
+			);
+			assert.notStrictEqual(out[0], infos[0], "a fallback-resolved field must not take the identity fast path");
+			assert.strictEqual(out[0]?.maxOutputTokens, 23456);
+			assert.strictEqual(out[0]?.litellm.outputLimitSource, "user", "a fallback value counts as user-set");
 		});
 
 		test("a foreign prefix and a foreign scope both leave the model untouched", () => {

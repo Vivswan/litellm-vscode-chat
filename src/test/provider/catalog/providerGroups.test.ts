@@ -429,8 +429,9 @@ suite("provider groups", () => {
 			})
 		);
 
-		const infos = await withConfig({ defaultMaxOutputTokens: 16000 }, () =>
-			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation())
+		const infos = await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL }),
+			cancellation()
 		);
 		await withConfig({ modelParameters: {} }, () =>
 			provider.provideLanguageModelChatResponse(
