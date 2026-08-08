@@ -17,6 +17,7 @@ import type { CapabilityCatalogLookup } from "../../shared/config/capabilityReso
 import { CMD } from "../../shared/config/commandIds";
 import type { OpenRouterCatalogSnapshot } from "../../shared/config/openRouterCatalog";
 import { searchCatalogModels } from "../../shared/config/openRouterCatalog";
+import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
@@ -118,6 +119,12 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	resolveEntryCapabilities(serverId: string): EntryCapabilitiesRecord | undefined;
 	/** The OpenRouter catalog as in-memory lookup data; EMPTY_CATALOG_LOOKUP while no snapshot exists. */
 	getCatalogLookup(): CapabilityCatalogLookup;
+	/**
+	 * The provider's shared flat resolution table, so the capability inspector
+	 * reads the SAME cache requests and registration use. Optional: without it
+	 * the responder resolves through the same pure walk, uncached.
+	 */
+	getResolutionTable?(): ModelResolutionTable;
 	/** Search the catalog snapshot for the picker; the panel bounds the result list before it crosses. */
 	searchCatalog(query: string): readonly CatalogModelSummary[];
 	settingsReader(): SettingsReader;
@@ -360,6 +367,7 @@ export class DashboardController implements vscode.Disposable {
 						reader: this.env.settingsReader(),
 						resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
 						catalog: this.env.getCatalogLookup(),
+						resolution: this.env.getResolutionTable?.(),
 					},
 					parsed.data.scopeKey,
 					parsed.data.rawId
@@ -620,6 +628,7 @@ export function registerDashboardCommand(
 			return identity !== undefined ? readEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;
 		},
 		getCatalogLookup: () => catalog.lookup,
+		getResolutionTable: () => provider.resolutionTable,
 		searchCatalog: (query) => searchCatalogModels(catalog.snapshot(), query),
 		settingsReader: () => {
 			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);

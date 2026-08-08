@@ -1,13 +1,14 @@
 /**
  * The capability resolver's safety argument, mirrored from the
  * parameterResolution property suite: for random capability records (valid
- * and invalid values, directives, scoped and unscoped keys cut from generated
- * raw IDs so matches are the common case), the boundary parse is the only
- * gate - invalid values contribute nothing anywhere, the full walk is total,
- * an injected higher-precedence field always wins, and the overrides
- * resolution and the full walk can never disagree on a field the overrides
- * set. Registration and the dashboard both consume resolveModelCapabilities,
- * so these pins are what keeps the two surfaces from drifting.
+ * and invalid values, directives, exact and glob keys cut from generated raw
+ * IDs so matches are the common case, inert pre-migration URL keys), the
+ * boundary parse is the only gate - invalid values contribute nothing
+ * anywhere, the full walk is total, an injected higher-precedence field
+ * always wins, and the overrides resolution and the full walk can never
+ * disagree on a field the overrides set. Registration and the dashboard both
+ * consume resolveModelCapabilities, so these pins are what keeps the two
+ * surfaces from drifting.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -52,10 +53,11 @@ const BOOLEAN_FIELD_NAMES = FIELD_NAMES.filter(
 	(name): name is BooleanCapabilityField => CAPABILITY_FIELDS[name] === "boolean"
 );
 const OVERRIDE_LEVELS: readonly CapabilityOverrideLevel[] = ["entry", "global", "directive"];
-const USER_SET_LEVELS: readonly CapabilityLevel[] = [...OVERRIDE_LEVELS, "entry-fallback", "global-fallback"];
+// The redesign's clamp ruling: the directive level is NOT user-set - both
+// catalog paths stay guesses on the wire.
+const USER_SET_LEVELS: readonly CapabilityLevel[] = ["entry", "global", "entry-fallback", "global-fallback"];
 
-// Slash-free so a scoped key "<scope>/<prefix>" can never collide with an
-// unscoped key or match a scope other than its own.
+// Slash-free so a pre-migration URL key can never collide with a plain key.
 const noSlashChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
 const noSlashKey = fc.string({ unit: noSlashChar, minLength: 1, maxLength: 10 });
 
@@ -151,11 +153,11 @@ interface Scenario {
 }
 
 /**
- * A raw ID plus capability records whose keys are cuts of it (matches are the
- * common case), a cut of an unrelated ID keeping the no-match branch alive,
- * zero-length cuts and the catch-all "*" keeping the specificity-zero edge
- * alive, directives pointing into and past the generated catalog, and
- * independent server and catalog layers.
+ * A raw ID plus capability records whose keys are glob or exact cuts of it
+ * (matches are the common case), a cut of an unrelated ID keeping the
+ * no-match branch alive, the catch-all "*", inert pre-migration URL keys,
+ * directives pointing into and past the generated catalog, and independent
+ * server and catalog layers.
  */
 const scenario: fc.Arbitrary<Scenario> = fc
 	.record({
@@ -165,6 +167,7 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			fc.record({
 				cut: fc.nat(),
 				foreign: fc.boolean(),
+				glob: fc.boolean(),
 				star: fc.boolean(),
 				scope: fc.option(fc.constantFrom(...scopePool), { nil: undefined }),
 				record: capabilityRecordArb,
@@ -172,12 +175,18 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			{ maxLength: 4 }
 		),
 		entrySpecs: fc.option(
-			fc.array(fc.record({ cut: fc.nat(), foreign: fc.boolean(), star: fc.boolean(), record: capabilityRecordArb }), {
-				maxLength: 3,
-			}),
+			fc.array(
+				fc.record({
+					cut: fc.nat(),
+					foreign: fc.boolean(),
+					glob: fc.boolean(),
+					star: fc.boolean(),
+					record: capabilityRecordArb,
+				}),
+				{ maxLength: 3 }
+			),
 			{ nil: undefined }
 		),
-		scopes: fc.subarray([...scopePool]),
 		catalogOne: fc.option(validFieldsArb, { nil: undefined }),
 		catalogTwo: fc.option(validFieldsArb, { nil: undefined }),
 		implicitFields: fc.option(validFieldsArb, { nil: undefined }),
@@ -185,24 +194,23 @@ const scenario: fc.Arbitrary<Scenario> = fc
 		serverDeclared: serverDeclaredArb,
 	})
 	.map((spec) => {
-		const prefixOf = (cut: number, foreign: boolean, star: boolean) => {
+		const keyOf = (cut: number, foreign: boolean, glob: boolean, star: boolean) => {
 			if (star) {
 				return "*";
 			}
 			const base = foreign ? spec.otherId : spec.rawModelId;
-			return base.slice(0, cut % (base.length + 1));
+			return `${base.slice(0, cut % (base.length + 1))}${glob ? "*" : ""}`;
 		};
 		const globalCapabilities: Record<string, Record<string, unknown>> = {};
 		for (const globalSpec of spec.globalSpecs) {
-			const prefix = prefixOf(globalSpec.cut, globalSpec.foreign, globalSpec.star);
-			const key = globalSpec.scope === undefined ? prefix : `${globalSpec.scope}/${prefix}`;
-			globalCapabilities[key] = globalSpec.record;
+			const key = keyOf(globalSpec.cut, globalSpec.foreign, globalSpec.glob, globalSpec.star);
+			globalCapabilities[globalSpec.scope === undefined ? key : `${globalSpec.scope}/${key}`] = globalSpec.record;
 		}
 		const entryCapabilities =
 			spec.entrySpecs === undefined
 				? undefined
 				: Object.fromEntries(
-						spec.entrySpecs.map((entry) => [prefixOf(entry.cut, entry.foreign, entry.star), entry.record])
+						spec.entrySpecs.map((entry) => [keyOf(entry.cut, entry.foreign, entry.glob, entry.star), entry.record])
 					);
 		const catalog = makeCatalog({
 			...(spec.catalogOne !== undefined ? { "cat/one": spec.catalogOne } : {}),
@@ -216,7 +224,6 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			input: {
 				rawModelId: spec.rawModelId,
 				globalCapabilities,
-				serverScopes: spec.scopes,
 				entryCapabilities,
 				catalog,
 				serverDeclared: spec.serverDeclared,
@@ -344,8 +351,14 @@ suite("shared/config capabilityResolution properties", () => {
 					CAPABILITY_FIELDS[name] === "number" ? number : boolean;
 				// The injected field must be an override, so any generated _fallback
 				// on the exact record is dropped (a fallback-demoted field sits
-				// below server by design and would not beat the walk).
-				const { [FALLBACK_DIRECTIVE]: _fallback, ...base } = input.entryCapabilities?.[input.rawModelId] ?? {};
+				// below server by design and would not beat the walk), and so is a
+				// generated _inherit_from (an exclusive list could re-import a
+				// broader fallback marking onto the same field).
+				const {
+					[FALLBACK_DIRECTIVE]: _fallback,
+					_inherit_from: _inheritFrom,
+					...base
+				} = input.entryCapabilities?.[input.rawModelId] ?? {};
 				const exactRecord = { ...base, [name]: value };
 				const effective = resolveModelCapabilities({
 					...input,
@@ -385,16 +398,14 @@ suite("shared/config capabilityResolution properties", () => {
 					if (field.level === "entry-fallback" || field.level === "global-fallback") {
 						const level: CapabilityFallbackLevel = field.level;
 						const [candidate] = overrides.fallbackFields[name] ?? [];
-						assert.deepStrictEqual(
-							candidate,
-							{ level, key: field.key, value: field.value },
-							`${name} resolved at ${level} must be the leading fallback candidate`
-						);
+						assert.ok(candidate !== undefined, `${name} resolved at ${level} must have a fallback candidate`);
+						assert.strictEqual(candidate.level, level);
+						assert.strictEqual(candidate.key, field.key);
+						assert.strictEqual(candidate.value, field.value);
 					}
 				}
 				assert.deepStrictEqual(effective.directive, overrides.directive);
 				assert.strictEqual(effective.declare, overrides.declare);
-				assert.deepStrictEqual(effective.replacedUnscoped, overrides.replacedUnscoped);
 				assert.deepStrictEqual(effective.diagnostics, overrides.diagnostics);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
@@ -406,7 +417,6 @@ suite("shared/config capabilityResolution properties", () => {
 			fc.property(scenario, ({ input }) => {
 				const declaredIds = extractDeclaredModels({
 					globalCapabilities: input.globalCapabilities,
-					serverScopes: input.serverScopes,
 					entryCapabilities: input.entryCapabilities,
 				}).models.map((model) => model.rawId);
 				assert.strictEqual(new Set(declaredIds).size, declaredIds.length, "extraction never emits duplicate IDs");

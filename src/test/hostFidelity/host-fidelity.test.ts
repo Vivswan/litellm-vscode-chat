@@ -879,8 +879,8 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 		});
 	});
 
-	suite("server-scoped modelParameters", () => {
-		test("server-scoped parameter takes precedence over global", async function () {
+	suite("model matchers apply to registry models", () => {
+		test("a pre-migration URL-scoped key is inert; the exact matcher applies", async function () {
 			this.timeout(15000);
 			serverA.setScenario("text-only");
 
@@ -909,13 +909,17 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 				await collectStream(response);
 
 				const body = serverA.getLastRequest() ?? {};
-				assert.strictEqual(body.temperature, 0.2, `Server-scoped temperature should be 0.2, got ${body.temperature}`);
+				assert.strictEqual(
+					body.temperature,
+					0.5,
+					`server scoping is gone from the global record; got ${body.temperature}`
+				);
 			} finally {
 				await config.update("modelParameters", original, vscode.ConfigurationTarget.Global);
 			}
 		});
 
-		test("unscoped parameter applies when no server-scoped match", async function () {
+		test("a glob matcher applies where an exact non-ID key does not", async function () {
 			this.timeout(15000);
 			serverB.setScenario("text-only");
 
@@ -929,8 +933,10 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			await config.update(
 				"modelParameters",
 				{
-					[CAPTURE_MODEL_ID]: { temperature: 0.5 },
-					[`${baseUrlA}/${CAPTURE_MODEL_ID}`]: { temperature: 0.2 },
+					// The prefix of the ID without the star is exact and no longer
+					// matches; the glob form does.
+					[CAPTURE_MODEL_ID.slice(0, 4)]: { temperature: 0.2 },
+					[`${CAPTURE_MODEL_ID.slice(0, 4)}*`]: { temperature: 0.5 },
 				},
 				vscode.ConfigurationTarget.Global
 			);
@@ -947,7 +953,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 				assert.strictEqual(
 					body.temperature,
 					0.5,
-					`Unscoped temperature should apply to ServerB, got ${body.temperature}`
+					`the trailing-star glob should match where the bare prefix cannot, got ${body.temperature}`
 				);
 			} finally {
 				await config.update("modelParameters", original, vscode.ConfigurationTarget.Global);
@@ -1005,7 +1011,6 @@ suite("Host-Fidelity Tests (declared models)", () => {
 	let server: CaptureServer;
 	let declaredModel: vscode.LanguageModelChat;
 	let modelIds: string[] = [];
-	let originalCapabilities: unknown;
 
 	suiteSetup(async function () {
 		this.timeout(20000);
@@ -1015,23 +1020,19 @@ suite("Host-Fidelity Tests (declared models)", () => {
 		const baseUrl = `http://localhost:${server.port}`;
 
 		await ensureActivated();
-		const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
-		originalCapabilities = config.inspect("modelCapabilities")?.globalValue;
-		// The first record declares a model discovery cannot list; the second
-		// names the DISCOVERED model, so its _declare must stay inert.
-		await config.update(
-			"modelCapabilities",
-			{
-				[`${baseUrl}/${DECLARED_MODEL_ID}`]: {
-					_declare: true,
-					max_input_tokens: 150000,
-					max_output_tokens: 8192,
-					supports_vision: true,
-				},
-				[`${baseUrl}/${CAPTURE_MODEL_ID}`]: { _declare: true },
+		// Declarations are entry-level (exact entry keys); the registry has no
+		// declared entries, so the test seam injects the record by label. The
+		// first key declares a model discovery cannot list; the second names
+		// the DISCOVERED model, so its _declare must stay inert.
+		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", "Declared", {
+			[DECLARED_MODEL_ID]: {
+				_declare: true,
+				max_input_tokens: 150000,
+				max_output_tokens: 8192,
+				supports_vision: true,
 			},
-			vscode.ConfigurationTarget.Global
-		);
+			[CAPTURE_MODEL_ID]: { _declare: true },
+		});
 
 		await clearServers();
 		({ modelIds } = await addServer("Declared", baseUrl, "test-key"));
@@ -1047,9 +1048,7 @@ suite("Host-Fidelity Tests (declared models)", () => {
 	});
 
 	suiteTeardown(async () => {
-		await vscode.workspace
-			.getConfiguration("litellm-vscode-chat")
-			.update("modelCapabilities", originalCapabilities, vscode.ConfigurationTarget.Global);
+		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", "Declared", undefined);
 		await clearServers();
 		if (server) {
 			await server.close();

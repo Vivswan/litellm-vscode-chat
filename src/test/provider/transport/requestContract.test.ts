@@ -4,7 +4,8 @@ import * as vscode from "vscode";
 import { entryModelParametersFor } from "../../../extension/servers/serverSync";
 import { attachGroupServer } from "../../../provider/catalog/groupModels";
 import { ChatClient } from "../../../provider/transport/chatClient";
-import { findLongestPrefixMatch, getModelParameters } from "../../../provider/transport/request";
+import { resolveModelParameters } from "../../../shared/config/parameterResolution";
+import { getModelParametersConfig } from "../../../shared/config/settings";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import {
 	CHAT_COMPLETIONS_URL,
@@ -26,6 +27,19 @@ import {
 } from "../../testUtils";
 
 const modelInfo = makeModelInfo();
+
+/**
+ * The live-configuration read of the configured-parameters merge, exactly as
+ * the request path composes it (getModelParametersConfig into the shared
+ * resolver; requests read the same merge through the provider's memoized
+ * ModelResolutionTable).
+ */
+function getModelParameters(
+	rawModelId: string,
+	entryParameters?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
+) {
+	return resolveModelParameters({ rawModelId, globalParameters: getModelParametersConfig(), entryParameters });
+}
 
 function singleProviderListing(provider: Record<string, string | number | boolean | null>) {
 	return {
@@ -190,42 +204,38 @@ suite("provider/request contract", () => {
 	});
 
 	suite("modelParameters configuration", () => {
-		test("findLongestPrefixMatch returns the longest matching prefix", () => {
-			const entries = { "gpt-4": "short", "gpt-4-turbo": "long" };
-			assert.strictEqual(findLongestPrefixMatch("gpt-4-turbo:openai", entries), "long");
-			assert.strictEqual(findLongestPrefixMatch("gpt-4o", entries), "short");
-		});
-
-		test("findLongestPrefixMatch returns undefined without a match", () => {
-			assert.strictEqual(findLongestPrefixMatch("claude-3", { "gpt-4": 1 }), undefined);
-		});
-
 		test("exact model ID match returns parameters", async () => {
 			const params = await withConfig(
 				{ modelParameters: { "gpt-4": { temperature: 0.8, max_tokens: 8000 } } },
-				() => getModelParameters("gpt-4", new Map()).params
+				() => getModelParameters("gpt-4").params
 			);
 			assert.deepEqual(params, { temperature: 0.8, max_tokens: 8000 });
 		});
 
-		test("prefix match returns parameters", async () => {
-			const params = await withConfig(
+		test("an exact key matches only its exact ID; a trailing glob matches the family", async () => {
+			const exactOnly = await withConfig(
 				{ modelParameters: { "gpt-4": { temperature: 0.7 } } },
-				() => getModelParameters("gpt-4-turbo:openai", new Map()).params
+				() => getModelParameters("gpt-4-turbo:openai").params
 			);
-			assert.deepEqual(params, { temperature: 0.7 });
+			assert.deepEqual(exactOnly, {}, "exact keys are no longer implicit prefixes");
+
+			const viaGlob = await withConfig(
+				{ modelParameters: { "gpt-4*": { temperature: 0.7 } } },
+				() => getModelParameters("gpt-4-turbo:openai").params
+			);
+			assert.deepEqual(viaGlob, { temperature: 0.7 });
 		});
 
-		test("longest prefix match takes precedence", async () => {
+		test("the glob with the longest literal prefix takes precedence", async () => {
 			const params = await withConfig(
 				{
 					modelParameters: {
-						gpt: { temperature: 0.5 },
-						"gpt-4": { temperature: 0.7 },
-						"gpt-4-turbo": { temperature: 0.9 },
+						"gpt*": { temperature: 0.5 },
+						"gpt-4*": { temperature: 0.7 },
+						"gpt-4-turbo*": { temperature: 0.9 },
 					},
 				},
-				() => getModelParameters("gpt-4-turbo:fastest", new Map()).params
+				() => getModelParameters("gpt-4-turbo:fastest").params
 			);
 			assert.deepEqual(params, { temperature: 0.9 });
 		});
@@ -233,13 +243,13 @@ suite("provider/request contract", () => {
 		test("no match returns empty object", async () => {
 			const params = await withConfig(
 				{ modelParameters: { "gpt-4": { temperature: 0.7 } } },
-				() => getModelParameters("claude-opus", new Map()).params
+				() => getModelParameters("claude-opus").params
 			);
 			assert.deepEqual(params, {});
 		});
 
 		test("empty configuration returns empty object", async () => {
-			const params = await withConfig({}, () => getModelParameters("gpt-4", new Map()).params);
+			const params = await withConfig({}, () => getModelParameters("gpt-4").params);
 			assert.deepEqual(params, {});
 		});
 
@@ -257,7 +267,7 @@ suite("provider/request contract", () => {
 						},
 					},
 				},
-				() => getModelParameters("test-model", new Map()).params
+				() => getModelParameters("test-model").params
 			);
 			assert.deepEqual(params, {
 				temperature: 0.8,
@@ -269,7 +279,11 @@ suite("provider/request contract", () => {
 			});
 		});
 
-		test("a baseUrl server scope matches and wins over an unscoped entry", async () => {
+		test("a pre-migration URL-scoped key is inert in the global record", async () => {
+			// Server scoping is gone from the global records: a
+			// "https://host/model" key can never match a model ID, so only the
+			// plain matcher applies. The upgrade migration moves such keys into
+			// the owning server entry.
 			const params = await withConfig(
 				{
 					modelParameters: {
@@ -277,15 +291,12 @@ suite("provider/request contract", () => {
 						"gpt-4": { temperature: 0.8 },
 					},
 				},
-				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"]).params
+				() => getModelParameters("gpt-4").params
 			);
-			assert.deepEqual(params, { temperature: 0.2 });
+			assert.deepEqual(params, { temperature: 0.8 });
 		});
 
 		test("a pre-migration label scope no longer matches", async () => {
-			// The label-matching path is gone: a "Label/<model>" key is just a
-			// bare prefix entry now, and "Production/gpt-4" does not prefix
-			// "gpt-4", so only the unscoped entry applies.
 			const params = await withConfig(
 				{
 					modelParameters: {
@@ -293,22 +304,9 @@ suite("provider/request contract", () => {
 						"gpt-4": { temperature: 0.8 },
 					},
 				},
-				() => getModelParameters("gpt-4", new Map(), ["http://litellm.test"]).params
+				() => getModelParameters("gpt-4").params
 			);
 			assert.deepEqual(params, { temperature: 0.8 });
-		});
-
-		test("the most specific model prefix wins within the base URL scope", async () => {
-			const params = await withConfig(
-				{
-					modelParameters: {
-						"http://litellm.test/gpt-4": { temperature: 0.4 },
-						"http://litellm.test/gpt-4-turbo": { temperature: 0.6 },
-					},
-				},
-				() => getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"]).params
-			);
-			assert.deepEqual(params, { temperature: 0.6 });
 		});
 	});
 
@@ -319,31 +317,23 @@ suite("provider/request contract", () => {
 
 		test("entry parameters override the global match key by key", async () => {
 			const params = await withConfig(
-				{ modelParameters: { "gpt-4": { temperature: 0.8, top_p: 0.9 } } },
-				() => getModelParameters("gpt-4-turbo", new Map(), [], { "gpt-4": { temperature: 0.2 } }).params
+				{ modelParameters: { "gpt-4*": { temperature: 0.8, top_p: 0.9 } } },
+				() => getModelParameters("gpt-4-turbo", { "gpt-4*": { temperature: 0.2 } }).params
 			);
 			assert.deepEqual(params, { temperature: 0.2, top_p: 0.9 });
 		});
 
-		test("entry parameters outrank even a server-scoped global entry", async () => {
-			const params = await withConfig(
-				{ modelParameters: { "http://litellm.test/gpt-4": { temperature: 0.4 } } },
-				() => getModelParameters("gpt-4", new Map(), ["http://litellm.test"], { "gpt-4": { temperature: 0.1 } }).params
-			);
-			assert.deepEqual(params, { temperature: 0.1 });
-		});
-
-		test("the longest prefix wins within the entry record; no server scoping applies there", async () => {
+		test("the most specific matcher wins within the entry record; URL keys are inert there too", async () => {
 			const params = await withConfig(
 				{ modelParameters: {} },
 				() =>
-					getModelParameters("gpt-4-turbo", new Map(), ["http://litellm.test"], {
-						gpt: { temperature: 0.5 },
-						"gpt-4": { temperature: 0.7 },
+					getModelParameters("gpt-4-turbo", {
+						"gpt*": { temperature: 0.5 },
+						"gpt-4*": { temperature: 0.7 },
 						"http://litellm.test/gpt-4": { temperature: 0.3 },
 					}).params
 			);
-			assert.deepEqual(params, { temperature: 0.7 }, "a URL-prefixed entry key is just a non-matching prefix");
+			assert.deepEqual(params, { temperature: 0.7 }, "a URL-prefixed entry key is just a non-matching key");
 		});
 
 		test("two entries sharing a base URL and key each send their own entry parameters", async () => {
@@ -430,19 +420,22 @@ suite("provider/request contract", () => {
 		test("_force'd parameters outrank runtime options and the picker on the wire", async () => {
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryModelParameters: () => ({
-					"test-model": { temperature: 0.2, reasoning_effort: "low", _force: true },
+					"test-model": { temperature: 0.2, reasoning_effort: "low", max_tokens: 9999, _force: true },
 				}),
 			});
 			const body = await withConfig({ modelParameters: { "test-model": { seed: 7, _force: ["seed"] } } }, () =>
 				captureRequestBody(provider, labeledModel("team-a"), {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
-					modelOptions: { temperature: 0.9, seed: 42 },
+					modelOptions: { temperature: 0.9, seed: 42, max_tokens: 1234 },
 					modelConfiguration: { reasoningEffort: "high" },
 				})
 			);
 			assert.strictEqual(body.temperature, 0.2, "the forced entry value beats the runtime option");
 			assert.strictEqual(body.reasoning_effort, "low", "the forced entry value beats the picker");
 			assert.strictEqual(body.seed, 7, "the forced global value beats the runtime option");
+			// 9999 exceeds min(4096, model max) on this undeclared-limit model: a
+			// forced max_tokens counts as user-set, so the guess cap never touches it.
+			assert.strictEqual(body.max_tokens, 9999, "a forced max_tokens beats the runtime option, uncapped");
 			assert.strictEqual(body._force, undefined, "the directive key itself never reaches the wire");
 		});
 

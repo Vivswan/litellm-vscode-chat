@@ -14,6 +14,7 @@ import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem } from "../../../provider/catalog/schemas";
 import type { CapabilityCatalogLookup, CatalogLookupResult } from "../../../shared/config/capabilityResolution";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
+import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { makeModelInfo } from "../../testUtils";
 
 const SERVER = { id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" };
@@ -24,6 +25,7 @@ function options(overrides: Partial<CapabilityOverrideOptions> = {}): Capability
 		globalCapabilities: {},
 		entryCapabilities: undefined,
 		catalog: EMPTY_CATALOG_LOOKUP,
+		resolution: new ModelResolutionTable(),
 		log: () => {},
 		...overrides,
 	};
@@ -129,7 +131,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 				SERVER,
 				options({
 					globalCapabilities: {
-						"gpt-": {
+						"gpt-*": {
 							max_output_tokens: 4000,
 							max_input_tokens: 100000,
 							supports_vision: false,
@@ -161,7 +163,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(out[0]?.maxOutputTokens, 32000, "the server-declared limit stays");
 		});
 
-		test("the scoped global record replaces the unscoped one whole", () => {
+		test("a URL-scoped global key is inert; the plain matcher record applies", () => {
 			const out = applyCapabilityOverrides(
 				[registered(DEPLOYMENT)],
 				SERVER,
@@ -172,8 +174,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 					},
 				})
 			);
-			assert.strictEqual(out[0]?.maxOutputTokens, 2222);
-			assert.strictEqual(out[0]?.capabilities?.imageInput, true, "the replaced record's other fields do not apply");
+			assert.strictEqual(out[0]?.maxOutputTokens, 1111, "server scoping is gone from the global records");
+			assert.strictEqual(out[0]?.capabilities?.imageInput, false);
 		});
 
 		test("the entry record wins key by key over the global one", () => {
@@ -296,7 +298,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 				[makeModelInfo({ id: "a-model" }), makeModelInfo({ id: "a-second" })],
 				SERVER,
 				options({
-					globalCapabilities: { "a-": { bogus_key: 1, supports_vision: true } },
+					globalCapabilities: { "a-*": { bogus_key: 1, supports_vision: true } },
 					log: (message) => logged.push(message),
 				})
 			);
@@ -312,8 +314,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 				SERVER,
 				1,
 				options({
-					globalCapabilities: {
-						[`${SCOPE}/my-model`]: { _declare: true, context_length: 64000, max_output_tokens: 8000 },
+					entryCapabilities: {
+						"my-model": { _declare: true, context_length: 64000, max_output_tokens: 8000 },
 					},
 				})
 			);

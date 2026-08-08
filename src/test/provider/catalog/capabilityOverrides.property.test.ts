@@ -31,6 +31,7 @@ import {
 	OPENROUTER_MODEL_DIRECTIVE,
 	resolveModelCapabilities,
 } from "../../../shared/config/capabilityResolution";
+import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -190,13 +191,16 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			fc.record({
 				cut: fc.nat(),
 				foreign: fc.boolean(),
+				glob: fc.boolean(),
 				scoped: fc.boolean(),
 				record: capabilityRecordArb,
 			}),
 			{ maxLength: 3 }
 		),
 		entrySpecs: fc.option(
-			fc.array(fc.record({ cut: fc.nat(), foreign: fc.boolean(), record: capabilityRecordArb }), { maxLength: 2 }),
+			fc.array(fc.record({ cut: fc.nat(), foreign: fc.boolean(), glob: fc.boolean(), record: capabilityRecordArb }), {
+				maxLength: 2,
+			}),
 			{ nil: undefined }
 		),
 		catalogOne: fc.option(validFieldsArb, { nil: undefined }),
@@ -204,19 +208,25 @@ const scenario: fc.Arbitrary<Scenario> = fc
 	})
 	.map((spec) => {
 		const item = { ...spec.item, id: spec.rawModelId };
-		const prefixOf = (cut: number, foreign: boolean) => {
+		// A cut of the raw ID plus "*" is a matching glob; without the star it
+		// is an exact key (matching only on a full-length cut). The empty
+		// non-glob cut stays in the language as the invalid "" key, and the
+		// scoped form keeps pre-migration URL keys (now inert) alive.
+		const prefixOf = (cut: number, foreign: boolean, glob: boolean) => {
 			const base = foreign ? spec.otherId : spec.rawModelId;
-			return base.slice(0, cut % (base.length + 1));
+			return `${base.slice(0, cut % (base.length + 1))}${glob ? "*" : ""}`;
 		};
 		const globalCapabilities: Record<string, Record<string, unknown>> = {};
 		for (const globalSpec of spec.globalSpecs) {
-			const prefix = prefixOf(globalSpec.cut, globalSpec.foreign);
+			const prefix = prefixOf(globalSpec.cut, globalSpec.foreign, globalSpec.glob);
 			globalCapabilities[globalSpec.scoped ? `${SCOPE}/${prefix}` : prefix] = globalSpec.record;
 		}
 		const entryCapabilities =
 			spec.entrySpecs === undefined
 				? undefined
-				: Object.fromEntries(spec.entrySpecs.map((entry) => [prefixOf(entry.cut, entry.foreign), entry.record]));
+				: Object.fromEntries(
+						spec.entrySpecs.map((entry) => [prefixOf(entry.cut, entry.foreign, entry.glob), entry.record])
+					);
 		const catalog = makeCatalog({
 			...(spec.catalogOne !== undefined ? { "cat/one": spec.catalogOne } : {}),
 			...(spec.implicitFields !== undefined ? { [`imp/${spec.rawModelId}`]: spec.implicitFields } : {}),
@@ -225,6 +235,7 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			globalCapabilities,
 			entryCapabilities,
 			catalog,
+			resolution: new ModelResolutionTable(),
 			log: () => {},
 		};
 		return {
@@ -242,7 +253,6 @@ function effectiveFor(info: PreAttachModelInfo, s: Scenario): EffectiveCapabilit
 	return resolveModelCapabilities({
 		rawModelId: rawModelIdFromExposed(info.id, SERVER.id),
 		globalCapabilities: s.globalCapabilities,
-		serverScopes: [SCOPE],
 		entryCapabilities: s.entryCapabilities,
 		catalog: s.catalog,
 		serverDeclared: info.litellm.serverDeclared,

@@ -109,7 +109,7 @@ function skipReasonText(reason: "underscore" | "provider-owned"): string {
 }
 
 /**
- * One `_force` problem as prose, the capability inspector's diagnostics idiom:
+ * One record problem as prose, the capability inspector's diagnostics idiom:
  * classifications and the offending keys, never values.
  */
 function parameterDiagnosticText(diagnostic: ParameterDiagnostic): string {
@@ -117,20 +117,36 @@ function parameterDiagnosticText(diagnostic: ParameterDiagnostic): string {
 		diagnostic.layer === "entry"
 			? l10n.t("server entry key {0}", diagnostic.recordKey)
 			: l10n.t("settings key {0}", diagnostic.recordKey);
-	if (diagnostic.kind === "unforceable-key") {
-		return l10n.t(
-			'"{0}" cannot be forced and its mark is skipped: provider-owned fields and _ keys stay extension-owned ({1})',
-			diagnostic.key,
-			where
-		);
+	switch (diagnostic.kind) {
+		case "unforceable-key":
+			return l10n.t(
+				'"{0}" cannot be forced and its mark is skipped: provider-owned fields and _ keys stay extension-owned ({1})',
+				diagnostic.key,
+				where
+			);
+		case "invalid-matcher":
+			return l10n.t(
+				'"{0}" is not a valid matcher key and never matches: use an exact ID, a trailing-* glob, /regex/, or "*" ({1})',
+				diagnostic.key,
+				where
+			);
+		case "wrong-record-type":
+			return l10n.t('"{0}" belongs to capability records and is ignored here ({1})', diagnostic.key, where);
+		case "unknown-inherit-key":
+			return l10n.t(
+				'"_inherit_from" names "{0}", which is not a key of this record; the rest still applies ({1})',
+				diagnostic.key,
+				where
+			);
+		default:
+			// Deliberately "offending entries", not "ignored": the resolver
+			// salvages the valid names of a partly bad list, so those stay applied.
+			return l10n.t(
+				'"{0}" must be true or a list of fields the record sets, e.g. ["temperature"]; offending entries are ignored ({1})',
+				diagnostic.key,
+				where
+			);
 	}
-	// Deliberately "offending entries", not "ignored": the resolver salvages
-	// the valid names of a partly bad list, so those fields stay forced.
-	return l10n.t(
-		'"{0}" must be true or a list of parameters the record sets, e.g. ["temperature"]; offending entries are ignored ({1})',
-		diagnostic.key,
-		where
-	);
 }
 
 /** The request fields the extension itself owns; rendered as chips, never prose. */
@@ -139,6 +155,17 @@ const ALWAYS_SENT_FIELDS = ["model", "messages", "stream", "stream_options", "ma
 /** The max_tokens derivation, split into the value and one short reason per branch. */
 function maxTokensParts(maxTokens: ProjectedMaxTokens, entryLabel: string): { value: number; reason: string } {
 	switch (maxTokens.source) {
+		case "forced":
+			return {
+				value: maxTokens.value,
+				reason:
+					maxTokens.configuredSource !== undefined
+						? l10n.t(
+								"forced by {0}; overrides runtime options and the picker",
+								sourceName(maxTokens.configuredSource, entryLabel)
+							)
+						: l10n.t("forced in configuration; overrides runtime options and the picker"),
+			};
 		case "configured":
 			return {
 				value: maxTokens.value,
@@ -178,6 +205,9 @@ function ParameterRow({ row, entryLabel }: { row: EffectiveParameterRow; entryLa
 				<td class="param-value">{formatJsonValue(row.value)}</td>
 				<td>
 					{sourceName(row.source, entryLabel)}
+					{row.inheritedFrom !== undefined ? (
+						<span class="param-skip"> ({l10n.t("inherited from {0}", row.inheritedFrom)})</span>
+					) : null}
 					{row.skipReason !== undefined ? <span class="param-skip"> ({skipReasonText(row.skipReason)})</span> : null}
 					{row.forced === true ? (
 						<span class="param-skip"> ({l10n.t("forced: overrides runtime options and the picker")})</span>
@@ -207,7 +237,6 @@ export function ParamsInspector({
 	const projection = projectEffectiveParameters({
 		rawModelId: model.rawId,
 		globalParameters,
-		serverScopes: scope !== undefined ? [scope.baseUrlScope] : [],
 		entryParameters: scope?.entryParameters,
 		maxOutputTokens: model.maxOutputTokens,
 		outputLimitDeclared: model.outputLimitDeclared,
@@ -217,10 +246,7 @@ export function ParamsInspector({
 	const entryLabel = scope?.entryLabel ?? model.serverLabel;
 	// A configured max_tokens is real configuration even though it renders on
 	// the derivation line instead of as a row, so it defeats the empty state.
-	const empty =
-		projection.rows.length === 0 &&
-		projection.replacedUnscoped === undefined &&
-		projection.maxTokens.source !== "configured";
+	const empty = projection.rows.length === 0 && projection.maxTokens.source !== "configured";
 
 	return (
 		<SlideOver
@@ -288,23 +314,6 @@ export function ParamsInspector({
 					</table>
 				) : empty ? (
 					<p class="hint params-empty">{l10n.t("No configured parameters match this model.")}</p>
-				) : null}
-				{projection.replacedUnscoped !== undefined ? (
-					<div class="params-replaced">
-						<p class="hint">
-							{l10n.t(
-								"Not applied - Settings {0}: a server-scoped match replaces the whole unscoped record.",
-								projection.replacedUnscoped.key
-							)}
-						</p>
-						<ul>
-							{Object.entries(projection.replacedUnscoped.record).map(([name, value]) => (
-								<li key={name}>
-									{name}: {formatJsonValue(value)}
-								</li>
-							))}
-						</ul>
-					</div>
 				) : null}
 				{projection.diagnostics.length > 0 ? (
 					<div class="params-replaced">

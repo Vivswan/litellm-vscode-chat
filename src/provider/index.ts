@@ -11,6 +11,7 @@ import type {
 import { CancellationError, EventEmitter } from "vscode";
 import type { CapabilityCatalogLookup, ModelCapabilitiesRecord } from "../shared/config/capabilityResolution";
 import { EMPTY_CATALOG_LOOKUP } from "../shared/config/capabilityResolution";
+import { ModelResolutionTable } from "../shared/config/resolutionTable";
 import { getDiscoveryCacheTtl, getModelCapabilitiesConfig } from "../shared/config/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { TransportErrorClassification } from "../shared/errorClassification";
@@ -163,6 +164,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// live snapshot count cannot give at cold start.
 	private _hasSeenGroupConfiguration = false;
 	private readonly _onDidChangeEmitter = new EventEmitter<void>();
+	/**
+	 * The precomputed flat resolution table: one instance shared by the chat
+	 * request path (via ChatClient), the registration decorator
+	 * (capabilityOptions), and the dashboard's inspectors (resolutionTable
+	 * below), so every consumer reads the same cache. Input-fingerprinted, so
+	 * settings, entry, and discovery changes reach the next lookup without
+	 * event plumbing; pruned with the other per-server caches.
+	 */
+	private readonly _resolution = new ModelResolutionTable();
 	/** Fired to make the host re-resolve the group-agnostic call and every group through this provider. */
 	readonly onDidChangeLanguageModelChatInformation: Event<void> = this._onDidChangeEmitter.event;
 
@@ -179,6 +189,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			logger: options.logger,
 			getServers: this._getServers,
 			getEntryModelParameters: options.getEntryModelParameters,
+			resolution: this._resolution,
 		});
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 		this._statusWindow = new StatusWindow(options.now ?? (() => Date.now()));
@@ -203,6 +214,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/** The status window's current view for read-only consumers; see ServerModelsSnapshot. */
 	getServerSnapshots(): ServerModelsSnapshot[] {
 		return this._statusWindow.snapshots();
+	}
+
+	/** The shared flat resolution table, for the dashboard's inspectors: the SAME cache requests read. */
+	get resolutionTable(): ModelResolutionTable {
+		return this._resolution;
 	}
 
 	/**
@@ -233,6 +249,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			entryCapabilities:
 				entryLabel !== undefined ? this._getEntryModelCapabilities(entryLabel, server.baseUrl) : undefined,
 			catalog: this._getCatalogLookup(),
+			resolution: this._resolution,
 			log: (message, data) => this.log(message, data),
 		};
 	}
@@ -330,6 +347,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private pruneServerCaches(keep: readonly string[]): void {
 		this._client.pruneClients(keep);
 		this._discoveryCache.prune(keep);
+		this._resolution.prune(keep);
 	}
 
 	/** Report the union of the latest registry and group statuses, so one group's fetch never masks the others. */

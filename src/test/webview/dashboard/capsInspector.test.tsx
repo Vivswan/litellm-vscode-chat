@@ -2,7 +2,7 @@
  * CapsInspector rendering: the request/response feed (one
  * readModelCapabilities post per inspected model, uncorrelated responses
  * ignored), the provenance table with shadowed values, the directive and
- * declared notes, replacedUnscoped, and the diagnostics list. The fixture
+ * declared notes, inherited-field notes, and the diagnostics list. The fixture
  * EffectiveCapabilities values are hand-built protocol data - the webview
  * never resolves anything itself, so the tests feed it exactly what the
  * extension would.
@@ -116,12 +116,15 @@ test("the correlated response renders every field with its value and source leve
 	expect(text).toContain("Built-in default");
 });
 
-test("declared, directive-not-found, replacedUnscoped, and diagnostics all render their notes", () => {
+test("declared, directive-not-found, inherited fields, and diagnostics all render their notes", () => {
 	const root = answeredInPlace(
 		makeCapabilities({
 			declare: true,
 			directive: { kind: "not-found", id: "openai/nope" },
-			replacedUnscoped: { key: "gpt", record: { context_length: 1 } },
+			fields: {
+				...makeCapabilities().fields,
+				context_length: { value: 200000, level: "global", key: "gpt*", inheritedFrom: "gpt*", shadowed: [] },
+			},
 			diagnostics: [{ kind: "unknown-key", key: "supports_pdf_input", layer: "global", recordKey: "gpt-4" }],
 		}),
 		{ declared: true }
@@ -129,7 +132,7 @@ test("declared, directive-not-found, replacedUnscoped, and diagnostics all rende
 	const text = root.textContent ?? "";
 	expect(text).toContain("Declared model");
 	expect(text).toContain('"openai/nope" was not found');
-	expect(text).toContain("a server-scoped match replaces the whole unscoped record");
+	expect(text).toContain("inherited from gpt*");
 	expect(text).toContain('"supports_pdf_input" is not a known capability field');
 });
 
