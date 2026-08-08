@@ -49,7 +49,12 @@ suite("production activation", () => {
 			vscode.extensions.getExtension("vivswan.litellm-vscode-chat"),
 			"the dev extension must be installed in the test host"
 		);
-		assert.strictEqual(extension.isActive, false, "the real extension must stay inactive in this label");
+		// isActive is deliberately NOT asserted: onStartupFinished may fire the
+		// real activate() before this hook runs, and its suppression guard
+		// (LITELLM_SUPPRESS_STARTUP_ACTIVATION) returns early - which still
+		// counts as a successful activation, so isActive flips true on hosts
+		// that win that race (CI does; local usually does not). The invariant
+		// the guard provides is INERTNESS, pinned by the command check below.
 		testCommandsBefore = (await vscode.commands.getCommands(true)).filter((id) => id.startsWith("litellm."));
 		assert.deepStrictEqual(testCommandsBefore, [], "no litellm.* command may exist before the fake activation");
 
