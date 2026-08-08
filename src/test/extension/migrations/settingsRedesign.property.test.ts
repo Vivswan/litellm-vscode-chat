@@ -73,7 +73,8 @@ const NEW_IDS = [
 const maybe = <T>(arbitrary: fc.Arbitrary<T>): fc.Arbitrary<T | undefined> => fc.option(arbitrary, { nil: undefined });
 
 const BASES = ["https://gw", "https://gw/v1", "http://localhost:4000"];
-const MODEL_PREFIXES = ["", "*", "gpt", "gpt-5", "gpt-5-turbo", "claude", "deepseek-r1", "v1/gpt", "other"];
+// "gpt*" keeps the star-bearing key rewrite (escaped-regex migration) alive.
+const MODEL_PREFIXES = ["", "*", "gpt", "gpt*", "gpt-5", "gpt-5-turbo", "claude", "deepseek-r1", "v1/gpt", "other"];
 
 const modelIdArb = fc.constantFrom(
 	"gpt-5",
@@ -84,12 +85,16 @@ const modelIdArb = fc.constantFrom(
 	"qwen",
 	"v1/gpt-mini",
 	"gpt",
+	// A literal-star ID: only the star-bearing keys' regex form may match it.
+	"gpt*5",
 	"other-model"
 );
 
 const paramRecordArb = fc
 	.dictionary(
-		fc.constantFrom("temperature", "top_p", "seed", "user"),
+		// max_tokens keeps the migrated-_force rewrite ruling alive: old _force
+		// could never cover it, so the migration must not let it become forced.
+		fc.constantFrom("temperature", "top_p", "seed", "user", "max_tokens"),
 		fc.oneof(fc.integer({ min: -3, max: 3 }), fc.boolean(), fc.constantFrom("x", "y")),
 		{ maxKeys: 3 }
 	)

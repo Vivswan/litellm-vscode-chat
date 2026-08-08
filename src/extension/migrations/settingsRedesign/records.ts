@@ -6,18 +6,54 @@
  */
 
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
-import { DECLARE_DIRECTIVE } from "./legacyIds";
+import { DECLARE_DIRECTIVE, isForceableKey } from "./legacyIds";
 
 /**
  * Old prefix key -> explicit matcher. The old catch-all aliases ("" and the
- * bare "*") collapse to "*"; every other key gains a trailing glob, so it
- * keeps matching exactly the IDs the old prefix rule matched. A key that
- * already contains "*" comes out with a non-trailing star - an invalid
- * matcher, diagnosed and ignored - which is behavior-preserving too: no real
- * model ID contains "*", so the old literal prefix never matched either.
+ * bare "*") collapse to "*"; a key containing a literal "*" of its own
+ * becomes an escaped anchored-prefix REGEX (star-appending would mint an
+ * invalid mid-star matcher, and riding verbatim would ACTIVATE glob
+ * semantics over a superset of the old match set); every other key gains a
+ * trailing glob. Each form keeps matching exactly the IDs the old literal
+ * prefix matched - with one accepted caveat for the regex form: it ranks at
+ * the regex tier (below globs), so overlapping keys can order differently
+ * than the old longest-prefix rule in that pathological corner.
  */
 function explicitMatcherKey(prefix: string): string {
-	return prefix === "" || prefix === "*" ? "*" : `${prefix}*`;
+	if (prefix === "" || prefix === "*") {
+		return "*";
+	}
+	if (prefix.includes("*")) {
+		return `/${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*/`;
+	}
+	return `${prefix}*`;
+}
+
+/**
+ * The lead's migrated-`_force` ruling: the migration freezes OLD
+ * forceability, where max_tokens was provider-owned and unforceable, while
+ * the new grammar deliberately allows forcing it (new-config power only). A
+ * migrated record whose `_force` would newly cover max_tokens is minimally
+ * rewritten - `true` expands to the old-forceable literal list only when the
+ * record sets max_tokens, and an explicit list drops the max_tokens name the
+ * old parser diagnosed and ignored. Every other record rides verbatim.
+ */
+function normalizeMigratedForce(value: unknown): { value: unknown; rewrote: boolean } {
+	if (!isRecord(value) || !Object.hasOwn(value, "_force")) {
+		return { value, rewrote: false };
+	}
+	const directive = value._force;
+	if (directive === true) {
+		if (!Object.hasOwn(value, "max_tokens")) {
+			return { value, rewrote: false };
+		}
+		const list = Object.keys(value).filter((key) => key !== "_force" && isForceableKey(key));
+		return { value: { ...value, _force: list }, rewrote: true };
+	}
+	if (Array.isArray(directive) && directive.some((name) => name === "max_tokens")) {
+		return { value: { ...value, _force: directive.filter((name) => name !== "max_tokens") }, rewrote: true };
+	}
+	return { value, rewrote: false };
 }
 
 /**
@@ -100,6 +136,8 @@ export interface EntryRecordTransform {
 	readonly starredKeys: number;
 	readonly droppedAliasKeys: number;
 	readonly strippedInertDeclares: number;
+	/** Records whose migrated `_force` was rewritten to its old forceable coverage. */
+	readonly rewroteForce: number;
 }
 
 /**
@@ -111,11 +149,12 @@ export interface EntryRecordTransform {
  */
 export function transformEntryRecord(raw: unknown, kind: RecordKind): EntryRecordTransform {
 	if (!isRecord(raw)) {
-		return { value: raw, declared: [], starredKeys: 0, droppedAliasKeys: 0, strippedInertDeclares: 0 };
+		return { value: raw, declared: [], starredKeys: 0, droppedAliasKeys: 0, strippedInertDeclares: 0, rewroteForce: 0 };
 	}
 	const declared: string[] = [];
 	let starredKeys = 0;
 	let strippedInertDeclares = 0;
+	let rewroteForce = 0;
 	const transformed: TransformedKey[] = [];
 	for (const [key, value] of Object.entries(raw)) {
 		if (isUnsafeRecordKey(key)) {
@@ -130,10 +169,18 @@ export function transformEntryRecord(raw: unknown, kind: RecordKind): EntryRecor
 			const strip = stripDeclare(value, isDeclarableKey(key));
 			carried = strip.value;
 			if (strip.declared) {
-				declared.push(key);
+				// The parser trims declared IDs, so the move writes the trimmed form.
+				declared.push(key.trim());
 			}
 			if (strip.strippedInert) {
 				strippedInertDeclares += 1;
+			}
+		}
+		if (kind === "parameters") {
+			const normalized = normalizeMigratedForce(carried);
+			carried = normalized.value;
+			if (normalized.rewrote) {
+				rewroteForce += 1;
 			}
 		}
 		const newKey = explicitMatcherKey(key);
@@ -143,7 +190,7 @@ export function transformEntryRecord(raw: unknown, kind: RecordKind): EntryRecor
 		transformed.push({ sourceKey: key, newKey, value: carried });
 	}
 	const { record, dropped } = assembleRecord(transformed);
-	return { value: record, declared, starredKeys, droppedAliasKeys: dropped, strippedInertDeclares };
+	return { value: record, declared, starredKeys, droppedAliasKeys: dropped, strippedInertDeclares, rewroteForce };
 }
 
 /** One declared entry a scoped key can move into: its raw-array index and its normalized base URL. */
@@ -163,6 +210,8 @@ export interface GlobalRecordTransform {
 	readonly movedScopedKeys: number;
 	readonly inertScopedKeys: number;
 	readonly strippedInertDeclares: number;
+	/** Records whose migrated `_force` was rewritten to its old forceable coverage. */
+	readonly rewroteForce: number;
 }
 
 /**
@@ -193,6 +242,7 @@ export function transformGlobalRecord(
 			movedScopedKeys: 0,
 			inertScopedKeys: 0,
 			strippedInertDeclares: 0,
+			rewroteForce: 0,
 		};
 	}
 	const entryAdditions = new Map<number, Map<string, unknown>>();
@@ -201,6 +251,7 @@ export function transformGlobalRecord(
 	let movedScopedKeys = 0;
 	let inertScopedKeys = 0;
 	let strippedInertDeclares = 0;
+	let rewroteForce = 0;
 	const kept: TransformedKey[] = [];
 
 	for (const [key, value] of Object.entries(raw)) {
@@ -228,10 +279,18 @@ export function transformGlobalRecord(
 					if (strip.declared) {
 						keyDeclared = true;
 						const list = entryDeclares.get(target.entryIndex) ?? [];
-						list.push(remainder);
+						// The parser trims declared IDs, so the move writes the trimmed form.
+						list.push(remainder.trim());
 						entryDeclares.set(target.entryIndex, list);
 					} else if (strip.strippedInert) {
 						keyStrippedInert = true;
+					}
+				}
+				if (kind === "parameters") {
+					const normalized = normalizeMigratedForce(carried);
+					carried = normalized.value;
+					if (normalized.rewrote) {
+						rewroteForce += 1;
 					}
 				}
 				const additions = entryAdditions.get(target.entryIndex) ?? new Map<string, unknown>();
@@ -264,6 +323,13 @@ export function transformGlobalRecord(
 				strippedInertDeclares += 1;
 			}
 		}
+		if (kind === "parameters") {
+			const normalized = normalizeMigratedForce(carried);
+			carried = normalized.value;
+			if (normalized.rewrote) {
+				rewroteForce += 1;
+			}
+		}
 		const newKey = explicitMatcherKey(key);
 		if (newKey !== key) {
 			starredKeys += 1;
@@ -281,5 +347,6 @@ export function transformGlobalRecord(
 		movedScopedKeys,
 		inertScopedKeys,
 		strippedInertDeclares,
+		rewroteForce,
 	};
 }

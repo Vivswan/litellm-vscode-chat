@@ -2141,5 +2141,48 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 				{ virtualKeyValue: "vk-stored" }
 			);
 		});
+
+		// The RULED exceptions: auth fragments the old runtime never honored on
+		// the wire drop at migration (carrying them would misconfigure the whole
+		// entry, which is strictly worse), so THESE entries' fingerprints change
+		// once on upgrade - a single group update with identical wire behavior.
+		// The no-resync ruling protects every WORKING auth shape (the pins
+		// above); these two document the accepted exception.
+		test("ACCEPTED EXCEPTION: a wire-inert partial-oauth fragment drops and the fingerprint changes once", () => {
+			const flat: DeclaredServer = { label: "A", baseUrl: "http://a.test", apiKey: "sk-1", oauthClientId: "c1" };
+			// entries.ts drops the lone oauth piece: the migrated entry is the
+			// plain apiKey form.
+			const { entries, problems } = parseServersSetting([
+				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } },
+			]);
+			assert.deepStrictEqual(problems, []);
+			const migrated = entries[0];
+			assert.ok(migrated, "the migrated entry must parse");
+			const flatArgs = buildGroupArgs(flat, {});
+			const migratedArgs = buildGroupArgs(migrated, {});
+			assert.notDeepStrictEqual(migratedArgs, flatArgs, "the fragment was in the old args, so the args differ");
+			assert.strictEqual(migratedArgs.baseUrl, flatArgs.baseUrl);
+			assert.strictEqual(migratedArgs.apiKey, flatArgs.apiKey, "every wire-relevant credential is unchanged");
+			assert.strictEqual(migratedArgs.oauthTokenUrl, undefined, "neither side could ever exchange a token");
+		});
+
+		test("ACCEPTED EXCEPTION: a header-less virtualKey value drops and the fingerprint changes once", () => {
+			const flat: DeclaredServer = { label: "A", baseUrl: "http://a.test", apiKey: "sk-1", virtualKeyValue: "vk-1" };
+			const { entries, problems } = parseServersSetting([
+				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } },
+			]);
+			assert.deepStrictEqual(problems, []);
+			const migrated = entries[0];
+			assert.ok(migrated, "the migrated entry must parse");
+			const flatArgs = buildGroupArgs(flat, {});
+			const migratedArgs = buildGroupArgs(migrated, {});
+			assert.notDeepStrictEqual(migratedArgs, flatArgs);
+			assert.strictEqual(migratedArgs.apiKey, flatArgs.apiKey);
+			assert.strictEqual(
+				migratedArgs.virtualKeyValue,
+				undefined,
+				"a value without its header never left the process on either side"
+			);
+		});
 	});
 });
