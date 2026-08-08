@@ -19,7 +19,10 @@
  * state are untouched by ruling: SecretStorage keys and blob field ids stay
  * as they are (the stored values keep working under the new entry shape),
  * and provider-group fingerprints stay valid because the group args of a
- * migrated entry are byte-identical.
+ * migrated entry are byte-identical - with one ruled exception: wire-inert
+ * auth fragments (lone oauth pieces, unsendable virtual-key halves) drop,
+ * so THOSE entries' fingerprints change once (pinned as ACCEPTED EXCEPTION
+ * tests in the fingerprint-stability suite).
  */
 
 import { isDeepStrictEqual } from "node:util";
@@ -123,7 +126,11 @@ export function planSettingsRedesign(rawSnapshot: SettingsSnapshot, labels: Rede
 			// The sync-race rule, which is also the crash-recovery rule: the new
 			// name already holds a value (Settings Sync delivered it from an
 			// upgraded machine, or this machine's earlier run wrote it and
-			// crashed before the deletion) - keep it, drop the old key.
+			// crashed before the deletion) - keep it, drop the old key. Under
+			// the Settings Sync reading this is knowingly lossy for THIS
+			// machine's entries: the legacy record's URL-scoped keys were
+			// consumed into the OTHER machine's machine-scoped entries and drop
+			// here unplaced (newer intent wins, ruling Q2 #7).
 			deletions.push(oldId);
 			keptNewNames += 1;
 			return { value: newValue };
