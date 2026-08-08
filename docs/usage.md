@@ -27,7 +27,7 @@ On a server without a database these endpoints do not exist. The extension detec
 To check what a server supports, ask it the same question the extension asks:
 
 ```bash
-curl -s -H "Authorization: Bearer sk-your-key" https://litellm.example.com/key/info
+curl -s -H "Authorization: Bearer $YOUR_LITELLM_KEY" https://litellm.example.com/key/info
 ```
 
 A database-backed server answers with JSON carrying `spend` and `max_budget` fields; a database-less one answers with an error, because the route is not served without a database. If the curl works but the extension shows nothing, check that the entry's key is the one you tested with - the data is per key. And it is the key's server-side total: every client that spends through that key counts toward it, not only VS Code.
