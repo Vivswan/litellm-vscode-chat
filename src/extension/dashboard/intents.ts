@@ -114,7 +114,7 @@ export interface IntentEnvironment {
 	 * One discovery probe against a fully resolved draft connection (the
 	 * testServerDraft intent). Read-only by contract - no settings write, no
 	 * group or status mutation, no caching across probes - bounded by the
-	 * discoveryTimeout setting, and the connection's credential values are
+	 * discovery.timeout setting, and the connection's credential values are
 	 * never logged. Resolves to the discovered raw model IDs (the caller
 	 * counts them and checks declared-ID inertness against them); throws the
 	 * transport's classified error on failure.

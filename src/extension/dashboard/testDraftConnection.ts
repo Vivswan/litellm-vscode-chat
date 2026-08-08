@@ -11,7 +11,7 @@
  * discovery machinery: a throwaway ChatClient per call, which brings the
  * OAuth token exchange, the virtual-key header, the entry's custom headers
  * (resolved from the edited entry, the record a save preserves), the
- * discoveryTimeout hard bound, and the idempotent-GET retry budget - and
+ * discovery.timeout hard bound, and the idempotent-GET retry budget - and
  * whose per-instance caches die with the call.
  */
 
