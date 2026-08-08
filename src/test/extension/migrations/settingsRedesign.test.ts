@@ -8,11 +8,14 @@ import {
 	readRedesignSnapshot,
 	settingsRedesignMigration,
 } from "../../../extension/migrations/settingsRedesign/apply";
+import { restructureServers } from "../../../extension/migrations/settingsRedesign/entries";
 import type { LegacyHintKind } from "../../../extension/migrations/settingsRedesign/hints";
 import { collectLegacyHints } from "../../../extension/migrations/settingsRedesign/hints";
 import { planSettingsRedesign } from "../../../extension/migrations/settingsRedesign/transform";
 import type { SettingsSnapshot } from "../../../extension/migrations/settingsRedesign/types";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import type { DeclaredServer } from "../../../extension/servers/serverSync";
+import { buildGroupArgs, parseServersSetting } from "../../../extension/servers/serverSync";
 import { matcherMatches, parseMatcherKey } from "../../../shared/config/modelMatcher";
 import { PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
@@ -768,6 +771,87 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 		}
 	});
 });
+
+suite(
+	"extension/migrations/settingsRedesign: restructure output parses and keeps the wire (the parser round trip)",
+	() => {
+		// The seam the auth findings slipped through: nothing else feeds the
+		// transform's OUTPUT into the live parser. For every legacy auth combo,
+		// the restructured entry must be ACCEPTED by parseServersSetting, and its
+		// group args must match the flat original's byte for byte - except the
+		// ruled exceptions, where wire-inert fragments drop and only those keys
+		// may differ.
+		const roundTrip = (flat: Record<string, unknown>) => {
+			const restructured = restructureServers([flat]);
+			const raw = restructured.value as unknown[];
+			const { entries, problems } = parseServersSetting(raw);
+			assert.deepStrictEqual(problems, [], `restructured shape must parse: ${JSON.stringify(raw)}`);
+			const parsed = entries[0];
+			assert.ok(parsed, "the restructured entry must be accepted");
+			const flatParsed: DeclaredServer = { ...(flat as unknown as DeclaredServer) };
+			return { flatArgs: buildGroupArgs(flatParsed, {}), migratedArgs: buildGroupArgs(parsed, {}) };
+		};
+
+		test("every well-formed legacy auth combo round-trips with byte-identical group args", () => {
+			const combos: Record<string, unknown>[] = [
+				{ label: "a", baseUrl: "https://gw" },
+				{ label: "a", baseUrl: "https://gw", apiKey: "sk-1" },
+				{ label: "a", baseUrl: "https://gw", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-1" },
+				{ label: "a", baseUrl: "https://gw", virtualKeyHeader: "x-vk" },
+				{ label: "a", baseUrl: "https://gw", apiKey: "sk-1", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-1" },
+				{ label: "a", baseUrl: "https://gw", oauthTokenUrl: "https://idp/token", oauthClientId: "cid" },
+				{
+					label: "a",
+					baseUrl: "https://gw",
+					oauthTokenUrl: "https://idp/token",
+					oauthClientId: "cid",
+					oauthClientSecret: "cs",
+					oauthScopes: "read write",
+					apiKey: "sk-1",
+					virtualKeyHeader: "x-vk",
+					virtualKeyValue: "vk-1",
+				},
+			];
+			for (const flat of combos) {
+				const { flatArgs, migratedArgs } = roundTrip(flat);
+				assert.deepStrictEqual(migratedArgs, flatArgs, JSON.stringify(flat));
+				assert.deepStrictEqual(Object.keys(migratedArgs), Object.keys(flatArgs), "key order is part of the rendering");
+			}
+		});
+
+		test("the ruled exceptions still parse and keep every wire-relevant credential", () => {
+			const exceptions: { flat: Record<string, unknown>; droppedArgs: string[] }[] = [
+				{
+					flat: { label: "a", baseUrl: "https://gw", apiKey: "sk-1", oauthClientId: "cid" },
+					droppedArgs: ["oauthClientId"],
+				},
+				{
+					flat: { label: "a", baseUrl: "https://gw", apiKey: "sk-1", virtualKeyValue: "vk-1" },
+					droppedArgs: ["virtualKeyValue"],
+				},
+				{
+					flat: {
+						label: "a",
+						baseUrl: "https://gw",
+						apiKey: "sk-1",
+						virtualKeyHeader: "X Key",
+						virtualKeyValue: "vk-1",
+					},
+					droppedArgs: ["virtualKeyHeader", "virtualKeyValue"],
+				},
+			];
+			for (const { flat, droppedArgs } of exceptions) {
+				const { flatArgs, migratedArgs } = roundTrip(flat);
+				for (const key of droppedArgs) {
+					assert.ok(key in flatArgs, `${key} was in the old args`);
+					assert.ok(!(key in migratedArgs), `${key} drops (the old runtime never sent it)`);
+				}
+				const expected = Object.fromEntries(Object.entries(flatArgs).filter(([key]) => !droppedArgs.includes(key)));
+				assert.deepStrictEqual(migratedArgs, expected, JSON.stringify(flat));
+			}
+		});
+	}
+);
 
 suite("extension/migrations/settingsRedesign: global headers", () => {
 	test("the global headers copy into every accepted entry, the old key is deleted, and the value parks", () => {

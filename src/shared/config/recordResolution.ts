@@ -159,7 +159,7 @@ export interface RecordChainResolution {
 	readonly fields: ReadonlyMap<string, ResolvedChainField>;
 	/** The most specific matching record's key; undefined when nothing matches. */
 	readonly winnerKey: string | undefined;
-	/** The most specific matching record's parse, for type-specific directives (`_openrouter_model`, `_declare`). */
+	/** The most specific matching record's parse, for type-specific directives (`_openrouter_model`). */
 	readonly winner: ParsedRecord | undefined;
 	/** Matcher, directive, and field problems across the matching chain, deduplicated. */
 	readonly diagnostics: readonly RecordDiagnostic[];

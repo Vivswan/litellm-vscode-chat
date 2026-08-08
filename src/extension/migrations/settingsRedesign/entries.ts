@@ -14,6 +14,7 @@
  */
 
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 import {
 	isForceableKey,
@@ -128,13 +129,14 @@ function collectAuthFields(
  * values (counted by the caller): the old runtime ignored a partial oauth
  * entirely, while carrying it forward would make the whole entry
  * misconfigured (structurally incomplete auth is refused, ruling Q2 #3).
- * A virtualKey HEADER without its value keeps riding - the value may rest in
- * SecretStorage, and the parser accepts a header waiting for its secret
- * (ruling Q2 #4). A VALUE without its header is the reverse: the parser
- * refuses a headerless virtualKey (nothing could ever carry the value), and
- * carrying it forward would misconfigure the whole entry, so it drops like
- * the lone oauth pieces (counted; a stored blob under the label survives and
- * a re-added header finds it).
+ * A SENDABLE virtualKey HEADER without its value keeps riding - the value
+ * may rest in SecretStorage, and the parser accepts a header waiting for its
+ * secret (ruling Q2 #4). A VALUE without its header, and a header that is
+ * not a valid HTTP header name (the old runtime ignored the whole pair;
+ * narrowVirtualKey's sendability rule), can never reach the wire - carrying
+ * either forward would misconfigure the whole entry, so they drop like the
+ * lone oauth pieces (counted; a stored blob under the label survives and a
+ * re-added header finds it).
  */
 function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 	auth: Record<string, unknown> | undefined;
@@ -142,13 +144,14 @@ function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 } {
 	let droppedVirtualKeyValues = 0;
 	const virtualKeyPairs: (readonly [string, unknown])[] = [];
-	if (fields.virtualKeyHeader !== undefined) {
+	if (fields.virtualKeyHeader !== undefined && HEADER_NAME_PATTERN.test(fields.virtualKeyHeader)) {
 		virtualKeyPairs.push(["header", fields.virtualKeyHeader]);
 		if (fields.virtualKeyValue !== undefined) {
 			virtualKeyPairs.push(["value", fields.virtualKeyValue]);
 		}
-	} else if (fields.virtualKeyValue !== undefined) {
-		droppedVirtualKeyValues = 1;
+	} else {
+		droppedVirtualKeyValues =
+			(fields.virtualKeyHeader !== undefined ? 1 : 0) + (fields.virtualKeyValue !== undefined ? 1 : 0);
 	}
 	const virtualKey = virtualKeyPairs.length > 0 ? fromPairs(virtualKeyPairs) : undefined;
 
