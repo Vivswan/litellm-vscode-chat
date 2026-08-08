@@ -325,12 +325,18 @@ export interface OldResolvedCapabilityOverrides {
  * the scoped-replaces-unscoped global merge, the entry-over-global field
  * chain, and the `_declare`+`_fallback` ban (a record whose declaration
  * creates the resolved model keeps its fields as overrides).
+ * `liftDeclareFallbackBan` disables the ban: the redesign RETIRES it
+ * (capability records are source-invariant by design, so `_fallback` fills
+ * on declared models too), and the equivalence oracle compares the migrated
+ * world against these ban-free old semantics while pinning the ban itself
+ * as a documented divergence.
  */
 export function resolveOldCapabilityOverrides(input: {
 	readonly rawModelId: string;
 	readonly globalCapabilities: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 	readonly serverScopes: readonly string[];
 	readonly entryCapabilities?: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
+	readonly liftDeclareFallbackBan?: boolean | undefined;
 }): OldResolvedCapabilityOverrides {
 	const { rawModelId, globalCapabilities, serverScopes, entryCapabilities } = input;
 	const scoped = findScopedMatch(rawModelId, serverScopes, globalCapabilities);
@@ -344,6 +350,7 @@ export function resolveOldCapabilityOverrides(input: {
 		entryWinner !== undefined ? parseOldCapabilityRecord(entryWinner.value, { allowDeclare: true }) : undefined;
 
 	const entryBanned =
+		input.liftDeclareFallbackBan !== true &&
 		parsedEntry?.declare === true &&
 		parsedEntry.fallback.length > 0 &&
 		entryWinner !== undefined &&
@@ -351,6 +358,7 @@ export function resolveOldCapabilityOverrides(input: {
 		entryWinner.key !== CATCH_ALL_PREFIX &&
 		entryWinner.key === rawModelId;
 	const globalBanned =
+		input.liftDeclareFallbackBan !== true &&
 		parsedGlobal?.declare === true &&
 		parsedGlobal.fallback.length > 0 &&
 		globalWinner !== undefined &&
@@ -388,7 +396,19 @@ export interface OldCapabilityTokenDefaults {
 }
 
 /** The effective capability values the pre-redesign full walk resolves (values only, catalog-free). */
-export type OldEffectiveCapabilityValues = { readonly [K in CapabilityFieldName]: number | boolean };
+type OldEffectiveCapabilityValues = { readonly [K in CapabilityFieldName]: number | boolean };
+
+/** The pre-redesign walk's result plus the wire-clamp provenance of the output limit. */
+export interface OldWalkResult {
+	readonly fields: OldEffectiveCapabilityValues;
+	/**
+	 * Old USER_SET_LEVELS semantics: override and fallback levels are "user"
+	 * (uncapped on the wire), the server level is "provider" only under
+	 * outputDeclared, and the default-setting and floor levels stay "defaults"
+	 * (the min(4096, limit) clamp).
+	 */
+	readonly outputLimitSource: "user" | "provider" | "defaults";
+}
 
 /**
  * The pre-redesign full capability walk at value level, catalog-free: entry >
@@ -404,27 +424,40 @@ export function resolveOldModelCapabilities(input: {
 	readonly entryCapabilities?: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
 	readonly serverDeclared: ServerDeclaredCapabilities;
 	readonly tokenDefaults?: OldCapabilityTokenDefaults | undefined;
-}): OldEffectiveCapabilityValues {
+	readonly liftDeclareFallbackBan?: boolean | undefined;
+}): OldWalkResult {
 	const { overrides, fallbacks } = resolveOldCapabilityOverrides(input);
 	const serverValues: Readonly<Partial<CapabilityFieldValues>> =
 		input.serverDeclared.kind === "discovered" ? input.serverDeclared.values : {};
 	const defaults = input.tokenDefaults;
 
+	type NumberLevel = "override" | "server" | "fallback" | "default-setting" | "floor";
 	const resolveNumber = (
 		name: "context_length" | "max_output_tokens",
 		explicitDefault: { readonly value: number; readonly explicitlyConfigured: boolean } | undefined
-	): number => {
-		const candidates: (number | boolean | undefined)[] = [
-			overrides[name],
-			serverValues[name],
-			fallbacks[name],
-			explicitDefault?.explicitlyConfigured ? explicitDefault.value : undefined,
+	): { value: number; level: NumberLevel } => {
+		const candidates: { level: NumberLevel; value: number | boolean | undefined }[] = [
+			{ level: "override", value: overrides[name] },
+			{ level: "server", value: serverValues[name] },
+			{ level: "fallback", value: fallbacks[name] },
+			{ level: "default-setting", value: explicitDefault?.explicitlyConfigured ? explicitDefault.value : undefined },
 		];
-		const winner = candidates.find((value) => value !== undefined);
-		return typeof winner === "number" ? winner : CAPABILITY_FLOOR[name];
+		const winner = candidates.find((candidate) => candidate.value !== undefined);
+		return typeof winner?.value === "number"
+			? { value: winner.value, level: winner.level }
+			: { value: CAPABILITY_FLOOR[name], level: "floor" };
 	};
-	const contextLength = resolveNumber("context_length", defaults?.contextLength);
-	const maxOutputTokens = resolveNumber("max_output_tokens", defaults?.maxOutputTokens);
+	const contextLength = resolveNumber("context_length", defaults?.contextLength).value;
+	const maxOutput = resolveNumber("max_output_tokens", defaults?.maxOutputTokens);
+	const maxOutputTokens = maxOutput.value;
+	const outputLimitSource: OldWalkResult["outputLimitSource"] =
+		maxOutput.level === "override" || maxOutput.level === "fallback"
+			? "user"
+			: maxOutput.level === "server" &&
+					input.serverDeclared.kind === "discovered" &&
+					input.serverDeclared.outputDeclared
+				? "provider"
+				: "defaults";
 	const maxInputCandidates: (number | boolean | undefined)[] = [
 		overrides.max_input_tokens,
 		defaults?.maxInputTokens,
@@ -444,12 +477,15 @@ export function resolveOldModelCapabilities(input: {
 	};
 
 	return {
-		context_length: contextLength,
-		max_input_tokens: maxInputTokens,
-		max_output_tokens: maxOutputTokens,
-		supports_function_calling: booleanField("supports_function_calling"),
-		supports_vision: booleanField("supports_vision"),
-		supports_reasoning: booleanField("supports_reasoning"),
-		supports_audio_input: booleanField("supports_audio_input"),
+		fields: {
+			context_length: contextLength,
+			max_input_tokens: maxInputTokens,
+			max_output_tokens: maxOutputTokens,
+			supports_function_calling: booleanField("supports_function_calling"),
+			supports_vision: booleanField("supports_vision"),
+			supports_reasoning: booleanField("supports_reasoning"),
+			supports_audio_input: booleanField("supports_audio_input"),
+		},
+		outputLimitSource,
 	};
 }
