@@ -122,4 +122,14 @@ export async function ensureActivated(): Promise<void> {
 	if (!ext.isActive) {
 		await ext.activate();
 	}
+	// The docker suites pin what the SERVER declares (pricing absence, no
+	// vision), but the fake stack's realistic model names (llama-4-scout,
+	// gpt-5.2) suffix-match real OpenRouter catalog entries whenever a catalog
+	// artifact is present - dist/openrouter-models.json is build-time-fetched
+	// and legitimately differs between checkouts, CI, and the packaged VSIX.
+	// Turning the catalog off makes every docker assertion hermetic; a suite
+	// that wants catalog behavior must opt back in and seed its own snapshot.
+	await vscode.workspace
+		.getConfiguration("litellm-vscode-chat")
+		.update("models.openRouterCatalog", false, vscode.ConfigurationTarget.Global);
 }
