@@ -15,16 +15,17 @@ import * as vscode from "vscode";
 import type { LiteLLMChatModelProvider, ServerModelsSnapshot } from "../../provider";
 import type { CapabilityCatalogLookup } from "../../shared/config/capabilityResolution";
 import { CMD } from "../../shared/config/commandIds";
-import type { OpenRouterCatalogSnapshot } from "../../shared/config/openRouterCatalog";
 import { searchCatalogModels } from "../../shared/config/openRouterCatalog";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { SERVERS_SETTING_KEY } from "../../shared/config/settings";
+import { getUsageAlertThresholds, getUsagePollIntervalMs, SERVERS_SETTING_KEY } from "../../shared/config/settings";
+import { PARKED_GLOBAL_HEADERS_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../shared/webviewPaths";
+import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
@@ -36,10 +37,14 @@ import {
 	readEntryModelCapabilities,
 	readEntryModelParameters,
 	readServerSecrets,
+	serverSettingReports,
 	updateServerSecret,
 } from "../servers/serverSync";
+import type { UsagePoller } from "../servers/usage";
+import { isUsageFresh } from "../servers/usage";
 import { testEntryModelCapabilitiesOverride } from "../ui/commands";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
+import { buildConfigDiagnostics } from "./configDiagnostics";
 import { buildDashboardHtml } from "./html";
 import { webviewMessageSchema } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
@@ -51,18 +56,26 @@ import {
 } from "./intents";
 import type {
 	CatalogModelSummary,
+	CatalogStatusView,
 	DashboardSectionId,
+	DashboardUsage,
 	ExtensionToWebviewMessage,
 	TransportErrorClassification,
 } from "./protocol";
+import { buildResolvedModelsView } from "./resolvedModels";
 import type { EntryCapabilitiesRecord, EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
 import {
 	buildDashboardState,
+	joinDeclared,
+	labeledSnapshots,
+	mostSpecificGlobalRecordKey,
 	resolveConfiguredScope,
 	resolveDashboardModelCapabilities,
+	resolveDashboardModelParameters,
 	resolveUpdateScope,
 } from "./state";
 import { createDraftConnectionProbe } from "./testDraftConnection";
+import { buildUsageView } from "./usageView";
 
 /** The slice of vscode.Webview the controller uses; createPanel sets the HTML before handing the panel over. */
 interface DashboardWebview {
@@ -81,7 +94,13 @@ interface DashboardWebview {
  * be listed here; any intent that writes the servers setting or a secret
  * must stay on the chain.
  */
-const CONCURRENT_MESSAGE_TYPES = new Set(["testServerDraft", "readModelCapabilities", "searchCatalog"]);
+const CONCURRENT_MESSAGE_TYPES = new Set([
+	"testServerDraft",
+	"readModelCapabilities",
+	"readModelParameters",
+	"readResolvedModels",
+	"searchCatalog",
+]);
 
 function isConcurrentMessage(raw: unknown): boolean {
 	return (
@@ -120,6 +139,12 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	resolveEntryCapabilities(serverId: string): EntryCapabilitiesRecord | undefined;
 	/** The OpenRouter catalog as in-memory lookup data; EMPTY_CATALOG_LOOKUP while no snapshot exists. */
 	getCatalogLookup(): CapabilityCatalogLookup;
+	/** The catalog row's status facts (size, last refresh, standing failure, in-flight). */
+	getCatalogStatus(): CatalogStatusView;
+	/** The Usage tab's snapshot, assembled from the poller's store at push time. */
+	getUsage(): DashboardUsage;
+	/** The PARKED_GLOBAL_HEADERS_KEY globalState value, for the parked-headers legacy hint. */
+	getParkedGlobalHeaders(): unknown;
 	/**
 	 * The provider's shared flat resolution table, so the capability inspector
 	 * reads the SAME cache requests and registration use. Optional: without it
@@ -194,6 +219,10 @@ export class DashboardController implements vscode.Disposable {
 	/** Open the dashboard, or bring the existing panel to the front, optionally landing on a section. */
 	open(section?: DashboardSectionId): void {
 		this._pendingFocusSection = section;
+		// Opening always fetches fresh usage data, polling on or off
+		// (docs/usage.md); fire-and-forget - the poller's completion re-push
+		// lands the numbers.
+		this.env.refreshUsageNow();
 		if (this._panel !== undefined) {
 			this._panel.reveal();
 			this.pushState();
@@ -304,18 +333,34 @@ export class DashboardController implements vscode.Disposable {
 				this._observedGroupIdentities.add(observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl));
 			}
 		}
+		const reader = this.env.settingsReader();
+		const declared = this.env.getDeclaredServers();
+		const entryReports = serverSettingReports(this.env.readServersSetting());
+		// The parked-headers hint stands only while externally managed groups
+		// exist (the R3 ruling); externality here is the same join the servers
+		// table renders from.
+		const hasExternalGroups = joinDeclared(labeledSnapshots(snapshots), declared).unmatched.size > 0;
 		this.postToPanel({
 			type: "state",
-			state: buildDashboardState(
+			state: buildDashboardState({
 				snapshots,
-				this.env.settingsReader(),
-				this.env.getDeclaredServers(),
-				this.env.getLegacyServers(),
-				this.env.getRemovedGroups(),
-				(serverId) => this.env.isGroupSnapshot(serverId),
-				(serverId) => this.env.resolveEntryParameters(serverId),
-				(label, baseUrl) => this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl))
-			),
+				reader,
+				declared,
+				entryReports,
+				legacyServers: this.env.getLegacyServers(),
+				removedGroups: this.env.getRemovedGroups(),
+				isGroupSnapshot: (serverId) => this.env.isGroupSnapshot(serverId),
+				wasGroupObserved: (label, baseUrl) => this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl)),
+				catalog: this.env.getCatalogStatus(),
+				usage: this.env.getUsage(),
+				diagnostics: buildConfigDiagnostics({
+					reader,
+					parkedGlobalHeadersValue: this.env.getParkedGlobalHeaders(),
+					hasExternalGroups,
+					entryReports,
+					declared,
+				}),
+			}),
 		});
 	}
 
@@ -359,13 +404,15 @@ export class DashboardController implements vscode.Disposable {
 			// The capability inspector's read: resolved extension-side by the
 			// same walk registration runs; the response is the whole answer, so
 			// no state push and no outcome notice.
+			const capabilitiesReader = this.env.settingsReader();
+			const capsGlobalKey = mostSpecificGlobalRecordKey(capabilitiesReader, "capabilities", parsed.data.rawId);
 			this.postToPanel({
 				type: "modelCapabilities",
 				requestId: parsed.data.requestId,
 				capabilities: resolveDashboardModelCapabilities(
 					{
 						snapshots: this.env.getSnapshots(),
-						reader: this.env.settingsReader(),
+						reader: capabilitiesReader,
 						resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
 						catalog: this.env.getCatalogLookup(),
 						resolution: this.env.getResolutionTable?.(),
@@ -373,6 +420,53 @@ export class DashboardController implements vscode.Disposable {
 					parsed.data.scopeKey,
 					parsed.data.rawId
 				),
+				...(capsGlobalKey !== undefined ? { globalRecordKey: capsGlobalKey } : {}),
+			});
+			return "ok";
+		}
+		if (parsed.data.type === "readModelParameters") {
+			// The params inspector's read: resolved through the provider's shared
+			// flat table (the same cache requests read) and projected extension-side.
+			const parametersReader = this.env.settingsReader();
+			const answer = resolveDashboardModelParameters(
+				{
+					snapshots: this.env.getSnapshots(),
+					reader: parametersReader,
+					resolveEntryParameters: (serverId) => this.env.resolveEntryParameters(serverId),
+					resolution: this.env.getResolutionTable?.(),
+				},
+				parsed.data.scopeKey,
+				parsed.data.rawId
+			);
+			const paramsGlobalKey = mostSpecificGlobalRecordKey(parametersReader, "parameters", parsed.data.rawId);
+			this.postToPanel({
+				type: "modelParameters",
+				requestId: parsed.data.requestId,
+				...(answer !== undefined
+					? {
+							projection: answer.projection,
+							...(answer.entryLabel !== undefined ? { entryLabel: answer.entryLabel } : {}),
+						}
+					: {}),
+				...(paramsGlobalKey !== undefined ? { globalRecordKey: paramsGlobalKey } : {}),
+			});
+			return "ok";
+		}
+		if (parsed.data.type === "readResolvedModels") {
+			// The Diagnostics tab's Resolved-models view, computed on demand: it
+			// scales with models x fields, so it stays out of state pushes.
+			this.postToPanel({
+				type: "resolvedModels",
+				requestId: parsed.data.requestId,
+				view: buildResolvedModelsView({
+					snapshots: this.env.getSnapshots(),
+					reader: this.env.settingsReader(),
+					resolveEntryParameters: (serverId) => this.env.resolveEntryParameters(serverId),
+					resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
+					declared: this.env.getDeclaredServers(),
+					catalog: this.env.getCatalogLookup(),
+					resolution: this.env.getResolutionTable?.(),
+				}),
 			});
 			return "ok";
 		}
@@ -543,9 +637,12 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
 			label: entry.label,
 			baseUrl: entry.baseUrl,
 			...pickNonSecretOptionalFields(entry),
+			...(entry.headers !== undefined ? { headers: entry.headers } : {}),
 			...(entry.modelParameters !== undefined ? { modelParameters: entry.modelParameters } : {}),
 			...(entry.modelCapabilities !== undefined ? { modelCapabilities: entry.modelCapabilities } : {}),
 			...(entry.expectedFailures !== undefined ? { expectedFailures: entry.expectedFailures } : {}),
+			...(entry.declaredModels !== undefined ? { declaredModels: entry.declaredModels } : {}),
+			...(entry.budget !== undefined ? { budget: entry.budget } : {}),
 			secrets,
 		};
 	});
@@ -584,8 +681,12 @@ export function registerDashboardCommand(
 	registry: ServerRegistry,
 	removals: GroupRemovalStore,
 	// Structurally the OpenRouter catalog store: the snapshot feeds the
-	// picker's search, the lookup feeds the capability inspector.
-	catalog: { readonly lookup: CapabilityCatalogLookup; snapshot(): OpenRouterCatalogSnapshot }
+	// picker's search, the lookup feeds the capability inspector, the status
+	// feeds the settings row, and refreshNow backs the row's Refresh button.
+	catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">,
+	// The usage poller: its store feeds the Usage tab, refreshNow backs the
+	// tab's Refresh button and the open-fetches-fresh rule.
+	usagePoller: UsagePoller
 ): DashboardController {
 	const controller = new DashboardController({
 		createPanel: () => createRealPanel(context.extensionUri),
@@ -634,6 +735,25 @@ export function registerDashboardCommand(
 				: undefined;
 		},
 		getCatalogLookup: () => catalog.lookup,
+		getCatalogStatus: () => catalog.status(),
+		getUsage: () =>
+			buildUsageView({
+				states: usagePoller.store.getStates(),
+				thresholds: getUsageAlertThresholds(),
+				pollIntervalMs: getUsagePollIntervalMs(),
+				refreshing: usagePoller.isRefreshing(),
+				now: Date.now(),
+				isFresh: isUsageFresh,
+			}),
+		getParkedGlobalHeaders: () => context.globalState.get<unknown>(PARKED_GLOBAL_HEADERS_KEY),
+		// Fire-and-forget kicks; both push state when they settle so the row
+		// status / Refresh-now button reflect the outcome without a toast.
+		refreshCatalogNow: () => {
+			void catalog.refreshNow().finally(() => controller.refresh());
+		},
+		refreshUsageNow: () => {
+			void usagePoller.refreshNow().finally(() => controller.refresh());
+		},
 		getResolutionTable: () => provider.resolutionTable,
 		searchCatalog: (query) => searchCatalogModels(catalog.snapshot(), query),
 		settingsReader: () => {

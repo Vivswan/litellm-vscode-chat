@@ -9,6 +9,7 @@ function state(label: string, overrides: Partial<ServerUsageState> = {}): Server
 		endpoints: UNPROBED_ENDPOINTS,
 		availability: "unknown",
 		lastUpdatedAt: undefined,
+		spendUpdatedAt: undefined,
 		lastAttemptAt: undefined,
 		key: undefined,
 		daily: undefined,

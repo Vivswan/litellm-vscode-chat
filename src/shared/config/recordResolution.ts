@@ -166,6 +166,47 @@ export interface RecordChainResolution {
 }
 
 /**
+ * Record-level lint of one record map, independent of any model: invalid
+ * matcher keys, every record's own parse diagnostics, and `_inherit_from`
+ * entries naming keys the map does not hold. resolveRecordChain reports the
+ * same problems, but only along one model's matching chain - a record no
+ * current model matches would never be visited there, and the Diagnostics
+ * tab must still flag it. Deduplicated like the chain walk's diagnostics.
+ */
+export function lintRecordMap(
+	records: ModelRecordMap,
+	parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord
+): readonly RecordDiagnostic[] {
+	const diagnostics: RecordDiagnostic[] = [];
+	const seen = new Set<string>();
+	const diagnose = (diagnostic: RecordDiagnostic): void => {
+		const dedupeKey = `${diagnostic.kind}\u0000${diagnostic.recordKey}\u0000${diagnostic.key}`;
+		if (!seen.has(dedupeKey)) {
+			seen.add(dedupeKey);
+			diagnostics.push(diagnostic);
+		}
+	};
+	for (const [key, record] of Object.entries(records)) {
+		const parsedKey = parseMatcherKey(key);
+		if (!parsedKey.ok) {
+			diagnose({ kind: "invalid-matcher", recordKey: key, key });
+		}
+		const parsed = parse(record, key);
+		for (const diagnostic of parsed.diagnostics) {
+			diagnose({ ...diagnostic, recordKey: key });
+		}
+		if (parsed.inheritFrom.kind === "keys") {
+			for (const named of parsed.inheritFrom.keys) {
+				if (!Object.hasOwn(records, named)) {
+					diagnose({ kind: "unknown-inherit-key", recordKey: key, key: named });
+				}
+			}
+		}
+	}
+	return diagnostics;
+}
+
+/**
  * Resolve one record map for one model ID. The chain of matching records is
  * walked broadest to most specific; each record's resolved view is its own
  * fields over what it accepts from below, and what flows past a record is

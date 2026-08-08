@@ -29,6 +29,12 @@ export function helpModelsSection(): string {
 	);
 }
 
+export function helpUsageSection(): string {
+	return l10n.t(
+		"Spend against budget per server, read from the server's own /key/info. Only servers whose LiteLLM tracks spend (a database-backed proxy) appear here."
+	);
+}
+
 export function helpParamsInspector(): string {
 	return l10n.t(
 		"What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the chat client override the forwarded values, except rows marked forced."
@@ -58,9 +64,13 @@ export function serverFieldHelp(field: ServerFormField): string {
 			return l10n.t(
 				"The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path."
 			);
+		case "authForm":
+			return l10n.t(
+				"Pick how requests authenticate: a bearer API key, a key in a custom header, or OAuth client credentials. Exactly one form per entry; lower-ranked companions ride inside it."
+			);
 		case "apiKey":
 			return l10n.t(
-				"Sent on every request as Authorization bearer plus an X-API-Key copy; with OAuth below, the token takes Authorization and the key rides only X-API-Key. Leave empty if the server needs none."
+				"Sent on every request as an Authorization bearer plus an X-API-Key copy. Leave empty if the server needs none, or to set the key later."
 			);
 		case "oauthTokenUrl":
 			return l10n.t(
@@ -90,7 +100,29 @@ export function serverFieldHelp(field: ServerFormField): string {
 			return l10n.t(
 				"Mark discovery endpoints this server is known to lack, e.g. the model list. Marked failures log quietly, skip retries, and never count as errors."
 			);
+		case "headers":
+			return l10n.t(
+				"Extra HTTP headers on every request to this server, e.g. x-routing-env: prod. Auth headers win conflicts, and values are plain settings text, not secrets."
+			);
+		case "declaredModels":
+			return l10n.t(
+				"Exact model IDs to register even when discovery cannot list them, e.g. deepseek-r1. A declaration goes inert once the server lists the ID."
+			);
+		case "budget":
+			return l10n.t(
+				"A manual budget in USD, e.g. 50, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both."
+			);
 	}
+}
+
+/**
+ * The OAuth form's apiKey companion: same field, different wire behavior than
+ * the standalone API-key form, so it carries its own help.
+ */
+export function helpOauthCompanionApiKey(): string {
+	return l10n.t(
+		"Sent beside the OAuth bearer as X-API-Key only, e.g. a LiteLLM key naming the team to bill; Authorization stays with the token."
+	);
 }
 
 export function helpSecretStorage(): string {
@@ -113,7 +145,7 @@ export function helpEntryModelParameterPrefix(): string {
 
 export function helpModelParameterName(): string {
 	return l10n.t(
-		"The request body key, e.g. temperature, top_p, or stop. Provider-owned fields like model and messages cannot be set, and keys starting with _ are skipped."
+		"The request body key, e.g. temperature, top_p, or stop. Provider-owned fields like model and messages cannot be set; keys starting with _ are directives - instructions to the extension, never sent."
 	);
 }
 
@@ -162,6 +194,30 @@ export function helpForceFlag(): string {
 export function helpForceFlagDisabled(): string {
 	return l10n.t(
 		"Cannot be forced: provider-owned fields like model and keys starting with _ always stay extension-owned."
+	);
+}
+
+export function helpInheritableFlag(): string {
+	return l10n.t(
+		"Lets more specific matching records inherit this field, e.g. a * record's temperature reaching gpt-5.6. Unchecked, a more specific record replaces this record wholesale."
+	);
+}
+
+export function helpInheritFromControl(): string {
+	return l10n.t(
+		'What this record inherits from broader matches: the default takes fields marked inheritable, "everything" takes the whole broader view, "nothing" makes it a barrier, and named keys take exactly those records.'
+	);
+}
+
+export function helpModelCapabilitiesSection(): string {
+	return l10n.t(
+		"Corrects or completes what servers report for matching models, e.g. context_length 128000. Your values beat server-reported ones unless a row is marked fallback."
+	);
+}
+
+export function helpCatalogRow(): string {
+	return l10n.t(
+		"A bundled snapshot of OpenRouter's public model list fills capability gaps, refreshed about weekly. Refresh fetches it now; failures show here, never as popups."
 	);
 }
 

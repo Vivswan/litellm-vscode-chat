@@ -1,18 +1,24 @@
 /**
- * The effective-parameters inspector's rendering pins. The resolution itself
- * is owned by the shared module (unit + equivalence property suites in the
- * extension host); these tests only pin what the webview shows: the row
- * action that opens it, the identity header, source naming, shadowed and
- * inherited rendering, the not-sent reasons, the max_tokens derivation
- * wording per branch, the honest caveats, and the empty state.
+ * The effective-parameters inspector's rendering pins. The inspector is
+ * request/response-fed like its capability twin: it posts readModelParameters
+ * on open and renders the projection the extension resolves. The resolution
+ * itself is owned by the shared module (unit + equivalence property suites in
+ * the extension host); these tests run projectEffectiveParameters over the
+ * same inputs and feed the result back as protocol data, pinning only what
+ * the webview shows: the row action that opens it, the identity header,
+ * source naming, shadowed and inherited rendering, the not-sent reasons, the
+ * max_tokens derivation wording per branch, the honest caveats, and the empty
+ * state.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import type { RequestScope } from "../../../extension/dashboard/protocol";
+import { render } from "preact";
+import { act } from "preact/test-utils";
+import { projectEffectiveParameters } from "../../../shared/config/parameterResolution";
 import { App } from "../../../webview/dashboard/app";
 import { ModelsSection } from "../../../webview/dashboard/models";
 import { ParamsInspector } from "../../../webview/dashboard/paramsInspector";
 import { makeDeclaredServer, makeModel, makeSettings, makeState, statePush } from "../fixtures";
-import { cleanup, fireClick, mount, pushToWebview, resetPosted, textOf } from "../harness";
+import { cleanup, fireClick, mount, postedMessages, pushToWebview, resetPosted, textOf } from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -22,33 +28,56 @@ afterEach(() => {
 });
 
 const model = makeModel({ id: "gpt-4o", rawId: "gpt-4o", name: "Omni", serverLabel: "Prod", scopeKey: "s0" });
-const bareScope: RequestScope = { baseUrlScope: "http://prod.test" };
 
+/**
+ * Mount the inspector, capture its own posted requestId, then rerender the
+ * same tree with the correlated response - exactly how App's response state
+ * reaches an already-open inspector. The projection is computed by the SAME
+ * shared function the extension answers with, over the inputs the options
+ * describe.
+ */
 function mountInspector(options: {
-	scope?: RequestScope | undefined;
 	globalParameters?: Record<string, Record<string, unknown>>;
+	entryParameters?: Record<string, Record<string, unknown>>;
+	entryLabel?: string;
 	modelOverrides?: Parameters<typeof makeModel>[0];
 	onClose?: () => void;
 }) {
-	return mount(
-		<ParamsInspector
-			model={makeModel({ ...model, ...options.modelOverrides })}
-			scope={options.scope ?? bareScope}
-			globalParameters={options.globalParameters ?? {}}
-			onClose={options.onClose ?? (() => {})}
-		/>
-	);
+	const inspected = makeModel({ ...model, ...options.modelOverrides });
+	const onClose = options.onClose ?? (() => {});
+	const container = mount(<ParamsInspector model={inspected} response={undefined} stateSeq={0} onClose={onClose} />);
+	const request = postedMessages.at(-1) as { type: string; requestId: string; scopeKey: string; rawId: string };
+	expect(request.type).toBe("readModelParameters");
+	expect(request.scopeKey).toBe(inspected.scopeKey);
+	expect(request.rawId).toBe(inspected.rawId);
+	const projection = projectEffectiveParameters({
+		rawModelId: inspected.rawId,
+		globalParameters: options.globalParameters ?? {},
+		entryParameters: options.entryParameters,
+		maxOutputTokens: inspected.maxOutputTokens,
+		outputLimitDeclared: inspected.outputLimitDeclared,
+	});
+	void act(() => {
+		render(
+			<ParamsInspector
+				model={inspected}
+				response={{
+					type: "modelParameters",
+					requestId: request.requestId,
+					projection,
+					...(options.entryLabel !== undefined ? { entryLabel: options.entryLabel } : {}),
+				}}
+				stateSeq={0}
+				onClose={onClose}
+			/>,
+			container
+		);
+	});
+	return container;
 }
 
 test("the models table row carries a quiet Params action that opens the inspector dialog", () => {
-	const root = mount(
-		<ModelsSection
-			models={[model]}
-			serverCount={1}
-			requestScopes={{ s0: bareScope }}
-			modelParameters={{ "gpt-4": { temperature: 0.2 } }}
-		/>
-	);
+	const root = mount(<ModelsSection models={[model]} serverCount={1} stateSeq={0} />);
 	const action = root.querySelector("button[aria-label='Show effective parameters for Omni on Prod']");
 	expect(action).not.toBeNull();
 	expect((action?.textContent ?? "").trim()).toBe("Params");
@@ -58,6 +87,12 @@ test("the models table row carries a quiet Params action that opens the inspecto
 	const dialog = document.querySelector("[role='dialog']") as HTMLElement;
 	expect(dialog).not.toBeNull();
 	expect(textOf(dialog, "#params-inspector-title")).toContain("Omni");
+	// Opening posts the read for exactly the clicked row; the answer renders later.
+	const request = postedMessages.at(-1) as { type: string; scopeKey: string; rawId: string };
+	expect(request.type).toBe("readModelParameters");
+	expect(request.scopeKey).toBe("s0");
+	expect(request.rawId).toBe("gpt-4o");
+	expect(dialog.textContent).toContain("Resolving parameters...");
 
 	// The X closes it again (SlideOver's close request maps straight to close;
 	// a read-only view has nothing to confirm).
@@ -65,9 +100,64 @@ test("the models table row carries a quiet Params action that opens the inspecto
 	expect(document.querySelector("[role='dialog']")).toBeNull();
 });
 
-test("the header states the raw ID, the server label, and the base URL scope", () => {
+test("a response for another requestId is ignored; the loading note stays", () => {
+	const root = mount(
+		<ParamsInspector
+			model={model}
+			response={{
+				type: "modelParameters",
+				requestId: "someone-elses",
+				projection: projectEffectiveParameters({
+					rawModelId: model.rawId,
+					globalParameters: { "gpt-4*": { temperature: 0.2 } },
+					maxOutputTokens: model.maxOutputTokens,
+					outputLimitDeclared: model.outputLimitDeclared,
+				}),
+			}}
+			stateSeq={0}
+			onClose={() => {}}
+		/>
+	);
+	expect(root.textContent).toContain("Resolving parameters...");
+	expect(root.querySelector("table.params")).toBeNull();
+});
+
+test("a stateSeq bump re-requests, so an open inspector follows configuration edits", () => {
+	const container = mount(<ParamsInspector model={model} response={undefined} stateSeq={0} onClose={() => {}} />);
+	expect(postedMessages.filter((message) => message.type === "readModelParameters")).toHaveLength(1);
+
+	// The same tree re-rendered with a bumped stateSeq (a state push landed):
+	// the inspector must ask again instead of trusting its pre-edit answer.
+	void act(() => {
+		render(<ParamsInspector model={model} response={undefined} stateSeq={1} onClose={() => {}} />, container);
+	});
+	const requests = postedMessages.filter((message) => message.type === "readModelParameters");
+	expect(requests).toHaveLength(2);
+	// A fresh requestId per request, so the first answer cannot satisfy the second ask.
+	expect((requests[0] as { requestId: string }).requestId).not.toBe((requests[1] as { requestId: string }).requestId);
+});
+
+test("a projection-less response says the state moved on instead of inventing values", () => {
+	const container = mount(<ParamsInspector model={model} response={undefined} stateSeq={0} onClose={() => {}} />);
+	const request = postedMessages.at(-1) as { requestId: string };
+	void act(() => {
+		render(
+			<ParamsInspector
+				model={model}
+				response={{ type: "modelParameters", requestId: request.requestId }}
+				stateSeq={0}
+				onClose={() => {}}
+			/>,
+			container
+		);
+	});
+	expect(container.textContent).toContain("The model list changed");
+	expect(container.querySelector("table.params")).toBeNull();
+});
+
+test("the header states the raw ID and the server label", () => {
 	const root = mountInspector({});
-	expect(textOf(root, ".params-identity")).toBe("gpt-4o on Prod (http://prod.test)");
+	expect(textOf(root, ".params-identity")).toBe("gpt-4o on Prod");
 	expect(root.textContent).toContain("Always sent");
 });
 
@@ -81,11 +171,8 @@ test("a global match renders as a sent row sourced to the settings layer and its
 
 test("an entry override names the entry layer and shows the shadowed global value struck through", () => {
 	const root = mountInspector({
-		scope: {
-			baseUrlScope: "http://prod.test",
-			entryLabel: "Team A",
-			entryParameters: { "gpt-4*": { temperature: 0.1 } },
-		},
+		entryParameters: { "gpt-4*": { temperature: 0.1 } },
+		entryLabel: "Team A",
 		globalParameters: { "gpt-4*": { temperature: 0.8, top_p: 0.9 } },
 	});
 	const rows = Array.from(root.querySelectorAll("table.params tbody tr"));
@@ -181,12 +268,20 @@ test("the max_tokens derivation states the declared and capped-default branches"
 	expect(textOf(capped, ".params-max-tokens")).toContain("max_tokens 4096 min(4096, model max)");
 });
 
+test("a forced max_tokens reports the forced derivation with its attribution", () => {
+	const root = mountInspector({ globalParameters: { "gpt-4*": { max_tokens: 2222, _force: ["max_tokens"] } } });
+	expect(textOf(root, ".params-max-tokens")).toBe(
+		"max_tokens 2222 forced by Settings - gpt-4*; overrides runtime options and the picker"
+	);
+});
+
 test("the runtime caveat always renders; the picker caveat only on reasoning models", () => {
 	const plain = mountInspector({});
 	expect(plain.textContent).toContain("Runtime options");
 	expect(plain.textContent).not.toContain("reasoning effort");
 
 	cleanup();
+	resetPosted();
 	const reasoning = mountInspector({ modelOverrides: { reasoning: true } });
 	expect(reasoning.textContent).toContain("Runtime options");
 	expect(reasoning.textContent).toContain("stored by VS Code");
@@ -216,24 +311,20 @@ test("a state push that drops the inspected model closes the inspector instead o
 	expect(document.querySelector("[role='dialog']")).toBeNull();
 });
 
-test("two rows sharing an ID and display label still open their own snapshot's scope", () => {
+test("two rows sharing an ID and display label still ask about their own snapshot", () => {
 	// The inspected-row identity includes scopeKey: two snapshots can render
 	// the same raw ID under the same display label, and each Params action
-	// must open the scope of exactly the row it sits on.
+	// must ask about exactly the row it sits on.
 	const rows = [makeModel({ ...model, scopeKey: "s0" }), makeModel({ ...model, scopeKey: "s1" })];
-	const root = mount(
-		<ModelsSection
-			models={rows}
-			serverCount={2}
-			requestScopes={{ s0: { baseUrlScope: "http://first.test" }, s1: { baseUrlScope: "http://second.test" } }}
-			modelParameters={{}}
-		/>
-	);
+	const root = mount(<ModelsSection models={rows} serverCount={2} stateSeq={0} />);
 	const actions = root.querySelectorAll("button[aria-label='Show effective parameters for Omni on Prod']");
 	expect(actions.length).toBe(2);
 	fireClick(actions[1] as HTMLButtonElement);
-	const dialog = document.querySelector("[role='dialog']") as HTMLElement;
-	expect(textOf(dialog, ".params-identity")).toBe("gpt-4o on Prod (http://second.test)");
+	expect(document.querySelector("[role='dialog']")).not.toBeNull();
+	const request = postedMessages.at(-1) as { type: string; scopeKey: string; rawId: string };
+	expect(request.type).toBe("readModelParameters");
+	expect(request.scopeKey).toBe("s1");
+	expect(request.rawId).toBe("gpt-4o");
 });
 
 test("the facts grid restates the model's table facts, with conditional pricing tiers", () => {

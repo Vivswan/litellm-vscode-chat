@@ -94,6 +94,35 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.updates, []);
 		});
 
+		test("setModelCapabilities refuses a reserved key and writes nothing", async () => {
+			const recorded = makeEnv();
+			await assert.rejects(
+				executeDashboardIntent(
+					{
+						type: "setModelCapabilities",
+						value: JSON.parse('{"__proto__": {}}') as Record<string, Record<string, unknown>>,
+					},
+					recorded.env
+				)
+			);
+
+			assert.deepStrictEqual(recorded.updates, []);
+		});
+
+		test("setUsageAlertThresholds refuses out-of-range values and writes the rest sorted and deduplicated", async () => {
+			const recorded = makeEnv();
+			for (const values of [[0], [1.5], [0.8, -1]]) {
+				await assert.rejects(
+					executeDashboardIntent({ type: "setUsageAlertThresholds", values }, recorded.env),
+					/fraction in \(0, 1\]/
+				);
+			}
+			assert.deepStrictEqual(recorded.updates, []);
+
+			await executeDashboardIntent({ type: "setUsageAlertThresholds", values: [0.95, 0.8, 0.95] }, recorded.env);
+			assert.deepStrictEqual(recorded.updates, [["usage.alertThresholds", [0.8, 0.95]]]);
+		});
+
 		test("every command ID maps to an allow-listed command", async () => {
 			const recorded = makeEnv();
 			const intents: DashboardIntent[] = [
@@ -202,6 +231,32 @@ suite("extension/dashboard/intents", () => {
 			]);
 		});
 
+		test("header and budget rules refuse a save before any effect", async () => {
+			// The acceptance matrix for the payload's new fields: names may be
+			// echoed in the message (structural configuration), values never are.
+			const cases: readonly [
+				Record<string, string | number | boolean> | undefined,
+				number | null | undefined,
+				RegExp,
+			][] = [
+				// JSON.parse mints a real own "__proto__" key (a literal would set the prototype instead).
+				[JSON.parse('{"__proto__": "x"}') as Record<string, string>, undefined, /reserved name/],
+				[{ "bad name": "x" }, undefined, /not a valid HTTP header name/],
+				[{ "x-env": "a", "X-Env": "b" }, undefined, /repeats an earlier header name/],
+				[{ "x-env": "a\nb" }, undefined, /cannot be sent as an HTTP header/],
+				[undefined, 0, /budget: must be a number greater than 0/],
+				[undefined, -5, /budget: must be a number greater than 0/],
+			];
+			for (const [headers, budget, expected] of cases) {
+				const recorded = makeEnv();
+				await assert.rejects(
+					save(recorded, { server: { label: "Prod", baseUrl: "http://prod.test", headers, budget } }),
+					expected
+				);
+				assert.deepStrictEqual(recorded.serverWrites, []);
+			}
+		});
+
 		test("junk sibling entries survive a save verbatim", async () => {
 			const junk = ["not an object", 42, { baseUrl: "http://no-label.test" }];
 			const recorded = makeEnv([junk[0], { label: "Prod", baseUrl: "http://old.test" }, junk[1], junk[2]]);
@@ -277,6 +332,7 @@ suite("extension/dashboard/intents", () => {
 			const prefilled = applyInlinePrefill(
 				{
 					...EMPTY_SERVER_FORM,
+					authForm: "apiKey" as const,
 					label: "Prod",
 					baseUrl: "http://prod.test",
 					apiKey: { value: "", location: "settings", clear: false, existing: "settings" },
@@ -297,6 +353,7 @@ suite("extension/dashboard/intents", () => {
 			const prefilled = applyInlinePrefill(
 				{
 					...EMPTY_SERVER_FORM,
+					authForm: "apiKey" as const,
 					label: "Prod",
 					baseUrl: "http://prod.test",
 					apiKey: { value: "", location: "settings", clear: false, existing: "settings" },

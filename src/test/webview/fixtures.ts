@@ -10,9 +10,11 @@ import type {
 	DashboardServer,
 	DashboardSettings,
 	DashboardState,
+	DashboardUsage,
 	ExtensionToWebviewMessage,
 	SecretFieldId,
 	SecretLocation,
+	UsageServerView,
 } from "../../extension/dashboard/protocol";
 
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
@@ -37,6 +39,37 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 			booleans: { "chat.promptCaching": null, "ui.maskSecretInputs": null, "models.openRouterCatalog": null },
 		},
 		modelParameters: { editScope: "global", value: {}, otherScopes: [], effective: {} },
+		modelCapabilities: { editScope: "global", value: {}, otherScopes: [], effective: {} },
+		catalog: { modelCount: 0, lastSuccessAt: undefined, refreshing: false },
+		usage: { statusBarMode: "always", statusBarScope: null, alertThresholds: [0.8, 0.95], thresholdsScope: null },
+		...overrides,
+	};
+}
+
+/** The Usage tab's empty snapshot; override per test. */
+export function makeUsage(overrides: Partial<DashboardUsage> = {}): DashboardUsage {
+	return {
+		servers: [],
+		thresholds: [0.8, 0.95],
+		pollIntervalMs: 300000,
+		refreshing: false,
+		generatedAt: Date.now(),
+		...overrides,
+	};
+}
+
+/** One usage server card's view; override per test. */
+export function makeUsageServer(overrides: Partial<UsageServerView> = {}): UsageServerView {
+	return {
+		label: "Prod",
+		baseUrl: "http://localhost:4000",
+		fresh: true,
+		lastUpdatedAt: Date.now(),
+		spend: 12.5,
+		effectiveBudget: 50,
+		keyBudget: 50,
+		budgetSource: "key",
+		spentFraction: 0.25,
 		...overrides,
 	};
 }
@@ -116,8 +149,9 @@ export function makeState(overrides: Partial<DashboardState> = {}): DashboardSta
 		servers: [],
 		hiddenGroups: [],
 		models: [],
-		requestScopes: { s0: { baseUrlScope: "http://localhost:4000" } },
 		settings: makeSettings(),
+		usage: makeUsage(),
+		diagnostics: [],
 		legacyServerCount: 0,
 		...overrides,
 	};
@@ -151,4 +185,22 @@ export function poisonedStatePush(sentinel: string): ExtensionToWebviewMessage {
 		servers: [poisonedServer],
 	};
 	return { type: "state", state } as unknown as ExtensionToWebviewMessage;
+}
+
+type MisconfiguredServer = Extract<DashboardServer, { origin: "misconfigured" }>;
+
+/** A servers-setting entry the parser refused: present in the setting, never synced or served. */
+export function makeMisconfiguredServer(overrides: Partial<MisconfiguredServer> = {}): MisconfiguredServer {
+	const base: MisconfiguredServer = {
+		origin: "misconfigured",
+		label: "Broken",
+		baseUrl: "http://broken.test:4000",
+		modelCount: 0,
+		hasApiKey: false,
+		hasOAuth: false,
+		state: "error",
+		error: "auth configures more than one form",
+		problems: ["auth: configures more than one form (oauth beside apiKey)"],
+	};
+	return { ...base, ...overrides } as MisconfiguredServer;
 }

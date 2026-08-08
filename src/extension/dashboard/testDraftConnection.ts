@@ -39,11 +39,12 @@ export interface DraftConnection {
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
 	/**
-	 * The entry's custom headers: the form has no headers editor yet and a
-	 * save preserves the edited entry's `headers` verbatim (see
-	 * applySaveServerSetting), so the probe carries exactly that record -
-	 * probing without it would test a different configuration than the saved
-	 * entry sends (a gateway requiring a header would report a false failure).
+	 * The custom headers the probe sends: the draft's parsed header rows when
+	 * the payload carries them (the form's editor always sends the record, so
+	 * present-but-empty is a deliberate clear), falling back to the edited
+	 * entry's stored record for payloads that predate the editor - the same
+	 * absent-means-carry rule the save applies, so the probe tests exactly the
+	 * configuration a save would send.
 	 */
 	readonly headers?: Readonly<Record<string, string>> | undefined;
 	/** The draft's expectedFailures in discovery's per-endpoint shape: expected endpoints probe with a single attempt, like production. */
@@ -69,12 +70,20 @@ export type DraftProbeOutcome =
 	| { readonly kind: "expected-failure"; readonly declaredCount: number };
 
 /**
- * The declared model IDs the saved entry would carry: the form has no
- * declared-list editor yet, and the save path preserves the edited entry's
- * existing discovery.declared list verbatim (see applySaveServerSetting), so
- * the probe reports exactly that list - empty for a brand-new draft.
+ * The declared model IDs the SAVED entry would carry, mirroring the save's
+ * absent-vs-present rule: the form always sends declaredModels (trimmed,
+ * deduplicated, possibly empty - a deliberate clear), and only a payload
+ * predating the editor falls back to the edited entry's stored list. The
+ * probe must test the draft as typed (docs/dashboard.md: "honors the draft's
+ * expected failures and declared models"), not the last-saved state.
  */
-function draftDeclaredModelIds(existing: DeclaredServer | undefined): readonly string[] {
+function draftDeclaredModelIds(
+	payload: readonly string[] | undefined,
+	existing: DeclaredServer | undefined
+): readonly string[] {
+	if (payload !== undefined) {
+		return [...new Set(payload.map((id) => id.trim()).filter((id) => id.length > 0))];
+	}
 	return existing?.declaredModels ?? [];
 }
 
@@ -153,10 +162,18 @@ export async function applyTestServerDraft(
 		throw new DashboardValidationError(`virtualKeyHeader: ${vscode.l10n.t("name the header that carries the key")}`);
 	}
 
+	// The draft's headers when the payload carries them (values normalized to
+	// strings, as the setting parser stores them), the stored record otherwise;
+	// see DraftConnection.headers.
+	const draftHeaders: Readonly<Record<string, string>> | undefined =
+		intent.server.headers !== undefined
+			? Object.fromEntries(Object.entries(intent.server.headers).map(([name, value]) => [name, String(value)]))
+			: existing?.headers;
+
 	const connection: DraftConnection = {
 		baseUrl: intent.server.baseUrl.trim(),
 		apiKey,
-		...(existing?.headers !== undefined ? { headers: existing.headers } : {}),
+		...(draftHeaders !== undefined && Object.keys(draftHeaders).length > 0 ? { headers: draftHeaders } : {}),
 		...(oauthTokenUrl !== undefined && oauthClientId !== undefined
 			? {
 					oauth: {
@@ -180,7 +197,9 @@ export async function applyTestServerDraft(
 		// Inertness matches registration: a declared ID discovery already lists
 		// adds nothing, so only the others join the would-be-registered total.
 		const discoveredSet = new Set(discovered);
-		const declaredCount = draftDeclaredModelIds(existing).filter((rawId) => !discoveredSet.has(rawId)).length;
+		const declaredCount = draftDeclaredModelIds(intent.server.declaredModels, existing).filter(
+			(rawId) => !discoveredSet.has(rawId)
+		).length;
 		return { kind: "connected", modelCount: discovered.length + declaredCount, declaredCount };
 	} catch (error) {
 		if (error instanceof RequestError) {
@@ -189,7 +208,10 @@ export async function applyTestServerDraft(
 			// refresh contract - the declared models the entry would serve
 			// anyway, as a note instead of a hard failure.
 			if (intent.server.expectedFailures?.includes("modelListing") === true) {
-				return { kind: "expected-failure", declaredCount: draftDeclaredModelIds(existing).length };
+				return {
+					kind: "expected-failure",
+					declaredCount: draftDeclaredModelIds(intent.server.declaredModels, existing).length,
+				};
 			}
 			// The transport's message is user-facing by the same convention as a
 			// server row's error state; validation-kind because nothing durable

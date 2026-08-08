@@ -28,7 +28,8 @@ export function relativeTime(iso: string, nowMs: number): string | undefined {
 	if (seconds < DAY) {
 		return l10n.t("{0} h ago", Math.round(seconds / HOUR));
 	}
-	return l10n.t("{0} d ago", Math.round(seconds / DAY));
+	const days = Math.round(seconds / DAY);
+	return days === 1 ? l10n.t("1 day ago") : l10n.t("{0} days ago", days);
 }
 
 /**

@@ -150,6 +150,20 @@ suite("production activation", () => {
 		await config.update("modelParameters", undefined, vscode.ConfigurationTarget.Global).then(undefined, () => {});
 	});
 
+	test("the manifest declares onStartupFinished so activation never depends on Copilot Chat", async () => {
+		// Without an activation event the extension only wakes when a chat
+		// client queries LM providers: a host without Copilot Chat (or with it
+		// activating late) would get no migrations, no status bar, and no usage
+		// surfaces. onStartupFinished is the deterministic path; the implicit
+		// provider/command events ride along.
+		const manifestPath = path.resolve(__dirname, "..", "..", "..", "package.json");
+		const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as { activationEvents?: string[] };
+		assert.ok(
+			manifest.activationEvents?.includes("onStartupFinished"),
+			"package.json activationEvents must include onStartupFinished"
+		);
+	});
+
 	test("production-mode activation registers no litellm._test.* commands", async () => {
 		const litellmCommands = (await vscode.commands.getCommands(true)).filter((id) => id.startsWith("litellm."));
 		assert.ok(litellmCommands.includes("litellm.manage"), "the fake activation must have registered its commands");

@@ -101,6 +101,20 @@ const validMessageArbs: Readonly<Record<WebviewToExtensionMessage["type"], fc.Ar
 		type: fc.constant("setModelParameters"),
 		value: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), { maxKeys: 3 }),
 	}),
+	setModelCapabilities: fc.record({
+		type: fc.constant("setModelCapabilities"),
+		value: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), { maxKeys: 3 }),
+	}),
+	refreshCatalog: fc.constant({ type: "refreshCatalog" }),
+	refreshUsage: fc.constant({ type: "refreshUsage" }),
+	setUsageStatusBar: fc.record({
+		type: fc.constant("setUsageStatusBar"),
+		value: fc.constantFrom("always", "alerts-only", "off"),
+	}),
+	setUsageAlertThresholds: fc.record({
+		type: fc.constant("setUsageAlertThresholds"),
+		values: fc.array(finiteNumber, { maxLength: 32 }),
+	}),
 	saveServerSetting: fc.record(
 		{
 			type: fc.constant("saveServerSetting"),
@@ -141,6 +155,13 @@ const validMessageArbs: Readonly<Record<WebviewToExtensionMessage["type"], fc.Ar
 		rawId: fc.string({ minLength: 1, maxLength: 64 }),
 		requestId,
 	}),
+	readModelParameters: fc.record({
+		type: fc.constant("readModelParameters"),
+		scopeKey: fc.string({ minLength: 1, maxLength: REQUEST_ID_MAX_LENGTH }),
+		rawId: fc.string({ minLength: 1, maxLength: 64 }),
+		requestId,
+	}),
+	readResolvedModels: fc.record({ type: fc.constant("readResolvedModels"), requestId }),
 	searchCatalog: fc.record({ type: fc.constant("searchCatalog"), query: fc.string({ maxLength: 200 }), requestId }),
 	adoptServer: fc.record({
 		type: fc.constant("adoptServer"),
@@ -216,7 +237,11 @@ suite("extension/dashboard/state webview message schema properties", () => {
 						mutant[key] = junk;
 					} else if (kind === "wrong-type") {
 						const keys = Object.keys(message);
-						mutant[keys[pick % keys.length] ?? "type"] = junk;
+						const key = keys[pick % keys.length] ?? "type";
+						// setUsageAlertThresholds.values legally holds ANY bounded number
+						// array (empty = alerts off), so the array junk is not a wrong
+						// type there; NaN still is.
+						mutant[key] = key === "values" && Array.isArray(junk) ? Number.NaN : junk;
 					} else {
 						mutant[tokenFields[pick % tokenFields.length] ?? "requestId"] = "x".repeat(oversize);
 					}

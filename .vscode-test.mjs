@@ -116,12 +116,19 @@ export default defineConfig({
 			// Its own label and host: the file calls the compiled activate() with a
 			// fake Production-mode context, which registers the real litellm.*
 			// command IDs - it can never share a host with the activated extension.
+			// onStartupFinished (the manifest's activation event) would activate
+			// the real dev-mode extension first and collide every registration,
+			// so this label suppresses host-initiated activation (see the guard
+			// at the top of activate()).
 			label: "activation-production",
 			files: "out/test/activation/production.test.js",
 			mocha: {
 				ui: "tdd",
 				timeout: 30000,
 				color: true,
+			},
+			env: {
+				LITELLM_SUPPRESS_STARTUP_ACTIVATION: "1",
 			},
 			launchArgs: launchArgsFor("activation-production"),
 		},

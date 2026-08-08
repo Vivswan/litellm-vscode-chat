@@ -29,6 +29,7 @@
  "litellm.command.setServerSecret.title": "LiteLLM: 設定伺服器祕密",
  "litellm.command.reportIssue.title": "LiteLLM: 回報問題",
  "litellm.command.refreshUsage.title": "LiteLLM: 立即重新整理用量",
+ "litellm.command.refreshOpenRouterCatalog.title": "LiteLLM: 重新整理 OpenRouter 目錄",
  "litellm.walkthrough.title": "開始在 Copilot Chat 中使用 LiteLLM",
  "litellm.walkthrough.description": "連線 LiteLLM 伺服器, 並在 GitHub Copilot Chat 中使用其模型。",
  "litellm.walkthrough.connectServer.title": "連線至您的 LiteLLM 伺服器",

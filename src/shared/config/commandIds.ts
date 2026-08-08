@@ -24,6 +24,7 @@ export const CMD = {
 	setServerSecret: "litellm.setServerSecret",
 	reportIssue: "litellm.reportIssue",
 	refreshUsage: "litellm.refreshUsage",
+	refreshOpenRouterCatalog: "litellm.refreshOpenRouterCatalog",
 } as const;
 
 /**
@@ -63,9 +64,11 @@ export function refreshUsageCommandTitle(): string {
  * openGroupsFile opens the host's provider-groups JSON directly - the one
  * place a leftover provider group can be deleted, since no editor UI for it
  * is sanctioned. openOutput shows the extension's output channel (the
- * dashboard Diagnostics tab's Open-output-log action), and openSettingKey
+ * dashboard Diagnostics tab's Open-output-log action), openSettingKey
  * opens the user settings.json at one litellm-vscode-chat.* key (the
- * dashboard's revealSetting intent). The palette shows only the manage hub
+ * dashboard's revealSetting intent), and openUsage opens the dashboard on
+ * its Usage section (the usage status bar item's click target and the
+ * budget alert toasts' action). The palette shows only the manage hub
  * (see registerManageCommand). The litellm._test.* harness commands are
  * deliberately not mapped here: they are test-mode-only, and their ids
  * double as oracle strings in the suites.
@@ -75,6 +78,7 @@ export const INTERNAL_CMD = {
 	openGroupsFile: "litellm.openGroupsFile",
 	openOutput: "litellm.openOutput",
 	openSettingKey: "litellm.openSettingKey",
+	openUsage: "litellm.openUsage",
 } as const;
 
 /** Any command ID this extension registers, contributed or internal. */

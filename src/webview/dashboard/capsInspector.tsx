@@ -105,7 +105,23 @@ function ShadowedLine({ name, shadow }: { name: CapabilityFieldName; shadow: Sha
 	);
 }
 
-function FieldRow({ name, field }: { name: CapabilityFieldName; field: EffectiveCapabilityField<number | boolean> }) {
+function FieldRow({
+	name,
+	field,
+	onEditField,
+}: {
+	name: CapabilityFieldName;
+	field: EffectiveCapabilityField<number | boolean>;
+	/** The per-row jump to the record that owns the value; renders only on record-sourced rows. */
+	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
+}) {
+	const editable =
+		onEditField !== undefined &&
+		field.key !== undefined &&
+		(field.level === "entry" ||
+			field.level === "global" ||
+			field.level === "entry-fallback" ||
+			field.level === "global-fallback");
 	return (
 		<>
 			<tr>
@@ -113,6 +129,16 @@ function FieldRow({ name, field }: { name: CapabilityFieldName; field: Effective
 				<td class="param-value">{formatValue(name, field.value)}</td>
 				<td>
 					{levelName(field.level, field.key)}
+					{editable ? (
+						<button
+							type="button"
+							class="quiet row-edit"
+							aria-label={l10n.t('Edit record "{0}"', field.key ?? "")}
+							onClick={() => onEditField?.(field.level, field.key ?? "")}
+						>
+							{l10n.t("edit")}
+						</button>
+					) : null}
 					{field.inheritedFrom !== undefined ? (
 						<span class="param-skip"> ({l10n.t("inherited from {0}", field.inheritedFrom)})</span>
 					) : null}
@@ -181,7 +207,15 @@ function outputLimitNote(capabilities: EffectiveCapabilities): string {
  * The inspector body once the response landed: the provenance table, the
  * directive outcome, and the diagnostics.
  */
-function CapsBody({ capabilities, declared }: { capabilities: EffectiveCapabilities; declared: boolean }) {
+function CapsBody({
+	capabilities,
+	declared,
+	onEditField,
+}: {
+	capabilities: EffectiveCapabilities;
+	declared: boolean;
+	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
+}) {
 	return (
 		<>
 			{declared ? (
@@ -207,7 +241,7 @@ function CapsBody({ capabilities, declared }: { capabilities: EffectiveCapabilit
 				</thead>
 				<tbody>
 					{FIELD_ORDER.map((name) => (
-						<FieldRow key={name} name={name} field={capabilities.fields[name]} />
+						<FieldRow key={name} name={name} field={capabilities.fields[name]} onEditField={onEditField} />
 					))}
 				</tbody>
 			</table>
@@ -233,26 +267,50 @@ function CapsBody({ capabilities, declared }: { capabilities: EffectiveCapabilit
 export function CapsInspector({
 	model,
 	response,
+	stateSeq,
 	onClose,
+	onEditRecord,
+	onEditEntry,
 }: {
 	model: DashboardModel;
 	/** The latest modelCapabilities response App holds; matched against this inspector's own requestId. */
 	response: ModelCapabilitiesResponse | undefined;
+	/** Bumped on every state push; the inspector re-requests so an open panel follows configuration edits. */
+	stateSeq: number;
 	onClose: () => void;
+	/** Jump into the global capabilities editor: focus record `key`, or create an exact-ID draft when `create`. */
+	onEditRecord?: ((key: string, create: boolean) => void) | undefined;
+	/** Jump into a server entry's edit form (the owner of entry-layer values). */
+	onEditEntry?: ((label: string) => void) | undefined;
 }) {
 	const [requestId, setRequestId] = useState<string | undefined>(undefined);
 
-	// One request per inspected model: the identity captures everything the
-	// extension resolves against, so a different row means a fresh request and
-	// a stale response is ignored by its requestId.
+	// One request per inspected model AND per state push: a configuration or
+	// discovery change re-pushes state, and an open inspector must follow the
+	// fresh resolution instead of showing pre-edit values; a stale response is
+	// ignored by its requestId.
 	const { scopeKey, rawId } = model;
 	useEffect(() => {
 		const id = newRequestId();
 		setRequestId(id);
 		postMessage({ type: "readModelCapabilities", scopeKey, rawId, requestId: id });
-	}, [scopeKey, rawId]);
+	}, [scopeKey, rawId, stateSeq]);
 
 	const answered = requestId !== undefined && response?.requestId === requestId ? response : undefined;
+	// The per-row jump: an entry-level value is owned by the server entry's own
+	// record (edited in its form; entry records apply only when labels align,
+	// so the group's label addresses the entry), a global one by the settings
+	// record named in the row.
+	const editField =
+		onEditRecord === undefined
+			? undefined
+			: (level: CapabilityLevel, key: string) => {
+					if (level === "entry" || level === "entry-fallback") {
+						onEditEntry?.(model.serverLabel);
+					} else {
+						onEditRecord(key, false);
+					}
+				};
 	return (
 		<SlideOver
 			labelledBy="caps-inspector-title"
@@ -274,6 +332,27 @@ export function CapsInspector({
 						comment: ["{0} is a model ID, {1} is the server it is served from"],
 					})}
 				</p>
+				{onEditRecord !== undefined ? (
+					<p class="params-configure">
+						<button
+							type="button"
+							class="secondary"
+							disabled={answered === undefined}
+							onClick={() => {
+								// Reuse the most specific matching global record when one
+								// exists; otherwise a fresh draft keyed by the exact model ID.
+								const key = answered?.globalRecordKey;
+								if (key !== undefined) {
+									onEditRecord(key, false);
+								} else {
+									onEditRecord(model.rawId, true);
+								}
+							}}
+						>
+							{l10n.t("Configure capabilities for this model")}
+						</button>
+					</p>
+				) : null}
 				{answered === undefined ? (
 					<p class="hint" role="status">
 						{l10n.t("Resolving capabilities...")}
@@ -283,7 +362,7 @@ export function CapsInspector({
 						{l10n.t("The model list changed; close and reopen the inspector.")}
 					</p>
 				) : (
-					<CapsBody capabilities={answered.capabilities} declared={model.declared === true} />
+					<CapsBody capabilities={answered.capabilities} declared={model.declared === true} onEditField={editField} />
 				)}
 			</div>
 		</SlideOver>

@@ -50,7 +50,7 @@ function answeredInPlace(
 	modelOverrides: Parameters<typeof makeModel>[0] = {}
 ): HTMLElement {
 	const model = makeModel(modelOverrides);
-	const container = mount(<CapsInspector model={model} response={undefined} onClose={() => {}} />);
+	const container = mount(<CapsInspector model={model} response={undefined} stateSeq={0} onClose={() => {}} />);
 	const request = postedMessages.at(-1) as { type: string; requestId: string; scopeKey: string; rawId: string };
 	expect(request.type).toBe("readModelCapabilities");
 	expect(request.scopeKey).toBe(model.scopeKey);
@@ -60,6 +60,7 @@ function answeredInPlace(
 			<CapsInspector
 				model={model}
 				response={{ type: "modelCapabilities", requestId: request.requestId, capabilities }}
+				stateSeq={0}
 				onClose={() => {}}
 			/>,
 			container
@@ -69,10 +70,26 @@ function answeredInPlace(
 }
 
 test("opening posts one readModelCapabilities request and shows the loading note until it is answered", () => {
-	const root = mount(<CapsInspector model={makeModel()} response={undefined} onClose={() => {}} />);
+	const root = mount(<CapsInspector model={makeModel()} response={undefined} stateSeq={0} onClose={() => {}} />);
 	expect(postedMessages.length).toBe(1);
 	expect(postedMessages[0]?.type).toBe("readModelCapabilities");
 	expect(root.textContent).toContain("Resolving capabilities...");
+});
+
+test("a stateSeq bump re-requests, so an open inspector follows configuration edits", () => {
+	const model = makeModel();
+	const container = mount(<CapsInspector model={model} response={undefined} stateSeq={0} onClose={() => {}} />);
+	expect(postedMessages.filter((message) => message.type === "readModelCapabilities")).toHaveLength(1);
+
+	// The same tree re-rendered with a bumped stateSeq (a state push landed):
+	// the inspector must ask again instead of trusting its pre-edit answer.
+	void act(() => {
+		render(<CapsInspector model={model} response={undefined} stateSeq={1} onClose={() => {}} />, container);
+	});
+	const requests = postedMessages.filter((message) => message.type === "readModelCapabilities");
+	expect(requests).toHaveLength(2);
+	// A fresh requestId per request, so the first answer cannot satisfy the second ask.
+	expect((requests[0] as { requestId: string }).requestId).not.toBe((requests[1] as { requestId: string }).requestId);
 });
 
 test("a response for another requestId is ignored; only the correlated one renders", () => {
@@ -80,6 +97,7 @@ test("a response for another requestId is ignored; only the correlated one rende
 		<CapsInspector
 			model={makeModel()}
 			response={{ type: "modelCapabilities", requestId: "someone-elses", capabilities: makeCapabilities() }}
+			stateSeq={0}
 			onClose={() => {}}
 		/>
 	);
