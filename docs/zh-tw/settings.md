@@ -2,108 +2,114 @@
 
 [English](../settings.md) | [简体中文](../zh-cn/settings.md) | 繁體中文
 
-每個 `litellm-vscode-chat.*` 設定, 及其預設值與作用。用 `Ctrl+,` / `Cmd+,` 開啟設定並搜尋 "litellm-vscode-chat", 或在[儀表板](dashboard.md)的設定分頁以表單控制項編輯相同的值。您已設定過的儀表板列會標明其值存放在哪裡 (「已在使用者設定中修改」), 數字列還會標明設定的內建預設值; 「重設」會移除該範圍的值, 讓下一個範圍的值或預設值生效。
+每個 `litellm-vscode-chat.*` 設定與每個伺服器項目屬性的查詢參考: 名稱、預設值、一段話的行為說明, 以及完整故事在哪裡。要*學習*概念, 請改讀支柱頁面: [伺服器](servers.md)、[模型](models.md)、[用量](usage.md)。
+
+## 設定如何運作
+
+兩種等價的編輯方式:
+
+- **設定 UI / settings.json** - `Ctrl+,` / `Cmd+,`, 搜尋 "litellm-vscode-chat"。設定分組為幾個區段 (伺服器、模型、聊天、探索、用量、UI)。
+- **儀表板** - "LiteLLM: Open Dashboard", 設定分頁。同樣的值以表單控制項呈現, 驗證、單位與預設值就地顯示; 已設定的列說明其值存放在哪裡, 「重設」清除該範圍。見[儀表板](dashboard.md)。
+
+| 事實 | 細節 |
+|---|---|
+| 範圍 | `servers` 是機器範圍的: 僅限使用者設定, 永遠不能被工作區覆寫, 也永遠不由設定同步攜帶。工作區 `.vscode/settings.json` 中的 `servers` 值會被 VS Code 自己忽略 (設定編輯器會說它只能套用於使用者設定)。其他每個設定都像一般的使用者/工作區設定一樣運作並正常同步。 |
+| 生效 | 變更立即套用 - 不需重新載入。影響模型的變更會重新整理模型清單; 用量變更會重接輪詢器; 逾時變更套用於下一個請求。 |
+| 移轉 | 舊版本的設定在升級時自動重新命名與重構; 見[重新命名表](#重新命名與移除的設定)。不需重新輸入任何東西。當新名稱的設定已經有值時 (比如設定同步先從已升級的機器送來了它), 移轉保留它, 只捨棄舊鍵。 |
+| 未知鍵 | 延伸模組未宣告的 `litellm-vscode-chat.*` 鍵 (打錯字, 比如 `chat.timout`) 會被忽略, VS Code 的設定編輯器會在 settings.json 中把它標為未知設定。[重新命名](#重新命名與移除的設定)之後的舊名稱同理。 |
 
 ## 參考
 
-| 設定 | 預設值 | 說明 |
+| 設定 | 預設值 | 行為 |
 |---------|---------|-------------|
-| `litellm-vscode-chat.servers` | `[]` | 宣告的 LiteLLM 伺服器; 參閱[伺服器](servers.md) |
-| `litellm-vscode-chat.defaultMaxOutputTokens` | `16000` | 已淘汰, 建議改用 `modelCapabilities`; 伺服器未宣告時, 模型的最大輸出 token 數 |
-| `litellm-vscode-chat.defaultContextLength` | `128000` | 已淘汰, 建議改用 `modelCapabilities`; 伺服器未宣告時, 模型的上下文視窗 |
-| `litellm-vscode-chat.defaultMaxInputTokens` | `null` | 已淘汰, 建議改用 `modelCapabilities`; 最大輸入 token 數, 甚至覆寫伺服器宣告的上限 |
-| `litellm-vscode-chat.requestTimeout` | `300000` | 聊天完成請求的逾時, 以毫秒計 (5 分鐘) |
-| `litellm-vscode-chat.discoveryTimeout` | `30000` | 模型探索請求的逾時, 以毫秒計 (30 秒) |
-| `litellm-vscode-chat.discoveryCacheTtl` | `3600000` | 已探索的模型清單重複使用多久, 以毫秒計 (1 小時) |
-| `litellm-vscode-chat.modelParameters` | `{}` | 各模型的請求參數; 參閱[模型參數](model-parameters.md) |
-| `litellm-vscode-chat.modelCapabilities` | `{}` | 各模型能力覆寫與 `_declare` 項目; 參閱[模型能力](model-capabilities.md) |
-| `litellm-vscode-chat.openRouterCatalog.enabled` | `true` | 以 OpenRouter 目錄填補缺少的模型能力, 約每週重新整理; 參閱[下文](#openrouter-目錄) |
-| `litellm-vscode-chat.headers` | `{}` | 加到每個請求的自訂 HTTP 標頭 |
-| `litellm-vscode-chat.promptCaching.enabled` | `true` | 在支援的模型上啟用提示快取 |
-| `litellm-vscode-chat.maskApiKeyInput` | `true` | 設定伺服器時遮罩 API 金鑰輸入欄位 |
+| `litellm-vscode-chat.servers` | `[]` | 宣告的 LiteLLM 伺服器; [項目屬性見下](#伺服器項目屬性), 完整故事在[伺服器](servers.md) |
+| `litellm-vscode-chat.models.parameters` | `{}` | 按模型的請求參數, 以[比對器](models.md#模型比對)為鍵。只送出您設定的。完整故事: [模型 - 參數](models.md#參數) |
+| `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆寫, 以[比對器](models.md#模型比對)為鍵: token 上限、視覺、工具、推理。完整故事: [模型 - 能力](models.md#能力) |
+| `litellm-vscode-chat.models.openRouterCatalog` | `true` | 用每週重新整理的 OpenRouter 公開目錄快照填補缺少的能力; 手動重新整理用 "LiteLLM: Refresh OpenRouter Catalog"。詳情含隱私說明: [模型 - 能力](models.md#能力) |
+| `litellm-vscode-chat.chat.timeout` | `300000` | 單次聊天補全的硬性時間預算, 毫秒。聊天請求從不重試, 所以這是一個請求可占用的總時間, 含串流。最小 1000; 更低的值會被箝制。為長推理運行或緩慢的基礎設施調大它 |
+| `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣告支援的模型上, 跨工作階段回合沿用提供者端的提示快取; [詳情見下](#提示快取) |
+| `litellm-vscode-chat.discovery.timeout` | `30000` | 單輪模型探索的硬性時間預算, 毫秒 - 含重試與 OAuth 權杖交換。最小 1000 |
+| `litellm-vscode-chat.discovery.cacheTtl` | `3600000` | 已探索的模型清單沿用多久, 毫秒。VS Code 重新解析提供者很頻繁 (有時一秒好幾次); 快取把那擋在您的伺服器之外。`0` 表示每次都重新擷取 (負值箝制為 `0`); 失敗從不快取; 同時發生的重新整理共用一個請求; "LiteLLM: Sync Models Now" 略過它 |
+| `litellm-vscode-chat.usage.pollInterval` | `300000` | 背景支出/預算輪詢節奏, 毫秒。`0` = 關閉: 儀表板開啟時仍會擷取, 但沒有背景請求, 沒有警示。完整故事: [用量](usage.md) |
+| `litellm-vscode-chat.usage.alertThresholds` | `[0.8, 0.95]` | 各觸發一次警示的預算比例; 每個值在 (0, 1] 內; 空清單 = 關閉警示。完整故事: [用量 - 警示](usage.md#警示) |
+| `litellm-vscode-chat.usage.statusBar` | `"always"` | 用量狀態列項目: `"always"`、`"alerts-only"`、`"off"`。完整故事: [用量 - 狀態列](usage.md#狀態列) |
+| `litellm-vscode-chat.ui.maskSecretInputs` | `true` | 在儀表板中輸入時遮罩祕密輸入欄位 (API 金鑰與其他認證) |
 
-以下各節說明行為不只一句話能講完的設定。
+刻意不提供全域標頭設定: 自訂 HTTP 標頭描述的是如何與某一個伺服器交談, 所以它們存放在伺服器項目上 ([`headers`](servers.md#自訂標頭)) - 機器範圍, 在設定同步搆不到的地方, 與全域設定不同。
 
-## Token 上限
+## 伺服器項目屬性
 
-延伸模組從您 LiteLLM 伺服器的模型資訊讀取 token 上限, 所以大多數模型在這裡不需要任何設定。三個 `default*` 設定都已淘汰, 建議改用 [`modelCapabilities`](model-capabilities.md), 它可以鎖定特定模型, 而且與這些後備值不同, 也能覆寫伺服器已宣告的上限; 它們仍然有效, 遵循兩種不同的規則。
+`litellm-vscode-chat.servers` 的每個項目 (除 `label` 與 `baseUrl` 外全部選填); 每一列的完整故事在[伺服器](servers.md):
 
-**`defaultMaxOutputTokens` 與 `defaultContextLength` 是後備值:**
+| 屬性 | 型別 | 行為 |
+|---|---|---|
+| `label` | 字串 | 伺服器的顯示名稱與身分 (連同 `baseUrl`); 在項目間唯一 - 重複的標籤被略過並回報, 第一個項目勝出。重新命名的後果見[生命週期](servers.md#生命週期-重新命名移除與隱藏的群組) |
+| `baseUrl` | 字串 | 伺服器的根 URL; 延伸模組自行附加 `/v1` - 請去掉任何 `/v1` 結尾。路徑前置詞保留, 結尾斜線去除 |
+| `auth` | 物件 | `apiKey`、`oauth`、`virtualKey` 恰取一種形式 - 附隨認證依此順序分級: `oauth` 可帶選填的 `apiKey`/`virtualKey` 附隨認證, `apiKey` 可帶選填的 `virtualKey` 附隨認證, 供檢查兩個標頭的閘道使用。含糊不清的形態按設定錯誤回報, 修復前項目不被使用。伺服器不需要認證時整個省略。完整故事: [伺服器 - 身分驗證](servers.md#身分驗證) |
+| `headers` | 物件 | 發往此伺服器的每個請求上的自訂 HTTP 標頭 (路由標籤、追蹤); 衝突時延伸模組管理的驗證標頭勝出。[伺服器 - 自訂標頭](servers.md#自訂標頭) |
+| `models.parameters` | 記錄 | 只針對此伺服器的請求參數; 與全域設定相同的[比對鍵](models.md#模型比對), 逐欄位套用在其之上 |
+| `models.capabilities` | 記錄 | 只針對此伺服器的能力覆寫; 機制相同 |
+| `discovery.declared` | 字串陣列 | 探索列不出時也要註冊的精確模型 ID; [伺服器 - 宣告的模型](servers.md#宣告的模型) |
+| `discovery.expectedFailures` | 字串陣列 | 此處預期失敗的探索端點 (`"modelListing"`、`"modelInfo"`): 一次嘗試, info 層級記錄, 不算故障 |
+| `budget` | 數字 | 手動預算, 美元, 大於 0; 在[用量警示](usage.md#預算)中優先於金鑰自身的 `max_budget`; 兩者都顯示 |
 
-- 它們只套用於伺服器未宣告輸出上限或上下文長度的模型; 只要模型資訊存在, 一律以它為準。
-- 有一個上限要知道: 當模型的輸出上限來自 `defaultMaxOutputTokens` 而非伺服器時, 送往該模型的請求在線路上最多只帶 4096 個 token 的 `max_tokens`, 無論設定值多大 ([max_tokens 例外](model-parameters.md#直通合約))。要對這種模型送出更多, 請在 [`modelParameters`](model-parameters.md) 中設定 `max_tokens`。
+可作祕密的欄位 (`auth.apiKey`、`auth.oauth.clientSecret`、`auth.virtualKey.value`、OAuth 附隨認證) 可以存放在 VS Code 祕密儲存體而非設定檔中: [伺服器 - 祕密](servers.md#祕密與祕密儲存體)。
 
-**`defaultMaxInputTokens` 是覆寫, 不是後備值:**
+## 記錄指示詞
 
-- 保持 `null` (通常的選擇) 時, 輸入額度是伺服器宣告的輸入上限, 或在未宣告時以上下文長度減去最大輸出 token 數計算。
-- 一旦設定, 它就固定每個模型的輸入上限, 連伺服器宣告的也會被蓋過。
+在 `models.parameters` 或 `models.capabilities` 記錄內 (全域或各項目), 以 `_` 開頭的鍵是指示詞: 給延伸模組的指示, 從不送到伺服器。未知的 `_` 鍵被忽略。
 
-輸入額度會在請求送出前, 依本機的 token 估計強制執行; 由此產生的「訊息超過 token 上限」錯誤參閱[疑難排解](troubleshooting.md#常見問題)。
+| 指示詞 | 有效於 | 作用 |
+|---|---|---|
+| `"_force": true \| ["field", ...]` | `models.parameters` | 把全部/列出的參數欄位標記為強制: 它們勝過執行階段選項與模型選擇器的各模型設定。提供者擁有的欄位 (`model`、`messages`、`stream`、`stream_options`、`tools`、`tool_choice`) 不能強制 - 指名會被回報並略過。完整故事: [模型 - 參數](models.md#參數) |
+| `"_fallback": true \| ["field", ...]` | `models.capabilities` | 把全部/列出的能力欄位標記為後備: 它們填補在伺服器回報之下, 而不是覆寫它。後備提供的最大輸出 token 數算作使用者設定 (沒有 4096 上限)。完整故事: [模型 - 能力](models.md#能力) |
+| `"_openrouter_model": "vendor/id"` | `models.capabilities` | 從 OpenRouter 目錄拉取指名模型的能力資料, 填補您與伺服器留下的空缺。離線也能用內建快照運作。完整故事: [模型 - 能力](models.md#能力) |
+| `"_inheritable": true \| ["field", ...]` | 兩種記錄 | 把全部/列出的欄位標記為可被比對得更具體、且未另行聲明的模型繼承。完整故事: [模型 - 比對](models.md#哪筆記錄生效) |
+| `"_inherit_from": true \| false \| ["key", ...]` | 兩種記錄 | 本記錄繼承什麼: 到達它的一切、什麼都不繼承 (`false` - 也是屏障: 任何東西都流不過一筆什麼都不繼承的記錄), 或恰好指名的記錄 (繞過屏障)。完整故事: [模型 - 比對](models.md#哪筆記錄生效) |
 
-## OpenRouter 目錄
-
-`litellm-vscode-chat.openRouterCatalog.enabled` (預設 `true`) 讓延伸模組以內建的 OpenRouter 公開模型目錄快照填補能力缺口, 並約每週從 `openrouter.ai` 重新整理一次 - 這是唯一一個不送往您所設定伺服器的對外請求 (只有公開的模型中繼資料; 不會傳送任何關於您或您伺服器的資訊)。設為 `false` 可停止重新整理與自動比對; 明確的 `_openrouter_model` 指示詞繼續離線運作。詳細資料與隱私說明參閱[模型能力](model-capabilities.md#openrouter-目錄)。
-
-## 請求逾時
-
-```json
-{
-  "litellm-vscode-chat.requestTimeout": 600000,
-  "litellm-vscode-chat.discoveryTimeout": 60000
+```jsonc
+"litellm-vscode-chat.models.capabilities": {
+  "*": { "context_length": 128000, "_fallback": ["context_length"] },  // 補缺預設值, 伺服器回報時以伺服器為準
+  "my-gw-r1": { "_openrouter_model": "deepseek/deepseek-r1" }          // 為這個 ID 借用目錄的資料
+},
+"litellm-vscode-chat.models.parameters": {
+  "*":      { "top_p": 0.9, "_inheritable": true },                    // 除非模型主動退出, 每個模型都繼承
+  "gpt-5*": { "temperature": 0.2, "_force": ["temperature"] }          // 連聊天工具也不能調高它
 }
 ```
-
-- 兩個逾時都是整個呼叫的硬性上限, 包含串流與任何重試。
-- 聊天完成永不重試, 所以 `requestTimeout` 就是一個請求可以花費的總時間; 模型探索請求是冪等的, 失敗會重試, 全部仍在 `discoveryTimeout` 之內 (詳見[疑難排解](troubleshooting.md#逾時與重試))。
-- 當複雜的提示或長時間的推理被中斷, 或伺服器位於緩慢的基礎架構之後時, 請調高它們。
-- 兩個設定的最小逾時都是 1000ms (1 秒); 更低的值會被拉高到下限。
-
-## 模型清單快取
-
-```json
-{
-  "litellm-vscode-chat.discoveryCacheTtl": 3600000
-}
-```
-
-VS Code 會頻繁重新解析語言模型提供者, 有時一秒內好幾次。為了避免轟炸您伺服器的 `/v1/model/info` 端點, 延伸模組預設將每個伺服器已探索的模型清單快取一小時。
-
-- 失敗的查詢永不快取, 同時發生的重新整理共用一個請求。
-- 若您伺服器上的模型經常變動, 請調低此值 (毫秒), 或設為 `0` 讓每次重新整理都重新擷取。
-- 要立即取得伺服器端變更, 請在命令選擇區執行「LiteLLM: 立即同步模型」; 「LiteLLM: 測試連線」也會透過網路重新整理。
-
-## 自訂 HTTP 標頭
-
-`litellm-vscode-chat.headers` 會把自訂標頭附加到每個 LiteLLM 請求 (模型探索與聊天完成皆然)。當閘道要求 `x-litellm-api-key` 之類的非標準驗證標頭時很有用:
-
-```json
-{
-  "litellm-vscode-chat.headers": {
-    "x-litellm-api-key": "your-gateway-key",
-    "x-routing-env": "prod"
-  }
-}
-```
-
-- 自訂標頭會合併進每個請求; 當伺服器上設定了 API 金鑰時, 延伸模組管理的驗證標頭 (`Authorization` 與 `X-API-Key`) 仍優先。
-- 標頭值是一般設定, 不是祕密。若值屬於祕密, 請設定在使用者設定而非工作區設定, 以免它落入被提交的 `.vscode/settings.json`。
-- 使用者設定會隨設定同步移動, 所以祕密值仍會複寫到您同步的每一台機器 (參閱[多台機器與設定同步](servers.md#多台機器與設定同步))。
-- 各伺服器的金鑰建議改用伺服器項目的虛擬金鑰欄位, 它們可以存放在祕密儲存體且永不同步; 參閱[伺服器](servers.md#祕密與祕密儲存體)。
 
 ## 提示快取
 
-在 LiteLLM 模型資訊宣告支援提示快取的模型上 (目前為 Anthropic Claude 模型), 延伸模組會把 Anthropic 每個請求的四個快取中斷點, 用在代理程式工作階段各回合間保持不變的部分:
+在 LiteLLM 模型資訊宣告支援提示快取的模型上 (目前是 Anthropic Claude 模型), 延伸模組把 Anthropic 的四個快取中斷點花在代理工作階段各回合之間保持不變的部分上: 最後一個工具定義、系統提示、第一則使用者訊息, 以及最後一則帶文字的訊息。之後每一回合都沿用上一回合快取的前綴, 而不是為工具與歷史重付全額輸入價 - 節省在代理模式下最明顯。
 
-- 最後一個工具定義
-- 系統提示
-- 第一則使用者訊息
-- 最後一則含文字的訊息 (結尾只有工具呼叫或只有圖片的訊息會被略過)
+兩個限制: 標記用的是提供者的短時快取標記 (Anthropic 的預設存留期, 約 5 分鐘; 延伸模組無法延長), 未宣告支援的模型從不被送出標記。把 `chat.promptCaching` 設為 `false` 可關閉該功能。
 
-之後每一回合就重複使用前一回合快取的前段, 而不必為工具與整段對話歷史重新支付完整的輸入價格。省下的費用在代理程式模式最明顯, 因為那裡的請求由工具與歷史主導。
+## 重新命名與移除的設定
 
-兩個要知道的限制:
+一次性升級移轉自動處理所有這些:
 
-- 這些標記是 Anthropic 的暫時性快取標記, 沒有明確的 TTL, 所以快取存留期由提供者的預設值決定 (Anthropic 目前約 5 分鐘); 延伸模組不會設定或延長它。
-- 未宣告支援的模型永遠不會收到快取標記。
+| 舊 | 新 |
+|---|---|
+| `requestTimeout` | `chat.timeout` |
+| `promptCaching.enabled` | `chat.promptCaching` |
+| `discoveryTimeout` | `discovery.timeout` |
+| `discoveryCacheTtl` | `discovery.cacheTtl` |
+| `modelParameters` | `models.parameters` |
+| `modelCapabilities` | `models.capabilities` |
+| `openRouterCatalog.enabled` | `models.openRouterCatalog` |
+| `headers` (全域) | 每個伺服器項目自己的 `headers`; 複製進每個宣告的項目, 舊值則被擱置在一條儀表板提示之後 (見下文範圍說明) |
+| `maskApiKeyInput` | `ui.maskSecretInputs` |
+| 伺服器項目扁平欄位 (`apiKey`、`oauth*`、`virtualKey*`、...) | 項目的 `auth` / `models` / `discovery` 物件 ([伺服器](servers.md#項目參考)) |
+| 作為隱含前置詞的記錄鍵 | 明確比對器 - 給既有鍵附加 `*` ([模型 - 比對](models.md#模型比對)) |
+| 全域記錄中的伺服器 URL 限定鍵 | 移入相符的伺服器項目; 無相符者留在原地休眠並附儀表板提示 |
+| `modelCapabilities` 的 `_declare` 指示詞 | 項目的 `discovery.declared` 清單 ([伺服器](servers.md#宣告的模型)) |
+| `defaultContextLength`、`defaultMaxOutputTokens` | 帶 `_fallback` 的 `models.capabilities` `"*"` 記錄 ([詳情](models.md#從已移除的預設設定移轉)) |
+| `defaultMaxInputTokens` | `models.capabilities` `"*"` 覆寫 |
 
-此功能預設開啟; 將 `litellm-vscode-chat.promptCaching.enabled` 設為 `false` 即可關閉。
+關於移轉的四條範圍與邊界說明:
+
+- 舊的全域 `headers` 套用於每個伺服器 - 宣告的項目與[外部管理的群組](servers.md#外部伺服器與採用)都在內。新的各項目 `headers` 搆不到沒有項目的伺服器, 所以移轉只把值複製進您宣告的項目, 並把原值擱置; 只要外部管理的群組還存在, 儀表板的診斷就會指出它不再收到那些標頭 - 把該群組[採用](servers.md#外部伺服器與採用)進項目, 標頭就回來了。
+
+- 它只重寫使用者設定。設定在工作區範圍的舊名稱 (比如提交進儲存庫的 `.vscode/settings.json`) 留在原地 - 計入記錄, 從不重寫 - 而由於延伸模組不再讀取舊名稱, 在您手動把它移到新名稱之前它沒有任何效果。
+- 已儲存的祕密原地不動: 項目重構只改動設定文字 - 祕密儲存體中的值保持原有的鍵, 不需重新輸入任何東西。
+- 之後舊名稱就是一般的未知鍵: VS Code 的設定編輯器標記它們, 延伸模組忽略它們, 所以零星的殘留是噪音, 不是行為。
