@@ -481,10 +481,14 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 				assert.deepStrictEqual(resolverView(projectedNoTrio), resolverView(old));
 
 				// The walk-level values compare with the trio included: the fills
-				// must reproduce the old default-setting behavior end to end.
-				const migrated = applyPlanToSnapshot(snapshot, planSettingsRedesign(snapshot).writes);
-				const projected = resolveNewWorldReference(migrated, server as { label: string; baseUrl: string }, modelId);
-				assert.deepStrictEqual(projected.walks, old.walks);
+				// must reproduce the old default-setting behavior end to end. The
+				// trio-flow corners skip only THIS comparison (the resolver views
+				// above stay live; the trio lived below them).
+				if (!old.skipWalks) {
+					const migrated = applyPlanToSnapshot(snapshot, planSettingsRedesign(snapshot).writes);
+					const projected = resolveNewWorldReference(migrated, server as { label: string; baseUrl: string }, modelId);
+					assert.deepStrictEqual(projected.walks, old.walks);
+				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED, maxSkipsPerRun: 400 }
 		);
@@ -580,7 +584,8 @@ suite("extension/migrations/settingsRedesign: documented divergence pins", () =>
 		const serverReported = WALK_BASELINES[2];
 		assert.ok(serverReported !== undefined && serverReported.kind === "discovered");
 		const old = resolveOldWorld(snapshot, server, "gpt-5");
-		assert.strictEqual(old.skipEquivalence, true, "the oracle skips exactly this corner");
+		assert.strictEqual(old.skipWalks, true, "the oracle skips exactly this walk corner");
+		assert.strictEqual(old.skipEquivalence, false, "the resolver-level comparison stays live");
 		assert.strictEqual(old.walks[2]?.max_input_tokens, 111000, "old: the quirk beat the server report");
 
 		const plan = planSettingsRedesign(snapshot);
