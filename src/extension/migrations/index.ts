@@ -5,6 +5,7 @@ import type { ServerRegistry } from "../servers/serverRegistry";
 import { labelScopedModelParametersMigration } from "./labelScopedModelParameters";
 import { legacySingleServerMigration } from "./legacySingleServer";
 import { registryToProviderGroupsMigration } from "./registryToProviderGroups";
+import { settingsRedesignMigration } from "./settingsRedesign/apply";
 
 export interface MigrationContext {
 	globalState: vscode.Memento;
@@ -67,6 +68,7 @@ export const MIGRATIONS: readonly ExtensionMigration[] = [
 	legacySingleServerMigration,
 	registryToProviderGroupsMigration,
 	labelScopedModelParametersMigration,
+	settingsRedesignMigration,
 ];
 
 /** Best-effort: a failing migration logs once and the rest still run; never rejects. */
