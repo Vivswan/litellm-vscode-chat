@@ -23,6 +23,7 @@ export const CMD = {
 	helpAndFeedback: "litellm.helpAndFeedback",
 	setServerSecret: "litellm.setServerSecret",
 	reportIssue: "litellm.reportIssue",
+	refreshUsage: "litellm.refreshUsage",
 } as const;
 
 /**
@@ -43,6 +44,15 @@ export function manageCommandTitle(): string {
  */
 export function syncModelsCommandTitle(): string {
 	return l10n.t("LiteLLM: Sync Models Now");
+}
+
+/**
+ * CMD.refreshUsage's palette title, exactly as package.json contributes it
+ * (commandIds.test.ts pins the mirror); same call-time-resolution contract as
+ * manageCommandTitle above.
+ */
+export function refreshUsageCommandTitle(): string {
+	return l10n.t("LiteLLM: Refresh Usage Now");
 }
 
 /**

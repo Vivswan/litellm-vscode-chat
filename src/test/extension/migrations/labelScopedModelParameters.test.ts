@@ -39,7 +39,7 @@ function makeSetting(
 	}
 	const setting: ModelParametersSetting = {
 		inspect: (section: string) => {
-			if (section === "modelParameters") {
+			if (section === MODEL_PARAMETERS_SETTING_KEY) {
 				return layers;
 			}
 			if (section === "servers") {
@@ -49,7 +49,7 @@ function makeSetting(
 		},
 		update: async (section: string, value: unknown, target: vscode.ConfigurationTarget) => {
 			updates.push({ section, value, target });
-			if (section === "modelParameters") {
+			if (section === MODEL_PARAMETERS_SETTING_KEY) {
 				layers.globalValue = value as Record<string, unknown>;
 			} else if (section === "servers") {
 				state.servers = value as unknown[];
@@ -85,7 +85,7 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 		assert.strictEqual(outcome, "migrated");
 		assert.strictEqual(updates.length, 1);
 		const update = updates[0];
-		assert.strictEqual(update?.section, "modelParameters");
+		assert.strictEqual(update?.section, MODEL_PARAMETERS_SETTING_KEY);
 		assert.strictEqual(update.target, vscode.ConfigurationTarget.Global);
 		assert.deepStrictEqual(update.value, {
 			"Prod/gpt-4": { temperature: 0.2 },
@@ -485,7 +485,7 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 
 		assert.strictEqual(outcome, "migrated");
 		assert.strictEqual(updates.length, 1);
-		assert.strictEqual(updates[0]?.section, "modelParameters");
+		assert.strictEqual(updates[0]?.section, MODEL_PARAMETERS_SETTING_KEY);
 		assert.deepStrictEqual(updates[0]?.value, {
 			"Prod/gpt-4": { temperature: 0.2 },
 			"http://prod.test/gpt-4": { temperature: 0.2 },
@@ -510,7 +510,7 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 
 		assert.strictEqual(outcome, "migrated");
 		assert.strictEqual(updates.length, 1);
-		assert.strictEqual(updates[0]?.section, "modelParameters", "the fallback base-URL copy still lands");
+		assert.strictEqual(updates[0]?.section, MODEL_PARAMETERS_SETTING_KEY, "the fallback base-URL copy still lands");
 		assert.deepStrictEqual(state.servers, [{ label: "Prod", baseUrl: "http://elsewhere.test" }]);
 	});
 
@@ -608,7 +608,7 @@ suite("extension/migrations/labelScopedModelParameters", () => {
 
 		assert.strictEqual(await rewriteLabelScopedModelParameters(setting, labelMap, logger, ledger), "migrated");
 		assert.strictEqual(updates.length, 1);
-		assert.strictEqual(updates[0]?.section, "modelParameters");
+		assert.strictEqual(updates[0]?.section, MODEL_PARAMETERS_SETTING_KEY);
 		assert.deepStrictEqual(updates[0]?.value, {
 			"Prod/__proto__": { temperature: 0.2 },
 			"http://prod.test/__proto__": { temperature: 0.2 },

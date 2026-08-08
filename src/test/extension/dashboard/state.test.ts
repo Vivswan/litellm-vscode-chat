@@ -7,7 +7,6 @@ import {
 	DashboardValidationError,
 	executeDashboardIntent,
 	readInlineSecretValues,
-	validateHeadersRecord,
 	validateModelParametersRecord,
 	validateNumberSetting,
 	validateSaveServerSetting,
@@ -1589,7 +1588,7 @@ suite("extension/dashboard/state", () => {
 			const capabilities = resolveDashboardModelCapabilities(
 				{
 					snapshots,
-					reader: makeReader({ modelCapabilities: { "gpt-4": { context_length: 111 } } }),
+					reader: makeReader({ "models.capabilities": { "gpt-4": { context_length: 111 } } }),
 					resolveEntryCapabilities: () => ({ "gpt-4": { context_length: 222 } }),
 					catalog: EMPTY_CATALOG_LOOKUP,
 				},
@@ -1727,49 +1726,37 @@ suite("extension/dashboard/state", () => {
 
 	suite("readDashboardSettings", () => {
 		test("passes configured finite numbers through, even out of range", () => {
-			const settings = readDashboardSettings(makeReader({ requestTimeout: 5, defaultMaxOutputTokens: 32000 }));
+			const settings = readDashboardSettings(makeReader({ "chat.timeout": 5, "usage.pollInterval": 60000 }));
 
-			assert.strictEqual(settings.numbers.requestTimeout, 5);
-			assert.strictEqual(settings.numbers.defaultMaxOutputTokens, 32000);
+			assert.strictEqual(settings.numbers["chat.timeout"], 5);
+			assert.strictEqual(settings.numbers["usage.pollInterval"], 60000);
 		});
 
 		test("falls back to the package.json default for unusable values", () => {
 			const settings = readDashboardSettings(
 				makeReader(
-					{ requestTimeout: "soon", discoveryTimeout: Number.NaN },
-					{ requestTimeout: 300000, discoveryTimeout: 30000 }
+					{ "chat.timeout": "soon", "discovery.timeout": Number.NaN },
+					{ "chat.timeout": 300000, "discovery.timeout": 30000 }
 				)
 			);
 
-			assert.strictEqual(settings.numbers.requestTimeout, 300000);
-			assert.strictEqual(settings.numbers.discoveryTimeout, 30000);
+			assert.strictEqual(settings.numbers["chat.timeout"], 300000);
+			assert.strictEqual(settings.numbers["discovery.timeout"], 30000);
 		});
 
-		test("without a usable default, non-nullable numbers fall back to the minimum and nullable ones to null", () => {
-			const settings = readDashboardSettings(makeReader({ requestTimeout: "soon", defaultMaxInputTokens: "many" }));
+		test("without a usable default, numbers fall back to the minimum", () => {
+			const settings = readDashboardSettings(makeReader({ "chat.timeout": "soon" }));
 
-			assert.strictEqual(settings.numbers.requestTimeout, 1000);
-			assert.strictEqual(settings.numbers.defaultMaxInputTokens, null);
-		});
-
-		test("nullable numbers keep null and configured values", () => {
-			assert.strictEqual(
-				readDashboardSettings(makeReader({ defaultMaxInputTokens: null })).numbers.defaultMaxInputTokens,
-				null
-			);
-			assert.strictEqual(
-				readDashboardSettings(makeReader({ defaultMaxInputTokens: 90000 })).numbers.defaultMaxInputTokens,
-				90000
-			);
+			assert.strictEqual(settings.numbers["chat.timeout"], 1000);
 		});
 
 		test("booleans pass through and fall back to the default for junk", () => {
 			const settings = readDashboardSettings(
-				makeReader({ "promptCaching.enabled": false, maskApiKeyInput: "yes" }, { maskApiKeyInput: true })
+				makeReader({ "chat.promptCaching": false, "ui.maskSecretInputs": "yes" }, { "ui.maskSecretInputs": true })
 			);
 
-			assert.strictEqual(settings.booleans["promptCaching.enabled"], false);
-			assert.strictEqual(settings.booleans.maskApiKeyInput, true);
+			assert.strictEqual(settings.booleans["chat.promptCaching"], false);
+			assert.strictEqual(settings.booleans["ui.maskSecretInputs"], true);
 		});
 
 		test("every catalog entry is present in the snapshot", () => {
@@ -1788,52 +1775,58 @@ suite("extension/dashboard/state", () => {
 		test("configuredScopes carry the highest scope that sets the key, or null when only the default applies", () => {
 			const settings = readDashboardSettings(
 				makeReader(
-					{ requestTimeout: 60000, maskApiKeyInput: true },
+					{ "chat.timeout": 60000, "ui.maskSecretInputs": true },
 					{},
 					{
-						discoveryTimeout: { workspaceValue: 5000 },
-						discoveryCacheTtl: { globalValue: 1, workspaceValue: 2, workspaceFolderValue: 3 },
+						"discovery.timeout": { workspaceValue: 5000 },
+						"discovery.cacheTtl": { globalValue: 1, workspaceValue: 2, workspaceFolderValue: 3 },
 					}
 				)
 			);
 
-			assert.strictEqual(settings.configuredScopes.numbers.requestTimeout, "global");
-			assert.strictEqual(settings.configuredScopes.numbers.discoveryTimeout, "workspace");
-			assert.strictEqual(settings.configuredScopes.numbers.discoveryCacheTtl, "workspaceFolder");
-			assert.strictEqual(settings.configuredScopes.numbers.defaultMaxOutputTokens, null);
-			assert.strictEqual(settings.configuredScopes.booleans.maskApiKeyInput, "global");
-			assert.strictEqual(settings.configuredScopes.booleans["promptCaching.enabled"], null);
+			assert.strictEqual(settings.configuredScopes.numbers["chat.timeout"], "global");
+			assert.strictEqual(settings.configuredScopes.numbers["discovery.timeout"], "workspace");
+			assert.strictEqual(settings.configuredScopes.numbers["discovery.cacheTtl"], "workspaceFolder");
+			assert.strictEqual(settings.configuredScopes.numbers["usage.pollInterval"], null);
+			assert.strictEqual(settings.configuredScopes.booleans["ui.maskSecretInputs"], "global");
+			assert.strictEqual(settings.configuredScopes.booleans["chat.promptCaching"], null);
 		});
 
 		test("a value pinned to exactly its default still counts as configured", () => {
-			const settings = readDashboardSettings(makeReader({ requestTimeout: 300000 }, { requestTimeout: 300000 }));
+			const settings = readDashboardSettings(makeReader({ "chat.timeout": 300000 }, { "chat.timeout": 300000 }));
 
-			assert.strictEqual(settings.numbers.requestTimeout, 300000);
-			assert.strictEqual(settings.configuredScopes.numbers.requestTimeout, "global");
+			assert.strictEqual(settings.numbers["chat.timeout"], 300000);
+			assert.strictEqual(settings.configuredScopes.numbers["chat.timeout"], "global");
 		});
 
 		test("records come from the edit scope's own value, never the merged one", () => {
 			const settings = readDashboardSettings(
 				makeReader(
-					{ headers: { "x-user": "secret", "x-shared": "team" } },
+					{ "models.parameters": { "gpt-4": { temperature: 0.1 }, "gpt-5": { temperature: 0.2 } } },
 					{},
 					{
-						headers: {
-							globalValue: { "x-user": "secret" },
-							workspaceValue: { "x-shared": "team" },
+						"models.parameters": {
+							globalValue: { "gpt-4": { temperature: 0.1 } },
+							workspaceValue: { "gpt-5": { temperature: 0.2 } },
 						},
 					}
 				)
 			);
 
-			assert.strictEqual(settings.headers.editScope, "workspace");
-			assert.deepStrictEqual(settings.headers.value, { "x-shared": "team" }, "the user-scope secret must not leak in");
-			assert.deepStrictEqual(settings.headers.otherScopes, [{ scope: "global", value: { "x-user": "secret" } }]);
+			assert.strictEqual(settings.modelParameters.editScope, "workspace");
+			assert.deepStrictEqual(
+				settings.modelParameters.value,
+				{ "gpt-5": { temperature: 0.2 } },
+				"the user-scope value must not leak in"
+			);
+			assert.deepStrictEqual(settings.modelParameters.otherScopes, [
+				{ scope: "global", value: { "gpt-4": { temperature: 0.1 } } },
+			]);
 		});
 
 		test("records default to the user scope when only it holds a value", () => {
 			const settings = readDashboardSettings(
-				makeReader({}, {}, { modelParameters: { globalValue: { "gpt-4": { temperature: 0.2 } } } })
+				makeReader({}, {}, { "models.parameters": { globalValue: { "gpt-4": { temperature: 0.2 } } } })
 			);
 
 			assert.strictEqual(settings.modelParameters.editScope, "global");
@@ -1843,11 +1836,13 @@ suite("extension/dashboard/state", () => {
 
 		test("a workspace-folder record shows up read-only and never becomes the edit scope", () => {
 			const settings = readDashboardSettings(
-				makeReader({}, {}, { headers: { workspaceFolderValue: { "x-folder": "v" } } })
+				makeReader({}, {}, { "models.parameters": { workspaceFolderValue: { "gpt-4": { temperature: 0.2 } } } })
 			);
 
-			assert.strictEqual(settings.headers.editScope, "global");
-			assert.deepStrictEqual(settings.headers.otherScopes, [{ scope: "workspaceFolder", value: { "x-folder": "v" } }]);
+			assert.strictEqual(settings.modelParameters.editScope, "global");
+			assert.deepStrictEqual(settings.modelParameters.otherScopes, [
+				{ scope: "workspaceFolder", value: { "gpt-4": { temperature: 0.2 } } },
+			]);
 		});
 
 		test("modelParameters drops malformed and prototype-polluting entries but keeps the rest", () => {
@@ -1856,7 +1851,7 @@ suite("extension/dashboard/state", () => {
 					{},
 					{},
 					{
-						modelParameters: {
+						"models.parameters": {
 							globalValue: JSON.parse(
 								'{"gpt-4": {"temperature": 0.2}, "broken": "not-an-object", "__proto__": {"polluted": true}}'
 							) as unknown,
@@ -1868,30 +1863,9 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(settings.modelParameters.value, { "gpt-4": { temperature: 0.2 } });
 		});
 
-		test("headers keep configured scalar types and drop non-scalars and unsafe keys", () => {
-			const settings = readDashboardSettings(
-				makeReader(
-					{},
-					{},
-					{
-						headers: {
-							globalValue: JSON.parse(
-								'{"x-key": "abc", "x-count": 2, "x-flag": true, "x-bad": {"nested": 1}, "__proto__": {"polluted": true}}'
-							) as unknown,
-						},
-					}
-				)
-			);
+		test("a non-object modelParameters value reads as empty", () => {
+			const settings = readDashboardSettings(makeReader({}, {}, { "models.parameters": { globalValue: [1, 2] } }));
 
-			assert.deepStrictEqual(settings.headers.value, { "x-key": "abc", "x-count": 2, "x-flag": true });
-		});
-
-		test("a non-object headers or modelParameters value reads as empty", () => {
-			const settings = readDashboardSettings(
-				makeReader({}, {}, { headers: { globalValue: 7 }, modelParameters: { globalValue: [1, 2] } })
-			);
-
-			assert.deepStrictEqual(settings.headers.value, {});
 			assert.deepStrictEqual(settings.modelParameters.value, {});
 		});
 
@@ -1902,9 +1876,9 @@ suite("extension/dashboard/state", () => {
 			// only part of it.
 			const settings = readDashboardSettings(
 				makeReader(
-					{ modelParameters: { "gpt-4": { temperature: 0.2 }, bad: 7 } },
+					{ "models.parameters": { "gpt-4": { temperature: 0.2 }, bad: 7 } },
 					{},
-					{ modelParameters: { workspaceValue: { "gpt-4": { temperature: 0.2 } } } }
+					{ "models.parameters": { workspaceValue: { "gpt-4": { temperature: 0.2 } } } }
 				)
 			);
 			assert.deepStrictEqual(settings.modelParameters.effective, { "gpt-4": { temperature: 0.2 } });
@@ -1946,17 +1920,14 @@ suite("extension/dashboard/state", () => {
 		test("accepts every intent shape", () => {
 			const intents: unknown[] = [
 				{ type: "ready" },
-				{ type: "setNumberSetting", setting: "requestTimeout", value: 60000 },
-				{ type: "setNumberSetting", setting: "defaultMaxInputTokens", value: null },
-				{ type: "setBooleanSetting", setting: "promptCaching.enabled", value: false },
-				{ type: "resetSetting", setting: "requestTimeout" },
-				{ type: "resetSetting", setting: "maskApiKeyInput" },
-				{ type: "revealSetting", setting: "requestTimeout" },
-				{ type: "revealSetting", setting: "promptCaching.enabled" },
-				{ type: "revealSetting", setting: "modelParameters" },
-				{ type: "revealSetting", setting: "headers" },
+				{ type: "setNumberSetting", setting: "chat.timeout", value: 60000 },
+				{ type: "setBooleanSetting", setting: "chat.promptCaching", value: false },
+				{ type: "resetSetting", setting: "chat.timeout" },
+				{ type: "resetSetting", setting: "ui.maskSecretInputs" },
+				{ type: "revealSetting", setting: "chat.timeout" },
+				{ type: "revealSetting", setting: "chat.promptCaching" },
+				{ type: "revealSetting", setting: "models.parameters" },
 				{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, stop: ["\n"] } } },
-				{ type: "setHeaders", value: { "x-key": "v", "x-n": 2, "x-b": true } },
 				{
 					type: "saveServerSetting",
 					server: { label: "Prod", baseUrl: "http://prod.test" },
@@ -2017,17 +1988,17 @@ suite("extension/dashboard/state", () => {
 				"ready",
 				{ type: "detonate" },
 				{ type: "setNumberSetting", setting: "notASetting", value: 1 },
-				{ type: "setNumberSetting", setting: "requestTimeout", value: "1000" },
-				{ type: "setNumberSetting", setting: "requestTimeout", value: Number.POSITIVE_INFINITY },
-				{ type: "setBooleanSetting", setting: "promptCaching.enabled", value: "true" },
+				{ type: "setNumberSetting", setting: "chat.timeout", value: "1000" },
+				{ type: "setNumberSetting", setting: "chat.timeout", value: Number.POSITIVE_INFINITY },
+				{ type: "setBooleanSetting", setting: "chat.promptCaching", value: "true" },
 				{ type: "resetSetting", setting: "notASetting" },
-				{ type: "resetSetting", setting: "requestTimeout", value: 1 },
+				{ type: "resetSetting", setting: "chat.timeout", value: 1 },
 				// revealSetting: only classification-listed ids cross - never the
 				// servers setting (secrets live there) or arbitrary key text.
 				{ type: "revealSetting", setting: "servers" },
-				{ type: "revealSetting", setting: "litellm-vscode-chat.requestTimeout" },
+				{ type: "revealSetting", setting: "litellm-vscode-chat.chat.timeout" },
 				{ type: "revealSetting" },
-				{ type: "revealSetting", setting: "requestTimeout", extra: 1 },
+				{ type: "revealSetting", setting: "chat.timeout", extra: 1 },
 				{ type: "setHeaders", value: { "x-bad": { nested: true } } },
 				{ type: "executeCommand", command: "workbench.action.terminal.sendSequence" },
 				{ type: "ready", extra: 1 },
@@ -2152,9 +2123,19 @@ suite("extension/dashboard/state", () => {
 	suite("readInlineSecretValues", () => {
 		const setting = [
 			"junk entry",
-			{ label: "Inline", baseUrl: "http://a.test", apiKey: " sk-inline ", virtualKeyValue: "vk-inline" },
+			{
+				label: "Inline",
+				baseUrl: "http://a.test",
+				auth: { apiKey: " sk-inline ", virtualKey: { header: "x-vk", value: "vk-inline" } },
+			},
 			{ label: "Secure", baseUrl: "http://b.test" },
-			{ label: "Mixed", baseUrl: "http://c.test", apiKey: "sk-mixed", oauthClientSecret: "   " },
+			{
+				label: "Mixed",
+				baseUrl: "http://c.test",
+				auth: {
+					oauth: { tokenUrl: "https://idp.test/token", clientId: "c1", apiKey: "sk-mixed", clientSecret: "   " },
+				},
+			},
 		];
 
 		test("returns inline values trimmed, one key per inline-stored field", () => {
@@ -2178,12 +2159,15 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(readInlineSecretValues(setting, "Nope"), {});
 			assert.deepStrictEqual(readInlineSecretValues("not an array", "Inline"), {});
 			assert.deepStrictEqual(readInlineSecretValues(undefined, "Inline"), {});
-			assert.deepStrictEqual(readInlineSecretValues([{ label: "N", baseUrl: "http://x", apiKey: 42 }], "N"), {});
+			assert.deepStrictEqual(
+				readInlineSecretValues([{ label: "N", baseUrl: "http://x", auth: { apiKey: "" } }], "N"),
+				{}
+			);
 		});
 
 		test("labels match trimmed, like entry lookup everywhere else", () => {
 			assert.deepStrictEqual(
-				readInlineSecretValues([{ label: " Prod ", baseUrl: "http://x", apiKey: "sk-1" }], "Prod"),
+				readInlineSecretValues([{ label: " Prod ", baseUrl: "http://x", auth: { apiKey: "sk-1" } }], "Prod"),
 				{
 					apiKey: "sk-1",
 				}
@@ -2195,8 +2179,8 @@ suite("extension/dashboard/state", () => {
 			// the parser rejects it and the dashboard row describes the SECOND
 			// entry; the prefill must read that same entry.
 			const shadowed = [
-				{ label: "Prod", apiKey: "sk-shadow" },
-				{ label: "Prod", baseUrl: "http://real.test", apiKey: "sk-real" },
+				{ label: "Prod", auth: { apiKey: "sk-shadow" } },
+				{ label: "Prod", baseUrl: "http://real.test", auth: { apiKey: "sk-real" } },
 			];
 			assert.deepStrictEqual(readInlineSecretValues(shadowed, "Prod"), { apiKey: "sk-real" });
 		});
@@ -2204,14 +2188,14 @@ suite("extension/dashboard/state", () => {
 		test("a label the parser rejects yields nothing, even when a raw entry carries inline fields under it", () => {
 			// The dashboard never declares this entry (reserved label), so a
 			// crafted request must not be able to read its inline fields.
-			const rejected = [{ label: "__proto__", baseUrl: "http://x.test", apiKey: "sk-hidden" }];
+			const rejected = [{ label: "__proto__", baseUrl: "http://x.test", auth: { apiKey: "sk-hidden" } }];
 			assert.deepStrictEqual(readInlineSecretValues(rejected, "__proto__"), {});
 		});
 
 		test("duplicate accepted labels resolve to the first, matching the parser's first-entry-wins rule", () => {
 			const duplicated = [
-				{ label: "Prod", baseUrl: "http://a.test", apiKey: "sk-first" },
-				{ label: "Prod", baseUrl: "http://b.test", apiKey: "sk-second" },
+				{ label: "Prod", baseUrl: "http://a.test", auth: { apiKey: "sk-first" } },
+				{ label: "Prod", baseUrl: "http://b.test", auth: { apiKey: "sk-second" } },
 			];
 			assert.deepStrictEqual(readInlineSecretValues(duplicated, "Prod"), { apiKey: "sk-first" });
 		});
@@ -2219,24 +2203,14 @@ suite("extension/dashboard/state", () => {
 
 	suite("intent value validation", () => {
 		test("validateNumberSetting enforces the per-setting minimum", () => {
-			assert.notStrictEqual(validateNumberSetting("requestTimeout", 999), undefined);
-			assert.strictEqual(validateNumberSetting("requestTimeout", 1000), undefined);
-			assert.strictEqual(validateNumberSetting("discoveryCacheTtl", 0), undefined);
+			assert.notStrictEqual(validateNumberSetting("chat.timeout", 999), undefined);
+			assert.strictEqual(validateNumberSetting("chat.timeout", 1000), undefined);
+			assert.strictEqual(validateNumberSetting("discovery.cacheTtl", 0), undefined);
 		});
 
-		test("null is legal only for nullable settings", () => {
-			assert.strictEqual(validateNumberSetting("defaultMaxInputTokens", null), undefined);
-			assert.notStrictEqual(validateNumberSetting("requestTimeout", null), undefined);
-		});
-
-		test("validateHeadersRecord enforces the request path's rules", () => {
-			assert.strictEqual(validateHeadersRecord({ "x-litellm-api-key": "v", "x-n": 2 }), undefined);
-			assert.notStrictEqual(validateHeadersRecord({ "bad name": "v" }), undefined, "spaces are not token chars");
-			assert.notStrictEqual(validateHeadersRecord({ "x-key": "a\nb" }), undefined, "no line breaks in values");
-			assert.notStrictEqual(
-				validateHeadersRecord(JSON.parse('{"__proto__": "v"}') as Record<string, string>),
-				undefined
-			);
+		test("null is refused: no current setting is nullable", () => {
+			assert.notStrictEqual(validateNumberSetting("chat.timeout", null), undefined);
+			assert.notStrictEqual(validateNumberSetting("usage.pollInterval", null), undefined);
 		});
 
 		test("validateModelParametersRecord refuses prototype-polluting keys at both levels", () => {
@@ -2458,13 +2432,11 @@ suite("extension/dashboard/state", () => {
 			// Inline wins over a secure copy for apiKey (the sync engine's rule);
 			// the OAuth client secret has no inline value and comes from storage.
 			const recorded = makeEnv([
-				{ label: "Shadow", apiKey: "sk-shadow" },
+				{ label: "Shadow", auth: { apiKey: "sk-shadow" } },
 				{
 					label: "Prod",
 					baseUrl: "http://old.test",
-					apiKey: "sk-inline",
-					oauthTokenUrl: "http://idp.test/token",
-					oauthClientId: "client-1",
+					auth: { oauth: { tokenUrl: "http://idp.test/token", clientId: "client-1", apiKey: "sk-inline" } },
 				},
 			]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-stale-secure", oauthClientSecret: "oa-secret" });
@@ -2845,61 +2817,49 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("parseNumberDraft: invalid, clear, and value verdicts follow the spec", () => {
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", " 300000 "), { kind: "value", value: 300000 });
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", ""), {
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", " 300000 "), { kind: "value", value: 300000 });
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", ""), {
 				kind: "invalid",
 				problem: "Enter a number",
 			});
-			assert.deepStrictEqual(parseNumberDraft("defaultMaxInputTokens", "  "), {
-				kind: "clear",
-			});
 			// ms settings read drafts under the duration grammar, so their junk
-			// verdict names the grammar; token settings keep the plain reading.
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "soon"), {
+			// verdict names the grammar.
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "soon"), {
 				kind: "invalid",
 				problem: "Not a duration - use ms, s, m, or h",
 			});
-			assert.deepStrictEqual(parseNumberDraft("defaultMaxOutputTokens", "soon"), {
-				kind: "invalid",
-				problem: "Not a number",
-			});
-			assert.strictEqual(parseNumberDraft("requestTimeout", "999").kind, "invalid", "below the 1000 minimum");
-			assert.deepStrictEqual(parseNumberDraft("discoveryCacheTtl", "0"), { kind: "value", value: 0 });
+			assert.strictEqual(parseNumberDraft("chat.timeout", "999").kind, "invalid", "below the 1000 minimum");
+			assert.deepStrictEqual(parseNumberDraft("discovery.cacheTtl", "0"), { kind: "value", value: 0 });
 		});
 
 		test("parseNumberDraft: the duration grammar on ms settings - suffixes scale, bare numbers stay ms", () => {
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "1500ms"), { kind: "value", value: 1500 });
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "90s"), { kind: "value", value: 90000 });
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "5m"), { kind: "value", value: 300000 });
-			assert.deepStrictEqual(parseNumberDraft("discoveryCacheTtl", "1h"), { kind: "value", value: 3600000 });
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "1500ms"), { kind: "value", value: 1500 });
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "90s"), { kind: "value", value: 90000 });
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "5m"), { kind: "value", value: 300000 });
+			assert.deepStrictEqual(parseNumberDraft("discovery.cacheTtl", "1h"), { kind: "value", value: 3600000 });
 			// Case-insensitive, whitespace-tolerant, fractional prefixes allowed.
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", " 5 M "), { kind: "value", value: 300000 });
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "1.5h"), { kind: "value", value: 5400000 });
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", " 5 M "), { kind: "value", value: 300000 });
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "1.5h"), { kind: "value", value: 5400000 });
 			// Suffixed values commit whole milliseconds: sub-ms precision in a
 			// duration string is noise, and fractional timeouts are unusable.
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "1.0005s"), { kind: "value", value: 1001 });
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "1.0005s"), { kind: "value", value: 1001 });
 			// A suffix needs a number, and a suffixed value still honors the bound.
-			assert.strictEqual(parseNumberDraft("requestTimeout", "ms").kind, "invalid");
-			assert.strictEqual(parseNumberDraft("requestTimeout", "h").kind, "invalid");
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "500ms"), {
+			assert.strictEqual(parseNumberDraft("chat.timeout", "ms").kind, "invalid");
+			assert.strictEqual(parseNumberDraft("chat.timeout", "h").kind, "invalid");
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "500ms"), {
 				kind: "invalid",
 				problem: "Must be at least 1000",
 			});
 			// Unit typos are grammar errors, never silent guesses.
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "5 min"), {
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "5 min"), {
 				kind: "invalid",
 				problem: "Not a duration - use ms, s, m, or h",
 			});
-			assert.strictEqual(parseNumberDraft("requestTimeout", "5d").kind, "invalid");
+			assert.strictEqual(parseNumberDraft("chat.timeout", "5d").kind, "invalid");
 			// A product that overflows to Infinity is as unwritable as junk.
-			assert.deepStrictEqual(parseNumberDraft("requestTimeout", "9e307h"), {
+			assert.deepStrictEqual(parseNumberDraft("chat.timeout", "9e307h"), {
 				kind: "invalid",
 				problem: "Not a duration - use ms, s, m, or h",
-			});
-			// Token settings know no suffixes: "5m" tokens is a typo, not 300000.
-			assert.deepStrictEqual(parseNumberDraft("defaultMaxOutputTokens", "5m"), {
-				kind: "invalid",
-				problem: "Not a number",
 			});
 		});
 
@@ -2924,26 +2884,25 @@ suite("extension/dashboard/state", () => {
 				["1.5h", "= 1 h 30 min"],
 			];
 			for (const [draft, expected] of cases) {
-				assert.strictEqual(equivalenceOfDraft("requestTimeout", draft), expected, `draft ${draft}`);
+				assert.strictEqual(equivalenceOfDraft("chat.timeout", draft), expected, `draft ${draft}`);
 			}
 		});
 
 		test("equivalence yields nothing for empty, unparsable, below-minimum, or sub-second drafts", () => {
-			assert.strictEqual(equivalenceOfDraft("requestTimeout", ""), undefined);
-			assert.strictEqual(equivalenceOfDraft("requestTimeout", "soon"), undefined);
-			assert.strictEqual(equivalenceOfDraft("requestTimeout", "999"), undefined, "below the 1000 minimum");
-			assert.strictEqual(equivalenceOfDraft("discoveryCacheTtl", "500"), undefined, "sub-second reads as milliseconds");
+			assert.strictEqual(equivalenceOfDraft("chat.timeout", ""), undefined);
+			assert.strictEqual(equivalenceOfDraft("chat.timeout", "soon"), undefined);
+			assert.strictEqual(equivalenceOfDraft("chat.timeout", "999"), undefined, "below the 1000 minimum");
+			assert.strictEqual(
+				equivalenceOfDraft("discovery.cacheTtl", "500"),
+				undefined,
+				"sub-second reads as milliseconds"
+			);
 		});
 
 		test("equivalence reads the TTL's zero through zeroMeaning, and only where 0 is legal", () => {
-			assert.strictEqual(equivalenceOfDraft("discoveryCacheTtl", "0"), "= every refresh");
-			assert.strictEqual(equivalenceOfDraft("requestTimeout", "0"), undefined, "0 never parses below the minimum");
-			assert.strictEqual(equivalence("requestTimeout", 0), undefined, "and the hint itself has no zero reading");
-		});
-
-		test("equivalence says nothing about token counts; the unit suffix carries the meaning", () => {
-			assert.strictEqual(equivalenceOfDraft("defaultMaxOutputTokens", "128000"), undefined);
-			assert.strictEqual(equivalenceOfDraft("defaultContextLength", "1000000"), undefined);
+			assert.strictEqual(equivalenceOfDraft("discovery.cacheTtl", "0"), "= every refresh");
+			assert.strictEqual(equivalenceOfDraft("chat.timeout", "0"), undefined, "0 never parses below the minimum");
+			assert.strictEqual(equivalence("chat.timeout", 0), undefined, "and the hint itself has no zero reading");
 		});
 
 		test("draftSyncKey changes on a reset that only removes the configured scope, so a stale draft resyncs", () => {

@@ -265,20 +265,20 @@ suite("production activation", () => {
 		// not). Absorb it by waiting for the event stream to go quiet first.
 		await eventsQuiesced(registered);
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const before = config.inspect<boolean>("maskApiKeyInput")?.globalValue;
+		const before = config.inspect<boolean>("ui.maskSecretInputs")?.globalValue;
 		let fired = 0;
 		const subscription = registered.onDidChangeLanguageModelChatInformation(() => {
 			fired += 1;
 		});
 		try {
-			await config.update("maskApiKeyInput", false, vscode.ConfigurationTarget.Global);
+			await config.update("ui.maskSecretInputs", false, vscode.ConfigurationTarget.Global);
 			// Longer than the 400ms debounce: a mis-scoped branch would have
 			// fired by now.
 			await new Promise((resolve) => setTimeout(resolve, 1200));
 			assert.strictEqual(fired, 0, "the listener notifies only for the model-affecting settings");
 		} finally {
 			subscription.dispose();
-			await config.update("maskApiKeyInput", before, vscode.ConfigurationTarget.Global);
+			await config.update("ui.maskSecretInputs", before, vscode.ConfigurationTarget.Global);
 		}
 	});
 
@@ -307,33 +307,16 @@ suite("production activation", () => {
 		this.timeout(15000);
 		const registered = expectDefined(provider, "activation must register the provider");
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const before = config.inspect<boolean>("openRouterCatalog.enabled")?.globalValue;
+		const before = config.inspect<boolean>("models.openRouterCatalog")?.globalValue;
 		const fired = nextModelChangeEvent(registered);
 		try {
 			// Opting out changes which capability fields the catalog may fill,
 			// so registered models must re-resolve; the notify is the listener's
 			// registration effect (the catalog store's refresh timer is its own).
-			await config.update("openRouterCatalog.enabled", false, vscode.ConfigurationTarget.Global);
+			await config.update("models.openRouterCatalog", false, vscode.ConfigurationTarget.Global);
 			await fired;
 		} finally {
-			await config.update("openRouterCatalog.enabled", before, vscode.ConfigurationTarget.Global);
-		}
-	});
-
-	test("a deprecated default* token setting edit fires the debounced model-change event", async function () {
-		this.timeout(15000);
-		const registered = expectDefined(provider, "activation must register the provider");
-		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const before = config.inspect<number>("defaultContextLength")?.globalValue;
-		const fired = nextModelChangeEvent(registered);
-		try {
-			// The trio's values are baked into cached discovery results; the
-			// listener clears the injected discovery cache before this notify,
-			// so the host's re-resolution reads through an empty cache.
-			await config.update("defaultContextLength", 65536, vscode.ConfigurationTarget.Global);
-			await fired;
-		} finally {
-			await config.update("defaultContextLength", before, vscode.ConfigurationTarget.Global);
+			await config.update("models.openRouterCatalog", before, vscode.ConfigurationTarget.Global);
 		}
 	});
 });

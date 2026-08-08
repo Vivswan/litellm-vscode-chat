@@ -85,10 +85,7 @@ const GARBAGE_KEY = "sk-garbage-MARKER";
 /** Scenario 5a's rejected client secret; scenario 5d scans the log buffer for it. */
 const WRONG_OAUTH_SECRET = "not-the-secret";
 
-type ServersSettingEntry = Record<
-	string,
-	string | readonly string[] | Readonly<Record<string, Readonly<Record<string, unknown>>>>
->;
+type ServersSettingEntry = Record<string, unknown>;
 
 interface OAuthStats {
 	issued: number;
@@ -264,7 +261,7 @@ suite("Docker server sync", () => {
 
 	test("scenario 1: an inline apiKey entry becomes a provider group that serves chat", async function () {
 		this.timeout(90000);
-		await declareServer({ label: LABEL_INLINE, baseUrl: BASE_URL, apiKey: API_KEY });
+		await declareServer({ label: LABEL_INLINE, baseUrl: BASE_URL, auth: { apiKey: API_KEY } });
 		proxyGroups += 1;
 		const models = await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_INLINE);
@@ -295,7 +292,7 @@ suite("Docker server sync", () => {
 	test("scenario 3: an inline apiKey outranks a stored garbage value", async function () {
 		this.timeout(90000);
 		await setStoredSecret(LABEL_PRECEDENCE, "apiKey", GARBAGE_KEY);
-		await declareServer({ label: LABEL_PRECEDENCE, baseUrl: BASE_URL, apiKey: API_KEY });
+		await declareServer({ label: LABEL_PRECEDENCE, baseUrl: BASE_URL, auth: { apiKey: API_KEY } });
 		proxyGroups += 1;
 		// Models appearing IS the precedence proof: had the stored garbage won,
 		// the group's client id would fingerprint the garbage key (groupClientId
@@ -311,8 +308,7 @@ suite("Docker server sync", () => {
 		await declareServer({
 			label: LABEL_VIRTUAL,
 			baseUrl: BASE_URL,
-			virtualKeyHeader: "x-litellm-api-key",
-			virtualKeyValue: API_KEY,
+			auth: { virtualKey: { header: "x-litellm-api-key", value: API_KEY } },
 		});
 		proxyGroups += 1;
 		// This group carries no other credential, so its discovery succeeding
@@ -338,9 +334,13 @@ suite("Docker server sync", () => {
 		await declareServer({
 			label: LABEL_OAUTH_BAD,
 			baseUrl: `${FAKE_URL}/authed`,
-			oauthTokenUrl: `${FAKE_URL}/oauth/token`,
-			oauthClientId: FAKE_OAUTH_CLIENT_ID,
-			oauthClientSecret: WRONG_OAUTH_SECRET,
+			auth: {
+				oauth: {
+					tokenUrl: `${FAKE_URL}/oauth/token`,
+					clientId: FAKE_OAUTH_CLIENT_ID,
+					clientSecret: WRONG_OAUTH_SECRET,
+				},
+			},
 		});
 		await waitUntil(
 			"the token endpoint to reject this group's exchange",
@@ -368,9 +368,13 @@ suite("Docker server sync", () => {
 		await declareServer({
 			label: LABEL_OAUTH,
 			baseUrl: `${FAKE_URL}/authed`,
-			oauthTokenUrl: `${FAKE_URL}/oauth/token`,
-			oauthClientId: FAKE_OAUTH_CLIENT_ID,
-			oauthClientSecret: FAKE_OAUTH_CLIENT_SECRET,
+			auth: {
+				oauth: {
+					tokenUrl: `${FAKE_URL}/oauth/token`,
+					clientId: FAKE_OAUTH_CLIENT_ID,
+					clientSecret: FAKE_OAUTH_CLIENT_SECRET,
+				},
+			},
 		});
 		const models = await waitForHostModels(
 			60000,
@@ -506,14 +510,14 @@ suite("Docker server sync", () => {
 		await declareServer({
 			label: LABEL_PARAMS_A,
 			baseUrl: BASE_URL,
-			apiKey: API_KEY,
-			modelParameters: { [ALIAS]: { temperature: 0.31 } },
+			auth: { apiKey: API_KEY },
+			models: { parameters: { [ALIAS]: { temperature: 0.31 } } },
 		});
 		await declareServer({
 			label: LABEL_PARAMS_B,
 			baseUrl: BASE_URL,
-			apiKey: API_KEY,
-			modelParameters: { [ALIAS]: { temperature: 0.62 } },
+			auth: { apiKey: API_KEY },
+			models: { parameters: { [ALIAS]: { temperature: 0.62 } } },
 		});
 		proxyGroups += 2;
 		const models = await waitForProxyGroupCount(proxyGroups);
@@ -548,8 +552,8 @@ suite("Docker server sync", () => {
 		await declareServer({
 			label: LABEL_CAPS,
 			baseUrl: BASE_URL,
-			apiKey: API_KEY,
-			modelCapabilities: { [CAPS_MODEL]: { max_output_tokens: 5000 } },
+			auth: { apiKey: API_KEY },
+			models: { capabilities: { [CAPS_MODEL]: { max_output_tokens: 5000 } } },
 		});
 		proxyGroups += 1;
 		const models = await waitForHostModels(
@@ -650,10 +654,12 @@ suite("Docker server sync", () => {
 		await declareServer({
 			label: LABEL_EXPECTED,
 			baseUrl: NO_DISCOVERY_URL,
-			apiKey: EXPECTED_FAILURES_KEY,
-			expectedFailures: ["modelListing", "modelInfo"],
-			modelCapabilities: {
-				[EXPECTED_DECLARED_MODEL]: { _declare: true, context_length: 32000, max_output_tokens: 4000 },
+			auth: { apiKey: EXPECTED_FAILURES_KEY },
+			discovery: { expectedFailures: ["modelListing", "modelInfo"] },
+			models: {
+				capabilities: {
+					[EXPECTED_DECLARED_MODEL]: { _declare: true, context_length: 32000, max_output_tokens: 4000 },
+				},
 			},
 		});
 		const models = await waitForHostModels(

@@ -194,7 +194,7 @@ suite("provider/transport/chatClient", () => {
 		);
 	});
 
-	test("request timeout surfaces an actionable error naming the requestTimeout setting", async () => {
+	test("request timeout surfaces an actionable error naming the chat.timeout setting", async () => {
 		await withFetch(
 			async () => {
 				throw new DOMException("The operation timed out.", "TimeoutError");
@@ -209,13 +209,13 @@ suite("provider/transport/chatClient", () => {
 				const token = new vscode.CancellationTokenSource().token;
 				await assert.rejects(
 					client.send({ model, messages, options, progress: collector().progress, token }),
-					/requestTimeout/
+					/chat\.timeout/
 				);
 			}
 		);
 	});
 
-	test("a stream that stalls mid-body aborts at the configured requestTimeout", async function () {
+	test("a stream that stalls mid-body aborts at the configured chat.timeout", async function () {
 		// The configured timeouts are hard whole-call bounds. The SDK's own
 		// timeout disarms once headers arrive, so only send()'s
 		// AbortSignal.timeout wiring can abort a body that stops flowing;
@@ -236,7 +236,7 @@ suite("provider/transport/chatClient", () => {
 				return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 			},
 			() =>
-				withConfig({ requestTimeout: 1000 }, async () => {
+				withConfig({ "chat.timeout": 1000 }, async () => {
 					const client = new ChatClient({
 						userAgent: "test-agent",
 						getServers: () =>
@@ -247,7 +247,7 @@ suite("provider/transport/chatClient", () => {
 					const startedAt = Date.now();
 					await assert.rejects(
 						client.send({ model, messages, options, progress: collector().progress, token }),
-						/requestTimeout/
+						/chat\.timeout/
 					);
 					assert.ok(
 						Date.now() - startedAt >= 900,

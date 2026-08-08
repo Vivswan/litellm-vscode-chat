@@ -9,7 +9,6 @@
  * execution live in intents.ts.
  */
 
-import { z } from "zod";
 import type { ServerModelsSnapshot } from "../../provider";
 import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
@@ -18,7 +17,6 @@ import type { CapabilityCatalogLookup, EffectiveCapabilities } from "../../share
 import { resolveModelCapabilities } from "../../shared/config/capabilityResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import {
-	HEADERS_SETTING_KEY,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	normalizeModelCapabilities,
@@ -27,8 +25,7 @@ import {
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
-import { isHeaderScalar } from "../../shared/util/headers";
-import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
+import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView } from "../servers/serverSync";
 import { adoptSourceHandle, modelScopeKey } from "./adoptHandle";
 import type {
@@ -39,7 +36,6 @@ import type {
 	DashboardState,
 	DeclaredServerNotice,
 	ExternalServerProvenance,
-	HeaderScalar,
 	HiddenGroup,
 	NumberSettingId,
 	RequestScope,
@@ -532,31 +528,6 @@ export function resolveConfiguredScope(inspection: SettingsInspection | undefine
 	return null;
 }
 
-/**
- * Header entries with scalar values, as one scope configured them. Unlike the
- * request path's normalization this keeps the configured types (a number
- * stays a number) and invalid header names, because the editor writes the
- * record back verbatim and must show the user what is really there; only
- * unrepresentable values (objects, arrays) and prototype-polluting keys are
- * dropped.
- */
-function sanitizeHeaders(raw: unknown): Record<string, HeaderScalar> {
-	const parsed = z.record(z.string(), z.unknown()).safeParse(raw);
-	if (!parsed.success) {
-		return {};
-	}
-	const headers: Record<string, HeaderScalar> = {};
-	for (const [name, value] of Object.entries(parsed.data)) {
-		if (isUnsafeRecordKey(name)) {
-			continue;
-		}
-		if (isHeaderScalar(value)) {
-			headers[name] = value;
-		}
-	}
-	return headers;
-}
-
 const ALL_SCOPES: readonly SettingScope[] = ["global", "workspace", "workspaceFolder"];
 
 /**
@@ -597,7 +568,6 @@ export function readDashboardSettings(reader: SettingsReader): DashboardSettings
 			reader.inspect(MODEL_PARAMETERS_SETTING_KEY),
 			normalizeModelParameters
 		),
-		headers: buildScopedRecord(reader.get(HEADERS_SETTING_KEY), reader.inspect(HEADERS_SETTING_KEY), sanitizeHeaders),
 	};
 }
 

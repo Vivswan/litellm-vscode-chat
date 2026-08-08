@@ -77,6 +77,23 @@ export interface LiteLLMChatModelProviderOptions {
 	 */
 	getEntryModelCapabilities?: ((label: string, baseUrl: string) => ModelCapabilitiesRecord | undefined) | undefined;
 	/**
+	 * Request- and discovery-time resolver for a declared entry's custom
+	 * headers, matched by label and normalized base URL like
+	 * getEntryModelCapabilities and getExpectedFailures (i.e. it also resolves
+	 * for legacy-registry servers whose label and URL match a declared entry,
+	 * which per-entry PARAMETERS deliberately never do); injected by the
+	 * extension layer (headers live on the entry - there is no global headers
+	 * setting).
+	 */
+	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined) | undefined;
+	/**
+	 * Registration-time resolver for a declared entry's discovery.declared
+	 * model IDs, matched like getEntryModelCapabilities. The IDs register
+	 * whenever discovery does not list them - through any discovery failure
+	 * type - and go inert when it does.
+	 */
+	getEntryDeclaredModels?: ((label: string, baseUrl: string) => readonly string[] | undefined) | undefined;
+	/**
 	 * Discovery-time resolver for a declared entry's expectedFailures
 	 * categories, matched like getEntryModelCapabilities. A listed category's
 	 * endpoint gets a single discovery attempt and its failure is downgraded
@@ -142,6 +159,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		servers: ReadonlyMap<string, { label: string; baseUrl: string }>;
 	} = { serverCount: 1, servers: new Map() };
 	private readonly _getEntryModelCapabilities: (label: string, baseUrl: string) => ModelCapabilitiesRecord | undefined;
+	private readonly _getEntryDeclaredModels: (label: string, baseUrl: string) => readonly string[] | undefined;
 	private readonly _getExpectedFailures: (
 		label: string,
 		baseUrl: string
@@ -180,6 +198,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.logger = options.logger;
 		this._getServers = options.getServers ?? (() => Promise.resolve([]));
 		this._getEntryModelCapabilities = options.getEntryModelCapabilities ?? (() => undefined);
+		this._getEntryDeclaredModels = options.getEntryDeclaredModels ?? (() => undefined);
 		this._getExpectedFailures = options.getExpectedFailures ?? (() => undefined);
 		this._getCatalogLookup = options.getCatalogLookup ?? (() => EMPTY_CATALOG_LOOKUP);
 		this._grouplessRegistryEnabled = options.grouplessRegistryEnabled ?? (() => true);
@@ -189,6 +208,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			logger: options.logger,
 			getServers: this._getServers,
 			getEntryModelParameters: options.getEntryModelParameters,
+			getEntryHeaders: options.getEntryHeaders,
 			resolution: this._resolution,
 		});
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
@@ -248,6 +268,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			globalCapabilities: getModelCapabilitiesConfig(),
 			entryCapabilities:
 				entryLabel !== undefined ? this._getEntryModelCapabilities(entryLabel, server.baseUrl) : undefined,
+			entryDeclaredModels:
+				entryLabel !== undefined ? this._getEntryDeclaredModels(entryLabel, server.baseUrl) : undefined,
 			catalog: this._getCatalogLookup(),
 			resolution: this._resolution,
 			log: (message, data) => this.log(message, data),
@@ -409,7 +431,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			servers.map(async (server) => {
 				try {
 					const result = await this._client.fetchModels(
-						server,
+						// The registry server's own label is its entry candidate, the
+						// same identity this sweep resolves entry capabilities and
+						// expectedFailures with.
+						{ ...server, entryLabel: server.label },
 						this.expectedDiscoveryFailures(server.label, server.baseUrl)
 					);
 					return { server, outcome: { ok: true as const, models: result.models } };
@@ -628,6 +653,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
 			baseUrl: groupServer.baseUrl,
 			apiKey: groupServer.apiKey,
+			// The configured label only: an unlabeled group's display fallback
+			// (the URL host) must not accidentally match a declared entry.
+			entryLabel: groupServer.label,
 			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
 			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
 		};

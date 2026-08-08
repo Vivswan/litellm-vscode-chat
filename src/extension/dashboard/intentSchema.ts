@@ -6,9 +6,8 @@
  */
 
 import { z } from "zod";
-import { isHeaderScalar } from "../../shared/util/headers";
 import { recordFromKeys } from "../../shared/util/json";
-import type { DashboardIntentType, HeaderScalar, SecretDirective, WebviewToExtensionMessage } from "./protocol";
+import type { DashboardIntentType, SecretDirective, WebviewToExtensionMessage } from "./protocol";
 import {
 	BOOLEAN_SETTING_IDS,
 	DASHBOARD_COMMAND_IDS,
@@ -20,8 +19,6 @@ import {
 } from "./protocol";
 
 const asEnum = <T extends string>(values: readonly T[]) => z.enum(values as [T, ...T[]]);
-
-const headerScalarSchema = z.custom<HeaderScalar>(isHeaderScalar);
 
 /** Exported so tests can drive the same per-field parse path the webview message schema embeds. */
 export const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminatedUnion("action", [
@@ -93,10 +90,6 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 	z.strictObject({
 		type: z.literal("setModelParameters"),
 		value: z.record(z.string(), z.record(z.string(), z.unknown())),
-	}),
-	z.strictObject({
-		type: z.literal("setHeaders"),
-		value: z.record(z.string(), headerScalarSchema),
 	}),
 	z.strictObject({
 		type: z.literal("saveServerSetting"),

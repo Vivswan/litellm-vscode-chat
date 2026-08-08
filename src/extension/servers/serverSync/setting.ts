@@ -1,36 +1,65 @@
 /**
  * Parsing the litellm-vscode-chat.servers setting: the acceptance rules for
  * declared entries live here and nowhere else.
+ *
+ * The settings shape is nested (auth / headers / models / discovery /
+ * budget); the parsed DeclaredServer keeps the flat credential fields the
+ * rest of the extension (buildGroupArgs, the secret blobs, the dashboard
+ * form) has always consumed, so the wire shape of the provider-group args -
+ * and with it every stored sync fingerprint - is unchanged by the
+ * restructure.
+ *
+ * Auth grammar: exactly one form per entry, ranked oauth > apiKey >
+ * virtualKey. A form may carry companions of strictly lower primacy only:
+ * `oauth` nests optional `apiKey` and `virtualKey` companions inside its own
+ * object; the string `apiKey` form may carry a sibling `virtualKey`
+ * companion; `virtualKey` alone carries none. Shape errors (a second form
+ * beside oauth, an oauth missing tokenUrl or clientId, an unknown key inside
+ * auth) make the entry MISCONFIGURED: reported and skipped, never guessed
+ * at. A form merely missing its secret VALUE is not misconfiguration - the
+ * entry works and the server's 401 tells the story.
  */
 
 import type { ModelCapabilitiesRecord } from "../../../shared/config/capabilityResolution";
-import { normalizeModelCapabilities, normalizeModelParameters } from "../../../shared/config/settings";
+import {
+	normalizeCustomHeaders,
+	normalizeModelCapabilities,
+	normalizeModelParameters,
+} from "../../../shared/config/settings";
 import type { ExpectedFailureCategory, OptionalEntryFieldId, OptionalEntryFields } from "../../../shared/serverEntry";
-import { isExpectedFailureCategory, OPTIONAL_ENTRY_FIELDS } from "../../../shared/serverEntry";
+import { isExpectedFailureCategory } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
 
-/** An entry's per-entry modelParameters: model-ID prefix to request parameters, like the global setting. */
+/** An entry's per-entry models.parameters record: model matcher to request parameters, like the global setting. */
 export type EntryModelParameters = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
-/** An entry's per-entry modelCapabilities: model-ID prefix to capability record, like the global setting. */
+/** An entry's per-entry models.capabilities record: model matcher to capability record, like the global setting. */
 export type EntryModelCapabilities = ModelCapabilitiesRecord;
 
 /**
- * One parsed servers-setting entry: label and baseUrl usable, other fields
- * present only with usable text. `modelParameters`, `modelCapabilities`, and
- * `expectedFailures` are present only when the raw entry carries usable
- * content; they scope request parameters, capability overrides, and expected
- * discovery failures to models served through this entry and are read
- * extension-side - they never enter the group configuration or its
- * fingerprint (buildGroupArgs does not emit them).
+ * One parsed servers-setting entry: label and baseUrl usable, credential
+ * fields flattened from the entry's `auth` object (present only with usable
+ * inline text; values resting in SecretStorage stay absent here and resolve
+ * at group-args time). `headers`, `modelParameters`, `modelCapabilities`,
+ * `expectedFailures`, `declaredModels`, and `budget` are present only when
+ * the raw entry carries usable content; they are read extension-side and
+ * never enter the group configuration or its fingerprint (buildGroupArgs
+ * does not emit them).
  */
 export type DeclaredServer = {
 	readonly label: string;
 	readonly baseUrl: string;
+	/** The entry's custom HTTP headers, sent on every request to this server; auth headers win conflicts. */
+	readonly headers?: Readonly<Record<string, string>>;
 	readonly modelParameters?: EntryModelParameters;
 	readonly modelCapabilities?: EntryModelCapabilities;
 	readonly expectedFailures?: readonly ExpectedFailureCategory[];
+	/** Exact model IDs to register when discovery does not list them (discovery.declared). */
+	readonly declaredModels?: readonly string[];
+	/** The entry's manual usage budget in USD (non-secret user configuration); the usage surfaces read it. */
+	readonly budget?: number;
 } & OptionalEntryFields;
 
 function usableString(value: unknown): string | undefined {
@@ -42,9 +71,177 @@ function usableString(value: unknown): string | undefined {
 }
 
 /**
+ * An entry's manual usage budget in USD: a finite number above zero (a zero
+ * budget could only ever read as fully spent).
+ */
+function usableBudget(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** The flat credential fields an entry's auth object parses to; every value is usable inline text. */
+type FlatAuthFields = { -readonly [K in OptionalEntryFieldId]?: string };
+
+/**
+ * Parse one entry's `auth` object into the flat credential fields, or the
+ * shape problems that make the entry misconfigured. Key names in the
+ * problems are the closed auth vocabulary or the user's own structural keys
+ * (the same class of configuration text the header narrowing logs); entered
+ * VALUES never appear.
+ */
+function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: string[] } {
+	const fields: FlatAuthFields = {};
+	if (raw === undefined) {
+		return { fields };
+	}
+	if (!isRecord(raw)) {
+		return { problems: ["has an auth value that is not an object"] };
+	}
+	const problems: string[] = [];
+	const keys = Object.keys(raw);
+	const known = ["apiKey", "oauth", "virtualKey"];
+	for (const key of keys) {
+		if (!known.includes(key)) {
+			// Named on purpose: a typo silently reading as "no auth" would be the
+			// worst failure mode. Key names are structural configuration, never
+			// values.
+			problems.push(`has an unknown auth key "${key}"`);
+		}
+	}
+	const hasOAuth = raw.oauth !== undefined;
+	const hasApiKey = raw.apiKey !== undefined;
+	const hasVirtualKey = raw.virtualKey !== undefined;
+	if (!hasOAuth && !hasApiKey && !hasVirtualKey && problems.length === 0) {
+		problems.push("has an auth object that configures no form (expected one of apiKey, oauth, virtualKey)");
+	}
+	if (hasOAuth && (hasApiKey || hasVirtualKey)) {
+		problems.push("sets another auth form beside oauth; companions belong inside the oauth object");
+	}
+	if (problems.length > 0) {
+		return { problems };
+	}
+
+	if (hasOAuth) {
+		const oauthProblems = parseOAuthForm(raw.oauth, fields);
+		return oauthProblems.length > 0 ? { problems: oauthProblems } : { fields };
+	}
+	if (hasApiKey) {
+		if (typeof raw.apiKey !== "string") {
+			return { problems: ["has an auth.apiKey that is not a string"] };
+		}
+		const apiKey = usableString(raw.apiKey);
+		if (apiKey !== undefined) {
+			fields.apiKey = apiKey;
+		}
+	}
+	if (hasVirtualKey) {
+		// Alone it is the virtualKey form; beside apiKey it is that form's
+		// companion. The flat fields are identical - primacy already decides the
+		// wire semantics (the bearer rides beside the named header).
+		const virtualKey = parseVirtualKeyObject(raw.virtualKey, "auth.virtualKey");
+		if ("problems" in virtualKey) {
+			return virtualKey;
+		}
+		Object.assign(fields, virtualKey.fields);
+	}
+	return { fields };
+}
+
+/** The oauth form: tokenUrl and clientId make the unit; clientSecret, scopes, and the companions are optional. */
+function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
+	if (!isRecord(raw)) {
+		return ["has an auth.oauth value that is not an object"];
+	}
+	const problems: string[] = [];
+	const known = ["tokenUrl", "clientId", "clientSecret", "scopes", "apiKey", "virtualKey"];
+	for (const key of Object.keys(raw)) {
+		if (!known.includes(key)) {
+			problems.push(`has an unknown auth.oauth key "${key}"`);
+		}
+	}
+	const tokenUrl = typeof raw.tokenUrl === "string" ? usableString(raw.tokenUrl) : undefined;
+	const clientId = typeof raw.clientId === "string" ? usableString(raw.clientId) : undefined;
+	if (tokenUrl === undefined || clientId === undefined) {
+		problems.push("has an incomplete auth.oauth (tokenUrl and clientId are required)");
+	}
+	for (const key of ["clientSecret", "scopes", "apiKey"] as const) {
+		if (raw[key] !== undefined && typeof raw[key] !== "string") {
+			problems.push(`has an auth.oauth.${key} that is not a string`);
+		}
+	}
+	let companionVirtualKey: FlatAuthFields | undefined;
+	if (raw.virtualKey !== undefined) {
+		const virtualKey = parseVirtualKeyObject(raw.virtualKey, "auth.oauth.virtualKey");
+		if ("problems" in virtualKey) {
+			problems.push(...virtualKey.problems);
+		} else {
+			companionVirtualKey = virtualKey.fields;
+		}
+	}
+	if (problems.length > 0 || tokenUrl === undefined || clientId === undefined) {
+		return problems;
+	}
+	if (companionVirtualKey !== undefined) {
+		Object.assign(fields, companionVirtualKey);
+	}
+	fields.oauthTokenUrl = tokenUrl;
+	fields.oauthClientId = clientId;
+	const clientSecret = usableString(raw.clientSecret);
+	if (clientSecret !== undefined) {
+		fields.oauthClientSecret = clientSecret;
+	}
+	const scopes = usableString(raw.scopes);
+	if (scopes !== undefined) {
+		fields.oauthScopes = scopes;
+	}
+	const companionApiKey = usableString(raw.apiKey);
+	if (companionApiKey !== undefined) {
+		fields.apiKey = companionApiKey;
+	}
+	return [];
+}
+
+/**
+ * A virtualKey object (the form or a companion): the header name is required
+ * and must be sendable; the value is the secret-capable half and may rest in
+ * SecretStorage, so its absence is legal. Returns the parsed flat fields or
+ * the shape problems - never both, so no caller can act on a half-parsed
+ * object.
+ */
+function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFields } | { problems: string[] } {
+	if (!isRecord(raw)) {
+		return { problems: [`has a ${path} value that is not an object`] };
+	}
+	const problems: string[] = [];
+	for (const key of Object.keys(raw)) {
+		if (key !== "header" && key !== "value") {
+			problems.push(`has an unknown ${path} key "${key}"`);
+		}
+	}
+	const header = typeof raw.header === "string" ? usableString(raw.header) : undefined;
+	if (header === undefined) {
+		problems.push(`has a ${path} without a usable header name`);
+	} else if (!HEADER_NAME_PATTERN.test(header)) {
+		problems.push(`has a ${path} header that is not a valid HTTP header name`);
+	}
+	if (raw.value !== undefined && typeof raw.value !== "string") {
+		problems.push(`has a ${path}.value that is not a string`);
+	}
+	if (problems.length > 0 || header === undefined) {
+		return { problems };
+	}
+	const fields: FlatAuthFields = { virtualKeyHeader: header };
+	const value = usableString(raw.value);
+	if (value !== undefined) {
+		fields.virtualKeyValue = value;
+	}
+	return { fields };
+}
+
+/**
  * Parse the raw setting value. Entries without a usable label or baseUrl,
- * with a reserved label, or with a label an earlier entry already used are
- * skipped and reported; everything the sync engine acts on comes out of here.
+ * with a reserved label, with a label an earlier entry already used, or with
+ * a misconfigured auth object are skipped and reported; everything the sync
+ * engine acts on comes out of here.
  */
 export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; problems: string[] } {
 	if (raw === undefined || raw === null) {
@@ -68,7 +265,7 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
 	raw.forEach((item: unknown, index) => {
 		// One prefix for everything reported about this entry, rejecting or
 		// not: the problems are logged, so they reference the entry by index
-		// only, never by user text.
+		// and structural key names only, never by entered values.
 		const report = (what: string) => problems?.push(`entry ${index + 1} ${what}`);
 		if (!isRecord(item)) {
 			report("is not an object");
@@ -90,48 +287,102 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
 			return;
 		}
 		seen.add(label);
+
+		// Auth shape errors make the whole entry misconfigured: skipped (never
+		// synced or served) and reported, but still PRESENT - rawDeclaredLabels
+		// keeps its label, so no removal is inferred and its group is not
+		// hidden. Config-shape errors never guess at runtime.
+		const auth = parseAuth(record.auth);
+		if ("problems" in auth) {
+			for (const problem of auth.problems) {
+				report(problem);
+			}
+			report("is misconfigured and will not be used until its auth is fixed");
+			return;
+		}
+
 		const entry: {
 			label: string;
 			baseUrl: string;
+			headers?: Readonly<Record<string, string>>;
 			modelParameters?: EntryModelParameters;
 			modelCapabilities?: EntryModelCapabilities;
 			expectedFailures?: readonly ExpectedFailureCategory[];
-		} & {
-			-readonly [K in OptionalEntryFieldId]?: string;
-		} = {
+			declaredModels?: readonly string[];
+			budget?: number;
+		} & FlatAuthFields = {
 			label,
 			baseUrl,
+			...auth.fields,
 		};
-		for (const { id } of OPTIONAL_ENTRY_FIELDS) {
-			const value = usableString(record[id]);
-			if (value !== undefined) {
-				entry[id] = value;
+
+		if (record.headers !== undefined) {
+			// Header names are structural configuration (the same class the
+			// request-path narrowing logs); values never enter the report.
+			const headers = normalizeCustomHeaders(record.headers, (message, data) => {
+				const name = isRecord(data) && typeof data.name === "string" ? ` ("${data.name}")` : "";
+				report(`headers: ${message}${name}`);
+			});
+			if (Object.keys(headers).length > 0) {
+				entry.headers = headers;
 			}
 		}
-		// Lenient like the optional fields above and the global setting's own
+
+		// The models records are lenient like the global settings' own
 		// normalization (the shared rule): non-record values and malformed
-		// sub-entries drop silently, and an empty result reads as absent.
-		const modelParameters = normalizeModelParameters(record.modelParameters);
-		if (Object.keys(modelParameters).length > 0) {
-			entry.modelParameters = modelParameters;
-		}
-		// Shape-lenient like modelParameters; the capability vocabulary is
-		// enforced downstream by parseCapabilityRecord, which owns the
-		// diagnostics the dashboard renders.
-		const modelCapabilities = normalizeModelCapabilities(record.modelCapabilities);
-		if (Object.keys(modelCapabilities).length > 0) {
-			entry.modelCapabilities = modelCapabilities;
-		}
-		if (Array.isArray(record.expectedFailures)) {
-			const known = record.expectedFailures.filter(isExpectedFailureCategory);
-			if (known.length < record.expectedFailures.length) {
-				// Counted, never echoed: unknown tokens are user text.
-				const unknownCount = record.expectedFailures.length - known.length;
-				report(`lists ${unknownCount} unknown expectedFailures value(s), ignored`);
+		// sub-entries drop silently, and an empty result reads as absent. The
+		// capability vocabulary is enforced downstream by parseCapabilityRecord,
+		// which owns the diagnostics the dashboard renders.
+		if (record.models !== undefined && !isRecord(record.models)) {
+			report("has a models value that is not an object, ignored");
+		} else if (isRecord(record.models)) {
+			const modelParameters = normalizeModelParameters(record.models.parameters);
+			if (Object.keys(modelParameters).length > 0) {
+				entry.modelParameters = modelParameters;
 			}
-			const categories = [...new Set(known)];
-			if (categories.length > 0) {
-				entry.expectedFailures = categories;
+			const modelCapabilities = normalizeModelCapabilities(record.models.capabilities);
+			if (Object.keys(modelCapabilities).length > 0) {
+				entry.modelCapabilities = modelCapabilities;
+			}
+		}
+
+		if (record.discovery !== undefined && !isRecord(record.discovery)) {
+			report("has a discovery value that is not an object, ignored");
+		} else if (isRecord(record.discovery)) {
+			const discovery = record.discovery;
+			if (Array.isArray(discovery.expectedFailures)) {
+				const knownCategories = discovery.expectedFailures.filter(isExpectedFailureCategory);
+				if (knownCategories.length < discovery.expectedFailures.length) {
+					// Counted, never echoed: unknown tokens are user text.
+					const unknownCount = discovery.expectedFailures.length - knownCategories.length;
+					report(`lists ${unknownCount} unknown discovery.expectedFailures value(s), ignored`);
+				}
+				const categories = [...new Set(knownCategories)];
+				if (categories.length > 0) {
+					entry.expectedFailures = categories;
+				}
+			}
+			if (Array.isArray(discovery.declared)) {
+				const ids = discovery.declared.map(usableString).filter((id): id is string => id !== undefined);
+				if (ids.length < discovery.declared.length) {
+					const dropped = discovery.declared.length - ids.length;
+					report(`lists ${dropped} unusable discovery.declared value(s), ignored`);
+				}
+				const unique = [...new Set(ids)];
+				if (unique.length > 0) {
+					entry.declaredModels = unique;
+				}
+			}
+		}
+
+		// An invalid budget is a configuration diagnostic and is ignored; the
+		// entry itself stays usable (it is not auth).
+		if (record.budget !== undefined) {
+			const budget = usableBudget(record.budget);
+			if (budget === undefined) {
+				report("has a budget that is not a number greater than 0, ignored");
+			} else {
+				entry.budget = budget;
 			}
 		}
 		accepted.push({ index, entry });
@@ -146,9 +397,9 @@ function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: n
  * through this so they act on exactly the entry the dashboard row describes:
  * a rejected same-label sibling earlier in the array (no usable baseUrl, say)
  * cannot shadow the accepted entry, and a label the parser rejects outright
- * (a reserved name, a never-declared junk entry) resolves to nothing. The
- * returned entry is the parsed view - usable fields only, trimmed - so
- * callers consume what the sync engine would read, not the raw record.
+ * (a reserved name, a misconfigured auth) resolves to nothing. The returned
+ * entry is the parsed view - usable fields only, trimmed - so callers consume
+ * what the sync engine would read, not the raw record.
  */
 export function acceptedEntry(raw: unknown, label: string): { index: number; entry: DeclaredServer } | undefined {
 	if (!Array.isArray(raw)) {
@@ -161,14 +412,14 @@ export function acceptedEntry(raw: unknown, label: string): { index: number; ent
 /**
  * Every label the raw setting still CARRIES, acceptance aside: any object
  * entry with a usable label string counts, even when the parser would reject
- * it (no usable baseUrl, a duplicate). The removal detector reads this
- * because "the user removed the entry" and "the entry is present but
- * momentarily malformed" (a mid-edit settings.json, say) must never be
- * confused - a tombstone written for the latter would suppress a group the
- * user did not remove. Reserved labels stay out: the parser rejects them
- * permanently (never synced, never fingerprinted), and the caller carries
- * map records under these labels, so a prototype-polluting key must not
- * come back from here.
+ * it (no usable baseUrl, a duplicate, a misconfigured auth). The removal
+ * detector reads this because "the user removed the entry" and "the entry is
+ * present but momentarily malformed" (a mid-edit settings.json, say) must
+ * never be confused - a tombstone written for the latter would suppress a
+ * group the user did not remove. Reserved labels stay out: the parser rejects
+ * them permanently (never synced, never fingerprinted), and the caller
+ * carries map records under these labels, so a prototype-polluting key must
+ * not come back from here.
  */
 export function rawDeclaredLabels(raw: unknown): Set<string> {
 	if (!Array.isArray(raw)) {
@@ -205,7 +456,7 @@ function matchedEntryFor(raw: unknown, label: string, baseUrl: string): Declared
 	return match.entry;
 }
 
-/** The request path's resolution of one declared entry's per-entry modelParameters; see matchedEntryFor. */
+/** The request path's resolution of one declared entry's per-entry models.parameters; see matchedEntryFor. */
 export function entryModelParametersFor(
 	raw: unknown,
 	label: string,
@@ -214,7 +465,7 @@ export function entryModelParametersFor(
 	return matchedEntryFor(raw, label, baseUrl)?.modelParameters;
 }
 
-/** The registration path's resolution of one declared entry's per-entry modelCapabilities; see matchedEntryFor. */
+/** The registration path's resolution of one declared entry's per-entry models.capabilities; see matchedEntryFor. */
 export function entryModelCapabilitiesFor(
 	raw: unknown,
 	label: string,
@@ -230,4 +481,18 @@ export function entryExpectedFailuresFor(
 	baseUrl: string
 ): readonly ExpectedFailureCategory[] | undefined {
 	return matchedEntryFor(raw, label, baseUrl)?.expectedFailures;
+}
+
+/** The request and discovery paths' resolution of one declared entry's custom headers; see matchedEntryFor. */
+export function entryHeadersFor(
+	raw: unknown,
+	label: string,
+	baseUrl: string
+): Readonly<Record<string, string>> | undefined {
+	return matchedEntryFor(raw, label, baseUrl)?.headers;
+}
+
+/** The registration path's resolution of one declared entry's discovery.declared list; see matchedEntryFor. */
+export function entryDeclaredModelsFor(raw: unknown, label: string, baseUrl: string): readonly string[] | undefined {
+	return matchedEntryFor(raw, label, baseUrl)?.declaredModels;
 }

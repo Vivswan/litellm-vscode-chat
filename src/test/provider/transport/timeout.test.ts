@@ -6,28 +6,22 @@ suite("Timeout Configuration", () => {
 	// The extension host registered package.json's contributed configuration;
 	// these tests pin the registered defaults to the shared setting spec
 	// (settingSpec.test.ts pins the same numbers against the file on disk).
-	test("requestTimeout default matches the setting spec", () => {
+	test("chat.timeout default matches the setting spec", () => {
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const defaultValue = config.inspect<number>("requestTimeout")?.defaultValue;
-		assert.strictEqual(defaultValue, NUMBER_SETTING_SPECS.requestTimeout.default);
+		const defaultValue = config.inspect<number>("chat.timeout")?.defaultValue;
+		assert.strictEqual(defaultValue, NUMBER_SETTING_SPECS["chat.timeout"].default);
 	});
 
-	test("discoveryTimeout default matches the setting spec", () => {
+	test("discovery.timeout default matches the setting spec", () => {
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const defaultValue = config.inspect<number>("discoveryTimeout")?.defaultValue;
-		assert.strictEqual(defaultValue, NUMBER_SETTING_SPECS.discoveryTimeout.default);
-	});
-
-	test("headers default is empty object", () => {
-		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const defaultValue = config.inspect<Record<string, string>>("headers")?.defaultValue;
-		assert.deepStrictEqual(defaultValue, {}, "headers default should be an empty object");
+		const defaultValue = config.inspect<number>("discovery.timeout")?.defaultValue;
+		assert.strictEqual(defaultValue, NUMBER_SETTING_SPECS["discovery.timeout"].default);
 	});
 
 	test("timeout configuration can be read from workspace settings", () => {
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const requestTimeout = config.get<number>("requestTimeout", NUMBER_SETTING_SPECS.requestTimeout.default);
-		const discoveryTimeout = config.get<number>("discoveryTimeout", NUMBER_SETTING_SPECS.discoveryTimeout.default);
+		const requestTimeout = config.get<number>("chat.timeout", NUMBER_SETTING_SPECS["chat.timeout"].default);
+		const discoveryTimeout = config.get<number>("discovery.timeout", NUMBER_SETTING_SPECS["discovery.timeout"].default);
 
 		// Verify defaults are sensible
 		assert.strictEqual(typeof requestTimeout, "number");

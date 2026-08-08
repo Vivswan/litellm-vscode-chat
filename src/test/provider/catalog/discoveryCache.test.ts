@@ -316,7 +316,7 @@ suite("provider group discovery caching", () => {
 		const provider = makeProvider();
 		const counter = countingHandlers();
 
-		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
 			await provider.provideLanguageModelChatInformation(groupOptions(GROUP), cancellation());
 			await provider.provideLanguageModelChatInformation(groupOptions(GROUP), cancellation());
 			assert.strictEqual(counter.hits(), 2, "with TTL 0 every sequential refresh must reach the network");

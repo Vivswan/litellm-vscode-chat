@@ -35,6 +35,13 @@ export interface CapabilityOverrideOptions {
 	readonly globalCapabilities: ModelCapabilitiesRecord;
 	/** The matched declared entry's own capability records, when the served server has one. */
 	readonly entryCapabilities?: ModelCapabilitiesRecord | undefined;
+	/**
+	 * The matched declared entry's discovery.declared model IDs: exact IDs to
+	 * register when discovery does not list them, inert when it does - the
+	 * same rule as the `_declare` directive, whose extraction they join in
+	 * synthesizeDeclaredModels.
+	 */
+	readonly entryDeclaredModels?: readonly string[] | undefined;
 	readonly catalog: CapabilityCatalogLookup;
 	/** The provider-shared flat resolution table; every resolve here goes through it. */
 	readonly resolution: ModelResolutionTable;
@@ -244,8 +251,9 @@ export interface DeclaredModelSynthesis {
 }
 
 /**
- * Build the `_declare`d models the current configuration creates on one
- * server. A declared ID that discovery listed is inert - judged against the
+ * Build the declared models the current configuration creates on one server:
+ * the `_declare` directives plus the matched entry's discovery.declared list.
+ * A declared ID that discovery listed is inert - judged against the
  * DISCOVERED raw-ID set, not the registered one, because registration may
  * emit only synthetic variants (`foo:cheapest`) for a discovered `foo`. A
  * declared ID whose exposed form collides with an ID registration is about
@@ -267,16 +275,24 @@ export function synthesizeDeclaredModels(
 	});
 	const logDiagnostics = diagnosticLogger(opts.log);
 	logDiagnostics(extracted.diagnostics);
+	// The entry's discovery.declared list joins the `_declare` extraction under
+	// the same rules (exact IDs, inert when discovered, config-rebuilt every
+	// serve); an ID both sources declare synthesizes once.
+	const extractedIds = new Set(extracted.models.map((spec) => spec.rawId));
+	const entryDeclared = (opts.entryDeclaredModels ?? [])
+		.filter((rawId) => !extractedIds.has(rawId))
+		.map((rawId) => ({ rawId, layer: "entry" as const, recordKey: "discovery.declared" }));
+	const specs = [...extracted.models, ...entryDeclared];
 	const display = serverDisplayContext(server, serverCount);
 	const infos: PreAttachModelInfo[] = [];
 	const routes = new Map<string, ModelRoute>();
-	for (const spec of extracted.models) {
+	for (const spec of specs) {
 		if (discoveredRawIds.has(spec.rawId)) {
 			continue;
 		}
 		const exposedId = buildExposedModelId(spec.rawId, server.id, serverCount);
 		if (reservedExposedIds.has(exposedId)) {
-			opts.log("Suppressing a _declare directive: the declared ID collides with a registered model ID", {
+			opts.log("Suppressing a declared model: the declared ID collides with a registered model ID", {
 				modelId: spec.rawId,
 				layer: spec.layer,
 			});

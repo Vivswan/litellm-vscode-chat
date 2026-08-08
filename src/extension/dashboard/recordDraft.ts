@@ -8,7 +8,6 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import { isHeaderScalar } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import type { CapabilityFieldName, ExpectedFailureCategory, HeaderScalar } from "./protocol";
 import {
@@ -215,12 +214,12 @@ export type HeaderRowsParse =
  * One row-input problem, naming the field it belongs to (a row's key-side or
  * value-side input) so the editors mark only the offending input invalid.
  */
-export interface RowFieldProblem {
+interface RowFieldProblem {
 	readonly field: "name" | "value";
 	readonly message: string;
 }
 
-export type HeaderRowsDetailedParse =
+type HeaderRowsDetailedParse =
 	| { readonly ok: true; readonly value: Record<string, HeaderScalar> }
 	| { readonly ok: false; readonly problems: readonly (RowFieldProblem | undefined)[] };
 
@@ -232,7 +231,7 @@ export type HeaderRowsDetailedParse =
  * Rejecting them here keeps Apply from "succeeding" on a header that would
  * never be sent.
  */
-export function parseHeaderRowsDetailed(rows: readonly HeaderRow[]): HeaderRowsDetailedParse {
+function parseHeaderRowsDetailed(rows: readonly HeaderRow[]): HeaderRowsDetailedParse {
 	const duplicateNames = duplicates(rows.map((row) => row.name.trim()));
 	const headers: Record<string, HeaderScalar> = Object.create(null) as Record<string, HeaderScalar>;
 	const problems = rows.map((row): RowFieldProblem | undefined => {
@@ -331,29 +330,6 @@ export function groupsFromJsonText(text: string): RecordJsonParse<PrefixGroup[]>
 	const groups = toGroups(record.value as Record<string, Record<string, unknown>>);
 	const parse = parseGroups(groups);
 	return parse.ok ? { ok: true, rows: groups } : { ok: false, problem: firstGroupProblem(groups, parse.problems) };
-}
-
-/** Parse a pasted headers record (JSON text) into draft rows; same double-judging as groupsFromJsonText. */
-export function headerRowsFromJsonText(text: string): RecordJsonParse<HeaderRow[]> {
-	const record = recordFromJsonText(text, '{"x-litellm-api-key": "sk-123"}');
-	if (!record.ok) {
-		return record;
-	}
-	for (const [name, value] of Object.entries(record.value)) {
-		if (!isHeaderScalar(value)) {
-			return { ok: false, problem: withKey(name, l10n.t("Header values must be a string, number, or boolean")) };
-		}
-	}
-	const rows = toHeaderRows(record.value as Record<string, HeaderScalar>);
-	const parse = parseHeaderRowsDetailed(rows);
-	if (parse.ok) {
-		return { ok: true, rows };
-	}
-	const index = parse.problems.findIndex((problem) => problem !== undefined);
-	return {
-		ok: false,
-		problem: withKey(rows[index]?.name ?? "", parse.problems[index]?.message ?? l10n.t("Invalid value.")),
-	};
 }
 
 /**

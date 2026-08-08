@@ -48,7 +48,9 @@ export {
 } from "./setting";
 export {
 	createServerSyncEnv,
+	readEntryDeclaredModels,
 	readEntryExpectedFailures,
+	readEntryHeaders,
 	readEntryModelCapabilities,
 	readEntryModelParameters,
 	registerSetServerSecretCommand,

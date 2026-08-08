@@ -362,7 +362,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 			);
 			assert.deepStrictEqual(infos, []);
 			assert.strictEqual(logged.length, 1);
-			assert.ok(logged[0]?.message.includes("Suppressing a _declare directive"));
+			assert.ok(logged[0]?.message.includes("Suppressing a declared model"));
 		});
 
 		test("the floor backstops a bare _declare, with the conservative outputLimitSource", () => {

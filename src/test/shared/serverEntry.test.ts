@@ -29,9 +29,9 @@ interface FieldSchema {
 
 interface PackageJson {
 	readonly contributes: {
-		readonly configuration: {
+		readonly configuration: readonly {
 			readonly properties: Record<string, { readonly items?: ItemsSchema }>;
-		};
+		}[];
 		readonly languageModelChatProviders: readonly [
 			{
 				readonly configuration: {
@@ -50,27 +50,29 @@ function readPackageJson(): PackageJson {
 suite("shared/serverEntry: package.json drift guard", () => {
 	const optionalIds = OPTIONAL_ENTRY_FIELDS.map((field) => field.id);
 
-	test("the servers setting's items schema declares exactly the descriptor's fields", () => {
-		const { properties } = readPackageJson().contributes.configuration;
+	test("the servers setting's items schema declares exactly the nested entry shape", () => {
+		// The SETTINGS shape is nested (auth/headers/models/discovery/budget);
+		// the flat descriptor fields live on in the provider-group configuration
+		// (the wire format the sync fingerprints hash - the test below) and in
+		// the parsed internal shape, which the parser flattens the nested auth
+		// object onto.
+		const sections = readPackageJson().contributes.configuration;
+		const properties = Object.assign({}, ...sections.map((section) => section.properties)) as Record<
+			string,
+			{ readonly items?: ItemsSchema }
+		>;
 		const items = properties[`${CONFIG_SECTION}.servers`]?.items;
 		assert.ok(items, "the servers setting declares an items schema");
 		assert.strictEqual(items.additionalProperties, false, "unknown entry fields must be rejected");
 		assert.deepStrictEqual([...items.required], ["label", "baseUrl"]);
-		// Compared in order on purpose: OPTIONAL_ENTRY_FIELDS order is
-		// load-bearing (buildGroupArgs emits args in it and the sync fingerprint
-		// hashes that object; serverSync.test.ts pins the exact sequence), and
-		// the schema documents the same order. `modelParameters`,
-		// `modelCapabilities`, and `expectedFailures` sit after the descriptor
-		// fields because they are not descriptor fields: they never enter the
-		// group args or the fingerprint (settingSpec.test.ts pins their shapes).
-		// Append-only: new non-descriptor fields go on the end.
 		assert.deepStrictEqual(Object.keys(items.properties), [
 			"label",
 			"baseUrl",
-			...optionalIds,
-			"modelParameters",
-			"modelCapabilities",
-			"expectedFailures",
+			"auth",
+			"headers",
+			"models",
+			"discovery",
+			"budget",
 		]);
 	});
 

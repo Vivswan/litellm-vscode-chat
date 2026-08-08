@@ -150,7 +150,7 @@ suite("provider server snapshots", () => {
 			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(payload)))
 		);
 
-		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
 			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 			const healthy = expectDefined(provider.getServerSnapshots()[0]);
 			assert.deepStrictEqual(healthy.discoveredRawIds, ["multi-model"]);

@@ -271,7 +271,7 @@ suite("provider/transport/auth", () => {
 			const error = await expectRequestError(source.getToken(oauthConfig(), 100), "timeout");
 
 			assert.ok(error.message.includes("timed out after 100ms"), `unexpected message: ${error.message}`);
-			assert.ok(error.message.includes("discoveryTimeout"), "the message must name the governing setting");
+			assert.ok(error.message.includes("discovery.timeout"), "the message must name the governing setting");
 		});
 
 		test("an aborted caller signal interrupts the exchange and surfaces the abort, not a token timeout", async () => {

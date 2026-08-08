@@ -417,20 +417,20 @@ suite("extension/servers/serverManagement", () => {
 			assert.strictEqual(validate("https://ok"), null);
 		});
 
-		test("the API-key prompt honors maskApiKeyInput through the password flag, in the add and edit flows alike", async () => {
-			const maskedAdd = await withConfig({ maskApiKeyInput: true }, () =>
+		test("the API-key prompt honors ui.maskSecretInputs through the password flag, in the add and edit flows alike", async () => {
+			const maskedAdd = await withConfig({ "ui.maskSecretInputs": true }, () =>
 				runServerWalk({ inputs: ["P", "http://x", undefined] })
 			);
 			assert.strictEqual(expectDefined(maskedAdd.inputOptions[2]).password, true);
 
-			const bareAdd = await withConfig({ maskApiKeyInput: false }, () =>
+			const bareAdd = await withConfig({ "ui.maskSecretInputs": false }, () =>
 				runServerWalk({ inputs: ["P", "http://x", undefined] })
 			);
 			assert.strictEqual(expectDefined(bareAdd.inputOptions[2]).password, false);
 
 			// The edit flow prefills the STORED key into the prompt, so a dropped
 			// password flag there renders an existing credential in cleartext.
-			const maskedEdit = await withConfig({ maskApiKeyInput: true }, () =>
+			const maskedEdit = await withConfig({ "ui.maskSecretInputs": true }, () =>
 				runServerWalk({
 					seed: [["Prod", "http://prod", "sk-stored"]],
 					picks: ["Prod", "Edit"],
@@ -441,7 +441,7 @@ suite("extension/servers/serverManagement", () => {
 			assert.strictEqual(editKeyPrompt.password, true);
 			assert.strictEqual(editKeyPrompt.value, "sk-stored");
 
-			const bareEdit = await withConfig({ maskApiKeyInput: false }, () =>
+			const bareEdit = await withConfig({ "ui.maskSecretInputs": false }, () =>
 				runServerWalk({
 					seed: [["Prod", "http://prod", "sk-stored"]],
 					picks: ["Prod", "Edit"],
@@ -509,7 +509,7 @@ suite("extension/servers/serverManagement", () => {
 		});
 
 		test("renaming through the edit walk warns about orphaned modelParameters; keeping the label does not", async () => {
-			const renamed = await withConfig({ modelParameters: { "Old/gpt-4": {} } }, () =>
+			const renamed = await withConfig({ "models.parameters": { "Old/gpt-4": {} } }, () =>
 				runServerWalk({ seed: [["Old", "http://old", ""]], picks: ["Old", "Edit"], inputs: ["New", "http://old", ""] })
 			);
 			assert.strictEqual(renamed.warnToasts.length, 1);
@@ -517,7 +517,7 @@ suite("extension/servers/serverManagement", () => {
 			assert.ok(warning.message.includes('"Old/"'), warning.message);
 			assert.ok(warning.message.includes('"New/"'), warning.message);
 
-			const kept = await withConfig({ modelParameters: { "Old/gpt-4": {} } }, () =>
+			const kept = await withConfig({ "models.parameters": { "Old/gpt-4": {} } }, () =>
 				runServerWalk({
 					seed: [["Old", "http://old", ""]],
 					picks: ["Old", "Edit"],

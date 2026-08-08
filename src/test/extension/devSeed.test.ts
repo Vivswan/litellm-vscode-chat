@@ -99,7 +99,7 @@ suite("extension/devSeed", () => {
 		assert.strictEqual(seed?.openDashboard, true);
 		assert.deepStrictEqual(
 			fake.getSetting(),
-			[{ label: "Seeded", baseUrl: "http://localhost:4000", apiKey: "sk-test" }],
+			[{ label: "Seeded", baseUrl: "http://localhost:4000", auth: { apiKey: "sk-test" } }],
 			"the key sits inline in the entry, visible in settings like the rest of the seed"
 		);
 		assert.strictEqual(
@@ -123,7 +123,7 @@ suite("extension/devSeed", () => {
 
 		assert.deepStrictEqual(fake.getSetting(), [
 			{ label: "Other", baseUrl: "http://other.test" },
-			{ label: "Seeded", baseUrl: "http://localhost:5000", apiKey: "sk-2" },
+			{ label: "Seeded", baseUrl: "http://localhost:5000", auth: { apiKey: "sk-2" } },
 			"junk entry",
 		]);
 	});
@@ -178,7 +178,7 @@ suite("extension/devSeed", () => {
 		assert.strictEqual(seed?.baseUrl, "http://localhost:4000");
 		assert.deepStrictEqual(
 			fake.writes,
-			[[{ label: "Seeded", baseUrl: "http://localhost:4000", apiKey: "sk-test" }]],
+			[[{ label: "Seeded", baseUrl: "http://localhost:4000", auth: { apiKey: "sk-test" } }]],
 			"the entry landed with its inline key, which outranks the surviving stale blob"
 		);
 	});

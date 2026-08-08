@@ -390,8 +390,8 @@ suite("extension/dashboard/panel", () => {
 	suite("declaredViewsFromSetting", () => {
 		test("maps accepted entries with setting-provable secret locations only", () => {
 			const views = declaredViewsFromSetting([
-				{ label: "Inline", baseUrl: "http://a.test", apiKey: "sk-inline" },
-				{ label: "Bare", baseUrl: "http://b.test", virtualKeyHeader: "x-vk" },
+				{ label: "Inline", baseUrl: "http://a.test", auth: { apiKey: "sk-inline" } },
+				{ label: "Bare", baseUrl: "http://b.test", auth: { virtualKey: { header: "x-vk" } } },
 			]);
 
 			assert.strictEqual(views.length, 2);
@@ -417,9 +417,11 @@ suite("extension/dashboard/panel", () => {
 				{
 					label: "Prod",
 					baseUrl: "http://a.test",
-					modelParameters: { "gpt-4": { temperature: 0.2 } },
-					modelCapabilities: { "gpt-4": { supports_vision: true } },
-					expectedFailures: ["modelInfo"],
+					models: {
+						parameters: { "gpt-4": { temperature: 0.2 } },
+						capabilities: { "gpt-4": { supports_vision: true } },
+					},
+					discovery: { expectedFailures: ["modelInfo"] },
 				},
 				{ label: "Bare", baseUrl: "http://b.test" },
 			]);
@@ -444,12 +446,12 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		fake.receiveMessage({ type: "setNumberSetting", setting: "requestTimeout", value: 60000 });
-		fake.receiveMessage({ type: "setNumberSetting", setting: "requestTimeout", value: "60000" });
+		fake.receiveMessage({ type: "setNumberSetting", setting: "chat.timeout", value: 60000 });
+		fake.receiveMessage({ type: "setNumberSetting", setting: "chat.timeout", value: "60000" });
 		fake.receiveMessage({ type: "definitely-not-a-message" });
 		await settle();
 
-		assert.deepStrictEqual(harness.updates, [["requestTimeout", 60000]]);
+		assert.deepStrictEqual(harness.updates, [["chat.timeout", 60000]]);
 		assert.deepStrictEqual(harness.loggedErrors, [], "malformed messages are ignored, not errors");
 	});
 
@@ -529,7 +531,7 @@ suite("extension/dashboard/panel", () => {
 
 	test("readModelCapabilities answers with the resolved walk, and a stale scope answers honestly empty", async () => {
 		const harness = makeHarness();
-		harness.settingsValues.modelCapabilities = { m1: { supports_vision: true } };
+		harness.settingsValues["models.capabilities"] = { m1: { supports_vision: true } };
 		harness.controller.open();
 		const fake = harness.panels[0];
 		assert.ok(fake);
@@ -591,7 +593,7 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		fake.receiveMessage({ type: "setNumberSetting", setting: "requestTimeout", value: 1 });
+		fake.receiveMessage({ type: "setNumberSetting", setting: "chat.timeout", value: 1 });
 		await settle();
 
 		assert.deepStrictEqual(harness.updates, []);
@@ -652,18 +654,19 @@ suite("extension/dashboard/panel", () => {
 		harness.controller.open();
 		const fake = harness.panels[0];
 		assert.ok(fake);
-		// A secret pasted into a header-name field: the validation message quotes
-		// the name, so the message must stay out of the log.
-		const pastedSecret = "sk-pasted into the wrong field";
-
-		fake.receiveMessage({ type: "setHeaders", value: { [pastedSecret]: "v" } });
+		// The validation message quotes the offending record key, so the message
+		// must stay out of the log (user-entered keys can be anything pasted).
+		fake.receiveMessage({
+			type: "setModelParameters",
+			value: { constructor: { temperature: 1 } },
+		});
 		await settle();
 
 		const notice = fake.posted.at(-1) as ExtensionToWebviewMessage;
-		assert.ok(notice.type === "intentFailed" && notice.message.includes(pastedSecret), "the webview names the field");
+		assert.ok(notice.type === "intentFailed" && notice.message.includes("constructor"), "the webview names the key");
 		const logged = JSON.stringify(harness.loggedMessages);
-		assert.ok(!logged.includes(pastedSecret), "the pasted value must not reach the log");
-		assert.ok(!logged.includes("header name"), "the validation message itself must not reach the log");
+		assert.ok(!logged.includes("constructor"), "the quoted key must not reach the log");
+		assert.ok(!logged.includes("reserved name"), "the validation message itself must not reach the log");
 		assert.ok(logged.includes('"kind":"validation"'), "the log carries a classification only");
 	});
 
@@ -674,11 +677,11 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		fake.receiveMessage({ type: "setHeaders", value: { "x-key": "v" } });
+		fake.receiveMessage({ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } });
 		await settle();
 
 		const notice = fake.posted.at(-1) as ExtensionToWebviewMessage;
-		assert.ok(notice.type === "intentFailed" && notice.intentType === "setHeaders");
+		assert.ok(notice.type === "intentFailed" && notice.intentType === "setModelParameters");
 		assert.ok(notice.type === "intentFailed" && !notice.message.includes("write denied"));
 		assert.ok(notice.type === "intentFailed" && notice.message.length > 0);
 		assert.ok(notice.type === "intentFailed" && notice.kind === "validation", "an unapplied write is validation-kind");
@@ -787,8 +790,8 @@ suite("extension/dashboard/panel", () => {
 			{
 				label: "Prod",
 				baseUrl: "http://prod.test",
-				modelCapabilities: { "gpt-4": { supports_vision: true } },
-				expectedFailures: ["modelInfo"],
+				models: { capabilities: { "gpt-4": { supports_vision: true } } },
+				discovery: { expectedFailures: ["modelInfo"] },
 			},
 		];
 		harness.controller.open();
@@ -814,9 +817,9 @@ suite("extension/dashboard/panel", () => {
 				{
 					label: "Prod",
 					baseUrl: "http://prod.test",
-					modelCapabilities: { "gpt-4": { supports_vision: true } },
-					expectedFailures: ["modelInfo"],
-					apiKey: "sk-rotated",
+					models: { capabilities: { "gpt-4": { supports_vision: true } } },
+					discovery: { expectedFailures: ["modelInfo"] },
+					auth: { apiKey: "sk-rotated" },
 				},
 			],
 		]);
@@ -874,7 +877,7 @@ suite("extension/dashboard/panel", () => {
 		await settle();
 
 		assert.deepStrictEqual(harness.serverWrites, [
-			[{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-inline" }],
+			[{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-inline" } }],
 		]);
 		const messages = fake.posted as ExtensionToWebviewMessage[];
 		const ack = messages.find((m) => m.type === "intentSucceeded");
@@ -978,9 +981,9 @@ suite("extension/dashboard/panel", () => {
 	test("readInlineSecrets answers with inline values only: secure and absent fields carry no key", async () => {
 		const harness = makeHarness();
 		harness.serversSetting = [
-			{ label: "Inline", baseUrl: "http://a.test", apiKey: "sk-inline" },
+			{ label: "Inline", baseUrl: "http://a.test", auth: { apiKey: "sk-inline" } },
 			// Mixed entry: inline key, everything else lives elsewhere or nowhere.
-			{ label: "Mixed", baseUrl: "http://c.test", apiKey: "sk-mixed", virtualKeyHeader: "x-vk" },
+			{ label: "Mixed", baseUrl: "http://c.test", auth: { apiKey: "sk-mixed", virtualKey: { header: "x-vk" } } },
 		];
 		harness.controller.open();
 		const fake = harness.panels[0];
@@ -999,7 +1002,7 @@ suite("extension/dashboard/panel", () => {
 
 	test("readInlineSecrets triggers no state push, and the value never reaches the log", async () => {
 		const harness = makeHarness();
-		harness.serversSetting = [{ label: "Inline", baseUrl: "http://a.test", apiKey: "sk-inline-value" }];
+		harness.serversSetting = [{ label: "Inline", baseUrl: "http://a.test", auth: { apiKey: "sk-inline-value" } }];
 		harness.controller.open();
 		const fake = harness.panels[0];
 		assert.ok(fake);
@@ -1108,18 +1111,18 @@ suite("extension/dashboard/panel", () => {
 			assert.strictEqual(
 				await harness.controller.injectMessageForTest({
 					type: "setBooleanSetting",
-					setting: "maskApiKeyInput",
+					setting: "ui.maskSecretInputs",
 					value: true,
 				}),
 				"ok"
 			);
-			assert.deepStrictEqual(harness.updates.at(-1), ["maskApiKeyInput", true]);
+			assert.deepStrictEqual(harness.updates.at(-1), ["ui.maskSecretInputs", true]);
 
 			assert.strictEqual(await harness.controller.injectMessageForTest({ junk: 1 }), "ignored-malformed");
 			assert.strictEqual(
 				await harness.controller.injectMessageForTest({
 					type: "setNumberSetting",
-					setting: "requestTimeout",
+					setting: "chat.timeout",
 					value: -1,
 				}),
 				"validation-error"
@@ -1183,7 +1186,7 @@ suite("extension/dashboard/panel", () => {
 			{
 				label: "Team A",
 				baseUrl: "http://prod.test",
-				modelParameters: { "gpt-4": { temperature: 0.2 } },
+				models: { parameters: { "gpt-4": { temperature: 0.2 } } },
 			},
 			{ label: "No Params", baseUrl: "http://prod.test" },
 		];
