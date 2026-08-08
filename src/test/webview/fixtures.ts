@@ -21,27 +21,22 @@ type ExternalServer = Extract<DashboardServer, { origin: "external" }>;
 export function makeSettings(overrides: Partial<DashboardSettings> = {}): DashboardSettings {
 	return {
 		numbers: {
-			defaultMaxOutputTokens: 16000,
-			defaultContextLength: 128000,
-			defaultMaxInputTokens: null,
-			requestTimeout: 300000,
-			discoveryTimeout: 30000,
-			discoveryCacheTtl: 3600000,
+			"chat.timeout": 300000,
+			"discovery.timeout": 30000,
+			"discovery.cacheTtl": 3600000,
+			"usage.pollInterval": 300000,
 		},
-		booleans: { "promptCaching.enabled": true, maskApiKeyInput: true, "openRouterCatalog.enabled": true },
+		booleans: { "chat.promptCaching": true, "ui.maskSecretInputs": true, "models.openRouterCatalog": true },
 		configuredScopes: {
 			numbers: {
-				defaultMaxOutputTokens: null,
-				defaultContextLength: null,
-				defaultMaxInputTokens: null,
-				requestTimeout: null,
-				discoveryTimeout: null,
-				discoveryCacheTtl: null,
+				"chat.timeout": null,
+				"discovery.timeout": null,
+				"discovery.cacheTtl": null,
+				"usage.pollInterval": null,
 			},
-			booleans: { "promptCaching.enabled": null, maskApiKeyInput: null, "openRouterCatalog.enabled": null },
+			booleans: { "chat.promptCaching": null, "ui.maskSecretInputs": null, "models.openRouterCatalog": null },
 		},
 		modelParameters: { editScope: "global", value: {}, otherScopes: [], effective: {} },
-		headers: { editScope: "global", value: {}, otherScopes: [], effective: {} },
 		...overrides,
 	};
 }

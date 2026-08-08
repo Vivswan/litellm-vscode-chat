@@ -96,7 +96,7 @@ suite("provider/request full-pipeline pass-through properties", () => {
 					// captureRequestBody stacks a fresh handler set per call; reset so
 					// a long nightly run does not accumulate hundreds of handlers.
 					mswServer.resetHandlers();
-					const body = await withConfig({ modelParameters: { "test-model": modelParams } }, () =>
+					const body = await withConfig({ "models.parameters": { "test-model": modelParams } }, () =>
 						captureRequestBody(
 							createConfiguredProvider(),
 							makeModelInfo(),
@@ -150,7 +150,7 @@ suite("provider/request full-pipeline pass-through properties", () => {
 				async (optionsMax, paramsMax, modelMax) => {
 					mswServer.resetHandlers();
 					const body = await withConfig(
-						{ modelParameters: { "test-model": paramsMax !== undefined ? { max_tokens: paramsMax } : {} } },
+						{ "models.parameters": { "test-model": paramsMax !== undefined ? { max_tokens: paramsMax } : {} } },
 						() =>
 							captureRequestBody(createConfiguredProvider(), makeModelInfo({ maxOutputTokens: modelMax }), {
 								toolMode: vscode.LanguageModelChatToolMode.Auto,

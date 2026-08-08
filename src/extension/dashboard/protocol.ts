@@ -481,12 +481,10 @@ export interface DashboardModel {
  * numberSettingPresentation instead.
  */
 export const NUMBER_SETTING_UNITS = {
-	defaultMaxOutputTokens: "tokens",
-	defaultContextLength: "tokens",
-	defaultMaxInputTokens: "tokens",
-	requestTimeout: "ms",
-	discoveryTimeout: "ms",
-	discoveryCacheTtl: "ms",
+	"chat.timeout": "ms",
+	"discovery.timeout": "ms",
+	"discovery.cacheTtl": "ms",
+	"usage.pollInterval": "ms",
 } as const satisfies Record<NumberSettingId, "ms" | "tokens">;
 
 /** One number setting's presentation strings, resolved per call so the l10n bundle is honored. */
@@ -497,8 +495,6 @@ export interface NumberSettingPresentation {
 	readonly unit: string;
 	/** What a configured 0 means, when 0 is legal and has a special reading (the cache TTL). */
 	readonly zeroMeaning?: string;
-	/** The empty field's hint on a nullable setting: what being unset means, e.g. "derived from context length". */
-	readonly placeholder?: string;
 }
 
 /**
@@ -512,43 +508,31 @@ export interface NumberSettingPresentation {
  */
 export function numberSettingPresentation(id: NumberSettingId): NumberSettingPresentation {
 	switch (id) {
-		case "defaultMaxOutputTokens":
-			return {
-				label: l10n.t("Default max output tokens"),
-				description: l10n.t("Used when the server does not report a limit."),
-				unit: l10n.t({ message: "tokens", comment: ["Unit suffix after token-count inputs; LLM tokens."] }),
-			};
-		case "defaultContextLength":
-			return {
-				label: l10n.t("Default context length"),
-				description: l10n.t("Used when the server does not report a context window."),
-				unit: l10n.t({ message: "tokens", comment: ["Unit suffix after token-count inputs; LLM tokens."] }),
-			};
-		case "defaultMaxInputTokens":
-			return {
-				label: l10n.t("Default max input tokens"),
-				description: l10n.t("Leave empty to derive it as context length minus output tokens."),
-				unit: l10n.t({ message: "tokens", comment: ["Unit suffix after token-count inputs; LLM tokens."] }),
-				placeholder: l10n.t("derived from context length"),
-			};
-		case "requestTimeout":
+		case "chat.timeout":
 			return {
 				label: l10n.t("Request timeout"),
 				description: l10n.t("Hard bound for one chat completion call."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
-		case "discoveryTimeout":
+		case "discovery.timeout":
 			return {
 				label: l10n.t("Discovery timeout"),
 				description: l10n.t("Hard bound for one model discovery call."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
-		case "discoveryCacheTtl":
+		case "discovery.cacheTtl":
 			return {
 				label: l10n.t("Discovery cache lifetime"),
 				description: l10n.t("How long discovered model lists are reused; 0 asks the server on every refresh."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("every refresh"),
+			};
+		case "usage.pollInterval":
+			return {
+				label: l10n.t("Usage poll interval"),
+				description: l10n.t("How often per-server spend and budget data refresh; 0 turns polling off."),
+				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
+				zeroMeaning: l10n.t("polling off"),
 			};
 	}
 }
@@ -619,23 +603,15 @@ function draftValue(id: NumberSettingId, text: string): number | undefined {
 }
 
 /**
- * What a modified number row shows as the setting's built-in default. The one
- * null default (defaultMaxInputTokens) has no number to show - its effective
- * value is computed per model at request time - so it reads "derived", never
- * an invented number. Millisecond defaults speak the same duration idiom as
- * the field's equivalence hint ("5 min", not "300000"), so the two read
- * consistently side by side - but only when the duration is exact: a "~"
- * approximation would misstate what the default actually is, so those fall
- * back to the raw number.
+ * What a modified number row shows as the setting's built-in default.
+ * Millisecond defaults speak the same duration idiom as the field's
+ * equivalence hint ("5 min", not "300000"), so the two read consistently side
+ * by side - but only when the duration is exact: a "~" approximation would
+ * misstate what the default actually is, so those fall back to the raw
+ * number.
  */
 export function defaultDisplay(id: NumberSettingId): string {
 	const spec = NUMBER_SETTING_SPECS[id];
-	if (spec.default === null) {
-		return l10n.t({
-			message: "derived",
-			comment: ["Shown as the built-in default of a setting whose value is computed per model rather than configured."],
-		});
-	}
 	if (NUMBER_SETTING_UNITS[id] === "ms") {
 		const duration = formatDuration(spec.default);
 		if (duration?.exact) {
@@ -673,17 +649,17 @@ export interface BooleanSettingPresentation {
  */
 export function booleanSettingPresentation(id: BooleanSettingId): BooleanSettingPresentation {
 	switch (id) {
-		case "promptCaching.enabled":
+		case "chat.promptCaching":
 			return {
 				label: l10n.t("Prompt caching"),
 				description: l10n.t("Cache the system prompt on models that advertise support."),
 			};
-		case "maskApiKeyInput":
+		case "ui.maskSecretInputs":
 			return {
-				label: l10n.t("Mask API key input"),
-				description: l10n.t("Hide the API key while typing it into configuration prompts."),
+				label: l10n.t("Mask secret inputs"),
+				description: l10n.t("Hide API keys and other credentials while typing them into configuration prompts."),
 			};
-		case "openRouterCatalog.enabled":
+		case "models.openRouterCatalog":
 			return {
 				label: l10n.t("OpenRouter catalog"),
 				description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
@@ -695,18 +671,17 @@ export const BOOLEAN_SETTING_IDS = Object.keys(BOOLEAN_SETTING_SPECS) as readonl
 
 /**
  * The settings the revealSetting intent may name: exactly what the Settings
- * tab renders rows or editors for - the scalars plus the two record settings.
+ * tab renders rows or editors for - the scalars plus the record setting.
  * A classification list, not free text: only these ids cross the webview
  * boundary, and the extension resolves each to "litellm-vscode-chat.<id>"
  * itself.
  */
-export type RevealableSettingId = NumberSettingId | BooleanSettingId | "modelParameters" | "headers";
+export type RevealableSettingId = NumberSettingId | BooleanSettingId | "models.parameters";
 
 export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = [
 	...NUMBER_SETTING_IDS,
 	...BOOLEAN_SETTING_IDS,
-	"modelParameters",
-	"headers",
+	"models.parameters",
 ];
 
 /**
@@ -866,7 +841,6 @@ export interface DashboardSettings {
 		readonly booleans: Readonly<Record<BooleanSettingId, SettingScope | null>>;
 	};
 	readonly modelParameters: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
-	readonly headers: ScopedRecordSetting<HeaderScalar>;
 }
 
 /**
@@ -1134,7 +1108,6 @@ export type WebviewToExtensionMessage =
 	/** Open the user settings.json at "litellm-vscode-chat.<setting>"; only ids from REVEALABLE_SETTING_IDS cross. */
 	| { readonly type: "revealSetting"; readonly setting: RevealableSettingId }
 	| { readonly type: "setModelParameters"; readonly value: Record<string, Record<string, unknown>> }
-	| { readonly type: "setHeaders"; readonly value: Record<string, HeaderScalar> }
 	| {
 			readonly type: "saveServerSetting";
 			readonly server: SaveServerPayload;
@@ -1291,8 +1264,8 @@ export function parseHeaderValue(text: string): HeaderScalar {
 			return parsed;
 		}
 		// Non-finite numbers (JSON.parse("1e999") is Infinity) fall through to
-		// the literal string: isHeaderScalar refuses them at the setHeaders
-		// intent boundary, so parsing them as numbers would make Apply a
+		// the literal string: isHeaderScalar refuses them at the header-record
+		// parse boundary, so parsing them as numbers would make Apply a
 		// silent no-op - the draft looks applied, no failure is acked, and the
 		// setting is never written. The literal string is the only lossless,
 		// sendable reading.

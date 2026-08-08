@@ -43,12 +43,18 @@ export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly label: string;
 	readonly baseUrl: string;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
-	/** The entry's per-entry modelParameters (non-secret user configuration); the edit form's prefill. */
+	/** The entry's custom HTTP headers (non-secret user configuration); the edit form's prefill. */
+	readonly headers?: Readonly<Record<string, string>> | undefined;
+	/** The entry's per-entry models.parameters record (non-secret user configuration); the edit form's prefill. */
 	readonly modelParameters?: EntryModelParameters | undefined;
-	/** The entry's per-entry modelCapabilities (non-secret user configuration); the edit form's prefill. */
+	/** The entry's per-entry models.capabilities record (non-secret user configuration); the edit form's prefill. */
 	readonly modelCapabilities?: EntryModelCapabilities | undefined;
 	/** The discovery-failure categories the entry expects; non-secret, like the records above. */
 	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
+	/** The entry's discovery.declared model IDs; non-secret, like the records above. */
+	readonly declaredModels?: readonly string[] | undefined;
+	/** The entry's manual usage budget in USD (non-secret user configuration); the usage surfaces read it. */
+	readonly budget?: number | undefined;
 	/**
 	 * The group client ID the entry's resolved configuration produces: the same
 	 * identity the provider stamps on its status snapshots, so the dashboard can
@@ -158,10 +164,14 @@ export interface ServerSyncEnv {
  * group name as a configuration property because the host echoes only the
  * configuration back to the provider, never the name; it is what gives
  * entries sharing a base URL and credentials distinct group identities.
- * The entry's modelParameters, modelCapabilities, and expectedFailures
- * deliberately stay out: they are read extension-side (at request,
- * registration, and discovery time), so editing them must not change the
- * fingerprint or churn the group.
+ * The entry's headers, modelParameters, modelCapabilities, expectedFailures,
+ * declaredModels, and budget deliberately stay out: they are read
+ * extension-side (at request, registration, discovery, and usage time), so
+ * editing them must not change the fingerprint or churn the group. The
+ * settings shape of an entry is nested (auth/headers/models/discovery), but
+ * the parser flattens the credentials onto the fields this function has
+ * always emitted, so the args - and every stored fingerprint - are stable
+ * across the entry restructure (serverSync.test.ts pins the stability).
  */
 export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecrets): Record<string, string> {
 	const args: Record<string, string> = {
@@ -645,9 +655,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 				label: entry.label,
 				baseUrl: entry.baseUrl,
 				...pickNonSecretOptionalFields(entry),
+				...(entry.headers !== undefined ? { headers: entry.headers } : {}),
 				...(entry.modelParameters !== undefined ? { modelParameters: entry.modelParameters } : {}),
 				...(entry.modelCapabilities !== undefined ? { modelCapabilities: entry.modelCapabilities } : {}),
 				...(entry.expectedFailures !== undefined ? { expectedFailures: entry.expectedFailures } : {}),
+				...(entry.declaredModels !== undefined ? { declaredModels: entry.declaredModels } : {}),
+				...(entry.budget !== undefined ? { budget: entry.budget } : {}),
 				secrets: secretLocations(entry, stored),
 				expectedClientId,
 				expectedConnectionId,

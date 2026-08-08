@@ -231,7 +231,7 @@ suite("provider groups", () => {
 			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
-		await withConfig({ "promptCaching.enabled": true }, () =>
+		await withConfig({ "chat.promptCaching": true }, () =>
 			provider.provideLanguageModelChatResponse(
 				expectDefined(infos[0]),
 				[systemMessage("You are helpful."), userMessage("hi")],
@@ -281,7 +281,7 @@ suite("provider groups", () => {
 			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
-		await withConfig({ modelParameters: {} }, () =>
+		await withConfig({ "models.parameters": {} }, () =>
 			provider.provideLanguageModelChatResponse(
 				expectDefined(infos[0]),
 				[userMessage("hi")],
@@ -334,7 +334,7 @@ suite("provider groups", () => {
 		);
 		assert.strictEqual(discoveryHits, 1, "the second sweep must be served from the discovery cache");
 
-		await withConfig({ modelParameters: {} }, () =>
+		await withConfig({ "models.parameters": {} }, () =>
 			provider.provideLanguageModelChatResponse(
 				expectDefined(secondSweep[0]),
 				[userMessage("hi")],
@@ -433,7 +433,7 @@ suite("provider groups", () => {
 			groupOptions({ baseUrl: TEST_BASE_URL }),
 			cancellation()
 		);
-		await withConfig({ modelParameters: {} }, () =>
+		await withConfig({ "models.parameters": {} }, () =>
 			provider.provideLanguageModelChatResponse(
 				expectDefined(infos[0]),
 				[userMessage("hi")],
@@ -463,7 +463,7 @@ suite("provider groups", () => {
 		);
 		await withConfig(
 			{
-				modelParameters: {
+				"models.parameters": {
 					"test-model": { temperature: 0.9 },
 					[`${TEST_BASE_URL}/test-model`]: { temperature: 0.1 },
 				},
@@ -593,7 +593,7 @@ suite("provider groups", () => {
 			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
 		);
 
-		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
 			const healthy = await provider.provideLanguageModelChatInformation(
 				groupOptions({ baseUrl: TEST_BASE_URL }),
 				cancellation()
@@ -644,7 +644,7 @@ suite("provider groups", () => {
 			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
 		);
 
-		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
 			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 
 			fail = true;
@@ -683,7 +683,7 @@ suite("provider groups", () => {
 			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
 		);
 
-		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
 			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 			fail = true;
 			await assert.rejects(
@@ -1106,7 +1106,7 @@ suite("provider groups: capability overrides and declared models", () => {
 		assert.strictEqual(expectDefined(plain[0]).maxOutputTokens, 8000);
 
 		await withConfig(
-			{ modelCapabilities: { "test-model": { max_output_tokens: 2048, supports_vision: true } } },
+			{ "models.capabilities": { "test-model": { max_output_tokens: 2048, supports_vision: true } } },
 			async () => {
 				const overridden = await provider.provideLanguageModelChatInformation(
 					groupOptions({ baseUrl: TEST_BASE_URL }),
@@ -1158,7 +1158,7 @@ suite("provider groups: capability overrides and declared models", () => {
 		const provider = makeProvider();
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 		await withConfig(
-			{ modelCapabilities: { [`${TEST_BASE_URL}/declared-model`]: { _declare: true, context_length: 32000 } } },
+			{ "models.capabilities": { [`${TEST_BASE_URL}/declared-model`]: { _declare: true, context_length: 32000 } } },
 			async () => {
 				const infos = await provider.provideLanguageModelChatInformation(
 					groupOptions({ baseUrl: TEST_BASE_URL }),
@@ -1268,7 +1268,7 @@ suite("provider groups: capability overrides and declared models", () => {
 		);
 		const group = groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" });
 
-		await withConfig({ discoveryCacheTtl: 0 }, async () => {
+		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
 			await provider.provideLanguageModelChatInformation(group, cancellation());
 			fail = true;
 			const served = await provider.provideLanguageModelChatInformation(group, cancellation());

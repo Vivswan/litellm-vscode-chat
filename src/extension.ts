@@ -17,7 +17,9 @@ import { ServerRegistry } from "./extension/servers/serverRegistry";
 import {
 	createServerSyncEnv,
 	parseServersSetting,
+	readEntryDeclaredModels,
 	readEntryExpectedFailures,
+	readEntryHeaders,
 	readEntryModelCapabilities,
 	readEntryModelParameters,
 	registerSetServerSecretCommand,
@@ -42,11 +44,9 @@ import {
 } from "./extension/ui/notifier";
 import { registerOpenSettingKeyCommand } from "./extension/ui/openSettingKey";
 import { StatusBarManager } from "./extension/ui/status";
-import type { DiscoveredGroupModels } from "./provider";
 import { LiteLLMChatModelProvider } from "./provider";
-import { DiscoveryCache } from "./provider/catalog/discoveryCache";
 import { CMD, VENDOR_ID } from "./shared/config/commandIds";
-import type { BooleanSettingId, NumberSettingId } from "./shared/config/settingSpec";
+import type { BooleanSettingId } from "./shared/config/settingSpec";
 import { CONFIG_SECTION } from "./shared/config/settingSpec";
 import {
 	isOpenRouterCatalogEnabled,
@@ -60,18 +60,7 @@ import type { AggregatedStatus } from "./shared/servers";
 import { debounced } from "./shared/util/debounce";
 import { GITHUB_DOCS_URL } from "./shared/util/links";
 
-/**
- * The deprecated default* trio: their values are baked into cached discovery
- * results, so an edit must drop the discovery cache before models re-resolve
- * (see the configuration listener in activate).
- */
-const TOKEN_DEFAULT_SETTING_IDS = [
-	"defaultMaxOutputTokens",
-	"defaultContextLength",
-	"defaultMaxInputTokens",
-] as const satisfies readonly NumberSettingId[];
-
-const OPENROUTER_CATALOG_SETTING_ID = "openRouterCatalog.enabled" satisfies BooleanSettingId;
+const OPENROUTER_CATALOG_SETTING_ID = "models.openRouterCatalog" satisfies BooleanSettingId;
 
 /** How long configuration-change bursts (settings.json keystrokes) coalesce before models re-resolve. */
 const CONFIG_CHANGE_DEBOUNCE_MS = 400;
@@ -119,10 +108,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// removal works by tombstoning): the provider consults the store on every
 	// group refresh, and tombstone changes fire the model-change event below.
 	const groupRemovals = new GroupRemovalStore(context.globalState);
-	// Owned here rather than defaulted inside the provider so the
-	// configuration listener below can drop it when the deprecated default*
-	// token settings change (their values are baked into cached results).
-	const discoveryCache = new DiscoveryCache<DiscoveredGroupModels>();
 	// The OpenRouter capability catalog: bundled snapshot, globalStorage cache,
 	// weekly refresh. Created before the provider because the provider's
 	// catalog seam reads its lookup; the snapshot loads later (see the
@@ -145,11 +130,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		// the registry path without the servers-setting sync machinery.
 		getEntryModelCapabilities: (label, baseUrl) =>
 			testEntryModelCapabilitiesOverride(label) ?? readEntryModelCapabilities(label, baseUrl),
+		getEntryHeaders: readEntryHeaders,
+		getEntryDeclaredModels: readEntryDeclaredModels,
 		getExpectedFailures: readEntryExpectedFailures,
 		getCatalogLookup: () => catalogStore.lookup,
 		grouplessRegistryEnabled: () => REGISTRY_SERVED_IN_MODE[getManagementUiMode()],
 		isGroupSuppressed: (label, baseUrl) => groupRemovals.isTombstoned(label, baseUrl),
-		discoveryCache,
 	});
 
 	// The setting itself is the truth here, not the sync engine's view: the
@@ -221,9 +207,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			const affects = (id: string) => event.affectsConfiguration(`${CONFIG_SECTION}.${id}`);
 			if (affects(SERVERS_SETTING_KEY)) {
 				// The sync alone cannot re-attach models for an entry whose
-				// modelCapabilities or expectedFailures changed: those fields stay
-				// out of the group args and the sync fingerprint, so the debounced
-				// notify is what makes the host re-resolve the groups.
+				// models records, headers, discovery block, or budget changed: those
+				// fields stay out of the group args and the sync fingerprint, so the
+				// debounced notify is what makes the host re-resolve the groups.
 				syncEngine.requestSync();
 				notifyModelsChanged.schedule();
 			}
@@ -238,14 +224,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 				// opting back in reschedules it; the registration effect - the
 				// implicit lookup turning on or off - is the notify.
 				catalogStore.applyEnabledSetting();
-				notifyModelsChanged.schedule();
-			}
-			if (TOKEN_DEFAULT_SETTING_IDS.some(affects)) {
-				// The trio's values are baked into cached discovery results, so the
-				// re-resolve must read through an empty cache. Cleared immediately
-				// (idempotent; the epoch guard covers in-flight loads), notify
-				// debounced with the rest.
-				discoveryCache.clear();
 				notifyModelsChanged.schedule();
 			}
 		})

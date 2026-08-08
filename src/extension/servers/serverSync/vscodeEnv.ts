@@ -19,7 +19,9 @@ import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engin
 import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./secrets";
 import type { EntryModelCapabilities, EntryModelParameters } from "./setting";
 import {
+	entryDeclaredModelsFor,
 	entryExpectedFailuresFor,
+	entryHeadersFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
 	parseServersSetting,
@@ -250,6 +252,24 @@ export function readEntryExpectedFailures(
 }
 
 /**
+ * The request and discovery paths' read of one declared entry's custom
+ * headers; the same live read and label-plus-URL match as
+ * readEntryModelParameters, injected the same way.
+ */
+export function readEntryHeaders(label: string, baseUrl: string): Readonly<Record<string, string>> | undefined {
+	return entryHeadersFor(readRawServersSetting(), label, baseUrl);
+}
+
+/**
+ * The registration path's read of one declared entry's discovery.declared
+ * model IDs; the same live read and label-plus-URL match as
+ * readEntryModelParameters, injected the same way.
+ */
+export function readEntryDeclaredModels(label: string, baseUrl: string): readonly string[] | undefined {
+	return entryDeclaredModelsFor(readRawServersSetting(), label, baseUrl);
+}
+
+/**
  * Palette display copy per secret field; UI strings stay out of the shared
  * descriptor. Resolved per call so the labels localize after l10n.config; the
  * Record keeps a missing label a compile error.
@@ -271,7 +291,14 @@ function secretPaletteLabel(field: SecretFieldId): string {
 export function registerSetServerSecretCommand(
 	context: vscode.ExtensionContext,
 	engine: ServerSyncEngine,
-	logger: Logger
+	logger: Logger,
+	/**
+	 * Notified after a stored secret changed; the usage poller re-probes
+	 * availability on it (a fixed key can lift a 401/403 classification).
+	 * With polling off the re-probe waits for the next explicit refresh -
+	 * the poller's documented no-background-requests promise.
+	 */
+	onSecretsChanged?: () => void
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.setServerSecret, async () => {
@@ -331,6 +358,7 @@ export function registerSetServerSecretCommand(
 				);
 			}
 			engine.requestSync();
+			onSecretsChanged?.();
 		})
 	);
 }

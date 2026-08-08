@@ -208,7 +208,7 @@ suite("provider/errorMapping properties", () => {
 				assert.strictEqual(timedOut.status, undefined);
 				assert.strictEqual(timedOut.message, timeoutMessage(ctx));
 				assert.ok(timedOut.message.includes(`${ctx.timeoutMs}ms`));
-				assert.ok(timedOut.message.includes(ctx.surface === "chat" ? "requestTimeout" : "discoveryTimeout"));
+				assert.ok(timedOut.message.includes(ctx.surface === "chat" ? "chat.timeout" : "discovery.timeout"));
 
 				// This layer maps SDK aborts to kind "aborted"; converting a
 				// cancellation to vscode.CancellationError is the caller's concern.

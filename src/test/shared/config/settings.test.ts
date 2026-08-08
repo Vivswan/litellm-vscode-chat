@@ -7,7 +7,9 @@ import {
 	getDiscoveryTimeout,
 	getModelCapabilitiesConfig,
 	getRequestTimeout,
+	getUsagePollIntervalMs,
 	MIN_TIMEOUT_MS,
+	MIN_USAGE_POLL_INTERVAL_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	normalizeCustomHeaders,
 	normalizeModelCapabilities,
@@ -17,7 +19,7 @@ import { expectDefined, withConfig } from "../../testUtils";
 suite("shared/config/settings timeout getters", () => {
 	test("pass valid timeouts through without logging", async () => {
 		const logged: unknown[] = [];
-		await withConfig({ discoveryTimeout: 5000 }, () => {
+		await withConfig({ "discovery.timeout": 5000 }, () => {
 			assert.strictEqual(
 				getDiscoveryTimeout(() => logged.push(true)),
 				5000
@@ -35,7 +37,7 @@ suite("shared/config/settings timeout getters", () => {
 
 	test("clamp sub-minimum values to the minimum and log", async () => {
 		const logged: { msg: string; data?: unknown }[] = [];
-		await withConfig({ requestTimeout: 500 }, () => {
+		await withConfig({ "chat.timeout": 500 }, () => {
 			assert.strictEqual(
 				getRequestTimeout((msg, data) => logged.push({ msg, data })),
 				MIN_TIMEOUT_MS
@@ -43,13 +45,13 @@ suite("shared/config/settings timeout getters", () => {
 		});
 		assert.strictEqual(logged.length, 1);
 		const entry = expectDefined(logged[0]);
-		assert.ok(entry.msg.includes("requestTimeout"));
+		assert.ok(entry.msg.includes("chat.timeout"));
 		assert.deepStrictEqual(entry.data, { configured: 500, clamped: MIN_TIMEOUT_MS });
 	});
 
 	test("fall back to the default for NaN", async () => {
 		const logged: unknown[] = [];
-		await withConfig({ discoveryTimeout: Number.NaN }, () => {
+		await withConfig({ "discovery.timeout": Number.NaN }, () => {
 			assert.strictEqual(
 				getDiscoveryTimeout(() => logged.push(true)),
 				DEFAULT_DISCOVERY_TIMEOUT_MS
@@ -61,7 +63,7 @@ suite("shared/config/settings timeout getters", () => {
 	test("fall back to the default for non-finite and non-number values", async () => {
 		for (const raw of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, "5000", undefined]) {
 			const logged: unknown[] = [];
-			await withConfig({ discoveryTimeout: raw }, () => {
+			await withConfig({ "discovery.timeout": raw }, () => {
 				assert.strictEqual(
 					getDiscoveryTimeout(() => logged.push(true)),
 					DEFAULT_DISCOVERY_TIMEOUT_MS,
@@ -76,13 +78,13 @@ suite("shared/config/settings timeout getters", () => {
 suite("shared/config/settings getDiscoveryCacheTtl", () => {
 	test("passes valid values through without logging, including 0", async () => {
 		const logged: unknown[] = [];
-		await withConfig({ discoveryCacheTtl: 60000 }, () => {
+		await withConfig({ "discovery.cacheTtl": 60000 }, () => {
 			assert.strictEqual(
 				getDiscoveryCacheTtl(() => logged.push(true)),
 				60000
 			);
 		});
-		await withConfig({ discoveryCacheTtl: 0 }, () => {
+		await withConfig({ "discovery.cacheTtl": 0 }, () => {
 			assert.strictEqual(
 				getDiscoveryCacheTtl(() => logged.push(true)),
 				0
@@ -99,21 +101,21 @@ suite("shared/config/settings getDiscoveryCacheTtl", () => {
 
 	test("clamps negative values to 0 and logs", async () => {
 		const logged: { msg: string; data?: unknown }[] = [];
-		await withConfig({ discoveryCacheTtl: -5 }, () => {
+		await withConfig({ "discovery.cacheTtl": -5 }, () => {
 			assert.strictEqual(
 				getDiscoveryCacheTtl((msg, data) => logged.push({ msg, data })),
 				0
 			);
 		});
 		const entry = expectDefined(logged[0]);
-		assert.ok(entry.msg.includes("discoveryCacheTtl"));
+		assert.ok(entry.msg.includes("discovery.cacheTtl"));
 		assert.deepStrictEqual(entry.data, { configured: -5, clamped: 0 });
 	});
 
 	test("falls back to the default for non-finite and non-number values", async () => {
 		for (const raw of [Number.NaN, Number.POSITIVE_INFINITY, "60000", null, true]) {
 			const logged: unknown[] = [];
-			await withConfig({ discoveryCacheTtl: raw }, () => {
+			await withConfig({ "discovery.cacheTtl": raw }, () => {
 				assert.strictEqual(
 					getDiscoveryCacheTtl(() => logged.push(true)),
 					DEFAULT_DISCOVERY_CACHE_TTL_MS,
@@ -195,6 +197,23 @@ suite("shared/config/settings normalizeModelCapabilities", () => {
 		});
 		await withConfig({}, () => {
 			assert.deepStrictEqual(getModelCapabilitiesConfig(), {});
+		});
+	});
+});
+
+suite("shared/config/settings getUsagePollIntervalMs", () => {
+	test("zero stays the off switch; tiny positive values clamp up; negatives clamp to zero", async () => {
+		await withConfig({ "usage.pollInterval": 0 }, () => {
+			assert.strictEqual(getUsagePollIntervalMs(), 0);
+		});
+		await withConfig({ "usage.pollInterval": 1 }, () => {
+			assert.strictEqual(getUsagePollIntervalMs(), MIN_USAGE_POLL_INTERVAL_MS, "a 1ms loop must not ship");
+		});
+		await withConfig({ "usage.pollInterval": -5 }, () => {
+			assert.strictEqual(getUsagePollIntervalMs(), 0, "negatives read as the off switch");
+		});
+		await withConfig({ "usage.pollInterval": 600000 }, () => {
+			assert.strictEqual(getUsagePollIntervalMs(), 600000);
 		});
 	});
 });

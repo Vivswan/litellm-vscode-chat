@@ -187,7 +187,7 @@ export function registerTestConnectionCommand(
 
 /**
  * Force-refresh every model list: discovery results are normally cached (see
- * the discoveryCacheTtl setting), and this is the user's way to skip the
+ * the discovery.cacheTtl setting), and this is the user's way to skip the
  * cache after changing models on a LiteLLM server. The outcome is read from
  * the connection status the refresh left behind, like the connection test.
  */

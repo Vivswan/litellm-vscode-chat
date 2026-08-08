@@ -194,12 +194,12 @@ function isUpstreamAuthFailure(error: unknown): boolean {
 export function timeoutMessage(ctx: MapErrorContext): string {
 	return ctx.surface === "chat"
 		? l10n.t(
-				'LiteLLM request timed out after {0}ms. Increase the "{1}.requestTimeout" setting if your model needs more time.',
+				'LiteLLM request timed out after {0}ms. Increase the "{1}.chat.timeout" setting if your model needs more time.',
 				ctx.timeoutMs,
 				CONFIG_SECTION
 			)
 		: l10n.t(
-				'LiteLLM model discovery timed out after {0}ms. Increase the "{1}.discoveryTimeout" setting if your server needs more time.',
+				'LiteLLM model discovery timed out after {0}ms. Increase the "{1}.discovery.timeout" setting if your server needs more time.',
 				ctx.timeoutMs,
 				CONFIG_SECTION
 			);
@@ -208,8 +208,8 @@ export function timeoutMessage(ctx: MapErrorContext): string {
 /** English mirror of timeoutMessage: what the English-by-policy log surfaces record (issueReporter.test.ts pins the English form). */
 function englishTimeoutMessage(ctx: MapErrorContext): string {
 	return ctx.surface === "chat"
-		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.requestTimeout" setting if your model needs more time.`
-		: `LiteLLM model discovery timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.discoveryTimeout" setting if your server needs more time.`;
+		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`
+		: `LiteLLM model discovery timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.discovery.timeout" setting if your server needs more time.`;
 }
 
 /** One constructor for every timed-out call, so a throw site cannot forget the display/English split. */

@@ -197,14 +197,13 @@ test("each section heading carries its own help", () => {
 	helpIn(headingByTitle("Models"), helpModelsSection());
 	helpIn(headingByTitle("Settings"), helpSettingsSection());
 	helpIn(headingByTitle("Model parameters"), helpModelParametersSection());
-	helpIn(headingByTitle("Custom headers"), helpText.helpCustomHeadersSection());
 
 	// Placement: the Servers heading sits in the page's top band, so its tip
 	// flips below the trigger; everything further down keeps the default
 	// above placement.
 	const wrapOf = (title: string) => helps(headingByTitle(title))[0]?.parentElement as HTMLElement;
 	expect(wrapOf("Servers").classList.contains("below")).toBe(true);
-	for (const title of ["Models", "Settings", "Model parameters", "Custom headers"]) {
+	for (const title of ["Models", "Settings", "Model parameters"]) {
 		expect(wrapOf(title).classList.contains("below"), title).toBe(false);
 	}
 });
@@ -273,7 +272,7 @@ test("settings rows show help only where the one-line description is not enough"
 		helpIn(row.querySelector(".setting-head"), settingRowHelp(id) ?? "");
 	}
 	// A row with a self-sufficient description stays clean: no duplicate "?".
-	const plain = rowFor("defaultContextLength");
+	const plain = rowFor("ui.maskSecretInputs");
 	expect(plain).not.toBeNull();
 	expect(helps(plain as ParentNode).length).toBe(0);
 });

@@ -203,10 +203,10 @@ suite("provider/request contract", () => {
 		});
 	});
 
-	suite("modelParameters configuration", () => {
+	suite("models.parameters configuration", () => {
 		test("exact model ID match returns parameters", async () => {
 			const params = await withConfig(
-				{ modelParameters: { "gpt-4": { temperature: 0.8, max_tokens: 8000 } } },
+				{ "models.parameters": { "gpt-4": { temperature: 0.8, max_tokens: 8000 } } },
 				() => getModelParameters("gpt-4").params
 			);
 			assert.deepEqual(params, { temperature: 0.8, max_tokens: 8000 });
@@ -214,13 +214,13 @@ suite("provider/request contract", () => {
 
 		test("an exact key matches only its exact ID; a trailing glob matches the family", async () => {
 			const exactOnly = await withConfig(
-				{ modelParameters: { "gpt-4": { temperature: 0.7 } } },
+				{ "models.parameters": { "gpt-4": { temperature: 0.7 } } },
 				() => getModelParameters("gpt-4-turbo:openai").params
 			);
 			assert.deepEqual(exactOnly, {}, "exact keys are no longer implicit prefixes");
 
 			const viaGlob = await withConfig(
-				{ modelParameters: { "gpt-4*": { temperature: 0.7 } } },
+				{ "models.parameters": { "gpt-4*": { temperature: 0.7 } } },
 				() => getModelParameters("gpt-4-turbo:openai").params
 			);
 			assert.deepEqual(viaGlob, { temperature: 0.7 });
@@ -229,7 +229,7 @@ suite("provider/request contract", () => {
 		test("the glob with the longest literal prefix takes precedence", async () => {
 			const params = await withConfig(
 				{
-					modelParameters: {
+					"models.parameters": {
 						"gpt*": { temperature: 0.5 },
 						"gpt-4*": { temperature: 0.7 },
 						"gpt-4-turbo*": { temperature: 0.9 },
@@ -242,7 +242,7 @@ suite("provider/request contract", () => {
 
 		test("no match returns empty object", async () => {
 			const params = await withConfig(
-				{ modelParameters: { "gpt-4": { temperature: 0.7 } } },
+				{ "models.parameters": { "gpt-4": { temperature: 0.7 } } },
 				() => getModelParameters("claude-opus").params
 			);
 			assert.deepEqual(params, {});
@@ -253,10 +253,10 @@ suite("provider/request contract", () => {
 			assert.deepEqual(params, {});
 		});
 
-		test("modelParameters supports various parameter types", async () => {
+		test("models.parameters supports various parameter types", async () => {
 			const params = await withConfig(
 				{
-					modelParameters: {
+					"models.parameters": {
 						"test-model": {
 							temperature: 0.8,
 							max_tokens: 4096,
@@ -286,7 +286,7 @@ suite("provider/request contract", () => {
 			// the owning server entry.
 			const params = await withConfig(
 				{
-					modelParameters: {
+					"models.parameters": {
 						"http://litellm.test/gpt-4": { temperature: 0.2 },
 						"gpt-4": { temperature: 0.8 },
 					},
@@ -299,7 +299,7 @@ suite("provider/request contract", () => {
 		test("a pre-migration label scope no longer matches", async () => {
 			const params = await withConfig(
 				{
-					modelParameters: {
+					"models.parameters": {
 						"Production/gpt-4": { temperature: 0.4 },
 						"gpt-4": { temperature: 0.8 },
 					},
@@ -310,14 +310,14 @@ suite("provider/request contract", () => {
 		});
 	});
 
-	suite("per-entry modelParameters", () => {
+	suite("per-entry models.parameters", () => {
 		/** A model whose attached group server carries the declared entry's label. */
 		const labeledModel = (label: string) =>
 			attachGroupServer(makeModelInfo(), { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "test-key", label });
 
 		test("entry parameters override the global match key by key", async () => {
 			const params = await withConfig(
-				{ modelParameters: { "gpt-4*": { temperature: 0.8, top_p: 0.9 } } },
+				{ "models.parameters": { "gpt-4*": { temperature: 0.8, top_p: 0.9 } } },
 				() => getModelParameters("gpt-4-turbo", { "gpt-4*": { temperature: 0.2 } }).params
 			);
 			assert.deepEqual(params, { temperature: 0.2, top_p: 0.9 });
@@ -325,7 +325,7 @@ suite("provider/request contract", () => {
 
 		test("the most specific matcher wins within the entry record; URL keys are inert there too", async () => {
 			const params = await withConfig(
-				{ modelParameters: {} },
+				{ "models.parameters": {} },
 				() =>
 					getModelParameters("gpt-4-turbo", {
 						"gpt*": { temperature: 0.5 },
@@ -346,14 +346,14 @@ suite("provider/request contract", () => {
 				{
 					label: "team-a",
 					baseUrl: TEST_BASE_URL,
-					modelParameters: { "test-model": { temperature: 0.1, top_p: 0.9 } },
+					models: { parameters: { "test-model": { temperature: 0.1, top_p: 0.9 } } },
 				},
-				{ label: "team-b", baseUrl: TEST_BASE_URL, modelParameters: { "test-model": { temperature: 0.6 } } },
+				{ label: "team-b", baseUrl: TEST_BASE_URL, models: { parameters: { "test-model": { temperature: 0.6 } } } },
 			];
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryModelParameters: (label, baseUrl) => entryModelParametersFor(setting, label, baseUrl),
 			});
-			const globalConfig = { modelParameters: { "test-model": { temperature: 0.8, seed: 7 } } };
+			const globalConfig = { "models.parameters": { "test-model": { temperature: 0.8, seed: 7 } } };
 
 			const bodyA = await withConfig(globalConfig, () =>
 				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
@@ -375,12 +375,16 @@ suite("provider/request contract", () => {
 			// The declared entry lives at another URL, so the resolver refuses the
 			// pair even though the label matches.
 			const setting = [
-				{ label: "team-a", baseUrl: "http://elsewhere.test", modelParameters: { "test-model": { temperature: 0.1 } } },
+				{
+					label: "team-a",
+					baseUrl: "http://elsewhere.test",
+					models: { parameters: { "test-model": { temperature: 0.1 } } },
+				},
 			];
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryModelParameters: (label, baseUrl) => entryModelParametersFor(setting, label, baseUrl),
 			});
-			const body = await withConfig({ modelParameters: { "test-model": { temperature: 0.8 } } }, () =>
+			const body = await withConfig({ "models.parameters": { "test-model": { temperature: 0.8 } } }, () =>
 				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
 			);
 			assert.strictEqual(body.temperature, 0.8, "only the global setting applies");
@@ -388,12 +392,12 @@ suite("provider/request contract", () => {
 
 		test("a base URL match under a different label yields only the global setting", async () => {
 			const setting = [
-				{ label: "team-a", baseUrl: TEST_BASE_URL, modelParameters: { "test-model": { temperature: 0.1 } } },
+				{ label: "team-a", baseUrl: TEST_BASE_URL, models: { parameters: { "test-model": { temperature: 0.1 } } } },
 			];
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryModelParameters: (label, baseUrl) => entryModelParametersFor(setting, label, baseUrl),
 			});
-			const body = await withConfig({ modelParameters: { "test-model": { temperature: 0.8 } } }, () =>
+			const body = await withConfig({ "models.parameters": { "test-model": { temperature: 0.8 } } }, () =>
 				captureRequestBody(provider, labeledModel("team-b"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
 			);
 			assert.strictEqual(body.temperature, 0.8, "only the global setting applies");
@@ -405,7 +409,7 @@ suite("provider/request contract", () => {
 					"test-model": { temperature: 0.2, reasoning_effort: "low", max_tokens: 3333 },
 				}),
 			});
-			const body = await withConfig({ modelParameters: { "test-model": { max_tokens: 2222 } } }, () =>
+			const body = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
 				captureRequestBody(provider, labeledModel("team-a"), {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 					modelOptions: { temperature: 0.9 },
@@ -423,7 +427,7 @@ suite("provider/request contract", () => {
 					"test-model": { temperature: 0.2, reasoning_effort: "low", max_tokens: 9999, _force: true },
 				}),
 			});
-			const body = await withConfig({ modelParameters: { "test-model": { seed: 7, _force: ["seed"] } } }, () =>
+			const body = await withConfig({ "models.parameters": { "test-model": { seed: 7, _force: ["seed"] } } }, () =>
 				captureRequestBody(provider, labeledModel("team-a"), {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 					modelOptions: { temperature: 0.9, seed: 42, max_tokens: 1234 },
@@ -443,7 +447,7 @@ suite("provider/request contract", () => {
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryModelParameters: () => ({ "test-model": { _internal: true, top_p: 0.5 } }),
 			});
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
 			);
 			assert.strictEqual(body.top_p, 0.5);
@@ -467,7 +471,7 @@ suite("provider/request contract", () => {
 					},
 				}),
 			});
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(provider, labeledModel("team-a"), { toolMode: vscode.LanguageModelChatToolMode.Auto })
 			);
 			assert.strictEqual(body.model, "test-model");
@@ -492,7 +496,7 @@ suite("provider/request contract", () => {
 				baseUrl: normalizeBaseUrl(TEST_BASE_URL),
 				apiKey: "test-key",
 			});
-			const body = await withConfig({ modelParameters: { "test-model": { temperature: 0.8 } } }, () =>
+			const body = await withConfig({ "models.parameters": { "test-model": { temperature: 0.8 } } }, () =>
 				captureRequestBody(provider, unlabeled, { toolMode: vscode.LanguageModelChatToolMode.Auto })
 			);
 			assert.strictEqual(body.temperature, 0.8, "only the global setting applies");
@@ -555,21 +559,25 @@ suite("provider/request contract", () => {
 			assert.deepEqual(body.stream_options, { include_usage: true });
 		});
 
-		test("includes configured custom headers on chat requests", async () => {
-			const { headers } = await withConfig(
-				{
-					modelParameters: {},
-					headers: {
-						"x-litellm-api-key": "proxy-key",
-						"x-routing-env": "prod",
-						"Content-Type": "text/plain",
-						"User-Agent": "spoofed-agent",
-					},
-				},
-				() =>
-					captureRequest(createConfiguredProvider(), modelInfo, {
-						toolMode: vscode.LanguageModelChatToolMode.Auto,
-					})
+		test("includes a declared entry's custom headers on chat requests", async () => {
+			// Custom headers live on the server entry now (there is no global
+			// headers setting); the provider resolves them through the injected
+			// per-entry seam, matched by the connection's label and base URL.
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryHeaders: (label, headerBaseUrl) =>
+					label === "Default" && headerBaseUrl === TEST_BASE_URL
+						? {
+								"x-litellm-api-key": "proxy-key",
+								"x-routing-env": "prod",
+								"Content-Type": "text/plain",
+								"User-Agent": "spoofed-agent",
+							}
+						: undefined,
+			});
+			const { headers } = await withConfig({ "models.parameters": {} }, () =>
+				captureRequest(provider, modelInfo, {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+				})
 			);
 			assert.equal(headers["x-litellm-api-key"], "proxy-key");
 			assert.equal(headers["x-routing-env"], "prod");
@@ -580,7 +588,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("no parameters are injected when the user configures none", async () => {
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(createConfiguredProvider(), modelInfo, {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 				})
@@ -592,11 +600,13 @@ suite("provider/request contract", () => {
 			}
 		});
 
-		test("underscore-prefixed keys in modelParameters are not forwarded", async () => {
-			const body = await withConfig({ modelParameters: { "test-model": { _replaceDefaults: true, top_p: 0.9 } } }, () =>
-				captureRequestBody(createConfiguredProvider(), modelInfo, {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-				})
+		test("underscore-prefixed keys in models.parameters are not forwarded", async () => {
+			const body = await withConfig(
+				{ "models.parameters": { "test-model": { _replaceDefaults: true, top_p: 0.9 } } },
+				() =>
+					captureRequestBody(createConfiguredProvider(), modelInfo, {
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+					})
 			);
 			assert.strictEqual(body.top_p, 0.9);
 			assert.strictEqual(body._replaceDefaults, undefined, "Retired extension metadata must not reach the server");
@@ -662,8 +672,8 @@ suite("provider/request contract", () => {
 			assert.strictEqual(body.reasoning_effort, "low");
 		});
 
-		test("the picker choice outranks configured modelParameters", async () => {
-			const body = await withConfig({ modelParameters: { "test-model": { reasoning_effort: "low" } } }, () =>
+		test("the picker choice outranks configured models.parameters", async () => {
+			const body = await withConfig({ "models.parameters": { "test-model": { reasoning_effort: "low" } } }, () =>
 				captureRequestBody(createConfiguredProvider(), modelInfo, {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 					modelConfiguration: { reasoningEffort: "high" },
@@ -673,11 +683,13 @@ suite("provider/request contract", () => {
 		});
 
 		test("a malformed picker value drops and leaves lower-precedence sources intact", async () => {
-			const configured = await withConfig({ modelParameters: { "test-model": { reasoning_effort: "medium" } } }, () =>
-				captureRequestBody(createConfiguredProvider(), modelInfo, {
-					toolMode: vscode.LanguageModelChatToolMode.Auto,
-					modelConfiguration: { reasoningEffort: "extreme" },
-				})
+			const configured = await withConfig(
+				{ "models.parameters": { "test-model": { reasoning_effort: "medium" } } },
+				() =>
+					captureRequestBody(createConfiguredProvider(), modelInfo, {
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						modelConfiguration: { reasoningEffort: "extreme" },
+					})
 			);
 			assert.strictEqual(configured.reasoning_effort, "medium", "the invalid choice must not shadow the config");
 
@@ -802,8 +814,8 @@ suite("provider/request contract", () => {
 			],
 		});
 
-		test("runtime modelOptions.max_tokens wins over configured modelParameters", async () => {
-			const body = await withConfig({ modelParameters: { "test-model": { max_tokens: 2222 } } }, () =>
+		test("runtime modelOptions.max_tokens wins over configured models.parameters", async () => {
+			const body = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
 				captureRequestBody(createConfiguredProvider(), modelInfo, {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 					modelOptions: { max_tokens: 1234 },
@@ -813,7 +825,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("runtime modelOptions.max_tokens wins over the fallback cap", async () => {
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(createConfiguredProvider(), modelInfo, {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 					modelOptions: { max_tokens: 1234 },
@@ -822,8 +834,8 @@ suite("provider/request contract", () => {
 			assert.strictEqual(body.max_tokens, 1234);
 		});
 
-		test("configured modelParameters.max_tokens wins over the fallback cap", async () => {
-			const body = await withConfig({ modelParameters: { "test-model": { max_tokens: 2222 } } }, () =>
+		test("configured models.parameters.max_tokens wins over the fallback cap", async () => {
+			const body = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
 				captureRequestBody(createConfiguredProvider(), modelInfo, {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 				})
@@ -832,14 +844,14 @@ suite("provider/request contract", () => {
 		});
 
 		test("without runtime or configured value, falls back to min(4096, model max output)", async () => {
-			const bodyLargeModel = await withConfig({ modelParameters: {} }, () =>
+			const bodyLargeModel = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(createConfiguredProvider(), modelInfo, {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 				})
 			);
 			assert.strictEqual(bodyLargeModel.max_tokens, 4096, "Cap applies when the model allows more");
 
-			const bodySmallModel = await withConfig({ modelParameters: {} }, () =>
+			const bodySmallModel = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(createConfiguredProvider(), makeModelInfo({ maxOutputTokens: 2000 }), {
 					toolMode: vscode.LanguageModelChatToolMode.Auto,
 				})
@@ -848,7 +860,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("a server-declared output limit is sent uncapped", async () => {
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -863,7 +875,7 @@ suite("provider/request contract", () => {
 			// The capability override path stamps outputLimitSource: "user" on the
 			// model; the request path must honor it across the host round trip
 			// exactly like "provider" - the user's number is not a guess.
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					makeModelInfo({
@@ -881,7 +893,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("a defaults-derived output limit stays capped at 4096", async () => {
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -894,7 +906,7 @@ suite("provider/request contract", () => {
 
 		test("runtime and configured max_tokens still outrank a server-declared limit", async () => {
 			const declared = { discoveryPayload: infoListing({ max_output_tokens: 32000 }), useDiscoveredModel: true };
-			const runtime = await withConfig({ modelParameters: { "test-model": { max_tokens: 2222 } } }, () =>
+			const runtime = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -904,7 +916,7 @@ suite("provider/request contract", () => {
 			);
 			assert.strictEqual(runtime.max_tokens, 1234);
 
-			const configured = await withConfig({ modelParameters: { "test-model": { max_tokens: 2222 } } }, () =>
+			const configured = await withConfig({ "models.parameters": { "test-model": { max_tokens: 2222 } } }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -916,7 +928,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("a merged load-balanced model keeps its declared minimum uncapped", async () => {
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -931,7 +943,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("a merged model with an undeclared deployment falls back to the cap", async () => {
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -943,7 +955,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("an aggregate entry keeps a fully declared minimum uncapped", async () => {
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					makeModelInfo({ id: "test-model:cheapest" }),
@@ -958,7 +970,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("an aggregate entry falls back to the cap when any provider left its limit to defaults", async () => {
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					makeModelInfo({ id: "test-model:fastest" }),
@@ -974,7 +986,7 @@ suite("provider/request contract", () => {
 			// carry the merge's internal output_limit_source marker. Discovery,
 			// registration, and the chat request together must treat the claim as
 			// noise: with no declared limit, the request stays under the cap.
-			const body = await withConfig({ modelParameters: {} }, () =>
+			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					makeModelInfo({ id: "test-model:provider-0" }),
@@ -1041,7 +1053,7 @@ suite("provider/request contract", () => {
 		}
 
 		test("system message carries cache_control when the model supports caching and the setting is on", async () => {
-			const body = await withConfig({ "promptCaching.enabled": true }, () =>
+			const body = await withConfig({ "chat.promptCaching": true }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -1055,7 +1067,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("a tools + multi-turn request spends the full four-breakpoint budget", async () => {
-			const body = await withConfig({ "promptCaching.enabled": true }, () =>
+			const body = await withConfig({ "chat.promptCaching": true }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -1077,7 +1089,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("colliding anchors keep the request within budget", async () => {
-			const body = await withConfig({ "promptCaching.enabled": true }, () =>
+			const body = await withConfig({ "chat.promptCaching": true }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -1092,7 +1104,7 @@ suite("provider/request contract", () => {
 		});
 
 		test("no cache_control when the model does not advertise prompt caching support", async () => {
-			const body = await withConfig({ "promptCaching.enabled": true }, () =>
+			const body = await withConfig({ "chat.promptCaching": true }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
@@ -1104,8 +1116,8 @@ suite("provider/request contract", () => {
 			assert.strictEqual(countMarkers(body), 0, "no marker anywhere in the request");
 		});
 
-		test("no cache_control when promptCaching.enabled is off, even for supporting models", async () => {
-			const body = await withConfig({ "promptCaching.enabled": false }, () =>
+		test("no cache_control when chat.promptCaching is off, even for supporting models", async () => {
+			const body = await withConfig({ "chat.promptCaching": false }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
 					modelInfo,
