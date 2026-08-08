@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -317,6 +318,95 @@ suite("production activation", () => {
 			await fired;
 		} finally {
 			await config.update("models.openRouterCatalog", before, vscode.ConfigurationTarget.Global);
+		}
+	});
+
+	/**
+	 * This host's user settings.json, located by content: a unique sentinel is
+	 * written through the configuration API (into the registered headers
+	 * setting) and the per-label user-data dirs from .vscode-test.mjs are
+	 * scanned for the file that carries it. Content matching, not mtime,
+	 * because stale lvt-* dirs from earlier runs share the same shape.
+	 */
+	async function locateUserSettingsFile(sentinel: string): Promise<string> {
+		const label = "activation-production";
+		const roots = process.env.VSCODE_TEST_USER_DATA_DIR
+			? [path.join(process.env.VSCODE_TEST_USER_DATA_DIR, label)]
+			: (await fs.readdir(os.tmpdir()))
+					.filter((name) => new RegExp(`^lvt-\\d+-${label}$`).test(name))
+					.map((name) => path.join(os.tmpdir(), name));
+		for (const root of roots) {
+			const candidate = path.join(root, "User", "settings.json");
+			const content = await fs.readFile(candidate, "utf8").catch(() => undefined);
+			if (content?.includes(sentinel)) {
+				return candidate;
+			}
+		}
+		assert.fail(`no user settings.json carries the sentinel (scanned ${roots.length} candidate dir(s))`);
+	}
+
+	test("the host inspects and clears stale user-settings values for an uncontributed setting id", async function () {
+		// The settings-redesign migration's load-bearing host assumptions,
+		// pinned with an id that was never contributed so the pin cannot rot
+		// as settings come and go: (1) the host REFUSES writing a value to an
+		// unregistered key, so the only way a value exists is the real upgrade
+		// scenario - written while an older release contributed it - which the
+		// test reproduces by editing settings.json directly; (2) inspect()
+		// still reports such a stale value; (3) update(id, undefined, Global)
+		// is exempt from the unknown-key refusal and clears it (vs code's
+		// configurationEditing validate() exempts deletions).
+		this.timeout(20000);
+		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const probeId = "pinnedUncontributedProbe";
+		assert.strictEqual(config().inspect<number>(probeId)?.globalValue, undefined, "the probe id must start absent");
+		await assert.rejects(
+			async () => config().update(probeId, 42, vscode.ConfigurationTarget.Global),
+			// Matched loosely on purpose: the behavior is the pin, the host's
+			// exact wording is not.
+			/registered/,
+			"a VALUE write to an unregistered id must be refused (otherwise this pin seeds the easy way)"
+		);
+
+		const headersBefore = config().inspect<Record<string, unknown>>("headers")?.globalValue;
+		const sentinel = `lvt-pin-${process.pid}-${Date.now()}`;
+		try {
+			// INTEGRATION(R2): "headers" is this test's registered-write vehicle
+			// and leaves the manifest with the redesign - swap every "headers"
+			// write in this test to a surviving id (chat.timeout) once the
+			// renamed manifest lands, or these writes hit the refusal pinned
+			// above.
+			await config().update("headers", { "X-LVT-Pin": sentinel }, vscode.ConfigurationTarget.Global);
+			const settingsFile = await locateUserSettingsFile(sentinel);
+			const settings = JSON.parse(await fs.readFile(settingsFile, "utf8")) as Record<string, unknown>;
+			settings[`${CONFIG_SECTION}.${probeId}`] = 42;
+			await fs.writeFile(settingsFile, JSON.stringify(settings, null, "\t"));
+
+			// A write through the configuration API reloads the user
+			// configuration from disk, which picks the external edit up without
+			// depending on the file watcher (the flakiest link, especially on
+			// Windows); the poll below is only a safety net.
+			await config().update("headers", { "X-LVT-Pin": `${sentinel}-reload` }, vscode.ConfigurationTarget.Global);
+			const deadline = Date.now() + 10000;
+			while (config().inspect<number>(probeId)?.globalValue === undefined && Date.now() < deadline) {
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+			const inspected = config().inspect<number>(probeId);
+			assert.ok(inspected !== undefined, "inspect() must return a result for an uncontributed id");
+			assert.strictEqual(inspected.globalValue, 42, "the stale uncontributed value must be readable");
+
+			await config().update(probeId, undefined, vscode.ConfigurationTarget.Global);
+			assert.strictEqual(
+				config().inspect<number>(probeId)?.globalValue,
+				undefined,
+				"update(id, undefined, Global) must clear the stale uncontributed value"
+			);
+		} finally {
+			await config().update("headers", headersBefore, vscode.ConfigurationTarget.Global);
+			// Belt and braces: if the delete leg failed, the probe must not leak
+			// into later runs against a kept user-data dir.
+			await config()
+				.update(probeId, undefined, vscode.ConfigurationTarget.Global)
+				.then(undefined, () => {});
 		}
 	});
 });
