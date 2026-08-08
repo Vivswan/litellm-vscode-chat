@@ -371,6 +371,27 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 		});
 	});
 
+	test("a scoped mark follows its surviving field through an entry-side true expansion", () => {
+		// The entry's `true` expands to the ENTRY's own fields; the arriving
+		// scoped field keeps the level it had in the old world - here a
+		// fallback-marked scoped value must not surface as an override.
+		const before: SettingsSnapshot = {
+			servers: {
+				globalValue: [
+					{ label: "a", baseUrl: "https://gw", modelCapabilities: { m: { context_length: 1000, _fallback: true } } },
+				],
+			},
+			modelCapabilities: { globalValue: { "https://gw/m": { supports_vision: false, _fallback: true } } },
+		};
+		const { after } = migrate(before);
+		const servers = globalValueOf(after, "servers") as Record<string, unknown>[];
+		assert.deepStrictEqual(servers[0]?.models, {
+			capabilities: {
+				"m*": { context_length: 1000, _fallback: ["context_length", "supports_vision"], supports_vision: false },
+			},
+		});
+	});
+
 	test("an entry-side _force: true stays as written when the merge adds no field", () => {
 		const before: SettingsSnapshot = {
 			servers: {

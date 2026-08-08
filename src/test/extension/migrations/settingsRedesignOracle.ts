@@ -14,10 +14,18 @@
  * Both sides resolve the entry by the same acceptance rule (label + base URL
  * identity, first label wins), so the property isolates RESOLVER equivalence;
  * the entry-parser-vs-migration seam has its own coverage in the serverSync
- * suites. The walk-level values (the full capability walk, trio included)
- * compare under a fixed set of server baselines, values only - provenance is
- * allowed to differ where the redesign upgrades a migrated default to
- * user-set (the documented clamp-lifting change).
+ * suites. The walk-level views (the full capability walk, trio included)
+ * compare under a fixed set of server baselines - values, the output
+ * limit's wire provenance, and the implied wire max_tokens. Two INTENTIONAL
+ * divergences are characterized rather than hidden:
+ * - the migrated defaultMaxOutputTokens fill counts user-set (the clamp
+ *   lift): provenance may move "defaults" -> "user" exactly when the trio
+ *   output was configured, sending the full value where the old world sent
+ *   min(4096, value);
+ * - the old `_declare`+`_fallback` ban is RETIRED (capability records are
+ *   source-invariant by design): the comparable old view resolves BAN-FREE,
+ *   and the fields the ban rescued are reported for the property's
+ *   characterization assert.
  *
  * Scope notes (documented divergences the property skips, each pinned by a
  * dedicated test in the property file's divergence suite):
@@ -124,6 +132,23 @@ export const WALK_BASELINES: readonly ServerDeclaredCapabilities[] = [
 	},
 ];
 
+/** One full-walk view per WALK_BASELINES entry: effective values plus the output limit's wire provenance. */
+export interface WalkView {
+	readonly fields: Record<string, number | boolean>;
+	readonly outputLimitSource: "user" | "provider" | "defaults";
+}
+
+/**
+ * The wire max_tokens one walk implies when neither runtime options nor a
+ * configured parameter set one: the effective output limit, clamped to
+ * min(4096, limit) exactly when its provenance is "defaults" - the same rule
+ * on both sides of the redesign (resolveMaxTokens' capped-default branch).
+ */
+export function wireMaxTokens(walk: WalkView): number {
+	const limit = walk.fields.max_output_tokens as number;
+	return walk.outputLimitSource === "defaults" ? Math.min(4096, limit) : limit;
+}
+
 /** One comparable meaning of a configuration for (server, model). */
 export interface EffectiveView {
 	/** The effective configured request parameters (forced winners applied). */
@@ -136,8 +161,8 @@ export interface EffectiveView {
 	readonly capabilityFallbacks: Record<string, unknown>;
 	/** The exact model IDs declared for this server, sorted. */
 	readonly declared: readonly string[];
-	/** Full-walk effective values (trio included) per WALK_BASELINES entry; values only, never provenance. */
-	readonly walks: readonly Record<string, number | boolean>[];
+	/** Full-walk views (trio included) per WALK_BASELINES entry. */
+	readonly walks: readonly WalkView[];
 }
 
 type Snapshot = Readonly<Record<string, { readonly globalValue?: unknown }>>;
@@ -151,6 +176,15 @@ export type OldWorldResolve = (
 	skipEquivalence: boolean;
 	/** Skip only the walk-level comparison: the trio-fill flow corners live below the resolver views. */
 	skipWalks: boolean;
+	/**
+	 * Fields the RETIRED `_declare`+`_fallback` ban kept at override level in
+	 * the real old world. The view above is BAN-FREE (the redesign's
+	 * source-invariant semantics), so the property compares the migrated world
+	 * against it and characterizes the ban separately through this list.
+	 */
+	banRescuedFields: readonly string[];
+	/** True when defaultMaxOutputTokens was explicitly configured: the one source of the documented clamp lift. */
+	expectsOutputClampLift: boolean;
 };
 
 export type NewWorldResolve = (snapshot: Snapshot, server: OracleServer, modelId: string) => EffectiveView;
@@ -215,13 +249,19 @@ function explicitMatcherKey(prefix: string): string {
 function recordContribution(
 	record: Readonly<Record<string, unknown>>,
 	type: "params" | "caps"
-): { fieldKeys: ReadonlySet<string>; markedFields: ReadonlySet<string>; marked: boolean } {
+): { fieldKeys: ReadonlySet<string>; markedFields: ReadonlySet<string>; marked: boolean; junkDirective: boolean } {
+	// A junk list-directive value blocks the colliding merge from taking
+	// additions (it stays as written), so arriving marks drop with it.
+	const directive = type === "params" ? "_force" : "_fallback";
+	const raw = Object.hasOwn(record, directive) ? record[directive] : undefined;
+	const junkDirective = raw !== undefined && typeof raw !== "boolean" && !Array.isArray(raw);
 	if (type === "params") {
 		const parsed = parseOldParameterRecord(record);
 		return {
 			fieldKeys: new Set(Object.keys(parsed.fields)),
 			markedFields: new Set(parsed.forced),
 			marked: parsed.forced.size > 0,
+			junkDirective,
 		};
 	}
 	const parsed = parseOldCapabilityRecord(record, { allowDeclare: true });
@@ -229,6 +269,7 @@ function recordContribution(
 		fieldKeys: new Set(Object.keys(parsed.fields)),
 		markedFields: new Set(parsed.fallback),
 		marked: parsed.fallback.length > 0,
+		junkDirective,
 	};
 }
 
@@ -290,7 +331,11 @@ function descopingDiverges(
 		const entryContribution = recordContribution(entryWinner.value, type);
 		return (
 			intersects(scopedContribution.markedFields, entryContribution.fieldKeys) ||
-			intersects(entryContribution.markedFields, scopedContribution.fieldKeys)
+			intersects(entryContribution.markedFields, scopedContribution.fieldKeys) ||
+			// A junk directive on the entry side stays as written and cannot take
+			// the scoped marks (the merge's stays-as-written trade), so a marked
+			// scoped record diverges under it.
+			(entryContribution.junkDirective && scopedContribution.marked)
 		);
 	}
 	// Post-migration both live in the entry level and the more specific key
@@ -394,13 +439,28 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		serverScopes: scopes,
 		...(hasEntryCapabilities ? { entryCapabilities } : {}),
 	};
-	const caps = resolveOldCapabilityOverrides(capsInput);
+	// BAN-FREE resolution (the redesign's semantics: `_fallback` fills on
+	// declared models too) drives the comparable view; the real banned
+	// resolution rides along only to characterize the retired ban.
+	const caps = resolveOldCapabilityOverrides({ ...capsInput, liftDeclareFallbackBan: true });
+	const capsWithBan = resolveOldCapabilityOverrides(capsInput);
+	const banRescuedFields = Object.keys(CAPABILITY_FIELDS).filter((field) => {
+		const banned = capsWithBan.overrides[field as keyof typeof capsWithBan.overrides];
+		const lifted = caps.overrides[field as keyof typeof caps.overrides];
+		return banned !== lifted;
+	});
 	const declared = extractOldDeclaredModels(capsInput);
 
 	const tokenDefaults = oldTokenDefaults(snapshot);
-	const walks = WALK_BASELINES.map((serverDeclared) => ({
-		...resolveOldModelCapabilities({ ...capsInput, serverDeclared, tokenDefaults }),
-	}));
+	const walks: WalkView[] = WALK_BASELINES.map((serverDeclared) => {
+		const walk = resolveOldModelCapabilities({
+			...capsInput,
+			serverDeclared,
+			tokenDefaults,
+			liftDeclareFallbackBan: true,
+		});
+		return { fields: { ...walk.fields }, outputLimitSource: walk.outputLimitSource };
+	});
 
 	// The trio-fill flow corners (see the header): the OLD trio applied to
 	// every model regardless of other records, while the migrated "*" fill
@@ -419,16 +479,32 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		...(tokenDefaults.maxInputTokens !== undefined ? (["max_input_tokens"] as const) : []),
 	];
 	const oldPrefixMatches = (key: string): boolean => key === "*" || modelId === key || modelId.startsWith(key);
+	// A BLOCKED trio merge is a documented lossy state, not an equivalence
+	// target: an unmergeable "*" record (junk _fallback/_inheritable shapes)
+	// keeps the trio sources in place, logged every activation until the user
+	// repairs the record - the new world never reads them, while the old walk
+	// still did. Mirrors mergeTokenDefaults' gate over the record the rename
+	// will hand it ("*" beating "" on the tie).
+	const rawCatchAll = globalCapabilities["*"] ?? globalCapabilities[""];
+	const junkDirective = (record: Record<string, unknown>, directive: string): boolean => {
+		const raw = Object.hasOwn(record, directive) ? record[directive] : undefined;
+		return raw !== undefined && raw !== false && raw !== true && !Array.isArray(raw);
+	};
+	const trioMergeBlocked =
+		configuredTrioFields.length > 0 &&
+		rawCatchAll !== undefined &&
+		(junkDirective(rawCatchAll, "_fallback") || junkDirective(rawCatchAll, "_inheritable"));
 	const trioFlowDiverges =
 		configuredTrioFields.length > 0 &&
-		Object.entries(globalCapabilities).some(
-			([key, record]) =>
-				!key.includes("://") &&
-				oldPrefixMatches(key) &&
-				configuredTrioFields.some((field) =>
-					Object.hasOwn(parseOldCapabilityRecord(record, { allowDeclare: true }).fields, field)
-				)
-		);
+		(trioMergeBlocked ||
+			Object.entries(globalCapabilities).some(
+				([key, record]) =>
+					!key.includes("://") &&
+					oldPrefixMatches(key) &&
+					configuredTrioFields.some((field) =>
+						Object.hasOwn(parseOldCapabilityRecord(record, { allowDeclare: true }).fields, field)
+					)
+			));
 
 	const capabilityOverrides: Record<string, unknown> = {};
 	const capabilityFallbacks: Record<string, unknown> = {};
@@ -462,12 +538,30 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		forced: { ...params.forcedParams },
 		capabilityOverrides,
 		capabilityFallbacks,
-		declared: [...new Set(declared)].sort(),
+		declared: [...new Set([...declared, ...rawDeclaredList(entry)])].sort(),
 		walks,
 		skipEquivalence,
 		skipWalks: skipEquivalence || trioFlowDiverges,
+		banRescuedFields,
+		expectsOutputClampLift: tokenDefaults.maxOutputTokens.explicitlyConfigured,
 	};
 };
+
+/**
+ * A hand-mixed old-world entry can already carry the NEW discovery.declared
+ * field; the old runtime never read it, but the migration merges its list
+ * with the moved `_declare` IDs (existing entries first, deduped), so the
+ * expected new-world declared set is the union. Modeled on the OLD side so
+ * the property covers withEntryDeclares' merge-with-existing path.
+ */
+function rawDeclaredList(entry: Record<string, unknown> | undefined): readonly string[] {
+	const discovery = entry !== undefined && isRecord(entry.discovery) ? entry.discovery : undefined;
+	return Array.isArray(discovery?.declared)
+		? discovery.declared
+				.map((id) => (typeof id === "string" ? id.trim() : undefined))
+				.filter((id): id is string => id !== undefined && id !== "")
+		: [];
+}
 
 // --- The redesigned world, resolved by the LIVE resolvers -----------------
 
@@ -513,14 +607,17 @@ export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, mode
 		}
 	}
 
-	const walks = WALK_BASELINES.map((serverDeclared) => {
+	const walks: WalkView[] = WALK_BASELINES.map((serverDeclared) => {
 		const effective = resolveModelCapabilities({ ...capsInput, serverDeclared });
-		return Object.fromEntries(
-			Object.keys(CAPABILITY_FIELDS).map((field) => [
-				field,
-				effective.fields[field as keyof typeof CAPABILITY_FIELDS].value,
-			])
-		);
+		return {
+			fields: Object.fromEntries(
+				Object.keys(CAPABILITY_FIELDS).map((field) => [
+					field,
+					effective.fields[field as keyof typeof CAPABILITY_FIELDS].value,
+				])
+			),
+			outputLimitSource: effective.outputLimitSource,
+		};
 	});
 
 	const discovery = entry !== undefined && isRecord(entry.discovery) ? entry.discovery : undefined;
