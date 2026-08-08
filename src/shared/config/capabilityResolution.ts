@@ -87,7 +87,8 @@ type CapabilityConfigLayer = RecordLayer;
 /** A record diagnostic attributed to its configuration layer; see RecordDiagnostic for kinds and keys. */
 export interface CapabilityDiagnostic extends RecordDiagnostic {
 	readonly layer: CapabilityConfigLayer;
-}export interface ParsedCapabilityRecord extends ParsedRecord {
+}
+export interface ParsedCapabilityRecord extends ParsedRecord {
 	/** The validly typed capability fields; invalid and unknown keys are diagnosed away. */
 	readonly fields: Readonly<Partial<CapabilityFieldValues>>;
 	/** The `_openrouter_model` directive's catalog ID, when validly set. */
