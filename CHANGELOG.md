@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.5](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.4...v0.4.5) (2026-08-08)
+
+
+### Features
+
+* _fallback and _force directives for capability and parameter records ([#228](https://github.com/Vivswan/litellm-vscode-chat/issues/228)) ([6d807ad](https://github.com/Vivswan/litellm-vscode-chat/commit/6d807adece5e1bf047c108d6a66043e16a37eb76))
+* "*" catch-all prefix in modelParameters and modelCapabilities ([12f4192](https://github.com/Vivswan/litellm-vscode-chat/commit/12f4192d47df0be4fd71061aba9d08f2e7b401c3))
+* fallback and force editing in the dashboard ([#228](https://github.com/Vivswan/litellm-vscode-chat/issues/228)) ([f15c0c4](https://github.com/Vivswan/litellm-vscode-chat/commit/f15c0c4937ec5f1a2a86e112912e004e008f4f0b))
+* per-model capability overrides and declared models ([#228](https://github.com/Vivswan/litellm-vscode-chat/issues/228), thanks [@jiang-xiche](https://github.com/jiang-xiche)) ([ff78fad](https://github.com/Vivswan/litellm-vscode-chat/commit/ff78fad3f3fa26b46f0bac7bbe5cdd2f8f7404a4))
+
+
+### Bug Fixes
+
+* rearm the OpenRouter catalog scheduler after a refresh aborted while disabled ([4e1a468](https://github.com/Vivswan/litellm-vscode-chat/commit/4e1a468e7e9bb47685857dcb59d814b2c11c7621))
+
 ## [0.4.4](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.3...v0.4.4) (2026-08-02)
 
 
