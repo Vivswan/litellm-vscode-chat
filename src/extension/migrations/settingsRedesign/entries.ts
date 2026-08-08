@@ -78,6 +78,7 @@ export interface EntryRestructureCounts {
 	movedDeclares: number;
 	strippedInertDeclares: number;
 	droppedAliasKeys: number;
+	rewroteForceDirectives: number;
 }
 
 function emptyCounts(): EntryRestructureCounts {
@@ -88,6 +89,7 @@ function emptyCounts(): EntryRestructureCounts {
 		movedDeclares: 0,
 		strippedInertDeclares: 0,
 		droppedAliasKeys: 0,
+		rewroteForceDirectives: 0,
 	};
 }
 
@@ -126,19 +128,27 @@ function collectAuthFields(
  * values (counted by the caller): the old runtime ignored a partial oauth
  * entirely, while carrying it forward would make the whole entry
  * misconfigured (structurally incomplete auth is refused, ruling Q2 #3).
- * The virtualKey halves ride as-is: a header waiting for its stored secret
- * (or a value waiting for its header) must stay declared.
+ * A virtualKey HEADER without its value keeps riding - the value may rest in
+ * SecretStorage, and the parser accepts a header waiting for its secret
+ * (ruling Q2 #4). A VALUE without its header is the reverse: the parser
+ * refuses a headerless virtualKey (nothing could ever carry the value), and
+ * carrying it forward would misconfigure the whole entry, so it drops like
+ * the lone oauth pieces (counted; a stored blob under the label survives and
+ * a re-added header finds it).
  */
 function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 	auth: Record<string, unknown> | undefined;
-	droppedOauthPieces: number;
+	droppedAuthPieces: number;
 } {
+	let droppedVirtualKeyValues = 0;
 	const virtualKeyPairs: (readonly [string, unknown])[] = [];
 	if (fields.virtualKeyHeader !== undefined) {
 		virtualKeyPairs.push(["header", fields.virtualKeyHeader]);
-	}
-	if (fields.virtualKeyValue !== undefined) {
-		virtualKeyPairs.push(["value", fields.virtualKeyValue]);
+		if (fields.virtualKeyValue !== undefined) {
+			virtualKeyPairs.push(["value", fields.virtualKeyValue]);
+		}
+	} else if (fields.virtualKeyValue !== undefined) {
+		droppedVirtualKeyValues = 1;
 	}
 	const virtualKey = virtualKeyPairs.length > 0 ? fromPairs(virtualKeyPairs) : undefined;
 
@@ -160,22 +170,24 @@ function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 		if (virtualKey !== undefined) {
 			oauthPairs.push(["virtualKey", virtualKey]);
 		}
-		return { auth: { oauth: fromPairs(oauthPairs) }, droppedOauthPieces: 0 };
+		return { auth: { oauth: fromPairs(oauthPairs) }, droppedAuthPieces: droppedVirtualKeyValues };
 	}
 
-	const droppedOauthPieces = (["oauthTokenUrl", "oauthClientId", "oauthClientSecret", "oauthScopes"] as const).filter(
-		(id) => fields[id] !== undefined
-	).length;
+	const droppedAuthPieces =
+		droppedVirtualKeyValues +
+		(["oauthTokenUrl", "oauthClientId", "oauthClientSecret", "oauthScopes"] as const).filter(
+			(id) => fields[id] !== undefined
+		).length;
 	if (fields.apiKey !== undefined && virtualKey !== undefined) {
-		return { auth: { apiKey: fields.apiKey, virtualKey }, droppedOauthPieces };
+		return { auth: { apiKey: fields.apiKey, virtualKey }, droppedAuthPieces };
 	}
 	if (fields.apiKey !== undefined) {
-		return { auth: { apiKey: fields.apiKey }, droppedOauthPieces };
+		return { auth: { apiKey: fields.apiKey }, droppedAuthPieces };
 	}
 	if (virtualKey !== undefined) {
-		return { auth: { virtualKey }, droppedOauthPieces };
+		return { auth: { virtualKey }, droppedAuthPieces };
 	}
-	return { auth: undefined, droppedOauthPieces };
+	return { auth: undefined, droppedAuthPieces };
 }
 
 /**
@@ -192,8 +204,8 @@ function restructureEntry(record: Record<string, unknown>, counts: EntryRestruct
 	counts.restructuredEntries += 1;
 
 	const authFields = collectAuthFields(record, counts);
-	const { auth: flatAuth, droppedOauthPieces } = buildAuth(authFields);
-	counts.droppedJunkFields += droppedOauthPieces;
+	const { auth: flatAuth, droppedAuthPieces } = buildAuth(authFields);
+	counts.droppedJunkFields += droppedAuthPieces;
 
 	const modelPairs: (readonly [string, unknown])[] = [];
 	let declared: readonly string[] = [];
@@ -201,6 +213,7 @@ function restructureEntry(record: Record<string, unknown>, counts: EntryRestruct
 		const transform = transformEntryRecord(record.modelParameters, "parameters");
 		counts.starredKeys += transform.starredKeys;
 		counts.droppedAliasKeys += transform.droppedAliasKeys;
+		counts.rewroteForceDirectives += transform.rewroteForce;
 		modelPairs.push(["parameters", transform.value]);
 	}
 	if (Object.hasOwn(record, "modelCapabilities")) {

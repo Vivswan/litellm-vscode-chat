@@ -39,6 +39,11 @@
  *   walk comparison skips conservatively whenever a configured trio field is
  *   also set by a matching unscoped global record; the corners are pinned in
  *   the divergence suite.
+ * - A star-bearing old key migrates to an escaped anchored-prefix regex
+ *   (lossless match set), but the regex TIER ranks below globs, so ordering
+ *   against another matching key can differ from the old longest-prefix rule
+ *   (the ruling's accepted caveat). Skipped whenever a star-bearing key
+ *   matches beside any other matching key in the same record.
  * - Old configs carrying `_inheritable`/`_inherit_from` as then-inert
  *   underscore keys would ACTIVATE under the new grammar; the migration
  *   rides them verbatim by design (generators never emit them), so a corpus
@@ -197,7 +202,13 @@ export function acceptedServers(rawServers: unknown): OracleServer[] {
 
 /** The migration's key rewrite, replicated so the comparison uses post-migration key identity. */
 function explicitMatcherKey(prefix: string): string {
-	return prefix === "" || prefix === "*" ? "*" : `${prefix}*`;
+	if (prefix === "" || prefix === "*") {
+		return "*";
+	}
+	if (prefix.includes("*")) {
+		return `/${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*/`;
+	}
+	return `${prefix}*`;
 }
 
 /** The record's own contribution, judged by the record type's parse: field keys plus its mark set. */
@@ -252,7 +263,14 @@ function descopingDiverges(
 	const unscopedWinner = findLongestPrefixEntry(modelId, unscopedOnly);
 	if (unscopedWinner !== undefined) {
 		const replaced = recordContribution(unscopedWinner.value, type);
-		if (replaced.marked || [...replaced.fieldKeys].some((key) => !scopedContribution.fieldKeys.has(key))) {
+		if (
+			replaced.marked ||
+			[...replaced.fieldKeys].some((key) => !scopedContribution.fieldKeys.has(key)) ||
+			// A scoped MARK on a field the replaced record also set diverges: the
+			// old replacement erased the unscoped value entirely, while the new
+			// per-field merge lets it surface at the level the mark vacated.
+			intersects(scopedContribution.markedFields, replaced.fieldKeys)
+		) {
 			return true;
 		}
 	}
@@ -281,19 +299,62 @@ function descopingDiverges(
 	// the losing record to have contributed something.
 	const remainderKey = explicitMatcherKey(remainder);
 	const entryKey = explicitMatcherKey(entryWinner.key);
+	// exact > glob (literal length) > regex (star-bearing old keys) > "*".
 	const specificity = (key: string): number =>
-		key === "*" ? -1 : key.endsWith("*") ? key.length - 1 : key.length + 1e6;
+		key === "*"
+			? -1
+			: key.startsWith("/") && key.endsWith("/")
+				? 0
+				: key.endsWith("*")
+					? key.length - 1
+					: key.length + 1e6;
 	const entryWins = specificity(entryKey) >= specificity(remainderKey);
 	const loser = entryWins ? scopedWinner.value : entryWinner.value;
 	const loserContribution = recordContribution(loser, type);
 	// In the old world the entry always won key by key; a losing scoped record
 	// still contributed its non-overlapping keys, and a losing entry record
-	// contributed everything it had.
+	// contributed everything it had. A winner MARK on a field the loser also
+	// set diverges too: old-world levels merged per field (a fallback-demoted
+	// entry field still let the scoped override win the override slot), while
+	// the new wholesale winner erases the loser's level entirely.
 	if (entryWins) {
-		const winnerKeys = recordContribution(entryWinner.value, type).fieldKeys;
-		return loserContribution.marked || [...loserContribution.fieldKeys].some((key) => !winnerKeys.has(key));
+		const winner = recordContribution(entryWinner.value, type);
+		return (
+			loserContribution.marked ||
+			[...loserContribution.fieldKeys].some((key) => !winner.fieldKeys.has(key)) ||
+			intersects(winner.markedFields, loserContribution.fieldKeys)
+		);
 	}
 	return loserContribution.marked || loserContribution.fieldKeys.size > 0;
+}
+
+/**
+ * The star-ordering caveat (see the header): the effective old-matching keys
+ * of one record map for this model and scope - unscoped keys matching the
+ * ID, plus this scope's remainders - diverge in ORDER when a star-bearing
+ * key matches beside any other matching key (the regex tier ranks below
+ * globs while old longest-prefix ranked by literal length alone).
+ */
+function starOrderingDiverges(
+	record: Record<string, Record<string, unknown>>,
+	scope: string,
+	modelId: string
+): boolean {
+	const oldPrefixMatches = (prefix: string): boolean =>
+		prefix === "*" || prefix === "" || modelId === prefix || modelId.startsWith(prefix);
+	const effectiveKeys: string[] = [];
+	for (const key of Object.keys(record)) {
+		if (key.includes("://")) {
+			if (key.startsWith(`${scope}/`) && oldPrefixMatches(key.slice(scope.length + 1))) {
+				effectiveKeys.push(key.slice(scope.length + 1));
+			}
+			continue;
+		}
+		if (oldPrefixMatches(key)) {
+			effectiveKeys.push(key);
+		}
+	}
+	return effectiveKeys.length > 1 && effectiveKeys.some((key) => key !== "*" && key.includes("*"));
 }
 
 /** The old default* trio exactly as the walk consumed it (explicitly-configured positives only). */
@@ -385,7 +446,17 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	const scope = scopes[0] as string;
 	const skipEquivalence =
 		descopingDiverges(globalParameters, hasEntryParameters ? entryParameters : undefined, scope, modelId, "params") ||
-		descopingDiverges(globalCapabilities, hasEntryCapabilities ? entryCapabilities : undefined, scope, modelId, "caps");
+		descopingDiverges(
+			globalCapabilities,
+			hasEntryCapabilities ? entryCapabilities : undefined,
+			scope,
+			modelId,
+			"caps"
+		) ||
+		starOrderingDiverges(globalParameters, scope, modelId) ||
+		starOrderingDiverges(globalCapabilities, scope, modelId) ||
+		(hasEntryParameters && starOrderingDiverges(entryParameters, scope, modelId)) ||
+		(hasEntryCapabilities && starOrderingDiverges(entryCapabilities, scope, modelId));
 	return {
 		parameters: { ...params.params },
 		forced: { ...params.forcedParams },

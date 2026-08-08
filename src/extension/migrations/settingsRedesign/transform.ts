@@ -133,6 +133,7 @@ export function planSettingsRedesign(rawSnapshot: SettingsSnapshot, labels: Rede
 		counts.starredKeys += transform.starredKeys;
 		counts.droppedAliasKeys += transform.droppedAliasKeys;
 		counts.strippedInertDeclares += transform.strippedInertDeclares;
+		counts.rewroteForceDirectives += transform.rewroteForce;
 		movedScoped += transform.movedScopedKeys;
 		inertScoped += transform.inertScopedKeys;
 		for (const [index, additions] of transform.entryAdditions) {
@@ -274,6 +275,11 @@ export function planSettingsRedesign(rawSnapshot: SettingsSnapshot, labels: Rede
 	}
 	if (counts.strippedInertDeclares > 0) {
 		logLines.push(`Removed ${counts.strippedInertDeclares} inert _declare directive(s)`);
+	}
+	if (counts.rewroteForceDirectives > 0) {
+		logLines.push(
+			`Rewrote ${counts.rewroteForceDirectives} migrated _force directive(s) to their old forceable coverage`
+		);
 	}
 	const workspaceHits = LEGACY_SETTING_IDS.reduce((count, id) => {
 		const layers = snapshot[id];
