@@ -38,7 +38,7 @@ import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfigur
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { makeModelInfo, makeServerStatus } from "../../testUtils";
+import { assertOmits, makeModelInfo, makeServerStatus } from "../../testUtils";
 import { KEEP_ALL, makeEnv, type RecordedEnv } from "./recordedEnv";
 
 /** A declared-server view with every secret absent; overrides fill in the specifics. */
@@ -234,7 +234,7 @@ suite("extension/dashboard/state", () => {
 			);
 
 			assert.strictEqual(state.legacyServerCount, 1);
-			assert.ok(!JSON.stringify(state.servers).includes("old.test"), "legacy servers contribute no row");
+			assertOmits(JSON.stringify(state.servers), "old.test", "legacy servers contribute no row");
 		});
 
 		test("a declared row also shadows its legacy twin; without legacy input the count is zero", () => {

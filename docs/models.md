@@ -220,7 +220,7 @@ An override says "the server is wrong"; a fallback says "in case the server is s
 - An inherited field arrives with its source's marking: a fallback stays a fallback wherever [inheritance](#which-record-applies) carries it, and a receiving record cannot re-mark fields it did not write (its own `_fallback` list may only name its own fields; the same source-side rule governs [`_force`](#forcing-parameters-_force)). Want an inherited fallback as a hard override on one model? State it there: `"gpt-5.6": { "context_length": 200000 }` - an own, unlisted field is an override, and only that model stops following the source.
 - A directive list may only name fields present in its own record: naming an absent field is reported as an invalid directive, that name is skipped, and the rest of the list still applies (the same rule the receiver re-marking restriction builds on). And a known directive in the wrong record type - `_fallback` in a parameters record, `_force` in a capabilities record - is reported and ignored, while truly unknown `_` keys stay silently ignored for forward compatibility.
 
-Like every directive, the underscore key is extension metadata - it is never sent anywhere.
+Like every directive, the underscore key is an instruction to the extension - it is never sent anywhere.
 
 ### The OpenRouter catalog
 

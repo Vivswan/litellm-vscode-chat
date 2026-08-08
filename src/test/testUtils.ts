@@ -26,6 +26,41 @@ export function fakeFingerprintSaltSession(state: FingerprintSaltState = "durabl
 	return { state: () => state, confirmDurable: async () => state };
 }
 
+/**
+ * assert.ok(haystack.includes(needle)) with the literal out of the guard
+ * position: CodeQL's js/incomplete-url-substring-sanitization flags URL-ish
+ * string literals passed to includes() as if they were URL validation, which
+ * test assertions on rendered output trip constantly. Tests stay scanned
+ * (policy: never exclude test paths); the assertion shape just is not the
+ * vulnerable pattern. Use these for any needle that resembles a host or URL.
+ */
+export function assertContains(haystack: string, needle: string, message?: string): void {
+	assert.ok(haystack.includes(needle), message ?? `expected text to contain ${JSON.stringify(needle)}: ${haystack}`);
+}
+
+/** The negative counterpart of assertContains, for leak/redaction pins. */
+export function assertOmits(haystack: string, needle: string, message?: string): void {
+	assert.ok(!haystack.includes(needle), message ?? `expected text to omit ${JSON.stringify(needle)}: ${haystack}`);
+}
+
+/** assertContains with a context-style message: failure output appends the haystack. */
+export function assertShows(text: string, needle: string, context: string): void {
+	assert.ok(text.includes(needle), `${context}, got ${text}`);
+}
+
+/** Prefix assert with the literal out of the guard position; same CodeQL rationale as assertContains. */
+export function assertStartsWith(haystack: string, prefix: string, message?: string): void {
+	assert.ok(
+		haystack.startsWith(prefix),
+		message ?? `expected text to start with ${JSON.stringify(prefix)}: ${haystack}`
+	);
+}
+
+/** Suffix assert with the literal out of the guard position; same CodeQL rationale as assertContains. */
+export function assertEndsWith(haystack: string, suffix: string, message?: string): void {
+	assert.ok(haystack.endsWith(suffix), message ?? `expected text to end with ${JSON.stringify(suffix)}: ${haystack}`);
+}
+
 /** Assert that an indexed read produced a value and return it narrowed. */
 export function expectDefined<T>(value: T | undefined, message = "expected value to be defined"): T {
 	assert.ok(value !== undefined, message);

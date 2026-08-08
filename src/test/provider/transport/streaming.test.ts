@@ -9,7 +9,7 @@ import { resetDataPartLogOnce } from "../../../shared/conversion/dataPart";
 import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
 import { resetThinkingPartLogOnce } from "../../../shared/conversion/thinkingPart";
 import { BUILTIN_SCENARIOS } from "../../scenarios";
-import { expectDefined } from "../../testUtils";
+import { assertContains, assertEndsWith, assertShows, expectDefined } from "../../testUtils";
 
 /** A standalone tool-call ID source with an observable count, mirroring the ChatClient's. */
 function idSource(): { next(): number; readonly count: number } {
@@ -39,15 +39,6 @@ function visibleTextOf(parts: vscode.LanguageModelResponsePart[]): string {
 		.filter((p) => p instanceof vscode.LanguageModelTextPart)
 		.map((p) => (p as vscode.LanguageModelTextPart).value)
 		.join("");
-}
-
-/**
- * Containment assert for rendered output. The needle rides a parameter so a
- * URL literal never sits at an includes() call, the shape CodeQL reads as
- * URL-sanitization-by-substring (js/incomplete-url-substring-sanitization).
- */
-function assertShows(text: string, needle: string, context: string): void {
-	assert.ok(text.includes(needle), `${context}, got ${text}`);
 }
 
 /** Normalized event sequence: adjacent text parts merge, tool calls keep order. */
@@ -835,7 +826,7 @@ suite("provider/streaming refusal and annotations", () => {
 		const text = visibleTextOf(parts);
 		assert.ok(text.includes("The sky is blue."), "Content must still render");
 		assert.equal(text.match(/Sources:/g)?.length, 1, "Exactly one sources trailer");
-		assert.ok(text.includes("[Sky](https://example.test/sky)"), "Citation renders as a markdown link");
+		assertContains(text, "[Sky](https://example.test/sky)", "Citation renders as a markdown link");
 		assert.equal(text.match(/example\.test\/sky/g)?.length, 1, "Duplicate URLs collapse to one entry");
 	});
 
@@ -884,7 +875,7 @@ suite("provider/streaming refusal and annotations", () => {
 
 		const text = visibleTextOf(parts);
 		assert.ok(text.includes("[Line\\] break \\[x\\]]"), `title must be escaped and newline-flattened, got ${text}`);
-		assert.ok(text.includes("(https://example.test/a%20%28b%29)"), `url must be percent-encoded, got ${text}`);
+		assertContains(text, "(https://example.test/a%20%28b%29)", `url must be percent-encoded, got ${text}`);
 	});
 
 	test("chunk-root citations and search_results repeated per chunk dedupe into one titled sources trailer", async () => {
@@ -933,7 +924,7 @@ suite("provider/streaming refusal and annotations", () => {
 		);
 
 		const text = visibleTextOf(parts);
-		assert.ok(text.includes("[PSF result](https://example.test/psf)"), `got ${text}`);
+		assertContains(text, "[PSF result](https://example.test/psf)", `got ${text}`);
 	});
 
 	test("malformed chunk-root source shapes are skipped without aborting the stream", async () => {
@@ -961,8 +952,8 @@ suite("provider/streaming refusal and annotations", () => {
 		const text = visibleTextOf(parts);
 		assert.ok(text.startsWith("resilient"), `the content must survive malformed sources, got ${text}`);
 		assert.equal(text.match(/Sources:/g)?.length, 1);
-		assert.ok(text.includes("(https://example.test/ok)"), `the valid string citation collects, got ${text}`);
-		assert.ok(text.includes("[Valid](https://example.test/valid)"), `the valid search result collects, got ${text}`);
+		assertContains(text, "(https://example.test/ok)", `the valid string citation collects, got ${text}`);
+		assertContains(text, "[Valid](https://example.test/valid)", `the valid search result collects, got ${text}`);
 		assert.ok(!text.includes("object"), "a record inside citations is not a URL and must not surface");
 		assert.ok(!text.includes("no url"), "a URL-less search result has nothing to cite");
 	});
@@ -992,10 +983,11 @@ suite("provider/streaming refusal and annotations", () => {
 		);
 
 		const text = visibleTextOf(parts);
-		assert.ok(text.includes("[Title A](https://example.test/a)"), `the titled result labels the bare URL, got ${text}`);
+		assertContains(text, "[Title A](https://example.test/a)", `the titled result labels the bare URL, got ${text}`);
 		assert.ok(!text.includes("Title A later"), "an established title is first-seen-wins");
-		assert.ok(
-			text.includes("[https://example.test/b](https://example.test/b)"),
+		assertContains(
+			text,
+			"[https://example.test/b](https://example.test/b)",
 			`an untitled result leaves the URL self-titled, got ${text}`
 		);
 	});
@@ -1022,10 +1014,7 @@ suite("provider/streaming refusal and annotations", () => {
 
 		const text = visibleTextOf(parts);
 		assert.ok(!text.includes("[]("), `an empty markdown label must never render, got ${text}`);
-		assert.ok(
-			text.includes("[Real title](https://example.test/e)"),
-			`the real title wins the placeholder, got ${text}`
-		);
+		assertContains(text, "[Real title](https://example.test/e)", `the real title wins the placeholder, got ${text}`);
 	});
 
 	test("a titled annotation upgrades a bare root citation under the same rule", async () => {
@@ -1058,12 +1047,14 @@ suite("provider/streaming refusal and annotations", () => {
 		);
 
 		const text = visibleTextOf(parts);
-		assert.ok(
-			text.includes("[Proper title](https://example.test/p)"),
+		assertContains(
+			text,
+			"[Proper title](https://example.test/p)",
 			`the annotation title labels the bare citation, got ${text}`
 		);
-		assert.ok(
-			text.includes("[https://example.test/q](https://example.test/q)"),
+		assertContains(
+			text,
+			"[https://example.test/q](https://example.test/q)",
 			`an empty annotation title self-titles the URL, got ${text}`
 		);
 	});
@@ -1090,15 +1081,16 @@ suite("provider/streaming refusal and annotations", () => {
 
 		const text = visibleTextOf(parts);
 		assert.equal(text.match(/Sources:/g)?.length, 1, `exactly one trailer however late the sources, got ${text}`);
-		assert.ok(
-			text.includes("[Late title](https://example.test/late)"),
+		assertContains(
+			text,
+			"[Late title](https://example.test/late)",
 			`a title arriving after finish_reason still upgrades the placeholder, got ${text}`
 		);
 		assert.ok(
 			text.startsWith("before after"),
 			`content streamed after finish_reason still renders before the trailer, got ${text}`
 		);
-		assert.ok(text.endsWith("(https://example.test/late)"), `nothing may render after the trailer, got ${text}`);
+		assertEndsWith(text, "(https://example.test/late)", `nothing may render after the trailer, got ${text}`);
 	});
 
 	test("a source arriving after [DONE] still lands in the trailer", async () => {
@@ -1117,8 +1109,9 @@ suite("provider/streaming refusal and annotations", () => {
 		const text = visibleTextOf(parts);
 		assert.equal(text.match(/Sources:/g)?.length, 1, `got ${text}`);
 		assertShows(text, "https://example.test/early", "the pre-[DONE] source stays listed");
-		assert.ok(
-			text.includes("[Straggler](https://example.test/straggler)"),
+		assertContains(
+			text,
+			"[Straggler](https://example.test/straggler)",
 			`the post-[DONE] source must not be lost, got ${text}`
 		);
 	});
