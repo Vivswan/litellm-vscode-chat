@@ -2,7 +2,6 @@ import type * as vscode from "vscode";
 import type { Logger } from "../../shared/logger";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { ServerRegistry } from "../servers/serverRegistry";
-import { labelScopedModelParametersMigration } from "./labelScopedModelParameters";
 import { legacySingleServerMigration } from "./legacySingleServer";
 import { registryToProviderGroupsMigration } from "./registryToProviderGroups";
 import { settingsRedesignMigration } from "./settingsRedesign/apply";
@@ -58,16 +57,14 @@ export interface ExtensionMigration {
 /**
  * Chronological by sourceRelease, ties keeping registration order (a test
  * pins this); the per-file headers carry each migration's full story.
- * Registration order is execution order within each phase.
- * labelScopedModelParameters reads the label map registryToProviderGroups
- * writes during post-registration seeding; since the copy pass runs
- * pre-registration, the group migration reruns it directly whenever a
- * seeding pass merges new label-map entries.
+ * Registration order is execution order within each phase. The v0.3.1
+ * label-scoped modelParameters rewrite is folded into the settings-redesign
+ * pipeline (see labelScopedModelParameters.ts), whose label-map union
+ * already covers registry servers the group migration has not seeded.
  */
 export const MIGRATIONS: readonly ExtensionMigration[] = [
 	legacySingleServerMigration,
 	registryToProviderGroupsMigration,
-	labelScopedModelParametersMigration,
 	settingsRedesignMigration,
 ];
 

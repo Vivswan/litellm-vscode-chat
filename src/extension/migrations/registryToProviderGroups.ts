@@ -17,7 +17,7 @@ import { fingerprint, fingerprintSchema } from "../../shared/util/fingerprint";
 import type { FingerprintSaltSession } from "../fingerprintSalt";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "./index";
-import { getMigratedServerLabels, labelScopedModelParametersMigration } from "./labelScopedModelParameters";
+import { getMigratedServerLabels } from "./labelScopedModelParameters";
 import { hasLegacyConfig } from "./legacySingleServer";
 
 /**
@@ -665,46 +665,6 @@ async function completeFreshInstall(ctx: MigrationContext): Promise<boolean> {
 	return true;
 }
 
-function labelMapsEqual(a: Record<string, string[]>, b: Record<string, string[]>): boolean {
-	const aKeys = Object.keys(a);
-	if (aKeys.length !== Object.keys(b).length) {
-		return false;
-	}
-	return aKeys.every((key) => {
-		const left = a[key];
-		const right = b[key];
-		return (
-			left !== undefined &&
-			right !== undefined &&
-			left.length === right.length &&
-			left.every((label, index) => label === right[index])
-		);
-	});
-}
-
-/**
- * The label-scoped modelParameters copy runs pre-registration, but the label
- * map it reads is written here, during post-registration seeding. Without
- * this rerun, a user updating straight from a registry-era version would get
- * the map only mid-session and the copy pass would not see it until the next
- * activation. Best-effort with the runner's error isolation: a failure logs
- * once and never disturbs this migration's outcome.
- */
-async function rerunLabelCopyForNewEntries(ctx: MigrationContext, before: Record<string, string[]>): Promise<void> {
-	if (labelMapsEqual(before, getMigratedServerLabels(ctx.globalState))) {
-		return;
-	}
-	try {
-		if ((await labelScopedModelParametersMigration.run(ctx)) === "migrated") {
-			ctx.logger.log(
-				`${labelScopedModelParametersMigration.description} (away from v${labelScopedModelParametersMigration.sourceRelease} state)`
-			);
-		}
-	} catch (error) {
-		ctx.logger.error(`Migration "${labelScopedModelParametersMigration.state}" failed`, error);
-	}
-}
-
 /**
  * Migrates away from: the registry-backed server storage of v0.2.3 through
  * v0.3.1 (host provider groups replace it in the first release after
@@ -723,7 +683,10 @@ export const registryToProviderGroupsMigration: ExtensionMigration = {
 	sourceRelease: "0.3.1",
 	phase: "post-registration",
 	async run(ctx: MigrationContext): Promise<MigrationOutcome> {
-		const labelsBefore = getMigratedServerLabels(ctx.globalState);
+		// The label map this seeding merges feeds the settings-redesign
+		// pipeline's folded label expansion; no rerun is needed - the
+		// pre-registration pass's union already covered every registry server,
+		// seeded or not.
 		const completed = await migrateServersToProviderGroups(
 			ctx.registry,
 			ctx.globalState,
@@ -731,7 +694,6 @@ export const registryToProviderGroupsMigration: ExtensionMigration = {
 			ctx.logger,
 			ctx.fingerprintSalt
 		);
-		await rerunLabelCopyForNewEntries(ctx, labelsBefore);
 		if (completed) {
 			return "migrated";
 		}

@@ -24,6 +24,7 @@
 
 import { isDeepStrictEqual } from "node:util";
 import { isRecord } from "../../../shared/util/json";
+import { expandLabelScopedKeys } from "../labelScopedModelParameters";
 import {
 	entryCanReceiveHeaders,
 	entryCanReceiveRecordKeys,
@@ -53,9 +54,30 @@ function entriesNoun(count: number): string {
 	return count === 1 ? "entry" : "entries";
 }
 
-export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
+/**
+ * The label-scoped-key context (the folded v0.3.1 rewrite): the label map
+ * union and the pre-fold entry-copy ledger. Optional so the pure-transform
+ * suites and the equivalence oracle - whose old-world snapshots carry no
+ * label state - plan without it.
+ */
+export interface RedesignLabelContext {
+	readonly labelsByBaseUrl?: Record<string, string[]> | undefined;
+	readonly entryCopyLedger?: ReadonlySet<string> | undefined;
+}
+
+export function planSettingsRedesign(rawSnapshot: SettingsSnapshot, labels: RedesignLabelContext = {}): RedesignPlan {
+	// Step 0 (the folded label-scoped rewrite): expand "<label>/<prefix>" keys
+	// of the legacy modelParameters record into old-world shapes the rest of
+	// this plan consumes - flat entry record fields (restructured by step 2)
+	// and URL-scoped copies (placed by step 5, the one owner of scoped keys).
+	const expansion = expandLabelScopedKeys(
+		rawSnapshot,
+		labels.labelsByBaseUrl ?? {},
+		labels.entryCopyLedger ?? new Set()
+	);
+	const snapshot = expansion.snapshot;
 	const globalOf = (id: string): unknown => snapshot[id]?.globalValue;
-	const logLines: string[] = [];
+	const logLines: string[] = [...expansion.logLines];
 	const valueWrites: SettingWrite[] = [];
 	const deletions: string[] = [];
 
@@ -210,8 +232,10 @@ export function planSettingsRedesign(snapshot: SettingsSnapshot): RedesignPlan {
 	}
 
 	// --- Assemble the plan: servers first, then the other value writes, deletions last.
+	// The servers write compares against the PRE-expansion raw value: an
+	// expansion-only entry copy must still be written.
 	const writes: SettingWrite[] = [];
-	if (!isDeepStrictEqual(serversValue, rawServers)) {
+	if (!isDeepStrictEqual(serversValue, rawSnapshot[SERVERS_ID]?.globalValue)) {
 		writes.push({ section: SERVERS_ID, value: serversValue });
 	}
 	writes.push(...valueWrites);

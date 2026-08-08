@@ -1,28 +1,24 @@
 /**
  * The thin applier around the pure pipeline (transform.ts): read the
- * snapshot through the configuration API, run the transform, execute the
- * plan's writes at the User (Global) scope, log the count lines. No
- * SecretStorage access (the secret re-key is a settled no-op - the blob
- * keys and field ids are unchanged and stored values keep working under
- * the new entry shape), no fingerprint touch (a migrated entry's group
- * args are byte-identical, so the stored sync fingerprints stay valid),
- * and no idempotency ledger (source-key absence is the state signal). The
- * ONE globalState touch is the write-once parking of a consumed global
- * headers value (see PARKED_GLOBAL_HEADERS_KEY).
- *
- * INTEGRATION NOTE: on this branch the new setting ids are not yet
- * contributed, and the host refuses VALUE writes to unregistered keys (the
- * uncontributed-probe pin in activation/production.test.ts), so the write
- * path can only execute end to end once the renamed manifest lands. The
- * behavior lives in the pure transform and its suites; the applier's
- * end-to-end activation coverage is finalized with the manifest.
+ * snapshot through the configuration API, run the transform (with the label
+ * map feeding the folded label-scoped expansion), execute the plan's writes
+ * at the User (Global) scope, log the count lines. No SecretStorage access
+ * (the secret re-key is a settled no-op - the blob keys and field ids are
+ * unchanged and stored values keep working under the new entry shape), no
+ * fingerprint touch (a migrated entry's group args are byte-identical, so
+ * the stored sync fingerprints stay valid), and no idempotency ledger
+ * (source-key absence is the state signal). The globalState touches are the
+ * write-once parking of a consumed global headers value (see
+ * PARKED_GLOBAL_HEADERS_KEY) and the one-time cleanup of the pre-fold
+ * entry-copy ledger once the legacy id is gone.
  */
 
 import * as vscode from "vscode";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
-import { PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
+import { MIGRATED_ENTRY_PARAMETER_COPIES_KEY, PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
 import type { Logger } from "../../../shared/logger";
 import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "../index";
+import { getMigratedServerLabels, readEntryCopyLedger, unionLabelSources } from "../labelScopedModelParameters";
 import {
 	LEGACY_HEADERS_ID,
 	LEGACY_MODEL_CAPABILITIES_ID,
@@ -33,6 +29,7 @@ import {
 	REMOVED_TOKEN_DEFAULTS,
 	SERVERS_ID,
 } from "./legacyIds";
+import type { RedesignLabelContext } from "./transform";
 import { planSettingsRedesign } from "./transform";
 import type { SettingLayers, SettingsSnapshot } from "./types";
 
@@ -73,7 +70,7 @@ export function readRedesignSnapshot(setting: RedesignSettings): SettingsSnapsho
 	return sections;
 }
 
-/** The Memento slice the headers parking needs; MigrationContext.globalState satisfies it. */
+/** The Memento slice the headers parking and the ledger cleanup need; MigrationContext.globalState satisfies it. */
 export interface ParkedHeadersStore {
 	get<T>(key: string): T | undefined;
 	update(key: string, value: unknown): Thenable<void>;
@@ -87,14 +84,19 @@ export interface ParkedHeadersStore {
  * at the Global target, then the count-only log lines. Log lines can
  * accompany a "nothing-to-do" outcome (workspace leftovers, an inert global
  * headers value, a blocked trio merge), matching the family's precedent of
- * saying so once per activation.
+ * saying so once per activation. Once the legacy modelParameters id is gone,
+ * the pre-fold entry-copy ledger has no future reader and is cleared -
+ * deferred to a pass that starts legacy-free so a crash mid-plan cannot lose
+ * the deletions it still protects against.
  */
 export async function applySettingsRedesign(
 	setting: RedesignSettings,
 	store: ParkedHeadersStore,
-	logger: Logger
+	logger: Logger,
+	labels: RedesignLabelContext = {}
 ): Promise<MigrationOutcome> {
-	const plan = planSettingsRedesign(readRedesignSnapshot(setting));
+	const snapshot = readRedesignSnapshot(setting);
+	const plan = planSettingsRedesign(snapshot, labels);
 	if (plan.parkedHeaders !== undefined && store.get(PARKED_GLOBAL_HEADERS_KEY) === undefined) {
 		await store.update(PARKED_GLOBAL_HEADERS_KEY, { headers: plan.parkedHeaders, migratedAt: Date.now() });
 	}
@@ -104,6 +106,12 @@ export async function applySettingsRedesign(
 	for (const line of plan.logLines) {
 		logger.log(line);
 	}
+	if (
+		snapshot[LEGACY_MODEL_PARAMETERS_ID] === undefined &&
+		store.get(MIGRATED_ENTRY_PARAMETER_COPIES_KEY) !== undefined
+	) {
+		await store.update(MIGRATED_ENTRY_PARAMETER_COPIES_KEY, undefined);
+	}
 	return plan.outcome;
 }
 
@@ -111,11 +119,14 @@ export async function applySettingsRedesign(
  * Migrates away from: the pre-redesign settings namespace of v0.4.4 and
  * earlier - the flat setting names, the flat entry fields, the global
  * headers setting, implicit-prefix record keys, server-URL-scoped global
- * keys, the default* token trio, and the `_declare` directive. Deletable
- * once installs carrying any of that state are judged extinct.
+ * keys, the default* token trio, the `_declare` directive, and (folded from
+ * the v0.3.1 rewrite) label-scoped modelParameters keys. Deletable once
+ * installs carrying any of that state are judged extinct.
  *
  * Runs pre-registration so the first registration of a session already sees
- * the new-name settings and the restructured entries.
+ * the new-name settings and the restructured entries. The label map's union
+ * includes the current registry snapshot, so servers the group migration has
+ * not seeded yet still decode their label-scoped keys in this same pass.
  */
 export const settingsRedesignMigration: ExtensionMigration = {
 	state: "settings-redesign",
@@ -123,6 +134,9 @@ export const settingsRedesignMigration: ExtensionMigration = {
 	sourceRelease: "0.4.4",
 	phase: "pre-registration",
 	run(ctx: MigrationContext): Promise<MigrationOutcome> {
-		return applySettingsRedesign(vscode.workspace.getConfiguration(CONFIG_SECTION), ctx.globalState, ctx.logger);
+		return applySettingsRedesign(vscode.workspace.getConfiguration(CONFIG_SECTION), ctx.globalState, ctx.logger, {
+			labelsByBaseUrl: unionLabelSources(getMigratedServerLabels(ctx.globalState), ctx.registry.getServers()),
+			entryCopyLedger: readEntryCopyLedger(ctx.globalState),
+		});
 	},
 };
