@@ -1,10 +1,16 @@
 # Nightly fuzzing on the repo-platform fuzzer starter; repo-platform's
 # docs/fuzzer.md documents the failure-report contract the fuzz steps follow.
-# Three shards run the unit property suites and the docker stream fuzzer,
-# each with its own random seed; a failing suite writes a report with the
-# exact replay command under .fuzz-failures/, and the report job files (or
-# updates) the label-deduplicated nightly-fuzz tracking issue. A green night
-# closes it.
+# The night is split into parallel single-purpose legs (one matrix row each):
+# three legs fuzz the unit property suites, three fuzz the seeded docker
+# suites (stream fuzzer, conversation walks, monkey walks), and one runs the
+# remaining unseeded docker suites once - they draw no seed, so repeating
+# them buys nothing. Every seeded leg gets its own deterministic seed derived
+# from the run id, so the legs explore disjoint inputs and a night's coverage
+# is the sum over legs. A failing leg writes a report naming the leg (and,
+# when seeded, its seed), with the exact replay command, under
+# .fuzz-failures/<leg>/; the report job merges every failing leg's report
+# into the one label-deduplicated nightly-fuzz tracking issue. A green
+# night closes it.
 
 name: Nightly Fuzz
 
@@ -14,17 +20,17 @@ on:
   workflow_dispatch:
     inputs:
       seed:
-        description: Fuzz seed (blank for a random one per shard)
+        description: Fuzz seed (blank derives a distinct seed per leg; a value replays verbatim on every leg)
         required: false
         default: ''
       iterations:
-        description: Property-test runs per suite
+        description: Property-test runs per suite (unit legs)
         required: false
         default: '1000'
 
 # Scheduled runs supersede an in-flight scheduled run, but every manual
 # dispatch gets its own group so several fuzz passes (each with its own
-# random seed) can run side by side.
+# derived seeds) can run side by side.
 concurrency:
   group: nightly-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'scheduled' }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
@@ -38,6 +44,7 @@ permissions:
 
 jobs:
   fuzz:
+    name: fuzz (${{ matrix.leg }})
     runs-on: ubuntu-latest
     # A job that hits this timeout is cancelled, not failed, and the
     # failure-reporting path never runs - so every fuzz command below is
@@ -46,9 +53,86 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      # One row per leg. `family` picks the step below (unit legs take
+      # FUZZ_SEED/FUZZ_RUNS through `bun run test`; docker legs take
+      # FUZZ_SEED plus the per-suite iteration counts through `test:docker`,
+      # seeded rows naming their labels via --only and the unseeded row
+      # running everything else via skip flags), and `salt` keeps the
+      # derived seeds distinct across legs. A future fuzz family is one
+      # appended row - another unit or docker row with a fresh salt, or a
+      # new `family` value with its own step. Legs are sized to land in one
+      # time class: the seeded docker labels share a leg (the monkey walks
+      # dominate it), and the short unseeded suites share the last one.
       matrix:
-        shard: [1, 2, 3]
+        include:
+          - leg: unit-1
+            family: unit
+            salt: 1
+          - leg: unit-2
+            family: unit
+            salt: 2
+          - leg: unit-3
+            family: unit
+            salt: 3
+          - leg: docker-seeded-1
+            family: docker
+            labels: docker-fuzz,docker-conversation,docker-monkey
+            seeded: true
+            salt: 4
+          - leg: docker-seeded-2
+            family: docker
+            labels: docker-fuzz,docker-conversation,docker-monkey
+            seeded: true
+            salt: 5
+          - leg: docker-seeded-3
+            family: docker
+            labels: docker-fuzz,docker-conversation,docker-monkey
+            seeded: true
+            salt: 6
+          # The unseeded suites ignore FUZZ_SEED; the salt stays unique so
+          # flipping `seeded` can never collide with another leg.
+          - leg: docker-unseeded
+            family: docker
+            seeded: false
+            salt: 7
     steps:
+      # One derivation for every leg: a dispatched seed replays verbatim on
+      # every leg, a blank one derives per-leg seeds from the run id -
+      # deterministic for the night (a re-run attempt replays the same
+      # seeds) and distinct across legs. Non-numeric input is rejected:
+      # passed through, every suite would drop to its own fallback (the
+      # unit legs all to the same pinned default) and the legs would repeat
+      # each other instead of adding coverage. First on purpose - it needs
+      # no checkout or toolchain, so a bad dispatch input or matrix row
+      # fails before seven runners spend setup time.
+      - name: Validate the leg and derive its seed
+        shell: bash
+        env:
+          SEED_INPUT: ${{ inputs.seed }}
+          FAMILY: ${{ matrix.family }}
+          SALT: ${{ matrix.salt }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          case "$FAMILY" in
+            unit|docker) ;;
+            # A row whose family matches no fuzz step below would run
+            # nothing and still count green; a new family extends this list
+            # together with its step.
+            *)
+              echo "::error::unknown fuzz family '$FAMILY'"
+              exit 1
+              ;;
+          esac
+          case "$SEED_INPUT" in
+            '') SEED=$(( (RUN_ID + SALT * 7919) % 1000000 )) ;;
+            *[!0-9]*)
+              echo "::error::seed must be decimal digits, got '$SEED_INPUT'"
+              exit 1
+              ;;
+            *) SEED="$SEED_INPUT" ;;
+          esac
+          echo "SEED=$SEED" >> "$GITHUB_ENV"
+
       - name: Checkout code
         uses: actions/checkout@v7
 
@@ -61,24 +145,23 @@ jobs:
         run: bash scripts/env/setup-env.sh
 
       - name: Fuzz the unit property suites
+        if: matrix.family == 'unit'
         shell: bash
         env:
-          SEED_INPUT: ${{ inputs.seed }}
           ITERATIONS: ${{ inputs.iterations || '1000' }}
-          SHARD: ${{ matrix.shard }}
+          LEG: ${{ matrix.leg }}
         run: |
-          SEED="${SEED_INPUT:-$RANDOM$RANDOM}"
-          echo "unit shard $SHARD: seed $SEED, $ITERATIONS runs"
+          echo "leg $LEG: seed $SEED, $ITERATIONS runs"
           set +e
           FUZZ_SEED="$SEED" FUZZ_RUNS="$ITERATIONS" timeout --kill-after=60 15m xvfb-run -a bun run test 2>&1 | tee nightly-unit.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            dir=".fuzz-failures/unit-shard$SHARD"
+            dir=".fuzz-failures/$LEG"
             mkdir -p "$dir"
             cp nightly-unit.log "$dir/" || true
             {
-              echo "# Unit property suites failed (shard $SHARD, seed $SEED)"
+              echo "# Unit property suites failed (leg $LEG, seed $SEED)"
               echo
               echo "Replay:"
               echo
@@ -97,61 +180,83 @@ jobs:
             exit "$status"
           fi
 
-      - name: Fuzz the docker stream suites
+      - name: Fuzz the docker suites
+        if: matrix.family == 'docker'
         shell: bash
         env:
-          # Empty on scheduled runs: the docker fuzzer then draws its own
-          # pid- and shard-mixed seed. A dispatched seed replays exactly.
-          FUZZ_SEED: ${{ inputs.seed }}
+          LEG: ${{ matrix.leg }}
+          LABELS: ${{ matrix.labels }}
+          SEEDED: ${{ matrix.seeded }}
           FUZZ_ITERATIONS: '500'
           CONVERSATION_ITERATIONS: '50'
           MONKEY_ITERATIONS: '40'
-          FUZZ_SHARD: ${{ matrix.shard }}
-          SHARD: ${{ matrix.shard }}
         run: |
+          if [ "$SEEDED" = "true" ]; then
+            # Explicit for every suite in the leg (resolveDockerFuzzSeed
+            # replays an explicit FUZZ_SEED exactly), so one seed reproduces
+            # the whole leg and legs never overlap.
+            export FUZZ_SEED="$SEED"
+            set -- --only "$LABELS"
+          else
+            # Skip flags rather than --only: the unseeded leg runs the
+            # complement of the seeded labels, so a label added to
+            # DOCKER_TEST_LABELS is picked up here automatically instead of
+            # silently never running at night.
+            set -- --skip-fuzz --skip-conversation --skip-monkey
+          fi
+          echo "leg $LEG: test:docker $*${FUZZ_SEED:+, seed $FUZZ_SEED}"
           set +e
-          # 60m covers all seven docker legs, including the 40 monkey walks.
-          # A step killed by this timeout still files an issue, but the
-          # extracted mode blames the last-seeded suite. docker-monkey runs
-          # last and logs its own seed line, so a monkey-leg timeout is
-          # attributed correctly; the caveat bites for the unseeded
-          # host-fidelity leg just before it. If nightly starts timing out,
-          # suspect this budget before the oracle.
-          timeout --kill-after=60 60m xvfb-run -a bun run test:docker 2>&1 | tee nightly-docker.log
+          # 45m covers the seeded leg, whose 40 monkey walks dominate; the
+          # unseeded leg finishes far under it. A step killed by this timeout
+          # still files an issue naming the leg (and, when seeded, its seed).
+          timeout --kill-after=60 45m xvfb-run -a bun run test:docker "$@" 2>&1 | tee nightly-docker.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            # The docker orchestrator runs several suites in sequence; the seed
-            # and mode come from the last "[fuzz] seed=... mode=..." line, so
-            # the report names the suite that logged it rather than blaming the
-            # stream fuzzer for every failure. The line format is owned by
-            # src/test/fuzzSeed.ts (fuzzSeedLine), and fuzzSeed.test.ts pins it
-            # against these exact patterns.
+            # The orchestrator runs the leg's suites in sequence; the mode of
+            # the last "[fuzz] seed=... mode=..." line names the suite that
+            # logged it. The line format is owned by src/test/fuzzSeed.ts
+            # (fuzzSeedLine), and fuzzSeed.test.ts pins it against these
+            # exact patterns. On a seeded leg the grepped seed equals $SEED
+            # (FUZZ_SEED was explicit); the fallback covers a failure before
+            # any suite logged.
             fuzzline="$(grep -oE '\[fuzz\] seed=[0-9]+[^"]*' nightly-docker.log | tail -1 || true)"
             seed="$(printf '%s' "$fuzzline" | grep -oE 'seed=[0-9]+' | grep -oE '[0-9]+' || true)"
             mode="$(printf '%s' "$fuzzline" | grep -oE 'mode=[a-z-]+' | cut -d= -f2 || true)"
-            dir=".fuzz-failures/docker-shard$SHARD"
+            dir=".fuzz-failures/$LEG"
             mkdir -p "$dir"
             cp nightly-docker.log "$dir/" || true
-            {
-              echo "# Docker suites failed (shard $SHARD, mode ${mode:-unknown}, seed ${seed:-unknown})"
-              echo
-              echo "Replay:"
-              echo
-              echo '```bash'
-              if [ -n "$seed" ]; then
-                echo "FUZZ_SEED=$seed FUZZ_ITERATIONS=500 CONVERSATION_ITERATIONS=50 MONKEY_ITERATIONS=40 bun run test:docker"
-              else
-                echo "# The shard failed before any seeded suite logged; see the attached log."
-                echo "FUZZ_ITERATIONS=500 CONVERSATION_ITERATIONS=50 MONKEY_ITERATIONS=40 bun run test:docker"
-              fi
-              echo '```'
-              echo
-              echo "The seed belongs to the last suite that logged one (mode ${mode:-unknown});"
-              echo "a failure in a later unseeded suite (e.g. host-fidelity) does not use it."
-              echo "A seeded failure report includes a minimal failing event list; pin it in"
-              echo "src/test/fuzzCorpus.ts so the case replays on every run."
-            } > "$dir/report.md"
+            if [ "$SEEDED" = "true" ]; then
+              {
+                echo "# Docker leg $LEG failed (mode ${mode:-unknown}, seed ${seed:-$SEED})"
+                echo
+                echo "Replay:"
+                echo
+                echo '```bash'
+                echo "FUZZ_SEED=${seed:-$SEED} FUZZ_ITERATIONS=$FUZZ_ITERATIONS CONVERSATION_ITERATIONS=$CONVERSATION_ITERATIONS MONKEY_ITERATIONS=$MONKEY_ITERATIONS bun run test:docker --only $LABELS"
+                echo '```'
+                echo
+                echo "Every suite in this leg ran under the same explicit seed, so the"
+                echo "command replays the whole leg; the mode names the suite that"
+                echo "logged last (keep FUZZ_SEED and narrow --only to that suite's"
+                echo "label to skip the rest). A seeded failure report includes a"
+                echo "minimal failing event list; pin it in src/test/fuzzCorpus.ts so"
+                echo "the case replays on every run."
+              } > "$dir/report.md"
+            else
+              {
+                echo "# Docker leg $LEG failed (unseeded suites)"
+                echo
+                echo "Replay:"
+                echo
+                echo '```bash'
+                echo "bun run test:docker $*"
+                echo '```'
+                echo
+                echo "These suites draw no fuzz seed; see the attached log for the"
+                echo "failing suite."
+              } > "$dir/report.md"
+            fi
             exit "$status"
           fi
 
@@ -159,23 +264,25 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: fuzz-failures-shard${{ matrix.shard }}-${{ github.run_attempt }}
+          name: fuzz-failures-${{ matrix.leg }}-${{ github.run_attempt }}
           path: .fuzz-failures/
           # .fuzz-failures is a dot-directory, and upload-artifact skips hidden
           # paths by default (since v4.4.0) - without this flag the upload
           # finds nothing and the report job files its bare no-report notice.
           include-hidden-files: true
-          # warn, not ignore: a shard that failed before writing a report is
+          # warn, not ignore: a leg that failed before writing a report is
           # legitimate (setup died), but it should say so in the step log.
           if-no-files-found: warn
 
-  # Report and resolve live outside the shard matrix on purpose: as steps of
-  # a matrixed job they race, and one shard's green resolve could close the
-  # issue another shard just filed. A failing night files (or updates) the
-  # issue; cancelled contexts (a superseding scheduled run, a manual cancel,
-  # and on some runner versions a shard cancelled at the job timeout) skip
-  # filing - the `timeout --kill-after` wrappers above are what keep a hang
-  # from ever reaching the job timeout in the first place.
+  # Report and resolve live outside the leg matrix on purpose: as steps of
+  # a matrixed job they race, and one leg's green resolve could close the
+  # issue another leg just filed. A failing night files (or updates) the
+  # issue - each failing leg's report becomes its own section, so several
+  # red legs land in one issue instead of spamming; cancelled contexts (a
+  # superseding scheduled run, a manual cancel, and on some runner versions
+  # a leg cancelled at the job timeout) skip filing - the `timeout
+  # --kill-after` wrappers above are what keep a hang from ever reaching
+  # the job timeout in the first place.
   report:
     needs: fuzz
     if: ${{ !cancelled() }}
@@ -189,13 +296,13 @@ jobs:
     steps:
       - name: Download failure artifacts
         if: needs.fuzz.result != 'success'
-        # Tolerate a night where no shard produced a report (setup died before
+        # Tolerate a night where no leg produced a report (setup died before
         # fuzzing): the action then files its bare no-report notice instead of
         # this step failing on an empty pattern match.
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          pattern: fuzz-failures-shard*
+          pattern: fuzz-failures-*
           path: .fuzz-failures
           merge-multiple: true
 
@@ -208,7 +315,7 @@ jobs:
           label: nightly-fuzz
           title: Nightly fuzz failures
           artifacts-dir: .fuzz-failures
-          artifact-name: fuzz-failures-shard*
+          artifact-name: fuzz-failures-*
 
       # A GITHUB_TOKEN-created issue fires no triggers, so dispatch auto-assign.
       - name: Trigger auto-assign for the filed issue
