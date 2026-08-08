@@ -828,7 +828,7 @@ const MODEL_PREFIX_LIST_ID = "model-parameters-prefix-options";
 const PARAM_NAME_LIST_ID = "model-parameters-name-options";
 
 /**
- * Structured editor for litellm-vscode-chat.modelParameters, the
+ * Structured editor for litellm-vscode-chat.models.parameters, the
  * object-of-objects the native Settings GUI cannot edit: one group per model
  * prefix, one row per request parameter, values entered as JSON. Edits apply
  * to one configuration scope; other scopes render read-only below.
