@@ -90,6 +90,18 @@ export const MIGRATED_SERVER_IDS_KEY = "litellm.migratedServerIds";
  */
 export const OPENROUTER_CATALOG_METADATA_KEY = "litellm.openRouterCatalogMetadata";
 
+/**
+ * globalState: the removed global `headers` setting's last value, parked by
+ * the settings-redesign migration when it deletes the key ({ headers,
+ * migratedAt }). The old setting reached servers without a declared entry
+ * (externally managed provider groups), which the redesigned per-entry
+ * headers cannot express, so the parked copy keeps that loss recoverable:
+ * the dashboard hints from it and the adopt flow may prefill from it.
+ * Written at most once and never overwritten. Owned by
+ * src/extension/migrations/settingsRedesign/apply.ts.
+ */
+export const PARKED_GLOBAL_HEADERS_KEY = "litellm.parkedGlobalHeaders";
+
 /** SecretStorage: API key for one registered server. */
 export function apiKeySecret(serverId: string): string {
 	return `litellm.apiKey.${serverId}`;
