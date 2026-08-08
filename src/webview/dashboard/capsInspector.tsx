@@ -111,7 +111,12 @@ function FieldRow({ name, field }: { name: CapabilityFieldName; field: Effective
 			<tr>
 				<td class="param-name">{fieldLabel(name)}</td>
 				<td class="param-value">{formatValue(name, field.value)}</td>
-				<td>{levelName(field.level, field.key)}</td>
+				<td>
+					{levelName(field.level, field.key)}
+					{field.inheritedFrom !== undefined ? (
+						<span class="param-skip"> ({l10n.t("inherited from {0}", field.inheritedFrom)})</span>
+					) : null}
+				</td>
 			</tr>
 			{field.shadowed.map((shadow) => (
 				<ShadowedLine key={`${shadow.level}/${shadow.key ?? ""}`} name={name} shadow={shadow} />
@@ -131,21 +136,35 @@ function diagnosticText(diagnostic: CapabilityDiagnostic): string {
 			return l10n.t('"{0}" is not a known capability field ({1})', diagnostic.key, where);
 		case "invalid-value":
 			return l10n.t('"{0}" has an invalid value and is ignored ({1})', diagnostic.key, where);
+		case "invalid-matcher":
+			return l10n.t(
+				'"{0}" is not a valid matcher key and never matches: use an exact ID, a trailing-* glob, /regex/, or "*" ({1})',
+				diagnostic.key,
+				where
+			);
+		case "wrong-record-type":
+			return l10n.t('"{0}" belongs to parameters records and is ignored here ({1})', diagnostic.key, where);
+		case "unknown-inherit-key":
+			return l10n.t(
+				'"_inherit_from" names "{0}", which is not a key of this record; the rest still applies ({1})',
+				diagnostic.key,
+				where
+			);
+		case "unforceable-key":
 		case "invalid-directive":
 			// `_fallback` gets its own copy: the same diagnostic covers a malformed
-			// value, bad list entries (the valid ones still apply), and the
-			// per-model _declare ban, so the sentence names the rules without
-			// overclaiming - this inspector always speaks about one resolved model.
+			// value and bad list entries (the valid ones still apply), so the
+			// sentence names the rules without overclaiming.
 			if (diagnostic.key === FALLBACK_DIRECTIVE) {
 				return l10n.t(
-					'"{0}" must be true or a list of fields the record sets, e.g. ["context_length"], and cannot demote the model _declare creates; offending marks are ignored ({1})',
+					'"{0}" must be true or a list of fields the record sets, e.g. ["context_length"]; offending marks are ignored ({1})',
 					diagnostic.key,
 					where
 				);
 			}
 			return l10n.t('"{0}" carries an invalid directive value and is ignored ({1})', diagnostic.key, where);
 		case "unscoped-declare":
-			return l10n.t("_declare needs a server-scoped or entry key and is ignored ({0})", where);
+			return l10n.t("_declare needs an exact-ID server entry key and is ignored ({0})", where);
 	}
 }
 
@@ -162,7 +181,7 @@ function outputLimitNote(capabilities: EffectiveCapabilities): string {
 
 /**
  * The inspector body once the response landed: the provenance table, the
- * directive outcome, the replaced unscoped record, and the diagnostics.
+ * directive outcome, and the diagnostics.
  */
 function CapsBody({ capabilities, declared }: { capabilities: EffectiveCapabilities; declared: boolean }) {
 	return (
@@ -192,21 +211,6 @@ function CapsBody({ capabilities, declared }: { capabilities: EffectiveCapabilit
 					))}
 				</tbody>
 			</table>
-			{capabilities.replacedUnscoped !== undefined ? (
-				<div class="params-replaced">
-					<p class="hint">
-						{l10n.t(
-							"Not applied - Settings {0}: a server-scoped match replaces the whole unscoped record.",
-							capabilities.replacedUnscoped.key
-						)}
-					</p>
-					<ul>
-						{Object.keys(capabilities.replacedUnscoped.record).map((name) => (
-							<li key={name}>{name}</li>
-						))}
-					</ul>
-				</div>
-			) : null}
 			<p class="params-max-tokens">
 				<span class="hint">{outputLimitNote(capabilities)}</span>
 			</p>

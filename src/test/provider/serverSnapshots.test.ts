@@ -221,8 +221,12 @@ suite("provider server snapshots", () => {
 		];
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getServers: () => Promise.resolve(servers),
+			// Declarations are entry-level (exact keys) since global scoping left
+			// the records; both declared models ride the Gateway entry.
 			getEntryModelCapabilities: (label, baseUrl) =>
-				label === "Gateway" && baseUrl === TEST_BASE_URL ? { "entry-model": { _declare: true } } : undefined,
+				label === "Gateway" && baseUrl === TEST_BASE_URL
+					? { "entry-model": { _declare: true }, "declared-model": { _declare: true, context_length: 32000 } }
+					: undefined,
 		});
 		mswServer.use(
 			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
@@ -232,35 +236,32 @@ suite("provider server snapshots", () => {
 		const idAndName = (infos: readonly { id: string; name: string }[]) =>
 			infos.map(({ id, name }) => ({ id, name })).sort((a, b) => a.id.localeCompare(b.id));
 
-		await withConfig(
-			{ modelCapabilities: { [`${TEST_BASE_URL}/declared-model`]: { _declare: true, context_length: 32000 } } },
-			async () => {
-				const infos = await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-				const served = idAndName(infos.filter((info) => info.litellm.declared === true && info.id.startsWith("srv1/")));
-				assert.deepStrictEqual(served, [
-					{ id: "srv1/declared-model", name: "[Gateway] declared-model" },
-					{ id: "srv1/entry-model", name: "[Gateway] entry-model" },
-				]);
+		await withConfig({}, async () => {
+			const infos = await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
+			const served = idAndName(infos.filter((info) => info.litellm.declared === true && info.id.startsWith("srv1/")));
+			assert.deepStrictEqual(served, [
+				{ id: "srv1/declared-model", name: "[Gateway] declared-model" },
+				{ id: "srv1/entry-model", name: "[Gateway] entry-model" },
+			]);
 
-				const snapshot = expectDefined(
-					provider.getServerSnapshots().find((candidate) => candidate.status.serverId === "srv1")
-				);
-				assert.deepStrictEqual(
-					idAndName(provider.declaredModelsForSnapshot(snapshot)),
-					served,
-					"the dashboard's projection must mint exactly what the sweep served"
-				);
+			const snapshot = expectDefined(
+				provider.getServerSnapshots().find((candidate) => candidate.status.serverId === "srv1")
+			);
+			assert.deepStrictEqual(
+				idAndName(provider.declaredModelsForSnapshot(snapshot)),
+				served,
+				"the dashboard's projection must mint exactly what the sweep served"
+			);
 
-				// The snapshot's status label is display-facing; identity comes from
-				// the sweep's record, so a display fallback in the status can drop
-				// neither the name prefix nor the entry-level declaration.
-				const relabeled = { ...snapshot, status: { ...snapshot.status, label: "Gateway (display)" } };
-				assert.deepStrictEqual(
-					idAndName(provider.declaredModelsForSnapshot(relabeled)),
-					served,
-					"the projection must resolve identity from the sweep record, never the snapshot's display label"
-				);
-			}
-		);
+			// The snapshot's status label is display-facing; identity comes from
+			// the sweep's record, so a display fallback in the status can drop
+			// neither the name prefix nor the entry-level declaration.
+			const relabeled = { ...snapshot, status: { ...snapshot.status, label: "Gateway (display)" } };
+			assert.deepStrictEqual(
+				idAndName(provider.declaredModelsForSnapshot(relabeled)),
+				served,
+				"the projection must resolve identity from the sweep record, never the snapshot's display label"
+			);
+		});
 	});
 });

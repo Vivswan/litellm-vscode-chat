@@ -16,6 +16,7 @@ import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
 import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
 import type { CapabilityCatalogLookup, EffectiveCapabilities } from "../../shared/config/capabilityResolution";
 import { resolveModelCapabilities } from "../../shared/config/capabilityResolution";
+import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import {
 	HEADERS_SETTING_KEY,
 	MODEL_CAPABILITIES_SETTING_KEY,
@@ -737,15 +738,23 @@ export interface ModelCapabilitiesQuery {
 	readonly resolveEntryCapabilities: (serverId: string) => EntryCapabilitiesRecord | undefined;
 	/** The OpenRouter catalog as in-memory lookup; EMPTY_CATALOG_LOOKUP when no snapshot exists. */
 	readonly catalog: CapabilityCatalogLookup;
+	/**
+	 * The provider's shared flat resolution table: the inspector then reads
+	 * the SAME cache requests and registration use. Absent, the responder
+	 * runs the same pure walk uncached (tests, headless callers).
+	 */
+	readonly resolution?: ModelResolutionTable | undefined;
 }
 
 /**
  * Answer one readModelCapabilities request: locate the model behind the
- * scope key and raw ID, then run the SAME resolveModelCapabilities walk
+ * scope key and raw ID, then read the SAME resolveModelCapabilities walk
  * registration runs, over the same layers (entry record, global setting,
- * server baseline, catalog, floor). A store change between the push and the
- * request can de-resolve the key (its snapshot left the window); undefined
- * tells the inspector the state moved on instead of inventing values.
+ * server baseline, catalog, floor) - through the provider's shared
+ * resolution table when the query carries one. A store change between the
+ * push and the request can de-resolve the key (its snapshot left the
+ * window); undefined tells the inspector the state moved on instead of
+ * inventing values.
  */
 export function resolveDashboardModelCapabilities(
 	query: ModelCapabilitiesQuery,
@@ -768,14 +777,15 @@ export function resolveDashboardModelCapabilities(
 	if (info === undefined) {
 		return undefined;
 	}
-	return resolveModelCapabilities({
-		rawModelId: rawId,
+	const inputs = {
 		globalCapabilities: normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
-		serverScopes: [normalizeBaseUrl(snapshot.status.baseUrl)],
 		entryCapabilities: query.resolveEntryCapabilities(serverId),
 		catalog: query.catalog,
 		// Registration's post-aggregation baseline, riding every pre-attach
 		// model: the inspector resolves over the same walk registration serves.
 		serverDeclared: info.litellm.serverDeclared,
-	});
+	};
+	return query.resolution !== undefined
+		? query.resolution.resolveCapabilities(serverId, rawId, inputs)
+		: resolveModelCapabilities({ rawModelId: rawId, ...inputs });
 }

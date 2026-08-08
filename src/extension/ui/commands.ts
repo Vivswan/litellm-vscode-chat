@@ -514,6 +514,33 @@ export function registerTestCommands(
 		// The monkey fuzzer's storage-hygiene probe: every Memento key the
 		// extension holds, checked against shared/config/storageKeys.ts. SecretStorage
 		// has no enumeration API, so secret keys stay out of reach here.
-		vscode.commands.registerCommand("litellm._test.getStorageKeys", () => [...context.globalState.keys()])
+		vscode.commands.registerCommand("litellm._test.getStorageKeys", () => [...context.globalState.keys()]),
+		// The host-fidelity suite's entry-capabilities seam: `_declare` lives on
+		// declared server entries only (exact entry keys), and the legacy
+		// registry has no entries, so the suite injects a label-keyed record
+		// here instead of standing up the whole servers-setting sync machinery.
+		vscode.commands.registerCommand(
+			"litellm._test.setEntryModelCapabilities",
+			(label: string, record: Record<string, Record<string, unknown>> | undefined) => {
+				if (record === undefined) {
+					testEntryCapabilities.delete(label);
+				} else {
+					testEntryCapabilities.set(label, record);
+				}
+			}
+		)
 	);
+}
+
+/** Test-only entry-capability records by entry label; written solely by litellm._test.setEntryModelCapabilities. */
+const testEntryCapabilities = new Map<string, Record<string, Record<string, unknown>>>();
+
+/**
+ * The test seam's read side, consulted by activate()'s
+ * getEntryModelCapabilities wiring ahead of the servers setting. Inert in
+ * production: the command that writes the map never registers there, so this
+ * always answers undefined.
+ */
+export function testEntryModelCapabilitiesOverride(label: string): Record<string, Record<string, unknown>> | undefined {
+	return testEntryCapabilities.get(label);
 }
