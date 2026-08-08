@@ -5,8 +5,10 @@
  * at the User (Global) scope, log the count lines. No SecretStorage access
  * (the secret re-key is a settled no-op - the blob keys and field ids are
  * unchanged and stored values keep working under the new entry shape), no
- * fingerprint touch (a migrated entry's group args are byte-identical, so
- * the stored sync fingerprints stay valid), and no idempotency ledger
+ * fingerprint touch (a migrated entry's group args are byte-identical -
+ * except the ruled wire-inert-fragment exception pinned in the
+ * fingerprint-stability suite - so stored sync fingerprints stay valid), and
+ * no idempotency ledger
  * (source-key absence is the state signal). The globalState touches are the
  * write-once parking of a consumed global headers value (see
  * PARKED_GLOBAL_HEADERS_KEY) and the one-time cleanup of the pre-fold

@@ -269,11 +269,7 @@ export function synthesizeDeclaredModels(
 	const logDiagnostics = diagnosticLogger(opts.log);
 	// Exact IDs, inert when discovered, config-rebuilt every serve; a
 	// duplicated ID synthesizes once.
-	const specs = [...new Set(opts.entryDeclaredModels ?? [])].map((rawId) => ({
-		rawId,
-		layer: "entry" as const,
-		recordKey: "discovery.declared",
-	}));
+	const specs = [...new Set(opts.entryDeclaredModels ?? [])].map((rawId) => ({ rawId, layer: "entry" as const }));
 	const display = serverDisplayContext(server, serverCount);
 	const infos: PreAttachModelInfo[] = [];
 	const routes = new Map<string, ModelRoute>();
