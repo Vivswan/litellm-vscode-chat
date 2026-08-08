@@ -25,6 +25,7 @@ import {
 	registerSetServerSecretCommand,
 	ServerSyncEngine,
 } from "./extension/servers/serverSync";
+import { createUsagePollerEnv, registerRefreshUsageCommand, UsagePoller } from "./extension/servers/usage";
 import {
 	registerHelpAndFeedbackCommand,
 	registerOpenGroupsFileCommand,
@@ -46,12 +47,13 @@ import { registerOpenSettingKeyCommand } from "./extension/ui/openSettingKey";
 import { StatusBarManager } from "./extension/ui/status";
 import { LiteLLMChatModelProvider } from "./provider";
 import { CMD, VENDOR_ID } from "./shared/config/commandIds";
-import type { BooleanSettingId } from "./shared/config/settingSpec";
+import type { BooleanSettingId, NumberSettingId } from "./shared/config/settingSpec";
 import { CONFIG_SECTION } from "./shared/config/settingSpec";
 import {
 	isOpenRouterCatalogEnabled,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	SERVERS_SETTING_KEY,
+	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 } from "./shared/config/settings";
 import { HAS_SHOWN_WELCOME_KEY } from "./shared/config/storageKeys";
 import type { DevSeed } from "./shared/devSeed";
@@ -61,6 +63,8 @@ import { debounced } from "./shared/util/debounce";
 import { GITHUB_DOCS_URL } from "./shared/util/links";
 
 const OPENROUTER_CATALOG_SETTING_ID = "models.openRouterCatalog" satisfies BooleanSettingId;
+
+const USAGE_POLL_INTERVAL_SETTING_ID = "usage.pollInterval" satisfies NumberSettingId;
 
 /** How long configuration-change bursts (settings.json keystrokes) coalesce before models re-resolve. */
 const CONFIG_CHANGE_DEBOUNCE_MS = 400;
@@ -187,6 +191,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// provider groups. Created before the dashboard, which edits the setting
 	// and reads the engine's declared-server view.
 	const syncEngine = new ServerSyncEngine(createServerSyncEnv(context, logger, fingerprintSalt, groupRemovals));
+	// The headless usage poller: per-server spend, budgets, and threshold
+	// crossings for the usage surfaces (#232). Polls on its own cadence
+	// (usage.pollInterval; 0 = off) independent of discovery.
+	const usagePoller = new UsagePoller(createUsagePollerEnv(context, logger, ua));
 	// One debounced notify shared by every configuration branch below, so a
 	// multi-setting edit re-resolves models once. Errors are isolated like the
 	// other notify call sites: a throw must not escape into the timer.
@@ -202,6 +210,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		// cannot fire from a deactivated extension.
 		notifier,
 		syncEngine,
+		usagePoller,
 		notifyModelsChanged,
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			const affects = (id: string) => event.affectsConfiguration(`${CONFIG_SECTION}.${id}`);
@@ -212,6 +221,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 				// debounced notify is what makes the host re-resolve the groups.
 				syncEngine.requestSync();
 				notifyModelsChanged.schedule();
+				// Entry budgets and connections ride the same setting; the poller
+				// prunes removed servers and re-probes availability.
+				usagePoller.applyServersChange();
+			}
+			if (affects(USAGE_POLL_INTERVAL_SETTING_ID) || affects(USAGE_ALERT_THRESHOLDS_SETTING_KEY)) {
+				usagePoller.applyConfiguration();
 			}
 			if (affects(MODEL_CAPABILITIES_SETTING_KEY)) {
 				// Capability overrides are applied where models attach, outside the
@@ -228,7 +243,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			}
 		})
 	);
-	registerSetServerSecretCommand(context, syncEngine, logger);
+	// A palette-stored secret can fix a key the proxy had rejected, so the
+	// usage poller re-probes availability when one changes.
+	registerSetServerSecretCommand(context, syncEngine, logger, () => usagePoller.applyServersChange());
+	// Refresh Usage Now: the poller's explicit refresh, availability re-probed,
+	// working whether or not polling is on. The first scheduled pass runs off
+	// the activation path.
+	registerRefreshUsageCommand(context, () => usagePoller.refreshNow());
+	usagePoller.start();
 	// Also registers litellm.showDiagnostics: the command deep-links to the
 	// dashboard's Diagnostics tab, and the dashboard states the legacy
 	// registry's leftovers, which is why it takes the registry.
