@@ -11,7 +11,13 @@ import {
 } from "../../../extension/servers/serverManagement";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { Logger } from "../../../shared/logger";
-import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage, withConfig } from "../../testUtils";
+import {
+	assertContains,
+	expectDefined,
+	fakeFingerprintSaltSession,
+	makeExtensionStorage,
+	withConfig,
+} from "../../testUtils";
 import { resolveNls } from "../../util/nls";
 
 suite("extension/servers/serverManagement", () => {
@@ -411,8 +417,8 @@ suite("extension/servers/serverManagement", () => {
 			const run = await runServerWalk({ inputs: ["Prod", undefined] });
 			const validate = validatorOf(run, 1);
 			assert.ok(String(validate("")).includes("required"));
-			assert.ok(String(validate("localhost:4000")).includes("http://"));
-			assert.ok(String(validate("ftp://x")).includes("http://"));
+			assertContains(String(validate("localhost:4000")), "http://");
+			assertContains(String(validate("ftp://x")), "http://");
 			assert.strictEqual(validate("http://ok"), null);
 			assert.strictEqual(validate("https://ok"), null);
 		});
@@ -543,7 +549,7 @@ suite("extension/servers/serverManagement", () => {
 				"a focus change must not dismiss into deletion"
 			);
 			assert.ok(confirmation.message.includes("Prod"), confirmation.message);
-			assert.ok(confirmation.message.includes("http://prod"), confirmation.message);
+			assertContains(confirmation.message, "http://prod", confirmation.message);
 			assert.deepStrictEqual(
 				removed.registry.getServers().map((server) => server.label),
 				["Staging"]

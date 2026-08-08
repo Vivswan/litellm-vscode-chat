@@ -18,6 +18,7 @@ import {
 	timeoutRequestError,
 	toLanguageModelError,
 } from "../../../provider/transport/errorMapping";
+import { assertShows, assertStartsWith } from "../../testUtils";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
@@ -37,15 +38,6 @@ function expectRequestError(mapped: Error, kind: RequestError["kind"]): RequestE
 	assert.ok(mapped instanceof RequestError, `Expected RequestError, got ${mapped.name}: ${mapped.message}`);
 	assert.strictEqual(mapped.kind, kind);
 	return mapped;
-}
-
-/**
- * Containment assert for rendered output. The needle rides a parameter so a
- * URL literal never sits at an includes() call, the shape CodeQL reads as
- * URL-sanitization-by-substring (js/incomplete-url-substring-sanitization).
- */
-function assertShows(text: string, needle: string, context: string): void {
-	assert.ok(text.includes(needle), `${context}, got ${text}`);
 }
 
 suite("provider/transport/errorMapping", () => {
@@ -330,7 +322,7 @@ suite("provider/transport/errorMapping", () => {
 			assert.ok(mapped.message.includes("other side closed"), "the deepest cause stays in the detail");
 			assert.strictEqual(mapped.cause, err);
 			const disco = expectRequestError(mapSdkError(err, discoveryCtx), "network");
-			assert.ok(disco.message.startsWith("Network Error: Failed to fetch models from http://litellm.test."));
+			assertStartsWith(disco.message, "Network Error: Failed to fetch models from http://litellm.test.");
 		});
 
 		test("an ECONNRESET without SDK wrapping still classifies as a network error", () => {

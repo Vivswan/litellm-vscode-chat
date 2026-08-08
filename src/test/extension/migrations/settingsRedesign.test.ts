@@ -19,7 +19,7 @@ import { buildGroupArgs, parseServersSetting } from "../../../extension/servers/
 import { matcherMatches, parseMatcherKey } from "../../../shared/config/modelMatcher";
 import { PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
-import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
+import { assertOmits, expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 import { applyPlanToSnapshot } from "./settingsRedesignOracle";
 
 // The legacy and new ids, re-declared here on purpose: the migration and its
@@ -302,7 +302,7 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 		});
 		const line = plan.logLines.find((l) => l.includes("Left 1 server-scoped record key(s)"));
 		assert.ok(line !== undefined, plan.logLines.join(" | "));
-		assert.ok(!line.includes("unknown.example.com"), "keys are user text and must stay out of the log");
+		assertOmits(line, "unknown.example.com", "keys are user text and must stay out of the log");
 	});
 
 	test("a bare '<baseUrl>' key without a remainder separator never scope-matched and stays inert", () => {

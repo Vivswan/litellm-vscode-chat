@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import type { DiagnosticsSnapshot } from "../../../extension/ui/issueReporter";
 import { IssueReporter, redactSecrets } from "../../../extension/ui/issueReporter";
 import { mapSdkError, RequestError } from "../../../provider/transport/errorMapping";
-import { expectDefined } from "../../testUtils";
+import { assertContains, assertOmits, assertStartsWith, expectDefined } from "../../testUtils";
 
 suite("IssueReporter", () => {
 	const MAX_SAFE_URL_LENGTH = 8000;
@@ -39,7 +39,7 @@ suite("IssueReporter", () => {
 	test("buildIssueUrl produces valid GitHub URL with query params", () => {
 		const reporter = new IssueReporter();
 		const url = reporter.buildIssueUrl(makeSnapshot());
-		assert.ok(url.startsWith("https://github.com/Vivswan/litellm-vscode-chat/issues/new?"));
+		assertStartsWith(url, "https://github.com/Vivswan/litellm-vscode-chat/issues/new?");
 		assert.ok(url.includes("labels=bug"));
 		assert.ok(url.includes("title="));
 		assert.ok(url.includes("body="));
@@ -135,14 +135,14 @@ suite("IssueReporter", () => {
 
 		const body = reporter.buildBody(snapshot);
 		assert.ok(!body.includes("BODY-MARKER-422"), "the response body leaked into the issue prefill");
-		assert.ok(!body.includes("com.example.Foo.bar"), "the body's frame-shaped line leaked into the issue prefill");
+		assertOmits(body, "com.example.Foo.bar", "the body's frame-shaped line leaked into the issue prefill");
 		assert.ok(body.includes("RequestError(http, status 422)"), "the classification replaces the message");
 		assert.ok(!reporter.buildTitle(snapshot).includes("BODY-MARKER-422"), "the title must not leak the body either");
 
 		// The stack section keeps its call frames but nothing message-derived.
 		const stack = expectDefined(expectDefined(reporter.getLatestError()).stack);
 		assert.ok(!stack.includes("BODY-MARKER-422"), "the stack's message line leaked the body");
-		assert.ok(!stack.includes("com.example.Foo.bar"), "the stack kept the body's frame-shaped line");
+		assertOmits(stack, "com.example.Foo.bar", "the stack kept the body's frame-shaped line");
 		assert.match(stack, /^RequestError\(http, status 422\)\n\s+at /);
 	});
 
@@ -533,7 +533,7 @@ suite("IssueReporter", () => {
 
 	test("redactSecrets preserves localhost URLs", () => {
 		const result = redactSecrets("Fetching from: http://localhost:4000/v1/models");
-		assert.ok(result.includes("http://localhost:4000/v1/models"));
+		assertContains(result, "http://localhost:4000/v1/models");
 	});
 
 	test("redactSecrets handles JSON-encoded auth headers", () => {
