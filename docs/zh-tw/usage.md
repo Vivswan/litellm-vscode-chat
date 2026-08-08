@@ -27,7 +27,7 @@
 要檢查伺服器支援什麼, 問它延伸模組問的同一個問題:
 
 ```bash
-curl -s -H "Authorization: Bearer sk-your-key" https://litellm.example.com/key/info
+curl -s -H "Authorization: Bearer $YOUR_LITELLM_KEY" https://litellm.example.com/key/info
 ```
 
 有資料庫支撐的伺服器回答帶 `spend` 與 `max_budget` 欄位的 JSON; 沒有資料庫的伺服器回答錯誤, 因為沒有資料庫時該路由不提供。如果 curl 成功但延伸模組什麼都不顯示, 檢查項目的金鑰是不是您測試用的那把 - 資料是按金鑰的。而且那是金鑰在伺服器端的總數: 透過那把金鑰消費的每個用戶端都計入其中, 不只是 VS Code。
