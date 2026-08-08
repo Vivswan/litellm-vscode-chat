@@ -42,6 +42,8 @@ Every chat-capable model a reachable server reports appears in the picker. Three
 
 When one model name is served by several deployments (a load-balanced pool), it registers once, with the strictest contributor's token limits, so a request can never exceed whichever deployment serves it. This merging matters for the [`max_tokens` exception](#the-max_tokens-exception): the merged output limit counts as declared only when every deployment declared one.
 
+The same conservative merge applies beyond token limits: the pool advertises a capability only when every deployment does - one deployment declaring tool calling off removes it from the pool, a modality (vision, audio) survives only when every deployment has it, and the Thinking Effort control appears only when every deployment advertises reasoning. Pricing shows only where every deployment declares the identical per-field cost (where they disagree, the proxy's routing decides what a request actually costs, so the picker shows nothing rather than a wrong number), and the picker's provider name follows the first deployment. A capability the merge dropped can be restored with a [`models.capabilities` override](#capabilities).
+
 ### Provider routes and aggregates
 
 A model reported with a `providers` array of routes behind it registers differently. Either discovery endpoint can carry such entries; a stock LiteLLM proxy usually does not, and a proxy that load-balances several deployments of one model name does not produce this either (those deployments merge into the single entry above).
@@ -50,9 +52,11 @@ A model reported with a `providers` array of routes behind it registers differen
 - When no route supports tools, a single base entry registers instead, without the aggregates.
 - The aggregates advertise the strictest tool-capable route's token limits.
 
+These entries register under their own IDs - `<id>:cheapest`, `<id>:fastest`, and `<id>:<provider>` - and that suffixed ID is what [matcher keys](#model-matching) match, not the base ID the server reports: an exact key like `gpt-4` reaches none of them, while a glob (`gpt-4*`) covers the whole family. The [dashboard's models table](dashboard.md#models) copy action gives the exact suffixed ID.
+
 ## Model matching
 
-The two model-keyed records - `models.parameters` and `models.capabilities`, global and per-entry alike - select models with the same key grammar. Keys match the model's exact ID as your server reports it, which the picker does not show; the [dashboard's models table](dashboard.md#models) has a per-row copy action for it.
+The two model-keyed records - `models.parameters` and `models.capabilities`, global and per-entry alike - select models with the same key grammar. Keys match the model's exact ID as your server reports it (a route-backed model's entries match under their [suffixed IDs](#provider-routes-and-aggregates)), which the picker does not show; the [dashboard's models table](dashboard.md#models) has a per-row copy action for it.
 
 **A key matches exactly unless it says otherwise:**
 
@@ -180,6 +184,8 @@ Discovery reads capabilities from model info:
 | Token limits | model info's token limit fields | See [Token limits](#token-limits) |
 
 A wrong flag on the server side is worth fixing there: the extension trusts the declaration in both directions, offering what is declared and withholding what is not. When the server is not yours to fix, override the flag instead.
+
+One asymmetry: an explicit `supports_vision: false` or `supports_audio_input: false` from the server is treated the same as no report, so an [implicit catalog match](#the-openrouter-catalog) can turn the capability back on for a well-known model ID. To keep images or audio off such a model, write the `false` yourself in `models.capabilities` - an override always wins - or disable the catalog.
 
 ### Overrides
 

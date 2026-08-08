@@ -49,6 +49,7 @@
 
 - 安裝 GitHub Copilot Chat 延伸模組, 登入 GitHub, 並確保它已啟用。
 - VS Code 較舊時請更新: 延伸模組需要 1.129.0 或更高版本。
+- 在處於受限模式的視窗中 (不受信任的資料夾), VS Code 會整個停用本延伸模組: LiteLLM 命令、狀態列項目和已註冊的模型全部消失, 直到您信任該工作區。
 
 ### 「連線錯誤: 無法連線」
 
@@ -59,6 +60,13 @@
 - 檢查 VS Code 與伺服器之間的防火牆、VPN 或 Proxy 設定。
 
 [項目參考](servers.md#項目參考)記載了基底 URL 規則。
+
+### 「SSL 憑證錯誤」
+
+VS Code 無法與基底 URL 建立可信任的 HTTPS 連線; 延伸模組沒有繞過憑證驗證的設定。
+
+- 「... 的 SSL 憑證已過期」: 請您的 LiteLLM 伺服器管理員更新憑證。
+- 其他任何憑證問題 - 自我簽署或內部 CA 憑證, 在企業部署上很常見: 把 CA 加入作業系統的信任存放區, 或用指向 CA 憑證包的 `NODE_EXTRA_CA_CERTS` 啟動 VS Code。信任決定屬於 VS Code 的執行階段, 不屬於本延伸模組。
 
 ### 「驗證失敗」
 
@@ -88,6 +96,7 @@
 - 一切顯示已連線, 但最近新增的模型不見了: 探索的清單有快取 (`discovery.cacheTtl`, 預設 1 小時)。執行 "LiteLLM: Sync Models Now" 略過快取。
 - 閘道根本無法列出模型 (沒有 `/v1/models`): 用 `discovery.declared` 在項目上宣告它們, 並在旁邊加上 `discovery.expectedFailures`, 讓缺少的端點不再算作故障。配方: [伺服器: 宣告的模型](servers.md#宣告的模型)。
 - 您之前確實見過的模型上有警告圖示, 代表背景重新整理失敗, 延伸模組正在提供標記為過時的最後已知清單 - 見[逾時與重試](#逾時與重試)。
+- 一切顯示已連線, 您伺服器的標籤下卻什麼都沒有, 而您的 Copilot 席次來自組織 (Copilot Business 或 Enterprise): 組織的「Bring your own language model key」原則被停用了。隱藏發生在 Copilot 內部, 所以延伸模組自己的診斷全都回報成功; 請您的 Copilot 管理員啟用該原則, 然後重新載入 VS Code。
 
 ### 「伺服器回傳了 0 個模型」
 
@@ -146,7 +155,8 @@ LiteLLM `model_info.mode` 指向非聊天端點 (`embedding`、`image_generation
 
 儀表板沒有某伺服器的用量區段、不顯示支出百分比、也沒有警示觸發。按可能性排序:
 
-- **伺服器沒有資料庫。**LiteLLM 只在有資料庫支撐時提供支出資料 (`/key/info`); 沒有它, 延伸模組偵測一次後為該伺服器隱藏所有用量功能 - 這是設計, 無需設定。從終端機確認: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - 回答錯誤頁而非 JSON 即可確認。
+- **伺服器沒有資料庫。**LiteLLM 只在有資料庫支撐時提供支出資料 (`/key/info`); 沒有它, 延伸模組偵測一次後為該伺服器隱藏所有用量功能 - 這是設計, 無需設定。從終端機確認: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - 回答錯誤頁而非 JSON 即可確認。之後補上資料庫時, 背景輪詢不會自己注意到: 執行 "LiteLLM: Refresh Usage Now" 重新檢查。
+- **金鑰讀不了用量資料。**在兩個用量端點上都回答 401 或 403 的資料庫支撐伺服器, 隱藏用量介面的方式與缺資料庫完全相同。此時上面的 curl 回傳的是 401 或 403 而不是錯誤頁; 請金鑰的核發者允許它讀取自己的 `/key/info`。
 - **輪詢關了。**`usage.pollInterval: 0` 停用背景輪詢; 儀表板開啟時仍會擷取, 沒有警示觸發, 狀態列項目在一次擷取後顯示隨選資料十分鐘, 然後隱藏。執行 "LiteLLM: Refresh Usage Now" 立即擷取 - 它總能重新點亮該項目。
 - **警示關了。**空的 `usage.alertThresholds` 清單代表沒有門檻, 所以永遠不會觸發任何東西, `"alerts-only"` 狀態列模式也永不顯示。
 - **該項目被設定隱藏了。**`usage.statusBar: "off"` 隱藏該項目; `"alerts-only"` 只在門檻被越過時顯示。
@@ -161,7 +171,7 @@ LiteLLM `model_info.mode` 指向非聊天端點 (`embedding`、`image_generation
 兩個逾時設定約束什麼, 什麼會重試:
 
 - **聊天補全從不重試。**補全可能有副作用 (支出、工具呼叫), 所以延伸模組呈現失敗, 而不是悄悄為第二次嘗試付費。因此 `chat.timeout` (預設 5 分鐘) 是一個請求可占用的總時間, 含串流; 長推理運行被截斷時調大它。
-- **探索會重試。**模型探索請求是冪等的 GET, 暫時性失敗最多重試兩次, 整輪 - 含重試與任何 OAuth 權杖交換 - 受 `discovery.timeout` (預設 30 秒) 約束。為緩慢的閘道基礎設施調大它; 注意緩慢的 OAuth 身分識別提供者花的是同一份預算。
+- **探索會重試。**模型探索請求是冪等的 GET, 暫時性失敗最多重試兩次, 整輪 - 含重試與任何 OAuth 權杖交換 - 受 `discovery.timeout` (預設 30 秒) 約束。為緩慢的閘道基礎設施調大它; 注意緩慢的 OAuth 身分識別提供者花的是同一份預算, 而且在聊天請求上交換同樣受 `discovery.timeout` 約束。
 - **預期失敗不重試。**項目的 `discovery.expectedFailures` 指名的端點只嘗試一次, 記一條 info 層級記錄而非紅色錯誤 ([伺服器](servers.md#項目參考))。
 - **最小值。**兩個逾時都箝制到至少 1000 毫秒。
 - **過時清單寬限。**當背景重新整理失敗, 但最近一次成功探索距今不足十分鐘時, 延伸模組繼續提供最後已知的模型清單, 以警告圖示標記為過時, 而不是在工作階段中途丟掉您的模型。
@@ -187,16 +197,25 @@ VS Code 的提供者群組 API 可以建立群組, 但永遠無法更新或移�
 2. 從 JSON 陣列刪除該群組的物件。手動編輯前先結束或重新載入 VS Code: 它把檔案保留在記憶體中, 可能覆寫外部編輯。
 3. 重新載入視窗並執行 "LiteLLM: Sync Models Now"。
 
-當您重新加入標籤與基底 URL 相同的項目, 或透過儀表板隱藏群組的「取消隱藏」動作時, 隱藏的群組自行回歸。完整生命週期 - 每個操作留下什麼、為什麼 - 在[伺服器: 生命週期](servers.md#生命週期-重新命名移除與隱藏的群組); 外部列與採用[也在那裡](servers.md#外部伺服器與採用)。
+當您重新加入標籤與基底 URL 相同的項目, 或透過儀表板隱藏群組的「取消隱藏」動作時, 隱藏的群組自行回歸。在非英文語言的 VS Code 組建上, 延伸模組可能認不出主機的名稱衝突回應: 伺服器列隨即顯示的不是單條可操作的「提供者群組已占用此名稱」狀態, 而是每輪都重試的一般同步失敗 - 修法還是同樣三步。完整生命週期 - 每個操作留下什麼、為什麼 - 在[伺服器: 生命週期](servers.md#生命週期-重新命名移除與隱藏的群組); 外部列與採用[也在那裡](servers.md#外部伺服器與採用)。
 
 ## 各伺服器模型參數未生效
 
-當伺服器項目帶有各項目 `models.parameters`, 但服務該伺服器的 VS Code 提供者群組不帶有項目的標籤化身分時, 儀表板顯示「params inactive」徽章 (與點名受影響項目的橫幅)。這發生在群組早於項目標籤, 或重新命名、基底 URL 編輯留下了過時群組時; 經過這種群組的請求只得到全域 `models.parameters` 設定。孿生的「capabilities inactive」徽章對項目的 `models.capabilities` 與 `discovery.expectedFailures` 表示同樣的事, 修法也相同。
+當伺服器項目帶有各項目 `models.parameters`, 但服務該伺服器的 VS Code 提供者群組不帶有項目的標籤化身分時, 儀表板顯示「params inactive」徽章 (與點名受影響項目的橫幅)。這發生在群組早於項目標籤, 或重新命名、基底 URL 編輯留下了過時群組時; 經過這種群組的請求只得到全域 `models.parameters` 設定。孿生的「capabilities inactive」徽章對項目的 `models.capabilities`、`discovery.declared` 與 `discovery.expectedFailures` 表示同樣的事, 項目的自訂 `headers` 則有自己的「headers inactive」徽章; 修法全都相同。
 
 兩種修法:
 
 - 從模型檔案 (`<profile>/User/chatLanguageModels.json`) 刪除該群組的物件, 重新載入視窗, 執行 "LiteLLM: Sync Models Now"; 延伸模組會從項目重新建立群組, 這次帶上它的身分。
 - 或者用新標籤儲存項目; 會為它建立新群組。舊群組留著, 直到您從模型檔案刪除它的物件。
+
+## 祕密儲存體無法使用
+
+兩條伺服器列訊息代表問題出在 VS Code 的祕密儲存體, 而不是您的伺服器:
+
+- **"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry."** 這一輪讀取失敗; 項目只是被略過, 不是永久失敗 - 下一輪 (或 "LiteLLM: Sync Models Now") 會再次讀取。
+- **"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session."** 延伸模組無法確認它的同步狀態能在本工作階段之後留存, 所以寧可什麼都不同步, 也不去猜。
+
+兩種狀態下項目都只是本輪被略過: 它的作用中提供者群組繼續提供最近一次同步的模型, 什麼都不會遺失。常見原因是作業系統的鑰匙圈或金鑰圈無法使用 - 在 Linux 上, 沒有金鑰圈服務 (gnome-keyring、KWallet) 的桌面工作階段是最常見的情況。恢復金鑰圈, 重新啟動 VS Code, 然後執行 "LiteLLM: Sync Models Now"。
 
 ## 來自舊版本的設定
 

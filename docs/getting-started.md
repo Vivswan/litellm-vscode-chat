@@ -6,7 +6,7 @@ Install the extension, point it at a LiteLLM proxy, and its models show up in Gi
 
 ## Requirements
 
-- **VS Code 1.129.0 or higher**, with the GitHub Copilot Chat extension installed and signed in. This extension plugs into Copilot's chat view, so without it there is no chat interface and no model picker.
+- **VS Code 1.129.0 or higher**, with the GitHub Copilot Chat extension installed and signed in. This extension plugs into Copilot's chat view, so without it there is no chat interface and no model picker. If your Copilot seat comes from an organization (Copilot Business or Enterprise), the organization must also enable GitHub's "Bring your own language model key" policy - without it, Copilot hides models from provider extensions like this one even when every diagnostic reports connected.
 - **A running LiteLLM proxy**, self-hosted or cloud. A LiteLLM proxy is one server that exposes many LLM providers behind a single OpenAI-compatible endpoint; if you do not have one, LiteLLM's own [proxy quickstart](https://docs.litellm.ai/docs/proxy/quick_start) gets a local one running in a few commands.
 - **A LiteLLM API key**, if your proxy requires one: usually an `sk-...` value, either the proxy's master key from its config or a [virtual key](servers.md#authentication) issued by whoever runs the proxy.
   - If your company runs the server, ask its administrator.

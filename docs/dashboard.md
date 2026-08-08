@@ -9,7 +9,7 @@ English | [简体中文](zh-cn/dashboard.md) | [繁體中文](zh-tw/dashboard.md
 - A status strip on top: overall connection state, server and model counts, last sync, and a Sync models button. A quiet Report a bug action sits beside the title and opens a GitHub issue pre-filled with version, platform, and recent logs.
 - Four tabs. **Servers and models** share the first, since they are one workflow: connect a server, see its models. **Usage** shows spend against budgets. **Settings** holds the extension's settings as editable form controls. **Diagnostics** is a connection summary, the configuration problems the extension has spotted, and the feedback and documentation links.
 - Settings edits write to your VS Code settings (to the scope where the value is already set, otherwise to user settings), and the buttons run the same commands the Command Palette offers.
-- Sections are addressable from outside: commands and notifications open the dashboard directly onto the section they concern ([Deep links](#deep-links)).
+- Sections are addressable from outside: commands land on the section they concern, and notification buttons open the dashboard on Servers and models - except the budget alert's Open Usage button, which deep-links to Usage ([Deep links](#deep-links)).
 
 ## Servers
 
@@ -30,7 +30,7 @@ The error text behind an Error or Sync issue state renders selectable in a banne
 
 ### Notices
 
-- **"params inactive"** (a badge on the server row, with a matching banner under the table): the entry declares per-server model parameters, but the provider group serving it does not carry the entry's labeled identity (the group predates entry labels, or a rename left a stale group), so those parameters are not being applied. Entries whose per-server capabilities, declared models, or expected failures are inactive for the same reason get the twin "capabilities inactive" badge. The fix is the same for both: delete the group's object from the models file (chatLanguageModels.json), reload the window, and re-sync - or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
+- **"params inactive"** (a badge on the server row, with a matching banner under the table): the entry declares per-server model parameters, but the provider group serving it does not carry the entry's labeled identity (the group predates entry labels, or a rename left a stale group), so those parameters are not being applied. Entries whose per-server capabilities, declared models, or expected failures are inactive for the same reason get the twin "capabilities inactive" badge, and inactive custom headers get their own "headers inactive" badge. The fix is the same for all three: delete the group's object from the models file (chatLanguageModels.json), reload the window, and re-sync - or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
 - **An expected discovery failure with nothing declared** gets its own banner: discovery failed only in categories the entry expects, but the entry's `discovery.declared` list is empty, so the server serves no models; the banner points at [declared models](servers.md#declared-models).
 - **After adopting an external server**, a one-time notice reminds you that the original group still exists and its models appear twice until you delete its object from the models file (the notice's button opens it) and reload the window.
 
@@ -173,4 +173,5 @@ Every dashboard section is addressable from outside the panel, so commands and n
 | LiteLLM: Open Dashboard | the dashboard, on its first section |
 | LiteLLM: Show Diagnostics | [Diagnostics](#diagnostics) |
 | the usage status bar item | [the Usage section](#the-usage-section) |
-| notification actions ("Show details", "Open dashboard") | the section the notification concerns |
+| notification buttons that open the dashboard ("Configure Now", "Reconfigure") | [Servers and models](#servers), where connection problems are fixed |
+| the budget alert's "Open Usage" button | [the Usage section](#the-usage-section) |
