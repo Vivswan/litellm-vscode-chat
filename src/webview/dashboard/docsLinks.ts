@@ -31,6 +31,19 @@ export const DOCS_LINK_PROXY_NOT_RUNNING =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#connection-error-unable-to-connect";
 export const DOCS_LINK_CONFIGURE_API_KEY =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#authentication-failed";
+export const DOCS_LINK_USAGE = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/usage.md";
+export const DOCS_LINK_RESOLVED_MODELS =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/dashboard.md#resolved-models";
+export const DOCS_LINK_MODEL_MATCHING =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/models.md#model-matching";
+export const DOCS_LINK_DECLARED_MODELS =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/servers.md#declared-models";
+export const DOCS_LINK_AUTHENTICATION =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/servers.md#authentication";
+export const DOCS_LINK_OPENROUTER_CATALOG =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/models.md#the-openrouter-catalog";
+export const DOCS_LINK_SETTINGS_MIGRATION =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/settings.md#renamed-and-removed-settings";
 
 /** The only values a docs anchor may carry; DocsLink's href is typed to it. */
 export type DocsUrl =
@@ -46,4 +59,11 @@ export type DocsUrl =
 	| typeof DOCS_LINK_PARAMS_INACTIVE
 	| typeof DOCS_LINK_CHECK_BASE_URL
 	| typeof DOCS_LINK_PROXY_NOT_RUNNING
-	| typeof DOCS_LINK_CONFIGURE_API_KEY;
+	| typeof DOCS_LINK_CONFIGURE_API_KEY
+	| typeof DOCS_LINK_USAGE
+	| typeof DOCS_LINK_RESOLVED_MODELS
+	| typeof DOCS_LINK_MODEL_MATCHING
+	| typeof DOCS_LINK_DECLARED_MODELS
+	| typeof DOCS_LINK_AUTHENTICATION
+	| typeof DOCS_LINK_OPENROUTER_CATALOG
+	| typeof DOCS_LINK_SETTINGS_MIGRATION;

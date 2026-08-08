@@ -12,9 +12,15 @@ import type {
 	TransportErrorClassification,
 } from "../../extension/dashboard/protocol";
 import { EXPECTED_FAILURE_CATEGORIES, SECRET_FIELD_IDS } from "../../extension/dashboard/protocol";
-import type { GroupProblems } from "../../extension/dashboard/recordDraft";
-import { toCapabilityGroups, toGroups, toggleExpectedFailure } from "../../extension/dashboard/recordDraft";
+import type { GroupProblems, HeaderRow } from "../../extension/dashboard/recordDraft";
+import {
+	toCapabilityGroups,
+	toGroups,
+	toggleExpectedFailure,
+	toHeaderRows,
+} from "../../extension/dashboard/recordDraft";
 import type {
+	AuthFormId,
 	SecretFieldDraft,
 	ServerFormDraft,
 	ServerFormField,
@@ -23,9 +29,9 @@ import type {
 import {
 	applyInlinePrefill,
 	CONNECTION_FIELDS,
+	deriveAuthForm,
 	EMPTY_SERVER_FORM,
 	isUsableHttpUrl,
-	OAUTH_SECTION_FIELDS,
 	parseServerForm,
 	parseServerFormForTest,
 	SERVER_FORM_FIELD_ORDER,
@@ -37,8 +43,10 @@ import {
 import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
 import type { DocsUrl } from "./docsLinks";
 import {
+	DOCS_LINK_AUTHENTICATION,
 	DOCS_LINK_CHECK_BASE_URL,
 	DOCS_LINK_CONFIGURE_API_KEY,
+	DOCS_LINK_DECLARED_MODELS,
 	DOCS_LINK_MODEL_CAPABILITIES,
 	DOCS_LINK_PARAMS_INACTIVE,
 	DOCS_LINK_PROXY_NOT_RUNNING,
@@ -46,8 +54,14 @@ import {
 	DOCS_LINK_SERVERS,
 } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
-import { helpEntryModelParameterPrefix, helpSecretStorage, helpServersSection, serverFieldHelp } from "./helpText";
-import { IconAdd } from "./icons";
+import {
+	helpEntryModelParameterPrefix,
+	helpOauthCompanionApiKey,
+	helpSecretStorage,
+	helpServersSection,
+	serverFieldHelp,
+} from "./helpText";
+import { IconAdd, IconTrash } from "./icons";
 import type { CatalogSearchResponse } from "./recordEditors";
 import { CapabilityGroupsFields, ParamGroupsFields } from "./recordEditors";
 import { SlideOver } from "./slideOver";
@@ -61,6 +75,28 @@ import { newRequestId, postMessage } from "./vscodeApi";
  */
 const ADOPT_ESCAPE_AFTER_MS = 10000;
 
+/** The entry-only-fields-inactive notice classifications; one merged banner covers all three. */
+const INACTIVE_NOTICES = ["entry-params-inactive", "entry-capabilities-inactive", "entry-headers-inactive"] as const;
+
+/**
+ * The inactive surfaces one noticed row names, as a short localized phrase
+ * ("per-server model parameters, custom headers"). Resolved at call time (no
+ * module-level localized constants).
+ */
+function inactiveSurfacesText(server: DashboardServer): string {
+	const surfaces: string[] = [];
+	if (server.notices?.includes("entry-params-inactive") === true) {
+		surfaces.push(l10n.t("per-server model parameters"));
+	}
+	if (server.notices?.includes("entry-capabilities-inactive") === true) {
+		surfaces.push(l10n.t("per-server model capabilities, declared models, and expected failures"));
+	}
+	if (server.notices?.includes("entry-headers-inactive") === true) {
+		surfaces.push(l10n.t("per-server custom headers"));
+	}
+	return surfaces.join(", ");
+}
+
 /**
  * The row's status pill: tone dot, plain-language verdict, and how long ago
  * discovery last looked. An "ok" row that still carries an error (a live
@@ -72,6 +108,24 @@ const ADOPT_ESCAPE_AFTER_MS = 10000;
 function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 	const checked = server.lastChecked === undefined ? undefined : relativeTime(server.lastChecked, now);
 	const time = checked === undefined ? null : <span class="pill-time">{checked}</span>;
+	if (server.origin === "misconfigured") {
+		// Origin outranks state: the entry never reaches discovery, so whatever
+		// state rides the row, the verdict is the invalid entry itself.
+		return (
+			<HoverTip
+				focusable
+				tip={l10n.t(
+					"This entry in the servers setting is invalid and is not used until fixed; the banner below lists the problems."
+				)}
+			>
+				<span class="pill tone-error">
+					<span class="dot" />
+					{l10n.t("Misconfigured")}
+					{time}
+				</span>
+			</HoverTip>
+		);
+	}
 	if (server.state === "ok") {
 		if (server.error !== undefined) {
 			return (
@@ -143,9 +197,10 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 	);
 }
 
-/** The two DashboardServer origins as their own types; Extract keeps them in step with the protocol union. */
+/** The DashboardServer origins as their own types; Extract keeps them in step with the protocol union. */
 type DeclaredDashboardServer = Extract<DashboardServer, { origin: "declared" }>;
 type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
+type MisconfiguredDashboardServer = Extract<DashboardServer, { origin: "misconfigured" }>;
 
 /**
  * The external badge's hover tip, from the row's provenance classification.
@@ -188,6 +243,16 @@ type FormTarget =
 
 /** The targets ServerForm handles; adoption renders AdoptForm instead. */
 type ServerFormTarget = Extract<FormTarget, { kind: "add" | "edit" }>;
+
+/**
+ * The inspectors' jump into a declared entry's edit form (the surface owning
+ * per-entry records). Minted by App; the seq keys re-delivery so repeating
+ * the same jump re-opens.
+ */
+export interface ServerEditRequest {
+	readonly seq: number;
+	readonly label: string;
+}
 
 /**
  * Where the form is in its life. The prefill and save round trips each carry
@@ -268,6 +333,7 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 	return {
 		label: original.label,
 		baseUrl: original.baseUrl,
+		authForm: deriveAuthForm(original.config),
 		oauthTokenUrl: original.config.oauthTokenUrl ?? "",
 		oauthClientId: original.config.oauthClientId ?? "",
 		oauthScopes: original.config.oauthScopes ?? "",
@@ -275,11 +341,36 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 		apiKey: secretDraft(original.config.secrets.apiKey),
 		oauthClientSecret: secretDraft(original.config.secrets.oauthClientSecret),
 		virtualKeyValue: secretDraft(original.config.secrets.virtualKeyValue),
+		headers: toHeaderRows(original.config.headers ?? {}),
+		declaredModels: (original.config.declaredModels ?? []).join("\n"),
+		budget: original.config.budget !== undefined ? String(original.config.budget) : "",
 		modelParameters: toGroups(original.config.modelParameters ?? {}),
 		modelCapabilities: toCapabilityGroups(original.config.modelCapabilities ?? {}),
 		expectedFailures: original.config.expectedFailures ?? [],
 	};
 }
+
+/**
+ * The Authentication selector's option labels; OAuth stays English (protocol
+ * term). Deliberately distinct from the field labels ("API key", "Virtual key
+ * header"): two identical label texts would leave label-based lookup - screen
+ * readers' and the test harness's alike - ambiguous.
+ */
+function authFormName(form: AuthFormId): string {
+	switch (form) {
+		case "none":
+			return l10n.t("None");
+		case "apiKey":
+			return l10n.t("API key (bearer)");
+		case "virtualKey":
+			return l10n.t("Virtual key in a custom header");
+		case "oauth":
+			return "OAuth";
+	}
+}
+
+/** The selector's render order: rank order, none first. */
+const AUTH_FORM_IDS: readonly AuthFormId[] = ["none", "apiKey", "virtualKey", "oauth"];
 
 /** The storage locations' display names, resolved at call time (no module-level localized constants). */
 function locationName(location: Exclude<SecretLocation, "none">): string {
@@ -305,7 +396,16 @@ function TextField({
 	placeholder,
 	props,
 }: {
-	field: Exclude<ServerFormField, SecretFieldId | "modelParameters" | "modelCapabilities" | "expectedFailures">;
+	field: Exclude<
+		ServerFormField,
+		| SecretFieldId
+		| "authForm"
+		| "headers"
+		| "declaredModels"
+		| "modelParameters"
+		| "modelCapabilities"
+		| "expectedFailures"
+	>;
 	placeholder?: string;
 	props: FieldRenderProps;
 }) {
@@ -347,7 +447,7 @@ function TextField({
  * because settings.json already displays it in plain text. Leaving the input
  * empty - or leaving a prefill unedited - keeps the stored value where it is.
  */
-function SecretField({ field, props }: { field: SecretFieldId; props: FieldRenderProps }) {
+function SecretField({ field, help, props }: { field: SecretFieldId; help?: string; props: FieldRenderProps }) {
 	const value = props.draft[field];
 	const problem = props.visibleProblems[field];
 	const showProblem = problem !== undefined;
@@ -369,7 +469,7 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
 		<div class="field">
 			<span class="label-row">
 				<label for={id}>{serverFormFieldLabel(field)}</label>
-				<Help text={serverFieldHelp(field)} />
+				<Help text={help ?? serverFieldHelp(field)} />
 			</span>
 			<span class="secret-input">
 				<input
@@ -469,11 +569,124 @@ function SecretField({ field, props }: { field: SecretFieldId; props: FieldRende
  * fields count their text.
  */
 function fieldHasContent(draft: ServerFormDraft, field: ServerFormField): boolean {
-	if (field === "modelParameters" || field === "modelCapabilities" || field === "expectedFailures") {
+	if (
+		field === "modelParameters" ||
+		field === "modelCapabilities" ||
+		field === "expectedFailures" ||
+		field === "headers"
+	) {
 		return draft[field].length > 0;
+	}
+	if (field === "authForm") {
+		// The selector always holds a pick and never carries a problem.
+		return false;
 	}
 	const value = draft[field];
 	return typeof value === "string" ? value.length > 0 : value.value.length > 0;
+}
+
+/**
+ * An inactive form's stored secret, rendered so its Remove checkbox stays
+ * reachable without offering an input (the parse would drop anything typed
+ * into a field whose form is not selected): where the value lives, the remove
+ * gesture, and any problem the parse pinned on the field.
+ */
+function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldRenderProps }) {
+	const value = props.draft[field];
+	const problem = props.visibleProblems[field];
+	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
+		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
+	return (
+		<div class="field">
+			<span class="field-label">{serverFormFieldLabel(field)}</span>
+			{value.existing === "none" ? null : (
+				<span class="hint">{l10n.t("Currently in {0}.", locationName(value.existing))}</span>
+			)}
+			<label class={value.clear ? "secret-remove armed" : "secret-remove"}>
+				<input
+					type="checkbox"
+					checked={value.clear}
+					disabled={props.disabled}
+					onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
+				/>
+				{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
+			</label>
+			{value.clear ? <span class="hint">{l10n.t("The stored value will be removed on save.")}</span> : null}
+			{problem !== undefined ? <span class="error">{problem}</span> : null}
+		</div>
+	);
+}
+
+/**
+ * The custom-header rows: name and value inputs per row, the parse's
+ * row-aligned problems under the offending row, remove and add actions - the
+ * record editors' row idiom over the entry's headers record.
+ */
+function HeaderRowsEditor({
+	rows,
+	problems,
+	disabled,
+	onChange,
+}: {
+	rows: readonly HeaderRow[];
+	problems: readonly (string | undefined)[];
+	disabled: boolean;
+	onChange: (next: readonly HeaderRow[]) => void;
+}) {
+	return (
+		<>
+			<div class="rows">
+				{rows.map((row, index) => (
+					<div class="row" key={index}>
+						<span class="cell key">
+							<input
+								type="text"
+								class={`key${problems[index] !== undefined ? " invalid" : ""}`}
+								aria-label={l10n.t("Header name")}
+								aria-invalid={problems[index] !== undefined}
+								placeholder={l10n.t("Header, e.g. x-routing-env")}
+								value={row.name}
+								disabled={disabled}
+								onInput={(event) =>
+									onChange(rows.map((r, i) => (i === index ? { ...r, name: event.currentTarget.value } : r)))
+								}
+							/>
+						</span>
+						<span class="cell value">
+							<input
+								type="text"
+								class={`value${problems[index] !== undefined ? " invalid" : ""}`}
+								aria-label={l10n.t("Header value")}
+								placeholder={l10n.t("Value, e.g. prod")}
+								value={row.valueText}
+								disabled={disabled}
+								onInput={(event) =>
+									onChange(rows.map((r, i) => (i === index ? { ...r, valueText: event.currentTarget.value } : r)))
+								}
+							/>
+						</span>
+						<button
+							type="button"
+							class="quiet"
+							disabled={disabled}
+							onClick={() => onChange(rows.filter((_, i) => i !== index))}
+						>
+							<IconTrash /> {l10n.t("Remove")}
+						</button>
+						{problems[index] !== undefined ? <span class="error">{problems[index]}</span> : null}
+					</div>
+				))}
+			</div>
+			<button
+				type="button"
+				class="secondary"
+				disabled={disabled}
+				onClick={() => onChange([...rows, { name: "", valueText: "" }])}
+			>
+				<IconAdd /> {l10n.t("Add header")}
+			</button>
+		</>
+	);
 }
 
 /**
@@ -513,18 +726,39 @@ function ServerForm({
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [testState, setTestState] = useState<TestState>({ kind: "idle" });
-	const [oauthOpen, setOauthOpen] = useState(false);
-	// The per-entry parameters and capabilities disclosures open by themselves
-	// only for an entry that already carries some; adding rows to a bare entry
-	// is opt-in.
+	// The disclosures open by themselves only for an entry that already
+	// carries content in them; adding to a bare entry is opt-in. The auth
+	// companions follow the same rule under the form the entry derives to.
+	const [vkCompanionOpen, setVkCompanionOpen] = useState(
+		() =>
+			target.kind === "edit" &&
+			deriveAuthForm(target.original.config) === "apiKey" &&
+			((target.original.config.virtualKeyHeader ?? "").length > 0 ||
+				target.original.config.secrets.virtualKeyValue !== "none")
+	);
+	const [oauthCompanionsOpen, setOauthCompanionsOpen] = useState(
+		() =>
+			target.kind === "edit" &&
+			deriveAuthForm(target.original.config) === "oauth" &&
+			(target.original.config.secrets.apiKey !== "none" ||
+				(target.original.config.virtualKeyHeader ?? "").length > 0 ||
+				target.original.config.secrets.virtualKeyValue !== "none")
+	);
+	const [storedOpen, setStoredOpen] = useState(false);
+	const [headersOpen, setHeadersOpen] = useState(
+		() => target.kind === "edit" && Object.keys(target.original.config.headers ?? {}).length > 0
+	);
+	const [discoveryOpen, setDiscoveryOpen] = useState(
+		() =>
+			target.kind === "edit" &&
+			((target.original.config.declaredModels ?? []).length > 0 ||
+				(target.original.config.expectedFailures ?? []).length > 0)
+	);
 	const [paramsOpen, setParamsOpen] = useState(
 		() => target.kind === "edit" && Object.keys(target.original.config.modelParameters ?? {}).length > 0
 	);
 	const [capsOpen, setCapsOpen] = useState(
-		() =>
-			target.kind === "edit" &&
-			(Object.keys(target.original.config.modelCapabilities ?? {}).length > 0 ||
-				(target.original.config.expectedFailures ?? []).length > 0)
+		() => target.kind === "edit" && Object.keys(target.original.config.modelCapabilities ?? {}).length > 0
 	);
 	const saving = phase.phase === "saving";
 	// Save holds until the prefill response lands (phase "prefill"): saving
@@ -643,19 +877,48 @@ function ServerForm({
 	const modelParameterProblems: readonly GroupProblems[] = parse.ok ? [] : parse.modelParameterProblems;
 	const modelParameterHints = parse.modelParameterHints;
 	const modelCapabilityIssues = parse.modelCapabilityIssues;
+	const headerRowProblems: readonly (string | undefined)[] = parse.ok ? [] : parse.headerProblems;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
-	const oauthProblemVisible = OAUTH_SECTION_FIELDS.some((field) => visibleProblems[field] !== undefined);
+	// Which collapsed section each visible problem hides in depends on the
+	// selected form: the virtual key pair sits in the API-key form's companion
+	// disclosure, in OAuth's companions area, or (as a kept stored value) in
+	// the stored-credentials fold; a kept stored client secret sits there too
+	// whenever OAuth is not the form.
+	const vkProblemVisible =
+		visibleProblems.virtualKeyHeader !== undefined || visibleProblems.virtualKeyValue !== undefined;
+	const vkCompanionProblemVisible = draft.authForm === "apiKey" && vkProblemVisible;
+	const oauthCompanionProblemVisible =
+		draft.authForm === "oauth" && (vkProblemVisible || visibleProblems.apiKey !== undefined);
+	const storedProblemVisible =
+		(draft.authForm !== "oauth" && visibleProblems.oauthClientSecret !== undefined) ||
+		(draft.authForm === "none" && visibleProblems.virtualKeyValue !== undefined);
 	const paramsProblemVisible = visibleProblems.modelParameters !== undefined;
 	const capsProblemVisible = visibleProblems.modelCapabilities !== undefined;
+	const headersProblemVisible = visibleProblems.headers !== undefined;
 	// A problem surfacing inside a collapsed disclosure opens it once
 	// (otherwise Save would refuse over an error the user cannot see); beyond
 	// that the element is the user's: closing it again sticks, and it does not
 	// snap shut when the problems clear.
 	useEffect(() => {
-		if (oauthProblemVisible) {
-			setOauthOpen(true);
+		if (vkCompanionProblemVisible) {
+			setVkCompanionOpen(true);
 		}
-	}, [oauthProblemVisible]);
+	}, [vkCompanionProblemVisible]);
+	useEffect(() => {
+		if (oauthCompanionProblemVisible) {
+			setOauthCompanionsOpen(true);
+		}
+	}, [oauthCompanionProblemVisible]);
+	useEffect(() => {
+		if (storedProblemVisible) {
+			setStoredOpen(true);
+		}
+	}, [storedProblemVisible]);
+	useEffect(() => {
+		if (headersProblemVisible) {
+			setHeadersOpen(true);
+		}
+	}, [headersProblemVisible]);
 	useEffect(() => {
 		if (paramsProblemVisible) {
 			setParamsOpen(true);
@@ -675,10 +938,24 @@ function ServerForm({
 		}
 		if (!parse.ok) {
 			// Surface every problem instead of refusing silently, opening the
-			// disclosure when one hides inside it.
+			// disclosure when one hides inside it (the effects above fire only on
+			// a visibility CHANGE, so a re-closed section must be reopened here).
 			setTouched(new Set(SERVER_FORM_FIELD_ORDER));
-			if (OAUTH_SECTION_FIELDS.some((field) => parse.problems[field] !== undefined)) {
-				setOauthOpen(true);
+			const vkProblem = parse.problems.virtualKeyHeader !== undefined || parse.problems.virtualKeyValue !== undefined;
+			if (draft.authForm === "apiKey" && vkProblem) {
+				setVkCompanionOpen(true);
+			}
+			if (draft.authForm === "oauth" && (vkProblem || parse.problems.apiKey !== undefined)) {
+				setOauthCompanionsOpen(true);
+			}
+			if (
+				(draft.authForm !== "oauth" && parse.problems.oauthClientSecret !== undefined) ||
+				(draft.authForm === "none" && parse.problems.virtualKeyValue !== undefined)
+			) {
+				setStoredOpen(true);
+			}
+			if (parse.problems.headers !== undefined) {
+				setHeadersOpen(true);
 			}
 			if (parse.problems.modelParameters !== undefined) {
 				setParamsOpen(true);
@@ -712,8 +989,22 @@ function ServerForm({
 				}
 				return next;
 			});
-			if (OAUTH_SECTION_FIELDS.some((field) => testParse.problems[field] !== undefined)) {
-				setOauthOpen(true);
+			const vkProblem =
+				testParse.problems.virtualKeyHeader !== undefined || testParse.problems.virtualKeyValue !== undefined;
+			if (draft.authForm === "apiKey" && vkProblem) {
+				setVkCompanionOpen(true);
+			}
+			if (draft.authForm === "oauth" && (vkProblem || testParse.problems.apiKey !== undefined)) {
+				setOauthCompanionsOpen(true);
+			}
+			if (
+				(draft.authForm !== "oauth" && testParse.problems.oauthClientSecret !== undefined) ||
+				(draft.authForm === "none" && testParse.problems.virtualKeyValue !== undefined)
+			) {
+				setStoredOpen(true);
+			}
+			if (testParse.problems.headers !== undefined) {
+				setHeadersOpen(true);
 			}
 			return;
 		}
@@ -744,6 +1035,7 @@ function ServerForm({
 						field === "label" ||
 						field === "modelCapabilities" ||
 						field === "expectedFailures" ||
+						field === "declaredModels" ||
 						(CONNECTION_FIELDS as readonly string[]).includes(field)
 				)
 			) {
@@ -762,6 +1054,24 @@ function ServerForm({
 			setTouched((current) => new Set(current).add(field));
 		},
 	};
+
+	// Kept stored secrets whose form is not selected: the shape-and-storage
+	// rule (docs/servers.md#secrets-and-secret-storage) means a stored API key
+	// still activates the bearer on the none and virtualKey shapes, and kept
+	// stored values of the other two fields would make the save OAuth- or
+	// virtual-key-shaped, so each renders a visible hint plus its Remove
+	// checkbox instead of silently riding along.
+	const storedApiKeyOrphan =
+		(draft.authForm === "none" || draft.authForm === "virtualKey") && draft.apiKey.existing !== "none";
+	const storedVkOrphan = draft.authForm === "none" && draft.virtualKeyValue.existing !== "none";
+	const storedOauthSecretOrphan = draft.authForm !== "oauth" && draft.oauthClientSecret.existing !== "none";
+
+	const virtualKeyPair = (
+		<>
+			<TextField field="virtualKeyHeader" placeholder={l10n.t("e.g. x-litellm-api-key")} props={props} />
+			<SecretField field="virtualKeyValue" props={props} />
+		</>
+	);
 
 	return (
 		<div class="form-card">
@@ -795,27 +1105,93 @@ function ServerForm({
 			) : null}
 			{collides ? <p class="hint">{l10n.t("An entry with this label already exists; saving replaces it.")}</p> : null}
 			<TextField field="baseUrl" placeholder={l10n.t("e.g. http://localhost:4000")} props={props} />
-			<SecretField field="apiKey" props={props} />
-			<details open={oauthOpen} onToggle={(event) => setOauthOpen(event.currentTarget.open)}>
-				<summary>{l10n.t("OAuth and virtual key (optional)")}</summary>
-				<TextField
-					field="oauthTokenUrl"
-					placeholder={l10n.t("e.g. https://idp.example.com/oauth2/token")}
-					props={props}
-				/>
-				<TextField field="oauthClientId" placeholder={l10n.t("e.g. litellm-vscode")} props={props} />
-				<SecretField field="oauthClientSecret" props={props} />
-				<TextField field="oauthScopes" placeholder={l10n.t("e.g. litellm.read litellm.write")} props={props} />
-				<TextField field="virtualKeyHeader" placeholder={l10n.t("e.g. x-litellm-api-key")} props={props} />
-				<SecretField field="virtualKeyValue" props={props} />
-			</details>
+			<fieldset class="auth-block">
+				<legend class="label-row">
+					{serverFormFieldLabel("authForm")} <Help text={serverFieldHelp("authForm")} />
+					<DocsLink href={DOCS_LINK_AUTHENTICATION} label={l10n.t("Open the authentication guide")} />
+				</legend>
+				<div class="auth-selector" role="radiogroup" aria-label={serverFormFieldLabel("authForm")}>
+					{AUTH_FORM_IDS.map((form) => (
+						<label key={form}>
+							<input
+								type="radio"
+								name="server-auth-form"
+								checked={draft.authForm === form}
+								disabled={saving}
+								onChange={() => props.patch({ authForm: form })}
+							/>
+							{authFormName(form)}
+						</label>
+					))}
+				</div>
+				{draft.authForm === "apiKey" ? (
+					<>
+						<SecretField field="apiKey" props={props} />
+						<details open={vkCompanionOpen} onToggle={(event) => setVkCompanionOpen(event.currentTarget.open)}>
+							<summary>{l10n.t("Also send a virtual key header (optional)")}</summary>
+							<p class="hint">{l10n.t("For gateways that check the bearer and a key in a second header at once.")}</p>
+							{virtualKeyPair}
+						</details>
+					</>
+				) : null}
+				{draft.authForm === "virtualKey" ? virtualKeyPair : null}
+				{draft.authForm === "oauth" ? (
+					<>
+						<TextField
+							field="oauthTokenUrl"
+							placeholder={l10n.t("e.g. https://idp.example.com/oauth2/token")}
+							props={props}
+						/>
+						<TextField field="oauthClientId" placeholder={l10n.t("e.g. litellm-vscode")} props={props} />
+						<SecretField field="oauthClientSecret" props={props} />
+						<TextField field="oauthScopes" placeholder={l10n.t("e.g. litellm.read litellm.write")} props={props} />
+						<details open={oauthCompanionsOpen} onToggle={(event) => setOauthCompanionsOpen(event.currentTarget.open)}>
+							<summary>{l10n.t("Companions (optional)")}</summary>
+							<p class="hint">
+								{l10n.t("Second credentials sent beside the OAuth bearer, for gateways that check two at once.")}
+							</p>
+							<SecretField field="apiKey" help={helpOauthCompanionApiKey()} props={props} />
+							{virtualKeyPair}
+						</details>
+					</>
+				) : null}
+				{storedApiKeyOrphan || storedVkOrphan || storedOauthSecretOrphan ? (
+					<div class="stored-auth">
+						{storedApiKeyOrphan ? (
+							<p class="hint state-warn">
+								{l10n.t(
+									"A stored API key still activates the bearer on this shape; use its Remove checkbox to stop sending it."
+								)}
+							</p>
+						) : null}
+						{storedVkOrphan ? (
+							<p class="hint state-warn">
+								{l10n.t("A stored virtual key value is still attached; remove it below, or pick a form that sends it.")}
+							</p>
+						) : null}
+						{storedOauthSecretOrphan ? (
+							<p class="hint state-warn">
+								{l10n.t(
+									"A stored OAuth client secret is still attached; remove it below, or switch the form to OAuth."
+								)}
+							</p>
+						) : null}
+						<details open={storedOpen} onToggle={(event) => setStoredOpen(event.currentTarget.open)}>
+							<summary>{l10n.t("Stored credentials")}</summary>
+							{storedApiKeyOrphan ? <StoredSecretRow field="apiKey" props={props} /> : null}
+							{storedVkOrphan ? <StoredSecretRow field="virtualKeyValue" props={props} /> : null}
+							{storedOauthSecretOrphan ? <StoredSecretRow field="oauthClientSecret" props={props} /> : null}
+						</details>
+					</div>
+				) : null}
+			</fieldset>
 			<details open={paramsOpen} onToggle={(event) => setParamsOpen(event.currentTarget.open)}>
 				<summary>
 					{l10n.t("Model parameters for this server (optional)")} <Help text={serverFieldHelp("modelParameters")} />
 				</summary>
 				<p class="hint">
 					{l10n.t(
-						"Sent only with requests routed through this entry; overrides the global Model parameters setting for the same keys. Matching is by model ID prefix, longest prefix wins."
+						"Sent only with requests routed through this entry; overrides the global Model parameters setting for the same keys. Keys match model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets - the most specific match wins."
 					)}
 				</p>
 				<ParamGroupsFields
@@ -837,7 +1213,7 @@ function ServerForm({
 						})
 					}
 				>
-					<IconAdd /> {l10n.t("Add model prefix")}
+					<IconAdd /> {l10n.t("Add model matcher")}
 				</button>
 			</details>
 			<details open={capsOpen} onToggle={(event) => setCapsOpen(event.currentTarget.open)}>
@@ -867,8 +1243,30 @@ function ServerForm({
 						})
 					}
 				>
-					<IconAdd /> {l10n.t("Add capability prefix")}
+					<IconAdd /> {l10n.t("Add capability matcher")}
 				</button>
+			</details>
+			<details open={discoveryOpen} onToggle={(event) => setDiscoveryOpen(event.currentTarget.open)}>
+				{/* The two controls for what discovery cannot see, side by side:
+				    declared IDs plus expected failures are the recipe for a gateway
+				    with no discovery at all. */}
+				<summary>{l10n.t("Discovery (optional)")}</summary>
+				<div class="field">
+					<span class="label-row">
+						<label for="server-declaredModels">{serverFormFieldLabel("declaredModels")}</label>
+						<Help text={serverFieldHelp("declaredModels")} />
+						<DocsLink href={DOCS_LINK_DECLARED_MODELS} label={l10n.t("Open the declared models guide")} />
+					</span>
+					<textarea
+						id="server-declaredModels"
+						rows={3}
+						placeholder={l10n.t("One model ID per line, e.g. deepseek-r1")}
+						value={draft.declaredModels}
+						disabled={saving}
+						onInput={(event) => props.patch({ declaredModels: event.currentTarget.value })}
+					/>
+					<span class="hint">{l10n.t("IDs are exact; a declaration goes inert once discovery lists the ID.")}</span>
+				</div>
 				<fieldset class="expected-failures">
 					<legend class="label-row">
 						{serverFormFieldLabel("expectedFailures")} <Help text={serverFieldHelp("expectedFailures")} />
@@ -899,6 +1297,23 @@ function ServerForm({
 					))}
 				</fieldset>
 			</details>
+			<details open={headersOpen} onToggle={(event) => setHeadersOpen(event.currentTarget.open)}>
+				<summary>
+					{l10n.t("Custom headers (optional)")} <Help text={serverFieldHelp("headers")} />
+				</summary>
+				<p class="hint">
+					{l10n.t(
+						"Attached to every request to this server, e.g. routing or tracing tags. The entry's auth headers win conflicts; values sit in plain text in settings.json - credentials belong in Authentication above."
+					)}
+				</p>
+				<HeaderRowsEditor
+					rows={draft.headers}
+					problems={headerRowProblems}
+					disabled={saving}
+					onChange={(next) => props.patch({ headers: next })}
+				/>
+			</details>
+			<TextField field="budget" placeholder={l10n.t("e.g. 50")} props={props} />
 			<p class="hint">
 				{l10n.t(
 					"Saved to the litellm-vscode-chat.servers user setting and synced to VS Code automatically. Secrets left empty or unedited keep their current value."
@@ -1274,10 +1689,19 @@ function ServerRow({
 				{server.notices?.includes("entry-capabilities-inactive") === true ? (
 					<HoverTip
 						tip={l10n.t(
-							"Per-server model capabilities and expected failures are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
+							"Per-server model capabilities, declared models, and expected failures are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
 						)}
 					>
 						<span class="badge state-warn">{l10n.t("capabilities inactive")}</span>
+					</HoverTip>
+				) : null}
+				{server.notices?.includes("entry-headers-inactive") === true ? (
+					<HoverTip
+						tip={l10n.t(
+							"Per-server custom headers are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
+						)}
+					>
+						<span class="badge state-warn">{l10n.t("headers inactive")}</span>
 					</HoverTip>
 				) : null}
 			</td>
@@ -1288,14 +1712,15 @@ function ServerRow({
 							type="button"
 							class="quiet state-error"
 							onClick={() => {
-								// The same two-step confirm for both origins; only the intent
-								// differs (a declared entry is removed from the setting, an
-								// external group is hidden by tombstone).
-								if (server.origin === "declared") {
-									confirmRemove();
-								} else {
+								// The same two-step confirm for every origin; only the intent
+								// differs (a declared or misconfigured entry is removed from
+								// the setting by label, an external group is hidden by
+								// tombstone).
+								if (server.origin === "external") {
 									onHideExternal(server);
 									onArmRemove(false);
+								} else {
+									confirmRemove();
 								}
 							}}
 						>
@@ -1307,12 +1732,25 @@ function ServerRow({
 					</>
 				) : (
 					<>
-						<button type="button" class="quiet" onClick={onEdit}>
-							{l10n.t("Edit")}
-						</button>
+						{/* A misconfigured entry cannot round-trip through the edit form
+						    without rewriting what the user typed, so its fix action
+						    reveals the setting instead of opening the form. */}
+						{server.origin === "misconfigured" ? (
+							<button
+								type="button"
+								class="quiet"
+								onClick={() => postMessage({ type: "revealSetting", setting: "servers" })}
+							>
+								{l10n.t("Fix in settings.json")}
+							</button>
+						) : (
+							<button type="button" class="quiet" onClick={onEdit}>
+								{l10n.t("Edit")}
+							</button>
+						)}
 						{/* A legacy-registry external row is not hideable (the registry
 						    path would keep serving its models), so it keeps Edit only. */}
-						{server.origin === "declared" || server.hideable ? (
+						{server.origin === "declared" || server.origin === "misconfigured" || server.hideable ? (
 							<button type="button" class="quiet" onClick={() => onArmRemove(true)}>
 								{l10n.t("Remove")}
 							</button>
@@ -1383,6 +1821,7 @@ export function ServersSection({
 	onDismissFailure,
 	onClearInlineSecrets,
 	onShowModels,
+	editRequest,
 	adoptEscapeAfterMs = ADOPT_ESCAPE_AFTER_MS,
 }: {
 	servers: readonly DashboardServer[];
@@ -1401,6 +1840,8 @@ export function ServersSection({
 	onClearInlineSecrets: () => void;
 	/** Scope the models section below to one server; absent, the count cells stay plain text. */
 	onShowModels?: ((label: string) => void) | undefined;
+	/** The inspectors' jump into a declared entry's edit form; see ServerEditRequest. */
+	editRequest?: ServerEditRequest | undefined;
 	/** The escape hatch's grace period; a prop only so tests need not wait out the real value. */
 	adoptEscapeAfterMs?: number;
 }) {
@@ -1469,6 +1910,22 @@ export function ServersSection({
 		setForm((current) => ({ target, key: (current?.key ?? 0) + 1 }));
 	};
 
+	// The inspectors' entry-jump: open the addressed declared entry's edit form
+	// (its per-entry records live there). A label that no longer resolves to a
+	// declared row is a no-op; keyed on the seq so repeating the jump re-opens.
+	const editRequestSeq = editRequest?.seq;
+	useEffect(() => {
+		if (editRequest === undefined) {
+			return;
+		}
+		const target = servers.find(
+			(server): server is DeclaredDashboardServer => server.origin === "declared" && server.label === editRequest.label
+		);
+		if (target !== undefined) {
+			openForm({ kind: "edit", original: target });
+		}
+	}, [editRequestSeq]);
+
 	const closeForm = () => {
 		setForm(undefined);
 		setFormDirty(false);
@@ -1504,7 +1961,11 @@ export function ServersSection({
 		discardForm();
 	};
 
-	const declaredLabels = servers.filter((server) => server.origin === "declared").map((server) => server.label);
+	// Misconfigured entries count: they occupy their label in the setting, so
+	// a rename onto one or an adopt under one must be refused like any sibling.
+	const declaredLabels = servers
+		.filter((server) => server.origin === "declared" || server.origin === "misconfigured")
+		.map((server) => server.label);
 
 	return (
 		<section>
@@ -1713,13 +2174,18 @@ export function ServersSection({
 									server={server}
 									now={now}
 									armed={armedRemove === server.label}
-									onEdit={() =>
+									onEdit={() => {
 										// The one place the form's purpose is decided: a declared
-										// row edits, an external row adopts.
+										// row edits, an external row adopts. A misconfigured row
+										// renders no Edit at all (its shape cannot round-trip the
+										// form); the guard keeps the narrowing honest.
+										if (server.origin === "misconfigured") {
+											return;
+										}
 										openForm(
 											server.origin === "declared" ? { kind: "edit", original: server } : { kind: "adopt", server }
-										)
-									}
+										);
+									}}
 									onArmRemove={(armed) => setArmedRemove(armed ? server.label : undefined)}
 									onHideExternal={hideExternal}
 									onShowModels={onShowModels}
@@ -1730,11 +2196,15 @@ export function ServersSection({
 				</div>
 			)}
 			<HiddenGroupsLine hidden={hidden} />
-			{servers.some((server) => server.error !== undefined && server.expected !== true) ? (
+			{servers.some(
+				(server) => server.origin !== "misconfigured" && server.error !== undefined && server.expected !== true
+			) ? (
 				<div class="banner banner-error">
 					<p class="error">
 						{servers
-							.filter((server) => server.error !== undefined && server.expected !== true)
+							.filter(
+								(server) => server.origin !== "misconfigured" && server.error !== undefined && server.expected !== true
+							)
 							.map((server, index) => (
 								// Keyed identity (origin plus the external row's opaque handle
 								// or the declared row's setting-unique label) so reconciliation
@@ -1764,6 +2234,32 @@ export function ServersSection({
 					</p>
 				</div>
 			) : null}
+			{servers.some((server) => server.origin === "misconfigured") ? (
+				<div class="banner banner-error">
+					<p class="error">
+						{servers
+							.filter((server): server is MisconfiguredDashboardServer => server.origin === "misconfigured")
+							.map((server, index) => (
+								<Fragment key={server.label}>
+									{index > 0 ? "; " : ""}
+									{/* The parser's structural reports stay English by policy
+									    (they land in issue reports); only the framing localizes. */}
+									{l10n.t(
+										"{0}: this entry is invalid and not used until fixed - {1}",
+										server.label,
+										server.problems.join("; ")
+									)}
+								</Fragment>
+							))}
+					</p>
+					<p class="hint">
+						{l10n.t("Keep exactly one auth form per entry; companions of lower rank only.")}{" "}
+						<DocsLink href={DOCS_LINK_AUTHENTICATION} label={l10n.t("Open the authentication guide")}>
+							{l10n.t("Learn more")}
+						</DocsLink>
+					</p>
+				</div>
+			) : null}
 			{servers.some((server) => server.error !== undefined && server.expected === true) ? (
 				<div class="banner banner-warn">
 					<p class="state-warn">
@@ -1781,38 +2277,17 @@ export function ServersSection({
 					</p>
 				</div>
 			) : null}
-			{servers.some((server) => server.notices?.includes("entry-params-inactive") === true) ? (
+			{servers.some((server) => INACTIVE_NOTICES.some((notice) => server.notices?.includes(notice) === true)) ? (
 				<div class="banner banner-warn">
 					<p class="state-warn">
-						{l10n.t(
-							"{0}: per-server model parameters are not applied (the group serving the entry predates its label or a rename). To activate them:",
-							servers
-								.filter((server) => server.notices?.includes("entry-params-inactive") === true)
-								.map((server) => server.label)
-								.join(", ")
-						)}{" "}
-						<DocsLink href={DOCS_LINK_PARAMS_INACTIVE} label={l10n.t("Learn more in the troubleshooting guide")}>
-							{l10n.t("Learn more")}
-						</DocsLink>
-					</p>
-					<ol class="notice-steps">
-						<li>{l10n.t("Delete the group's object from the models file (chatLanguageModels.json).")}</li>
-						<li>
-							{l10n.t("Reload the window, then run Sync Models Now - or save the entry under a new label instead.")}
-						</li>
-					</ol>
-				</div>
-			) : null}
-			{servers.some((server) => server.notices?.includes("entry-capabilities-inactive") === true) ? (
-				<div class="banner banner-warn">
-					<p class="state-warn">
-						{l10n.t(
-							"{0}: per-server model capabilities and expected failures are not applied (the group serving the entry predates its label or a rename). To activate them:",
-							servers
-								.filter((server) => server.notices?.includes("entry-capabilities-inactive") === true)
-								.map((server) => server.label)
-								.join(", ")
-						)}{" "}
+						{/* One banner for every inactive entry-only surface: the cause and
+						    the two-step fix are identical, so per-surface twin banners
+						    would only repeat them. */}
+						{servers
+							.filter((server) => INACTIVE_NOTICES.some((notice) => server.notices?.includes(notice) === true))
+							.map((server) => `${server.label}: ${inactiveSurfacesText(server)}`)
+							.join("; ")}{" "}
+						{l10n.t("are not applied: the group serving the entry predates its label or a rename. To activate them:")}{" "}
 						<DocsLink href={DOCS_LINK_PARAMS_INACTIVE} label={l10n.t("Learn more in the troubleshooting guide")}>
 							{l10n.t("Learn more")}
 						</DocsLink>

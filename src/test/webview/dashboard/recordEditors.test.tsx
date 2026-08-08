@@ -104,14 +104,18 @@ test("force checkbox: provider-owned and underscore keys disable with the reason
 	);
 	const section = sectionByHeading(root, "Model parameters");
 
-	// One box per row except the directive row itself: model, _meta, temperature.
-	const boxes = Array.from(section.querySelectorAll(".directive-flag input")) as HTMLInputElement[];
-	expect(boxes.length).toBe(3);
+	// One force box per non-directive row: model and temperature. Directive
+	// rows (keys starting "_", here _meta and _force) carry no flag checkboxes
+	// at all (the inheritable boxes are their own directive-flag cells, scoped
+	// out by the aria-label).
+	const boxes = Array.from(
+		section.querySelectorAll(".directive-flag input[aria-label^='Force']")
+	) as HTMLInputElement[];
+	expect(boxes.length).toBe(2);
 	const byLabel = (key: string) =>
 		boxes.find((box) => box.getAttribute("aria-label") === `Force "${key}"`) as HTMLInputElement;
 	expect(byLabel("model").disabled).toBe(true);
 	expect(byLabel("model").checked).toBe(false);
-	expect(byLabel("_meta").disabled).toBe(true);
 	// A literal true marks exactly the eligible keys.
 	expect(byLabel("temperature").disabled).toBe(false);
 	expect(byLabel("temperature").checked).toBe(true);
@@ -188,13 +192,147 @@ test("an unnamed row carries no force box, and renaming a forced key hints about
 		(input) => (input as HTMLInputElement).value === "temperature"
 	) as HTMLInputElement;
 	fireInput(keyInput, "temp2");
-	expect(section().textContent).toContain('"temperature" is not a parameter this prefix sets');
+	expect(section().textContent).toContain('"temperature" is not a parameter this record sets');
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(false);
 
 	// A fresh row has no key yet, so no box renders for it (the renamed row
 	// keeps its own; the empty row's missing name blocks Apply separately).
 	fireClick(buttonByText(section(), "Add parameter"));
-	expect(section().querySelectorAll(".directive-flag input").length).toBe(1);
+	expect(section().querySelectorAll(".directive-flag input[aria-label^='Force']").length).toBe(1);
+});
+
+/** The group's inheritable box for one row key; the aria-label carries the key in quotes. */
+function inheritableBox(section: HTMLElement, key: string): HTMLInputElement {
+	const box = Array.from(section.querySelectorAll(".directive-flag input")).find(
+		(candidate) => candidate.getAttribute("aria-label") === `Mark "${key}" inheritable`
+	);
+	if (box === undefined) {
+		throw new Error(`no inheritable box for ${key}`);
+	}
+	return box as HTMLInputElement;
+}
+
+/** Pick a select option and fire the change event preact listens for. */
+function fireSelect(element: HTMLSelectElement, value: string): void {
+	void act(() => {
+		element.value = value;
+		element.dispatchEvent(new Event("change", { bubbles: true }));
+	});
+}
+
+/** The group div whose prefix input holds the given matcher key. */
+function groupByPrefix(section: HTMLElement, prefix: string): HTMLElement {
+	const group = Array.from(section.querySelectorAll(".group")).find(
+		(candidate) => (candidate.querySelector("input.key") as HTMLInputElement | null)?.value === prefix
+	);
+	if (group === undefined) {
+		throw new Error(`no group with prefix ${prefix}`);
+	}
+	return group as HTMLElement;
+}
+
+test("inheritable checkbox: marking a row writes the explicit _inheritable list and Apply posts it", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4*": { temperature: 0.2 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const box = inheritableBox(section(), "temperature");
+	expect(box.checked).toBe(false);
+	fireCheck(box, true);
+
+	// The mark materializes as the _inheritable row's explicit list, visible as text.
+	const values = Array.from(section().querySelectorAll("input.value")).map((i) => (i as HTMLInputElement).value);
+	expect(values).toContain('["temperature"]');
+
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedMessages).toEqual([
+		{ type: "setModelParameters", value: { "gpt-4*": { temperature: 0.2, _inheritable: ["temperature"] } } },
+	]);
+});
+
+test("inheritable checkbox: unmarking the last field removes the _inheritable row entirely", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({ settings: settingsWithParams({ "gpt-4*": { temperature: 0.2, _inheritable: ["temperature"] } }) })
+		)
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const box = inheritableBox(section(), "temperature");
+	expect(box.checked).toBe(true);
+	fireCheck(box, false);
+
+	const keys = Array.from(section().querySelectorAll("input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(keys).not.toContain("_inheritable");
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4*": { temperature: 0.2 } } }]);
+});
+
+test("the Inherits select writes the _inherit_from barrier row and removes it again on default", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4*": { temperature: 0.2 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const select = () => section().querySelector(".inherit-from select") as HTMLSelectElement;
+	expect(select().value).toBe("default");
+	fireSelect(select(), "none");
+
+	// The barrier materializes as the visible _inherit_from row, value false.
+	const rowTexts = () =>
+		Array.from(section().querySelectorAll(".rows .row")).map((row) => {
+			const key = row.querySelector("input.key") as HTMLInputElement | null;
+			const value = row.querySelector("input.value") as HTMLInputElement | null;
+			return `${key?.value ?? ""}=${value?.value ?? ""}`;
+		});
+	expect(rowTexts()).toContain("_inherit_from=false");
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedMessages).toEqual([
+		{ type: "setModelParameters", value: { "gpt-4*": { temperature: 0.2, _inherit_from: false } } },
+	]);
+
+	// Back to default: the directive row disappears and the draft matches the
+	// (still un-reflected) store again, so Apply disables.
+	fireSelect(select(), "default");
+	expect(rowTexts()).not.toContain("_inherit_from=false");
+	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("the keys mode edits the _inherit_from list through the comma input, and an unknown name hints without blocking", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithParams({ "*": { top_p: 0.9 }, "gpt-4*": { temperature: 0.2, _inherit_from: ["*"] } }),
+			})
+		)
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+	const group = () => groupByPrefix(section(), "gpt-4*");
+
+	// A stored list reads back as the keys mode with the joined text.
+	const select = group().querySelector(".inherit-from select") as HTMLSelectElement;
+	expect(select.value).toBe("keys");
+	const keysInput = () => group().querySelector("input.inherit-keys") as HTMLInputElement;
+	expect(keysInput().value).toBe("*");
+
+	// Naming a record that does not exist hints (the resolver skips the name
+	// and applies the rest) and must not block Apply.
+	fireInput(keysInput(), "nope, *");
+	expect(section().textContent).toContain(
+		'"nope" is not a record key here; that name is skipped and the rest still applies'
+	);
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedMessages).toEqual([
+		{
+			type: "setModelParameters",
+			value: { "*": { top_p: 0.9 }, "gpt-4*": { temperature: 0.2, _inherit_from: ["nope", "*"] } },
+		},
+	]);
 });
 
 test("a dirty draft wins over pushed state, Apply posts parsed rows, the reflecting push drops the applied draft", () => {
@@ -202,7 +340,7 @@ test("a dirty draft wins over pushed state, Apply posts parsed rows, the reflect
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	fireClick(buttonByText(section(), "Add model prefix"));
+	fireClick(buttonByText(section(), "Add model matcher"));
 	const inputs = section().querySelectorAll("input");
 	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
@@ -237,7 +375,7 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	fireClick(buttonByText(section(), "Add model prefix"));
+	fireClick(buttonByText(section(), "Add model matcher"));
 	const inputs = section().querySelectorAll("input");
 	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
@@ -262,7 +400,7 @@ test("model parameters: invalid JSON blocks Apply with the row problem; fixing i
 	pushToWebview(statePush(makeState()));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	fireClick(buttonByText(section(), "Add model prefix"));
+	fireClick(buttonByText(section(), "Add model matcher"));
 	const inputs = section().querySelectorAll("input");
 	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
@@ -290,7 +428,7 @@ test("model parameters: the global editor's matcher copy points server records a
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	const section = sectionByHeading(root, "Model parameters");
-	fireClick(buttonByText(section, "Add model prefix"));
+	fireClick(buttonByText(section, "Add model matcher"));
 
 	const prefixInput = section.querySelector<HTMLInputElement>("input.key[placeholder^='Model ID or matcher']");
 	if (prefixInput === null) {
@@ -373,7 +511,7 @@ test("Enter stays off the datalist-bearing inputs; the value input still applies
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	const section = () => sectionByHeading(root, "Model parameters");
-	fireClick(buttonByText(section(), "Add model prefix"));
+	fireClick(buttonByText(section(), "Add model matcher"));
 	const inputs = section().querySelectorAll("input");
 	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
@@ -417,7 +555,7 @@ test("Apply feedback: Applying... until the reflecting push, then a transient Sa
 	const status = () => section().querySelector(".apply-status")?.textContent ?? "";
 
 	expect(status()).toBe("");
-	fireClick(buttonByText(section(), "Add model prefix"));
+	fireClick(buttonByText(section(), "Add model matcher"));
 	const inputs = section().querySelectorAll("input");
 	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
@@ -438,7 +576,7 @@ test("Apply feedback: a failure ends the Applying... window along with reopening
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	fireClick(buttonByText(section(), "Add model prefix"));
+	fireClick(buttonByText(section(), "Add model matcher"));
 	const inputs = section().querySelectorAll("input");
 	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
@@ -455,7 +593,7 @@ test("a parameter-row problem marks only the offending input: bad JSON flags the
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	const section = () => sectionByHeading(root, "Model parameters");
-	fireClick(buttonByText(section(), "Add model prefix"));
+	fireClick(buttonByText(section(), "Add model matcher"));
 	const nameInput = () => section().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement;
 	const valueInput = () => section().querySelector("input.value") as HTMLInputElement;
 
@@ -507,7 +645,7 @@ test("the prefix and parameter-name inputs offer datalists: discovered model IDs
 		statePush(makeState({ models: [makeModel({ id: "gpt-test" }), makeModel({ id: "claude-x", name: "Claude X" })] }))
 	);
 	const section = sectionByHeading(root, "Model parameters");
-	fireClick(buttonByText(section, "Add model prefix"));
+	fireClick(buttonByText(section, "Add model matcher"));
 
 	const prefixInput = section.querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement;
 	const prefixList = document.getElementById(prefixInput.getAttribute("list") ?? "");
@@ -529,7 +667,7 @@ test("Enter in a record-row input applies a clean draft and does nothing while i
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
 	const params = () => sectionByHeading(root, "Model parameters");
-	fireClick(buttonByText(params(), "Add model prefix"));
+	fireClick(buttonByText(params(), "Add model matcher"));
 	const paramInputs = params().querySelectorAll("input");
 	fireInput(paramInputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(paramInputs[1] as HTMLInputElement, "temperature");
@@ -565,7 +703,7 @@ test("Edit as JSON: the textarea seeds from the record, and a valid edit applies
 	// The rows grid and its add action stand down while the textarea is up.
 	expect(section().querySelector(".row")).toBeNull();
 	expect(Array.from(section().querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())).not.toContain(
-		"Add model prefix"
+		"Add model matcher"
 	);
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 
@@ -625,7 +763,7 @@ test("the settings filter hides an editor with a dirty draft via hidden, and the
 	const section = () => sectionByHeading(root, "Model parameters");
 
 	// A half-typed parameter draft...
-	fireClick(buttonByText(section(), "Add model prefix"));
+	fireClick(buttonByText(section(), "Add model matcher"));
 	const inputs = section().querySelectorAll("input");
 	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");

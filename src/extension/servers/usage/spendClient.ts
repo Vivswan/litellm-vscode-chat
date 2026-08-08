@@ -186,7 +186,7 @@ export function usageUnavailabilityOf(error: unknown): UsageUnavailableReason | 
 	// An OAuth token-endpoint rejection (auth.ts) fails BEFORE the usage
 	// endpoint is called, so it proves nothing about the endpoint itself: it
 	// stays transient rather than misattributing a "forbidden" standing.
-	if (error.logClassification?.includes("oauth token endpoint") === true) {
+	if (error.oauthTokenEndpoint === true) {
 		return undefined;
 	}
 	if (error.status === 401 || error.status === 403) {

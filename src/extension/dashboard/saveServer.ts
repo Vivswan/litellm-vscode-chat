@@ -233,20 +233,28 @@ export async function applySaveServerSetting(
 	if (expectedFailures !== undefined && expectedFailures.length > 0) {
 		discovery.expectedFailures = expectedFailures;
 	}
-	// The form does not edit these yet, so every save carries the stored
-	// values: without this the whole-entry rebuild above would silently
-	// delete hand-written configuration on any unrelated edit.
-	if (existing?.declaredModels !== undefined && existing.declaredModels.length > 0) {
-		discovery.declared = existing.declaredModels;
+	// Same absent-vs-present rule as the records above: the form always sends
+	// the field, so absent means the payload predates the editor and the
+	// stored values carry forward; present-but-empty is a deliberate clear.
+	// Declared IDs are trimmed and deduplicated like the parser reads them.
+	const declaredModels =
+		intent.server.declaredModels !== undefined
+			? [...new Set(intent.server.declaredModels.map((id) => id.trim()).filter((id) => id.length > 0))]
+			: (existing?.declaredModels ?? []);
+	if (declaredModels.length > 0) {
+		discovery.declared = declaredModels;
 	}
 	if (Object.keys(discovery).length > 0) {
 		newEntry.discovery = discovery;
 	}
-	if (existing?.headers !== undefined && Object.keys(existing.headers).length > 0) {
-		newEntry.headers = existing.headers;
+	const headers = intent.server.headers ?? existing?.headers;
+	if (headers !== undefined && Object.keys(headers).length > 0) {
+		newEntry.headers = headers;
 	}
-	if (existing?.budget !== undefined) {
-		newEntry.budget = existing.budget;
+	// Budget: a number sets it, null clears it, absent carries the stored one.
+	const budget = intent.server.budget === undefined ? existing?.budget : (intent.server.budget ?? undefined);
+	if (budget !== undefined) {
+		newEntry.budget = budget;
 	}
 
 	// OAuth is one unit, mirroring serverForm's exact rules: the request path

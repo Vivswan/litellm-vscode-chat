@@ -411,12 +411,38 @@ suite("extension/servers/usage spendClient", () => {
 	});
 
 	suite("usageUnavailabilityOf", () => {
-		test("an OAuth token-endpoint rejection stays transient instead of reading as forbidden", () => {
-			const tokenEndpointRejection = new RequestError("rejected", "auth", {
+		test("an OAuth token-endpoint rejection stays transient instead of reading as forbidden", async () => {
+			mswServer.use(
+				http.post(TOKEN_URL, () => HttpResponse.json({ error: "invalid_client" }, { status: 401 })),
+				http.get(KEY_INFO_URL, () => HttpResponse.json({ info: {} }))
+			);
+			const oauth = { tokenUrl: TOKEN_URL, clientId: "client-1", clientSecret: "secret-1" };
+
+			const error = await expectRequestError(client().fetchKeyInfo(connection({ oauth })), "auth");
+
+			assert.strictEqual(error.status, 401);
+			assert.strictEqual(error.oauthTokenEndpoint, true, "auth.ts must mark its token-endpoint errors structurally");
+			assert.strictEqual(
+				error.logClassification,
+				"RequestError(auth, status 401, oauth token endpoint)",
+				"the marker rides beside the classification, never replaces it"
+			);
+			assert.strictEqual(usageUnavailabilityOf(error), undefined);
+		});
+
+		test("the verdict reads the structured marker, not the classification text", () => {
+			const marked = new RequestError("rejected", "auth", { status: 401, oauthTokenEndpoint: true });
+			assert.strictEqual(usageUnavailabilityOf(marked), undefined);
+
+			const textOnly = new RequestError("rejected", "auth", {
 				status: 401,
 				logClassification: "RequestError(auth, status 401, oauth token endpoint)",
 			});
-			assert.strictEqual(usageUnavailabilityOf(tokenEndpointRejection), undefined);
+			assert.strictEqual(
+				usageUnavailabilityOf(textOnly),
+				"forbidden",
+				"a log-string mention alone must no longer suppress the classification"
+			);
 		});
 	});
 });

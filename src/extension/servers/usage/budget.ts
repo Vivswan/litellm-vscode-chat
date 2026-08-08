@@ -44,9 +44,19 @@ function usableAmount(value: number | undefined): number | undefined {
 	return value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+/**
+ * A usable budget: positive only. LiteLLM's zero-means-unlimited convention
+ * (Q3 ruling) makes max_budget 0 "no budget", never a fully-spent one; entry
+ * budgets are parsed as > 0 already, so this guards the key-reported side.
+ */
+function usableBudget(value: number | undefined): number | undefined {
+	const amount = usableAmount(value);
+	return amount !== undefined && amount > 0 ? amount : undefined;
+}
+
 export function resolveBudget(input: ResolveBudgetInput): BudgetStatus {
-	const entryBudget = usableAmount(input.entryBudget);
-	const keyBudget = usableAmount(input.keyBudget);
+	const entryBudget = usableBudget(input.entryBudget);
+	const keyBudget = usableBudget(input.keyBudget);
 	const spend = usableAmount(input.spend);
 	const effectiveBudget = entryBudget ?? keyBudget;
 	const budgetSource: BudgetSource = entryBudget !== undefined ? "entry" : keyBudget !== undefined ? "key" : "none";

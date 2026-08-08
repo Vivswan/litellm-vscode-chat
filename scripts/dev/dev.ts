@@ -20,6 +20,7 @@ import {
 	type WriteStream,
 	writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { VENDOR_ID } from "../../src/shared/config/commandIds";
@@ -601,6 +602,31 @@ run("opening the Extension Development Host", [
 	...passthroughArgs,
 ]);
 console.log("[dev] window launched; the seed configures the server on activation");
+
+// The dev host uses the DEFAULT extensions dir (no --extensions-dir above),
+// and it cannot see profile-scoped extensions from the daily setup. Without
+// GitHub Copilot Chat installed in that default location, the dev extension
+// still activates (onStartupFinished) but there is no chat surface to talk
+// to the provider - which reads as "the extension does nothing". Warn loudly;
+// never auto-install.
+const defaultExtensionsDir = join(homedir(), ".vscode", "extensions");
+const hasCopilotChat = (() => {
+	try {
+		return readdirSync(defaultExtensionsDir).some((entry) => entry.startsWith("github.copilot-chat-"));
+	} catch {
+		return false;
+	}
+})();
+if (!hasCopilotChat) {
+	console.error("[dev] ============================================================");
+	console.error("[dev] WARNING: GitHub Copilot Chat is not installed in the DEFAULT");
+	console.error(`[dev] extensions directory (${defaultExtensionsDir}).`);
+	console.error("[dev] The dev host only loads extensions from there - it cannot see");
+	console.error("[dev] extensions installed into a VS Code profile. Chat features");
+	console.error("[dev] (the model picker, chat requests) need Copilot Chat: install");
+	console.error("[dev] it in the default profile, then relaunch bun run dev.");
+	console.error("[dev] ============================================================");
+}
 
 const tailTimer = setInterval(tailExtensionLogsOnce, 1000);
 

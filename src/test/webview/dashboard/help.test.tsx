@@ -21,6 +21,7 @@ import {
 	helpModelParametersSection,
 	helpModelParameterValue,
 	helpModelsSection,
+	helpOauthCompanionApiKey,
 	helpSecretStorage,
 	helpServersSection,
 	helpSettingsSection,
@@ -32,6 +33,7 @@ import { declaredWithSecrets, makeModel, makeSettings, makeState, statePush } fr
 import {
 	buttonByText,
 	cleanup,
+	fireCheck,
 	fireClick,
 	fireMouseEnter,
 	mount,
@@ -213,32 +215,50 @@ test("every server form field label has its help glyph beside it, and the storag
 	pushToWebview(statePush(fullState()));
 	fireClick(buttonByText(root, "Edit"));
 
-	const labelRows = Array.from(root.querySelectorAll(".form-card .label-row"));
-	const byLabel = new Map(labelRows.map((row) => [(row.querySelector("label")?.textContent ?? "").trim(), row]));
-	for (const [field, label] of [
-		["label", "Label"],
-		["baseUrl", "Base URL"],
-		["apiKey", "API key"],
-		["oauthTokenUrl", "OAuth token URL"],
-		["oauthClientId", "OAuth client ID"],
-		["oauthClientSecret", "OAuth client secret"],
-		["oauthScopes", "OAuth scopes"],
-		["virtualKeyHeader", "Virtual key header"],
-		["virtualKeyValue", "Virtual key value"],
-	] as const) {
+	const rowsByLabel = () =>
+		new Map(
+			Array.from(root.querySelectorAll(".form-card .label-row")).map((row) => [
+				(row.querySelector("label")?.textContent ?? "").trim(),
+				row,
+			])
+		);
+	const fieldGlyph = (byLabel: Map<string, Element>, field: Parameters<typeof serverFieldHelp>[0], label: string) => {
 		const row = byLabel.get(label) ?? null;
 		if (row === null) {
 			throw new Error(`no label row for ${label}`);
 		}
 		helpIn(row, serverFieldHelp(field));
-	}
+	};
 
-	// Each secret field's storage radiogroup explains inline vs secure once.
-	const whereGroups = Array.from(root.querySelectorAll(".form-card .secret-where[role='radiogroup']"));
-	expect(whereGroups.length).toBe(3);
+	// The stored key derives the API-key form: identity, the key, and its
+	// virtual-key companion pair render, each with its glyph.
+	let byLabel = rowsByLabel();
+	fieldGlyph(byLabel, "label", "Label");
+	fieldGlyph(byLabel, "baseUrl", "Base URL");
+	fieldGlyph(byLabel, "apiKey", "API key");
+	fieldGlyph(byLabel, "virtualKeyHeader", "Virtual key header");
+	fieldGlyph(byLabel, "virtualKeyValue", "Virtual key value");
+	// Each visible secret field's storage radiogroup explains inline vs secure once.
+	let whereGroups = Array.from(root.querySelectorAll(".form-card .secret-where[role='radiogroup']"));
+	expect(whereGroups.length).toBe(2);
 	for (const group of whereGroups) {
 		helpIn(group, helpSecretStorage());
 	}
+
+	// Under OAuth, its four fields carry their glyphs and the companion key
+	// explains its X-API-Key-only wire behavior instead of the bearer text.
+	const oauthOption = Array.from(root.querySelectorAll(".auth-selector label")).find(
+		(el) => (el.textContent ?? "").trim() === "OAuth"
+	);
+	fireCheck(oauthOption?.querySelector("input") as HTMLInputElement, true);
+	byLabel = rowsByLabel();
+	fieldGlyph(byLabel, "oauthTokenUrl", "OAuth token URL");
+	fieldGlyph(byLabel, "oauthClientId", "OAuth client ID");
+	fieldGlyph(byLabel, "oauthClientSecret", "OAuth client secret");
+	fieldGlyph(byLabel, "oauthScopes", "OAuth scopes");
+	helpIn(byLabel.get("API key") ?? null, helpOauthCompanionApiKey());
+	whereGroups = Array.from(root.querySelectorAll(".form-card .secret-where[role='radiogroup']"));
+	expect(whereGroups.length).toBe(3);
 });
 
 test("the model-parameters editor explains prefix, parameter name, and JSON value on their inputs", () => {

@@ -14,6 +14,7 @@ import {
 	EXPECTED_FAILURE_CATEGORIES,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
 	NUMBER_SETTING_IDS,
+	RESETTABLE_SETTING_IDS,
 	REVEALABLE_SETTING_IDS,
 	SECRET_FIELD_IDS,
 } from "./protocol";
@@ -44,6 +45,15 @@ const saveServerSchema = z.strictObject({
 	modelParameters: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
 	modelCapabilities: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
 	expectedFailures: z.array(asEnum(EXPECTED_FAILURE_CATEGORIES)).optional(),
+	// Header values are scalars (parseHeaderValue's contract); the charset and
+	// name rules live in validateSaveServerSetting. Sizes are bounded like
+	// every other webview-minted list: no honest entry needs more.
+	headers: z
+		.record(z.string().max(256), z.union([z.string().max(4096), z.number(), z.boolean()]))
+		.refine((record) => Object.keys(record).length <= 64)
+		.optional(),
+	declaredModels: z.array(z.string().max(512)).max(256).optional(),
+	budget: z.union([z.number().finite(), z.null()]).optional(),
 });
 
 const secretDirectivesSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretDirectiveSchema));
@@ -81,7 +91,7 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 	}),
 	z.strictObject({
 		type: z.literal("resetSetting"),
-		setting: asEnum([...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS]),
+		setting: asEnum(RESETTABLE_SETTING_IDS),
 	}),
 	z.strictObject({
 		type: z.literal("revealSetting"),
@@ -91,6 +101,22 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 		type: z.literal("setModelParameters"),
 		value: z.record(z.string(), z.record(z.string(), z.unknown())),
 	}),
+	z.strictObject({
+		type: z.literal("setModelCapabilities"),
+		value: z.record(z.string(), z.record(z.string(), z.unknown())),
+	}),
+	z.strictObject({
+		type: z.literal("setUsageStatusBar"),
+		value: z.union([z.literal("always"), z.literal("alerts-only"), z.literal("off")]),
+	}),
+	z.strictObject({
+		// Bounded like every webview-minted list; the value constraints
+		// (fractions in (0, 1]) live in executeDashboardIntent.
+		type: z.literal("setUsageAlertThresholds"),
+		values: z.array(z.number().finite()).max(32),
+	}),
+	z.strictObject({ type: z.literal("refreshCatalog") }),
+	z.strictObject({ type: z.literal("refreshUsage") }),
 	z.strictObject({
 		type: z.literal("saveServerSetting"),
 		server: saveServerSchema,
@@ -130,6 +156,14 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 		rawId: z.string().min(1).max(512),
 		requestId: requestIdSchema,
 	}),
+	z.strictObject({
+		// The params inspector's read; addressed exactly like readModelCapabilities.
+		type: z.literal("readModelParameters"),
+		scopeKey: z.string().min(1).max(REQUEST_ID_MAX_LENGTH),
+		rawId: z.string().min(1).max(512),
+		requestId: requestIdSchema,
+	}),
+	z.strictObject({ type: z.literal("readResolvedModels"), requestId: requestIdSchema }),
 	z.strictObject({
 		// The catalog picker's search; the query is filter text, bounded so a
 		// hostile page cannot balloon the message.

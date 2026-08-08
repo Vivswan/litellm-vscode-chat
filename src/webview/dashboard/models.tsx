@@ -1,13 +1,22 @@
 import * as l10n from "@vscode/l10n";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { DashboardModel, ModelParametersRecord, RequestScope } from "../../extension/dashboard/protocol";
+import type { DashboardModel } from "../../extension/dashboard/protocol";
 import type { ModelCapabilitiesResponse } from "./capsInspector";
 import { CapsInspector } from "./capsInspector";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpModelsSection } from "./helpText";
 import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
+import type { ModelParametersResponse } from "./paramsInspector";
 import { ParamsInspector } from "./paramsInspector";
+
+/** An externally requested inspector open (the Resolved-models table's per-row jump); seq makes repeats fire. */
+export interface InspectRequest {
+	readonly seq: number;
+	readonly scopeKey: string;
+	readonly rawId: string;
+	readonly view: "params" | "caps";
+}
 
 export function formatTokens(count: number): string {
 	return count.toLocaleString();
@@ -199,9 +208,12 @@ export function ModelsSection({
 	models,
 	serverCount,
 	scope,
-	requestScopes,
-	modelParameters,
 	capsResponse,
+	paramsResponse,
+	stateSeq,
+	inspectRequest,
+	onEditRecord,
+	onEditEntry,
 }: {
 	models: readonly DashboardModel[];
 	serverCount: number;
@@ -211,12 +223,18 @@ export function ModelsSection({
 	 * object so a scope without a working clear cannot be expressed.
 	 */
 	scope?: { readonly label: string; readonly onClear: () => void } | undefined;
-	/** Per-snapshot request scopes for the effective-parameters inspector, keyed by DashboardModel.scopeKey. */
-	requestScopes: Readonly<Record<string, RequestScope>>;
-	/** The scope-merged modelParameters setting, as the request path reads it. */
-	modelParameters: ModelParametersRecord;
 	/** The latest modelCapabilities response, for the capability inspector; see CapsInspector. */
 	capsResponse?: ModelCapabilitiesResponse | undefined;
+	/** The latest modelParameters response, for the params inspector; see ParamsInspector. */
+	paramsResponse?: ModelParametersResponse | undefined;
+	/** Bumped on every state push; the open inspectors re-request on it. */
+	stateSeq: number;
+	/** An externally requested inspector open (the Resolved-models table's jump). */
+	inspectRequest?: InspectRequest | undefined;
+	/** The inspectors' jump into a global record editor; the popup closes on it. */
+	onEditRecord?: ((kind: "parameters" | "capabilities", key: string, create: boolean) => void) | undefined;
+	/** The inspectors' jump into a server entry's edit form; the popup closes on it. */
+	onEditEntry?: ((label: string) => void) | undefined;
 }) {
 	const [filter, setFilter] = useState("");
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
@@ -250,6 +268,27 @@ export function ModelsSection({
 			setInspecting(undefined);
 		}
 	}, [inspecting, inspected]);
+
+	// An external jump (the Resolved-models table's per-row action): resolve
+	// the addressed model and open its inspector; a request whose model left
+	// the list is a no-op.
+	useEffect(() => {
+		if (inspectRequest === undefined) {
+			return;
+		}
+		const target = models.find(
+			(model) => model.scopeKey === inspectRequest.scopeKey && model.rawId === inspectRequest.rawId
+		);
+		if (target !== undefined) {
+			setInspecting({
+				id: target.id,
+				serverLabel: target.serverLabel,
+				scopeKey: target.scopeKey,
+				view: inspectRequest.view,
+			});
+		}
+		// Keyed on the request's seq so repeating the same jump re-opens.
+	}, [inspectRequest?.seq]);
 
 	// Re-measure after every render: the guarded set makes this settle in one
 	// extra pass when the theme's font size changes the real row height.
@@ -532,13 +571,51 @@ export function ModelsSection({
 					{inspected !== undefined && inspecting?.view === "params" ? (
 						<ParamsInspector
 							model={inspected}
-							scope={requestScopes[inspected.scopeKey]}
-							globalParameters={modelParameters}
+							response={paramsResponse}
+							stateSeq={stateSeq}
 							onClose={() => setInspecting(undefined)}
+							onEditRecord={
+								onEditRecord === undefined
+									? undefined
+									: (key, create) => {
+											// The popup closes on the jump; the editor is the next surface.
+											setInspecting(undefined);
+											onEditRecord("parameters", key, create);
+										}
+							}
+							onEditEntry={
+								onEditEntry === undefined
+									? undefined
+									: (label) => {
+											setInspecting(undefined);
+											onEditEntry(label);
+										}
+							}
 						/>
 					) : null}
 					{inspected !== undefined && inspecting?.view === "caps" ? (
-						<CapsInspector model={inspected} response={capsResponse} onClose={() => setInspecting(undefined)} />
+						<CapsInspector
+							model={inspected}
+							response={capsResponse}
+							stateSeq={stateSeq}
+							onClose={() => setInspecting(undefined)}
+							onEditRecord={
+								onEditRecord === undefined
+									? undefined
+									: (key, create) => {
+											setInspecting(undefined);
+											onEditRecord("capabilities", key, create);
+										}
+							}
+							onEditEntry={
+								onEditEntry === undefined
+									? undefined
+									: (label) => {
+											setInspecting(undefined);
+											onEditEntry(label);
+										}
+							}
+						/>
 					) : null}
 				</>
 			)}

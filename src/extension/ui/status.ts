@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import { z } from "zod";
-import { CMD } from "../../shared/config/commandIds";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { SETUP_HINT_KINDS, TRANSPORT_ERROR_KINDS } from "../../shared/errorClassification";
@@ -277,9 +276,157 @@ function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 	}
 }
 
+/** One rendered status-bar presentation: everything a status item shows at once; "plain" clears the background. */
+export interface StatusItemView {
+	readonly text: string;
+	readonly tooltip: string;
+	readonly severity: "plain" | "warning" | "error";
+}
+
+/** The status-bar surface as the renderers consume it; StatusItem is the real one, tests inject fakes. */
+export interface StatusItemLike extends vscode.Disposable {
+	readonly command: string | vscode.Command | undefined;
+	render(view: StatusItemView): void;
+	show(): void;
+	hide(): void;
+	/**
+	 * Fires once when the item is disposed - including by the slot registry's
+	 * self-heal, where the OWNER (say, a superseded UsageStatusBar holding a
+	 * store subscription and a stale-edge timer) must tear down too, not just
+	 * the visible half. Optional so test fakes stay one-liners.
+	 */
+	onDidDispose?(listener: () => void): void;
+}
+
+/**
+ * The named slots the extension's real status bar items live in. One host has
+ * one status bar, so slot occupancy is a per-host (module-scope) fact: at
+ * most ONE live real item may exist per slot, ever. Duplicate identical
+ * items have accumulated in shared hosts twice from double constructions;
+ * the registry makes that state self-healing and observable instead of
+ * possible.
+ */
+export type StatusItemSlot = "connection" | "usage";
+
+/** The live real item per slot; see StatusItem's constructor and dispose. */
+const liveSlotItems = new Map<StatusItemSlot, StatusItem>();
+
+/** Every real creation this host ever made; a test-visible counter for the no-real-items-in-suites guards. */
+let realItemCreations = 0;
+
+/** How many real status bar items this host has ever created (test seam; monotonic). */
+export function realStatusItemCreationCount(): number {
+	return realItemCreations;
+}
+
+/** The live real items right now, at most one per slot by construction (test seam). */
+export function liveStatusItemSlots(): readonly StatusItemSlot[] {
+	return [...liveSlotItems.keys()];
+}
+
+/**
+ * A thin wrapper over vscode.window.createStatusBarItem shared by the
+ * extension's status bar items (the connection item here, the usage item in
+ * usageStatusItem.ts): alignment, priority, and click command are fixed at
+ * construction, and render() maps the severity onto the theme's status bar
+ * background colors.
+ *
+ * THE ONE CREATION POINT: this constructor is the only place in src/ that may
+ * call vscode.window.createStatusBarItem (statusItemRegistry.test.ts scans
+ * the tree and fails on a second call site). Creating into an occupied slot
+ * disposes the previous holder first and reports the replacement through
+ * `log` - the UI self-heals while the lifecycle bug stays visible in the
+ * log instead of as twin items.
+ */
+export class StatusItem implements StatusItemLike {
+	private readonly item: vscode.StatusBarItem;
+	private readonly slot: StatusItemSlot;
+	private readonly disposeListeners: (() => void)[] = [];
+	private disposed = false;
+
+	constructor(options: {
+		readonly slot: StatusItemSlot;
+		readonly alignment: vscode.StatusBarAlignment;
+		readonly priority: number;
+		readonly command: string | vscode.Command;
+		/** Classification-only logging (English); reports a replaced slot. */
+		readonly log?: (message: string) => void;
+	}) {
+		const previous = liveSlotItems.get(options.slot);
+		if (previous !== undefined) {
+			// Self-heal: the slot invariant beats the stale holder. The log line
+			// is the evidence a double construction happened at all.
+			options.log?.(`status-item slot replaced: ${options.slot}`);
+			previous.dispose();
+		}
+		this.slot = options.slot;
+		this.item = vscode.window.createStatusBarItem(options.alignment, options.priority);
+		realItemCreations += 1;
+		this.item.command = options.command;
+		liveSlotItems.set(options.slot, this);
+	}
+
+	get command(): string | vscode.Command | undefined {
+		return this.item.command;
+	}
+
+	onDidDispose(listener: () => void): void {
+		// Registering on an already-disposed item fires immediately: an owner
+		// handed a pre-disposed surface must still learn to tear down, or it
+		// keeps its subscriptions alive forever (the leak this hook closes).
+		if (this.disposed) {
+			listener();
+			return;
+		}
+		this.disposeListeners.push(listener);
+	}
+
+	render(view: StatusItemView): void {
+		// A stale holder disposed by the slot self-heal must not write to a
+		// disposed vscode item; its owner's renders become no-ops.
+		if (this.disposed) {
+			return;
+		}
+		this.item.text = view.text;
+		this.item.tooltip = view.tooltip;
+		this.item.backgroundColor =
+			view.severity === "plain" ? undefined : new vscode.ThemeColor(`statusBarItem.${view.severity}Background`);
+	}
+
+	show(): void {
+		if (this.disposed) {
+			return;
+		}
+		this.item.show();
+	}
+
+	hide(): void {
+		if (this.disposed) {
+			return;
+		}
+		this.item.hide();
+	}
+
+	dispose(): void {
+		if (this.disposed) {
+			return;
+		}
+		this.disposed = true;
+		// Only the slot's current holder vacates it: a stale holder disposed
+		// after its replacement must not evict the live item.
+		if (liveSlotItems.get(this.slot) === this) {
+			liveSlotItems.delete(this.slot);
+		}
+		this.item.dispose();
+		for (const listener of this.disposeListeners.splice(0)) {
+			listener();
+		}
+	}
+}
+
 export class StatusBarManager {
 	private _connectionStatus: ConnectionStatus = { state: "not-configured" };
-	private readonly _statusBarItem: vscode.StatusBarItem;
+	private readonly _statusBarItem: StatusItemLike;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -291,10 +438,18 @@ export class StatusBarManager {
 		 * diagnostics snapshot that lands in public issue reports, so the claim
 		 * must be honest.
 		 */
-		private readonly hasConfiguredServers: () => boolean
+		private readonly hasConfiguredServers: () => boolean,
+		/**
+		 * The rendering surface, REQUIRED so no code path can create a real
+		 * status bar item by accident: activation passes the real StatusItem
+		 * explicitly, and test constructions can only ever inject a recording
+		 * seam. (Duplicate real items have twice accumulated in the shared test
+		 * host from a defaulted construction; making the surface explicit makes
+		 * that state unrepresentable.)
+		 */
+		item: StatusItemLike
 	) {
-		this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-		this._statusBarItem.command = CMD.openDashboard;
+		this._statusBarItem = item;
 		context.subscriptions.push(this._statusBarItem);
 
 		const restored = restoreConnectionStatus(context.globalState.get<unknown>(LAST_CONNECTION_STATUS_KEY));
@@ -333,31 +488,41 @@ export class StatusBarManager {
 		const current = this._connectionStatus;
 		switch (current.state) {
 			case "not-configured":
-				this._statusBarItem.text = vscode.l10n.t("$(warning) LiteLLM");
-				this._statusBarItem.tooltip = vscode.l10n.t("Not configured - click to set up");
-				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+				this._statusBarItem.render({
+					text: vscode.l10n.t("$(warning) LiteLLM"),
+					tooltip: vscode.l10n.t("Not configured - click to set up"),
+					severity: "warning",
+				});
 				break;
 			case "connecting":
 				if (current.attention) {
-					this._statusBarItem.text = vscode.l10n.t("$(warning) LiteLLM");
-					this._statusBarItem.tooltip = vscode.l10n.t(
-						"Configured servers have not reported any models\nClick to open the dashboard and check the configuration"
-					);
-					this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+					this._statusBarItem.render({
+						text: vscode.l10n.t("$(warning) LiteLLM"),
+						tooltip: vscode.l10n.t(
+							"Configured servers have not reported any models\nClick to open the dashboard and check the configuration"
+						),
+						severity: "warning",
+					});
 				} else {
-					this._statusBarItem.text = vscode.l10n.t("$(loading~spin) LiteLLM");
-					this._statusBarItem.tooltip = vscode.l10n.t("Waiting for the configured servers to report...");
-					this._statusBarItem.backgroundColor = undefined;
+					this._statusBarItem.render({
+						text: vscode.l10n.t("$(loading~spin) LiteLLM"),
+						tooltip: vscode.l10n.t("Waiting for the configured servers to report..."),
+						severity: "plain",
+					});
 				}
 				break;
 			case "loading":
-				this._statusBarItem.text = vscode.l10n.t("$(loading~spin) LiteLLM");
-				this._statusBarItem.tooltip = vscode.l10n.t("Fetching models...");
-				this._statusBarItem.backgroundColor = undefined;
+				this._statusBarItem.render({
+					text: vscode.l10n.t("$(loading~spin) LiteLLM"),
+					tooltip: vscode.l10n.t("Fetching models..."),
+					severity: "plain",
+				});
 				break;
 			case "connected": {
 				const count = current.totalModels;
 				const serverCount = current.serverStatuses.length;
+				// The counts live here in the tooltip, not in the item's text: the
+				// bar stays quiet (docs/dashboard.md#the-status-bar-items).
 				const available =
 					serverCount > 1
 						? count === 1
@@ -366,9 +531,11 @@ export class StatusBarManager {
 						: count === 1
 							? vscode.l10n.t("1 model available")
 							: vscode.l10n.t("{0} models available", count);
-				this._statusBarItem.text = vscode.l10n.t("$(check) LiteLLM ({0})", count);
-				this._statusBarItem.tooltip = `${available}\n${vscode.l10n.t("Click for diagnostics")}`;
-				this._statusBarItem.backgroundColor = undefined;
+				this._statusBarItem.render({
+					text: vscode.l10n.t("$(check) LiteLLM"),
+					tooltip: `${available}\n${vscode.l10n.t("Click for diagnostics")}`,
+					severity: "plain",
+				});
 				break;
 			}
 			case "degraded": {
@@ -384,15 +551,19 @@ export class StatusBarManager {
 					failedCount === 1
 						? vscode.l10n.t("1 server unreachable")
 						: vscode.l10n.t("{0} servers unreachable", failedCount);
-				this._statusBarItem.text = vscode.l10n.t("$(warning) LiteLLM ({0})", count);
-				this._statusBarItem.tooltip = `${available}\n${unreachable}\n${vscode.l10n.t("Click for diagnostics")}`;
-				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+				this._statusBarItem.render({
+					text: vscode.l10n.t("$(warning) LiteLLM"),
+					tooltip: `${available}\n${unreachable}\n${vscode.l10n.t("Click for diagnostics")}`,
+					severity: "warning",
+				});
 				break;
 			}
 			case "error":
-				this._statusBarItem.text = vscode.l10n.t("$(error) LiteLLM");
-				this._statusBarItem.tooltip = vscode.l10n.t("Connection failed\n{0}\nClick for details", current.error);
-				this._statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
+				this._statusBarItem.render({
+					text: vscode.l10n.t("$(error) LiteLLM"),
+					tooltip: vscode.l10n.t("Connection failed\n{0}\nClick for details", current.error),
+					severity: "error",
+				});
 				break;
 		}
 		this._statusBarItem.show();

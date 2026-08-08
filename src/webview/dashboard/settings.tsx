@@ -3,11 +3,14 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type {
 	BooleanSettingId,
+	CatalogStatusView,
 	DashboardModel,
 	DashboardSettings,
 	NumberSettingId,
+	ResettableSettingId,
 	RevealableSettingId,
 	SettingScope,
+	UsageStatusBarModeSetting,
 } from "../../extension/dashboard/protocol";
 import {
 	BOOLEAN_SETTING_IDS,
@@ -24,12 +27,29 @@ import {
 	settingScopeLabel,
 } from "../../extension/dashboard/protocol";
 import type { FailuresByIntent } from "./app";
-import { DOCS_LINK_SETTINGS } from "./docsLinks";
+import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
-import { helpSettingsSection, settingRowHelp } from "./helpText";
+import { helpCatalogRow, helpSettingsSection, settingRowHelp } from "./helpText";
 import { IconBraces } from "./icons";
-import { ModelParametersEditor, modelParametersTitle } from "./recordEditors";
+import type { CatalogSearchResponse, ExternalRecordEdit } from "./recordEditors";
+import {
+	ModelCapabilitiesEditor,
+	ModelParametersEditor,
+	modelCapabilitiesTitle,
+	modelParametersTitle,
+} from "./recordEditors";
+import { relativeTime } from "./time";
 import { postMessage } from "./vscodeApi";
+
+/**
+ * The inspectors' configure-jump into one of this tab's record editors: which
+ * editor, plus the ExternalRecordEdit the editor applies (focus the record
+ * carrying `key`, or create an exact-ID draft). Minted by App on an
+ * inspector's button; the seq keys re-delivery.
+ */
+export interface EditRecordRequest extends ExternalRecordEdit {
+	readonly kind: "parameters" | "capabilities";
+}
 
 /**
  * The form's grouping and order, most-touched first. Presentation only: the
@@ -118,7 +138,7 @@ function ResetButton({
 }: {
 	title: string;
 	scope: SettingScope;
-	settingId: NumberSettingId | BooleanSettingId;
+	settingId: ResettableSettingId;
 }) {
 	const action = l10n.t("Remove the {0} value of {1}", settingScopeLabel(scope), title);
 	return (
@@ -276,18 +296,21 @@ function NumberField({
 /**
  * A boolean setting. The title is plain text on purpose: only the
  * checkbox-plus-description label toggles, so a click on the title cannot
- * silently write settings.json.
+ * silently write settings.json. `extra` renders under the control - the
+ * OpenRouter catalog row's status line and Refresh button ride there.
  */
 function BooleanField({
 	id,
 	value,
 	configuredScope,
 	hidden,
+	extra,
 }: {
 	id: BooleanSettingId;
 	value: boolean;
 	configuredScope: SettingScope | null;
 	hidden: boolean;
+	extra?: ComponentChildren;
 }) {
 	const presentation = booleanSettingPresentation(id);
 	const inputId = `setting-${id}`;
@@ -316,6 +339,229 @@ function BooleanField({
 					<ResetButton title={presentation.label} scope={configuredScope} settingId={id} />
 				) : null}
 			</div>
+			{extra}
+		</SettingRow>
+	);
+}
+
+/**
+ * The OpenRouter catalog row's status line (docs/dashboard.md#settings): the
+ * snapshot's size and last refresh, a Refresh button (the same action as the
+ * "LiteLLM: Refresh OpenRouter Catalog" command), a standing failure in the
+ * row status - never a toast - and an inert hint while the setting is off.
+ */
+function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; enabled: boolean; now: number }) {
+	const updated =
+		catalog.lastSuccessAt !== undefined
+			? (relativeTime(new Date(catalog.lastSuccessAt).toISOString(), now) ?? l10n.t("just now"))
+			: undefined;
+	return (
+		<div class="catalog-row">
+			{enabled ? (
+				<>
+					<span class="hint">
+						{catalog.modelCount === 1 ? l10n.t("1 catalog model") : l10n.t("{0} catalog models", catalog.modelCount)}
+						{updated !== undefined ? ` - ${l10n.t("updated {0}", updated)}` : ` - ${l10n.t("bundled snapshot")}`}
+					</span>
+					<button
+						type="button"
+						class="secondary"
+						disabled={catalog.refreshing}
+						onClick={() => postMessage({ type: "refreshCatalog" })}
+					>
+						{catalog.refreshing ? (
+							<>
+								<span class="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
+							</>
+						) : (
+							l10n.t("Refresh")
+						)}
+					</button>
+					<Help text={helpCatalogRow()} />
+					<DocsLink href={DOCS_LINK_OPENROUTER_CATALOG} label={l10n.t("Open the OpenRouter catalog guide")} />
+					{catalog.lastFailure !== undefined ? (
+						<span class="error">
+							{/* The classification is a fixed English vocabulary ("HTTP 503",
+							    "network error"), protocol-ish like header names. */}
+							{l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)}
+						</span>
+					) : null}
+				</>
+			) : (
+				<span class="hint">
+					{l10n.t(
+						"Catalog off: no refreshes and no implicit ID matching; explicit _openrouter_model directives keep answering from the cached snapshot."
+					)}
+				</span>
+			)}
+		</div>
+	);
+}
+
+/** The usage.statusBar mode names, resolved at call time (no module-level localized constants). */
+function statusBarModeLabel(mode: UsageStatusBarModeSetting): string {
+	switch (mode) {
+		case "always":
+			return l10n.t("always - visible whenever there is something to show");
+		case "alerts-only":
+			return l10n.t("alerts only - visible while a threshold is crossed");
+		case "off":
+			return l10n.t("off - never shown");
+	}
+}
+
+const USAGE_STATUS_BAR_MODES: readonly UsageStatusBarModeSetting[] = ["always", "alerts-only", "off"];
+
+/** The usage.statusBar row: an enum select, committed on change like the checkboxes. */
+function UsageStatusBarRow({
+	mode,
+	configuredScope,
+	hidden,
+}: {
+	mode: UsageStatusBarModeSetting;
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	const inputId = "setting-usage.statusBar";
+	const title = l10n.t("Usage status bar");
+	return (
+		<SettingRow modified={configuredScope !== null} hidden={hidden}>
+			<div class="setting-head">
+				<label class="setting-title" for={inputId}>
+					{title}
+				</label>
+				<RevealButton title={title} settingId="usage.statusBar" />
+				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
+			</div>
+			<p class="setting-desc">{l10n.t("When the spend status bar item shows; the worst fresh server's percentage.")}</p>
+			<div class="setting-control">
+				<select
+					id={inputId}
+					value={mode}
+					onChange={(event) =>
+						postMessage({
+							type: "setUsageStatusBar",
+							value: event.currentTarget.value as UsageStatusBarModeSetting,
+						})
+					}
+				>
+					{USAGE_STATUS_BAR_MODES.map((candidate) => (
+						<option key={candidate} value={candidate}>
+							{statusBarModeLabel(candidate)}
+						</option>
+					))}
+				</select>
+				{configuredScope !== null ? (
+					<ResetButton title={title} scope={configuredScope} settingId="usage.statusBar" />
+				) : null}
+			</div>
+		</SettingRow>
+	);
+}
+
+/**
+ * The usage.alertThresholds draft's parse: comma-separated fractions in
+ * (0, 1], deduplicated and sorted like normalization writes them; empty means
+ * alerts off.
+ */
+function parseThresholdsDraft(
+	text: string
+): { readonly ok: true; readonly values: readonly number[] } | { readonly ok: false; readonly problem: string } {
+	const parts = text
+		.split(",")
+		.map((part) => part.trim())
+		.filter((part) => part.length > 0);
+	const values: number[] = [];
+	for (const part of parts) {
+		const value = Number(part);
+		if (!Number.isFinite(value)) {
+			return { ok: false, problem: l10n.t("Not a number: {0}", part) };
+		}
+		if (!(value > 0 && value <= 1)) {
+			return { ok: false, problem: l10n.t("Thresholds are fractions in (0, 1], e.g. 0.8") };
+		}
+		values.push(value);
+	}
+	const deduped = [...new Set(values)].sort((a, b) => a - b);
+	// The intent schema's list bound; failing it inline beats a generic
+	// intentFailed toast after the round trip.
+	if (deduped.length > 32) {
+		return { ok: false, problem: l10n.t("At most 32 thresholds") };
+	}
+	return { ok: true, values: deduped };
+}
+
+/** The usage.alertThresholds row: a fraction-list input, committed on blur or Enter like the number rows. */
+function UsageThresholdsRow({
+	values,
+	configuredScope,
+	hidden,
+}: {
+	values: readonly number[];
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	const external = values.join(", ");
+	const [text, setText] = useState(external);
+	const syncKey = `${external}@${configuredScope ?? "default"}`;
+	useEffect(() => {
+		setText(external);
+	}, [syncKey]);
+	const parse = parseThresholdsDraft(text);
+	const commit = () => {
+		if (!parse.ok) {
+			return;
+		}
+		if (parse.values.join(",") !== values.join(",")) {
+			postMessage({ type: "setUsageAlertThresholds", values: [...parse.values] });
+		}
+	};
+	const inputId = "setting-usage.alertThresholds";
+	const errorId = `${inputId}-error`;
+	const title = l10n.t("Usage alert thresholds");
+	const equiv =
+		parse.ok && parse.values.length > 0
+			? `= ${parse.values.map((v) => `${Math.round(v * 100)}%`).join(", ")}`
+			: undefined;
+	return (
+		<SettingRow modified={configuredScope !== null} hidden={hidden}>
+			<div class="setting-head">
+				<label class="setting-title" for={inputId}>
+					{title}
+				</label>
+				<RevealButton title={title} settingId="usage.alertThresholds" />
+				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
+			</div>
+			<p class="setting-desc">
+				{l10n.t("Budget fractions that trigger a one-time alert each, e.g. 0.8, 0.95; empty turns alerts off.")}
+			</p>
+			<div class="setting-control">
+				<input
+					id={inputId}
+					type="text"
+					spellcheck={false}
+					class={parse.ok ? "" : "invalid"}
+					aria-invalid={!parse.ok}
+					aria-describedby={parse.ok ? undefined : errorId}
+					value={text}
+					onInput={(event) => setText(event.currentTarget.value)}
+					onBlur={commit}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") {
+							commit();
+						}
+					}}
+				/>
+				{!parse.ok ? (
+					<span class="error" id={errorId}>
+						{parse.problem}
+					</span>
+				) : null}
+				{equiv !== undefined ? <span class="setting-equiv">{equiv}</span> : null}
+				{configuredScope !== null ? (
+					<ResetButton title={title} scope={configuredScope} settingId="usage.alertThresholds" />
+				) : null}
+			</div>
 		</SettingRow>
 	);
 }
@@ -327,6 +573,9 @@ function SettingGroup({
 	booleans,
 	settings,
 	isVisible,
+	booleanExtras,
+	tail,
+	tailVisible,
 }: {
 	title: () => string;
 	hint?: (() => string) | undefined;
@@ -335,8 +584,14 @@ function SettingGroup({
 	settings: DashboardSettings;
 	/** The filter's verdict per row; a group whose rows are all hidden collapses whole (heading included). */
 	isVisible: (id: NumberSettingId | BooleanSettingId) => boolean;
+	/** Extra content under specific boolean rows (the catalog row's status line). */
+	booleanExtras?: Partial<Record<BooleanSettingId, ComponentChildren>>;
+	/** Rows appended after the scalar rows (the Usage group's enum and list rows). */
+	tail?: ComponentChildren;
+	/** Whether any tail row survives the filter; keeps the group heading alive for them. */
+	tailVisible?: boolean;
 }) {
-	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id));
+	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id)) && tailVisible !== true;
 	return (
 		<div class="settings-group" hidden={empty}>
 			<h3 class="settings-group-title">{title()}</h3>
@@ -357,8 +612,10 @@ function SettingGroup({
 					value={settings.booleans[id]}
 					configuredScope={settings.configuredScopes.booleans[id]}
 					hidden={!isVisible(id)}
+					extra={booleanExtras?.[id]}
 				/>
 			))}
+			{tail}
 		</div>
 	);
 }
@@ -425,12 +682,29 @@ export function SettingsSection({
 	settings,
 	models,
 	failures,
+	catalogResults,
+	now,
+	editRecordRequest,
 }: {
 	settings: DashboardSettings;
 	models: readonly DashboardModel[];
 	failures: FailuresByIntent;
+	/** The latest catalogSearchResults response, for the capability editor's `_openrouter_model` picker. */
+	catalogResults?: CatalogSearchResponse | undefined;
+	/** The shared clock tick; the catalog row's "updated N ago" reads it. */
+	now?: number;
+	/** The inspectors' configure-jump into one of the record editors; see EditRecordRequest. */
+	editRecordRequest?: EditRecordRequest | undefined;
 }) {
 	const [filter, setFilter] = useState("");
+	// A jump must land on a visible editor: a leftover filter that hides the
+	// target section would swallow the focus, so the request clears it.
+	const editSeq = editRecordRequest?.seq;
+	useEffect(() => {
+		if (editSeq !== undefined) {
+			setFilter("");
+		}
+	}, [editSeq]);
 	const needle = filter.trim().toLowerCase();
 	const isVisible = (id: NumberSettingId | BooleanSettingId): boolean => {
 		if (needle.length === 0) {
@@ -446,8 +720,19 @@ export function SettingsSection({
 
 	const paramsVisible =
 		needle.length === 0 || recordEditorMatches(needle, modelParametersTitle(), settings.modelParameters);
+	const capsVisible =
+		needle.length === 0 || recordEditorMatches(needle, modelCapabilitiesTitle(), settings.modelCapabilities);
 	const anyScalarVisible = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].some(isVisible);
-	const nothingMatches = !anyScalarVisible && !paramsVisible;
+	const nothingMatches = !anyScalarVisible && !paramsVisible && !capsVisible;
+	const booleanExtras: Partial<Record<BooleanSettingId, ComponentChildren>> = {
+		"models.openRouterCatalog": (
+			<CatalogRow
+				catalog={settings.catalog}
+				enabled={settings.booleans["models.openRouterCatalog"]}
+				now={now ?? Date.now()}
+			/>
+		),
+	};
 	return (
 		<section>
 			<h2>
@@ -475,9 +760,45 @@ export function SettingsSection({
 			</div>
 			{nothingMatches ? <p class="empty">{l10n.t("No settings match the filter.")}</p> : null}
 			<div class="settings-groups">
-				{SETTING_GROUPS.map((group, index) => (
-					<SettingGroup key={index} {...group} settings={settings} isVisible={isVisible} />
-				))}
+				{SETTING_GROUPS.map((group, index) => {
+					// The Usage group also carries the two non-scalar usage settings:
+					// the status bar mode enum and the alert-thresholds list.
+					const isUsageGroup = group.numbers.includes("usage.pollInterval");
+					const statusBarVisible =
+						needle.length === 0 ||
+						l10n.t("Usage status bar").toLowerCase().includes(needle) ||
+						"usage.statusbar".includes(needle);
+					const thresholdsVisible =
+						needle.length === 0 ||
+						l10n.t("Usage alert thresholds").toLowerCase().includes(needle) ||
+						"usage.alertthresholds".includes(needle);
+					return (
+						<SettingGroup
+							key={index}
+							{...group}
+							settings={settings}
+							isVisible={isVisible}
+							booleanExtras={booleanExtras}
+							tailVisible={isUsageGroup && (statusBarVisible || thresholdsVisible)}
+							tail={
+								isUsageGroup ? (
+									<>
+										<UsageThresholdsRow
+											values={settings.usage.alertThresholds}
+											configuredScope={settings.usage.thresholdsScope}
+											hidden={!thresholdsVisible}
+										/>
+										<UsageStatusBarRow
+											mode={settings.usage.statusBarMode}
+											configuredScope={settings.usage.statusBarScope}
+											hidden={!statusBarVisible}
+										/>
+									</>
+								) : undefined
+							}
+						/>
+					);
+				})}
 				{otherNumbers.length + otherBooleans.length > 0 ? (
 					<SettingGroup
 						title={() => l10n.t("Other")}
@@ -493,6 +814,15 @@ export function SettingsSection({
 				models={models}
 				failure={failures.setModelParameters}
 				hidden={!paramsVisible}
+				external={editRecordRequest?.kind === "parameters" ? editRecordRequest : undefined}
+			/>
+			<ModelCapabilitiesEditor
+				scoped={settings.modelCapabilities}
+				models={models}
+				failure={failures.setModelCapabilities}
+				catalogResults={catalogResults}
+				hidden={!capsVisible}
+				external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
 			/>
 		</section>
 	);

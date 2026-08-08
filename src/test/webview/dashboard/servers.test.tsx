@@ -252,7 +252,7 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	expect(postedMessages.length).toBe(1);
 	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
 	expect(saved.type).toBe("saveServerSetting");
-	// The two entry-record fields ride every save, even empty: absent is
+	// The entry-record fields ride every save, even empty: absent is
 	// reserved for payloads that predate their editors (the save carries the
 	// stored values forward for those instead of deleting them).
 	expect(saved.server).toEqual({
@@ -260,6 +260,9 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 		baseUrl: "http://localhost:4000",
 		modelCapabilities: {},
 		expectedFailures: [],
+		headers: {},
+		declaredModels: [],
+		budget: null,
 	});
 
 	// An ack for some other intent must not close it.
@@ -525,6 +528,9 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 		baseUrl: "http://localhost:4000",
 		modelCapabilities: {},
 		expectedFailures: [],
+		headers: {},
+		declaredModels: [],
+		budget: null,
 	});
 	expect(posted.secrets).toEqual({
 		apiKey: { action: "keep" },
@@ -679,6 +685,13 @@ test("a failed test renders its message inline and the result clears on any cred
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
+	// The entry has no credentials, so the form derives to None; the API-key
+	// form is picked up front so the credential-edit steps below have their
+	// input (the pick itself would clear a standing result too).
+	const apiKeyOption = [...root.querySelectorAll(".auth-selector label")].find(
+		(el) => (el.textContent ?? "").trim() === "API key (bearer)"
+	);
+	fireCheck(apiKeyOption?.querySelector("input") as HTMLInputElement, true);
 
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
@@ -765,6 +778,10 @@ test("Test with a partial OAuth draft posts nothing and surfaces the pairing pro
 	pushToWebview(statePush(makeState()));
 	fireClick(buttonByText(root, "Add your first server"));
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+	const oauthOption = [...root.querySelectorAll(".auth-selector label")].find(
+		(el) => (el.textContent ?? "").trim() === "OAuth"
+	);
+	fireCheck(oauthOption?.querySelector("input") as HTMLInputElement, true);
 	fireInput(inputByLabel(root, "OAuth client ID"), "client-1");
 
 	resetPosted();
@@ -857,7 +874,7 @@ test("the edit form round-trips model capabilities and expected failures into th
 test("an unknown capability key hints without blocking the save", () => {
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));
-	fireClick(buttonByText(root, "Add capability prefix"));
+	fireClick(buttonByText(root, "Add capability matcher"));
 	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
 	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
 	if (prefixInput === null || keyInput === null) {
@@ -879,7 +896,7 @@ test("an unknown capability key hints without blocking the save", () => {
 test("switching a row's key onto a support flag seeds it true and renders the checkbox", () => {
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));
-	fireClick(buttonByText(root, "Add capability prefix"));
+	fireClick(buttonByText(root, "Add capability matcher"));
 	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
 	if (keyInput === null) {
 		throw new Error("the capability rows did not render");
@@ -1007,18 +1024,21 @@ test("an expected failure with nothing declared raises the capabilities-and-decl
 	expect(banners.some((text) => text.includes("discovery.declared"))).toBe(true);
 });
 
-test("the capabilities-inactive notice renders its own badge and remedy banner beside the params one", () => {
+test("the capabilities-inactive notice renders its own badge and joins the one merged remedy banner", () => {
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
 	]);
 	const badges = [...root.querySelectorAll("span.badge.state-warn")].map((el) => el.textContent?.trim());
 	expect(badges).toContain("params inactive");
 	expect(badges).toContain("capabilities inactive");
+	// One banner for every inactive entry-only surface: the surfaces list, then
+	// the shared cause-and-fix sentence.
 	const banners = [...root.querySelectorAll(".banner-warn")].map((el) => el.textContent ?? "");
-	expect(banners.some((text) => text.includes("per-server model parameters are not applied"))).toBe(true);
-	expect(
-		banners.some((text) => text.includes("per-server model capabilities and expected failures are not applied"))
-	).toBe(true);
+	expect(banners.length).toBe(1);
+	const banner = banners[0] ?? "";
+	expect(banner).toContain("Prod: per-server model parameters");
+	expect(banner).toContain("per-server model capabilities, declared models, and expected failures");
+	expect(banner).toContain("are not applied");
 });
 
 test("editing a capability row or an expected-failure checkbox clears a standing test result", () => {
@@ -1030,7 +1050,7 @@ test("editing a capability row or an expected-failure checkbox clears a standing
 	// The in-flight state is visible; a capability edit abandons the probe,
 	// because its outcome (declared count, expected downgrade) depends on it.
 	expect(root.textContent).toContain("Testing...");
-	fireClick(buttonByText(root, "Add capability prefix"));
+	fireClick(buttonByText(root, "Add capability matcher"));
 	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
 	if (prefixInput === null) {
 		throw new Error("the capability rows did not render");

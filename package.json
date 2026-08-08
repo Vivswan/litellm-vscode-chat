@@ -66,6 +66,9 @@
 	],
 	"pricing": "Free",
 	"main": "./dist/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
 	"l10n": "./l10n",
 	"contributes": {
 		"languageModelChatProviders": [
@@ -167,6 +170,10 @@
 			{
 				"command": "litellm.refreshUsage",
 				"title": "%litellm.command.refreshUsage.title%"
+			},
+			{
+				"command": "litellm.refreshOpenRouterCatalog",
+				"title": "%litellm.command.refreshOpenRouterCatalog.title%"
 			}
 		],
 		"walkthroughs": [

@@ -13,6 +13,7 @@
 
 export type { BudgetStatus, ResolveBudgetInput } from "./budget";
 export { crossedThresholds, newlyCrossedThresholds, resolveBudget } from "./budget";
+export { isUsageFresh } from "./freshness";
 export type { UsageClock, UsageFetchClient, UsagePollerEnv, UsageTimer } from "./poller";
 export { USAGE_ACTIVITY_WINDOW_DAYS, UsagePoller } from "./poller";
 export type {

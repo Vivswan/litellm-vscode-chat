@@ -31,6 +31,21 @@ function declaredServer(overrides: Partial<DeclaredServer> = {}): DashboardServe
 	return { ...base, ...overrides } as DeclaredServer;
 }
 
+function misconfiguredServer(problems: readonly string[]): DashboardServer {
+	return {
+		origin: "misconfigured",
+		label: "Broken",
+		baseUrl: "http://broken.test",
+		modelCount: 0,
+		hasApiKey: false,
+		hasOAuth: false,
+		state: "error",
+		problems,
+		error: "misconfigured entry; not used until its configuration is fixed",
+		errorEnglish: "misconfigured entry; not used until its configuration is fixed",
+	};
+}
+
 suite("extension/dashboard/protocol renderers", () => {
 	suite("overallStatusText", () => {
 		test("nothing configured anywhere reads as not configured", () => {
@@ -95,6 +110,35 @@ suite("extension/dashboard/protocol renderers", () => {
 			assert.strictEqual(
 				overallStatusText(servers, 0),
 				"Expected discovery failures; no declared models (add IDs to the entry's discovery.declared)"
+			);
+		});
+
+		test("a misconfigured entry beside a healthy server stays neutral: connected, not degraded", () => {
+			// The status bar cannot see misconfigured entries (they never reach the
+			// host), so counting them here would split the headline from the bar;
+			// their signal is the Misconfigured pill and Configuration diagnostics.
+			const servers = [misconfiguredServer(["auth must pick one form"]), declaredServer({ modelCount: 3 })];
+			assert.strictEqual(classifyOverall(servers), "connected");
+			assert.strictEqual(overallStatusText(servers, 3), "Connected (3 models)");
+		});
+
+		test("with every real server down, the headline names the transport failure, not the misconfigured row", () => {
+			// Rows sort by label ("Broken" first); the real outage is the line
+			// worth pasting into an issue report.
+			const servers = [
+				misconfiguredServer(["auth must pick one form"]),
+				declaredServer({ state: "error", error: "connection refused" }),
+			];
+			assert.strictEqual(classifyOverall(servers), "error");
+			assert.strictEqual(overallStatusText(servers, 0), "Error: connection refused");
+		});
+
+		test("a configuration of only misconfigured entries is an error, never waiting", () => {
+			const servers = [misconfiguredServer(["auth must pick one form"])];
+			assert.strictEqual(classifyOverall(servers), "error");
+			assert.strictEqual(
+				overallStatusText(servers, 0),
+				"Error: misconfigured entry; not used until its configuration is fixed"
 			);
 		});
 
@@ -170,7 +214,9 @@ suite("extension/dashboard/protocol renderers", () => {
 		test("the capabilities twin of the params-inactive line names its own fields", () => {
 			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-capabilities-inactive"] }));
 			assert.ok(
-				line.startsWith("OK (2 models) - per-entry modelCapabilities and expectedFailures are not applied"),
+				line.startsWith(
+					"OK (2 models) - per-entry modelCapabilities, declared models, and expectedFailures are not applied"
+				),
 				line
 			);
 			assert.ok(line.includes("run Sync Models Now"), line);
@@ -181,11 +227,25 @@ suite("extension/dashboard/protocol renderers", () => {
 				declaredServer({ modelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] })
 			);
 			assert.ok(line.includes("per-entry modelParameters are not applied"), line);
-			assert.ok(line.includes("per-entry modelCapabilities and expectedFailures are not applied"), line);
 			assert.ok(
-				line.indexOf("modelParameters are not applied") < line.indexOf("modelCapabilities and expectedFailures"),
+				line.includes("per-entry modelCapabilities, declared models, and expectedFailures are not applied"),
 				line
 			);
+			assert.ok(
+				line.indexOf("modelParameters are not applied") <
+					line.indexOf("modelCapabilities, declared models, and expectedFailures"),
+				line
+			);
+		});
+
+		test("a misconfigured row short-circuits to its status with the parser's reports as the error", () => {
+			const server = misconfiguredServer(["auth must pick one form", "unknown field ignored"]);
+			assert.deepStrictEqual(serverOutcomeParts(server), {
+				status: "Misconfigured",
+				error: "auth must pick one form; unknown field ignored",
+				notice: [],
+			});
+			assert.strictEqual(serverOutcomeText(server), "Misconfigured: auth must pick one form; unknown field ignored");
 		});
 
 		test("the one-line form is exactly the composition of serverOutcomeParts", () => {

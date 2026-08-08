@@ -1,5 +1,5 @@
 import * as l10n from "@vscode/l10n";
-import { useEffect, useId, useState } from "preact/hooks";
+import { useEffect, useId, useRef, useState } from "preact/hooks";
 import type {
 	DashboardModel,
 	ExtensionToWebviewMessage,
@@ -11,6 +11,7 @@ import {
 	CAPABILITY_FIELDS,
 	FALLBACK_DIRECTIVE,
 	FORCE_DIRECTIVE,
+	INHERITABLE_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 	settingScopeLabel,
 } from "../../extension/dashboard/protocol";
@@ -21,14 +22,19 @@ import type {
 	PrefixGroup,
 } from "../../extension/dashboard/recordDraft";
 import {
+	capabilityGroupsFromJsonText,
 	directiveEligible,
 	directiveMarkedFields,
 	groupsFromJsonText,
+	inheritFromChoice,
+	parseCapabilityGroups,
 	parseGroups,
+	setInheritFromChoice,
+	toCapabilityGroups,
 	toGroups,
 	toggleDirectiveField,
 } from "../../extension/dashboard/recordDraft";
-import { DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
+import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import {
 	helpCapabilityName,
@@ -38,6 +44,9 @@ import {
 	helpFallbackFlag,
 	helpForceFlag,
 	helpForceFlagDisabled,
+	helpInheritableFlag,
+	helpInheritFromControl,
+	helpModelCapabilitiesSection,
 	helpModelParameterName,
 	helpModelParameterPrefix,
 	helpModelParametersSection,
@@ -56,12 +65,23 @@ export function modelParametersTitle(): string {
 	return l10n.t("Model parameters");
 }
 
+/** The capabilities editor's heading, modelParametersTitle's twin for the settings filter. */
+export function modelCapabilitiesTitle(): string {
+	return l10n.t("Model capabilities");
+}
+
 /**
  * The record editors' settings.json jump, the settings form's RevealButton
  * on an editor heading: rests visible like the docs link beside it (an h3 has
  * no hover band to reveal from).
  */
-function HeadingRevealButton({ title, settingId }: { title: string; settingId: "models.parameters" }) {
+function HeadingRevealButton({
+	title,
+	settingId,
+}: {
+	title: string;
+	settingId: "models.parameters" | "models.capabilities";
+}) {
 	return (
 		<button
 			type="button"
@@ -159,6 +179,66 @@ function useDraftRows<T>(
 	};
 }
 
+/**
+ * The inspectors' configure-jump into an editor: focus the record carrying
+ * `key`, or - when `create` is set and no group carries it - append a fresh
+ * draft group keyed by it (not yet applied; drafts only land on Apply, per
+ * the editors' contract). `seq` keys re-delivery so repeating the same jump
+ * re-focuses.
+ */
+export interface ExternalRecordEdit {
+	readonly seq: number;
+	readonly key: string;
+	readonly create: boolean;
+}
+
+/**
+ * Apply an ExternalRecordEdit to an editor: reuse the existing group when one
+ * carries the key, append a draft group otherwise, then scroll to it and
+ * focus - the new group's first field-name input (key prefilled, ready to
+ * type), an existing group's matcher input. Inert while the JSON view is
+ * open: rewriting a JSON draft under the user would lose their text.
+ */
+function useExternalRecordEdit(
+	external: ExternalRecordEdit | undefined,
+	sectionRef: { readonly current: HTMLElement | null },
+	rows: readonly PrefixGroup[],
+	update: (next: PrefixGroup[]) => void,
+	jsonOpen: boolean
+): void {
+	const seq = external?.seq;
+	useEffect(() => {
+		if (external === undefined || jsonOpen) {
+			return;
+		}
+		const key = external.key;
+		let index = rows.findIndex((group) => group.prefix.trim() === key);
+		const created = index < 0 && external.create;
+		if (index < 0) {
+			if (!external.create) {
+				return;
+			}
+			update([...rows, { prefix: key, params: [{ key: "", valueText: "" }] }]);
+			index = rows.length;
+		}
+		const groupIndex = index;
+		// Focus after the render that mounts the (possibly new) group.
+		setTimeout(() => {
+			const groupEl = sectionRef.current?.querySelectorAll<HTMLElement>("div.group")[groupIndex];
+			if (groupEl === undefined) {
+				return;
+			}
+			groupEl.scrollIntoView({ block: "center" });
+			const input = created
+				? (groupEl.querySelector<HTMLInputElement>(".rows input.key") ??
+					groupEl.querySelector<HTMLInputElement>("input.key"))
+				: groupEl.querySelector<HTMLInputElement>("input.key");
+			input?.focus({ preventScroll: true });
+		}, 0);
+		// Keyed on the request's seq so repeating the same jump re-focuses.
+	}, [seq]);
+}
+
 /** One reported intent failure; `seq` distinguishes repeated failures with the same text. */
 export interface IntentFailure {
 	readonly seq: number;
@@ -212,6 +292,158 @@ function ApplyStatus({ phase }: { phase: DraftPhase }) {
 /** The other-scope records, rendered as the same disabled grid the edit scope uses, never as prose. */
 function OtherScopeNote({ scope }: { scope: SettingScope }) {
 	return <p class="hint">{l10n.t("Set in {0} settings - edit there.", settingScopeLabel(scope))}</p>;
+}
+
+/**
+ * The group-level `_inherit_from` control: a compact select over the
+ * directive's four shapes plus a keys input for the named-records form. It
+ * reads and writes the group's `_inherit_from` row (the row stays visible and
+ * editable as text, like the other directive rows), and goes hands-off while
+ * that row holds text the strict parse rejects - the row's own error tells
+ * that story, and the select must not silently rewrite the user's text.
+ */
+function InheritFromControl({
+	group,
+	disabled,
+	onChange,
+}: {
+	group: PrefixGroup;
+	disabled: boolean;
+	onChange: (next: PrefixGroup) => void;
+}) {
+	const choice = inheritFromChoice(group);
+	const id = useId();
+	// The keys mode must be enterable from scratch: picking it writes NOTHING
+	// until a key is typed (an empty `_inherit_from` list IS the barrier by
+	// the docs' edge-case rules, so auto-writing [] on a mode switch would
+	// snap the select straight to "nothing - barrier"). The pending flag holds
+	// the UI in keys mode while the row itself stays absent; typing the first
+	// key writes the list, and emptying the input removes the row again while
+	// the mode persists locally. [] stays expressible only as explicit text
+	// in the _inherit_from row itself.
+	const [keysPending, setKeysPending] = useState(false);
+	const [pendingText, setPendingText] = useState("");
+	if (choice.kind === "unreadable") {
+		return (
+			<span class="inherit-from">
+				<span class="hint">{l10n.t("Inheritance: fix the _inherit_from row below")}</span>
+			</span>
+		);
+	}
+	const shownKind = choice.kind === "keys" ? "keys" : keysPending && choice.kind === "default" ? "keys" : choice.kind;
+	const keysText = choice.kind === "keys" ? choice.keysText : pendingText;
+	const writeKeys = (text: string) => {
+		setPendingText(text);
+		const hasKey = text.split(",").some((key) => key.trim().length > 0);
+		if (hasKey) {
+			onChange(setInheritFromChoice(group, { keysText: text }));
+		} else if (choice.kind === "keys") {
+			// Emptied: drop the row (never write []); the local mode keeps the
+			// input on screen for the next key. The flag must be set here too -
+			// a stored keys row entered edit with it false, and dropping the row
+			// without it would unmount the input mid-edit and steal focus.
+			setKeysPending(true);
+			onChange(setInheritFromChoice(group, "default"));
+		}
+	};
+	return (
+		<span class="inherit-from">
+			<label class="hint" for={id}>
+				{l10n.t("Inherits")}
+			</label>
+			<Help text={helpInheritFromControl()} />
+			<select
+				id={id}
+				disabled={disabled}
+				value={shownKind}
+				onChange={(event) => {
+					const kind = event.currentTarget.value;
+					if (kind === "default" || kind === "all" || kind === "none") {
+						setKeysPending(false);
+						setPendingText("");
+						onChange(setInheritFromChoice(group, kind));
+					} else {
+						// Enter keys mode without writing; see the comment above.
+						setKeysPending(true);
+						setPendingText(choice.kind === "keys" ? choice.keysText : "");
+						if (choice.kind !== "keys" && choice.kind !== "default") {
+							onChange(setInheritFromChoice(group, "default"));
+						}
+					}
+				}}
+			>
+				<option value="default">{l10n.t("inheritable fields (default)")}</option>
+				<option value="all">{l10n.t("everything that reaches it")}</option>
+				<option value="none">{l10n.t("nothing - barrier")}</option>
+				<option value="keys">{l10n.t("only listed records")}</option>
+			</select>
+			{shownKind === "keys" ? (
+				<input
+					type="text"
+					class="inherit-keys"
+					aria-label={l10n.t("Record keys to inherit from, comma-separated")}
+					placeholder={l10n.t("e.g. gpt-5*, *")}
+					value={keysText}
+					disabled={disabled}
+					onInput={(event) => writeKeys(event.currentTarget.value)}
+				/>
+			) : null}
+		</span>
+	);
+}
+
+/**
+ * The per-row `_inheritable` mark, rendered by both editors beside the
+ * force/fallback mark: broader records mark fields here so more specific
+ * matches inherit them.
+ */
+function InheritableFlag({
+	group,
+	groupIndex,
+	groups,
+	fieldKey,
+	disabled,
+	onChange,
+}: {
+	group: PrefixGroup;
+	groupIndex: number;
+	groups: readonly PrefixGroup[];
+	fieldKey: string;
+	disabled: boolean;
+	onChange: (next: PrefixGroup[]) => void;
+}) {
+	const marked = directiveMarkedFields(group, INHERITABLE_DIRECTIVE);
+	if (!directiveEligible(INHERITABLE_DIRECTIVE, fieldKey)) {
+		return null;
+	}
+	// A bare label-plus-help fragment: the caller owns the row's one
+	// directive-flag cell, so two marks never fight over the grid column.
+	return (
+		<>
+			<label>
+				<input
+					type="checkbox"
+					aria-label={l10n.t('Mark "{0}" inheritable', fieldKey)}
+					checked={marked.has(fieldKey)}
+					disabled={disabled}
+					onChange={(event) =>
+						onChange(
+							groups.map((g, i) =>
+								i === groupIndex
+									? toggleDirectiveField(g, INHERITABLE_DIRECTIVE, fieldKey, event.currentTarget.checked)
+									: g
+							)
+						)
+					}
+				/>
+				{l10n.t({
+					message: "inheritable",
+					comment: ["Checkbox label on a record row; marks the field as inheritable by more specific records."],
+				})}
+			</label>
+			<Help text={helpInheritableFlag()} />
+		</>
+	);
 }
 
 /**
@@ -300,13 +532,22 @@ export function ParamGroupsFields({
 									disabled={disabled}
 									onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
 								>
-									<IconTrash /> {l10n.t("Remove prefix")}
+									<IconTrash /> {l10n.t("Remove matcher")}
 								</button>
 							)}
 							{problems[groupIndex]?.prefix !== undefined ? (
 								<span class="error">{problems[groupIndex]?.prefix}</span>
 							) : null}
 						</div>
+						{readOnly === true ? null : (
+							<div class="inherit-line">
+								<InheritFromControl
+									group={group}
+									disabled={disabled === true}
+									onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
+								/>
+							</div>
+						)}
 						<div class="rows">
 							{group.params.map((param, paramIndex) => (
 								<div class="row" key={paramIndex}>
@@ -366,7 +607,11 @@ export function ParamGroupsFields({
 									    Unnamed rows and the directive row itself carry no box;
 									    unforceable keys keep it visible but disabled, with the help
 									    naming why. */}
-									{param.key.trim() === FORCE_DIRECTIVE || param.key.trim().length === 0 ? null : (
+									{/* Directive rows (_force, _inheritable, _inherit_from, ...) carry
+								    no flag checkboxes: a directive cannot be forced or inherited,
+								    and the lints diagnose exactly that. Non-directive unforceable
+								    keys keep the disabled box with the reason in its help. */}
+									{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
 										<span class="cell directive-flag">
 											<label>
 												<input
@@ -403,6 +648,16 @@ export function ParamGroupsFields({
 														: helpForceFlagDisabled()
 												}
 											/>
+											{readOnly === true ? null : (
+												<InheritableFlag
+													group={group}
+													groupIndex={groupIndex}
+													groups={groups}
+													fieldKey={param.key.trim()}
+													disabled={inert}
+													onChange={onChange}
+												/>
+											)}
 										</span>
 									)}
 									{problems[groupIndex]?.params[paramIndex] !== undefined ? (
@@ -597,16 +852,22 @@ export function CapabilityGroupsFields({
 	groups,
 	issues,
 	disabled,
+	readOnly,
 	catalogResults,
+	prefixListId,
 	onChange,
 }: {
 	groups: readonly PrefixGroup[];
 	issues: readonly CapabilityGroupIssues[];
 	disabled?: boolean;
+	/** Render as a static display: inputs disabled, add/remove actions gone (the other-scope records). */
+	readOnly?: boolean;
 	catalogResults: CatalogSearchResponse | undefined;
+	/** Datalist ID for the matcher input; the owning editor renders the list. */
+	prefixListId?: string;
 	onChange: (next: PrefixGroup[]) => void;
 }) {
-	const inert = disabled === true;
+	const inert = disabled === true || readOnly === true;
 	const patchGroup = (index: number, patch: Partial<PrefixGroup>) => {
 		onChange(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
 	};
@@ -633,22 +894,34 @@ export function CapabilityGroupsFields({
 									placeholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
 									value={group.prefix}
 									disabled={inert}
+									list={prefixListId}
 									onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
 								/>
 								<Help text={helpCapabilityPrefix()} />
 							</span>
-							<button
-								type="button"
-								class="quiet"
-								disabled={inert}
-								onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
-							>
-								<IconTrash /> {l10n.t("Remove prefix")}
-							</button>
+							{readOnly === true ? null : (
+								<button
+									type="button"
+									class="quiet"
+									disabled={inert}
+									onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
+								>
+									<IconTrash /> {l10n.t("Remove matcher")}
+								</button>
+							)}
 							{issues[groupIndex]?.prefix !== undefined ? (
 								<span class="error">{issues[groupIndex]?.prefix}</span>
 							) : null}
 						</div>
+						{readOnly === true ? null : (
+							<div class="inherit-line">
+								<InheritFromControl
+									group={group}
+									disabled={disabled === true}
+									onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
+								/>
+							</div>
+						)}
 						<div class="rows">
 							{group.params.map((param, paramIndex) => {
 								const issue = issues[groupIndex]?.rows[paramIndex];
@@ -714,43 +987,60 @@ export function CapabilityGroupsFields({
 												<Help text={helpCapabilityValue()} />
 											</span>
 										)}
-										<button
-											type="button"
-											class="quiet"
-											disabled={inert}
-											onClick={() =>
-												patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
-											}
-										>
-											<IconTrash /> {l10n.t("Remove")}
-										</button>
+										{readOnly === true ? null : (
+											<button
+												type="button"
+												class="quiet"
+												disabled={inert}
+												onClick={() =>
+													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
+												}
+											>
+												<IconTrash /> {l10n.t("Remove")}
+											</button>
+										)}
 										{/* The per-row fallback mark, trailing the row action like the
 									    parameter editor's force mark; only the closed vocabulary's
 									    fields carry one (directives and unknown keys have no server
 									    value to fall under). */}
-										{Object.hasOwn(CAPABILITY_FIELDS, key) ? (
+										{Object.hasOwn(CAPABILITY_FIELDS, key) ||
+										(readOnly !== true && key.length > 0 && !key.startsWith("_")) ? (
 											<span class="cell directive-flag">
-												<label>
-													<input
-														type="checkbox"
-														aria-label={l10n.t('Fall back for "{0}"', key)}
-														checked={fallbackFields.has(key)}
+												{Object.hasOwn(CAPABILITY_FIELDS, key) ? (
+													<>
+														<label>
+															<input
+																type="checkbox"
+																aria-label={l10n.t('Fall back for "{0}"', key)}
+																checked={fallbackFields.has(key)}
+																disabled={inert}
+																onChange={(event) =>
+																	patchGroup(
+																		groupIndex,
+																		toggleDirectiveField(group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
+																	)
+																}
+															/>
+															{l10n.t({
+																message: "fallback",
+																comment: [
+																	"Checkbox label on a capability row; applies the value only where the server reports none.",
+																],
+															})}
+														</label>
+														<Help text={helpFallbackFlag()} />
+													</>
+												) : null}
+												{readOnly === true ? null : (
+													<InheritableFlag
+														group={group}
+														groupIndex={groupIndex}
+														groups={groups}
+														fieldKey={key}
 														disabled={inert}
-														onChange={(event) =>
-															patchGroup(
-																groupIndex,
-																toggleDirectiveField(group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
-															)
-														}
+														onChange={onChange}
 													/>
-													{l10n.t({
-														message: "fallback",
-														comment: [
-															"Checkbox label on a capability row; applies the value only where the server reports none.",
-														],
-													})}
-												</label>
-												<Help text={helpFallbackFlag()} />
+												)}
 											</span>
 										) : null}
 										{issue?.problem !== undefined ? <span class="error">{issue.problem.message}</span> : null}
@@ -759,14 +1049,16 @@ export function CapabilityGroupsFields({
 								);
 							})}
 						</div>
-						<button
-							type="button"
-							class="secondary"
-							disabled={inert}
-							onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
-						>
-							<IconAdd /> {l10n.t("Add capability")}
-						</button>
+						{readOnly === true ? null : (
+							<button
+								type="button"
+								class="secondary"
+								disabled={inert}
+								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
+							>
+								<IconAdd /> {l10n.t("Add capability")}
+							</button>
+						)}
 					</div>
 				);
 			})}
@@ -838,6 +1130,7 @@ export function ModelParametersEditor({
 	models,
 	failure,
 	hidden,
+	external,
 }: {
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
 	/** The discovered models, feeding the prefix input's suggestions. */
@@ -845,6 +1138,8 @@ export function ModelParametersEditor({
 	failure: IntentFailure | undefined;
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
 	hidden?: boolean;
+	/** The inspectors' configure-jump; see ExternalRecordEdit. */
+	external?: ExternalRecordEdit | undefined;
 }) {
 	const draft = useDraftRows(toGroups(scoped.value), failure);
 	const groups = draft.rows;
@@ -896,8 +1191,10 @@ export function ModelParametersEditor({
 	};
 
 	const modelIds = Array.from(new Set(models.map((model) => model.id)));
+	const sectionRef = useRef<HTMLElement>(null);
+	useExternalRecordEdit(external, sectionRef, groups, (next) => draft.update(next), json !== undefined);
 	return (
-		<section hidden={hidden}>
+		<section hidden={hidden} ref={sectionRef}>
 			<h3 class="head-with-icons">
 				{modelParametersTitle()} <Help text={helpModelParametersSection()} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
@@ -905,7 +1202,7 @@ export function ModelParametersEditor({
 			</h3>
 			<p class="hint">
 				{l10n.t(
-					'Request parameters sent per model prefix (longest prefix wins). Values are JSON: 0.2, true, "text", ["stop"].'
+					'Request parameters sent per matching model (most specific matcher wins). Values are JSON: 0.2, true, "text", ["stop"].'
 				)}
 			</p>
 			<ScopeNote scoped={scoped} />
@@ -961,7 +1258,7 @@ export function ModelParametersEditor({
 						class="secondary"
 						onClick={() => draft.update([...groups, { prefix: "", params: [{ key: "", valueText: "" }] }])}
 					>
-						<IconAdd /> {l10n.t("Add model prefix")}
+						<IconAdd /> {l10n.t("Add model matcher")}
 					</button>
 				) : null}
 				<button type="button" disabled={!canApply} onClick={apply}>
@@ -1005,6 +1302,186 @@ export function ModelParametersEditor({
 						readOnly
 						prefixPlaceholder=""
 						prefixHelp={helpModelParameterPrefix()}
+						onChange={() => undefined}
+					/>
+				</div>
+			))}
+		</section>
+	);
+}
+
+const CAPABILITY_PREFIX_LIST_ID = "model-capabilities-prefix-options";
+
+/**
+ * Structured editor for litellm-vscode-chat.models.capabilities, the
+ * parameters editor's typed sibling (two-management-paths parity: everything
+ * the server form's per-entry section can edit, editable globally too). Same
+ * draft-and-apply model over the capability parse; edits land through the
+ * setModelCapabilities intent.
+ */
+export function ModelCapabilitiesEditor({
+	scoped,
+	models,
+	failure,
+	catalogResults,
+	hidden,
+	external,
+}: {
+	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+	/** The discovered models, feeding the matcher input's suggestions. */
+	models: readonly DashboardModel[];
+	failure: IntentFailure | undefined;
+	/** The latest catalogSearchResults response, for the `_openrouter_model` picker. */
+	catalogResults: CatalogSearchResponse | undefined;
+	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
+	hidden?: boolean;
+	/** The inspectors' configure-jump; see ExternalRecordEdit. */
+	external?: ExternalRecordEdit | undefined;
+}) {
+	const draft = useDraftRows(toCapabilityGroups(scoped.value), failure);
+	const groups = draft.rows;
+	// One parse per keystroke, like the parameters editor: the row issues, the
+	// Apply gate, and the assembled record are the same verdict.
+	const parse = parseCapabilityGroups(groups);
+	const issues = parse.issues;
+	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
+	const jsonParse = json === undefined ? undefined : capabilityGroupsFromJsonText(json.text);
+	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
+
+	const externalJsonText = JSON.stringify(scoped.value, null, 2) ?? "{}";
+	const draftPhase = draft.phase;
+	useEffect(() => {
+		if (draftPhase === "dirty" || draftPhase === "applying") {
+			return;
+		}
+		setJson((current) =>
+			current !== undefined && current.text === current.base && current.text !== externalJsonText
+				? { text: externalJsonText, base: externalJsonText }
+				: current
+		);
+	}, [externalJsonText, draftPhase]);
+
+	const changed = parse.ok && canonicalKey(parse.value) !== canonicalKey(scoped.value);
+	const canApply = draft.dirty && changed && !jsonBlocked;
+	const apply = () => {
+		if (!parse.ok || !canApply) {
+			return;
+		}
+		postMessage({ type: "setModelCapabilities", value: parse.value });
+		draft.apply();
+		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
+	};
+	const discard = () => {
+		draft.reset();
+		if (json !== undefined) {
+			setJson(seededJson(scoped.value));
+		}
+	};
+
+	const modelIds = Array.from(new Set(models.map((model) => model.id)));
+	const sectionRef = useRef<HTMLElement>(null);
+	useExternalRecordEdit(external, sectionRef, groups, (next) => draft.update(next), json !== undefined);
+	return (
+		<section hidden={hidden} ref={sectionRef}>
+			<h3 class="head-with-icons">
+				{modelCapabilitiesTitle()} <Help text={helpModelCapabilitiesSection()} />
+				<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
+				<HeadingRevealButton title={modelCapabilitiesTitle()} settingId="models.capabilities" />
+			</h3>
+			<p class="hint">
+				{l10n.t(
+					"Capability overrides per matching model, e.g. context_length 128000. Fallback rows fill only what the server leaves unset."
+				)}
+			</p>
+			<ScopeNote scoped={scoped} />
+			<datalist id={CAPABILITY_PREFIX_LIST_ID}>
+				{modelIds.map((id) => (
+					<option key={id} value={id} />
+				))}
+			</datalist>
+			{json !== undefined ? (
+				<div class="record-json">
+					<textarea
+						rows={10}
+						aria-label={l10n.t("Model capabilities as JSON")}
+						aria-invalid={jsonBlocked}
+						value={json.text}
+						onInput={(event) => {
+							const text = event.currentTarget.value;
+							setJson((current) => (current === undefined ? current : { ...current, text }));
+							const parsed = capabilityGroupsFromJsonText(text);
+							if (parsed.ok) {
+								draft.update(parsed.rows);
+							}
+						}}
+					/>
+					{jsonParse !== undefined && !jsonParse.ok ? <p class="error">{jsonParse.problem}</p> : null}
+				</div>
+			) : (
+				<>
+					{groups.length === 0 ? (
+						<p class="empty">{l10n.t("No model capabilities configured in this scope.")}</p>
+					) : null}
+					<CapabilityGroupsFields
+						groups={groups}
+						issues={issues}
+						catalogResults={catalogResults}
+						prefixListId={CAPABILITY_PREFIX_LIST_ID}
+						onChange={(next) => draft.update(next)}
+					/>
+				</>
+			)}
+			<FailureNote failure={failure} dirty={draft.dirty} />
+			<div class="toolbar">
+				{json === undefined ? (
+					<button
+						type="button"
+						class="secondary"
+						onClick={() => draft.update([...groups, { prefix: "", params: [{ key: "", valueText: "" }] }])}
+					>
+						<IconAdd /> {l10n.t("Add capability matcher")}
+					</button>
+				) : null}
+				<button type="button" disabled={!canApply} onClick={apply}>
+					{l10n.t("Apply")}
+				</button>
+				<button
+					type="button"
+					class="secondary"
+					disabled={!draft.dirty && !(json !== undefined && json.text !== json.base)}
+					aria-label={l10n.t("Discard the unapplied model capability edits")}
+					onClick={discard}
+				>
+					{l10n.t("Discard")}
+				</button>
+				{json === undefined ? (
+					<button
+						type="button"
+						class="quiet"
+						disabled={!parse.ok}
+						onClick={() => {
+							if (parse.ok) {
+								setJson(seededJson(parse.value));
+							}
+						}}
+					>
+						{l10n.t("Edit as JSON")}
+					</button>
+				) : (
+					<button type="button" class="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+						{l10n.t("Edit as rows")}
+					</button>
+				)}
+				<ApplyStatus phase={draft.phase} />
+			</div>
+			{scoped.otherScopes.map((other) => (
+				<div class="other-scope" key={other.scope}>
+					<OtherScopeNote scope={other.scope} />
+					<CapabilityGroupsFields
+						groups={toCapabilityGroups(other.value)}
+						issues={[]}
+						readOnly
+						catalogResults={undefined}
 						onChange={() => undefined}
 					/>
 				</div>

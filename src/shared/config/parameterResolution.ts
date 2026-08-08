@@ -18,7 +18,7 @@
 
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
-import { parseSharedDirectives, resolveRecordChain } from "./recordResolution";
+import { lintRecordMap, parseSharedDirectives, resolveRecordChain } from "./recordResolution";
 
 // The record grammar is shared machinery; the parameters-side consumers
 // import it through this module (the capability side re-exports its own).
@@ -84,8 +84,10 @@ export const FORCE_DIRECTIVE = "_force";
  * Whether `_force` may mark this key. Everything settable is forceable: of
  * the provider-owned keys only max_tokens is settable (its value feeds the
  * derivation instead of passing through), so it alone escapes the refusal.
+ * The single source of truth - the record editors' force checkboxes consult
+ * it too, so the editor and the wire cannot disagree about forceability.
  */
-function forceable(key: string): boolean {
+export function isForceableParameter(key: string): boolean {
 	return key === "max_tokens" || parameterSkipReason(key) === undefined;
 }
 
@@ -107,9 +109,11 @@ export interface ParameterDiagnostic extends RecordDiagnostic {
  * record does not set), and the shared `_inheritable`/`_inherit_from`
  * directives parse in recordResolution. Capability directives are diagnosed
  * as the wrong record type; truly unknown underscore keys stay silently
- * ignored for forward compatibility.
+ * ignored for forward compatibility. Exported for the record-level consumers
+ * (the Diagnostics tab's tree view renders each record's own fields and
+ * marks); resolution goes through resolveParameterLayer.
  */
-function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedRecord {
+export function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedRecord {
 	const fields: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(record)) {
 		// Underscore keys are directives or reserved, never fields - which also
@@ -126,7 +130,7 @@ function parseParameterRecord(record: Readonly<Record<string, unknown>>): Parsed
 		const directive = record[FORCE_DIRECTIVE];
 		if (directive === true) {
 			for (const key of Object.keys(fields)) {
-				if (forceable(key)) {
+				if (isForceableParameter(key)) {
 					forced.add(key);
 				}
 			}
@@ -134,7 +138,7 @@ function parseParameterRecord(record: Readonly<Record<string, unknown>>): Parsed
 			for (const name of directive) {
 				if (typeof name !== "string") {
 					diagnostics.push({ kind: "invalid-directive", key: FORCE_DIRECTIVE });
-				} else if (!forceable(name)) {
+				} else if (!isForceableParameter(name)) {
 					diagnostics.push({ kind: "unforceable-key", key: name });
 				} else if (!Object.hasOwn(fields, name)) {
 					diagnostics.push({ kind: "invalid-directive", key: FORCE_DIRECTIVE });
@@ -169,6 +173,17 @@ function parseParameterRecord(record: Readonly<Record<string, unknown>>): Parsed
 /** Resolve one layer's record map for a model through the shared chain walk. */
 export function resolveParameterLayer(rawModelId: string, records: ModelRecordMap): RecordChainResolution {
 	return resolveRecordChain(rawModelId, records, parseParameterRecord);
+}
+
+/**
+ * Record-level lint of a parameters record map, independent of any model:
+ * invalid matcher keys, malformed directives, unforceable `_force` names, and
+ * `_inherit_from` entries naming keys the map does not hold. The Diagnostics
+ * tab renders these for records no current model matches, which the per-model
+ * chain resolution would never visit; the caller attributes the layer.
+ */
+export function lintParameterRecords(records: ModelRecordMap): readonly RecordDiagnostic[] {
+	return lintRecordMap(records, parseParameterRecord);
 }
 
 /** Which configuration layer set a value, and under which record key. */
@@ -405,9 +420,28 @@ export interface EffectiveParametersProjection {
  * (forced rows even against runtime options and the picker), every
  * non-provider-owned body key appears here as sent, and the projected
  * max_tokens equals the body's.
+ *
+ * Production consumers moved to projectResolvedParameters (fed by the shared
+ * resolution table); this full-resolution form deliberately stays as the
+ * NAIVE side of the seed-pinned equivalence property, not dead code.
  */
 export function projectEffectiveParameters(input: EffectiveParametersInput): EffectiveParametersProjection {
-	const resolved = resolveModelParameters(input);
+	return projectResolvedParameters(resolveModelParameters(input), {
+		maxOutputTokens: input.maxOutputTokens,
+		outputLimitDeclared: input.outputLimitDeclared,
+	});
+}
+
+/**
+ * The projection over an already-resolved merge: what the dashboard's params
+ * inspector renders when the resolution comes from the provider's shared
+ * flat table (the SAME cache requests read) instead of a fresh walk.
+ * projectEffectiveParameters delegates here, so the two paths cannot diverge.
+ */
+export function projectResolvedParameters(
+	resolved: ResolvedModelParameters,
+	limits: { readonly maxOutputTokens: number; readonly outputLimitDeclared: boolean }
+): EffectiveParametersProjection {
 	const configuredMaxTokens = resolved.params.max_tokens;
 	const maxTokensConfigured = typeof configuredMaxTokens === "number";
 
@@ -438,8 +472,8 @@ export function projectEffectiveParameters(input: EffectiveParametersInput): Eff
 		forcedMaxTokens: resolved.forcedParams.max_tokens,
 		runtimeMaxTokens: undefined,
 		configuredMaxTokens,
-		maxOutputTokens: input.maxOutputTokens,
-		outputLimitDeclared: input.outputLimitDeclared,
+		maxOutputTokens: limits.maxOutputTokens,
+		outputLimitDeclared: limits.outputLimitDeclared,
 	});
 	const configuredSource = maxTokensConfigured ? resolved.sources.get("max_tokens")?.source : undefined;
 	const maxTokens: ProjectedMaxTokens = {

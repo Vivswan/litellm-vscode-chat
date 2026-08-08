@@ -34,7 +34,7 @@ test("renders one row per model with formatted tokens, pricing, capabilities, an
 		reasoning: true,
 	});
 	const bare = makeModel({ id: "bare", name: "Bare", toolCalling: false, imageInput: false });
-	const root = mount(<ModelsSection models={[priced, bare]} serverCount={1} requestScopes={{}} modelParameters={{}} />);
+	const root = mount(<ModelsSection models={[priced, bare]} serverCount={1} stateSeq={0} />);
 
 	const rows = Array.from(root.querySelectorAll("tbody tr"));
 	expect(rows.length).toBe(2);
@@ -81,7 +81,7 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 		makeModel({ id: "gpt-4o", name: "Omni", family: "gpt", serverLabel: "Prod" }),
 		makeModel({ id: "claude-sonnet", name: "Sonnet", family: "claude", serverLabel: "Staging" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={2} requestScopes={{}} modelParameters={{}} />);
+	const root = mount(<ModelsSection models={models} serverCount={2} stateSeq={0} />);
 	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	const visibleNames = () =>
 		Array.from(root.querySelectorAll("tbody tr")).map((row) => (row.querySelector("td")?.textContent ?? "").trim());
@@ -105,12 +105,12 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 
 test("the server column appears only when serverCount > 1, keyed to the count rather than distinct labels", () => {
 	const models = [makeModel({ serverLabel: "Shared" }), makeModel({ id: "b", serverLabel: "Shared" })];
-	const single = mount(<ModelsSection models={models} serverCount={1} requestScopes={{}} modelParameters={{}} />);
+	const single = mount(<ModelsSection models={models} serverCount={1} stateSeq={0} />);
 	const singleHeaders = Array.from(single.querySelectorAll("th")).map((th) => (th.textContent ?? "").trim());
 	expect(singleHeaders).not.toContain("Server");
 
 	// Two groups can share one label; their models must stay attributable.
-	const dual = mount(<ModelsSection models={models} serverCount={2} requestScopes={{}} modelParameters={{}} />);
+	const dual = mount(<ModelsSection models={models} serverCount={2} stateSeq={0} />);
 	const dualHeaders = Array.from(dual.querySelectorAll("th")).map((th) => (th.textContent ?? "").trim());
 	expect(dualHeaders).toContain("Server");
 });
@@ -123,13 +123,7 @@ test("a server scope narrows the rows before the text filter and renders as a cl
 	];
 	let cleared = 0;
 	const root = mount(
-		<ModelsSection
-			models={models}
-			serverCount={2}
-			scope={{ label: "Prod", onClear: () => cleared++ }}
-			requestScopes={{}}
-			modelParameters={{}}
-		/>
+		<ModelsSection models={models} serverCount={2} scope={{ label: "Prod", onClear: () => cleared++ }} stateSeq={0} />
 	);
 	const visibleNames = () =>
 		Array.from(root.querySelectorAll("tbody tr")).map((row) => (row.querySelector("td")?.textContent ?? "").trim());
@@ -155,8 +149,7 @@ test("a declared model wears the declared badge with its explanatory tip; discov
 		<ModelsSection
 			models={[makeModel({ id: "my-model", name: "Mine", declared: true }), makeModel({ id: "gpt", name: "Found" })]}
 			serverCount={1}
-			requestScopes={{}}
-			modelParameters={{}}
+			stateSeq={0}
 		/>
 	);
 	const rows = Array.from(root.querySelectorAll("tbody tr"));
@@ -169,7 +162,7 @@ test("a declared model wears the declared badge with its explanatory tip; discov
 
 test("the Caps action opens the capability inspector, which posts its read for the clicked row", () => {
 	const model = makeModel({ id: "gpt-4", rawId: "gpt-4", scopeKey: "s3" });
-	const root = mount(<ModelsSection models={[model]} serverCount={1} requestScopes={{}} modelParameters={{}} />);
+	const root = mount(<ModelsSection models={[model]} serverCount={1} stateSeq={0} />);
 	const caps = root.querySelector("button[aria-label='Show effective capabilities for GPT Test on Prod']");
 	expect(caps).not.toBeNull();
 	fireClick(caps as HTMLElement);

@@ -302,7 +302,10 @@ suite("extension/dashboard/recordDraft", () => {
 			assert.ok(!directiveEligible("_fallback", "_openrouter_model"), "directives carry no checkbox");
 			assert.ok(directiveEligible("_force", "temperature"));
 			assert.ok(!directiveEligible("_force", "model"), "provider-owned keys are unforceable");
-			assert.ok(!directiveEligible("_force", "max_tokens"), "max_tokens is provider-owned on the wire");
+			// max_tokens is the one provider-owned key _force may mark (the
+			// forceable-max_tokens ruling): user-settable by design, so the
+			// editor's checkbox must agree with the wire.
+			assert.ok(directiveEligible("_force", "max_tokens"), "max_tokens is forceable by design");
 			assert.ok(!directiveEligible("_force", "_meta"), "underscore keys are unforceable");
 			assert.ok(!directiveEligible("_force", ""), "an unnamed row is unforceable");
 		});
