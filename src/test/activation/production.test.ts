@@ -49,14 +49,11 @@ suite("production activation", () => {
 			vscode.extensions.getExtension("vivswan.litellm-vscode-chat"),
 			"the dev extension must be installed in the test host"
 		);
-		// isActive is deliberately NOT asserted: onStartupFinished may fire the
-		// real activate() before this hook runs, and its suppression guard
-		// (LITELLM_SUPPRESS_STARTUP_ACTIVATION) returns early - which still
-		// counts as a successful activation, so isActive flips true on hosts
-		// that win that race (CI does; local usually does not). The invariant
-		// the guard provides is INERTNESS, pinned by the command check below.
+		// Join the host's startup activation: the label's suppression env makes
+		// the real activate() inert, and awaiting it removes the startup race.
+		await extension.activate();
 		testCommandsBefore = (await vscode.commands.getCommands(true)).filter((id) => id.startsWith("litellm."));
-		assert.deepStrictEqual(testCommandsBefore, [], "no litellm.* command may exist before the fake activation");
+		assert.deepStrictEqual(testCommandsBefore, [], "the suppressed real activation must register nothing");
 
 		// A label-scoped modelParameters key under the LEGACY id plus the
 		// persisted label map: the pre-registration migrations must rewrite the
