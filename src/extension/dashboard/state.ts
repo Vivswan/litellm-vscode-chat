@@ -378,7 +378,7 @@ function buildServers(
 		const outcome = declaredOutcome(matched?.snapshot.status, view.syncError);
 		if (outcome.state === "error" && outcome.expected === true && (outcome.declaredModelCount ?? 0) === 0) {
 			// An expected failure with nothing declared serves nothing; only a
-			// _declare directive can fix that, so the row says so.
+			// declared-models list can fix that, so the row says so.
 			notices.push("expected-failures-nothing-declared");
 		}
 		servers.push({

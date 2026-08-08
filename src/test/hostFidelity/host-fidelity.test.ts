@@ -1005,7 +1005,7 @@ suite("Host-Fidelity Tests (declared models)", () => {
 		return;
 	}
 
-	/** Created only by the `_declare` below; the capture server never lists it. */
+	/** Created only by the declared-list seam below; the capture server never lists it. */
 	const DECLARED_MODEL_ID = "declared-probe-model";
 
 	let server: CaptureServer;
@@ -1020,18 +1020,21 @@ suite("Host-Fidelity Tests (declared models)", () => {
 		const baseUrl = `http://localhost:${server.port}`;
 
 		await ensureActivated();
-		// Declarations are entry-level (exact entry keys); the registry has no
-		// declared entries, so the test seam injects the record by label. The
-		// first key declares a model discovery cannot list; the second names
-		// the DISCOVERED model, so its _declare must stay inert.
+		// Declarations are entry-level (the entry's discovery.declared list);
+		// the registry has no declared entries, so the test seams inject the
+		// declared IDs and the capability record by label. The first ID
+		// declares a model discovery cannot list; the second names the
+		// DISCOVERED model, so its declaration must stay inert.
+		await vscode.commands.executeCommand("litellm._test.setEntryDeclared", "Declared", [
+			DECLARED_MODEL_ID,
+			CAPTURE_MODEL_ID,
+		]);
 		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", "Declared", {
 			[DECLARED_MODEL_ID]: {
-				_declare: true,
 				max_input_tokens: 150000,
 				max_output_tokens: 8192,
 				supports_vision: true,
 			},
-			[CAPTURE_MODEL_ID]: { _declare: true },
 		});
 
 		await clearServers();
@@ -1048,6 +1051,7 @@ suite("Host-Fidelity Tests (declared models)", () => {
 	});
 
 	suiteTeardown(async () => {
+		await vscode.commands.executeCommand("litellm._test.setEntryDeclared", "Declared", undefined);
 		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", "Declared", undefined);
 		await clearServers();
 		if (server) {
@@ -1055,7 +1059,7 @@ suite("Host-Fidelity Tests (declared models)", () => {
 		}
 	});
 
-	test("a _declare on an unlisted ID registers it; one on a discovered ID stays inert", () => {
+	test("a declared unlisted ID registers; a declared discovered ID stays inert", () => {
 		assert.deepStrictEqual(
 			[...modelIds].sort(),
 			[CAPTURE_MODEL_ID, DECLARED_MODEL_ID].sort(),

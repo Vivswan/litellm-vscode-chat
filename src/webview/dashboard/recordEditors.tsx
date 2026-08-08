@@ -9,7 +9,6 @@ import type {
 } from "../../extension/dashboard/protocol";
 import {
 	CAPABILITY_FIELDS,
-	DECLARE_DIRECTIVE,
 	FALLBACK_DIRECTIVE,
 	FORCE_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
@@ -37,7 +36,6 @@ import {
 	helpCapabilityValue,
 	helpCatalogPicker,
 	helpFallbackFlag,
-	helpFallbackFlagDisabled,
 	helpForceFlag,
 	helpForceFlagDisabled,
 	helpModelParameterName,
@@ -439,7 +437,6 @@ export type CatalogSearchResponse = Extract<ExtensionToWebviewMessage, { type: "
 /** The key suggestions the capability rows offer: the closed vocabulary plus the directives. */
 const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = [
 	...Object.keys(CAPABILITY_FIELDS),
-	DECLARE_DIRECTIVE,
 	FALLBACK_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 ];
@@ -448,9 +445,6 @@ const CAPABILITY_KEY_LIST_ID = "model-capabilities-key-options";
 
 /** What input a capability row's value takes, keyed off the closed vocabulary and the directives. */
 function capabilityValueKind(key: string): "number" | "boolean" | "catalog-id" | "json" {
-	if (key === DECLARE_DIRECTIVE) {
-		return "boolean";
-	}
 	if (key === OPENROUTER_MODEL_DIRECTIVE) {
 		return "catalog-id";
 	}
@@ -594,7 +588,7 @@ export function CatalogPicker({
  * The model-capability group rows, ParamGroupsFields' typed sibling: one
  * group per model prefix, one row per capability field or directive. The
  * value control follows the key - token counts get number inputs, support
- * flags and `_declare` get checkboxes, `_openrouter_model` gets the catalog
+ * flags get checkboxes, `_openrouter_model` gets the catalog
  * picker, and anything else falls back to JSON text with the unknown-key
  * hint parseCapabilityGroups computed. Purely presentational, over the
  * issues from the same parse that judges the enclosing form.
@@ -624,13 +618,9 @@ export function CapabilityGroupsFields({
 				))}
 			</datalist>
 			{groups.map((group, groupIndex) => {
-				// The group's `_fallback` marks and its `_declare` state, derived once
-				// per render from the rows the checkboxes rewrite. A declared record's
-				// fallback marks are resolver-ignored, so the boxes disable wholesale.
+				// The group's `_fallback` marks, derived once per render from the
+				// rows the checkboxes rewrite.
 				const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
-				const groupDeclared = group.params.some(
-					(p) => p.key.trim() === DECLARE_DIRECTIVE && p.valueText.trim() === "true"
-				);
 				// Rows are positional while being edited; the index is the identity.
 				return (
 					<div class="group" key={groupIndex}>
@@ -681,9 +671,9 @@ export function CapabilityGroupsFields({
 												list={CAPABILITY_KEY_LIST_ID}
 												onInput={(event) => {
 													const nextKey = event.currentTarget.value;
-													// A row just switched onto a support flag or _declare
-													// means "turn it on"; seeding true keeps the checkbox
-													// and the parse in agreement without an extra click.
+													// A row just switched onto a support flag means "turn it
+													// on"; seeding true keeps the checkbox and the parse in
+													// agreement without an extra click.
 													const seedsTrue =
 														capabilityValueKind(nextKey.trim()) === "boolean" && param.valueText.trim().length === 0;
 													patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
@@ -699,7 +689,7 @@ export function CapabilityGroupsFields({
 													disabled={inert}
 													onChange={(event) => patchRow({ valueText: event.currentTarget.checked ? "true" : "false" })}
 												/>
-												{key === DECLARE_DIRECTIVE ? l10n.t("declare this model") : l10n.t("supported")}
+												{l10n.t("supported")}
 											</label>
 										) : kind === "catalog-id" ? (
 											<CatalogPicker
@@ -737,8 +727,7 @@ export function CapabilityGroupsFields({
 										{/* The per-row fallback mark, trailing the row action like the
 									    parameter editor's force mark; only the closed vocabulary's
 									    fields carry one (directives and unknown keys have no server
-									    value to fall under). Disabled wholesale while _declare is on:
-									    the mark would do nothing for the declared model itself. */}
+									    value to fall under). */}
 										{Object.hasOwn(CAPABILITY_FIELDS, key) ? (
 											<span class="cell directive-flag">
 												<label>
@@ -746,7 +735,7 @@ export function CapabilityGroupsFields({
 														type="checkbox"
 														aria-label={l10n.t('Fall back for "{0}"', key)}
 														checked={fallbackFields.has(key)}
-														disabled={inert || groupDeclared}
+														disabled={inert}
 														onChange={(event) =>
 															patchGroup(
 																groupIndex,
@@ -761,7 +750,7 @@ export function CapabilityGroupsFields({
 														],
 													})}
 												</label>
-												<Help text={groupDeclared ? helpFallbackFlagDisabled() : helpFallbackFlag()} />
+												<Help text={helpFallbackFlag()} />
 											</span>
 										) : null}
 										{issue?.problem !== undefined ? <span class="error">{issue.problem.message}</span> : null}

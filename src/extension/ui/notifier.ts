@@ -321,7 +321,7 @@ export class Notifier implements vscode.Disposable {
 					signature: "needs-declare",
 					kind: "warning",
 					message: vscode.l10n.t(
-						"LiteLLM: Discovery is declared unavailable and no models are declared. Add _declare entries under modelCapabilities."
+						"LiteLLM: Discovery is declared unavailable and no models are declared. Add IDs to the entry's discovery.declared list."
 					),
 					actions: [reconfigureAction(), reportIssueAction()],
 				};

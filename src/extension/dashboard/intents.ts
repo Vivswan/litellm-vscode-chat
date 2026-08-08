@@ -116,7 +116,7 @@ export interface IntentEnvironment {
 	 * group or status mutation, no caching across probes - bounded by the
 	 * discoveryTimeout setting, and the connection's credential values are
 	 * never logged. Resolves to the discovered raw model IDs (the caller
-	 * counts them and checks `_declare` inertness against them); throws the
+	 * counts them and checks declared-ID inertness against them); throws the
 	 * transport's classified error on failure.
 	 */
 	probeDraftConnection(connection: DraftConnection): Promise<readonly string[]>;

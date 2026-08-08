@@ -1407,14 +1407,14 @@ suite("extension/dashboard/state", () => {
 		test("the config prefill carries the entry's modelCapabilities and expectedFailures", () => {
 			const state = buildDashboardState([], makeReader({}), [
 				makeDeclared({
-					modelCapabilities: { "my-model": { _declare: true, context_length: 128000 } },
+					modelCapabilities: { "my-model": { context_length: 128000 } },
 					expectedFailures: ["modelListing"],
 				}),
 			]);
 			const server = state.servers[0];
 			assert.ok(server?.origin === "declared");
 			assert.deepStrictEqual(server.config.modelCapabilities, {
-				"my-model": { _declare: true, context_length: 128000 },
+				"my-model": { context_length: 128000 },
 			});
 			assert.deepStrictEqual(server.config.expectedFailures, ["modelListing"]);
 		});
@@ -2357,46 +2357,45 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(await draftTest(recorded), "Connected - 12 models");
 		});
 
-		test("draft _declare models join the count when not discovered; discovered ones stay inert", async () => {
-			const recorded = makeEnv([]);
-			recorded.probeResult = ["gpt-4"];
-			const notice = await draftTest(recorded, {
-				server: {
+		test("the edited entry's declared models join the count when not discovered; discovered ones stay inert", async () => {
+			// The probe reports what a save would produce, and a save preserves
+			// the edited entry's discovery.declared list verbatim.
+			const recorded = makeEnv([
+				{
 					label: "Prod",
 					baseUrl: "http://prod.test",
-					modelCapabilities: {
-						"my-model": { _declare: true },
-						"gpt-4": { _declare: true },
-					},
+					discovery: { declared: ["my-model", "gpt-4"] },
 				},
+			]);
+			recorded.probeResult = ["gpt-4"];
+			const notice = await draftTest(recorded, {
+				server: { label: "Prod", baseUrl: "http://prod.test" },
+				replaceLabel: "Prod",
 			});
 			// gpt-4 is discovered, so its declaration is inert; my-model adds one.
 			assert.strictEqual(notice, "Connected - 2 models (1 declared)");
 		});
 
 		test("a lone declared model on an empty discovery keeps the singular reading", async () => {
-			const recorded = makeEnv([]);
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", discovery: { declared: ["my-model"] } }]);
 			recorded.probeResult = [];
 			const notice = await draftTest(recorded, {
-				server: {
-					label: "Prod",
-					baseUrl: "http://prod.test",
-					modelCapabilities: { "my-model": { _declare: true } },
-				},
+				server: { label: "Prod", baseUrl: "http://prod.test" },
+				replaceLabel: "Prod",
 			});
 			assert.strictEqual(notice, "Connected - 1 model (declared)");
 		});
 
 		test("an expected modelListing failure reports the declared models instead of failing", async () => {
-			const recorded = makeEnv([]);
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", discovery: { declared: ["my-model"] } }]);
 			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
 			const notice = await draftTest(recorded, {
 				server: {
 					label: "Prod",
 					baseUrl: "http://prod.test",
 					expectedFailures: ["modelListing"],
-					modelCapabilities: { "my-model": { _declare: true } },
 				},
+				replaceLabel: "Prod",
 			});
 			assert.strictEqual(notice, "Discovery failed (expected) - serving 1 declared model");
 			// The draft's expectedFailures reach the probe in discovery's

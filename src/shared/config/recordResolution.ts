@@ -46,9 +46,7 @@ export type RecordDiagnosticKind =
 	/** An unknown capability field name (capabilities records only). */
 	| "unknown-key"
 	/** A capability field with a value of the wrong type (capabilities records only). */
-	| "invalid-value"
-	/** `_declare: true` on a key that cannot name one exact model (capabilities records only). */
-	| "unscoped-declare";
+	| "invalid-value";
 
 export interface RecordDiagnostic {
 	readonly kind: RecordDiagnosticKind;

@@ -201,7 +201,8 @@ suite("extension/ui/notifier", () => {
 	test("all failures expected with nothing declared warns needs-declare, not 'returned no models'", () => {
 		// Discovery never returned a list here, so the toast mirrors the
 		// dashboard's and status bar's needs-declare verdict and points at the
-		// fix (_declare entries) instead of misdescribing the servers.
+		// fix (the entry's discovery.declared list) instead of misdescribing
+		// the servers.
 		const notifier = new Notifier(() => true);
 		notifier.handleAggregatedStatus({
 			serverStatuses: [expectedErrorStatus("404 page not found")],
@@ -212,7 +213,7 @@ suite("extension/ui/notifier", () => {
 		const toast = expectDefined(toasts[0]);
 		assert.strictEqual(toast.kind, "warning");
 		assert.ok(toast.message.includes("no models are declared"), toast.message);
-		assert.ok(toast.message.includes("_declare"), toast.message);
+		assert.ok(toast.message.includes("discovery.declared"), toast.message);
 		assert.deepStrictEqual(toast.buttons, ["Reconfigure", "Report Issue"]);
 	});
 

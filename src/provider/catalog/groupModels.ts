@@ -54,7 +54,7 @@ interface LiteLLMModelMetadataBase {
 	 * by older extension versions lack it (absent reads as false).
 	 */
 	readonly supportsAudioInput?: boolean;
-	/** True for a model a `_declare` directive synthesized (discovery does not list it). */
+	/** True for a declared model (an entry's discovery.declared; discovery does not list it). */
 	readonly declared?: boolean;
 	/**
 	 * True when the model's pricing fields came from the OpenRouter catalog,

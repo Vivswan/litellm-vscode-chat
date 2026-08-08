@@ -35,7 +35,6 @@ function makeCapabilities(overrides: Partial<EffectiveCapabilities> = {}): Effec
 			supports_audio_input: { value: false, level: "floor", shadowed: [] },
 		},
 		outputLimitSource: "defaults",
-		declare: false,
 		diagnostics: [],
 		...overrides,
 	};
@@ -119,7 +118,6 @@ test("the correlated response renders every field with its value and source leve
 test("declared, directive-not-found, inherited fields, and diagnostics all render their notes", () => {
 	const root = answeredInPlace(
 		makeCapabilities({
-			declare: true,
 			directive: { kind: "not-found", id: "openai/nope" },
 			fields: {
 				...makeCapabilities().fields,
@@ -136,11 +134,10 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 	expect(text).toContain('"supports_pdf_input" is not a known capability field');
 });
 
-test("the declared badge follows the model's verdict, not the record's intent: an inert _declare shows no badge", () => {
-	// capabilities.declare is config intent; a _declare shadowed by a
-	// discovered ID leaves the model discovered, and the badge must not
-	// claim "not discovered".
-	const root = answeredInPlace(makeCapabilities({ declare: true }));
+test("the declared badge follows the model's verdict: a discovered model shows no badge", () => {
+	// The badge rides model.declared (what registration served), never the
+	// record configuration; a discovered model must not claim "not discovered".
+	const root = answeredInPlace(makeCapabilities());
 	expect(root.textContent).not.toContain("Declared model");
 });
 

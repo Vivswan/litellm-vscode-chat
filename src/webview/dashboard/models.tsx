@@ -432,7 +432,7 @@ export function ModelsSection({
 													<HoverTip
 														focusable
 														tip={l10n.t(
-															"Created by a _declare directive in modelCapabilities; the server's discovery does not list it."
+															"Declared in the entry's discovery.declared list; the server's discovery does not list it."
 														)}
 													>
 														<span class="badge">{l10n.t("declared")}</span>

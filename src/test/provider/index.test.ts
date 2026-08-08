@@ -218,8 +218,8 @@ suite("provider", () => {
 				http.get(MODELS_URL, () => HttpResponse.json({ error: "down" }, { status: 400 }))
 			);
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
-				getEntryModelCapabilities: (label, baseUrl) =>
-					label === "Default" && baseUrl === TEST_BASE_URL ? { "declared-model": { _declare: true } } : undefined,
+				getEntryDeclaredModels: (label, baseUrl) =>
+					label === "Default" && baseUrl === TEST_BASE_URL ? ["declared-model"] : undefined,
 			});
 
 			const infos = await provider.provideLanguageModelChatInformation(
@@ -242,7 +242,7 @@ suite("provider", () => {
 			const statuses: AggregatedStatus[] = [];
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getExpectedFailures: () => ["modelListing"],
-				getEntryModelCapabilities: () => ({ "declared-model": { _declare: true } }),
+				getEntryDeclaredModels: () => ["declared-model"],
 			});
 			provider.setStatusCallback((status) => statuses.push(status));
 

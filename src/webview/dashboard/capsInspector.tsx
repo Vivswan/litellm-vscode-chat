@@ -163,8 +163,6 @@ function diagnosticText(diagnostic: CapabilityDiagnostic): string {
 				);
 			}
 			return l10n.t('"{0}" carries an invalid directive value and is ignored ({1})', diagnostic.key, where);
-		case "unscoped-declare":
-			return l10n.t("_declare needs an exact-ID server entry key and is ignored ({0})", where);
 	}
 }
 
@@ -187,7 +185,9 @@ function CapsBody({ capabilities, declared }: { capabilities: EffectiveCapabilit
 	return (
 		<>
 			{declared ? (
-				<p class="hint">{l10n.t("Declared model: created by _declare, not discovered on the server.")}</p>
+				<p class="hint">
+					{l10n.t("Declared model: created by the entry's declared list, not discovered on the server.")}
+				</p>
 			) : null}
 			{capabilities.directive?.kind === "not-found" ? (
 				<p class="state-warn" role="alert">

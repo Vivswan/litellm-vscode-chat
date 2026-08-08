@@ -110,7 +110,7 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 									"Discovery failed in a category this entry expects; its declared models keep serving. The banner below has the details."
 								)
 							: l10n.t(
-									"Discovery failed in a category this entry expects. Nothing is declared, so no models are served; add _declare entries to modelCapabilities."
+									"Discovery failed in a category this entry expects. Nothing is declared, so no models are served; add IDs to the entry's discovery.declared."
 								)
 					}
 				>
@@ -847,7 +847,7 @@ function ServerForm({
 				</summary>
 				<p class="hint">
 					{l10n.t(
-						"Corrects what discovery reports for matching models, and _declare creates models discovery does not list. Your values beat server-reported ones unless marked fallback."
+						"Corrects what discovery reports for matching models, e.g. context_length 128000. Your values beat server-reported ones unless marked fallback."
 					)}
 				</p>
 				<CapabilityGroupsFields
@@ -1251,7 +1251,9 @@ function ServerRow({
 				{server.state === "error" && server.expected === true && (server.declaredModelCount ?? 0) > 0 ? (
 					<HoverTip
 						focusable
-						tip={l10n.t("Models created by _declare directives; they keep serving while discovery fails.")}
+						tip={l10n.t(
+							"Models declared in the entry's discovery.declared list; they keep serving while discovery fails."
+						)}
 					>
 						<span class="badge">
 							{(server.declaredModelCount ?? 0) === 1
@@ -1827,7 +1829,7 @@ export function ServersSection({
 				<div class="banner banner-warn">
 					<p class="state-warn">
 						{l10n.t(
-							"{0}: discovery fails in an expected category and nothing is declared, so no models are served. Add _declare entries to the entry's model capabilities to serve models without discovery.",
+							"{0}: discovery fails in an expected category and nothing is declared, so no models are served. Add IDs to the entry's discovery.declared list to serve models without discovery.",
 							servers
 								.filter((server) => server.notices?.includes("expected-failures-nothing-declared") === true)
 								.map((server) => server.label)
