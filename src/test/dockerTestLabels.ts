@@ -11,6 +11,7 @@ export const DOCKER_TEST_LABELS = [
 	"docker-usage",
 	"docker-transport",
 	"docker-serversync",
+	"docker-resolution",
 	"docker-fuzz",
 	"docker-conversation",
 	"host-fidelity",
@@ -18,6 +19,24 @@ export const DOCKER_TEST_LABELS = [
 ] as const;
 
 export type DockerTestLabel = (typeof DOCKER_TEST_LABELS)[number];
+
+/**
+ * The orchestrator's --skip-* flag per skippable label, shared by
+ * scripts/docker-test.ts (which parses them) and the nightly-fuzz drift
+ * guard (which pins the workflow's unseeded leg to the complement of the
+ * seeded labels through exactly these flags). The base `docker` label has no
+ * skip flag on purpose: the default full run always includes it.
+ */
+export const DOCKER_SKIP_FLAGS: Readonly<Partial<Record<DockerTestLabel, string>>> = {
+	"docker-usage": "--skip-usage",
+	"docker-transport": "--skip-transport",
+	"docker-serversync": "--skip-serversync",
+	"docker-resolution": "--skip-resolution",
+	"docker-fuzz": "--skip-fuzz",
+	"docker-conversation": "--skip-conversation",
+	"host-fidelity": "--skip-host-fidelity",
+	"docker-monkey": "--skip-monkey",
+};
 
 /**
  * Parse a --only value (comma-separated labels) into the selection to run,

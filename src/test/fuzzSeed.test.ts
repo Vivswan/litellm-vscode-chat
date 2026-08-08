@@ -39,20 +39,14 @@ suite("fuzzSeed contract", () => {
 		assert.strictEqual(line.match(workflowSeed)?.[0], "seed=0");
 	});
 
-	test("the shard salt diverges fresh draws", () => {
-		// The by-design difference between the suites: the stream fuzzer salts
-		// fresh draws per shard, the conversation suite does not (salt 0).
+	test("fresh draws stay in the seed range", () => {
 		for (const [nowMs, pid] of [
 			[1740000000000, 1234],
 			[1740000000016, 77],
 			[1753679999999, 90210],
 		] as const) {
-			const unsalted = freshFuzzSeed(0, nowMs, pid);
-			const salted = freshFuzzSeed(7919, nowMs, pid);
-			assert.notStrictEqual(salted, unsalted, `salt must change the draw for now=${nowMs} pid=${pid}`);
-			for (const seed of [unsalted, salted]) {
-				assert.ok(Number.isInteger(seed) && seed >= 0 && seed < 1000000, "draw out of range");
-			}
+			const seed = freshFuzzSeed(nowMs, pid);
+			assert.ok(Number.isInteger(seed) && seed >= 0 && seed < 1000000, "draw out of range");
 		}
 	});
 
@@ -71,10 +65,9 @@ suite("fuzzSeed contract", () => {
 
 		test("an explicit seed reproduces exactly, including 0", () => {
 			process.env.FUZZ_SEED = "42";
-			assert.strictEqual(resolveDockerFuzzSeed(0), 42);
-			assert.strictEqual(resolveDockerFuzzSeed(7919), 42, "the salt never touches an explicit seed");
+			assert.strictEqual(resolveDockerFuzzSeed(), 42);
 			process.env.FUZZ_SEED = "0";
-			assert.strictEqual(resolveDockerFuzzSeed(0), 0);
+			assert.strictEqual(resolveDockerFuzzSeed(), 0);
 		});
 
 		test("an invalid or absent seed draws a fresh one in range", () => {
@@ -84,7 +77,7 @@ suite("fuzzSeed contract", () => {
 				} else {
 					process.env.FUZZ_SEED = bad;
 				}
-				const seed = resolveDockerFuzzSeed(0);
+				const seed = resolveDockerFuzzSeed();
 				assert.ok(
 					Number.isInteger(seed) && seed >= 0 && seed < 1000000,
 					`fresh seed out of range for ${JSON.stringify(bad)}`

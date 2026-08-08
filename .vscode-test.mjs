@@ -38,10 +38,11 @@ const dockerSuites = {
 	"docker-usage": { timeout: 60000 },
 	"docker-transport": { timeout: 120000 },
 	"docker-serversync": { timeout: 120000 },
-	"docker-fuzz": { timeout: 120000, extraEnv: passthroughEnv("FUZZ_SEED", "FUZZ_ITERATIONS", "FUZZ_SHARD") },
+	"docker-resolution": { timeout: 120000 },
+	"docker-fuzz": { timeout: 120000, extraEnv: passthroughEnv("FUZZ_SEED", "FUZZ_ITERATIONS") },
 	"docker-conversation": { timeout: 120000, extraEnv: passthroughEnv("FUZZ_SEED", "CONVERSATION_ITERATIONS") },
 	// Whole-walk tests; the suite raises its own per-test budgets on top.
-	"docker-monkey": { timeout: 300000, extraEnv: passthroughEnv("FUZZ_SEED", "FUZZ_SHARD", "MONKEY_ITERATIONS") },
+	"docker-monkey": { timeout: 300000, extraEnv: passthroughEnv("FUZZ_SEED", "MONKEY_ITERATIONS") },
 };
 
 // The runtime analog of docker-test.ts's total Record: a label added to

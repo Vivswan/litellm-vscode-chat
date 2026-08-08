@@ -37,8 +37,8 @@ import { OPENROUTER_CATALOG_METADATA_KEY } from "../shared/config/storageKeys";
 import type { Logger } from "../shared/logger";
 import { isRecord } from "../shared/util/json";
 
-/** The artifact/cache file name, identical in dist/ and globalStorage. */
-const CATALOG_FILE_NAME = "openrouter-models.json";
+/** The artifact/cache file name, identical in dist/ and globalStorage; the test seam writes the same path. */
+export const CATALOG_FILE_NAME = "openrouter-models.json";
 
 const REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const FAILURE_RETRY_MS = 24 * 60 * 60 * 1000;
