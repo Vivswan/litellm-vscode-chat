@@ -12,6 +12,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { runCompose } from "./composeCommand";
 import { COPILOT_TOKEN_DIR, ensureGeneratedConfig, fetchCopilotModels } from "./litellmConfig";
+import { seedStackUsageBudgetKey } from "./seedUsage";
 
 async function main(): Promise<number> {
 	const args = process.argv.slice(2);
@@ -30,7 +31,24 @@ async function main(): Promise<number> {
 			args.push("--force-recreate");
 		}
 	}
-	return runCompose(args);
+	const code = runCompose(args);
+	// A detached `up` (docker:up, the dev launcher) also seeds the stack's
+	// usage/budget fixture key; a foreground `up` blocks above until
+	// teardown, so there is no stack left to seed by the time it returns.
+	// A seed failure warns instead of failing the start: the stack itself is
+	// up and serves everything except the usage fixture (the test
+	// orchestrator seeds via scripts/stack/seed-usage.ts and DOES fail hard).
+	if (args[0] === "up" && code === 0 && (args.includes("-d") || args.includes("--detach"))) {
+		try {
+			await seedStackUsageBudgetKey();
+		} catch (error) {
+			console.warn(
+				`[compose] usage/budget fixture seeding failed: ${error instanceof Error ? error.message : error}. ` +
+					"The stack is up without it; rerun: bun scripts/stack/seed-usage.ts"
+			);
+		}
+	}
+	return code;
 }
 
 main().then(

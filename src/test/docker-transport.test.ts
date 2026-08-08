@@ -508,23 +508,24 @@ function wrongMasterKeySuite(): void {
 			assert.deepStrictEqual(modelIds, [], "a silent refresh over a real key rejection must resolve empty");
 		});
 
-		test("the log buffer carries the http classification and no key material or body text", async () => {
+		test("the log buffer carries the auth classification and no key material or body text", async () => {
 			const logs = await getRecentLogs();
-			// Pinned from observation: THE PINNED LITELLM VERSION (v1.93, the
-			// docker stack) rejects an unknown master key with HTTP 400 (a
-			// BadRequestError wrapping an auth_error body), NOT 401, on both
-			// /v1/model/info and /v1/models. So the silent refresh's fetch
-			// failure logs the http classification, not the 401 auth template.
-			// If a proxy bump starts answering a proper 401 this assertion fails
-			// loudly and should be repinned to the AUTH_MESSAGE template line
-			// (the real-401 path keeps live coverage in docker-serversync's
-			// revoked-bearer scenario and the errorMapping unit pins).
+			// Pinned from observation: THE PINNED LITELLM STACK (v1.93 in its
+			// database flavor, backed by the compose postgres service) rejects an
+			// unknown master key with a proper HTTP 401 on both /v1/model/info
+			// and /v1/models, so the silent refresh's fetch failure logs the
+			// AUTH_MESSAGE template (englishMessage; the buffer is English-only).
+			// The DB-LESS v1.93 proxy answered 400 here instead (a
+			// BadRequestError wrapping an auth_error body) - if a stack change
+			// resurfaces that shape, this assertion fails loudly and should be
+			// repinned to the "RequestError(http, status 400)" classification.
 			assert.ok(
 				logs.some(
 					(line) =>
-						line.includes("Failed to fetch models from server") && line.includes("RequestError(http, status 400)")
+						line.includes("Failed to fetch models from server") &&
+						line.includes("Authentication failed: Your LiteLLM server requires an API key")
 				),
-				"the gate's 400 must land in the buffer as the fixed http classification"
+				"the gate's 401 must land in the buffer as the English auth template"
 			);
 			for (const line of logs) {
 				assert.ok(!line.includes(WRONG_MASTER_KEY), "the buffer leaked the rejected key");

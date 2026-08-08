@@ -29,7 +29,8 @@ jobs:
   # dockerized LiteLLM proxy. Two shards, balanced from the per-label wall
   # times of main run 30593932251 (docker 41s + transport 62s against
   # serversync 15s + fuzz 5s + conversation 6s + host-fidelity 5s +
-  # monkey 69s); the drift guard in src/test/stackDrift.test.ts pins each
+  # monkey 69s; the usage/budget smoke adds well under a second to shard
+  # one); the drift guard in src/test/stackDrift.test.ts pins each
   # list to the orchestrator's known labels and the union to the full set.
   # No `if:` on the shards: a skipped matrix job would count green in the
   # aggregate (see the header note).
@@ -38,7 +39,7 @@ jobs:
       fail-fast: false
       matrix:
         labels:
-          - 'docker,docker-transport'
+          - 'docker,docker-usage,docker-transport'
           - 'docker-serversync,docker-fuzz,docker-conversation,host-fidelity,docker-monkey'
     uses: ./.github/workflows/test-reusable.yml
     with:

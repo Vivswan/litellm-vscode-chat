@@ -35,6 +35,7 @@ const dockerLabel = (label, { file = label, timeout, extraEnv = {} }) => ({
 // contract is the LITELLM_REAL_* live-server seam, not the docker one.
 const dockerSuites = {
 	docker: { file: "docker-litellm", timeout: 60000 },
+	"docker-usage": { timeout: 60000 },
 	"docker-transport": { timeout: 120000 },
 	"docker-serversync": { timeout: 120000 },
 	"docker-fuzz": { timeout: 120000, extraEnv: passthroughEnv("FUZZ_SEED", "FUZZ_ITERATIONS", "FUZZ_SHARD") },
