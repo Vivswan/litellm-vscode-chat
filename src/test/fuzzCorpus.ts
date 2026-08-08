@@ -148,3 +148,19 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 		events: [{ label: "empty", chunks: [] }],
 	},
 ];
+
+/**
+ * Corpus for the settings-redesign migration fuzzer
+ * (extension/migrations/settingsRedesign.property.test.ts): old-world
+ * configuration snapshots that once failed an invariant. Entries replay at
+ * the start of every fuzz run, before the random iterations. To add one,
+ * take the shrunken counterexample's snapshot from the failure report and
+ * append it here with a name referencing the issue.
+ */
+export interface MigrationCorpusEntry {
+	name: string;
+	/** Setting id -> configured layers, exactly the pure transform's snapshot shape. */
+	snapshot: Record<string, { globalValue?: unknown; workspaceValue?: unknown; workspaceFolderValue?: unknown }>;
+}
+
+export const MIGRATION_FUZZ_CORPUS: MigrationCorpusEntry[] = [];
