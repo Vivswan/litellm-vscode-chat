@@ -2,165 +2,285 @@
 
 English | [简体中文](zh-cn/servers.md) | [繁體中文](zh-tw/servers.md)
 
-The extension connects to any number of LiteLLM servers at once and aggregates their models into one picker list. Servers are declared in a single setting; each entry's secrets can live inline in the settings file or in VS Code's encrypted secret storage.
+The extension connects to any number of LiteLLM servers at once and aggregates their models into one picker list. This page covers everything about a server: declaring it, authenticating to it, shaping its models, its lifecycle inside VS Code, and how its secrets are stored.
 
-## The servers setting
+## How servers work
 
-Servers are declared in the `litellm-vscode-chat.servers` setting. The [dashboard](dashboard.md)'s add/edit form writes the same setting, so both paths stay in step:
+Three concepts carry everything else:
+
+- **Entry** - one object in the `litellm-vscode-chat.servers` setting: the declarative truth about a server. The [dashboard](dashboard.md)'s add/edit form writes the same setting, so JSON editing and the form stay in step.
+- **Provider group** - what VS Code itself holds for each server (in `<profile>/User/chatLanguageModels.json`, the "models file"). The extension syncs entries to groups automatically, on activation and on every settings change.
+- **Identity** - an entry's `label` plus `baseUrl`. The group is named after the label, which is why renames and removals have the lifecycle quirks described [below](#lifecycle-renames-removals-hidden-groups).
+
+The `servers` setting is machine-scoped: it lives in your user settings only, a workspace cannot override it (a cloned repository can never re-point your servers at another host), and Settings Sync does not carry it - servers and credentials stay on the machine where you entered them.
+
+Entries from older versions (flat `apiKey`, `oauth*`, `virtualKey*`, `modelParameters`, ... fields) are restructured automatically by a one-time migration. Secrets already in secret storage are untouched - the restructure changes only settings text, and nothing needs re-entering.
+
+## Quick start
+
+Minimal - a local proxy without auth:
 
 ```jsonc
-// user settings.json
 "litellm-vscode-chat.servers": [
-	{
-		"label": "Production",
-		"baseUrl": "https://litellm.example.com",
-		"apiKey": "sk-..." // inline: visible in this file
-	},
-	{
-		"label": "Local",
-		"baseUrl": "http://localhost:4000"
-		// no apiKey here: either the server needs none, or the key lives in
-		// VS Code secret storage (dashboard form, or "LiteLLM: Set Server Secret")
-	}
+  { "label": "Local", "baseUrl": "http://localhost:4000" }
 ]
 ```
 
-How the setting behaves:
+Typical - a hosted gateway with a key kept out of the settings file:
 
-- The extension syncs the entries to VS Code provider groups automatically, on activation and whenever the setting changes. Everything here is equally reachable from the dashboard ("LiteLLM: Open Dashboard", or Command Palette -> "Manage LiteLLM Provider" -> Manage Servers).
-- The setting is machine-scoped: it lives in your user settings only, a workspace cannot override it (so a cloned repository can never re-point your servers at another host), and Settings Sync does not carry it to other machines.
-- The `label` is the entry's identity. The provider group is named after it, so renaming an entry creates a new group. The old group stays behind under the old name; the extension's notice names it and opens the models file where its object can be deleted, and the dashboard marks the leftover row "external" with the rename in its badge tip.
-- Removing an entry hides its group. VS Code offers no API to remove the group itself, so the extension remembers the removal, answers that group with an empty model list (its models leave the picker), and the dashboard folds the row into a "hidden groups" line with an Unhide action. The empty shell still exists host-side: the removal notice names the exact group and its button opens the models file (`<profile>/User/chatLanguageModels.json`) - delete the named group's object from the JSON array, reload the window, then run Sync Models Now, and the shell is gone for good.
-- A hidden group comes back on its own if you re-add an entry with the same label and base URL, or explicitly through the hidden-groups line's Unhide.
+```jsonc
+"litellm-vscode-chat.servers": [
+  { "label": "prod", "baseUrl": "https://litellm.example.com" }
+]
+// then: dashboard -> edit "prod" -> API key -> "store securely",
+// or Command Palette -> "LiteLLM: Set Server Secret"
+```
 
-One host limitation cuts across all of this: VS Code's provider-group command can create groups but not update or remove them.
+Save, and the server's models appear in the model picker within moments. The dashboard's **Test connection** button probes a draft exactly as entered - unsaved edits included, stored secrets read from wherever they live - with one discovery call, and reports the model count or the exact error, linking the matching [troubleshooting](troubleshooting.md#common-issues) section when the failure looks like a setup problem. It saves and syncs nothing.
 
-- When a declared entry's connection changes (URL or credentials), the extension cannot push the change into the existing group. The server row shows an error telling you to delete the group's object from the models file, reload the window, and run Sync Models Now, which recreates it from the entry.
-- For the same reason, an edit made natively to a declared group stays in place until that group is removed and re-synced.
-- The models file: VS Code stores the groups in `<profile>/User/chatLanguageModels.json` under your user data (a documented, user-editable file), and removing a group means deleting its object from that JSON array. VS Code reads the file at startup and holds it in memory, so quit or reload the window after editing - a live window can overwrite external edits.
+## Entry reference
 
-## Entry fields
+Every property an entry can carry:
 
-Each entry carries a label, a base URL, and optionally credentials, per-server model parameters and capability overrides, and the discovery failures the server is expected to produce. The dashboard's add/edit form covers the same fields.
+| Property | Type | What it does |
+|---|---|---|
+| `label` | string, required | Names the server in the model picker; half of the entry's identity |
+| `baseUrl` | string, required | The server's root URL. The extension appends `/v1` itself - leave any `/v1` suffix off; a pasted `.../v1` URL requests `/v1/v1/...` and fails |
+| `auth` | object | Exactly one form of `apiKey`, `oauth`, `virtualKey`, optionally with lower-ranked companions ([below](#authentication)). Omit entirely for servers that need none. An ambiguous shape is reported and the entry is treated as misconfigured |
+| `headers` | object | Custom HTTP headers on every request to this server ([below](#custom-headers)); extension-managed auth headers win conflicts |
+| `models.parameters` | record | Request parameters for this server's models only; same [matcher keys](models.md#model-matching) as the global setting, applied above it field by field ([details](models.md#parameters)) |
+| `models.capabilities` | record | Capability overrides for this server's models only; same mechanics ([details](models.md#capabilities)) |
+| `discovery.declared` | string[] | Exact model IDs to register even when discovery cannot list them ([below](#declared-models)) |
+| `discovery.expectedFailures` | string[] | Discovery endpoints this server is expected to fail: `"modelListing"` (`/v1/models`), `"modelInfo"` (`/v1/model/info`). Each gets a single attempt and an info-level log line instead of a red error ([below](#discovery-and-expected-failures)) |
+| `budget` | number | Manual budget in USD for [usage alerts](usage.md#budgets). Outranks the key's own `max_budget`; the dashboard shows both |
 
-- The form's Test connection button probes the draft exactly as entered - unsaved edits included, kept secrets read from wherever they are stored - with one discovery call, and reports the model count or the exact error (linking the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) when the failure looks like a setup problem). It saves and syncs nothing. The probe honors the draft's `expectedFailures` and `_declare` entries: an expected discovery failure reports the declared models the entry would serve instead of a hard error.
+A complete entry:
 
-| Setting key | Description |
-|-------------|-------------|
-| `label` | Names the server in the model picker; the entry's identity (see above) |
-| `baseUrl` | The server's root URL, e.g. `http://localhost:4000`. The extension appends `/v1` itself, so leave any `/v1` suffix off; a pasted `.../v1` URL requests `/v1/v1/...` and fails |
-| `apiKey` | Sent as an `Authorization` bearer plus an `X-API-Key` copy; leave out if the server needs none |
-| `oauthTokenUrl` | The identity provider's token endpoint, e.g. `https://idp.example.com/oauth2/token` |
-| `oauthClientId` | Client ID for the client-credentials grant; required together with the token URL |
-| `oauthClientSecret` | Client secret; leave it out for public clients issued without one. Keep it in secret storage or write it inline |
-| `oauthScopes` | Optional space-separated scopes to request with the token |
-| `virtualKeyHeader` | Optional name of a custom header carrying a LiteLLM virtual key, e.g. `x-litellm-api-key`. Naming `Authorization` hands the virtual key that whole header, and no OAuth token is fetched for this server |
-| `virtualKeyValue` | The virtual key itself; keep it in secret storage or write it inline |
-| `modelParameters` | Request parameters applied only to this entry's requests; see [Model parameters](model-parameters.md#per-entry-parameters) |
-| `modelCapabilities` | Capability overrides for this entry's models, `_declare` entries included; see [Model capabilities](model-capabilities.md#per-entry-capabilities) |
-| `expectedFailures` | Discovery endpoints expected to fail here (`"modelListing"`, `"modelInfo"`): a single attempt each, logged as expected, not counted as a server error; see [Model capabilities](model-capabilities.md#expected-discovery-failures) |
+```jsonc
+{
+  "label": "prod",
+  "baseUrl": "https://gateway.internal",
+  "auth": { "apiKey": "sk-..." },
+  "headers": { "x-routing-env": "prod" },
+  "models": {
+    "parameters":   { "gpt-5*": { "temperature": 0.2 } },
+    "capabilities": { "deepseek-r1": { "supports_reasoning": true, "context_length": 131072 } }
+  },
+  "discovery": {
+    "expectedFailures": ["modelListing", "modelInfo"],
+    "declared": ["deepseek-r1"]
+  },
+  "budget": 50
+}
+```
+
+Edge cases the table cannot show:
+
+- Labels are unique across entries: an entry repeating an earlier entry's label is skipped and reported - the first entry wins. To point two entries at the same host, give them different labels; they are then two servers end to end - two picker groups, the models listed under each, and each entry's auth, headers, and `models` records applying only to its own group.
+- An empty or whitespace-only `label` or `baseUrl` makes the entry unusable: skipped and reported. The JavaScript-reserved names `__proto__`, `constructor`, and `prototype` are rejected as labels.
+- The base URL may carry a path (`https://intranet.example.com/litellm`, a gateway mounted under one); `/v1` is appended after it. A trailing slash is harmless - it is stripped before the URL is compared or used.
+- Plain `http` works and is the normal choice for a local proxy; over a network it carries your credentials unencrypted, so prefer `https` for anything remote.
+- `budget` must be a number greater than 0 ([Usage - Budgets](usage.md#budgets)).
+- A momentarily malformed entry (a mid-edit settings.json, say) is skipped and reported, but never mistaken for a removal: its provider group is not hidden. [Removal](#lifecycle-renames-removals-hidden-groups) happens only when the label itself disappears from the setting.
+
+## Authentication
+
+Pick the form that matches what your gateway expects. Exactly one form per entry, and the forms rank `oauth` > `apiKey` > `virtualKey`: a form can carry a *companion* credential of lower rank for gateways that demand a second credential in a second header - `oauth` takes an `apiKey` and/or `virtualKey` companion (inside the `oauth` object), `apiKey` takes a `virtualKey` companion (beside it), and `virtualKey`, the lowest rank, takes none.
+
+| Your gateway expects | Configure |
+|---|---|
+| a key as a bearer token (the common case, LiteLLM virtual keys included) | `auth.apiKey` |
+| a key in a custom header (e.g. `x-litellm-api-key`) | `auth.virtualKey` |
+| a bearer key **and** a key in a custom header | `auth.apiKey` + a `virtualKey` companion beside it |
+| an OAuth2 client-credentials token | `auth.oauth` |
+| an OAuth token **and** a LiteLLM key beside it | `auth.oauth` + its `apiKey` or `virtualKey` companion |
+
+Two boundary cases:
+
+- An auth form missing a required piece (an `oauth` without its `tokenUrl` or `clientId`) is a configuration error like setting two forms: reported, and the entry is not used until fixed. A form that is merely *waiting for its secret* (a `virtualKey` header with the value still unset, an `apiKey` stored nowhere yet) is different: the entry works, requests simply carry no credential, and the server's 401 tells you what is missing - the normal state between adding an entry and running "LiteLLM: Set Server Secret".
+
+- **No `auth` at all** means no credential headers are sent - unless a [stored secret](#secrets-and-secret-storage) for the entry says otherwise; storage counts as part of the shape. There is no separate "keyless" mode to pick: a server that turns out to require a key answers 401 ("Authentication failed"), and adding the key to the entry is the fix.
+- **An ambiguous `auth` shape** never makes the extension guess between credentials: `oauth` with anything else at the top level of `auth` (its companions belong *inside* the `oauth` object), or a key inside `auth` the extension does not recognize (a typo would otherwise silently mean "no credential"), is misconfigured - the dashboard's server row and its Configuration diagnostics name the offending key - and the entry is not used until fixed. Other entries are unaffected. `apiKey` beside `virtualKey` is *not* ambiguous: rank makes it the API-key form with a virtual-key companion.
+
+### API key
+
+```jsonc
+"auth": { "apiKey": "sk-..." }   // or keep it in secret storage; see Secrets below
+```
+
+Sent as an `Authorization: Bearer` header plus an `X-API-Key` copy (some gateways read one, some the other).
+
+A gateway that checks the bearer **and** a key in a custom header at once takes the second credential as a companion beside the key:
+
+```jsonc
+"auth": {
+  "apiKey": "sk-...",
+  "virtualKey": { "header": "x-litellm-api-key", "value": "sk-..." }  // optional companion: extra header
+}
+```
+
+A companion naming `Authorization` or `X-API-Key` as its header takes that one header over from the API key.
+
+### Virtual key in a custom header
+
+A virtual key is a key the LiteLLM proxy itself issues, scoped to a budget, a team, or a set of models ([LiteLLM's docs](https://docs.litellm.ai/docs/proxy/virtual_keys)). Most gateways take it as an ordinary bearer token - use `auth.apiKey` for those. This form is for gateways that expect it in a custom header:
+
+```jsonc
+"auth": {
+  "virtualKey": {
+    "header": "x-litellm-api-key",
+    "value": "sk-..."            // or keep it in secret storage
+  }
+}
+```
+
+Naming `Authorization` as the header hands the virtual key that whole header. The `header` is required and is plain settings text; the `value` is the secret-capable half, so an entry carrying only the header is the [secret-storage shape](#secrets-and-secret-storage) - the value is read from where it is stored.
+
+### OAuth client credentials
+
+For gateways behind an identity provider that reject static keys:
+
+```jsonc
+"auth": {
+  "oauth": {
+    "tokenUrl": "https://idp.example.com/oauth2/token",
+    "clientId": "my-client-id",
+    "clientSecret": "...",       // omit for public clients; may live in secret storage
+    "scopes": "read write"       // optional, space-separated
+  }
+}
+```
+
+The extension exchanges the credentials for a short-lived bearer token, sends it as `Authorization` on every request to the server, and refreshes it shortly before expiry. The exchange is bounded by `discovery.timeout` on discovery requests and counts inside `chat.timeout`'s whole-call budget on chat requests; a rejected token is discarded so the next request fetches a fresh one.
+
+**Companions** - some corporate gateways check two credentials at once: the OAuth bearer proves you to the identity provider, while a LiteLLM key in a second header tells the proxy which budget or team to bill. Since `Authorization` is already taken by the bearer, the second credential rides its own header:
+
+```jsonc
+"auth": {
+  "oauth": {
+    "tokenUrl": "https://idp.example.com/oauth2/token",
+    "clientId": "my-client-id",
+    "apiKey": "sk-...",          // optional: also sent, as X-API-Key only
+    "virtualKey": { "header": "x-litellm-api-key", "value": "sk-..." }  // optional: extra header
+  }
+}
+```
+
+A companion `virtualKey` naming `Authorization` as its header takes over that header and skips the OAuth exchange entirely.
+
+## Custom headers
+
+An entry's `headers` object attaches extra HTTP headers to every request to this server - discovery and chat alike. Its job is gateway plumbing: routing tags, tracing headers, additional gateway keys.
+
+```jsonc
+{
+  "label": "prod",
+  "baseUrl": "https://gateway.internal",
+  "auth": { "apiKey": "sk-..." },
+  "headers": { "x-routing-env": "prod", "x-trace-source": "vscode" }
+}
+```
+
+- Extension-managed auth headers win conflicts: a custom header here loses to any header the entry's `auth` form sends - `Authorization`, `X-API-Key`, or a virtual key's named header, companion or not. Names compare case-insensitively, as HTTP headers do, so writing `authorization` changes nothing.
+- Because headers live on the entry, they are machine-scoped and never travel with Settings Sync - a credential-like value here stays on this machine. (There is deliberately no global headers setting for exactly this reason.)
+- Two header names differing only by case are one header (HTTP header names are case-insensitive): the first one in the object wins and the collision is reported as a configuration diagnostic.
+- Header values are plain settings text, not secrets. A value that is truly secret belongs in an [`auth` form](#authentication), which can live in secret storage.
+
+## Per-server model configuration
+
+The entry's `models` object shapes what this server's models look like and how they are called. Both fields mirror the global `models.*` settings - learn the record shape once, use it in both places.
+
+### Parameters and capabilities
+
+- `models.parameters` targets requests: it uses the same [matcher keys](models.md#model-matching) as the global `models.parameters` and applies **above** it, field by field. Entry records are the one place for server-specific configuration - global keys are model matchers only, with no server scoping.
+- `models.capabilities` targets registration: token limits, vision, tool calling, reasoning - correcting or completing what discovery reports. Capabilities are source-agnostic: they apply identically whether a model was discovered or [declared](#declared-models).
+
+The dashboard's edit form has matching "for this server" sections for both, with per-row validation and the same effective-values inspectors as the global editors.
+
+### Declared models
+
+When discovery cannot list a model - a gateway without `/v1/models`, a model the gateway hides - declare it and it registers anyway:
+
+```jsonc
+"discovery": { "declared": ["deepseek-r1", "qwen2.5-vl-72b"] }
+```
+
+- IDs are exact (no matchers): a declaration says "this model exists here". An empty `declared` list is the same as no list.
+- A declared model is created only when discovery does not already list it; once the server starts listing it, the declaration goes inert and the server's data takes over.
+- Whether the ID is listed is the only test - not why it is missing. A declared model registers whether the endpoint is expectedly absent, the discovery pass failed outright (the server row still reports that failure), or the server lists other models but hides this one.
+- The switch between inert and active happens on a discovery pass: a server that starts (or stops) listing a declared ID mid-session changes nothing until the next refresh - discovered lists are cached ([`discovery.cacheTtl`](settings.md#reference)) - so run "LiteLLM: Sync Models Now" to see it immediately.
+- Two entries may declare the same ID: each registers its own copy under its own server, exactly like a model two servers both serve.
+- Declaring a model and describing it are separate steps: a declared model's capabilities come from `models.capabilities`, the OpenRouter catalog, and the built-in defaults, exactly like every other model's.
+- Declaration is always per server. For a server added through VS Code's own model management (no entry), [adopt it](#external-servers-and-adoption) first.
+
+### Discovery and expected failures
+
+Discovery tries `/v1/model/info` (rich metadata) and falls back to `/v1/models` (bare list). Requests are idempotent and retried on transient failures within `discovery.timeout`.
+
+If your gateway simply does not serve one or both endpoints, say so and the extension stops treating it as an outage:
+
+```jsonc
+"discovery": { "expectedFailures": ["modelListing", "modelInfo"] }
+```
+
+- Each named endpoint gets a single attempt (no retries) and an info-level log line instead of a red error; the server does not count as unreachable.
+- "Expected" marks failure as unremarkable, not the endpoint as off-limits: a named endpoint that does answer is used normally - its data wins as usual, and any [declared](#declared-models) IDs it lists go inert. The single attempt is the one standing effect, succeed or fail.
+- Unknown values in the list (anything but `"modelListing"` and `"modelInfo"`) are ignored and reported.
+- Combined with `discovery.declared`, this is the recipe for a gateway with no discovery at all: declare the models, expect both failures, and the server behaves like a first-class citizen - the status bar, dashboard, and Test connection all report the declared models instead of errors.
 
 ## Secrets and secret storage
 
-The secret fields (`apiKey`, `oauthClientSecret`, `virtualKeyValue`) are per-entry choices:
+The secret-capable fields - `auth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`, and the companions' key/value (OAuth's or the API-key form's) - each offer a per-entry choice:
 
-- Write a secret inline when a plaintext value in your settings file is acceptable.
-- Or leave it out and store it in VS Code secret storage instead, through the dashboard form's "store securely" option or the "LiteLLM: Set Server Secret" command.
+- **Inline** in settings.json, when a plaintext value in that file is acceptable.
+- **VS Code secret storage** (encrypted, per-machine), via the dashboard form's "store securely" option or "LiteLLM: Set Server Secret". The entry then simply omits the field.
 - An inline value takes precedence over a stored one.
 
-What renders back into the dashboard:
+A stored value has no marker in settings.json, so shape and storage combine: a stored `apiKey` activates the bearer whenever the entry's shape does not say otherwise - on an entry with no `auth` at all, on the API-key form, or beside a declared `virtualKey` (rank reads that as the API-key form with a companion). Under `oauth` it stays the companion: `Authorization` belongs to the OAuth bearer, and the stored key goes out as `X-API-Key` only. To stop sending a stored key, remove the stored value itself (the checkbox below) - deleting settings text alone does not reach it.
 
-- Values in secret storage never do; the form shows where a value lives, not what it is.
-- Inline values do prefill the edit form (masked behind a Show toggle), since they already sit in plain text in your settings.json.
+What renders back into the dashboard: stored values never do - the form shows where a value lives, not what it is. Inline values do prefill the edit form (masked behind a Show toggle, see `ui.maskSecretInputs`), since they already sit in plain text in your settings.json.
 
-Where the extension keeps a non-secret identity for a credential (for example the change detectors that keep the sync state in step), it stores a fingerprint keyed by a random per-install secret rather than a plain hash, so those records reveal nothing about the credential - even a short, guessable API key - to anything that can read extension state but not secret storage.
+A field can end up with both copies - a value stored securely first, then pasted inline later. Requests use the inline one, and the stored copy stays put: emptying the inline field falls back to the stored value rather than clearing it. To be rid of the stored copy, use the edit form's "Remove the stored ..." checkbox below.
 
 When editing a saved entry:
 
 - An emptied secret field keeps whatever is stored; it does not clear the secret.
-- Deleting one is an explicit choice: the edit form shows a "Remove the stored ..." checkbox under each secret field that has a value.
+- Deleting a stored secret is an explicit choice: the edit form shows a "Remove the stored ..." checkbox under each secret field that has a value.
 
-Removing secrets before uninstalling the extension is covered in [Troubleshooting](troubleshooting.md#uninstalling-and-cleanup).
+Where the extension needs a non-secret identity for a credential (the change detectors that keep sync state in step), it stores a fingerprint keyed by a random per-install secret rather than a plain hash - those records reveal nothing about the credential, even a short guessable key, to anything that can read extension state but not secret storage.
 
-## Virtual keys
+Removing an entry does not delete its stored secrets: re-adding an entry with the same label finds them again. Removing all secrets before uninstalling is covered in [Troubleshooting](troubleshooting.md#uninstalling-and-cleanup).
 
-A virtual key is a key the LiteLLM proxy itself issues, scoped to a budget, a team, or a set of models (see [LiteLLM's virtual keys docs](https://docs.litellm.ai/docs/proxy/virtual_keys)).
+## Lifecycle: renames, removals, hidden groups
 
-- Most gateways take a virtual key as an ordinary bearer token, in which case it belongs in `apiKey` like any other key.
-- The `virtualKeyHeader`/`virtualKeyValue` pair is only for gateways that expect the key in a custom header instead, such as `x-litellm-api-key`:
+One VS Code limitation explains this whole section: **the host API can create provider groups but never update or remove them.** The extension works around it honestly rather than pretending.
 
-```jsonc
-{
-	"label": "Team A",
-	"baseUrl": "https://litellm.example.com",
-	"virtualKeyHeader": "x-litellm-api-key",
-	"virtualKeyValue": "sk-..." // or keep it in secret storage instead
-}
-```
+| You do | What happens |
+|---|---|
+| Add an entry | A provider group is created; models appear in the picker |
+| Change an entry's URL or credentials | The existing group cannot be updated. The server row shows an error with the fix: delete the group's object from the models file, reload, run "LiteLLM: Sync Models Now" - the group is recreated from the entry |
+| Rename an entry (`label`) | A new group is created under the new name; the old one stays behind. The extension's notice names it and opens the models file so its object can be deleted; the dashboard marks the leftover row "external" with the rename in its badge tip |
+| Remove an entry | The group cannot be removed, so the extension *hides* it: remembers the removal, answers the group with an empty model list (models leave the picker), and folds the row into the dashboard's "hidden groups" line with an Unhide action. The removal notice names the group and opens the models file for permanent deletion |
+| Re-add an entry with the same label and base URL | Its hidden group comes back on its own |
 
-## OAuth client-credentials authentication
-
-Some LiteLLM gateways sit behind an identity provider and reject static API keys. For those, configure OAuth2 client-credentials authentication on the server entry:
-
-```jsonc
-{
-	"label": "Corp gateway",
-	"baseUrl": "https://litellm.example.com",
-	"oauthTokenUrl": "https://idp.example.com/oauth2/token",
-	"oauthClientId": "my-client-id",
-	"oauthClientSecret": "...", // omit for public clients; may live in secret storage
-	"oauthScopes": "read write"  // optional, space-separated
-}
-```
-
-In the dashboard form the same fields sit behind "OAuth and virtual key (optional)"; for external servers the extension does not manage, they live in the models file.
-
-What happens when the token URL and client ID are both set:
-
-- The extension exchanges the client credentials for a short-lived bearer token and sends it as the `Authorization` header on every request to that server, refreshing it shortly before it expires.
-- The client secret may be omitted for public clients issued without one.
-- A static API key configured on the same server keeps going out as the `X-API-Key` header alongside the bearer token, for gateways that check both.
-- If the gateway additionally expects a [virtual key](#virtual-keys), set both virtual key fields and that header is sent along with every request. The exception is naming `Authorization` as the virtual key header, which gives the virtual key that whole header and skips the OAuth token exchange for the server entirely.
-- The token exchange is bounded by the discovery timeout, and a rejected token is discarded so the next request fetches a fresh one.
-
-## Per-server model parameters
-
-An entry can carry its own `modelParameters`: the same prefix-keyed record as the global `litellm-vscode-chat.modelParameters` setting, applied only to requests that go through this entry.
-
-- Base-URL scoping cannot tell apart two entries pointing at the same host (say, one per virtual key), so this is how parameters target one of them.
-- The dashboard's edit form has a matching "Model parameters for this server" section.
-- See [Model parameters](model-parameters.md) for the matching and precedence rules, and a worked example.
-
-## Per-server capabilities and expected failures
-
-Two more entry fields cover servers whose discovery data is wrong or missing:
-
-- `modelCapabilities` corrects what discovery reports for this entry's models, and its `_declare` entries register models discovery cannot list.
-- `expectedFailures` names the discovery endpoints this server is expected to fail, so those failures are logged as expected instead of counting as an outage.
-
-Both are covered, with examples, in [Model capabilities](model-capabilities.md).
+The models file is `<profile>/User/chatLanguageModels.json` - a documented, user-editable JSON file. VS Code reads it at startup and holds it in memory, so quit or reload the window after editing; a live window can overwrite external edits.
 
 ## External servers and adoption
 
-Servers whose groups were added outside this extension still work; the dashboard shows them marked "external" since they have no settings entry. The badge's hover tip says where the row came from when the extension knows: the leftover of a removed entry (named), or of a rename (old and new labels). Without a record, the group was added outside this extension or predates this tracking.
+Servers whose groups were added outside this extension (VS Code's own model-management UI - the "Manage LiteLLM Provider" flow in the model picker - or another tool) still work; the dashboard shows them marked "external", since they have no settings entry. The badge's hover tip says where the row came from when the extension knows - the leftover of a removed entry (named), or of a rename (old and new labels).
 
 An external row offers two actions:
 
-- **Remove** hides the group: its models leave the picker and the row moves to the "hidden groups" line, same as removing a declared entry. The follow-up notice names the group and its button opens the models file, where the shell's object can be deleted for good.
+- **Remove** hides the group, same as removing a declared entry; the follow-up notice opens the models file for permanent deletion.
 - **Edit** adopts the group into the setting:
 
-1. Click Edit on the external row; that is the adopt action.
-2. Pick the entry's label. The form prefills the group's current label, but renaming is usually worth it: an entry whose name an existing VS Code group still uses cannot sync until that group's object is deleted from the models file.
-3. Pick where each secret is stored (secret storage or inline in settings). The credential values are copied inside the extension and never pass through the dashboard page.
-4. Save: the group's connection details become a new `litellm-vscode-chat.servers` entry, and the server is editable like any declared one.
-5. Delete the original group's object from the models file and reload the window. Adoption cannot remove it (VS Code has no API for that), so its models appear twice until you do; the dashboard reminds you of this after adopting.
+1. Click Edit on the external row - that is the adopt action.
+2. Pick the entry's label. The form prefills the group's current label, but renaming is usually worth it: an entry whose name an existing group still uses cannot sync until that group's object is deleted from the models file.
+3. Pick where each secret should live (secret storage or inline). The credential values are copied inside the extension and never pass through the dashboard page.
+4. Save: the group's connection details become a new `servers` entry, editable like any declared one.
+5. Delete the original group's object from the models file and reload (adoption cannot remove it); until then its models appear twice - the dashboard reminds you after adopting.
 
 ## Multiple machines and Settings Sync
 
-Servers and their credentials stay on the machine where you entered them:
-
-- The `servers` setting is machine-scoped; Settings Sync never carries it.
-- Values in VS Code secret storage do not sync either.
-- On a second machine, re-add the servers and their keys.
-
-Everything else arrives on its own: every other `litellm-vscode-chat.*` setting syncs normally, including timeouts, `modelParameters`, and `headers`. That last one cuts both ways: a gateway key placed in the [`headers` setting](settings.md#custom-http-headers) replicates to every machine you sync.
+- The `servers` setting is machine-scoped; Settings Sync never carries it. Values in secret storage do not sync either. On a second machine, re-add the servers and their secrets.
+- Every other `litellm-vscode-chat.*` setting syncs normally - including `models.parameters` and `models.capabilities`, so your model configuration follows you. On a machine where the servers are not (yet) re-added, those synced records simply have no models to match - they sit idle and take effect the moment a server does. Anything server-bound (credentials, custom headers, budgets) lives in entries and stays put by design.
