@@ -808,9 +808,9 @@ function canonicalKey(value: unknown): string {
 
 /**
  * Hand-curated, mirroring the "Common parameters" list in
- * docs/model-parameters.md: the extension has no canonical parameter
- * inventory (pass-through by design; only reasoning_effort is schema-declared),
- * so these are suggestions, never a restriction.
+ * docs/models.md#where-parameters-come-from: the extension has no canonical
+ * parameter inventory (pass-through by design; only reasoning_effort is
+ * schema-declared), so these are suggestions, never a restriction.
  */
 const COMMON_PARAMETER_NAMES = [
 	"max_tokens",

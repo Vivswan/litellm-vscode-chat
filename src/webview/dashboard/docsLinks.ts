@@ -12,7 +12,7 @@ export const DOCS_LINK_SERVERS = "https://github.com/Vivswan/litellm-vscode-chat
 export const DOCS_LINK_GETTING_STARTED =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/getting-started.md";
 export const DOCS_LINK_SERVER_FORM =
-	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/servers.md#entry-fields";
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/servers.md#entry-reference";
 export const DOCS_LINK_MODELS = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/models.md";
 export const DOCS_LINK_PARAMS_INSPECTOR =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/dashboard.md#effective-parameters";
@@ -20,9 +20,9 @@ export const DOCS_LINK_CAPS_INSPECTOR =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/dashboard.md#effective-capabilities";
 export const DOCS_LINK_SETTINGS = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/settings.md";
 export const DOCS_LINK_MODEL_PARAMETERS =
-	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/model-parameters.md";
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/models.md#parameters";
 export const DOCS_LINK_MODEL_CAPABILITIES =
-	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/model-capabilities.md";
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/models.md#capabilities";
 export const DOCS_LINK_PARAMS_INACTIVE =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#per-server-model-parameters-are-inactive";
 export const DOCS_LINK_CHECK_BASE_URL =

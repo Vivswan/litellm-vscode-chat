@@ -76,8 +76,8 @@ function readSettingsDoc(): string {
 	return fs.readFileSync(path.join(repoRoot, "docs", "settings.md"), "utf8");
 }
 
-function readModelParametersDoc(): string {
-	return fs.readFileSync(path.join(repoRoot, "docs", "model-parameters.md"), "utf8");
+function readModelsDoc(): string {
+	return fs.readFileSync(path.join(repoRoot, "docs", "models.md"), "utf8");
 }
 
 // AGENTS.md is the real file (CLAUDE.md is a symlink to it, which a Windows
@@ -196,37 +196,15 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 	});
 });
 
-/**
- * TEMPORARY docs-pin adjustment for the settings redesign (flagged for the
- * integrator): the committed docs still carry the PRE-redesign setting names,
- * and the redesigned docs land with the integration commit. Until then the
- * reference-table pin checks each renamed setting under its OLD doc name
- * (same default), and skips ids with no pre-redesign row (the usage.*
- * settings). The integration pass must drop this map so the ids pin directly.
- */
-const OLD_DOC_IDS: Readonly<Record<string, string | undefined>> = {
-	"chat.timeout": "requestTimeout",
-	"discovery.timeout": "discoveryTimeout",
-	"discovery.cacheTtl": "discoveryCacheTtl",
-	"usage.pollInterval": undefined,
-	"chat.promptCaching": "promptCaching.enabled",
-	"models.openRouterCatalog": "openRouterCatalog.enabled",
-	"ui.maskSecretInputs": "maskApiKeyInput",
-};
-
 suite("shared/config/settingSpec: docs drift guard", () => {
 	test("the settings-reference table covers every scalar setting and shows the spec's default", () => {
-		// Rows look like: | `litellm-vscode-chat.requestTimeout` | `300000` | ... |
-		// Every spec'd number and boolean setting must have a row under its
-		// (temporarily pre-redesign; see OLD_DOC_IDS) doc name, and the row must
-		// show its default in the second column; a dropped row fails the set
-		// compare.
+		// Rows look like: | `litellm-vscode-chat.chat.timeout` | `300000` | ... |
+		// Every spec'd number and boolean setting must have a row, and the row
+		// must show its default in the second column; a dropped row fails the
+		// set compare.
 		const defaults = new Map<string, string>();
 		for (const [id, spec] of [...Object.entries(NUMBER_SETTING_SPECS), ...Object.entries(BOOLEAN_SETTING_SPECS)]) {
-			const docId = Object.hasOwn(OLD_DOC_IDS, id) ? OLD_DOC_IDS[id] : id;
-			if (docId !== undefined) {
-				defaults.set(docId, String(spec.default));
-			}
+			defaults.set(id, String(spec.default));
 		}
 		const row = new RegExp(`^\\|\\s*\`${CONFIG_SECTION}\\.([\\w.]+)\`\\s*\\|\\s*\`([^\`]*)\``);
 		const covered: string[] = [];
@@ -247,21 +225,15 @@ suite("shared/config/settingSpec: docs drift guard", () => {
 		);
 	});
 
-	test("the discoveryCacheTtl JSON example uses the spec default", () => {
-		const example = new RegExp(`"${CONFIG_SECTION}\\.discoveryCacheTtl":\\s*(\\d+)`).exec(readSettingsDoc())?.[1];
-		assert.ok(example, "docs/settings.md shows a discoveryCacheTtl JSON example");
-		assert.strictEqual(example, String(NUMBER_SETTING_SPECS["discovery.cacheTtl"].default));
-	});
-
 	test("the minimum-timeout prose quotes MIN_TIMEOUT_MS", () => {
-		const quoted = /Minimum timeout is (\d+)ms/.exec(readSettingsDoc())?.[1];
+		const quoted = /Minimum (\d+); lower values are clamped/.exec(readSettingsDoc())?.[1];
 		assert.ok(quoted, "docs/settings.md states the minimum timeout");
 		assert.strictEqual(quoted, String(MIN_TIMEOUT_MS));
 	});
 
 	test("the max_tokens fallback sentence quotes DEFAULT_MAX_TOKENS_CAP", () => {
-		const quoted = /or at most (\d+) when the server declares none/.exec(readModelParametersDoc())?.[1];
-		assert.ok(quoted, "docs/model-parameters.md states the max_tokens fallback cap");
+		const quoted = /capped at (\d+)\*\* when it is a guess/.exec(readModelsDoc())?.[1];
+		assert.ok(quoted, "docs/models.md states the max_tokens fallback cap");
 		assert.strictEqual(quoted, String(DEFAULT_MAX_TOKENS_CAP));
 	});
 });

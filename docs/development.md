@@ -34,6 +34,8 @@ bun run docker:up
 
 Then add a server in the extension with base URL `http://localhost:4000` and API key `sk-test-1234`.
 
+The proxy is backed by a Postgres container (on tmpfs - every recreate starts from an empty database), which turns on LiteLLM's spend and budget endpoints. Stack startup seeds one budgeted virtual key for exercising the [usage feature](usage.md): `sk-usage-seed-1234` with a $25 `max_budget` (identity in `src/test/fakeStack/usage.ts`). Add a second server with that key to watch spend accrue against a budget.
+
 The fake serves six realistic models and takes its instructions from the chat input itself: a `%` command on the last line of your message picks the response shape, so one model can play every stream shape the extension handles. (The sigil is `%` because the obvious choices are both intercepted before they reach the model: Copilot Chat claims `/`-prefixed input for its own slash commands, and agent CLIs like Claude Code run a leading `!` as a shell command, while no chat input surface claims `%`.)
 
 The model list is deliberately small and shaped like a real deployment (`src/test/fakeStack/models.ts`):

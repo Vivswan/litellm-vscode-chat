@@ -90,12 +90,6 @@ suite("shared/config/commandIds: package.json drift guard", () => {
 		const text = fs.readFileSync(path.join(repoRoot, "docs", "getting-started.md"), "utf8");
 		for (const entry of readPackageJson().contributes.commands) {
 			assert.ok(entry.title !== undefined, `${entry.command} is contributed with a title`);
-			// TEMPORARY docs-pin adjustment (flagged for the integrator): the
-			// committed docs predate the settings redesign, so the new usage
-			// command's row lands with the redesigned docs at integration.
-			if (entry.command === CMD.refreshUsage) {
-				continue;
-			}
 			const title = resolveNls(entry.title);
 			assert.ok(text.includes(title), `docs/getting-started.md names "${title}"`);
 		}
