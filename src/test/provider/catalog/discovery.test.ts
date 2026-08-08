@@ -832,7 +832,7 @@ suite("provider/catalog/discovery", () => {
 			);
 
 			const started = Date.now();
-			await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 1000 }), /discoveryTimeout/);
+			await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 1000 }), /discovery\.timeout/);
 			const elapsed = Date.now() - started;
 			assert.ok(elapsed < 6000, `Timeout must bound the whole call including backoff sleeps, took ${elapsed}ms`);
 		});

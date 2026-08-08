@@ -1,13 +1,15 @@
 /**
- * The one descriptor of a litellm-vscode-chat.servers entry's fields, shared
- * by the settings side (the servers setting and its SecretStorage blobs), the
+ * The one descriptor of a server entry's flat credential fields, shared by
+ * the settings side (the parser flattens the entry's nested `auth` object
+ * onto these fields; the SecretStorage blobs key on the secret ids), the
  * sync engine, and the dashboard protocol. Every field list elsewhere - the
- * parser's accepted fields, the provider-group args, the declared views, the
- * dashboard payloads and their schemas - derives from here, so adding a field
- * means extending OPTIONAL_ENTRY_FIELDS and following the compile errors.
- * One deliberate exception: an entry's `modelParameters` record stays out of
- * the descriptor because it must never reach the provider-group args or their
- * fingerprint (see extension/servers/serverSync/setting.ts and engine.ts;
+ * provider-group args, the declared views, the dashboard payloads and their
+ * schemas - derives from here, so adding a field means extending
+ * OPTIONAL_ENTRY_FIELDS and following the compile errors.
+ * The entry's extension-side-only fields (headers, models.parameters,
+ * models.capabilities, discovery.*, budget) stay out of the descriptor
+ * because they must never reach the provider-group args or their fingerprint
+ * (see extension/servers/serverSync/setting.ts and engine.ts;
  * serverEntry.test.ts pins the schema split). Pure constants: no vscode,
  * no DOM, no Node (the dashboard protocol pulls this module into the
  * webview bundle).

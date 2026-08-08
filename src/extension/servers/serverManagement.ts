@@ -3,7 +3,7 @@ import type { CommandId } from "../../shared/config/commandIds";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
-	getMaskApiKeyInput,
+	getMaskSecretInputs,
 	getModelParametersConfig,
 	MODEL_PARAMETERS_SETTING_KEY,
 } from "../../shared/config/settings";
@@ -191,7 +191,7 @@ async function addServerFlow(
 		return false;
 	}
 
-	const apiKey = await promptForApiKey(getMaskApiKeyInput());
+	const apiKey = await promptForApiKey(getMaskSecretInputs());
 	if (apiKey === undefined) {
 		return false;
 	}
@@ -255,7 +255,7 @@ async function manageServerFlow(
 		}
 
 		const existingApiKey = await registry.getApiKey(serverId);
-		const apiKey = await promptForApiKey(getMaskApiKeyInput(), existingApiKey);
+		const apiKey = await promptForApiKey(getMaskSecretInputs(), existingApiKey);
 		if (apiKey === undefined) {
 			return;
 		}

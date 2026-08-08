@@ -278,31 +278,31 @@ suite("provider/transport/errorMapping", () => {
 
 			const chat = expectRequestError(mapSdkError(err, chatCtx), "timeout");
 			assert.strictEqual(chat.message, timeoutMessage(chatCtx));
-			assert.match(chat.message, /requestTimeout/);
+			assert.match(chat.message, /chat\.timeout/);
 
 			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "timeout");
 			assert.strictEqual(discovery.message, timeoutMessage(discoveryCtx));
-			assert.match(discovery.message, /discoveryTimeout/);
+			assert.match(discovery.message, /discovery\.timeout/);
 		});
 
 		test("APIConnectionTimeoutError maps to the per-surface timeout message", () => {
 			const err = new APIConnectionTimeoutError();
 
 			const chat = expectRequestError(mapSdkError(err, chatCtx), "timeout");
-			assert.match(chat.message, /requestTimeout/);
+			assert.match(chat.message, /chat\.timeout/);
 
 			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "timeout");
-			assert.match(discovery.message, /discoveryTimeout/);
+			assert.match(discovery.message, /discovery\.timeout/);
 		});
 
 		test("timeoutMessage pins the exact user-facing strings", () => {
 			assert.strictEqual(
 				timeoutMessage(chatCtx),
-				'LiteLLM request timed out after 5000ms. Increase the "litellm-vscode-chat.requestTimeout" setting if your model needs more time.'
+				'LiteLLM request timed out after 5000ms. Increase the "litellm-vscode-chat.chat.timeout" setting if your model needs more time.'
 			);
 			assert.strictEqual(
 				timeoutMessage(discoveryCtx),
-				'LiteLLM model discovery timed out after 5000ms. Increase the "litellm-vscode-chat.discoveryTimeout" setting if your server needs more time.'
+				'LiteLLM model discovery timed out after 5000ms. Increase the "litellm-vscode-chat.discovery.timeout" setting if your server needs more time.'
 			);
 		});
 	});

@@ -1,8 +1,8 @@
 /**
- * The scalar settings form: draft parsing and commit rules, the clear-vs-
- * invalid split for nullable settings, the blur-gated display of bound
- * errors, the draftSyncKey resync contract, Reset naming and posting, the
- * modified-scope notes with their defaults, and the ms equivalence hints.
+ * The scalar settings form: draft parsing and commit rules, the blur-gated
+ * display of bound errors, the draftSyncKey resync contract, Reset naming and
+ * posting, the modified-scope notes with their defaults, and the ms
+ * equivalence hints.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { isBoundViolation, NUMBER_SETTING_IDS, parseNumberDraft } from "../../../extension/dashboard/protocol";
@@ -47,27 +47,27 @@ function rowOf(input: HTMLElement): HTMLElement {
 
 test("a below-minimum draft stays calm until blur reveals it; commit posts nothing; a valid draft posts once; unchanged posts nothing", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const input = settingInput(root, "defaultMaxOutputTokens");
+	const input = settingInput(root, "discovery.timeout");
 
 	// Mid-typing, an honest below-minimum draft raises no error yet...
-	fireInput(input, "0");
+	fireInput(input, "500");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
 	expect(input.classList.contains("invalid")).toBe(false);
 	// ...but blur reveals it, and the invalid draft still never commits.
 	fireBlur(input);
-	expect(rowOf(input).textContent).toContain("Must be at least 1");
+	expect(rowOf(input).textContent).toContain("Must be at least 1000");
 	expect(input.classList.contains("invalid")).toBe(true);
 	fireKeyDown(input, "Enter");
 	expect(postedMessages).toEqual([]);
 
-	fireInput(input, "2048");
+	fireInput(input, "20480");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
 	fireBlur(input);
-	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "defaultMaxOutputTokens", value: 2048 }]);
+	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "discovery.timeout", value: 20480 }]);
 
 	// A draft equal to the stored value posts nothing on commit.
 	resetPosted();
-	fireInput(input, "16000");
+	fireInput(input, "30000");
 	fireBlur(input);
 	fireKeyDown(input, "Enter");
 	expect(postedMessages).toEqual([]);
@@ -75,7 +75,7 @@ test("a below-minimum draft stays calm until blur reveals it; commit posts nothi
 
 test("Enter reveals a bound error like blur does; parse errors show live per keystroke", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const input = settingInput(root, "requestTimeout");
+	const input = settingInput(root, "chat.timeout");
 
 	fireInput(input, "500");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
@@ -88,9 +88,9 @@ test("Enter reveals a bound error like blur does; parse errors show live per key
 	fireInput(input, "9999");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
 
-	// Parse failures never wait for blur: emptying a non-nullable field (the
-	// number input sanitizes non-numeric text to empty) shows on the keystroke.
-	const other = settingInput(root, "discoveryTimeout");
+	// Parse failures never wait for blur: emptying the field shows on the
+	// keystroke.
+	const other = settingInput(root, "discovery.timeout");
 	fireInput(other, "");
 	expect(rowOf(other).textContent).toContain("Enter a number");
 });
@@ -100,7 +100,7 @@ test("isBoundViolation classifies exactly parseNumberDraft's minimum-bound rejec
 	// draft with the same grammar (durations included on ms settings), so
 	// "invalid because of the minimum" and isBoundViolation must agree on
 	// every draft. Covers empties, whitespace, unparsable text, non-finite
-	// numbers, values on both sides of every configured minimum (0, 1, and
+	// numbers, values on both sides of every configured minimum (0 and
 	// 1000), and the duration grammar's suffixes, typos, and bare suffixes.
 	const drafts = [
 		"",
@@ -145,59 +145,32 @@ test("isBoundViolation classifies exactly parseNumberDraft's minimum-bound rejec
 
 test("aria-invalid and the error's aria-describedby wiring follow the displayed error, not the raw verdict", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const input = settingInput(root, "requestTimeout");
+	const input = settingInput(root, "chat.timeout");
 
 	// While a bound error is held back, assistive tech hears a valid field.
 	fireInput(input, "500");
 	expect(input.getAttribute("aria-invalid")).toBe("false");
-	expect(input.getAttribute("aria-describedby")).toBe("setting-requestTimeout-unit");
+	expect(input.getAttribute("aria-describedby")).toBe("setting-chat.timeout-unit");
 
 	// Once revealed, the error element joins the description chain.
 	fireBlur(input);
 	expect(input.getAttribute("aria-invalid")).toBe("true");
-	expect(input.getAttribute("aria-describedby")).toBe("setting-requestTimeout-unit setting-requestTimeout-error");
-	expect(root.querySelector("#setting-requestTimeout-error")?.textContent).toBe("Must be at least 1000");
+	expect(input.getAttribute("aria-describedby")).toBe("setting-chat.timeout-unit setting-chat.timeout-error");
+	expect(root.querySelector("#setting-chat\\.timeout-error")?.textContent).toBe("Must be at least 1000");
 });
 
 test("Enter commits a valid draft like blur does", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const input = settingInput(root, "discoveryTimeout");
+	const input = settingInput(root, "discovery.timeout");
 	fireInput(input, "45000");
 	fireKeyDown(input, "Enter");
-	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "discoveryTimeout", value: 45000 }]);
-});
-
-test("clearing nullable defaultMaxInputTokens posts null only when a value was set; a non-nullable empty shows 'Enter a number'", () => {
-	const configured = makeSettings({
-		numbers: { ...makeSettings().numbers, defaultMaxInputTokens: 4096 },
-	});
-	const root = mount(<SettingsSection settings={configured} models={[]} failures={{}} />);
-	const input = settingInput(root, "defaultMaxInputTokens");
-	expect(input.value).toBe("4096");
-	fireInput(input, "");
-	fireBlur(input);
-	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "defaultMaxInputTokens", value: null }]);
-
-	// Already unset: clearing again writes nothing.
-	resetPosted();
-	const unsetRoot = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const unsetInput = settingInput(unsetRoot, "defaultMaxInputTokens");
-	fireInput(unsetInput, "");
-	fireBlur(unsetInput);
-	expect(postedMessages).toEqual([]);
-
-	// Non-nullable: empty is invalid, never a clear.
-	const contextInput = settingInput(unsetRoot, "defaultContextLength");
-	fireInput(contextInput, "");
-	expect(rowOf(contextInput).textContent).toContain("Enter a number");
-	fireBlur(contextInput);
-	expect(postedMessages).toEqual([]);
+	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "discovery.timeout", value: 45000 }]);
 });
 
 test("an external state push resyncs a rejected draft and re-arms the calm start, including a scope-only change", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	const input = settingInput(root, "requestTimeout");
+	const input = settingInput(root, "chat.timeout");
 
 	fireInput(input, "1"); // below MIN_TIMEOUT_MS
 	fireBlur(input);
@@ -213,7 +186,7 @@ test("an external state push resyncs a rejected draft and re-arms the calm start
 					...scopeOnly,
 					configuredScopes: {
 						...scopeOnly.configuredScopes,
-						numbers: { ...scopeOnly.configuredScopes.numbers, requestTimeout: "global" },
+						numbers: { ...scopeOnly.configuredScopes.numbers, "chat.timeout": "global" },
 					},
 				},
 			})
@@ -231,7 +204,7 @@ test("Reset renders only on configured rows, carries the scope-naming accessible
 	const base = makeSettings();
 	const settings = makeSettings({
 		configuredScopes: {
-			numbers: { ...base.configuredScopes.numbers, requestTimeout: "workspace" },
+			numbers: { ...base.configuredScopes.numbers, "chat.timeout": "workspace" },
 			booleans: base.configuredScopes.booleans,
 		},
 	});
@@ -240,73 +213,67 @@ test("Reset renders only on configured rows, carries the scope-naming accessible
 	const resets = Array.from(root.querySelectorAll("button.reset"));
 	expect(resets.length).toBe(1);
 	expect(resets[0]?.getAttribute("aria-label")).toBe("Remove the Workspace value of Request timeout");
-	expect(rowOf(settingInput(root, "requestTimeout")).classList.contains("modified")).toBe(true);
-	expect(rowOf(settingInput(root, "discoveryTimeout")).classList.contains("modified")).toBe(false);
+	expect(rowOf(settingInput(root, "chat.timeout")).classList.contains("modified")).toBe(true);
+	expect(rowOf(settingInput(root, "discovery.timeout")).classList.contains("modified")).toBe(false);
 
 	fireClick(resets[0] as HTMLButtonElement);
-	expect(postedMessages).toEqual([{ type: "resetSetting", setting: "requestTimeout" }]);
+	expect(postedMessages).toEqual([{ type: "resetSetting", setting: "chat.timeout" }]);
 });
 
 test("the boolean checkbox posts setBooleanSetting with the toggled value", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const checkbox = settingInput(root, "maskApiKeyInput");
+	const checkbox = settingInput(root, "ui.maskSecretInputs");
 	expect(checkbox.checked).toBe(true);
 	fireCheck(checkbox, false);
-	expect(postedMessages).toEqual([{ type: "setBooleanSetting", setting: "maskApiKeyInput", value: false }]);
+	expect(postedMessages).toEqual([{ type: "setBooleanSetting", setting: "ui.maskSecretInputs", value: false }]);
 });
 
-test("ms equivalence hints: 90000 reads as clock units, TTL 0 as its zero meaning, token units render none", () => {
+test("ms equivalence hints: 90000 reads as clock units, the zero-meaning settings read their special zero", () => {
 	const settings = makeSettings({
-		numbers: { ...makeSettings().numbers, requestTimeout: 90000, discoveryCacheTtl: 0 },
+		numbers: { ...makeSettings().numbers, "chat.timeout": 90000, "discovery.cacheTtl": 0, "usage.pollInterval": 0 },
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
 
-	expect(rowOf(settingInput(root, "requestTimeout")).querySelector(".setting-equiv")?.textContent).toBe("= 1 min 30 s");
-	expect(rowOf(settingInput(root, "discoveryCacheTtl")).querySelector(".setting-equiv")?.textContent).toBe(
+	expect(rowOf(settingInput(root, "chat.timeout")).querySelector(".setting-equiv")?.textContent).toBe("= 1 min 30 s");
+	expect(rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-equiv")?.textContent).toBe(
 		"= every refresh"
 	);
-	// The zero special case must not leak to other ms settings, and token
-	// counts get no equivalence at all.
-	expect(rowOf(settingInput(root, "discoveryTimeout")).querySelector(".setting-equiv")?.textContent).toBe("= 30 s");
-	expect(rowOf(settingInput(root, "defaultMaxOutputTokens")).querySelector(".setting-equiv")).toBeNull();
+	expect(rowOf(settingInput(root, "usage.pollInterval")).querySelector(".setting-equiv")?.textContent).toBe(
+		"= polling off"
+	);
+	// The zero special case must not leak to other ms settings.
+	expect(rowOf(settingInput(root, "discovery.timeout")).querySelector(".setting-equiv")?.textContent).toBe("= 30 s");
 });
 
 test("a modified row names its scope in the head; number rows add the default; clean rows carry no note", () => {
 	const base = makeSettings();
 	const settings = makeSettings({
-		numbers: { ...base.numbers, requestTimeout: 60000, defaultMaxInputTokens: 4096 },
+		numbers: { ...base.numbers, "chat.timeout": 60000 },
 		configuredScopes: {
 			numbers: {
 				...base.configuredScopes.numbers,
-				requestTimeout: "workspace",
-				defaultMaxInputTokens: "workspaceFolder",
+				"chat.timeout": "workspace",
 			},
-			booleans: { ...base.configuredScopes.booleans, maskApiKeyInput: "global" },
+			booleans: { ...base.configuredScopes.booleans, "ui.maskSecretInputs": "global" },
 		},
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
 
 	const noteOf = (id: string) => rowOf(settingInput(root, id)).querySelector(".setting-modified-note");
 	// The ms default reads in the duration idiom, matching the field's hint.
-	expect(noteOf("requestTimeout")?.textContent).toBe("Modified in Workspace settings (default: 5 min)");
-	// The one null spec default is derived per model at request time; the note
-	// says so instead of inventing a number.
-	expect(noteOf("defaultMaxInputTokens")?.textContent).toBe("Modified in Workspace folder settings (default: derived)");
+	expect(noteOf("chat.timeout")?.textContent).toBe("Modified in Workspace settings (default: 5 min)");
 	// Boolean rows say where the value lives, without a default.
-	expect(noteOf("maskApiKeyInput")?.textContent).toBe("Modified in User settings");
+	expect(noteOf("ui.maskSecretInputs")?.textContent).toBe("Modified in User settings");
 	// Unmodified rows carry no note at all, and the note lives in the head
 	// (after the title), so its coming and going never shifts the row's text.
-	expect(noteOf("discoveryTimeout")).toBeNull();
-	expect(noteOf("requestTimeout")?.closest(".setting-head")).not.toBeNull();
-	expect(noteOf("requestTimeout")?.previousElementSibling).not.toBeNull();
+	expect(noteOf("discovery.timeout")).toBeNull();
+	expect(noteOf("chat.timeout")?.closest(".setting-head")).not.toBeNull();
+	expect(noteOf("chat.timeout")?.previousElementSibling).not.toBeNull();
 });
 
-test("the nullable input spells out its empty reading, and the cache row's label needs no acronym", () => {
+test("the cache row's label needs no acronym", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	expect(settingInput(root, "defaultMaxInputTokens").getAttribute("placeholder")).toBe("derived from context length");
-	// Non-nullable inputs carry no placeholder: empty is invalid there, never derived.
-	expect(settingInput(root, "defaultContextLength").getAttribute("placeholder")).toBeNull();
-	expect(rowOf(settingInput(root, "discoveryCacheTtl")).querySelector(".setting-title")?.textContent).toBe(
+	expect(rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-title")?.textContent).toBe(
 		"Discovery cache lifetime"
 	);
 });
@@ -314,30 +281,26 @@ test("the nullable input spells out its empty reading, and the cache row's label
 test("settings-row help glyphs are named for their setting, so a button list is not a column of bare Helps", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const glyphOf = (id: string) => rowOf(settingInput(root, id)).querySelector("button.help");
-	expect(glyphOf("requestTimeout")?.getAttribute("aria-label")).toBe("Help: Request timeout");
-	expect(glyphOf("promptCaching.enabled")?.getAttribute("aria-label")).toBe("Help: Prompt caching");
+	expect(glyphOf("chat.timeout")?.getAttribute("aria-label")).toBe("Help: Request timeout");
+	expect(glyphOf("chat.promptCaching")?.getAttribute("aria-label")).toBe("Help: Prompt caching");
 	// Call sites that pass no name keep the bare default: the section heading.
 	const sectionGlyph = root.querySelector("h2 button.help");
 	expect(sectionGlyph?.getAttribute("aria-label")).toBe("Help");
 });
 
-test("ms fields are text inputs (the duration suffixes need letters); token fields stay number inputs", () => {
+test("ms fields are text inputs (the duration suffixes need letters)", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	for (const id of ["requestTimeout", "discoveryTimeout", "discoveryCacheTtl"]) {
+	for (const id of ["chat.timeout", "discovery.timeout", "discovery.cacheTtl", "usage.pollInterval"]) {
 		const input = settingInput(root, id);
 		expect(input.getAttribute("type"), id).toBe("text");
 		// min is a number-input constraint; the duration grammar owns the bound.
 		expect(input.getAttribute("min"), id).toBeNull();
 	}
-	for (const id of ["defaultMaxOutputTokens", "defaultContextLength", "defaultMaxInputTokens"]) {
-		expect(settingInput(root, id).getAttribute("type"), id).toBe("number");
-		expect(settingInput(root, id).getAttribute("min"), id).not.toBeNull();
-	}
 });
 
 test("a duration draft commits its millisecond value, with the equivalence hint live while typing", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const input = settingInput(root, "requestTimeout");
+	const input = settingInput(root, "chat.timeout");
 
 	fireInput(input, "5m");
 	expect(rowOf(input).querySelector(".setting-equiv")?.textContent).toBe("= 5 min");
@@ -350,14 +313,14 @@ test("a duration draft commits its millisecond value, with the equivalence hint 
 	fireInput(input, "90s");
 	expect(rowOf(input).querySelector(".setting-equiv")?.textContent).toBe("= 1 min 30 s");
 	fireKeyDown(input, "Enter");
-	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "requestTimeout", value: 90000 }]);
+	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "chat.timeout", value: 90000 }]);
 
 	// A draft spelling the stored value differently ("90s" over 90000) still
 	// counts as unchanged once committed: same value, no second post.
 	resetPosted();
-	const stored = makeSettings({ numbers: { ...makeSettings().numbers, requestTimeout: 90000 } });
+	const stored = makeSettings({ numbers: { ...makeSettings().numbers, "chat.timeout": 90000 } });
 	const storedRoot = mount(<SettingsSection settings={stored} models={[]} failures={{}} />);
-	const storedInput = settingInput(storedRoot, "requestTimeout");
+	const storedInput = settingInput(storedRoot, "chat.timeout");
 	fireInput(storedInput, "90s");
 	fireBlur(storedInput);
 	expect(postedMessages).toEqual([]);
@@ -365,7 +328,7 @@ test("a duration draft commits its millisecond value, with the equivalence hint 
 
 test("a unit typo reads as a live grammar error; a below-bound duration stays calm until blur", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const input = settingInput(root, "discoveryTimeout");
+	const input = settingInput(root, "discovery.timeout");
 
 	// A suffixed value below the bound is an honest mid-typing state ("500ms"
 	// on the way to "1500ms"), so it keeps the blur gate plain numbers get.
@@ -384,7 +347,7 @@ test("a unit typo reads as a live grammar error; a below-bound duration stays ca
 
 	fireInput(input, "45s");
 	fireBlur(input);
-	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "discoveryTimeout", value: 45000 }]);
+	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "discovery.timeout", value: 45000 }]);
 });
 
 /** The <section> whose h3 heading starts with the title (the heading also carries its glyphs). */
@@ -408,33 +371,32 @@ test("the filter hides rows by label or description match and collapses emptied 
 
 	fireInput(filter, "timeout");
 	// Label matches survive; pure misses hide.
-	expect(rowOf(settingInput(root, "requestTimeout")).hidden).toBe(false);
-	expect(rowOf(settingInput(root, "discoveryTimeout")).hidden).toBe(false);
-	expect(rowOf(settingInput(root, "defaultMaxInputTokens")).hidden).toBe(true);
-	expect(rowOf(settingInput(root, "maskApiKeyInput")).hidden).toBe(true);
+	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(false);
+	expect(rowOf(settingInput(root, "discovery.timeout")).hidden).toBe(false);
+	expect(rowOf(settingInput(root, "usage.pollInterval")).hidden).toBe(true);
+	expect(rowOf(settingInput(root, "ui.maskSecretInputs")).hidden).toBe(true);
 	// A group with no visible rows collapses whole, heading included; the
 	// hiding is the hidden attribute, never an unmount (the rows above were
 	// still queryable).
 	const groupOf = (id: string) => rowOf(settingInput(root, id)).closest(".settings-group") as HTMLElement;
-	expect(groupOf("requestTimeout").hidden).toBe(false);
-	expect(groupOf("maskApiKeyInput").hidden).toBe(true);
-	// Neither record editor talks about timeouts.
+	expect(groupOf("chat.timeout").hidden).toBe(false);
+	expect(groupOf("ui.maskSecretInputs").hidden).toBe(true);
+	// The record editor does not talk about timeouts.
 	expect(editorSection(root, "Model parameters").hidden).toBe(true);
-	expect(editorSection(root, "Custom headers").hidden).toBe(true);
 
 	// Descriptions match too: only the request timeout's mentions the chat call.
 	fireInput(filter, "chat completion");
-	expect(rowOf(settingInput(root, "requestTimeout")).hidden).toBe(false);
-	expect(rowOf(settingInput(root, "discoveryTimeout")).hidden).toBe(true);
+	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(false);
+	expect(rowOf(settingInput(root, "discovery.timeout")).hidden).toBe(true);
 
 	// Clearing the filter restores everything.
 	fireInput(filter, "");
-	expect(rowOf(settingInput(root, "maskApiKeyInput")).hidden).toBe(false);
-	expect(groupOf("maskApiKeyInput").hidden).toBe(false);
-	expect(editorSection(root, "Custom headers").hidden).toBe(false);
+	expect(rowOf(settingInput(root, "ui.maskSecretInputs")).hidden).toBe(false);
+	expect(groupOf("ui.maskSecretInputs").hidden).toBe(false);
+	expect(editorSection(root, "Model parameters").hidden).toBe(false);
 });
 
-test("the filter matches the record editors by their key names (nested parameter names included) and titles", () => {
+test("the filter matches the record editor by its key names (nested parameter names included) and title", () => {
 	const settings = makeSettings({
 		modelParameters: {
 			editScope: "global",
@@ -442,35 +404,27 @@ test("the filter matches the record editors by their key names (nested parameter
 			otherScopes: [],
 			effective: { "gpt-4": { temperature: 0.2 } },
 		},
-		headers: {
-			editScope: "global",
-			value: { "x-litellm-api-key": "v" },
-			otherScopes: [],
-			effective: { "x-litellm-api-key": "v" },
-		},
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
 	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
 
-	// A header name keeps the headers editor; the parameters editor goes.
-	fireInput(filter, "litellm-api");
-	expect(editorSection(root, "Custom headers").hidden).toBe(false);
-	expect(editorSection(root, "Model parameters").hidden).toBe(true);
-
 	// A nested parameter name keeps the parameters editor.
 	fireInput(filter, "temperature");
 	expect(editorSection(root, "Model parameters").hidden).toBe(false);
-	expect(editorSection(root, "Custom headers").hidden).toBe(true);
 
 	// The editor's own title matches like a scalar row's label does.
-	fireInput(filter, "custom head");
-	expect(editorSection(root, "Custom headers").hidden).toBe(false);
+	fireInput(filter, "model param");
+	expect(editorSection(root, "Model parameters").hidden).toBe(false);
+
+	// A pure miss hides it.
+	fireInput(filter, "no such key");
+	expect(editorSection(root, "Model parameters").hidden).toBe(true);
 });
 
 test("zero hits show the no-match line, and a dirty draft survives being filtered away and back", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
-	const input = settingInput(root, "requestTimeout");
+	const input = settingInput(root, "chat.timeout");
 
 	// A half-typed (and even rejected) draft...
 	fireInput(input, "5x");
@@ -489,24 +443,14 @@ test("every scalar row carries a settings.json jump that posts revealSetting wit
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 
 	const jumpOf = (id: string) => rowOf(settingInput(root, id)).querySelector("button.reveal-json");
-	const numberJump = jumpOf("requestTimeout");
+	const numberJump = jumpOf("chat.timeout");
 	expect(numberJump?.getAttribute("aria-label")).toBe("Open Request timeout in settings.json");
 	fireClick(numberJump as HTMLButtonElement);
-	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "requestTimeout" }]);
+	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "chat.timeout" }]);
 
 	resetPosted();
-	const booleanJump = jumpOf("promptCaching.enabled");
+	const booleanJump = jumpOf("chat.promptCaching");
 	expect(booleanJump?.getAttribute("aria-label")).toBe("Open Prompt caching in settings.json");
 	fireClick(booleanJump as HTMLButtonElement);
-	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "promptCaching.enabled" }]);
-});
-
-test("the model-defaults group carries the deprecation hint pointing at modelCapabilities", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const group = [...root.querySelectorAll(".settings-group")].find((el) =>
-		el.querySelector(".settings-group-title")?.textContent?.includes("Model defaults")
-	);
-	const hint = group?.querySelector("p.hint");
-	expect(hint?.textContent).toContain("Deprecated");
-	expect(hint?.textContent).toContain("modelCapabilities");
+	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "chat.promptCaching" }]);
 });

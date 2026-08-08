@@ -1104,7 +1104,7 @@ suite("extension/ui/commands", () => {
 			assert.strictEqual(
 				await vscode.commands.executeCommand("litellm._test.dashboardMessage", {
 					type: "setNumberSetting",
-					setting: "requestTimeout",
+					setting: "chat.timeout",
 					value: -1,
 				}),
 				"validation-error"

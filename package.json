@@ -163,6 +163,10 @@
 			{
 				"command": "litellm.reportIssue",
 				"title": "%litellm.command.reportIssue.title%"
+			},
+			{
+				"command": "litellm.refreshUsage",
+				"title": "%litellm.command.refreshUsage.title%"
 			}
 		],
 		"walkthroughs": [
@@ -229,176 +233,286 @@
 				]
 			}
 		],
-		"configuration": {
-			"title": "%litellm.config.title%",
-			"properties": {
-				"litellm-vscode-chat.servers": {
-					"type": "array",
-					"scope": "machine",
-					"default": [],
-					"markdownDescription": "%litellm.config.servers.description%",
-					"items": {
-						"type": "object",
-						"required": [
-							"label",
-							"baseUrl"
-						],
-						"additionalProperties": false,
-						"properties": {
-							"label": {
-								"type": "string",
-								"description": "%litellm.config.servers.label.description%"
-							},
-							"baseUrl": {
-								"type": "string",
-								"format": "uri",
-								"description": "%litellm.config.servers.baseUrl.description%"
-							},
-							"apiKey": {
-								"type": "string",
-								"description": "%litellm.config.servers.apiKey.description%"
-							},
-							"oauthTokenUrl": {
-								"type": "string",
-								"format": "uri",
-								"description": "%litellm.config.servers.oauthTokenUrl.description%"
-							},
-							"oauthClientId": {
-								"type": "string",
-								"description": "%litellm.config.servers.oauthClientId.description%"
-							},
-							"oauthClientSecret": {
-								"type": "string",
-								"description": "%litellm.config.servers.oauthClientSecret.description%"
-							},
-							"oauthScopes": {
-								"type": "string",
-								"description": "%litellm.config.servers.oauthScopes.description%"
-							},
-							"virtualKeyHeader": {
-								"type": "string",
-								"description": "%litellm.config.servers.virtualKeyHeader.description%"
-							},
-							"virtualKeyValue": {
-								"type": "string",
-								"description": "%litellm.config.servers.virtualKeyValue.description%"
-							},
-							"modelParameters": {
-								"type": "object",
-								"additionalProperties": {
-									"type": "object"
-								},
-								"description": "%litellm.config.servers.modelParameters.description%"
-							},
-							"modelCapabilities": {
-								"type": "object",
-								"additionalProperties": {
-									"type": "object"
-								},
-								"description": "%litellm.config.servers.modelCapabilities.description%"
-							},
-							"expectedFailures": {
-								"type": "array",
-								"items": {
+		"configuration": [
+			{
+				"title": "%litellm.config.section.servers%",
+				"properties": {
+					"litellm-vscode-chat.servers": {
+						"type": "array",
+						"scope": "machine",
+						"default": [],
+						"markdownDescription": "%litellm.config.servers.description%",
+						"items": {
+							"type": "object",
+							"required": [
+								"label",
+								"baseUrl"
+							],
+							"additionalProperties": false,
+							"properties": {
+								"label": {
 									"type": "string",
-									"enum": [
-										"modelListing",
-										"modelInfo"
-									]
+									"description": "%litellm.config.servers.label.description%"
 								},
-								"uniqueItems": true,
-								"description": "%litellm.config.servers.expectedFailures.description%"
+								"baseUrl": {
+									"type": "string",
+									"format": "uri",
+									"description": "%litellm.config.servers.baseUrl.description%"
+								},
+								"auth": {
+									"type": "object",
+									"additionalProperties": false,
+									"minProperties": 1,
+									"markdownDescription": "%litellm.config.servers.auth.description%",
+									"properties": {
+										"apiKey": {
+											"type": "string",
+											"description": "%litellm.config.servers.auth.apiKey.description%"
+										},
+										"oauth": {
+											"type": "object",
+											"additionalProperties": false,
+											"required": [
+												"tokenUrl",
+												"clientId"
+											],
+											"markdownDescription": "%litellm.config.servers.auth.oauth.description%",
+											"properties": {
+												"tokenUrl": {
+													"type": "string",
+													"format": "uri",
+													"description": "%litellm.config.servers.auth.oauth.tokenUrl.description%"
+												},
+												"clientId": {
+													"type": "string",
+													"description": "%litellm.config.servers.auth.oauth.clientId.description%"
+												},
+												"clientSecret": {
+													"type": "string",
+													"description": "%litellm.config.servers.auth.oauth.clientSecret.description%"
+												},
+												"scopes": {
+													"type": "string",
+													"description": "%litellm.config.servers.auth.oauth.scopes.description%"
+												},
+												"apiKey": {
+													"type": "string",
+													"description": "%litellm.config.servers.auth.oauth.apiKey.description%"
+												},
+												"virtualKey": {
+													"type": "object",
+													"additionalProperties": false,
+													"required": [
+														"header"
+													],
+													"description": "%litellm.config.servers.auth.oauth.virtualKey.description%",
+													"properties": {
+														"header": {
+															"type": "string",
+															"description": "%litellm.config.servers.auth.virtualKey.header.description%"
+														},
+														"value": {
+															"type": "string",
+															"description": "%litellm.config.servers.auth.virtualKey.value.description%"
+														}
+													}
+												}
+											}
+										},
+										"virtualKey": {
+											"type": "object",
+											"additionalProperties": false,
+											"required": [
+												"header"
+											],
+											"markdownDescription": "%litellm.config.servers.auth.virtualKey.description%",
+											"properties": {
+												"header": {
+													"type": "string",
+													"description": "%litellm.config.servers.auth.virtualKey.header.description%"
+												},
+												"value": {
+													"type": "string",
+													"description": "%litellm.config.servers.auth.virtualKey.value.description%"
+												}
+											}
+										}
+									}
+								},
+								"headers": {
+									"type": "object",
+									"description": "%litellm.config.servers.headers.description%",
+									"additionalProperties": {
+										"type": [
+											"string",
+											"number",
+											"boolean"
+										]
+									}
+								},
+								"models": {
+									"type": "object",
+									"additionalProperties": false,
+									"markdownDescription": "%litellm.config.servers.models.description%",
+									"properties": {
+										"parameters": {
+											"type": "object",
+											"additionalProperties": {
+												"type": "object"
+											},
+											"description": "%litellm.config.servers.models.parameters.description%"
+										},
+										"capabilities": {
+											"type": "object",
+											"additionalProperties": {
+												"type": "object"
+											},
+											"description": "%litellm.config.servers.models.capabilities.description%"
+										}
+									}
+								},
+								"discovery": {
+									"type": "object",
+									"additionalProperties": false,
+									"markdownDescription": "%litellm.config.servers.discovery.description%",
+									"properties": {
+										"expectedFailures": {
+											"type": "array",
+											"items": {
+												"type": "string",
+												"enum": [
+													"modelListing",
+													"modelInfo"
+												]
+											},
+											"uniqueItems": true,
+											"description": "%litellm.config.servers.discovery.expectedFailures.description%"
+										},
+										"declared": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											},
+											"uniqueItems": true,
+											"description": "%litellm.config.servers.discovery.declared.description%"
+										}
+									}
+								},
+								"budget": {
+									"type": "number",
+									"exclusiveMinimum": 0,
+									"description": "%litellm.config.servers.budget.description%"
+								}
 							}
 						}
 					}
-				},
-				"litellm-vscode-chat.defaultMaxOutputTokens": {
-					"type": "number",
-					"default": 16000,
-					"minimum": 1,
-					"description": "%litellm.config.defaultMaxOutputTokens.description%",
-					"markdownDeprecationMessage": "%litellm.config.defaultMaxOutputTokens.deprecation%"
-				},
-				"litellm-vscode-chat.defaultContextLength": {
-					"type": "number",
-					"default": 128000,
-					"minimum": 1,
-					"description": "%litellm.config.defaultContextLength.description%",
-					"markdownDeprecationMessage": "%litellm.config.defaultContextLength.deprecation%"
-				},
-				"litellm-vscode-chat.defaultMaxInputTokens": {
-					"type": [
-						"number",
-						"null"
-					],
-					"default": null,
-					"minimum": 1,
-					"description": "%litellm.config.defaultMaxInputTokens.description%",
-					"markdownDeprecationMessage": "%litellm.config.defaultMaxInputTokens.deprecation%"
-				},
-				"litellm-vscode-chat.promptCaching.enabled": {
-					"type": "boolean",
-					"default": true,
-					"description": "%litellm.config.promptCaching.enabled.description%"
-				},
-				"litellm-vscode-chat.modelParameters": {
-					"type": "object",
-					"default": {},
-					"description": "%litellm.config.modelParameters.description%",
-					"additionalProperties": {
-						"type": "object"
+				}
+			},
+			{
+				"title": "%litellm.config.section.models%",
+				"properties": {
+					"litellm-vscode-chat.models.parameters": {
+						"type": "object",
+						"default": {},
+						"markdownDescription": "%litellm.config.models.parameters.description%",
+						"additionalProperties": {
+							"type": "object"
+						}
+					},
+					"litellm-vscode-chat.models.capabilities": {
+						"type": "object",
+						"default": {},
+						"markdownDescription": "%litellm.config.models.capabilities.description%",
+						"additionalProperties": {
+							"type": "object"
+						}
+					},
+					"litellm-vscode-chat.models.openRouterCatalog": {
+						"type": "boolean",
+						"default": true,
+						"description": "%litellm.config.models.openRouterCatalog.description%"
 					}
-				},
-				"litellm-vscode-chat.modelCapabilities": {
-					"type": "object",
-					"default": {},
-					"markdownDescription": "%litellm.config.modelCapabilities.description%",
-					"additionalProperties": {
-						"type": "object"
+				}
+			},
+			{
+				"title": "%litellm.config.section.chat%",
+				"properties": {
+					"litellm-vscode-chat.chat.timeout": {
+						"type": "number",
+						"default": 300000,
+						"minimum": 1000,
+						"description": "%litellm.config.chat.timeout.description%"
+					},
+					"litellm-vscode-chat.chat.promptCaching": {
+						"type": "boolean",
+						"default": true,
+						"description": "%litellm.config.chat.promptCaching.description%"
 					}
-				},
-				"litellm-vscode-chat.openRouterCatalog.enabled": {
-					"type": "boolean",
-					"default": true,
-					"description": "%litellm.config.openRouterCatalog.enabled.description%"
-				},
-				"litellm-vscode-chat.headers": {
-					"type": "object",
-					"default": {},
-					"description": "%litellm.config.headers.description%",
-					"additionalProperties": {
-						"type": [
-							"string",
-							"number",
-							"boolean"
-						]
+				}
+			},
+			{
+				"title": "%litellm.config.section.discovery%",
+				"properties": {
+					"litellm-vscode-chat.discovery.timeout": {
+						"type": "number",
+						"default": 30000,
+						"minimum": 1000,
+						"description": "%litellm.config.discovery.timeout.description%"
+					},
+					"litellm-vscode-chat.discovery.cacheTtl": {
+						"type": "number",
+						"default": 3600000,
+						"minimum": 0,
+						"description": "%litellm.config.discovery.cacheTtl.description%"
 					}
-				},
-				"litellm-vscode-chat.maskApiKeyInput": {
-					"type": "boolean",
-					"default": true,
-					"description": "%litellm.config.maskApiKeyInput.description%"
-				},
-				"litellm-vscode-chat.requestTimeout": {
-					"type": "number",
-					"default": 300000,
-					"minimum": 1000,
-					"description": "%litellm.config.requestTimeout.description%"
-				},
-				"litellm-vscode-chat.discoveryTimeout": {
-					"type": "number",
-					"default": 30000,
-					"minimum": 1000,
-					"description": "%litellm.config.discoveryTimeout.description%"
-				},
-				"litellm-vscode-chat.discoveryCacheTtl": {
-					"type": "number",
-					"default": 3600000,
-					"minimum": 0,
-					"description": "%litellm.config.discoveryCacheTtl.description%"
+				}
+			},
+			{
+				"title": "%litellm.config.section.usage%",
+				"properties": {
+					"litellm-vscode-chat.usage.pollInterval": {
+						"type": "number",
+						"default": 300000,
+						"minimum": 0,
+						"description": "%litellm.config.usage.pollInterval.description%"
+					},
+					"litellm-vscode-chat.usage.alertThresholds": {
+						"type": "array",
+						"default": [
+							0.8,
+							0.95
+						],
+						"items": {
+							"type": "number",
+							"exclusiveMinimum": 0,
+							"maximum": 1
+						},
+						"uniqueItems": true,
+						"description": "%litellm.config.usage.alertThresholds.description%"
+					},
+					"litellm-vscode-chat.usage.statusBar": {
+						"type": "string",
+						"enum": [
+							"always",
+							"alerts-only",
+							"off"
+						],
+						"default": "always",
+						"description": "%litellm.config.usage.statusBar.description%"
+					}
+				}
+			},
+			{
+				"title": "%litellm.config.section.ui%",
+				"properties": {
+					"litellm-vscode-chat.ui.maskSecretInputs": {
+						"type": "boolean",
+						"default": true,
+						"description": "%litellm.config.ui.maskSecretInputs.description%"
+					}
 				}
 			}
-		}
+		]
 	},
 	"scripts": {
 		"prepare": "husky",

@@ -34,10 +34,15 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { DeclaredServerView } from "../extension/servers/serverSync";
-import { buildGroupArgs, GROUP_UPDATE_UNAVAILABLE_MESSAGE, parseServersSetting } from "../extension/servers/serverSync";
+import {
+	buildGroupArgs,
+	GROUP_UPDATE_UNAVAILABLE_MESSAGE,
+	inlineSecretValues,
+	parseServersSetting,
+} from "../extension/servers/serverSync";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
-import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY, SERVERS_SETTING_KEY } from "../shared/config/settings";
+import { MODEL_PARAMETERS_SETTING_KEY, SERVERS_SETTING_KEY } from "../shared/config/settings";
 import {
 	GROUP_MIGRATION_COMPLETE_KEY,
 	HAS_SHOWN_WELCOME_KEY,
@@ -87,8 +92,7 @@ export type MonkeyAction =
 	| { kind: "dashboard-junk"; payload: unknown }
 	| { kind: "chat"; verb: ChatVerb; a: number; b: number; pick: number }
 	| { kind: "chat-cancel"; chunkCount: number; cancelAfter: number }
-	| { kind: "set-model-parameters"; valid: boolean; serial: number }
-	| { kind: "set-headers"; valid: boolean; serial: number };
+	| { kind: "set-model-parameters"; valid: boolean; serial: number };
 
 export interface MonkeyCorpusEntry {
 	name: string;
@@ -122,32 +126,32 @@ function generateDashboardIntent(
 		case 0:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setNumberSetting", setting: "discoveryCacheTtl", value: 3600000 },
+				intent: { type: "setNumberSetting", setting: "discovery.cacheTtl", value: 3600000 },
 				expect: "ok",
 			};
 		case 1:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setNumberSetting", setting: "defaultMaxOutputTokens", value: 2048 + (serial % 3) * 2048 },
+				intent: { type: "setNumberSetting", setting: "discovery.timeout", value: 30000 + (serial % 3) * 2048 },
 				expect: "ok",
 			};
 		case 2:
 			// Below the spec minimum: validateNumberSetting refuses, nothing lands.
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setNumberSetting", setting: "requestTimeout", value: -1 - serial },
+				intent: { type: "setNumberSetting", setting: "chat.timeout", value: -1 - serial },
 				expect: "validation-error",
 			};
 		case 3:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setBooleanSetting", setting: "maskApiKeyInput", value: serial % 2 === 0 },
+				intent: { type: "setBooleanSetting", setting: "ui.maskSecretInputs", value: serial % 2 === 0 },
 				expect: "ok",
 			};
 		case 4:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "resetSetting", setting: random() < 0.5 ? "discoveryCacheTtl" : "maskApiKeyInput" },
+				intent: { type: "resetSetting", setting: random() < 0.5 ? "discovery.cacheTtl" : "ui.maskSecretInputs" },
 				expect: "ok",
 			};
 		case 5:
@@ -168,13 +172,13 @@ function generateDashboardIntent(
 		case 7:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setHeaders", value: { [`x-monkey-dash-${serial}`]: `dash-${serial}` } },
+				intent: { type: "setNumberSetting", setting: "discovery.cacheTtl", value: 60000 + serial },
 				expect: "ok",
 			};
 		case 8:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setHeaders", value: { [`bad header ${serial}`]: "v" } },
+				intent: { type: "setNumberSetting", setting: "chat.timeout", value: 1 },
 				expect: "validation-error",
 			};
 		case 9:
@@ -209,7 +213,7 @@ function generateJunkPayload(random: () => number, serial: number): unknown {
 		[],
 		{ type: serial },
 		{ type: "setNumberSetting" },
-		{ type: "setNumberSetting", setting: "requestTimeout", value: `${serial}` },
+		{ type: "setNumberSetting", setting: "chat.timeout", value: `${serial}` },
 		{ type: "ready", extra: serial },
 		{ type: "executeCommand", command: "workbench.action.closeWindow" },
 		{ type: "no-such-intent", value: serial },
@@ -291,10 +295,8 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 			actions.push(generateChat(random));
 		} else if (roll < 0.92) {
 			actions.push({ kind: "chat-cancel", chunkCount: 30, cancelAfter: 1 + Math.floor(random() * 5) });
-		} else if (roll < 0.96) {
-			actions.push({ kind: "set-model-parameters", valid: random() < 0.6, serial });
 		} else {
-			actions.push({ kind: "set-headers", valid: random() < 0.6, serial });
+			actions.push({ kind: "set-model-parameters", valid: random() < 0.6, serial });
 		}
 	}
 	return actions;
@@ -307,7 +309,7 @@ type HealthKind = "proxy" | "fake" | "dark";
 
 interface OracleEntry {
 	/** The raw settings entry as currently declared (post any redeclare mutation). */
-	entry: Record<string, string>;
+	entry: Record<string, unknown>;
 	/** JSON of the resolved group args at the label's first sync: the host group's immutable content. */
 	hostArgs: string;
 	health: HealthKind;
@@ -430,12 +432,12 @@ export class MonkeySession {
 		return vscode.workspace.getConfiguration(CONFIG_SECTION);
 	}
 
-	private readServersSetting(): Record<string, string>[] {
+	private readServersSetting(): Record<string, unknown>[] {
 		const raw = this.config().inspect(SERVERS_SETTING_KEY)?.globalValue;
-		return Array.isArray(raw) ? (raw as Record<string, string>[]).map((entry) => ({ ...entry })) : [];
+		return Array.isArray(raw) ? (raw as Record<string, unknown>[]).map((entry) => ({ ...entry })) : [];
 	}
 
-	private async writeServersSetting(entries: readonly Record<string, string>[]): Promise<void> {
+	private async writeServersSetting(entries: readonly Record<string, unknown>[]): Promise<void> {
 		await this.config().update(SERVERS_SETTING_KEY, entries, vscode.ConfigurationTarget.Global);
 	}
 
@@ -457,7 +459,7 @@ export class MonkeySession {
 	}
 
 	/** The real resolution rule: parse the entry as the engine would, resolve secrets inline-first. */
-	private resolvedArgs(entry: Record<string, string>, label: string): string {
+	private resolvedArgs(entry: Record<string, unknown>, label: string): string {
 		const parsed = expectDefined(
 			parseServersSetting([entry]).entries[0],
 			`oracle entry for ${label} must stay parseable`
@@ -472,7 +474,10 @@ export class MonkeySession {
 
 	private expectedSecretLocation(label: string, field: SecretFieldId): "settings" | "secure" | "none" {
 		const oracle = expectDefined(this.declared.get(label), `oracle entry for ${label}`);
-		if ((oracle.entry[field] ?? "").trim().length > 0) {
+		// The REAL inline rule over the parsed nested entry, so the oracle
+		// cannot drift from the engine's flattening of the auth object.
+		const parsed = expectDefined(parseServersSetting([oracle.entry]).entries[0], `oracle entry for ${label}`);
+		if (inlineSecretValues(parsed)[field] !== undefined) {
 			return "settings";
 		}
 		return this.stored.get(label)?.[field] !== undefined ? "secure" : "none";
@@ -508,14 +513,16 @@ export class MonkeySession {
 	 */
 	private async declare(label: string, credential: CredentialMode): Promise<void> {
 		const serial = ++this.probeCounter;
-		const entry: Record<string, string> = { label, baseUrl: this.env.baseUrl };
+		const entry: Record<string, unknown> = { label, baseUrl: this.env.baseUrl };
 		let health: HealthKind = "proxy";
 		switch (credential) {
 			case "inline":
-				entry.apiKey = this.env.apiKey;
+				entry.auth = { apiKey: this.env.apiKey };
 				break;
 			case "secure": {
-				// The blob lands BEFORE the entry, so the first sync pass resolves it.
+				// The blob lands BEFORE the entry, so the first sync pass resolves
+				// it; the entry itself carries no auth object (the stored slot
+				// activates the bearer on its own).
 				await this.setStoredSecret(label, "apiKey", this.env.apiKey);
 				const blob = this.stored.get(label) ?? {};
 				blob.apiKey = this.env.apiKey;
@@ -523,20 +530,23 @@ export class MonkeySession {
 				break;
 			}
 			case "virtual-key":
-				entry.virtualKeyHeader = "x-litellm-api-key";
-				entry.virtualKeyValue = this.env.apiKey;
+				entry.auth = { virtualKey: { header: "x-litellm-api-key", value: this.env.apiKey } };
 				break;
 			case "oauth":
 				entry.baseUrl = `${this.env.fakeUrl}/authed`;
-				entry.oauthTokenUrl = `${this.env.fakeUrl}/oauth/token`;
-				entry.oauthClientId = FAKE_OAUTH_CLIENT_ID;
-				entry.oauthClientSecret = FAKE_OAUTH_CLIENT_SECRET;
+				entry.auth = {
+					oauth: {
+						tokenUrl: `${this.env.fakeUrl}/oauth/token`,
+						clientId: FAKE_OAUTH_CLIENT_ID,
+						clientSecret: FAKE_OAUTH_CLIENT_SECRET,
+					},
+				};
 				health = "fake";
 				break;
 			case "bad-key": {
 				const mintedKey = `sk-monkey-${this.env.seed}-${serial}`;
 				this.minted.push(mintedKey);
-				entry.apiKey = mintedKey;
+				entry.auth = { apiKey: mintedKey };
 				health = "dark";
 				break;
 			}
@@ -649,7 +659,7 @@ export class MonkeySession {
 	}
 
 	/** The servers-setting entries the oracle expects, in declaration order. */
-	private expectedEntries(): Record<string, string>[] {
+	private expectedEntries(): Record<string, unknown>[] {
 		return [...this.declared.values()].map((oracle) => oracle.entry);
 	}
 
@@ -780,9 +790,6 @@ export class MonkeySession {
 			case "set-model-parameters":
 				await this.runSetModelParameters(action);
 				return;
-			case "set-headers":
-				await this.runSetHeaders(action);
-				return;
 		}
 	}
 
@@ -799,9 +806,6 @@ export class MonkeySession {
 				return;
 			case "setModelParameters":
 				this.expectedSettings.set(MODEL_PARAMETERS_SETTING_KEY, record.value);
-				return;
-			case "setHeaders":
-				this.expectedSettings.set(HEADERS_SETTING_KEY, record.value);
 				return;
 			default:
 				return;
@@ -939,27 +943,6 @@ export class MonkeySession {
 			assert.notStrictEqual(wire.model, "monkey-hax-model", "the provider-owned model field must not be overridable");
 			assert.ok(!reply.includes("monkey-hax-model"), "%params must not report a hijacked model");
 		}
-	}
-
-	/**
-	 * Direct settings write for custom headers. A valid header rides every
-	 * request (unobservable through the chat body, so the oracle is the chat
-	 * still succeeding); an invalid name is silently dropped at request time,
-	 * so the same chat MUST still succeed - a thrown request would mean the
-	 * invalid setting broke the transport.
-	 */
-	private async runSetHeaders(action: Extract<MonkeyAction, { kind: "set-headers" }>): Promise<void> {
-		const value = action.valid
-			? { [`x-monkey-${action.serial}`]: `monkey-${action.serial}` }
-			: { [`bad header ${action.serial}`]: "dropped", [`x-monkey-ok-${action.serial}`]: "kept" };
-		await this.config().update(HEADERS_SETTING_KEY, value, vscode.ConfigurationTarget.Global);
-		this.expectedSettings.set(HEADERS_SETTING_KEY, value);
-		const text = `headers-${action.serial}`;
-		assert.strictEqual(
-			await this.chat(PLAYBACK_MODEL.alias, `${COMMAND_SIGIL}echo:${text}`),
-			text,
-			"chat must keep working under the new headers setting"
-		);
 	}
 
 	// -- The probe bundle -------------------------------------------------------
@@ -1123,7 +1106,7 @@ export class MonkeySession {
 			[PLAYBACK_MODEL.alias]: this.countModels(models, PLAYBACK_MODEL.alias),
 			[FAKE_ANCHOR_ID]: this.countModels(models, FAKE_ANCHOR_ID),
 		};
-		const remaining = this.readServersSetting().filter((entry) => !(entry.label ?? "").startsWith(prefix));
+		const remaining = this.readServersSetting().filter((entry) => !String(entry.label ?? "").startsWith(prefix));
 		await this.writeServersSetting(remaining);
 		const drops = new Map<string, number>();
 		for (const label of [...this.declared.keys()]) {

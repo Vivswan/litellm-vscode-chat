@@ -2,7 +2,6 @@ import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseO
 import * as vscode from "vscode";
 import { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import {
-	getCustomHeaders,
 	getDiscoveryTimeout,
 	getModelParametersConfig,
 	getRequestTimeout,
@@ -45,6 +44,15 @@ export interface ChatRequestContext {
 export interface ServerConnection extends ServerWithKey {
 	oauth?: OAuthConfig;
 	virtualKey?: VirtualKeyConfig;
+	/**
+	 * The label naming the declared entry candidate for per-entry headers,
+	 * when one can match: a group's CONFIGURED label (never the URL-host
+	 * display fallback an unlabeled group renders under, which could collide
+	 * with a real entry label) or a registry server's own label - the same
+	 * identities the discovery side resolves entry capabilities and
+	 * expectedFailures with. Distinct from `label`, which is display text.
+	 */
+	entryLabel?: string | undefined;
 }
 
 /**
@@ -58,6 +66,8 @@ interface ResolvedConnection {
 	baseUrl: string;
 	apiKey: string;
 	rawModelId: string;
+	/** The label naming the declared entry candidate for per-entry configuration (headers); undefined when none can match. */
+	entryLabel: string | undefined;
 	oauth: OAuthConfig | undefined;
 	virtualKey: VirtualKeyConfig | undefined;
 }
@@ -86,6 +96,14 @@ export interface ChatClientOptions {
 	 * constructed without a provider (tests, the draft-connection probe).
 	 */
 	resolution?: ModelResolutionTable | undefined;
+	/**
+	 * Resolves a declared server entry's custom headers at request time, from
+	 * the entry's label and the server's base URL; injected like
+	 * getEntryModelParameters (headers live on the entry - there is no global
+	 * headers setting). Defaults to none: servers no declared entry matches
+	 * send no custom headers.
+	 */
+	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined) | undefined;
 }
 
 /**
@@ -100,6 +118,7 @@ export class ChatClient {
 		label: string,
 		baseUrl: string
 	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
+	private readonly getEntryHeaders: (label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined;
 	private readonly clients = new ServerClientCache();
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly resolution: ModelResolutionTable;
@@ -119,7 +138,20 @@ export class ChatClient {
 		this.logger = options.logger;
 		this.getServers = options.getServers ?? (() => Promise.resolve([]));
 		this.getEntryModelParameters = options.getEntryModelParameters ?? (() => undefined);
+		this.getEntryHeaders = options.getEntryHeaders ?? (() => undefined);
 		this.resolution = options.resolution ?? new ModelResolutionTable();
+	}
+
+	/**
+	 * The custom headers one call to `baseUrl` carries: the declared entry's
+	 * `headers` record when the entry-candidate label and URL identify one
+	 * (see ServerConnection.entryLabel for which labels qualify), none
+	 * otherwise. Copied because the client cache config mutates nothing but
+	 * expects an owned record.
+	 */
+	private customHeadersFor(entryLabel: string | undefined, baseUrl: string): Record<string, string> {
+		const headers = entryLabel !== undefined ? this.getEntryHeaders(entryLabel, baseUrl) : undefined;
+		return headers !== undefined ? { ...headers } : {};
 	}
 
 	applyRegistration(routes: Map<string, ModelRoute>, clearFirst: boolean): void {
@@ -139,7 +171,7 @@ export class ChatClient {
 	/** `expected` carries the entry's expected-failure declarations; see FetchModelsRequest. */
 	async fetchModels(server: ServerConnection, expected?: ExpectedDiscoveryFailures): Promise<FetchModelsResult> {
 		this.log("fetchModels called", { baseUrl: server.baseUrl, hasApiKey: !!server.apiKey, hasOAuth: !!server.oauth });
-		const customHeaders = getCustomHeaders(this.log);
+		const customHeaders = this.customHeadersFor(server.entryLabel, server.baseUrl);
 		const discoveryTimeout = getDiscoveryTimeout(this.log);
 		const client = this.clients.get({
 			serverId: server.id,
@@ -238,6 +270,9 @@ export class ChatClient {
 				baseUrl: groupServer.baseUrl,
 				apiKey: groupServer.apiKey,
 				rawModelId: model.id,
+				// The configured group label only; an unlabeled group resolves no
+				// entry configuration (its display label is a URL-host fallback).
+				entryLabel: groupServer.label,
 				oauth: groupServer.oauth,
 				virtualKey: groupServer.virtualKey,
 			};
@@ -256,6 +291,7 @@ export class ChatClient {
 				baseUrl: server.baseUrl,
 				apiKey: server.apiKey,
 				rawModelId: route.rawModelId,
+				entryLabel: server.label,
 				oauth: undefined,
 				virtualKey: undefined,
 			};
@@ -268,6 +304,7 @@ export class ChatClient {
 				baseUrl: soleServer.baseUrl,
 				apiKey: soleServer.apiKey,
 				rawModelId: model.id,
+				entryLabel: soleServer.label,
 				oauth: undefined,
 				virtualKey: undefined,
 			};
@@ -290,7 +327,7 @@ export class ChatClient {
 		const connection = await this.resolveConnection(model, metadata.server);
 
 		const promptCachingEnabled = isPromptCachingEnabled();
-		const customHeaders = getCustomHeaders(this.log);
+		const customHeaders = this.customHeadersFor(connection.entryLabel, connection.baseUrl);
 		const requestTimeout = getRequestTimeout(this.log);
 		// Capability gates for message conversion and token estimation, both
 		// re-narrowed at the host boundary by parseModelMetadata: the registered

@@ -3,7 +3,6 @@ import { useEffect, useId, useState } from "preact/hooks";
 import type {
 	DashboardModel,
 	ExtensionToWebviewMessage,
-	HeaderScalar,
 	ScopedRecordSetting,
 	SettingScope,
 	TransportErrorClassification,
@@ -20,20 +19,15 @@ import type {
 	CapabilityGroupIssues,
 	GroupHints,
 	GroupProblems,
-	HeaderRow,
 	PrefixGroup,
-	RowFieldProblem,
 } from "../../extension/dashboard/recordDraft";
 import {
 	directiveEligible,
 	directiveMarkedFields,
 	groupsFromJsonText,
-	headerRowsFromJsonText,
 	parseGroups,
-	parseHeaderRowsDetailed,
 	toGroups,
 	toggleDirectiveField,
-	toHeaderRows,
 } from "../../extension/dashboard/recordDraft";
 import { DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
@@ -42,7 +36,6 @@ import {
 	helpCapabilityPrefix,
 	helpCapabilityValue,
 	helpCatalogPicker,
-	helpCustomHeadersSection,
 	helpFallbackFlag,
 	helpFallbackFlagDisabled,
 	helpForceFlag,
@@ -56,16 +49,13 @@ import { IconAdd, IconBraces, IconTrash } from "./icons";
 import { newRequestId, postMessage } from "./vscodeApi";
 
 /**
- * The two editors' headings, exported so the settings form's filter matches
- * an editor by exactly the title it renders (the scalar rows' label rule).
- * Zero-arg functions so the localized text resolves at call time, not at
+ * The editor's heading, exported so the settings form's filter matches the
+ * editor by exactly the title it renders (the scalar rows' label rule).
+ * A zero-arg function so the localized text resolves at call time, not at
  * module load.
  */
 export function modelParametersTitle(): string {
 	return l10n.t("Model parameters");
-}
-export function headersTitle(): string {
-	return l10n.t("Custom headers");
 }
 
 /**
@@ -73,7 +63,7 @@ export function headersTitle(): string {
  * on an editor heading: rests visible like the docs link beside it (an h3 has
  * no hover band to reveal from).
  */
-function HeadingRevealButton({ title, settingId }: { title: string; settingId: "modelParameters" | "headers" }) {
+function HeadingRevealButton({ title, settingId }: { title: string; settingId: "models.parameters" }) {
 	return (
 		<button
 			type="button"
@@ -796,72 +786,6 @@ export function CapabilityGroupsFields({
 }
 
 /**
- * The header rows grid, ParamGroupsFields' flat sibling: presentational, with
- * problems field-aligned from parseHeaderRowsDetailed so only the offending
- * input renders invalid. readOnly renders the other-scope records as the same
- * grid, minus the row actions.
- */
-function HeaderRowsFields({
-	rows,
-	problems,
-	readOnly,
-	onChange,
-	onEnter,
-}: {
-	rows: readonly HeaderRow[];
-	problems: readonly (RowFieldProblem | undefined)[];
-	readOnly?: boolean;
-	onChange: (next: HeaderRow[]) => void;
-	onEnter?: () => void;
-}) {
-	const onKeyDown =
-		onEnter === undefined
-			? undefined
-			: (event: KeyboardEvent) => {
-					if (event.key === "Enter") {
-						onEnter();
-					}
-				};
-	const patchRow = (index: number, patch: Partial<HeaderRow>) => {
-		onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-	};
-	return (
-		<div class="rows">
-			{rows.map((row, index) => (
-				<div class="row" key={index}>
-					<input
-						type="text"
-						class={`key${problems[index]?.field === "name" ? " invalid" : ""}`}
-						aria-invalid={problems[index]?.field === "name"}
-						placeholder={l10n.t("Header, e.g. x-litellm-api-key")}
-						value={row.name}
-						disabled={readOnly}
-						onInput={(event) => patchRow(index, { name: event.currentTarget.value })}
-						onKeyDown={onKeyDown}
-					/>
-					<input
-						type="text"
-						class={`value${problems[index]?.field === "value" ? " invalid" : ""}`}
-						aria-invalid={problems[index]?.field === "value"}
-						placeholder={l10n.t("Value")}
-						value={row.valueText}
-						disabled={readOnly}
-						onInput={(event) => patchRow(index, { valueText: event.currentTarget.value })}
-						onKeyDown={onKeyDown}
-					/>
-					{readOnly === true ? null : (
-						<button type="button" class="quiet" onClick={() => onChange(rows.filter((_, i) => i !== index))}>
-							<IconTrash /> {l10n.t("Remove")}
-						</button>
-					)}
-					{problems[index] !== undefined ? <span class="error">{problems[index]?.message}</span> : null}
-				</div>
-			))}
-		</div>
-	);
-}
-
-/**
  * The Edit-as-JSON side door's textarea state: the text being edited plus the
  * snapshot it started from, so "changed at all" needs no re-parse.
  */
@@ -988,7 +912,7 @@ export function ModelParametersEditor({
 			<h3 class="head-with-icons">
 				{modelParametersTitle()} <Help text={helpModelParametersSection()} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
-				<HeadingRevealButton title={modelParametersTitle()} settingId="modelParameters" />
+				<HeadingRevealButton title={modelParametersTitle()} settingId="models.parameters" />
 			</h3>
 			<p class="hint">
 				{l10n.t(
@@ -1094,145 +1018,6 @@ export function ModelParametersEditor({
 						prefixHelp={helpModelParameterPrefix()}
 						onChange={() => undefined}
 					/>
-				</div>
-			))}
-		</section>
-	);
-}
-
-/**
- * Structured editor for litellm-vscode-chat.headers: one row per header,
- * values as scalars. Edits apply to one configuration scope; other scopes
- * render read-only below.
- */
-export function HeadersEditor({
-	scoped,
-	failure,
-	hidden,
-}: {
-	scoped: ScopedRecordSetting<HeaderScalar>;
-	failure: IntentFailure | undefined;
-	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
-	hidden?: boolean;
-}) {
-	const draft = useDraftRows(toHeaderRows(scoped.value), failure);
-	const rows = draft.rows;
-	// One parse per keystroke, like the model-parameters editor above.
-	const parse = parseHeaderRowsDetailed(rows);
-	const problems = parse.ok ? [] : parse.problems;
-	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
-	const jsonParse = json === undefined ? undefined : headerRowsFromJsonText(json.text);
-	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
-
-	// A JSON view without a live draft follows the store; any draft pins it,
-	// as in the model-parameters editor above.
-	const externalJsonText = JSON.stringify(scoped.value, null, 2) ?? "{}";
-	const draftPhase = draft.phase;
-	useEffect(() => {
-		if (draftPhase === "dirty" || draftPhase === "applying") {
-			return;
-		}
-		setJson((current) =>
-			current !== undefined && current.text === current.base && current.text !== externalJsonText
-				? { text: externalJsonText, base: externalJsonText }
-				: current
-		);
-	}, [externalJsonText, draftPhase]);
-
-	// Apply needs a real value change on top of a dirty draft; see the model-parameters editor above.
-	const changed = parse.ok && canonicalKey(parse.value) !== canonicalKey(scoped.value);
-	const canApply = draft.dirty && changed && !jsonBlocked;
-	const apply = () => {
-		if (!parse.ok || !canApply) {
-			return;
-		}
-		postMessage({ type: "setHeaders", value: parse.value });
-		draft.apply();
-		// The applied text becomes the JSON baseline; only edits after it count as discardable again.
-		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
-	};
-	const discard = () => {
-		draft.reset();
-		if (json !== undefined) {
-			setJson(seededJson(scoped.value));
-		}
-	};
-
-	return (
-		<section hidden={hidden}>
-			<h3 class="head-with-icons">
-				{headersTitle()} <Help text={helpCustomHeadersSection()} />
-				<HeadingRevealButton title={headersTitle()} settingId="headers" />
-			</h3>
-			<p class="hint">{l10n.t("Sent with every LiteLLM request. Prefer User settings for values that are secrets.")}</p>
-			<ScopeNote scoped={scoped} />
-			{json !== undefined ? (
-				<div class="record-json">
-					<textarea
-						rows={8}
-						aria-label={l10n.t("Custom headers as JSON")}
-						aria-invalid={jsonBlocked}
-						value={json.text}
-						onInput={(event) => {
-							const text = event.currentTarget.value;
-							setJson((current) => (current === undefined ? current : { ...current, text }));
-							const parsed = headerRowsFromJsonText(text);
-							if (parsed.ok) {
-								draft.update(parsed.rows);
-							}
-						}}
-					/>
-					{jsonParse !== undefined && !jsonParse.ok ? <p class="error">{jsonParse.problem}</p> : null}
-				</div>
-			) : (
-				<>
-					{rows.length === 0 ? <p class="empty">{l10n.t("No custom headers configured in this scope.")}</p> : null}
-					<HeaderRowsFields rows={rows} problems={problems} onChange={(next) => draft.update(next)} onEnter={apply} />
-				</>
-			)}
-			<FailureNote failure={failure} dirty={draft.dirty} />
-			<div class="toolbar">
-				{json === undefined ? (
-					<button type="button" class="secondary" onClick={() => draft.update([...rows, { name: "", valueText: "" }])}>
-						<IconAdd /> {l10n.t("Add header")}
-					</button>
-				) : null}
-				<button type="button" disabled={!canApply} onClick={apply}>
-					{l10n.t("Apply")}
-				</button>
-				<button
-					type="button"
-					class="secondary"
-					disabled={!draft.dirty && !(json !== undefined && json.text !== json.base)}
-					aria-label={l10n.t("Discard the unapplied header edits")}
-					onClick={discard}
-				>
-					{l10n.t("Discard")}
-				</button>
-				{json === undefined ? (
-					<button
-						type="button"
-						class="quiet"
-						disabled={!parse.ok}
-						onClick={() => {
-							if (parse.ok) {
-								setJson(seededJson(parse.value));
-							}
-						}}
-					>
-						{l10n.t("Edit as JSON")}
-					</button>
-				) : (
-					<button type="button" class="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
-						{l10n.t("Edit as rows")}
-					</button>
-				)}
-				<ApplyStatus phase={draft.phase} />
-			</div>
-			{scoped.otherScopes.map((other) => (
-				<div class="other-scope" key={other.scope}>
-					<OtherScopeNote scope={other.scope} />
-					<HeaderRowsFields rows={toHeaderRows(other.value)} problems={[]} readOnly onChange={() => undefined} />
 				</div>
 			))}
 		</section>

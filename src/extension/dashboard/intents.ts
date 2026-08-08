@@ -8,7 +8,7 @@
 
 import * as vscode from "vscode";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
-import { HEADERS_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
+import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
@@ -18,7 +18,6 @@ import { applyAdoptServer } from "./adopt";
 import type { DashboardIntent } from "./intentSchema";
 import type {
 	DashboardCommandId,
-	HeaderScalar,
 	NumberSettingId,
 	SaveServerPayload,
 	SecretDirective,
@@ -143,29 +142,6 @@ export function validateNumberSetting(setting: NumberSettingId, value: number | 
 	}
 	if (value < spec.minimum) {
 		return `${setting} must be at least ${spec.minimum}`;
-	}
-	return undefined;
-}
-
-/**
- * Header-record parity with the request path (shared/config/settings silently drops
- * offenders at request time): names must be RFC 9110 tokens and values must
- * pass the same isValidHeaderValue predicate normalizeCustomHeaders applies,
- * so an accepted write is a header that is actually sent. Also refuses
- * prototype-polluting keys, mirroring the editors' validation for messages
- * that bypassed them.
- */
-export function validateHeadersRecord(value: Readonly<Record<string, HeaderScalar>>): string | undefined {
-	for (const [name, headerValue] of Object.entries(value)) {
-		if (isUnsafeRecordKey(name)) {
-			return `"${name}" is a reserved name and cannot be used as a header name`;
-		}
-		if (!isValidHeaderName(name)) {
-			return `"${name}" is not a valid HTTP header name`;
-		}
-		if (!isValidHeaderValue(String(headerValue))) {
-			return `The value of header "${name}" cannot be sent as an HTTP header`;
-		}
 	}
 	return undefined;
 }
@@ -368,14 +344,6 @@ export async function executeDashboardIntent(
 				throw new DashboardValidationError(problem);
 			}
 			await env.updateSetting(MODEL_PARAMETERS_SETTING_KEY, intent.value);
-			return undefined;
-		}
-		case "setHeaders": {
-			const problem = validateHeadersRecord(intent.value);
-			if (problem !== undefined) {
-				throw new DashboardValidationError(problem);
-			}
-			await env.updateSetting(HEADERS_SETTING_KEY, intent.value);
 			return undefined;
 		}
 		case "saveServerSetting": {

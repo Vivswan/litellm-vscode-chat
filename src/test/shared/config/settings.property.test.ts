@@ -1,9 +1,7 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { validateHeadersRecord } from "../../../extension/dashboard/intents";
 import { normalizeCustomHeaders } from "../../../shared/config/settings";
-import type { HeaderScalar } from "../../../shared/util/headers";
-import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../../../shared/util/headers";
+import { HEADER_NAME_PATTERN, isValidHeaderValue } from "../../../shared/util/headers";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
@@ -80,45 +78,13 @@ suite("shared/config/settings normalizeCustomHeaders properties", () => {
 		);
 	});
 
-	test("a record the dashboard validator accepts round-trips whole: every accepted write is sent", () => {
-		// validateHeadersRecord guards dashboard setHeaders intents; the request
-		// path re-reads the written setting through normalizeCustomHeaders. If
-		// the validator accepted something the normalizer drops, a write would
-		// silently not be sent - this pins the accepted domain. The converse
-		// does not hold (see the padded-name test below), so this property says
-		// nothing about names only the normalizer takes.
-		const scalarArb: fc.Arbitrary<HeaderScalar> = fc.oneof(
-			fc.string({ maxLength: 24 }),
-			fc.double({ noNaN: true, noDefaultInfinity: true }),
-			fc.boolean()
-		);
-		fc.assert(
-			fc.property(fc.dictionary(headerNameArb, scalarArb, { maxKeys: 8 }), (record) => {
-				fc.pre(Object.values(record).every(isHeaderScalar));
-				const verdict = validateHeadersRecord(record);
-				const normalized = normalizeCustomHeaders(record);
-				if (verdict === undefined) {
-					assert.strictEqual(
-						Object.keys(normalized).length,
-						Object.keys(record).length,
-						"an accepted record must survive normalization entry for entry"
-					);
-					for (const [name, value] of Object.entries(record)) {
-						assert.strictEqual(normalized[name], String(value));
-					}
-				}
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED }
-		);
-	});
-
-	test("padded names trim in settings but the dashboard editor refuses them (pinned asymmetry)", () => {
+	test("padded names trim, and colliding names collapse to one header with the first winning", () => {
 		// headerNameSchema trims before matching, so a hand-authored padded name
-		// is sent under its trimmed form; validateHeadersRecord checks the raw
-		// name and refuses, so the dashboard cannot create such an entry. Two
-		// names that collide after trimming collapse to one header, last wins.
+		// is sent under its trimmed form. Two names that collide after trimming
+		// (or that differ only by case) are one HTTP header: the first one in
+		// the object wins and the collision is reported as a diagnostic.
 		assert.deepStrictEqual(normalizeCustomHeaders({ " x": "1" }), { x: "1" });
-		assert.notStrictEqual(validateHeadersRecord({ " x": "1" }), undefined);
-		assert.deepStrictEqual(normalizeCustomHeaders({ x: "a", " x": "b" }), { x: "b" });
+		assert.deepStrictEqual(normalizeCustomHeaders({ x: "a", " x": "b" }), { x: "a" });
+		assert.deepStrictEqual(normalizeCustomHeaders({ "X-Env": "a", "x-env": "b" }), { "X-Env": "a" });
 	});
 });

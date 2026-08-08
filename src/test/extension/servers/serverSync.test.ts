@@ -29,6 +29,11 @@ import {
 	ServerSyncEngine,
 	updateServerSecret,
 } from "../../../extension/servers/serverSync";
+import {
+	entryDeclaredModelsFor,
+	entryHeadersFor,
+	rawDeclaredLabels,
+} from "../../../extension/servers/serverSync/setting";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { CMD } from "../../../shared/config/commandIds";
 import { SERVER_SYNC_FINGERPRINTS_KEY, serverSecretsKey } from "../../../shared/config/storageKeys";
@@ -133,7 +138,7 @@ suite("extension/servers/serverSync", () => {
 	suite("parseServersSetting", () => {
 		test("keeps usable entries and reports the unusable ones", () => {
 			const { entries, problems } = parseServersSetting([
-				{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1", extra: "ignored" },
+				{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-1" }, extra: "ignored" },
 				{ label: "  ", baseUrl: "http://x" },
 				{ baseUrl: "http://x" },
 				"not an object",
@@ -275,7 +280,7 @@ suite("extension/servers/serverSync", () => {
 		test("a first pass upserts every entry with resolved secrets and records fingerprints", async () => {
 			const recorded = makeSyncEnv(
 				[
-					{ label: "A", baseUrl: "http://a.test", apiKey: "sk-a" },
+					{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-a" } },
 					{ label: "B", baseUrl: "http://b.test" },
 				],
 				{ B: { apiKey: "sk-b-stored" } }
@@ -977,8 +982,8 @@ suite("extension/servers/serverSync", () => {
 			// would match nothing, so the pass skips every entry the way it
 			// skips unreadable secrets: classified error, stored records carried.
 			const setting = [
-				{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" },
-				{ label: "New", baseUrl: "http://new.test", apiKey: "sk-2" },
+				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } },
+				{ label: "New", baseUrl: "http://new.test", auth: { apiKey: "sk-2" } },
 			];
 			const recorded = makeSyncEnv(setting);
 			recorded.fingerprints = { A: "durable-record" };
@@ -1000,7 +1005,7 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("the pause lifts once the salt confirms durable again", async () => {
-			const setting = [{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" }];
+			const setting = [{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } }];
 			const recorded = makeSyncEnv(setting);
 			recorded.saltDurable = false;
 			const engine = new ServerSyncEngine(recorded.env);
@@ -1019,8 +1024,8 @@ suite("extension/servers/serverSync", () => {
 			// at pass start: a group created after the store mutated could only
 			// ever be proven by a fingerprint no later session can recompute.
 			const setting = [
-				{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" },
-				{ label: "B", baseUrl: "http://b.test", apiKey: "sk-2" },
+				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } },
+				{ label: "B", baseUrl: "http://b.test", auth: { apiKey: "sk-2" } },
 			];
 			const recorded = makeSyncEnv(setting);
 			// Pass-start confirm, A's pre-add confirm, then the mutation lands.
@@ -1164,9 +1169,7 @@ suite("extension/servers/serverSync", () => {
 					{
 						label: "A",
 						baseUrl: "http://a.test",
-						apiKey: "sk-inline",
-						oauthTokenUrl: "https://idp.test/token",
-						oauthClientId: "client",
+						auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "client", apiKey: "sk-inline" } },
 					},
 				],
 				{ A: { oauthClientSecret: "oauth-secret" } }
@@ -1189,7 +1192,7 @@ suite("extension/servers/serverSync", () => {
 		test("the declared view carries the group client ID its resolved configuration produces", async () => {
 			const recorded = makeSyncEnv(
 				[
-					{ label: "A", baseUrl: "http://x.test", apiKey: "sk-a" },
+					{ label: "A", baseUrl: "http://x.test", auth: { apiKey: "sk-a" } },
 					{ label: "B", baseUrl: "http://x.test" },
 				],
 				{ B: { apiKey: "sk-b" } }
@@ -1221,8 +1224,8 @@ suite("extension/servers/serverSync", () => {
 			// entries apart; the label-agnostic connection ID is what both share,
 			// so the dashboard join can hand a pre-label group's snapshot to both.
 			const recorded = makeSyncEnv([
-				{ label: "A", baseUrl: "http://x.test", apiKey: "sk-shared" },
-				{ label: "B", baseUrl: "http://x.test", apiKey: "sk-shared" },
+				{ label: "A", baseUrl: "http://x.test", auth: { apiKey: "sk-shared" } },
+				{ label: "B", baseUrl: "http://x.test", auth: { apiKey: "sk-shared" } },
 			]);
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
@@ -1250,11 +1253,9 @@ suite("extension/servers/serverSync", () => {
 					{
 						label: "OAuth",
 						baseUrl: "http://oauth.test",
-						oauthTokenUrl: "https://idp.test/token",
-						oauthClientId: "client",
-						oauthScopes: "read write",
+						auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "client", scopes: "read write" } },
 					},
-					{ label: "VirtualKey", baseUrl: "http://vk.test", virtualKeyHeader: "x-litellm-api-key" },
+					{ label: "VirtualKey", baseUrl: "http://vk.test", auth: { virtualKey: { header: "x-litellm-api-key" } } },
 				],
 				{ OAuth: { oauthClientSecret: "cs-1" }, VirtualKey: { virtualKeyValue: "vk-1" } }
 			);
@@ -1287,7 +1288,7 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("no log line carries a secret, only booleans", async () => {
-			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test", apiKey: "sk-very-secret" }]);
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-very-secret" } }]);
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
 
@@ -1368,14 +1369,16 @@ suite("extension/servers/serverSync", () => {
 				{
 					label: "Prod",
 					baseUrl: "http://prod.test",
-					// JSON.parse so __proto__ is an own key (an object literal would
-					// set the prototype instead of a property).
-					modelParameters: JSON.parse(
-						'{"gpt-4": {"temperature": 0.2, "stop": ["END"]}, "claude": "not a record", "__proto__": {"polluted": true}}'
-					) as unknown,
+					models: {
+						// JSON.parse so __proto__ is an own key (an object literal would
+						// set the prototype instead of a property).
+						parameters: JSON.parse(
+							'{"gpt-4": {"temperature": 0.2, "stop": ["END"]}, "claude": "not a record", "__proto__": {"polluted": true}}'
+						) as unknown,
+					},
 				},
-				{ label: "Junk", baseUrl: "http://junk.test", modelParameters: "junk" },
-				{ label: "Empty", baseUrl: "http://empty.test", modelParameters: {} },
+				{ label: "Junk", baseUrl: "http://junk.test", models: { parameters: "junk" } },
+				{ label: "Empty", baseUrl: "http://empty.test", models: { parameters: {} } },
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
@@ -1387,14 +1390,14 @@ suite("extension/servers/serverSync", () => {
 		});
 
 		test("acceptedEntry resolves the entry with its modelParameters, for the request path's read", () => {
-			const raw = [{ label: "Prod", baseUrl: "http://prod.test", modelParameters: { "gpt-4": { top_p: 0.9 } } }];
+			const raw = [{ label: "Prod", baseUrl: "http://prod.test", models: { parameters: { "gpt-4": { top_p: 0.9 } } } }];
 			assert.deepStrictEqual(acceptedEntry(raw, "Prod")?.entry.modelParameters, { "gpt-4": { top_p: 0.9 } });
 		});
 
 		test("entryModelParametersFor resolves only when the label and the normalized base URL agree", () => {
 			const raw = [
-				{ label: "Prod", baseUrl: "http://prod.test/", modelParameters: { "gpt-4": { top_p: 0.9 } } },
-				{ label: "Stage", baseUrl: "http://stage.test", modelParameters: { "gpt-4": { top_p: 0.2 } } },
+				{ label: "Prod", baseUrl: "http://prod.test/", models: { parameters: { "gpt-4": { top_p: 0.9 } } } },
+				{ label: "Stage", baseUrl: "http://stage.test", models: { parameters: { "gpt-4": { top_p: 0.2 } } } },
 			];
 			assert.deepStrictEqual(
 				entryModelParametersFor(raw, "Prod", "http://prod.test"),
@@ -1427,7 +1430,7 @@ suite("extension/servers/serverSync", () => {
 
 		test("editing an entry's modelParameters neither re-pushes its group nor changes its fingerprint", async () => {
 			const recorded = makeSyncEnv([
-				{ label: "A", baseUrl: "http://a.test", modelParameters: { "gpt-4": { temperature: 0.2 } } },
+				{ label: "A", baseUrl: "http://a.test", models: { parameters: { "gpt-4": { temperature: 0.2 } } } },
 			]);
 			const engine = new ServerSyncEngine(recorded.env);
 			await engine.syncNow();
@@ -1437,7 +1440,9 @@ suite("extension/servers/serverSync", () => {
 			assert.ok(printed !== undefined);
 			assert.deepStrictEqual(engine.getDeclared()[0]?.modelParameters, { "gpt-4": { temperature: 0.2 } });
 
-			recorded.setting = [{ label: "A", baseUrl: "http://a.test", modelParameters: { "gpt-4": { temperature: 0.9 } } }];
+			recorded.setting = [
+				{ label: "A", baseUrl: "http://a.test", models: { parameters: { "gpt-4": { temperature: 0.9 } } } },
+			];
 			await engine.syncNow();
 			assert.strictEqual(recorded.upserts.length, 1, "an unforced pass reads the entry as unchanged");
 			assert.strictEqual(recorded.fingerprints.A, printed);
@@ -1456,19 +1461,31 @@ suite("extension/servers/serverSync", () => {
 				{
 					label: "Prod",
 					baseUrl: "http://prod.test",
-					modelCapabilities: JSON.parse(
-						'{"gpt-4": {"context_length": 200000, "supports_vision": true}, "claude": "not a record", "__proto__": {"polluted": true}}'
-					) as unknown,
-					expectedFailures: ["modelInfo", "modelListing", "modelInfo", "not-a-category", 42],
+					models: {
+						capabilities: JSON.parse(
+							'{"gpt-4": {"context_length": 200000, "supports_vision": true}, "claude": "not a record", "__proto__": {"polluted": true}}'
+						) as unknown,
+					},
+					discovery: { expectedFailures: ["modelInfo", "modelListing", "modelInfo", "not-a-category", 42] },
 				},
-				{ label: "Junk", baseUrl: "http://junk.test", modelCapabilities: "junk", expectedFailures: "junk" },
-				{ label: "Empty", baseUrl: "http://empty.test", modelCapabilities: {}, expectedFailures: [] },
+				{
+					label: "Junk",
+					baseUrl: "http://junk.test",
+					models: { capabilities: "junk" },
+					discovery: { expectedFailures: "junk" },
+				},
+				{
+					label: "Empty",
+					baseUrl: "http://empty.test",
+					models: { capabilities: {} },
+					discovery: { expectedFailures: [] },
+				},
 				{ label: "Bare", baseUrl: "http://bare.test" },
 			]);
 
 			// Unknown expectedFailures values are counted, never echoed: the
 			// problems are logged and the tokens are user text.
-			assert.deepStrictEqual(problems, ["entry 1 lists 2 unknown expectedFailures value(s), ignored"]);
+			assert.deepStrictEqual(problems, ["entry 1 lists 2 unknown discovery.expectedFailures value(s), ignored"]);
 			assert.deepStrictEqual(entries[0]?.modelCapabilities, {
 				"gpt-4": { context_length: 200000, supports_vision: true },
 			});
@@ -1484,10 +1501,14 @@ suite("extension/servers/serverSync", () => {
 				{
 					label: "Prod",
 					baseUrl: "http://prod.test/",
-					modelCapabilities: { "gpt-4": { supports_reasoning: true } },
-					expectedFailures: ["modelInfo"],
+					models: { capabilities: { "gpt-4": { supports_reasoning: true } } },
+					discovery: { expectedFailures: ["modelInfo"] },
 				},
-				{ label: "Stage", baseUrl: "http://stage.test", modelCapabilities: { "gpt-4": { supports_vision: true } } },
+				{
+					label: "Stage",
+					baseUrl: "http://stage.test",
+					models: { capabilities: { "gpt-4": { supports_vision: true } } },
+				},
 			];
 			assert.deepStrictEqual(
 				entryModelCapabilitiesFor(raw, "Prod", "http://prod.test"),
@@ -1538,8 +1559,8 @@ suite("extension/servers/serverSync", () => {
 				{
 					label: "A",
 					baseUrl: "http://a.test",
-					modelCapabilities: { "gpt-4": { supports_vision: true } },
-					expectedFailures: ["modelInfo"],
+					models: { capabilities: { "gpt-4": { supports_vision: true } } },
+					discovery: { expectedFailures: ["modelInfo"] },
 				},
 			]);
 			const engine = new ServerSyncEngine(recorded.env);
@@ -1559,8 +1580,8 @@ suite("extension/servers/serverSync", () => {
 				{
 					label: "A",
 					baseUrl: "http://a.test",
-					modelCapabilities: { "gpt-4": { supports_vision: false, context_length: 1000000 } },
-					expectedFailures: ["modelListing"],
+					models: { capabilities: { "gpt-4": { supports_vision: false, context_length: 1000000 } } },
+					discovery: { expectedFailures: ["modelListing"] },
 				},
 			];
 			await engine.syncNow();
@@ -1619,11 +1640,14 @@ suite("extension/servers/serverSync", () => {
 				{
 					label: "Mixed",
 					baseUrl: "http://mixed.test",
-					apiKey: "sk-inline",
-					virtualKeyHeader: "x-vk",
-					virtualKeyValue: "vk-inline",
-					oauthTokenUrl: "https://idp.test/token",
-					oauthClientId: "client-1",
+					auth: {
+						oauth: {
+							tokenUrl: "https://idp.test/token",
+							clientId: "client-1",
+							apiKey: "sk-inline",
+							virtualKey: { header: "x-vk", value: "vk-inline" },
+						},
+					},
 				},
 				{ label: "Secure", baseUrl: "http://secure.test" },
 			];
@@ -1668,7 +1692,7 @@ suite("extension/servers/serverSync", () => {
 				// getConfiguration, so withConfig serves it the fixture entry whose
 				// apiKey (the first quick-pick field) sits inline.
 				await withConfig(
-					{ servers: [{ label: "Dormancy Probe", baseUrl: "http://dormant.test", apiKey: "sk-inline" }] },
+					{ servers: [{ label: "Dormancy Probe", baseUrl: "http://dormant.test", auth: { apiKey: "sk-inline" } }] },
 					async () => {
 						await vscode.commands.executeCommand(CMD.setServerSecret);
 						assert.strictEqual(warnings.length, 1, "storing behind an inline value must warn");
@@ -1782,5 +1806,340 @@ suite("extension/servers/serverSync: createServerSyncEnv fingerprint persistence
 			{ A: "first" },
 			"the write after the mutation is refused"
 		);
+	});
+});
+
+suite("extension/servers/serverSync: the nested entry shape", () => {
+	const parseOne = (entry: Record<string, unknown>) =>
+		parseServersSetting([{ label: "S", baseUrl: "http://s.test", ...entry }]);
+
+	suite("auth forms", () => {
+		test("each single form flattens onto the internal credential fields", () => {
+			const apiKey = parseOne({ auth: { apiKey: "sk-1" } });
+			assert.deepStrictEqual(apiKey.entries[0], { label: "S", baseUrl: "http://s.test", apiKey: "sk-1" });
+
+			const oauth = parseOne({
+				auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c1", clientSecret: "shh", scopes: "read" } },
+			});
+			assert.deepStrictEqual(oauth.entries[0], {
+				label: "S",
+				baseUrl: "http://s.test",
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "c1",
+				oauthClientSecret: "shh",
+				oauthScopes: "read",
+			});
+
+			const virtualKey = parseOne({ auth: { virtualKey: { header: "x-litellm-key", value: "vk-1" } } });
+			assert.deepStrictEqual(virtualKey.entries[0], {
+				label: "S",
+				baseUrl: "http://s.test",
+				virtualKeyHeader: "x-litellm-key",
+				virtualKeyValue: "vk-1",
+			});
+		});
+
+		test("the oauth companions nest inside the oauth object", () => {
+			const { entries, problems } = parseOne({
+				auth: {
+					oauth: {
+						tokenUrl: "https://idp.test/token",
+						clientId: "c1",
+						apiKey: "sk-companion",
+						virtualKey: { header: "x-vk", value: "vk-companion" },
+					},
+				},
+			});
+			assert.deepStrictEqual(problems, []);
+			assert.deepStrictEqual(entries[0], {
+				label: "S",
+				baseUrl: "http://s.test",
+				apiKey: "sk-companion",
+				oauthTokenUrl: "https://idp.test/token",
+				oauthClientId: "c1",
+				virtualKeyHeader: "x-vk",
+				virtualKeyValue: "vk-companion",
+			});
+		});
+
+		test("the apiKey form may carry a sibling virtualKey companion (forms rank oauth > apiKey > virtualKey)", () => {
+			const { entries, problems } = parseOne({
+				auth: { apiKey: "sk-1", virtualKey: { header: "x-vk", value: "vk-1" } },
+			});
+			assert.deepStrictEqual(problems, []);
+			assert.deepStrictEqual(entries[0], {
+				label: "S",
+				baseUrl: "http://s.test",
+				apiKey: "sk-1",
+				virtualKeyHeader: "x-vk",
+				virtualKeyValue: "vk-1",
+			});
+		});
+
+		test("a form waiting for its secret VALUE is not misconfiguration: the entry works without the value", () => {
+			// The normal add-entry-then-set-secret state (docs: servers.md,
+			// Authentication): the shape is complete, only the secret is elsewhere.
+			const virtualKey = parseOne({ auth: { virtualKey: { header: "x-vk" } } });
+			assert.deepStrictEqual(virtualKey.problems, []);
+			assert.deepStrictEqual(virtualKey.entries[0], {
+				label: "S",
+				baseUrl: "http://s.test",
+				virtualKeyHeader: "x-vk",
+			});
+
+			const emptyApiKey = parseOne({ auth: { apiKey: "" } });
+			assert.deepStrictEqual(emptyApiKey.problems, []);
+			assert.deepStrictEqual(emptyApiKey.entries[0], { label: "S", baseUrl: "http://s.test" });
+		});
+
+		test("misconfigured auth skips the entry with a diagnostic: sibling forms beside oauth", () => {
+			const { entries, problems } = parseOne({
+				auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c1" }, apiKey: "sk-1" },
+			});
+			assert.deepStrictEqual(entries, []);
+			assert.ok(
+				problems.some((problem) => problem.includes("companions belong inside the oauth object")),
+				`${problems}`
+			);
+			assert.ok(
+				problems.some((problem) => problem.includes("misconfigured")),
+				`${problems}`
+			);
+		});
+
+		test("misconfigured auth: shape-incomplete oauth and virtualKey (config-shape errors never guess)", () => {
+			const noClientId = parseOne({ auth: { oauth: { tokenUrl: "https://idp.test/token" } } });
+			assert.deepStrictEqual(noClientId.entries, []);
+			assert.ok(noClientId.problems.some((problem) => problem.includes("incomplete auth.oauth")));
+
+			const noHeader = parseOne({ auth: { virtualKey: { value: "vk-1" } } });
+			assert.deepStrictEqual(noHeader.entries, []);
+			assert.ok(noHeader.problems.some((problem) => problem.includes("without a usable header name")));
+
+			const badHeader = parseOne({ auth: { virtualKey: { header: "bad header", value: "vk-1" } } });
+			assert.deepStrictEqual(badHeader.entries, []);
+			assert.ok(badHeader.problems.some((problem) => problem.includes("not a valid HTTP header name")));
+		});
+
+		test("misconfigured auth: unknown keys are named (a typo must not silently read as no auth)", () => {
+			const { entries, problems } = parseOne({ auth: { apikey: "sk-1" } });
+			assert.deepStrictEqual(entries, []);
+			assert.ok(
+				problems.some((problem) => problem.includes('unknown auth key "apikey"')),
+				`${problems}`
+			);
+
+			const emptyAuth = parseOne({ auth: {} });
+			assert.deepStrictEqual(emptyAuth.entries, []);
+			assert.ok(emptyAuth.problems.some((problem) => problem.includes("configures no form")));
+
+			const notAnObject = parseOne({ auth: "sk-1" });
+			assert.deepStrictEqual(notAnObject.entries, []);
+			assert.ok(notAnObject.problems.some((problem) => problem.includes("not an object")));
+		});
+
+		test("a misconfigured entry stays PRESENT: rawDeclaredLabels keeps its label, so no removal is inferred", () => {
+			const raw = [{ label: "S", baseUrl: "http://s.test", auth: { apiKey: 42 } }];
+			assert.deepStrictEqual(parseServersSetting(raw).entries, []);
+			assert.deepStrictEqual([...rawDeclaredLabels(raw)], ["S"]);
+		});
+	});
+
+	suite("headers, discovery.declared, and budget", () => {
+		test("headers parse under the request path's charset rules; case collisions keep the first and report", () => {
+			const { entries, problems } = parseOne({
+				headers: { "X-Env": "prod", "x-env": "stage", "bad header": "v", "x-count": 2 },
+			});
+			assert.deepStrictEqual(entries[0]?.headers, { "X-Env": "prod", "x-count": "2" });
+			assert.ok(
+				problems.some((problem) => problem.includes("repeats an earlier name")),
+				`${problems}`
+			);
+			assert.ok(
+				problems.some((problem) => problem.includes("invalid custom header name")),
+				`${problems}`
+			);
+		});
+
+		test("discovery.declared keeps usable exact IDs, deduplicated; junk entries are counted", () => {
+			const { entries, problems } = parseOne({
+				discovery: { declared: ["deepseek-r1", "deepseek-r1", "  ", 42, "qwen"] },
+			});
+			assert.deepStrictEqual(entries[0]?.declaredModels, ["deepseek-r1", "qwen"]);
+			assert.ok(
+				problems.some((problem) => problem.includes("2 unusable discovery.declared value(s)")),
+				`${problems}`
+			);
+		});
+
+		test("an invalid budget is a diagnostic and is ignored; the entry stays usable (it is not auth)", () => {
+			const invalid = parseOne({ budget: 0 });
+			assert.strictEqual(invalid.entries.length, 1);
+			assert.ok(!("budget" in (invalid.entries[0] ?? {})));
+			assert.ok(invalid.problems.some((problem) => problem.includes("budget")));
+
+			const valid = parseOne({ budget: 50 });
+			assert.strictEqual(valid.entries[0]?.budget, 50);
+			assert.deepStrictEqual(valid.problems, []);
+		});
+
+		test("the accessors resolve headers and declared models only when label and normalized base URL agree", () => {
+			const raw = [
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test/",
+					headers: { "x-env": "prod" },
+					discovery: { declared: ["deepseek-r1"] },
+				},
+			];
+			assert.deepStrictEqual(entryHeadersFor(raw, "Prod", "http://prod.test"), { "x-env": "prod" });
+			assert.deepStrictEqual(entryDeclaredModelsFor(raw, "Prod", "http://prod.test"), ["deepseek-r1"]);
+			assert.strictEqual(entryHeadersFor(raw, "Prod", "http://other.test"), undefined);
+			assert.strictEqual(entryDeclaredModelsFor(raw, "Nope", "http://prod.test"), undefined);
+		});
+
+		test("none of headers, declaredModels, or budget enter the group args or their fingerprint", () => {
+			const bare: DeclaredServer = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1" };
+			const withFields: DeclaredServer = {
+				...bare,
+				headers: { "x-env": "prod" },
+				declaredModels: ["deepseek-r1"],
+				budget: 50,
+			};
+			const stored: StoredServerSecrets = {};
+			assert.deepStrictEqual(buildGroupArgs(withFields, stored), buildGroupArgs(bare, stored));
+			assert.strictEqual(
+				fingerprint(JSON.stringify(buildGroupArgs(withFields, stored))),
+				fingerprint(JSON.stringify(buildGroupArgs(bare, stored)))
+			);
+		});
+	});
+
+	suite("FINGERPRINT STABILITY across the entry restructure (R3's migration depends on this pin)", () => {
+		// The migration rewrites entries from the flat pre-redesign fields to
+		// the nested auth shape WITHOUT touching SERVER_SYNC_FINGERPRINTS_KEY
+		// or any SecretStorage value. That is sound only while a migrated entry
+		// flattens to byte-identical group args - same keys, same values, same
+		// insertion order - as its flat original produced, for EVERY credential
+		// combination the old world honored. The "flat" side below is the
+		// parsed DeclaredServer the old parser produced (the internal shape is
+		// unchanged); the nested side goes through the live parser.
+		const pin = (flat: DeclaredServer, nested: Record<string, unknown>, stored: StoredServerSecrets = {}) => {
+			const { entries, problems } = parseServersSetting([nested]);
+			assert.deepStrictEqual(problems, [], JSON.stringify(nested));
+			const parsed = entries[0];
+			assert.ok(parsed, "the nested entry must parse");
+			const flatArgs = buildGroupArgs(flat, stored);
+			const nestedArgs = buildGroupArgs(parsed, stored);
+			assert.deepStrictEqual(nestedArgs, flatArgs);
+			assert.deepStrictEqual(Object.keys(nestedArgs), Object.keys(flatArgs), "key order is part of the rendering");
+			assert.strictEqual(fingerprint(JSON.stringify(nestedArgs)), fingerprint(JSON.stringify(flatArgs)));
+		};
+
+		test("apiKey only", () => {
+			pin(
+				{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1" },
+				{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-1" } }
+			);
+		});
+
+		test("oauth with every field", () => {
+			pin(
+				{
+					label: "A",
+					baseUrl: "http://a.test",
+					oauthTokenUrl: "https://idp.test/token",
+					oauthClientId: "c1",
+					oauthClientSecret: "shh",
+					oauthScopes: "read write",
+				},
+				{
+					label: "A",
+					baseUrl: "http://a.test",
+					auth: {
+						oauth: { tokenUrl: "https://idp.test/token", clientId: "c1", clientSecret: "shh", scopes: "read write" },
+					},
+				}
+			);
+		});
+
+		test("the old apiKey+oauth combo maps to the oauth apiKey companion", () => {
+			pin(
+				{
+					label: "A",
+					baseUrl: "http://a.test",
+					apiKey: "sk-1",
+					oauthTokenUrl: "https://idp.test/token",
+					oauthClientId: "c1",
+				},
+				{
+					label: "A",
+					baseUrl: "http://a.test",
+					auth: { oauth: { tokenUrl: "https://idp.test/token", clientId: "c1", apiKey: "sk-1" } },
+				}
+			);
+		});
+
+		test("the old oauth+virtualKey combo maps to the oauth virtualKey companion", () => {
+			pin(
+				{
+					label: "A",
+					baseUrl: "http://a.test",
+					oauthTokenUrl: "https://idp.test/token",
+					oauthClientId: "c1",
+					virtualKeyHeader: "x-vk",
+					virtualKeyValue: "vk-1",
+				},
+				{
+					label: "A",
+					baseUrl: "http://a.test",
+					auth: {
+						oauth: {
+							tokenUrl: "https://idp.test/token",
+							clientId: "c1",
+							virtualKey: { header: "x-vk", value: "vk-1" },
+						},
+					},
+				}
+			);
+		});
+
+		test("virtualKey only", () => {
+			pin(
+				{ label: "A", baseUrl: "http://a.test", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-1" },
+				{ label: "A", baseUrl: "http://a.test", auth: { virtualKey: { header: "x-vk", value: "vk-1" } } }
+			);
+		});
+
+		test("the old apiKey+virtualKey combo (no oauth) maps to the apiKey form with a sibling companion", () => {
+			pin(
+				{ label: "A", baseUrl: "http://a.test", apiKey: "sk-1", virtualKeyHeader: "x-vk", virtualKeyValue: "vk-1" },
+				{
+					label: "A",
+					baseUrl: "http://a.test",
+					auth: { apiKey: "sk-1", virtualKey: { header: "x-vk", value: "vk-1" } },
+				}
+			);
+		});
+
+		test("stored-only secrets keep resolving: a no-auth entry with a stored apiKey still sends the bearer", () => {
+			// The quick-start shape: the entry omits auth entirely and the value
+			// sits in SecretStorage; the migration writes no auth object for it.
+			pin({ label: "A", baseUrl: "http://a.test" }, { label: "A", baseUrl: "http://a.test" }, { apiKey: "sk-stored" });
+			assert.strictEqual(
+				buildGroupArgs(parseServersSetting([{ label: "A", baseUrl: "http://a.test" }]).entries[0] as DeclaredServer, {
+					apiKey: "sk-stored",
+				}).apiKey,
+				"sk-stored"
+			);
+		});
+
+		test("stored virtualKey value fills the declared header's slot", () => {
+			pin(
+				{ label: "A", baseUrl: "http://a.test", virtualKeyHeader: "x-vk" },
+				{ label: "A", baseUrl: "http://a.test", auth: { virtualKey: { header: "x-vk" } } },
+				{ virtualKeyValue: "vk-stored" }
+			);
+		});
 	});
 });

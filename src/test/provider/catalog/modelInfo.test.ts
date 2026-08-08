@@ -3,7 +3,7 @@ import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { expectDefined, makeProvider, toHeaderMap, withConfig } from "../../testUtils";
+import { expectDefined, makeProvider, toHeaderMap } from "../../testUtils";
 
 suite("provider/model info and fallback", () => {
 	useMsw();
@@ -41,7 +41,7 @@ suite("provider/model info and fallback", () => {
 		);
 	});
 
-	test("sends configured custom headers during model discovery", async () => {
+	test("sends a declared entry's custom headers during model discovery", async () => {
 		let firstCallHeaders: Record<string, string> | undefined;
 		const captureHeaders = ({ request }: { request: Request }) => {
 			firstCallHeaders ??= toHeaderMap(request.headers);
@@ -49,12 +49,14 @@ suite("provider/model info and fallback", () => {
 		};
 		mswServer.use(http.get(MODEL_INFO_URL, captureHeaders), http.get(MODELS_URL, captureHeaders));
 
-		await withConfig({ headers: { "x-litellm-api-key": "proxy-key", "User-Agent": "spoofed-agent" } }, () =>
-			makeProvider(TEST_BASE_URL).provideLanguageModelChatInformation(
-				{ silent: true },
-				new vscode.CancellationTokenSource().token
-			)
-		);
+		// Custom headers live on the server entry now (there is no global
+		// headers setting), resolved through the injected per-entry seam.
+		await makeProvider(TEST_BASE_URL, "test-key", undefined, {
+			getEntryHeaders: (label, headerBaseUrl) =>
+				label === "Default" && headerBaseUrl === TEST_BASE_URL
+					? { "x-litellm-api-key": "proxy-key", "User-Agent": "spoofed-agent" }
+					: undefined,
+		}).provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 
 		const headers = firstCallHeaders ?? {};
 		assert.equal(headers["x-litellm-api-key"], "proxy-key");
