@@ -16,13 +16,19 @@ import {
 	latestCheckedMs,
 } from "../../extension/dashboard/protocol";
 import type { ModelCapabilitiesResponse } from "./capsInspector";
+import type { ResolvedModelsResponse } from "./diagnostics";
 import { DiagnosticsSection } from "./diagnostics";
 import { IconBug, IconClose } from "./icons";
+import type { InspectRequest } from "./models";
 import { ModelsSection } from "./models";
+import type { ModelParametersResponse } from "./paramsInspector";
 import type { CatalogSearchResponse, IntentFailure } from "./recordEditors";
+import type { ServerEditRequest } from "./servers";
 import { ServersSection } from "./servers";
+import type { EditRecordRequest } from "./settings";
 import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
+import { UsageSection } from "./usage";
 import { postMessage } from "./vscodeApi";
 
 /** The section tabs; the ID list lives in the protocol module because focusSection deep-links name them. */
@@ -34,6 +40,8 @@ function sectionLabel(section: SectionId): string {
 	switch (section) {
 		case "overview":
 			return l10n.t("Servers & Models");
+		case "usage":
+			return l10n.t("Usage");
 		case "settings":
 			return l10n.t("Settings");
 		case "diagnostics":
@@ -328,10 +336,22 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	const [failures, setFailures] = useState<FailuresByIntent>({});
 	const [toasts, setToasts] = useState<readonly ToastItem[]>([]);
 	const [inlineSecrets, setInlineSecrets] = useState<InlineSecretsResponse | undefined>(undefined);
-	// The latest capability-inspector and catalog-search responses; each
-	// consumer matches them against its own requestId, like inlineSecrets.
+	// The latest request/response answers (capability and params inspectors,
+	// catalog search, resolved-models view); each consumer matches them
+	// against its own requestId, like inlineSecrets.
 	const [capsResponse, setCapsResponse] = useState<ModelCapabilitiesResponse | undefined>(undefined);
+	const [paramsResponse, setParamsResponse] = useState<ModelParametersResponse | undefined>(undefined);
+	const [resolvedResponse, setResolvedResponse] = useState<ResolvedModelsResponse | undefined>(undefined);
 	const [catalogResults, setCatalogResults] = useState<CatalogSearchResponse | undefined>(undefined);
+	// Bumped on every state push: the open inspectors and the resolved-models
+	// view re-request on it so they follow configuration edits live.
+	const [stateSeq, setStateSeq] = useState(0);
+	// The Resolved-models table's jump into the models section's inspectors.
+	const [inspectRequest, setInspectRequest] = useState<InspectRequest | undefined>(undefined);
+	// The inspectors' configure-jumps: into the settings record editors, and
+	// into a server entry's edit form (the owner of entry-layer values).
+	const [editRecordRequest, setEditRecordRequest] = useState<EditRecordRequest | undefined>(undefined);
+	const [serverEditRequest, setServerEditRequest] = useState<ServerEditRequest | undefined>(undefined);
 	// The models list's server scope (a server row's model-count link sets it,
 	// the chip in the models filter bar clears it). Held here rather than in
 	// ModelsSection because the servers table is the other end of the wire.
@@ -353,6 +373,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			if (message.type === "state") {
 				setState(message.state);
 				setFailures(failuresAfterStatePush);
+				setStateSeq((current) => current + 1);
 				return;
 			}
 			if (message.type === "focusSection") {
@@ -370,6 +391,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			}
 			if (message.type === "modelCapabilities") {
 				setCapsResponse(message);
+				return;
+			}
+			if (message.type === "modelParameters") {
+				setParamsResponse(message);
+				return;
+			}
+			if (message.type === "resolvedModels") {
+				setResolvedResponse(message);
 				return;
 			}
 			if (message.type === "catalogSearchResults") {
@@ -438,6 +467,27 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		target?.focus({ preventScroll: true });
 	};
 
+	// The Resolved-models table's per-row jump: land on the overview section
+	// with the addressed model's inspector open.
+	const inspectModel = (scopeKey: string, rawId: string, view: "params" | "caps") => {
+		setSection("overview");
+		setInspectRequest((current) => ({ seq: (current?.seq ?? 0) + 1, scopeKey, rawId, view }));
+	};
+
+	// The inspectors' configure-jump: land on the settings tab with the right
+	// record editor focused (or a fresh exact-ID draft created).
+	const editRecord = (kind: "parameters" | "capabilities", key: string, create: boolean) => {
+		setSection("settings");
+		setEditRecordRequest((current) => ({ seq: (current?.seq ?? 0) + 1, kind, key, create }));
+	};
+
+	// An entry-owned value's jump: its record lives in the server entry, so the
+	// destination is the entry's edit form on the overview section.
+	const editEntry = (label: string) => {
+		setSection("overview");
+		setServerEditRequest((current) => ({ seq: (current?.seq ?? 0) + 1, label }));
+	};
+
 	const scalarFailure =
 		failures.setNumberSetting ?? failures.setBooleanSetting ?? failures.resetSetting ?? failures.executeCommand;
 	return (
@@ -470,6 +520,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					onDismissFailure={dismissFailure}
 					onClearInlineSecrets={() => setInlineSecrets(undefined)}
 					onShowModels={showServerModels}
+					editRequest={serverEditRequest}
 				/>
 				{/* With zero servers the guided start card is the whole story; a
 				    second empty block under it would dilute it. */}
@@ -480,20 +531,38 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						scope={
 							serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
 						}
-						requestScopes={state.requestScopes}
-						modelParameters={state.settings.modelParameters.effective}
 						capsResponse={capsResponse}
+						paramsResponse={paramsResponse}
+						stateSeq={stateSeq}
+						inspectRequest={inspectRequest}
+						onEditRecord={editRecord}
+						onEditEntry={editEntry}
 					/>
 				) : null}
 			</SectionPanel>
+			<SectionPanel section="usage" active={section}>
+				<UsageSection usage={state.usage} serverCount={state.servers.length} now={now} />
+			</SectionPanel>
 			<SectionPanel section="settings" active={section}>
-				<SettingsSection settings={state.settings} models={state.models} failures={failures} />
+				<SettingsSection
+					settings={state.settings}
+					models={state.models}
+					failures={failures}
+					catalogResults={catalogResults}
+					now={now}
+					editRecordRequest={editRecordRequest}
+				/>
 			</SectionPanel>
 			<SectionPanel section="diagnostics" active={section}>
 				<DiagnosticsSection
 					servers={state.servers}
 					modelCount={state.models.length}
 					legacyServerCount={state.legacyServerCount}
+					diagnostics={state.diagnostics}
+					resolvedResponse={resolvedResponse}
+					active={section === "diagnostics"}
+					stateSeq={stateSeq}
+					onInspect={inspectModel}
 					now={now}
 				/>
 			</SectionPanel>

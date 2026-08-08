@@ -17,11 +17,13 @@ import {
 	FORCE_DIRECTIVE,
 	formatHeaderValue,
 	formatJsonValue,
+	INHERIT_FROM_DIRECTIVE,
+	INHERITABLE_DIRECTIVE,
+	isForceableParameter,
 	isUnsafeRecordKey,
 	isValidHeaderName,
 	isValidHeaderValue,
 	OPENROUTER_MODEL_DIRECTIVE,
-	parameterSkipReason,
 	parseHeaderValue,
 	parseJsonValue,
 } from "./protocol";
@@ -96,9 +98,10 @@ export interface GroupHints {
 
 /**
  * A directive draft's reading: strict JSON `true`/`false` or an array of
- * strings, nothing else. The shared value shape of the `_fallback` and
- * `_force` rows; both parsers judge the row through this one reading, and the
- * checkbox helpers below derive membership from it.
+ * strings, nothing else. The shared value shape of the `_fallback`, `_force`,
+ * `_inheritable`, and `_inherit_from` rows; the parsers judge those rows
+ * through this one reading, and the checkbox helpers below derive membership
+ * from it.
  */
 function parseDirectiveListText(text: string): { ok: true; value: boolean | string[] } | { ok: false } {
 	const parsed = parseJsonValue(text);
@@ -112,6 +115,58 @@ function parseDirectiveListText(text: string): { ok: true; value: boolean | stri
 		return { ok: true, value: parsed.value };
 	}
 	return { ok: false };
+}
+
+/**
+ * The `_inheritable` row's verdict, shared by both editors: the value must
+ * read as true, false, or a list of the group's own field names; a listed
+ * name the group does not set is the resolver's invalid-directive diagnostic
+ * at request time, so it hints without blocking.
+ */
+function judgeInheritableRow(
+	valueText: string,
+	groupKeys: ReadonlySet<string>
+): { problem?: string; hint?: string; value?: boolean | string[] } {
+	const parsed = parseDirectiveListText(valueText);
+	if (!parsed.ok) {
+		return { problem: l10n.t('Enter true or a list of field names, e.g. ["temperature"]') };
+	}
+	if (Array.isArray(parsed.value)) {
+		const unset = parsed.value.find((name) => !groupKeys.has(name));
+		if (unset !== undefined) {
+			return {
+				value: parsed.value,
+				hint: l10n.t('"{0}" is not a field this record sets; its inheritable mark is ignored', unset),
+			};
+		}
+	}
+	return { value: parsed.value };
+}
+
+/**
+ * The `_inherit_from` row's verdict, shared by both editors: true, false, or
+ * a list of record keys. A named key absent from the draft's own prefixes
+ * gets the non-blocking hint docs/models.md promises: the resolver skips the
+ * name and applies the rest of the list.
+ */
+function judgeInheritFromRow(
+	valueText: string,
+	prefixes: ReadonlySet<string>
+): { problem?: string; hint?: string; value?: boolean | string[] } {
+	const parsed = parseDirectiveListText(valueText);
+	if (!parsed.ok) {
+		return { problem: l10n.t('Enter true, false, or a list of record keys, e.g. ["gpt-5*"]') };
+	}
+	if (Array.isArray(parsed.value)) {
+		const unknown = parsed.value.find((name) => !prefixes.has(name));
+		if (unknown !== undefined) {
+			return {
+				value: parsed.value,
+				hint: l10n.t('"{0}" is not a record key here; that name is skipped and the rest still applies', unknown),
+			};
+		}
+	}
+	return { value: parsed.value };
 }
 
 export type GroupsParse =
@@ -130,6 +185,7 @@ export type GroupsParse =
  */
 export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 	const duplicatePrefixes = duplicates(groups.map((group) => group.prefix.trim()));
+	const prefixes: ReadonlySet<string> = new Set(groups.map((group) => group.prefix.trim()));
 	const problems: GroupProblems[] = [];
 	const hints: GroupHints[] = [];
 	let blocked = false;
@@ -141,7 +197,7 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 		const paramHints: (string | undefined)[] = group.params.map(() => undefined);
 		const prefixProblem = keyProblem(
 			group.prefix.trim(),
-			{ empty: l10n.t("Enter a model prefix"), duplicate: l10n.t("Duplicate model prefix") },
+			{ empty: l10n.t("Enter a model matcher"), duplicate: l10n.t("Duplicate matcher key") },
 			duplicatePrefixes
 		);
 		const paramProblems = group.params.map((param, index): RowFieldProblem | undefined => {
@@ -168,15 +224,35 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 				}
 				params[FORCE_DIRECTIVE] = parsed.value;
 				if (Array.isArray(parsed.value)) {
-					const unforceable = parsed.value.find((name) => parameterSkipReason(name) !== undefined);
+					const unforceable = parsed.value.find((name) => !isForceableParameter(name));
 					const unset = parsed.value.find((name) => !groupKeys.has(name));
 					paramHints[index] =
 						unforceable !== undefined
 							? l10n.t('"{0}" cannot be forced: provider-owned fields and _ keys stay extension-owned', unforceable)
 							: unset !== undefined
-								? l10n.t('"{0}" is not a parameter this prefix sets; its force mark is ignored', unset)
+								? l10n.t('"{0}" is not a parameter this record sets; its force mark is ignored', unset)
 								: undefined;
 				}
+				return undefined;
+			}
+			// The shared inheritance directives get the same typed treatment in
+			// both editors: judged once, hints non-blocking.
+			if (param.key.trim() === INHERITABLE_DIRECTIVE) {
+				const judged = judgeInheritableRow(param.valueText, groupKeys);
+				if (judged.problem !== undefined) {
+					return { field: "value", message: judged.problem };
+				}
+				params[INHERITABLE_DIRECTIVE] = judged.value;
+				paramHints[index] = judged.hint;
+				return undefined;
+			}
+			if (param.key.trim() === INHERIT_FROM_DIRECTIVE) {
+				const judged = judgeInheritFromRow(param.valueText, prefixes);
+				if (judged.problem !== undefined) {
+					return { field: "value", message: judged.problem };
+				}
+				params[INHERIT_FROM_DIRECTIVE] = judged.value;
+				paramHints[index] = judged.hint;
 				return undefined;
 			}
 			const parsed = parseJsonValue(param.valueText);
@@ -331,6 +407,43 @@ export function groupsFromJsonText(text: string): RecordJsonParse<PrefixGroup[]>
 	return parse.ok ? { ok: true, rows: groups } : { ok: false, problem: firstGroupProblem(groups, parse.problems) };
 }
 
+/** The first blocking capability issue as one message, for the JSON side door's single error line. */
+function firstCapabilityProblem(groups: readonly PrefixGroup[], issues: readonly CapabilityGroupIssues[]): string {
+	for (const [index, group] of issues.entries()) {
+		if (group.prefix !== undefined) {
+			return withKey(groups[index]?.prefix ?? "", group.prefix);
+		}
+		const rowIndex = group.rows.findIndex((row) => row.problem !== undefined);
+		if (rowIndex >= 0) {
+			return withKey(groups[index]?.params[rowIndex]?.key ?? "", group.rows[rowIndex]?.problem?.message ?? "");
+		}
+	}
+	return l10n.t("Invalid value.");
+}
+
+/**
+ * The capability editor's JSON side door, groupsFromJsonText's typed sibling:
+ * the pasted record goes through parseCapabilityGroups here and again in the
+ * editor, so it can never be more lenient than row-by-row entry.
+ */
+export function capabilityGroupsFromJsonText(text: string): RecordJsonParse<PrefixGroup[]> {
+	const record = recordFromJsonText(text, '{"gpt-4": {"context_length": 128000}}');
+	if (!record.ok) {
+		return record;
+	}
+	for (const [prefix, fields] of Object.entries(record.value)) {
+		if (!isRecord(fields)) {
+			return {
+				ok: false,
+				problem: withKey(prefix, l10n.t('Expected an object of capability fields, e.g. {"context_length": 128000}')),
+			};
+		}
+	}
+	const groups = toCapabilityGroups(record.value as Record<string, Record<string, unknown>>);
+	const parse = parseCapabilityGroups(groups);
+	return parse.ok ? { ok: true, rows: groups } : { ok: false, problem: firstCapabilityProblem(groups, parse.issues) };
+}
+
 /**
  * A modelCapabilities record rendered into the same prefix-group rows the
  * parameters editor uses. Values render through formatJsonValue, except the
@@ -416,18 +529,20 @@ export function parseCatalogIdText(text: string): string | undefined {
  */
 export function parseCapabilityGroups(groups: readonly PrefixGroup[]): CapabilityGroupsParse {
 	const duplicatePrefixes = duplicates(groups.map((group) => group.prefix.trim()));
+	const prefixes: ReadonlySet<string> = new Set(groups.map((group) => group.prefix.trim()));
 	const issues: CapabilityGroupIssues[] = [];
 	let blocked = false;
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
 		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
-		// The `_fallback` hints' context: the capability fields this group's own rows set.
+		// The `_fallback` and `_inheritable` hints' context: the capability
+		// fields this group's own rows set.
 		const groupFieldKeys: ReadonlySet<string> = new Set(
 			group.params.map((param) => param.key.trim()).filter(isCapabilityFieldName)
 		);
 		const prefixProblem = keyProblem(
 			group.prefix.trim(),
-			{ empty: l10n.t("Enter a model ID or prefix"), duplicate: l10n.t("Duplicate model prefix") },
+			{ empty: l10n.t("Enter a model ID or matcher"), duplicate: l10n.t("Duplicate matcher key") },
 			duplicatePrefixes
 		);
 		const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
@@ -466,11 +581,27 @@ export function parseCapabilityGroups(groups: readonly PrefixGroup[]): Capabilit
 					const unknown = parsed.value.find((name) => !groupFieldKeys.has(name));
 					if (unknown !== undefined) {
 						return {
-							hint: l10n.t('"{0}" is not a capability field this prefix sets; its fallback mark is ignored', unknown),
+							hint: l10n.t('"{0}" is not a capability field this record sets; its fallback mark is ignored', unknown),
 						};
 					}
 				}
 				return {};
+			}
+			if (key === INHERITABLE_DIRECTIVE) {
+				const judged = judgeInheritableRow(param.valueText, groupFieldKeys);
+				if (judged.problem !== undefined) {
+					return { problem: { field: "value", message: judged.problem } };
+				}
+				fields[key] = judged.value;
+				return judged.hint !== undefined ? { hint: judged.hint } : {};
+			}
+			if (key === INHERIT_FROM_DIRECTIVE) {
+				const judged = judgeInheritFromRow(param.valueText, prefixes);
+				if (judged.problem !== undefined) {
+					return { problem: { field: "value", message: judged.problem } };
+				}
+				fields[key] = judged.value;
+				return judged.hint !== undefined ? { hint: judged.hint } : {};
 			}
 			if (isCapabilityFieldName(key)) {
 				if (CAPABILITY_FIELDS[key] === "number") {
@@ -524,24 +655,29 @@ export function toggleExpectedFailure(
 	);
 }
 
-/** The per-row checkbox directives: `_fallback` on capability rows, `_force` on parameter rows. */
-export type FieldDirective = typeof FALLBACK_DIRECTIVE | typeof FORCE_DIRECTIVE;
+/** The per-row checkbox directives: `_fallback` on capability rows, `_force` on parameter rows, `_inheritable` on both. */
+export type FieldDirective = typeof FALLBACK_DIRECTIVE | typeof FORCE_DIRECTIVE | typeof INHERITABLE_DIRECTIVE;
 
 /**
  * Whether a row key can carry the directive's mark: `_fallback` marks the
  * known capability fields, `_force` any wire-eligible parameter (neither
- * provider-owned nor an underscore key). The editors render a checkbox for
- * exactly these rows, and a literal `true` directive expands over exactly
+ * provider-owned nor an underscore key), `_inheritable` any own field
+ * (anything that is not itself a directive). The editors render a checkbox
+ * for exactly these rows, and a literal `true` directive expands over exactly
  * these keys when a toggle rewrites it as a list.
  */
 export function directiveEligible(directive: FieldDirective, key: string): boolean {
-	return directive === FALLBACK_DIRECTIVE
-		? isCapabilityFieldName(key)
-		: key.length > 0 && parameterSkipReason(key) === undefined;
+	if (directive === FALLBACK_DIRECTIVE) {
+		return isCapabilityFieldName(key);
+	}
+	if (directive === INHERITABLE_DIRECTIVE) {
+		return key.length > 0 && !key.startsWith("_");
+	}
+	return key.length > 0 && isForceableParameter(key);
 }
 
 /** The index of the group's directive row (the first, should duplicates exist; those block the parse anyway). */
-function directiveRowIndex(group: PrefixGroup, directive: FieldDirective): number {
+function directiveRowIndex(group: PrefixGroup, directive: string): number {
 	return group.params.findIndex((param) => param.key.trim() === directive);
 }
 
@@ -590,14 +726,15 @@ export function directiveMarkedFields(group: PrefixGroup, directive: FieldDirect
 }
 
 /**
- * Toggle one field's membership in the group's `_fallback`/`_force` list,
- * returning the updated group. Toggles always write the explicit list form -
- * a hand-written `true` is preserved untouched on load and expands to the
- * eligible row keys only on the first toggle - and unmarking the last member
- * removes the directive row entirely. Existing list entries stay put, the
- * invalid ones included (a stray name or a non-string element is the user's
- * text, flagged by the parse, never silently dropped by an unrelated
- * toggle); only a value that is no list at all is replaced wholesale.
+ * Toggle one field's membership in the group's `_fallback`/`_force`/
+ * `_inheritable` list, returning the updated group. Toggles always write the
+ * explicit list form - a hand-written `true` is preserved untouched on load
+ * and expands to the eligible row keys only on the first toggle - and
+ * unmarking the last member removes the directive row entirely. Existing
+ * list entries stay put, the invalid ones included (a stray name or a
+ * non-string element is the user's text, flagged by the parse, never
+ * silently dropped by an unrelated toggle); only a value that is no list at
+ * all is replaced wholesale.
  */
 export function toggleDirectiveField(
 	group: PrefixGroup,
@@ -628,5 +765,69 @@ export function toggleDirectiveField(
 	const valueText = JSON.stringify(next);
 	return index < 0
 		? { ...group, params: [...group.params, { key: directive, valueText }] }
+		: { ...group, params: group.params.map((param, i) => (i === index ? { ...param, valueText } : param)) };
+}
+
+/**
+ * The group-level `_inherit_from` control's reading of a draft group:
+ * "default" (no directive row), "all" (true), "none" (false or the empty
+ * list - the barrier), or "keys" with the named records. "unreadable" keeps
+ * the control hands-off while the row holds text the strict parse rejects -
+ * the row's own error tells that story, and the select must not silently
+ * rewrite it.
+ */
+export type InheritFromChoice =
+	| { readonly kind: "default" }
+	| { readonly kind: "all" }
+	| { readonly kind: "none" }
+	| { readonly kind: "keys"; readonly keysText: string }
+	| { readonly kind: "unreadable" };
+
+export function inheritFromChoice(group: PrefixGroup): InheritFromChoice {
+	const index = directiveRowIndex(group, INHERIT_FROM_DIRECTIVE);
+	const row = index < 0 ? undefined : group.params[index];
+	if (row === undefined) {
+		return { kind: "default" };
+	}
+	const parsed = parseDirectiveListText(row.valueText);
+	if (!parsed.ok) {
+		return { kind: "unreadable" };
+	}
+	if (parsed.value === true) {
+		return { kind: "all" };
+	}
+	if (parsed.value === false || (Array.isArray(parsed.value) && parsed.value.length === 0)) {
+		return { kind: "none" };
+	}
+	return { kind: "keys", keysText: (parsed.value as string[]).join(", ") };
+}
+
+/**
+ * Write the group-level `_inherit_from` choice back into the group's rows:
+ * "default" removes the directive row, the others write its canonical value
+ * (keysText splits on commas, trimmed, empties dropped - an all-empty list
+ * writes `[]`, which the resolver reads as the barrier).
+ */
+export function setInheritFromChoice(
+	group: PrefixGroup,
+	choice: "default" | "all" | "none" | { readonly keysText: string }
+): PrefixGroup {
+	const index = directiveRowIndex(group, INHERIT_FROM_DIRECTIVE);
+	if (choice === "default") {
+		return index < 0 ? group : { ...group, params: group.params.filter((_, i) => i !== index) };
+	}
+	const valueText =
+		choice === "all"
+			? "true"
+			: choice === "none"
+				? "false"
+				: JSON.stringify(
+						choice.keysText
+							.split(",")
+							.map((key) => key.trim())
+							.filter((key) => key.length > 0)
+					);
+	return index < 0
+		? { ...group, params: [...group.params, { key: INHERIT_FROM_DIRECTIVE, valueText }] }
 		: { ...group, params: group.params.map((param, i) => (i === index ? { ...param, valueText } : param)) };
 }

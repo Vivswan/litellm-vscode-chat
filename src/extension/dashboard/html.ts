@@ -675,6 +675,11 @@ const STYLES = `
 	}
 	.params-inspector .param-not-sent td { color: var(--vscode-descriptionForeground); }
 	.params-inspector .param-skip { color: var(--vscode-descriptionForeground); }
+	/* The configure-jump: one plain button under the identity line, and a quiet
+	   per-row "edit" beside record-sourced values (the "Params"/"Caps" text
+	   idiom, revealed as a link only on interaction like every quiet action). */
+	.params-inspector .params-configure { margin: 4px 0 8px; }
+	.params-inspector .row-edit { margin-left: 6px; padding: 0 2px; }
 	/* Capability values are short (a token count, yes/no); wrapping "128,000"
 	   mid-number reads as two values, so the value cell never wraps there. */
 	.caps-inspector .param-value { white-space: nowrap; }
@@ -1101,6 +1106,122 @@ const STYLES = `
 		.row input.key, .row input.value, .row button, .row .error { grid-column: 1; }
 		.row .cell.key, .row .cell.value { grid-column: 1; }
 		.row .directive-flag { grid-column: 1; }
+	}
+
+	/* === R4 server form (auth selector, headers, declared, budget) === */
+	fieldset.auth-block {
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		border-radius: 4px;
+		padding: 4px 12px 10px;
+		margin: 10px 0;
+	}
+	fieldset.auth-block > legend { display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 0 4px; }
+	.auth-selector { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 8px; }
+	.auth-selector label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; cursor: pointer; }
+	.stored-auth {
+		margin-top: 10px;
+		padding-top: 6px;
+		border-top: 1px dashed var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+	}
+	.stored-auth .field-label { font-weight: 600; }
+	#server-declaredModels {
+		width: 100%;
+		box-sizing: border-box;
+		resize: vertical;
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 12px;
+		color: var(--vscode-input-foreground);
+		background: var(--vscode-input-background);
+		border: 1px solid var(--vscode-input-border, transparent);
+		border-radius: 2px;
+		padding: 4px 6px;
+	}
+	#server-declaredModels:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+	#server-budget { max-width: 9em; }
+
+	/* === R4 usage, diagnostics, records === */
+	.usage-cards { display: flex; flex-direction: column; gap: 12px; margin: 8px 0 16px; }
+	.usage-card {
+		border: 1px solid var(--vscode-widget-border, transparent);
+		background: var(--vscode-editorWidget-background);
+		border-radius: 4px;
+		padding: 10px 12px;
+	}
+	.usage-card-head { display: flex; align-items: baseline; gap: 8px; }
+	.usage-card-head .usage-label { font-weight: 600; }
+	.usage-spend-row { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
+	.usage-percent { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+	.usage-percent.tone-warn { color: var(--vscode-editorWarning-foreground); }
+	.usage-percent.tone-error { color: var(--vscode-errorForeground); }
+	.usage-bar {
+		height: 6px;
+		border-radius: 3px;
+		background: var(--vscode-progressBar-background, var(--vscode-editorWidget-border));
+		opacity: 0.9;
+		overflow: hidden;
+		margin: 6px 0 4px;
+	}
+	.usage-bar-fill { height: 100%; background: var(--vscode-charts-green, #89d185); }
+	.usage-bar-fill.tone-warn { background: var(--vscode-charts-yellow, #cca700); }
+	.usage-bar-fill.tone-error { background: var(--vscode-charts-red, #f14c4c); }
+	.usage-budget-line { margin: 4px 0 0; }
+	.usage-activity { margin: 4px 0 0; }
+	.config-diagnostics { margin: 8px 0 16px; padding-left: 18px; }
+	.config-diagnostics li { margin: 4px 0; }
+	.record-tree { margin: 8px 0; }
+	.record-tree > summary { cursor: pointer; font-weight: 600; }
+	.record-tree ul { list-style: none; margin: 2px 0 2px 4px; padding-left: 16px; border-left: 1px solid var(--vscode-editorWidget-border, #444); }
+	.record-tree > ul { border-left: none; padding-left: 4px; }
+	.tree-node { margin: 3px 0; }
+	.tree-fields { color: var(--vscode-descriptionForeground); }
+	.tree-barrier { color: var(--vscode-editorWarning-foreground); }
+	.tree-model { margin: 2px 0; }
+	.tree-model-id { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
+	table.resolved-models td { vertical-align: top; }
+	.resolved-col { min-width: 0; }
+	.resolved-id { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
+	.resolved-cells { display: flex; flex-direction: column; gap: 3px; }
+	.resolved-cell { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+	.chip-prov {
+		font-size: 0.85em;
+		color: var(--vscode-descriptionForeground);
+		border: 1px solid var(--vscode-editorWidget-border, #555);
+		border-radius: 8px;
+		padding: 0 6px;
+		white-space: nowrap;
+	}
+	.inherit-from { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+	/* The group-level inheritance control on its own line under the matcher
+	   row, so the header keeps its three-column rhythm at any panel width. */
+	.inherit-line { margin: 0 0 4px; }
+	/* Two marks (force/fallback + inheritable) share the row's one flag cell;
+	   wrapping beats overflowing the slide-over's edge. */
+	.row .directive-flag { flex-wrap: wrap; justify-self: start; }
+	/* Inside the narrow form card the flag cell gets its own full line under
+	   the row instead of squeezing the fourth column. */
+	.form-card .row .directive-flag { grid-column: 1 / -1; }
+	.inherit-from select {
+		background: var(--vscode-dropdown-background);
+		color: var(--vscode-dropdown-foreground);
+		border: 1px solid var(--vscode-dropdown-border, transparent);
+		border-radius: 2px;
+		padding: 2px 4px;
+	}
+	.inherit-from .inherit-keys { width: 14em; }
+	.setting-control select {
+		background: var(--vscode-dropdown-background);
+		color: var(--vscode-dropdown-foreground);
+		border: 1px solid var(--vscode-dropdown-border, transparent);
+		border-radius: 2px;
+		padding: 3px 6px;
+	}
+	.catalog-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+	/* Disabled buttons must read disabled at a glance: the primary blue at
+	   half opacity still scans as actionable, so disabled drops to the
+	   neutral secondary treatment. */
+	button:disabled {
+		background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.25));
+		color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 	}
 `;
 

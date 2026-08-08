@@ -255,18 +255,74 @@ export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; 
 }
 
 /**
+ * One raw servers-setting entry's acceptance verdict, for the dashboard's
+ * Configuration diagnostics and its Misconfigured rows: the same acceptEntries
+ * pass parseServersSetting runs, reported per entry instead of as one flat
+ * problem list. `label` and `baseUrl` are present when the raw entry carries
+ * usable text for them (reserved labels stay absent - callers key map records
+ * on labels); `problems` are the parser's structural reports without the
+ * "entry N " prefix the flat list carries. `accepted` false with a usable
+ * label and baseUrl is the misconfigured-entry row.
+ */
+export interface ServerEntryReport {
+	/** The entry's position in the raw array (0-based). */
+	readonly index: number;
+	readonly label?: string | undefined;
+	readonly baseUrl?: string | undefined;
+	readonly problems: readonly string[];
+	readonly accepted: boolean;
+}
+
+export function serverSettingReports(raw: unknown): ServerEntryReport[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	const reports: { index: number; label?: string; baseUrl?: string; problems: string[]; accepted: boolean }[] = raw.map(
+		(item, index) => {
+			const record = isRecord(item) ? item : undefined;
+			const label = record !== undefined ? usableString(record.label) : undefined;
+			const baseUrl = record !== undefined ? usableString(record.baseUrl) : undefined;
+			return {
+				index,
+				...(label !== undefined && !isUnsafeRecordKey(label) ? { label } : {}),
+				...(baseUrl !== undefined ? { baseUrl } : {}),
+				problems: [],
+				accepted: false,
+			};
+		}
+	);
+	const accepted = acceptEntries(raw, undefined, (index, what) => {
+		reports[index]?.problems.push(what);
+	});
+	for (const { index } of accepted) {
+		const report = reports[index];
+		if (report !== undefined) {
+			report.accepted = true;
+		}
+	}
+	return reports;
+}
+
+/**
  * The accepted entries with their raw-array indices: the single place the
  * acceptance rules live, so parseServersSetting and acceptedEntry cannot
  * disagree about which raw entry a label resolves to.
  */
-function acceptEntries(raw: readonly unknown[], problems?: string[]): { index: number; entry: DeclaredServer }[] {
+function acceptEntries(
+	raw: readonly unknown[],
+	problems?: string[],
+	reportTo?: (index: number, what: string) => void
+): { index: number; entry: DeclaredServer }[] {
 	const accepted: { index: number; entry: DeclaredServer }[] = [];
 	const seen = new Set<string>();
 	raw.forEach((item: unknown, index) => {
 		// One prefix for everything reported about this entry, rejecting or
 		// not: the problems are logged, so they reference the entry by index
 		// and structural key names only, never by entered values.
-		const report = (what: string) => problems?.push(`entry ${index + 1} ${what}`);
+		const report = (what: string) => {
+			problems?.push(`entry ${index + 1} ${what}`);
+			reportTo?.(index, what);
+		};
 		if (!isRecord(item)) {
 			report("is not an object");
 			return;

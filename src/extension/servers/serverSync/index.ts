@@ -38,13 +38,14 @@ export {
 	readServerSecrets,
 	updateServerSecret,
 } from "./secrets";
-export type { DeclaredServer } from "./setting";
+export type { DeclaredServer, ServerEntryReport } from "./setting";
 export {
 	acceptedEntry,
 	entryExpectedFailuresFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
 	parseServersSetting,
+	serverSettingReports,
 } from "./setting";
 export {
 	createServerSyncEnv,

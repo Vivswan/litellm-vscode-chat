@@ -95,12 +95,29 @@ export interface OpenRouterCatalogStore extends vscode.Disposable {
 	readonly onDidUpdate: vscode.Event<void>;
 	/** The current snapshot, for consumers that list entries (the dashboard's catalog picker). */
 	snapshot(): OpenRouterCatalogSnapshot;
+	/** The dashboard row's status facts: size, last successful refresh, and the last failure when one stands. */
+	status(): OpenRouterCatalogStatus;
 	/** Load cache -> bundled -> empty and schedule the periodic refresh. Never throws. */
 	initialize(): Promise<void>;
 	/** Re-read isEnabled after a setting change: cancels the pending refresh or schedules one. */
 	applyEnabledSetting(): void;
 	/** Refresh immediately (deduplicated with any refresh already in flight). Never rejects. */
 	refreshNow(): Promise<void>;
+}
+
+/**
+ * The catalog facts the dashboard's models.openRouterCatalog row states. The
+ * failure classification is the same fixed vocabulary the log line carries
+ * ("HTTP 503", "network error", "payload below the N-model floor") - never
+ * response-derived text - and it stands until the next successful refresh.
+ */
+export interface OpenRouterCatalogStatus {
+	readonly modelCount: number;
+	/** Epoch ms of the last successful, persisted refresh; undefined when only the bundled snapshot serves. */
+	readonly lastSuccessAt: number | undefined;
+	readonly lastFailure?: { readonly classification: string; readonly at: number } | undefined;
+	/** Whether a refresh is in flight right now (the row's Refresh button disables on it). */
+	readonly refreshing: boolean;
 }
 
 async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
@@ -147,6 +164,8 @@ class Store implements OpenRouterCatalogStore {
 	private pendingBackoff: { cancel: () => void; resolve: () => void } | undefined;
 	private inFlight: Promise<void> | undefined;
 	private disposed = false;
+	/** The last refresh failure, standing until the next success; see OpenRouterCatalogStatus. */
+	private lastFailure: { classification: string; at: number } | undefined;
 
 	constructor(private readonly options: OpenRouterCatalogStoreOptions) {
 		this.fetchCatalog = options.fetchCatalog ?? fetchOpenRouterCatalog;
@@ -161,6 +180,15 @@ class Store implements OpenRouterCatalogStore {
 
 	snapshot(): OpenRouterCatalogSnapshot {
 		return this.current;
+	}
+
+	status(): OpenRouterCatalogStatus {
+		return {
+			modelCount: this.current.models.length,
+			lastSuccessAt: this.readLastSuccess(),
+			...(this.lastFailure !== undefined ? { lastFailure: this.lastFailure } : {}),
+			refreshing: this.inFlight !== undefined,
+		};
 	}
 
 	async initialize(): Promise<void> {
@@ -297,7 +325,9 @@ class Store implements OpenRouterCatalogStore {
 			if (this.disposed || !this.options.isEnabled()) {
 				return;
 			}
-			this.options.logger.log(`OpenRouter catalog refresh failed (${classifyRefreshFailure(error)})`);
+			const classification = classifyRefreshFailure(error);
+			this.lastFailure = { classification, at: this.clock.now() };
+			this.options.logger.log(`OpenRouter catalog refresh failed (${classification})`);
 			this.schedule(FAILURE_RETRY_MS);
 			return;
 		}
@@ -309,6 +339,10 @@ class Store implements OpenRouterCatalogStore {
 		// The build script's floor, applied at runtime too: a truncated or
 		// drifted live response must never replace a full cached catalog.
 		if (snapshot.models.length < CATALOG_MODEL_COUNT_FLOOR) {
+			this.lastFailure = {
+				classification: `payload below the ${CATALOG_MODEL_COUNT_FLOOR}-model floor`,
+				at: this.clock.now(),
+			};
 			this.options.logger.log(
 				`OpenRouter catalog refresh failed (payload below the ${CATALOG_MODEL_COUNT_FLOOR}-model floor)`
 			);
@@ -316,6 +350,7 @@ class Store implements OpenRouterCatalogStore {
 			return;
 		}
 		this.install(snapshot);
+		this.lastFailure = undefined;
 		const persisted = await this.persist(`${JSON.stringify(slim, null, "\t")}\n`);
 		if (persisted) {
 			try {

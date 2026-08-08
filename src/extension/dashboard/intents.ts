@@ -8,7 +8,12 @@
 
 import * as vscode from "vscode";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
-import { MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
+import {
+	MODEL_CAPABILITIES_SETTING_KEY,
+	MODEL_PARAMETERS_SETTING_KEY,
+	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
+	USAGE_STATUS_BAR_SETTING_KEY,
+} from "../../shared/config/settings";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
@@ -120,6 +125,14 @@ export interface IntentEnvironment {
 	 * transport's classified error on failure.
 	 */
 	probeDraftConnection(connection: DraftConnection): Promise<readonly string[]>;
+	/**
+	 * Kick one immediate OpenRouter catalog refresh (the settings row's
+	 * Refresh). Fire-and-forget from the intent's view: the wiring re-pushes
+	 * state when the refresh settles, and the row status carries the outcome.
+	 */
+	refreshCatalogNow(): void;
+	/** Kick one immediate usage refresh (the Usage tab's Refresh now); same fire-and-forget contract. */
+	refreshUsageNow(): void;
 }
 
 const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readonly unknown[] }> = {
@@ -244,6 +257,35 @@ export function validateSaveServerSetting(
 			return `modelCapabilities: ${problem}`;
 		}
 	}
+	if (server.headers !== undefined) {
+		// Mirrors the form's header-row rules (recordDraft's parse) and the
+		// request path's normalizeCustomHeaders acceptance: names and the value
+		// charset are refused here so a save can never "succeed" on a header the
+		// wire would drop. Header NAMES are structural configuration and may be
+		// echoed; values never are.
+		const seenLower = new Set<string>();
+		for (const [name, value] of Object.entries(server.headers)) {
+			if (isUnsafeRecordKey(name)) {
+				return `headers: "${name}" is a reserved name and cannot be used`;
+			}
+			if (!isValidHeaderName(name)) {
+				return `headers: "${name}" is not a valid HTTP header name`;
+			}
+			const lower = name.toLowerCase();
+			if (seenLower.has(lower)) {
+				return `headers: "${name}" repeats an earlier header name (names are case-insensitive)`;
+			}
+			seenLower.add(lower);
+			if (!isValidHeaderValue(String(value))) {
+				return `headers: the value of "${name}" cannot be sent as an HTTP header`;
+			}
+		}
+	}
+	if (server.budget !== undefined && server.budget !== null) {
+		if (!Number.isFinite(server.budget) || server.budget <= 0) {
+			return "budget: must be a number greater than 0";
+		}
+	}
 	return undefined;
 }
 
@@ -346,6 +388,43 @@ export async function executeDashboardIntent(
 			await env.updateSetting(MODEL_PARAMETERS_SETTING_KEY, intent.value);
 			return undefined;
 		}
+		case "setModelCapabilities": {
+			// The same reserved-key gate as the parameters record; the capability
+			// vocabulary itself stays with the resolver's lenient, diagnosing parse.
+			const problem = validateModelParametersRecord(intent.value);
+			if (problem !== undefined) {
+				throw new DashboardValidationError(problem);
+			}
+			await env.updateSetting(MODEL_CAPABILITIES_SETTING_KEY, intent.value);
+			return undefined;
+		}
+		case "setUsageStatusBar":
+			// The schema already pinned the value to the closed mode vocabulary.
+			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.value);
+			return undefined;
+		case "setUsageAlertThresholds": {
+			// Out-of-range values are refused here rather than silently dropped:
+			// the dashboard's editor validates the same rule, so anything else is
+			// a bypassing caller. Written sorted and deduplicated - the canonical
+			// form normalization would produce anyway.
+			const invalid = intent.values.some((value) => !(value > 0 && value <= 1));
+			if (invalid) {
+				throw new DashboardValidationError(
+					`${USAGE_ALERT_THRESHOLDS_SETTING_KEY}: every threshold must be a fraction in (0, 1]`
+				);
+			}
+			const canonical = [...new Set(intent.values)].sort((a, b) => a - b);
+			await env.updateSetting(USAGE_ALERT_THRESHOLDS_SETTING_KEY, canonical);
+			return undefined;
+		}
+		case "refreshCatalog":
+			// Fire-and-forget: the wiring pushes state when the refresh settles,
+			// and the settings row's catalog status carries the outcome (no toast).
+			env.refreshCatalogNow();
+			return undefined;
+		case "refreshUsage":
+			env.refreshUsageNow();
+			return undefined;
 		case "saveServerSetting": {
 			const problem = validateSaveServerSetting(intent.server, intent.secrets);
 			if (problem !== undefined) {

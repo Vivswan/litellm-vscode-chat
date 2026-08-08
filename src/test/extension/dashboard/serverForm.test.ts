@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import type {
 	SecretFieldDraft,
 	ServerFormDraft,
+	ServerFormField,
 	ServerFormIntent,
 	ServerFormProblems,
 } from "../../../extension/dashboard/serverForm";
@@ -10,7 +11,6 @@ import {
 	CONNECTION_FIELDS,
 	EMPTY_SERVER_FORM,
 	isUsableHttpUrl,
-	OAUTH_SECTION_FIELDS,
 	parseServerForm,
 	parseServerFormForTest,
 	SERVER_FORM_FIELD_ORDER,
@@ -18,6 +18,14 @@ import {
 	sectionFailureText,
 	serverFormFieldLabel,
 } from "../../../extension/dashboard/serverForm";
+
+/** The fields the OAuth form itself renders; problems on a partial OAuth draft may name only these. */
+const OAUTH_FORM_FIELDS: readonly ServerFormField[] = [
+	"oauthTokenUrl",
+	"oauthClientId",
+	"oauthClientSecret",
+	"oauthScopes",
+];
 
 function draft(overrides: Partial<ServerFormDraft> = {}): ServerFormDraft {
 	return { ...EMPTY_SERVER_FORM, label: "Prod", baseUrl: "http://localhost:4000", ...overrides };
@@ -81,49 +89,68 @@ suite("extension/dashboard/serverForm", () => {
 		});
 
 		test("OAuth fields are one unit: any of them present requires the token URL and client ID", () => {
-			const clientOnly = problemsOf(draft({ oauthClientId: "client" }));
+			const clientOnly = problemsOf(draft({ authForm: "oauth", oauthClientId: "client" }));
 			assert.notStrictEqual(clientOnly.oauthTokenUrl, undefined);
 
-			const urlOnly = problemsOf(draft({ oauthTokenUrl: "https://idp.test/token" }));
+			const urlOnly = problemsOf(draft({ authForm: "oauth", oauthTokenUrl: "https://idp.test/token" }));
 			assert.notStrictEqual(urlOnly.oauthClientId, undefined);
 
-			const secretOnly = problemsOf(draft({ oauthClientSecret: secret({ value: "s" }) }));
+			const secretOnly = problemsOf(draft({ authForm: "oauth", oauthClientSecret: secret({ value: "s" }) }));
 			assert.notStrictEqual(secretOnly.oauthTokenUrl, undefined);
 			assert.notStrictEqual(secretOnly.oauthClientId, undefined);
 
-			const complete = problemsOf(draft({ oauthTokenUrl: "https://idp.test/token", oauthClientId: "client" }));
+			const complete = problemsOf(
+				draft({ authForm: "oauth", oauthTokenUrl: "https://idp.test/token", oauthClientId: "client" })
+			);
 			assert.deepStrictEqual(complete, {});
 		});
 
 		test("a kept secure-side client secret also demands the OAuth pair", () => {
-			const problems = problemsOf(draft({ oauthClientSecret: secret({ existing: "secure" }) }));
+			const problems = problemsOf(draft({ authForm: "oauth", oauthClientSecret: secret({ existing: "secure" }) }));
 			assert.notStrictEqual(problems.oauthTokenUrl, undefined);
 		});
 
 		test("the virtual key pair is both-or-neither and must be header-sendable", () => {
-			assert.notStrictEqual(problemsOf(draft({ virtualKeyHeader: "bad name" })).virtualKeyHeader, undefined);
-			assert.notStrictEqual(problemsOf(draft({ virtualKeyHeader: "x-key" })).virtualKeyValue, undefined);
-			assert.notStrictEqual(problemsOf(draft({ virtualKeyValue: secret({ value: "v" }) })).virtualKeyHeader, undefined);
 			assert.notStrictEqual(
-				problemsOf(draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ value: "a\nb" }) })).virtualKeyValue,
+				problemsOf(draft({ authForm: "virtualKey", virtualKeyHeader: "bad name" })).virtualKeyHeader,
+				undefined
+			);
+			assert.notStrictEqual(
+				problemsOf(draft({ authForm: "virtualKey", virtualKeyHeader: "x-key" })).virtualKeyValue,
+				undefined
+			);
+			assert.notStrictEqual(
+				problemsOf(draft({ authForm: "virtualKey", virtualKeyValue: secret({ value: "v" }) })).virtualKeyHeader,
+				undefined
+			);
+			assert.notStrictEqual(
+				problemsOf(
+					draft({ authForm: "virtualKey", virtualKeyHeader: "x-key", virtualKeyValue: secret({ value: "a\nb" }) })
+				).virtualKeyValue,
 				undefined
 			);
 			assert.deepStrictEqual(
-				problemsOf(draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ value: "vk-1" }) })),
+				problemsOf(
+					draft({ authForm: "virtualKey", virtualKeyHeader: "x-key", virtualKeyValue: secret({ value: "vk-1" }) })
+				),
 				{}
 			);
 		});
 
 		test("a header whose value is kept in secure storage satisfies the pair", () => {
 			const problems = problemsOf(
-				draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ existing: "secure" }) })
+				draft({ authForm: "virtualKey", virtualKeyHeader: "x-key", virtualKeyValue: secret({ existing: "secure" }) })
 			);
 			assert.deepStrictEqual(problems, {});
 		});
 
 		test("clearing the kept value re-breaks the pair", () => {
 			const problems = problemsOf(
-				draft({ virtualKeyHeader: "x-key", virtualKeyValue: secret({ existing: "secure", clear: true }) })
+				draft({
+					authForm: "virtualKey",
+					virtualKeyHeader: "x-key",
+					virtualKeyValue: secret({ existing: "secure", clear: true }),
+				})
 			);
 			assert.notStrictEqual(problems.virtualKeyValue, undefined);
 		});
@@ -135,7 +162,7 @@ suite("extension/dashboard/serverForm", () => {
 			// blocked Save on a problem the user could not edit away. The directive
 			// says the value is going away; nothing about it can block.
 			const parse = parseServerForm(
-				draft({ virtualKeyValue: secret({ value: "a\nb", clear: true, existing: "secure" }) })
+				draft({ authForm: "virtualKey", virtualKeyValue: secret({ value: "a\nb", clear: true, existing: "secure" }) })
 			);
 			assert.ok(parse.ok, "the stale text of a cleared field is not validated");
 			assert.deepStrictEqual(parse.intent.secrets.virtualKeyValue, { action: "clear" });
@@ -152,19 +179,19 @@ suite("extension/dashboard/serverForm", () => {
 		});
 
 		test("OAuth-section fields are a subset of the order, so a summary can always point into the form", () => {
-			for (const field of OAUTH_SECTION_FIELDS) {
+			for (const field of OAUTH_FORM_FIELDS) {
 				assert.ok(SERVER_FORM_FIELD_ORDER.includes(field), field);
 			}
 		});
 
-		test("a partial-OAuth draft's problems all sit inside the collapsible section", () => {
-			// The section must be forced open on save: with label and baseUrl
-			// valid, every blocking problem here would otherwise be invisible.
-			const problems = problemsOf(draft({ oauthTokenUrl: "https://idp.test/token" }));
+		test("a partial-OAuth draft's problems all sit on the OAuth form's own fields", () => {
+			// With label and baseUrl valid, every blocking problem of a partial
+			// OAuth draft must sit on a field the selected form renders.
+			const problems = problemsOf(draft({ authForm: "oauth", oauthTokenUrl: "https://idp.test/token" }));
 			const failing = SERVER_FORM_FIELD_ORDER.filter((field) => problems[field] !== undefined);
 			assert.ok(failing.length > 0);
 			for (const field of failing) {
-				assert.ok(OAUTH_SECTION_FIELDS.includes(field), field);
+				assert.ok(OAUTH_FORM_FIELDS.includes(field), field);
 			}
 		});
 	});
@@ -172,7 +199,7 @@ suite("extension/dashboard/serverForm", () => {
 	suite("parseServerForm intent", () => {
 		test("trims fields and omits empty optionals entirely", () => {
 			const intent = intentOf(draft({ label: " Prod ", baseUrl: " http://localhost:4000 ", oauthScopes: "  " }));
-			// The two entry-record fields are the exception: they ride every
+			// The entry-record and list fields are the exception: they ride every
 			// intent, even empty, so the save can tell a deliberate clear from
 			// a payload that predates their editors.
 			assert.deepStrictEqual(intent.server, {
@@ -180,6 +207,9 @@ suite("extension/dashboard/serverForm", () => {
 				baseUrl: "http://localhost:4000",
 				modelCapabilities: {},
 				expectedFailures: [],
+				headers: {},
+				declaredModels: [],
+				budget: null,
 			});
 			assert.strictEqual(intent.replaceLabel, undefined);
 		});
@@ -189,6 +219,7 @@ suite("extension/dashboard/serverForm", () => {
 			// demands is present: only clean drafts parse to an intent at all.
 			const intent = intentOf(
 				draft({
+					authForm: "oauth",
 					oauthTokenUrl: "https://idp.test/token",
 					oauthClientId: "client",
 					apiKey: secret({ value: " sk-1 ", location: "secure" }),
@@ -216,30 +247,35 @@ suite("extension/dashboard/serverForm", () => {
 				location: "settings",
 				existing: "settings",
 			});
-			const intent = intentOf(draft({ apiKey: prefilled }));
+			const intent = intentOf(draft({ authForm: "apiKey", apiKey: prefilled }));
 			assert.deepStrictEqual(intent.secrets.apiKey, { action: "keep" });
 		});
 
 		test("an edited prefill assembles as set with the new value; reverting to the prefill is keep again", () => {
 			const prefilled = secret({ value: "sk-new", prefill: "sk-old", location: "settings", existing: "settings" });
-			const intent = intentOf(draft({ apiKey: prefilled }));
+			const intent = intentOf(draft({ authForm: "apiKey", apiKey: prefilled }));
 			assert.deepStrictEqual(intent.secrets.apiKey, { action: "set", location: "settings", value: "sk-new" });
 
-			const reverted = intentOf(draft({ apiKey: { ...prefilled, value: " sk-old " } }));
+			const reverted = intentOf(draft({ authForm: "apiKey", apiKey: { ...prefilled, value: " sk-old " } }));
 			assert.deepStrictEqual(reverted.secrets.apiKey, { action: "keep" }, "untouched means unchanged value, trimmed");
 		});
 
 		test("an emptied prefill assembles as keep; the remove checkbox is the explicit clear gesture", () => {
 			const emptied = secret({ value: "", prefill: "sk-inline", location: "settings", existing: "settings" });
-			assert.deepStrictEqual(intentOf(draft({ apiKey: emptied })).secrets.apiKey, { action: "keep" });
-			assert.deepStrictEqual(intentOf(draft({ apiKey: { ...emptied, clear: true } })).secrets.apiKey, {
-				action: "clear",
+			assert.deepStrictEqual(intentOf(draft({ authForm: "apiKey", apiKey: emptied })).secrets.apiKey, {
+				action: "keep",
 			});
+			assert.deepStrictEqual(
+				intentOf(draft({ authForm: "apiKey", apiKey: { ...emptied, clear: true } })).secrets.apiKey,
+				{
+					action: "clear",
+				}
+			);
 		});
 
 		test("a prefill with the storage choice moved to secure assembles as a set there: a real relocation", () => {
 			const moved = secret({ value: "sk-inline", prefill: "sk-inline", location: "secure", existing: "settings" });
-			const intent = intentOf(draft({ apiKey: moved }));
+			const intent = intentOf(draft({ authForm: "apiKey", apiKey: moved }));
 			assert.deepStrictEqual(intent.secrets.apiKey, { action: "set", location: "secure", value: "sk-inline" });
 		});
 	});
@@ -383,6 +419,7 @@ suite("extension/dashboard/serverForm", () => {
 			// must sit on the value field (not the header) and clear once the
 			// value is edited to something sendable.
 			const base = draft({
+				authForm: "virtualKey",
 				virtualKeyHeader: "x-key",
 				virtualKeyValue: secret({ existing: "settings", location: "settings" }),
 			});
@@ -405,7 +442,7 @@ suite("extension/dashboard/serverForm", () => {
 			// while the response is pending; once it arrives, the flipped location
 			// survives the prefill and the save assembles the relocation the user
 			// asked for.
-			const flipped = draft({ apiKey: secret({ existing: "settings", location: "secure" }) });
+			const flipped = draft({ authForm: "apiKey", apiKey: secret({ existing: "settings", location: "secure" }) });
 			assert.deepStrictEqual(
 				intentOf(flipped).secrets.apiKey,
 				{ action: "keep" },
@@ -443,6 +480,7 @@ suite("extension/dashboard/serverForm", () => {
 
 		test("connection-relevant problems block with the same rules and messages as the save parse", () => {
 			const broken = draft({
+				authForm: "oauth",
 				baseUrl: "not a url",
 				oauthClientId: "client-1",
 				virtualKeyHeader: "bad header",
@@ -461,6 +499,7 @@ suite("extension/dashboard/serverForm", () => {
 
 		test("the assembled intent carries the save parse's directives and the edited entry's replaceLabel", () => {
 			const edited = draft({
+				authForm: "oauth",
 				label: "Renamed",
 				apiKey: secret({ value: " sk-typed ", location: "settings" }),
 				// A stored OAuth secret resolves through "keep", so the pairing
@@ -482,18 +521,22 @@ suite("extension/dashboard/serverForm", () => {
 			});
 		});
 
-		test("CONNECTION_FIELDS is exactly the field catalog minus label and the record and list fields", () => {
+		test("CONNECTION_FIELDS is exactly the field catalog minus label and the record, list, and budget fields", () => {
 			// The clear-on-edit rule and the field catalog cannot drift: a new
 			// connection-shaped field must join CONNECTION_FIELDS or this fails.
 			// modelCapabilities and expectedFailures stay out by design: they
 			// shape the probe's OUTCOME presentation (declared counts, expected
-			// downgrades), never the connection it tests.
+			// downgrades), never the connection it tests - and declaredModels and
+			// budget follow the same rule. The auth-form pick and the header rows
+			// ARE connection-shaped: the probe sends exactly what they select.
 			const expected = SERVER_FORM_FIELD_ORDER.filter(
 				(field) =>
 					field !== "label" &&
 					field !== "modelParameters" &&
 					field !== "modelCapabilities" &&
-					field !== "expectedFailures"
+					field !== "expectedFailures" &&
+					field !== "declaredModels" &&
+					field !== "budget"
 			);
 			assert.deepStrictEqual([...CONNECTION_FIELDS].sort(), [...expected].sort());
 		});

@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "preact/test-utils";
 import { App } from "../../../webview/dashboard/app";
-import { makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
+import { makeDeclaredServer, makeModel, makeState, makeUsage, makeUsageServer, statePush } from "../fixtures";
 import { cleanup, fireClick, fireInput, fireKeyDown, mount, pushToWebview, resetPosted } from "../harness";
 
 beforeEach(() => {
@@ -70,10 +70,15 @@ function visibleModelNames(root: ParentNode): string[] {
 	);
 }
 
-test("three tabs render without count badges, the combined view selected by default, and panels wired by aria", () => {
+test("four tabs render without count badges, the combined view selected by default, and panels wired by aria", () => {
 	const root = mountApp();
 	const tabs = Array.from(root.querySelectorAll("[role='tab']"));
-	expect(tabs.map((t) => (t.textContent ?? "").trim())).toEqual(["Servers & Models", "Settings", "Diagnostics"]);
+	expect(tabs.map((t) => (t.textContent ?? "").trim())).toEqual([
+		"Servers & Models",
+		"Usage",
+		"Settings",
+		"Diagnostics",
+	]);
 	// No count badges on the tabs: the hero directly above carries the server
 	// and model totals, so the tab labels stay plain text.
 	expect(root.querySelectorAll(".tabs .count").length).toBe(0);
@@ -84,10 +89,11 @@ test("three tabs render without count badges, the combined view selected by defa
 	const overview = tab(root, "Servers & Models");
 	expect(overview.getAttribute("aria-selected")).toBe("true");
 	expect(overview.tabIndex).toBe(0);
+	expect(tab(root, "Usage").tabIndex).toBe(-1);
 	expect(tab(root, "Settings").tabIndex).toBe(-1);
 	expect(tab(root, "Diagnostics").tabIndex).toBe(-1);
 
-	for (const section of ["overview", "settings", "diagnostics"]) {
+	for (const section of ["overview", "usage", "settings", "diagnostics"]) {
 		const pane = panel(root, section);
 		expect(pane.getAttribute("role")).toBe("tabpanel");
 		expect(pane.getAttribute("aria-labelledby")).toBe(`tab-${section}`);
@@ -129,6 +135,23 @@ test("clicking a tab switches the visible panel and aria-selected follows", () =
 	expect(panel(root, "settings").hidden).toBe(true);
 });
 
+test("the Usage tab renders the pushed usage snapshot's cards", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				servers: [makeDeclaredServer()],
+				usage: makeUsage({ servers: [makeUsageServer({ label: "Prod", spend: 12.5 })] }),
+			})
+		)
+	);
+	fireClick(tab(root, "Usage"));
+	const usagePanel = panel(root, "usage");
+	expect(usagePanel.hidden).toBe(false);
+	expect(usagePanel.querySelector(".usage-card")).not.toBeNull();
+	expect(usagePanel.textContent).toContain("Prod");
+});
+
 test("a focusSection push switches the active tab: the litellm.showDiagnostics deep link", () => {
 	const root = mountApp();
 	pushToWebview({ type: "focusSection", section: "diagnostics" });
@@ -150,6 +173,8 @@ test("arrow keys move selection with wrap-around; Home and End jump", () => {
 	const root = mountApp();
 	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
 
+	fireKeyDown(tablist, "ArrowRight");
+	expect(tab(root, "Usage").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowRight");
 	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowRight");

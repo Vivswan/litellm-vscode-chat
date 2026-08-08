@@ -25,12 +25,15 @@ import {
 	parseJsonValue,
 	parseNumberDraft,
 } from "../../../extension/dashboard/protocol";
-import type { SettingsInspection, SettingsReader } from "../../../extension/dashboard/state";
+import type { DashboardStateInputs, SettingsInspection, SettingsReader } from "../../../extension/dashboard/state";
 import {
 	buildDashboardState,
+	EMPTY_CATALOG_STATUS,
+	mostSpecificGlobalRecordKey,
 	readDashboardSettings,
 	resolveConfiguredScope,
 	resolveDashboardModelCapabilities,
+	resolveDashboardModelParameters,
 	resolveUpdateScope,
 } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
@@ -71,10 +74,38 @@ function makeReader(
 	};
 }
 
+/**
+ * buildDashboardState in the positional shorthand these suites were written
+ * against; inputs the shorthand does not cover (entryReports, catalog, usage,
+ * diagnostics) go through buildDashboardState's options object directly.
+ */
+function buildState(
+	snapshots: DashboardStateInputs["snapshots"],
+	reader: SettingsReader,
+	declared?: DashboardStateInputs["declared"],
+	legacyServers?: DashboardStateInputs["legacyServers"],
+	removedGroups?: DashboardStateInputs["removedGroups"],
+	isGroupSnapshot?: DashboardStateInputs["isGroupSnapshot"]
+) {
+	return buildDashboardState({
+		snapshots,
+		reader,
+		...(declared !== undefined ? { declared } : {}),
+		...(legacyServers !== undefined ? { legacyServers } : {}),
+		...(removedGroups !== undefined ? { removedGroups } : {}),
+		...(isGroupSnapshot !== undefined ? { isGroupSnapshot } : {}),
+	});
+}
+
+/** readDashboardSettings with the empty catalog status; the catalog row has its own coverage elsewhere. */
+function readSettings(reader: SettingsReader) {
+	return readDashboardSettings(reader, EMPTY_CATALOG_STATUS);
+}
+
 suite("extension/dashboard/state", () => {
 	suite("buildDashboardState", () => {
 		test("maps server statuses to dashboard servers, sorted by label", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -114,7 +145,7 @@ suite("extension/dashboard/state", () => {
 			// substitutes errorEnglish there while the on-screen row renders the
 			// (possibly localized) error. A sync error has no separate English
 			// mirror, so a row displaying one carries none.
-			const external = buildDashboardState(
+			const external = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -127,7 +158,7 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(external.servers[0]?.error, "LOCALIZED");
 			assert.strictEqual(external.servers[0]?.errorEnglish, "ENGLISH");
 
-			const declared = buildDashboardState(
+			const declared = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -142,7 +173,7 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(declared.servers[0]?.error, "LOCALIZED");
 			assert.strictEqual(declared.servers[0]?.errorEnglish, "ENGLISH");
 
-			const synced = buildDashboardState(
+			const synced = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -165,7 +196,7 @@ suite("extension/dashboard/state", () => {
 			// The webview maps the setup-hint id to a troubleshooting link; only
 			// the classification crosses the boundary (enum ids, never text).
 			const classification = { kind: "connection", setupHint: "proxy-not-running" } as const;
-			const external = buildDashboardState(
+			const external = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -178,7 +209,7 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(external.servers[0]?.origin, "external");
 			assert.deepStrictEqual(external.servers[0]?.classification, classification);
 
-			const declared = buildDashboardState(
+			const declared = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -194,7 +225,7 @@ suite("extension/dashboard/state", () => {
 
 			// An unclassified failure carries no field at all (conditional spread,
 			// never an explicit undefined).
-			const unclassified = buildDashboardState(
+			const unclassified = buildState(
 				[{ discoveredRawIds: [], status: makeServerStatus({ state: "error", error: "boom" }), models: [] }],
 				makeReader({})
 			);
@@ -204,7 +235,7 @@ suite("extension/dashboard/state", () => {
 			// A sync error masks the transport error and must not borrow the
 			// masked error's classification: the hint would advise on a failure
 			// the row is not displaying.
-			const synced = buildDashboardState(
+			const synced = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -221,7 +252,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("legacy registry servers with no row of their own are counted, never listed", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[{ discoveredRawIds: [], status: makeServerStatus(), models: [] }],
 				makeReader({}),
 				[],
@@ -238,10 +269,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a declared row also shadows its legacy twin; without legacy input the count is zero", () => {
-			const shadowed = buildDashboardState([], makeReader({}), [makeDeclared()], [{ baseUrl: "http://prod.test" }]);
+			const shadowed = buildState([], makeReader({}), [makeDeclared()], [{ baseUrl: "http://prod.test" }]);
 			assert.strictEqual(shadowed.legacyServerCount, 0);
 
-			assert.strictEqual(buildDashboardState([], makeReader({})).legacyServerCount, 0);
+			assert.strictEqual(buildState([], makeReader({})).legacyServerCount, 0);
 		});
 
 		test("a down server's retained models list under its erroring row without a per-model stale marker", () => {
@@ -253,7 +284,7 @@ suite("extension/dashboard/state", () => {
 			// lastChecked, snapshots carry undecorated pre-attach infos by type
 			// (the picker's ThemeIcon decoration never enters this path), and
 			// the models leave the table with the same ten-minute bound.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -273,7 +304,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("declared entries merge with their live group by label and base URL", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -308,7 +339,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a declared entry joins its live group even when the snapshot label is the URL host", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -335,7 +366,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("entries sharing a base URL pair by label first, so matching labels stay correctly paired", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -366,7 +397,7 @@ suite("extension/dashboard/state", () => {
 			// can tell them apart and the URL fallback would pair them by
 			// position; the client ID the sync engine fingerprints is exact. The
 			// declared order is chosen so the positional fallback would swap them.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -410,7 +441,7 @@ suite("extension/dashboard/state", () => {
 		test("an entry whose client ID matches no snapshot still joins by URL", () => {
 			// A stale fingerprint (a secret rotated but not yet re-synced) must
 			// degrade to the URL join, like an entry with no fingerprint at all.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -437,7 +468,7 @@ suite("extension/dashboard/state", () => {
 			// Both entries carry it as expectedConnectionId, and both rows must
 			// render the live status - honest shared state beats a second row
 			// stuck on "not checked" forever.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -481,7 +512,7 @@ suite("extension/dashboard/state", () => {
 			// both servers' copies), so a pre-label snapshot claimed by several
 			// declared entries must attribute its models to every claimant, not
 			// render them once under the first label.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -522,7 +553,7 @@ suite("extension/dashboard/state", () => {
 			// group add FAILED outright: the engine still emits the entry's
 			// connection identity, so it claims the snapshot - but the picker has
 			// ONE group, and duplicating the models would overcount it.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -565,7 +596,7 @@ suite("extension/dashboard/state", () => {
 		test("a blocked claimant keeps its models copy: the duplicate refusal proves its group exists", () => {
 			// A name-conflict refusal means a live group with that name IS
 			// registering models; dropping the copy would under-report the picker.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -605,7 +636,7 @@ suite("extension/dashboard/state", () => {
 			// The reporting group exists and serves (the snapshot is its live
 			// report), so the models cannot vanish just because the entry's last
 			// add failed; they render once, not zero times.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -640,7 +671,7 @@ suite("extension/dashboard/state", () => {
 			// The post-identity shape of the same setup: distinct labeled
 			// snapshots carrying the same raw model IDs stay two registrations,
 			// one row per server per model, matching the picker.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -689,7 +720,7 @@ suite("extension/dashboard/state", () => {
 			// so the request path never applies this entry's parameters. The row
 			// must warn instead of rendering silently healthy - but only via the
 			// classification; the copy stays webview-side.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -727,7 +758,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an entry with modelParameters joined by its exact labeled identity carries no notice", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -760,7 +791,7 @@ suite("extension/dashboard/state", () => {
 			// an unlabeled group whose credentials differ from the entry (neither
 			// identity joins). Only the exact labeled-identity join proves the
 			// group carries the entry's label; anything else must warn.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -790,7 +821,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an entry with modelParameters joined by the URL-only fallback still flags them", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -823,7 +854,7 @@ suite("extension/dashboard/state", () => {
 			// the URL, not the connection, so handing it key A's status would
 			// claim a server it cannot reach is healthy; it must stay unchecked
 			// (the URL fallback finds the snapshot already claimed).
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -859,7 +890,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a declared entry no discovery pass has seen renders unchecked; a sync failure renders as its error", () => {
-			const state = buildDashboardState([], makeReader({}), [
+			const state = buildState([], makeReader({}), [
 				makeDeclared({ label: "New", baseUrl: "http://new.test" }),
 				makeDeclared({ label: "Broken", baseUrl: "http://broken.test", syncError: "upsert refused" }),
 			]);
@@ -877,7 +908,7 @@ suite("extension/dashboard/state", () => {
 			// error field carries it, outranking any live error text), while the
 			// live state and counts keep rendering - diagnostics prints them
 			// side by side ("OK (N models) - <sync error>").
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -917,7 +948,7 @@ suite("extension/dashboard/state", () => {
 				},
 			];
 			const declared = [makeDeclared({ label: "Prod", baseUrl: "http://prod.test" })];
-			const state = buildDashboardState(snapshots, makeReader({}), declared);
+			const state = buildState(snapshots, makeReader({}), declared);
 
 			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
 			const external = byLabel.get("ext.test");
@@ -927,13 +958,13 @@ suite("extension/dashboard/state", () => {
 			// The webview holds a handle across background refreshes, so a rebuild
 			// must mint the same one; and the handle must not leak what it derives
 			// from (the serverId embeds the group's credential fingerprint).
-			const rebuilt = buildDashboardState(snapshots, makeReader({}), declared);
+			const rebuilt = buildState(snapshots, makeReader({}), declared);
 			assert.strictEqual(rebuilt.servers.find((s) => s.label === "ext.test")?.adoptHandle, external.adoptHandle);
 			assert.ok(!JSON.stringify(state).includes("fp-a"), "the handle never exposes the serverId it derives from");
 		});
 
 		test("no secret value ever reaches the state, only locations", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[{ discoveredRawIds: [], status: makeServerStatus({ hasApiKey: true }), models: [] }],
 				makeReader({}),
 				[makeDeclared({ secrets: { apiKey: "settings", oauthClientSecret: "secure", virtualKeyValue: "none" } })]
@@ -945,7 +976,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("colliding server labels get positional suffixes, on the servers and their models", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -973,7 +1004,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("no serverId reaches the state", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1006,10 +1037,7 @@ suite("extension/dashboard/state", () => {
 					serverDeclared: { kind: "discovered", values: {}, outputDeclared: true },
 				},
 			});
-			const state = buildDashboardState(
-				[{ discoveredRawIds: [], status: makeServerStatus(), models: [info] }],
-				makeReader({})
-			);
+			const state = buildState([{ discoveredRawIds: [], status: makeServerStatus(), models: [info] }], makeReader({}));
 
 			assert.strictEqual(state.models.length, 1);
 			const model = state.models[0];
@@ -1039,7 +1067,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("models without pricing or capabilities stay minimal", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[{ discoveredRawIds: [], status: makeServerStatus(), models: [makeModelInfo()] }],
 				makeReader({})
 			);
@@ -1053,7 +1081,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("models from several servers are flattened and sorted by server label then name", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1078,7 +1106,7 @@ suite("extension/dashboard/state", () => {
 
 	suite("buildDashboardState: removed groups", () => {
 		test("a tombstoned external snapshot leaves the table and the models list for hiddenGroups", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1113,7 +1141,7 @@ suite("extension/dashboard/state", () => {
 		test("tombstones suppress by the raw status label, not the display ordinal", () => {
 			// Two external groups share a label, so the table would render "Dup
 			// (1)" and "Dup (2)"; the tombstone still stores the raw identity.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1142,7 +1170,7 @@ suite("extension/dashboard/state", () => {
 		test("a declared row is never suppressed, even when a tombstone matches its identity", () => {
 			// The engine auto-clears such a tombstone on its next pass; until then
 			// the declared entry the user just wrote must keep rendering.
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1161,7 +1189,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("hidden groups persist without a live snapshot, so unhide stays offered", () => {
-			const state = buildDashboardState([], makeReader({}), [], [], {
+			const state = buildState([], makeReader({}), [], [], {
 				tombstones: [{ label: "Gone", baseUrl: "http://gone.test" }],
 				origins: [],
 			});
@@ -1176,22 +1204,18 @@ suite("extension/dashboard/state", () => {
 			// would reference nothing. The panel's session-sticky observation set
 			// feeds this gate; the observed identity keeps its row even with no
 			// live snapshot in this push (snapshot aging must not flap it off).
-			const state = buildDashboardState(
-				[],
-				makeReader({}),
-				[],
-				[],
-				{
+			const state = buildDashboardState({
+				snapshots: [],
+				reader: makeReader({}),
+				removedGroups: {
 					tombstones: [
 						{ label: "Ghost", baseUrl: "http://ghost.test" },
 						{ label: "Seen", baseUrl: "http://seen.test" },
 					],
 					origins: [],
 				},
-				() => true,
-				() => undefined,
-				(label) => label === "Seen"
-			);
+				wasGroupObserved: (label) => label === "Seen",
+			});
 
 			assert.deepStrictEqual(state.hiddenGroups, [{ label: "Seen", baseUrl: "http://seen.test" }]);
 		});
@@ -1201,7 +1225,7 @@ suite("extension/dashboard/state", () => {
 			// external-looking rows; the registry sweep would keep serving their
 			// models, so a tombstone must not hide them and the row offers no
 			// Remove (hideable false).
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1227,7 +1251,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("group-backed external rows are hideable by default", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[{ discoveredRawIds: [], status: makeServerStatus({ serverId: "g1", label: "Prod" }), models: [] }],
 				makeReader({})
 			);
@@ -1235,7 +1259,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("external rows carry their recorded provenance; unrecorded rows carry none", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1272,7 +1296,7 @@ suite("extension/dashboard/state", () => {
 
 	suite("buildDashboardState: request scopes", () => {
 		test("models carry the raw ID with the legacy multi-server namespace stripped", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1287,7 +1311,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("group models are already raw, and outputLimitDeclared mirrors the litellm provenance", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1317,95 +1341,104 @@ suite("extension/dashboard/state", () => {
 			);
 		});
 
-		test("every model's scopeKey resolves in requestScopes, with the base URL normalized", () => {
-			const state = buildDashboardState(
-				[
-					{
-						discoveredRawIds: [],
-						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test/" }),
-						models: [makeModelInfo({ id: "m1", name: "m1" })],
-					},
-				],
-				makeReader({})
-			);
+		test("every model's scopeKey resolves through the readModelParameters responder; a stale key answers nothing", () => {
+			const snapshots = [
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test/" }),
+					models: [makeModelInfo({ id: "m1", name: "m1" })],
+				},
+			];
+			const state = buildState(snapshots, makeReader({}));
 			const model = state.models[0];
 			assert.ok(model !== undefined);
-			const scope = state.requestScopes[model.scopeKey];
-			assert.deepStrictEqual(scope, { baseUrlScope: normalizeBaseUrl("http://prod.test/") });
+			const query = { snapshots, reader: makeReader({}), resolveEntryParameters: () => undefined };
+			const answer = resolveDashboardModelParameters(query, model.scopeKey, model.rawId);
+			assert.ok(answer !== undefined, "the pushed scope key resolves");
+			assert.strictEqual(answer.entryLabel, undefined, "no declared entry matched, so no label rides the answer");
+			assert.strictEqual(
+				resolveDashboardModelParameters(query, modelScopeKey("no-such-server"), model.rawId),
+				undefined,
+				"a key minted for a departed snapshot de-resolves instead of hitting another server"
+			);
 		});
 
-		test("the injected resolver's entry parameters land on the snapshot's scope, keyed per snapshot", () => {
-			// Two same-label groups at one URL: the scope is keyed per snapshot, so
-			// only the snapshot whose server ID resolves carries the entry's
-			// parameters - a label-keyed scope would hand them to both.
-			const entryParameters = { "gpt-4": { temperature: 0.2 } };
-			const state = buildDashboardState(
-				[
-					{
-						discoveredRawIds: [],
-						status: makeServerStatus({ serverId: "g1", label: "Team", baseUrl: "http://prod.test" }),
-						models: [makeModelInfo({ id: "m1", name: "m1" })],
-					},
-					{
-						discoveredRawIds: [],
-						status: makeServerStatus({ serverId: "g2", label: "Team", baseUrl: "http://prod.test" }),
-						models: [makeModelInfo({ id: "m2", name: "m2" })],
-					},
-				],
-				makeReader({}),
-				[],
-				[],
-				{ tombstones: [], origins: [] },
-				() => true,
-				(serverId) => (serverId === "g1" ? { entryLabel: "Team", entryParameters } : undefined)
-			);
+		test("the injected resolver's entry parameters reach only the resolving snapshot's models", () => {
+			// Two same-label groups at one URL: the responder resolves by the scope
+			// key's server ID, so only the snapshot whose server ID resolves gets
+			// the entry's parameters - a label-keyed lookup would hand them to both.
+			const entryParameters = { "*": { temperature: 0.2 } };
+			const snapshots = [
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({ serverId: "g1", label: "Team", baseUrl: "http://prod.test" }),
+					models: [makeModelInfo({ id: "m1", name: "m1" })],
+				},
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({ serverId: "g2", label: "Team", baseUrl: "http://prod.test" }),
+					models: [makeModelInfo({ id: "m2", name: "m2" })],
+				},
+			];
+			const state = buildState(snapshots, makeReader({}));
+			const query = {
+				snapshots,
+				reader: makeReader({}),
+				resolveEntryParameters: (serverId: string) =>
+					serverId === "g1" ? { entryLabel: "Team", entryParameters } : undefined,
+			};
 			const modelByRaw = (rawId: string) => state.models.find((model) => model.rawId === rawId);
-			const scopeOf = (rawId: string) => {
+			const answerFor = (rawId: string) => {
 				const model = modelByRaw(rawId);
 				assert.ok(model !== undefined, rawId);
-				return state.requestScopes[model.scopeKey];
+				return resolveDashboardModelParameters(query, model.scopeKey, model.rawId);
 			};
-			assert.deepStrictEqual(scopeOf("m1"), {
-				baseUrlScope: "http://prod.test",
-				entryLabel: "Team",
-				entryParameters,
-			});
-			assert.deepStrictEqual(scopeOf("m2"), { baseUrlScope: "http://prod.test" });
+			const resolving = answerFor("m1");
+			assert.strictEqual(resolving?.entryLabel, "Team");
+			const row = resolving?.projection.rows.find((candidate) => candidate.name === "temperature");
+			assert.strictEqual(row?.value, 0.2);
+			assert.deepStrictEqual(row?.source, { layer: "entry", key: "*" });
+			const other = answerFor("m2");
+			assert.ok(other !== undefined);
+			assert.strictEqual(other.entryLabel, undefined, "the sibling group carries no entry resolution");
+			assert.deepStrictEqual(other.projection.rows, [], "no entry parameters reach the sibling's models");
 			assert.notStrictEqual(modelByRaw("m1")?.scopeKey, modelByRaw("m2")?.scopeKey);
 		});
 
 		test("a tombstoned snapshot contributes no models and the remaining scope keys stay resolvable", () => {
-			const state = buildDashboardState(
-				[
-					{
-						discoveredRawIds: [],
-						status: makeServerStatus({ serverId: "g1", label: "Hidden", baseUrl: "http://hidden.test" }),
-						models: [makeModelInfo({ id: "m1", name: "m1" })],
-					},
-					{
-						discoveredRawIds: [],
-						status: makeServerStatus({ serverId: "g2", label: "Live", baseUrl: "http://live.test" }),
-						models: [makeModelInfo({ id: "m2", name: "m2" })],
-					},
-				],
-				makeReader({}),
-				[],
-				[],
-				{ tombstones: [{ label: "Hidden", baseUrl: "http://hidden.test" }], origins: [] }
-			);
+			const snapshots = [
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({ serverId: "g1", label: "Hidden", baseUrl: "http://hidden.test" }),
+					models: [makeModelInfo({ id: "m1", name: "m1" })],
+				},
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({ serverId: "g2", label: "Live", baseUrl: "http://live.test" }),
+					models: [makeModelInfo({ id: "m2", name: "m2" })],
+				},
+			];
+			const state = buildState(snapshots, makeReader({}), [], [], {
+				tombstones: [{ label: "Hidden", baseUrl: "http://hidden.test" }],
+				origins: [],
+			});
 			assert.deepStrictEqual(
 				state.models.map((model) => model.serverLabel),
 				["Live"]
 			);
+			const query = { snapshots, reader: makeReader({}), resolveEntryParameters: () => undefined };
 			for (const model of state.models) {
-				assert.ok(state.requestScopes[model.scopeKey] !== undefined, "every surviving model's scope resolves");
+				assert.ok(
+					resolveDashboardModelParameters(query, model.scopeKey, model.rawId) !== undefined,
+					"every surviving model's scope resolves"
+				);
 			}
 		});
 	});
 
 	suite("buildDashboardState: capabilities and expected failures", () => {
 		test("the config prefill carries the entry's modelCapabilities and expectedFailures", () => {
-			const state = buildDashboardState([], makeReader({}), [
+			const state = buildState([], makeReader({}), [
 				makeDeclared({
 					modelCapabilities: { "my-model": { context_length: 128000 } },
 					expectedFailures: ["modelListing"],
@@ -1420,7 +1453,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a non-identity join flags capabilities and expected failures inactive, beside the params notice", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1449,7 +1482,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("expectedFailures alone also raises the capabilities-inactive notice on a non-identity join", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1476,7 +1509,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an expected failure rides the row with its declared count as the model count", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1511,7 +1544,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an expected failure with nothing declared raises the needs-declare notice", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1543,7 +1576,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a declared model's badge marker rides the dashboard model; discovered models carry none", () => {
-			const state = buildDashboardState(
+			const state = buildState(
 				[
 					{
 						discoveredRawIds: [],
@@ -1572,6 +1605,20 @@ suite("extension/dashboard/state", () => {
 					["my-model", true],
 				]
 			);
+		});
+	});
+
+	suite("mostSpecificGlobalRecordKey", () => {
+		test("names the most specific matching key of the addressed map, or nothing", () => {
+			const reader = makeReader({
+				"models.parameters": { "*": { temperature: 0.7 }, "gpt*": { temperature: 0.3 } },
+				"models.capabilities": { "claude-4": { supports_vision: true } },
+			});
+			assert.strictEqual(mostSpecificGlobalRecordKey(reader, "parameters", "gpt-4"), "gpt*");
+			assert.strictEqual(mostSpecificGlobalRecordKey(reader, "parameters", "claude-4"), "*");
+			assert.strictEqual(mostSpecificGlobalRecordKey(reader, "capabilities", "claude-4"), "claude-4");
+			assert.strictEqual(mostSpecificGlobalRecordKey(reader, "capabilities", "gpt-4"), undefined);
+			assert.strictEqual(mostSpecificGlobalRecordKey(makeReader({}), "parameters", "gpt-4"), undefined);
 		});
 	});
 
@@ -1660,9 +1707,7 @@ suite("extension/dashboard/state", () => {
 					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
 				},
 			];
-			const state = buildDashboardState(divergent, makeReader({}), [
-				makeDeclared({ label: "Prod", baseUrl: "http://x.test" }),
-			]);
+			const state = buildState(divergent, makeReader({}), [makeDeclared({ label: "Prod", baseUrl: "http://x.test" })]);
 			assert.strictEqual(state.models[0]?.serverLabel, "Prod", "the row renders under the claimant label");
 			const capabilities = resolveDashboardModelCapabilities(
 				{
@@ -1690,7 +1735,7 @@ suite("extension/dashboard/state", () => {
 					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
 				},
 			];
-			const state = buildDashboardState(twoGroups, makeReader({}));
+			const state = buildState(twoGroups, makeReader({}));
 			const keys = state.models.map((model) => model.scopeKey);
 			assert.strictEqual(new Set(keys).size, 2, "each group's models carry their own key");
 			for (const model of state.models) {
@@ -1726,14 +1771,14 @@ suite("extension/dashboard/state", () => {
 
 	suite("readDashboardSettings", () => {
 		test("passes configured finite numbers through, even out of range", () => {
-			const settings = readDashboardSettings(makeReader({ "chat.timeout": 5, "usage.pollInterval": 60000 }));
+			const settings = readSettings(makeReader({ "chat.timeout": 5, "usage.pollInterval": 60000 }));
 
 			assert.strictEqual(settings.numbers["chat.timeout"], 5);
 			assert.strictEqual(settings.numbers["usage.pollInterval"], 60000);
 		});
 
 		test("falls back to the package.json default for unusable values", () => {
-			const settings = readDashboardSettings(
+			const settings = readSettings(
 				makeReader(
 					{ "chat.timeout": "soon", "discovery.timeout": Number.NaN },
 					{ "chat.timeout": 300000, "discovery.timeout": 30000 }
@@ -1745,13 +1790,13 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("without a usable default, numbers fall back to the minimum", () => {
-			const settings = readDashboardSettings(makeReader({ "chat.timeout": "soon" }));
+			const settings = readSettings(makeReader({ "chat.timeout": "soon" }));
 
 			assert.strictEqual(settings.numbers["chat.timeout"], 1000);
 		});
 
 		test("booleans pass through and fall back to the default for junk", () => {
-			const settings = readDashboardSettings(
+			const settings = readSettings(
 				makeReader({ "chat.promptCaching": false, "ui.maskSecretInputs": "yes" }, { "ui.maskSecretInputs": true })
 			);
 
@@ -1760,7 +1805,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("every catalog entry is present in the snapshot", () => {
-			const settings = readDashboardSettings(makeReader({}));
+			const settings = readSettings(makeReader({}));
 
 			for (const id of NUMBER_SETTING_IDS) {
 				assert.ok(id in settings.numbers, `missing number setting ${id}`);
@@ -1773,7 +1818,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("configuredScopes carry the highest scope that sets the key, or null when only the default applies", () => {
-			const settings = readDashboardSettings(
+			const settings = readSettings(
 				makeReader(
 					{ "chat.timeout": 60000, "ui.maskSecretInputs": true },
 					{},
@@ -1793,14 +1838,14 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a value pinned to exactly its default still counts as configured", () => {
-			const settings = readDashboardSettings(makeReader({ "chat.timeout": 300000 }, { "chat.timeout": 300000 }));
+			const settings = readSettings(makeReader({ "chat.timeout": 300000 }, { "chat.timeout": 300000 }));
 
 			assert.strictEqual(settings.numbers["chat.timeout"], 300000);
 			assert.strictEqual(settings.configuredScopes.numbers["chat.timeout"], "global");
 		});
 
 		test("records come from the edit scope's own value, never the merged one", () => {
-			const settings = readDashboardSettings(
+			const settings = readSettings(
 				makeReader(
 					{ "models.parameters": { "gpt-4": { temperature: 0.1 }, "gpt-5": { temperature: 0.2 } } },
 					{},
@@ -1825,7 +1870,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("records default to the user scope when only it holds a value", () => {
-			const settings = readDashboardSettings(
+			const settings = readSettings(
 				makeReader({}, {}, { "models.parameters": { globalValue: { "gpt-4": { temperature: 0.2 } } } })
 			);
 
@@ -1835,7 +1880,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a workspace-folder record shows up read-only and never becomes the edit scope", () => {
-			const settings = readDashboardSettings(
+			const settings = readSettings(
 				makeReader({}, {}, { "models.parameters": { workspaceFolderValue: { "gpt-4": { temperature: 0.2 } } } })
 			);
 
@@ -1846,7 +1891,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("modelParameters drops malformed and prototype-polluting entries but keeps the rest", () => {
-			const settings = readDashboardSettings(
+			const settings = readSettings(
 				makeReader(
 					{},
 					{},
@@ -1864,7 +1909,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a non-object modelParameters value reads as empty", () => {
-			const settings = readDashboardSettings(makeReader({}, {}, { "models.parameters": { globalValue: [1, 2] } }));
+			const settings = readSettings(makeReader({}, {}, { "models.parameters": { globalValue: [1, 2] } }));
 
 			assert.deepStrictEqual(settings.modelParameters.value, {});
 		});
@@ -1874,7 +1919,7 @@ suite("extension/dashboard/state", () => {
 			// own cross-scope merge; the per-scope records come from inspect. The
 			// inspector must see the merged record even when the edit scope holds
 			// only part of it.
-			const settings = readDashboardSettings(
+			const settings = readSettings(
 				makeReader(
 					{ "models.parameters": { "gpt-4": { temperature: 0.2 }, bad: 7 } },
 					{},
@@ -1993,9 +2038,9 @@ suite("extension/dashboard/state", () => {
 				{ type: "setBooleanSetting", setting: "chat.promptCaching", value: "true" },
 				{ type: "resetSetting", setting: "notASetting" },
 				{ type: "resetSetting", setting: "chat.timeout", value: 1 },
-				// revealSetting: only classification-listed ids cross - never the
-				// servers setting (secrets live there) or arbitrary key text.
-				{ type: "revealSetting", setting: "servers" },
+				// revealSetting: only classification-listed ids cross - never
+				// arbitrary key text or fully-qualified ids.
+				{ type: "revealSetting", setting: "serverSecrets" },
 				{ type: "revealSetting", setting: "litellm-vscode-chat.chat.timeout" },
 				{ type: "revealSetting" },
 				{ type: "revealSetting", setting: "chat.timeout", extra: 1 },
@@ -2634,11 +2679,11 @@ suite("extension/dashboard/state", () => {
 		};
 		/** The handle a row carries, obtained the way the webview obtains it: from the built state. */
 		const handleOf = (
-			snapshots: Parameters<typeof buildDashboardState>[0],
+			snapshots: DashboardStateInputs["snapshots"],
 			declared: DeclaredServerView[],
 			label: string
 		): string => {
-			const server = buildDashboardState(snapshots, makeReader({}), declared).servers.find((s) => s.label === label);
+			const server = buildState(snapshots, makeReader({}), declared).servers.find((s) => s.label === label);
 			assert.ok(server?.adoptHandle !== undefined, `no adopt handle on row ${label}`);
 			return server.adoptHandle;
 		};
