@@ -1,6 +1,6 @@
 /**
  * The single owner of the models.capabilities vocabulary, its precedence
- * walk, and the `_declare`/`_openrouter_model`/`_fallback` directives. Pure
+ * walk, and the `_openrouter_model`/`_fallback` directives. Pure
  * (no vscode, no DOM, no Node) on purpose: the provider's registration path
  * patches attached models through resolveModelCapabilities, and the
  * dashboard's capability inspector renders its projection through the
@@ -22,7 +22,6 @@
  */
 
 import type { ModelRecordMap } from "./modelMatcher";
-import { parseMatcherKey } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
 import { parseSharedDirectives, resolveRecordChain } from "./recordResolution";
 
@@ -65,9 +64,6 @@ function isNumberCapabilityField(name: CapabilityFieldName): name is NumberCapab
 	return CAPABILITY_FIELDS[name] === "number";
 }
 
-/** Opts a record's exact-key ID into existing as a model even when discovery does not list it. */
-export const DECLARE_DIRECTIVE = "_declare";
-
 /** Names an OpenRouter catalog entry whose capabilities backfill fields the record leaves unset. */
 export const OPENROUTER_MODEL_DIRECTIVE = "_openrouter_model";
 
@@ -86,18 +82,14 @@ const FORCE_DIRECTIVE_WRONG_TYPE = "_force";
 export type ModelCapabilitiesRecord = ModelRecordMap;
 
 /** "entry" is the declared server entry's own record map; "global" the models.capabilities setting. */
-export type CapabilityConfigLayer = RecordLayer;
+type CapabilityConfigLayer = RecordLayer;
 
 /** A record diagnostic attributed to its configuration layer; see RecordDiagnostic for kinds and keys. */
 export interface CapabilityDiagnostic extends RecordDiagnostic {
 	readonly layer: CapabilityConfigLayer;
-}
-
-export interface ParsedCapabilityRecord extends ParsedRecord {
+}export interface ParsedCapabilityRecord extends ParsedRecord {
 	/** The validly typed capability fields; invalid and unknown keys are diagnosed away. */
 	readonly fields: Readonly<Partial<CapabilityFieldValues>>;
-	/** True only when the record carries a legal `_declare: true` (see parseCapabilityRecord's options). */
-	readonly declare: boolean;
 	/** The `_openrouter_model` directive's catalog ID, when validly set. */
 	readonly openrouterModel?: string | undefined;
 }
@@ -106,39 +98,24 @@ export interface ParsedCapabilityRecord extends ParsedRecord {
  * The one enforcement boundary of the capability vocabulary. A number field
  * accepts positive integers only; a boolean field accepts booleans only;
  * anything else is an invalid-value diagnostic and the field stays unset, so
- * a lower precedence source's valid value can still win. `_declare` must be a
- * boolean and is only honored when `allowDeclare` is set - callers pass false
- * for keys that cannot name one exact model ID (every global key, and entry
- * glob/regex/catch-all keys), turning `_declare: true` into an
- * unscoped-declare diagnostic. `_openrouter_model` must be a non-blank
- * string. `_fallback` must be `true` (all of the record's valid fields), a
- * list of field names the record validly sets (anything else in the list is
- * an invalid-directive diagnostic), or `false`. `_force` belongs to
- * parameters records and is diagnosed as the wrong record type; the shared
- * `_inheritable`/`_inherit_from` directives parse in recordResolution; other
- * underscore keys are ignored without diagnosis (forward compatibility).
+ * a lower precedence source's valid value can still win. `_openrouter_model`
+ * must be a non-blank string. `_fallback` must be `true` (all of the record's
+ * valid fields), a list of field names the record validly sets (anything
+ * else in the list is an invalid-directive diagnostic), or `false`. `_force`
+ * belongs to parameters records and is diagnosed as the wrong record type;
+ * the shared `_inheritable`/`_inherit_from` directives parse in
+ * recordResolution; other underscore keys are ignored without diagnosis
+ * (forward compatibility). Model declaration is not a directive: an entry's
+ * `discovery.declared` list is the one way to create a model discovery
+ * cannot list.
  */
-export function parseCapabilityRecord(
-	record: Readonly<Record<string, unknown>>,
-	options: { readonly allowDeclare: boolean }
-): ParsedCapabilityRecord {
+export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>): ParsedCapabilityRecord {
 	const numbers: { -readonly [K in NumberCapabilityField]?: number } = {};
 	const booleans: { -readonly [K in BooleanCapabilityField]?: boolean } = {};
-	let isDeclared = false;
 	let openrouterModel: string | undefined;
 	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
 
 	for (const [key, value] of Object.entries(record)) {
-		if (key === DECLARE_DIRECTIVE) {
-			if (typeof value !== "boolean") {
-				diagnostics.push({ kind: "invalid-directive", key });
-			} else if (value && !options.allowDeclare) {
-				diagnostics.push({ kind: "unscoped-declare", key });
-			} else {
-				isDeclared = value;
-			}
-			continue;
-		}
 		if (key === OPENROUTER_MODEL_DIRECTIVE) {
 			if (typeof value === "string" && value.trim() !== "") {
 				openrouterModel = value;
@@ -201,85 +178,14 @@ export function parseCapabilityRecord(
 		forced: new Set(),
 		fallback,
 		inheritFrom: shared.inheritFrom,
-		declare: isDeclared,
 		...(openrouterModel !== undefined ? { openrouterModel } : {}),
 		diagnostics,
 	};
 }
 
-/** Whether a record key may carry `_declare: true`: only an exact entry-level key names one model. */
-function declarableKey(layer: CapabilityConfigLayer, key: string): boolean {
-	if (layer !== "entry") {
-		return false;
-	}
-	const parsed = parseMatcherKey(key);
-	return parsed.ok && parsed.matcher.kind === "exact";
-}
-
 /** Resolve one layer's capability record map for a model through the shared chain walk. */
-export function resolveCapabilityLayer(
-	rawModelId: string,
-	layer: CapabilityConfigLayer,
-	records: ModelCapabilitiesRecord
-): RecordChainResolution {
-	return resolveRecordChain(rawModelId, records, (record, key) =>
-		parseCapabilityRecord(record, { allowDeclare: declarableKey(layer, key) })
-	);
-}
-
-export interface ExtractDeclaredModelsInput {
-	/** The models.capabilities setting as normalizeModelCapabilities returns it. */
-	readonly globalCapabilities: ModelCapabilitiesRecord;
-	/** The declared server entry's own capability records, when one matched. */
-	readonly entryCapabilities?: ModelCapabilitiesRecord | undefined;
-}
-
-/** One model a `_declare` directive creates, named by its record key's exact literal ID. */
-export interface DeclaredModelSpec {
-	readonly rawId: string;
-	readonly layer: CapabilityConfigLayer;
-	/** The record key that declared it; always the declared ID itself. */
-	readonly recordKey: string;
-}
-
-export interface ExtractedDeclaredModels {
-	readonly models: readonly DeclaredModelSpec[];
-	/** `_declare` problems only (unscoped-declare and invalid `_declare` values); field diagnostics stay with resolution. */
-	readonly diagnostics: readonly CapabilityDiagnostic[];
-}
-
-/**
- * Scan the capability records for `_declare` directives and produce the
- * models this server must synthesize when discovery does not list them.
- * Only an exact entry-level key can declare: declaration is per-server (the
- * entry already names its server) and per-model (matchers select, they do
- * not name), so a global `_declare: true` and one on a glob, regex, or
- * catch-all key are unscoped-declare diagnostics. Whether a declared ID is
- * inert (already discovered) is the caller's call against the discovered
- * raw-ID set - this resolver never sees discovery output.
- */
-export function extractDeclaredModels(input: ExtractDeclaredModelsInput): ExtractedDeclaredModels {
-	const models: DeclaredModelSpec[] = [];
-	const diagnostics: CapabilityDiagnostic[] = [];
-
-	const scan = (layer: CapabilityConfigLayer, records: ModelCapabilitiesRecord): void => {
-		for (const [key, record] of Object.entries(records)) {
-			const parsed = parseCapabilityRecord(record, { allowDeclare: declarableKey(layer, key) });
-			for (const diagnostic of parsed.diagnostics) {
-				if (diagnostic.key === DECLARE_DIRECTIVE) {
-					diagnostics.push({ ...diagnostic, layer, recordKey: key });
-				}
-			}
-			if (parsed.declare) {
-				models.push({ rawId: key, layer, recordKey: key });
-			}
-		}
-	};
-
-	scan("entry", input.entryCapabilities ?? {});
-	scan("global", input.globalCapabilities);
-
-	return { models, diagnostics };
+export function resolveCapabilityLayer(rawModelId: string, records: ModelCapabilitiesRecord): RecordChainResolution {
+	return resolveRecordChain(rawModelId, records, (record) => parseCapabilityRecord(record));
 }
 
 /**
@@ -406,9 +312,7 @@ export interface ResolvedCapabilityOverrides {
 	readonly directive?: DirectiveOutcome | undefined;
 	/** The implicit catalog lookup by the model's own raw ID, for the walk's catalog level. */
 	readonly implicitCatalog: CatalogLookupResult;
-	/** True when extractDeclaredModels declares this exact raw ID; the two can never disagree. */
-	readonly declare: boolean;
-	/** Field and `_openrouter_model` problems in the matching records; `_declare` problems belong to extraction. */
+	/** Field and `_openrouter_model` problems in the matching records. */
 	readonly diagnostics: readonly CapabilityDiagnostic[];
 }
 
@@ -428,8 +332,8 @@ export interface ResolvedCapabilityOverrides {
 export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInput): ResolvedCapabilityOverrides {
 	const { rawModelId, globalCapabilities, entryCapabilities, catalog } = input;
 
-	const entry = resolveCapabilityLayer(rawModelId, "entry", entryCapabilities ?? {});
-	const global = resolveCapabilityLayer(rawModelId, "global", globalCapabilities);
+	const entry = resolveCapabilityLayer(rawModelId, entryCapabilities ?? {});
+	const global = resolveCapabilityLayer(rawModelId, globalCapabilities);
 
 	const entryWinner = entry.winner as ParsedCapabilityRecord | undefined;
 	const globalWinner = global.winner as ParsedCapabilityRecord | undefined;
@@ -508,18 +412,10 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		return candidates.length > 0 ? candidates : undefined;
 	};
 
-	// `_declare` diagnostics have one owner (extractDeclaredModels), so they
-	// are filtered out here and never surface twice.
 	const diagnostics: CapabilityDiagnostic[] = [
-		...entry.diagnostics.filter((d) => d.key !== DECLARE_DIRECTIVE).map((d) => ({ ...d, layer: "entry" as const })),
-		...global.diagnostics.filter((d) => d.key !== DECLARE_DIRECTIVE).map((d) => ({ ...d, layer: "global" as const })),
+		...entry.diagnostics.map((d) => ({ ...d, layer: "entry" as const })),
+		...global.diagnostics.map((d) => ({ ...d, layer: "global" as const })),
 	];
-
-	// Declaration is extraction's semantics, not this walk's: the flag
-	// delegates to the one owner of the exact-entry-key rule.
-	const declare = extractDeclaredModels({ globalCapabilities, entryCapabilities }).models.some(
-		(model) => model.rawId === rawModelId
-	);
 
 	return {
 		fields: {
@@ -542,7 +438,6 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		},
 		...(directive !== undefined ? { directive } : {}),
 		implicitCatalog: catalog.byRawModelId(rawModelId),
-		declare,
 		diagnostics,
 	};
 }
@@ -552,7 +447,8 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
  * merged values exactly as the deployment merge produced them (present
  * whenever any contributor reported the field), plus output-limit
  * declaredness (the every-contributor rule), which controls only whether the
- * output limit counts as "provider". `_declare`d models have no server side
+ * output limit counts as "provider". Declared models (an entry's
+ * `discovery.declared` list) have no server side
  * at all, so the discriminant makes a missing baseline unrepresentable
  * rather than silently empty.
  */
@@ -620,8 +516,6 @@ export interface EffectiveCapabilities {
 	readonly outputLimitSource: EffectiveOutputLimitSource;
 	/** See ResolvedCapabilityOverrides.directive. */
 	readonly directive?: DirectiveOutcome | undefined;
-	/** See ResolvedCapabilityOverrides.declare. */
-	readonly declare: boolean;
 	readonly diagnostics: readonly CapabilityDiagnostic[];
 }
 
@@ -690,7 +584,7 @@ const LEVEL_IS_USER_SET: Readonly<Record<CapabilityLevel, boolean>> = {
  *  1. explicit field in the entry chain's resolved view
  *  2. explicit field in the global chain's resolved view
  *  3. field derived from `_openrouter_model`
- *  4. server-reported value (skipped for `_declare`d models)
+ *  4. server-reported value (skipped for declared models)
  *  5. `_fallback`-marked field from the entry chain
  *  6. `_fallback`-marked field from the global chain
  *  7. implicit catalog lookup by the model's own raw ID
@@ -760,7 +654,6 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 		},
 		outputLimitSource,
 		...(overrides.directive !== undefined ? { directive: overrides.directive } : {}),
-		declare: overrides.declare,
 		diagnostics: overrides.diagnostics,
 	};
 }

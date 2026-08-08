@@ -4,7 +4,7 @@
  * refresh actually serves - applyCapabilityOverrides patches discovered
  * entries through the shared resolveModelCapabilities walk (the same one the
  * dashboard's inspector renders, so the two cannot drift), and
- * synthesizeDeclaredModels builds the `_declare`d entries discovery did not
+ * synthesizeDeclaredModels builds the entry-declared models discovery did not
  * list. Both rebuild dependent artifacts coherently from the effective fields
  * (token limits, capability flags, the reasoning control, pricing) instead of
  * hand-patching, and both are idempotent: the resolver reads the untouched
@@ -19,7 +19,6 @@ import type {
 	EffectiveCapabilities,
 	ModelCapabilitiesRecord,
 } from "../../shared/config/capabilityResolution";
-import { extractDeclaredModels } from "../../shared/config/capabilityResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import type { ServerConfig } from "../../shared/servers";
 import type { PreAttachModelInfo } from "./groupModels";
@@ -37,9 +36,7 @@ export interface CapabilityOverrideOptions {
 	readonly entryCapabilities?: ModelCapabilitiesRecord | undefined;
 	/**
 	 * The matched declared entry's discovery.declared model IDs: exact IDs to
-	 * register when discovery does not list them, inert when it does - the
-	 * same rule as the `_declare` directive, whose extraction they join in
-	 * synthesizeDeclaredModels.
+	 * register when discovery does not list them, inert when it does.
 	 */
 	readonly entryDeclaredModels?: readonly string[] | undefined;
 	readonly catalog: CapabilityCatalogLookup;
@@ -252,15 +249,15 @@ export interface DeclaredModelSynthesis {
 
 /**
  * Build the declared models the current configuration creates on one server:
- * the `_declare` directives plus the matched entry's discovery.declared list.
- * A declared ID that discovery listed is inert - judged against the
- * DISCOVERED raw-ID set, not the registered one, because registration may
- * emit only synthetic variants (`foo:cheapest`) for a discovered `foo`. A
- * declared ID whose exposed form collides with an ID registration is about
- * to emit (a synthetic aggregate, a per-provider variant) is suppressed with
- * a logged warning: never two models with one exposed ID. Declared models
- * are always rebuilt from the configuration at hand and never persisted, so
- * removing a `_declare` takes effect on the next serve even mid-outage.
+ * the matched entry's discovery.declared list. A declared ID that discovery
+ * listed is inert - judged against the DISCOVERED raw-ID set, not the
+ * registered one, because registration may emit only synthetic variants
+ * (`foo:cheapest`) for a discovered `foo`. A declared ID whose exposed form
+ * collides with an ID registration is about to emit (a synthetic aggregate,
+ * a per-provider variant) is suppressed with a logged warning: never two
+ * models with one exposed ID. Declared models are always rebuilt from the
+ * configuration at hand and never persisted, so removing a declared ID takes
+ * effect on the next serve even mid-outage.
  */
 export function synthesizeDeclaredModels(
 	discoveredRawIds: ReadonlySet<string>,
@@ -269,20 +266,14 @@ export function synthesizeDeclaredModels(
 	serverCount: number,
 	opts: CapabilityOverrideOptions
 ): DeclaredModelSynthesis {
-	const extracted = extractDeclaredModels({
-		globalCapabilities: opts.globalCapabilities,
-		entryCapabilities: opts.entryCapabilities,
-	});
 	const logDiagnostics = diagnosticLogger(opts.log);
-	logDiagnostics(extracted.diagnostics);
-	// The entry's discovery.declared list joins the `_declare` extraction under
-	// the same rules (exact IDs, inert when discovered, config-rebuilt every
-	// serve); an ID both sources declare synthesizes once.
-	const extractedIds = new Set(extracted.models.map((spec) => spec.rawId));
-	const entryDeclared = (opts.entryDeclaredModels ?? [])
-		.filter((rawId) => !extractedIds.has(rawId))
-		.map((rawId) => ({ rawId, layer: "entry" as const, recordKey: "discovery.declared" }));
-	const specs = [...extracted.models, ...entryDeclared];
+	// Exact IDs, inert when discovered, config-rebuilt every serve; a
+	// duplicated ID synthesizes once.
+	const specs = [...new Set(opts.entryDeclaredModels ?? [])].map((rawId) => ({
+		rawId,
+		layer: "entry" as const,
+		recordKey: "discovery.declared",
+	}));
 	const display = serverDisplayContext(server, serverCount);
 	const infos: PreAttachModelInfo[] = [];
 	const routes = new Map<string, ModelRoute>();
@@ -304,7 +295,7 @@ export function synthesizeDeclaredModels(
 			catalog: opts.catalog,
 			serverDeclared: { kind: "declared" },
 		});
-		// Field problems in a `_declare`d record usually have no discovered
+		// Field problems in a declared model's records usually have no discovered
 		// model to surface through, so this resolve is their one log seam.
 		logDiagnostics(effective.diagnostics);
 		const fields = effective.fields;

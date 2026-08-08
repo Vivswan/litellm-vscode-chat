@@ -395,5 +395,5 @@ test("an expected failure with nothing declared keeps the Error status but warns
 	expect(pill?.classList.contains("tone-warn")).toBe(true);
 	const notes = [...(grid?.querySelectorAll("tr.diag-note") ?? [])].map((el) => el.textContent ?? "");
 	expect(notes.some((text) => text.includes("(expected)"))).toBe(true);
-	expect(notes.some((text) => text.includes("add _declare entries"))).toBe(true);
+	expect(notes.some((text) => text.includes("discovery.declared"))).toBe(true);
 });

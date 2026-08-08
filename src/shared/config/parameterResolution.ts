@@ -90,7 +90,7 @@ function forceable(key: string): boolean {
 }
 
 /** Capability-record directives, known here only to diagnose them as the wrong record type. */
-const WRONG_TYPE_DIRECTIVES = ["_fallback", "_openrouter_model", "_declare"] as const;
+const WRONG_TYPE_DIRECTIVES = ["_fallback", "_openrouter_model"] as const;
 
 /** "entry" is the declared server entry's own record; "global" the models.parameters setting. */
 export type ParameterConfigLayer = RecordLayer;

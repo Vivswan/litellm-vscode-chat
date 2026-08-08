@@ -38,6 +38,7 @@ const capabilityFieldEntry: fc.Arbitrary<[string, unknown]> = fc.oneof(
 		fc.constantFrom("supports_function_calling", "supports_vision", "supports_reasoning", "supports_audio_input"),
 		fc.boolean()
 	),
+	// The retired _declare directive stays as reserved-underscore noise.
 	fc.tuple(fc.constant("_declare"), fc.boolean()),
 	fc.tuple(fc.constant("_openrouter_model"), recordKey)
 );

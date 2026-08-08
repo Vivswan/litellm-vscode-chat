@@ -4,7 +4,7 @@
  * while everything else - chat completions above all - dispatches normally.
  * Docker suites point a server entry at `${FAKE_URL}${NO_DISCOVERY_PREFIX}`
  * to drive a gateway that serves chat but cannot list models (the
- * `expectedFailures` + `_declare` topologies). The mode rides the URL path
+ * `expectedFailures` + declared-model topologies). The mode rides the URL path
  * because every fake route shares one port and base URL root, mirroring the
  * /authed bearer-guarded prefix (src/test/fakeStack/oauth.ts). Pure
  * constants, string functions, and the per-credential discovery-attempt

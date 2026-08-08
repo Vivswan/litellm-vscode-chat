@@ -84,7 +84,7 @@ export function serverFieldHelp(field: ServerFormField): string {
 			);
 		case "modelCapabilities":
 			return l10n.t(
-				"Correct or declare what this server's models can do, e.g. context_length 128000 for gpt-4 models. Add _declare true to create a model discovery does not list."
+				"Correct or declare what this server's models can do, e.g. context_length 128000 for gpt-4 models. To create a model discovery does not list, add its ID to the entry's discovery.declared."
 			);
 		case "expectedFailures":
 			return l10n.t(
@@ -125,13 +125,13 @@ export function helpModelParameterValue(): string {
 
 export function helpCapabilityPrefix(): string {
 	return l10n.t(
-		"Matches model IDs by prefix, longest winning: gpt-4 covers gpt-4-turbo. With _declare, use the exact model ID - prefixes never create models."
+		"Matches model IDs by prefix, longest winning: gpt-4 covers gpt-4-turbo. Matching never creates models - declare missing IDs in the entry's discovery.declared."
 	);
 }
 
 export function helpCapabilityName(): string {
 	return l10n.t(
-		"A capability field like context_length or supports_vision, or a directive: _declare creates the model, _openrouter_model fills fields from the catalog, _fallback demotes fields below the server's report."
+		"A capability field like context_length or supports_vision, or a directive: _openrouter_model fills fields from the catalog, _fallback demotes fields below the server's report."
 	);
 }
 
@@ -150,12 +150,6 @@ export function helpCatalogPicker(): string {
 export function helpFallbackFlag(): string {
 	return l10n.t(
 		"Applies this value only when the server reports nothing, e.g. filling a missing context_length. Unchecked, your value overrides the server's."
-	);
-}
-
-export function helpFallbackFlagDisabled(): string {
-	return l10n.t(
-		"Locked while _declare is on: the model it creates has no server value to fall back under. Models this prefix merely matches keep existing _fallback marks."
 	);
 }
 

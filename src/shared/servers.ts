@@ -60,7 +60,7 @@ export interface ServerStatusError extends ServerStatusCommon {
 	 * absent means not expected.
 	 */
 	expected?: boolean | undefined;
-	/** How many `_declare`d models the server keeps serving despite the failure; absent means none. */
+	/** How many declared models the server keeps serving despite the failure; absent means none. */
 	declaredModelCount?: number | undefined;
 	modelCount?: undefined;
 }

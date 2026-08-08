@@ -26,7 +26,6 @@ export type {
 } from "../../shared/config/capabilityResolution";
 export {
 	CAPABILITY_FIELDS,
-	DECLARE_DIRECTIVE,
 	FALLBACK_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 } from "../../shared/config/capabilityResolution";
@@ -111,9 +110,9 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
  * exactly what is inactive.
  *
  * "expected-failures-nothing-declared": discovery failed in a category the
- * entry expects, and no `_declare` directive supplies models - the server is
- * healthy by its own declaration but serves nothing, which only a declared
- * model can fix.
+ * entry expects, and the entry's discovery.declared list supplies no models -
+ * the server is healthy by its own declaration but serves nothing, which only
+ * a declared model can fix.
  */
 export type DeclaredServerNotice =
 	| "entry-params-inactive"
@@ -241,7 +240,7 @@ export type DashboardServer = DashboardServerBase &
 				 * "(expected)" instead of rendered red.
 				 */
 				readonly expected?: boolean | undefined;
-				/** How many `_declare`d models this server keeps serving despite the failure. */
+				/** How many declared models this server keeps serving despite the failure. */
 				readonly declaredModelCount?: number | undefined;
 		  }
 		| {
@@ -325,7 +324,7 @@ export function overallStatusText(
 		case "waiting":
 			return "Waiting for first sync";
 		case "needs-declare":
-			return "Expected discovery failures; no declared models (add _declare entries to modelCapabilities)";
+			return "Expected discovery failures; no declared models (add IDs to the entry's discovery.declared)";
 		case "connected":
 			return `Connected (${modelCount} models)`;
 	}
@@ -348,7 +347,7 @@ const ENTRY_CAPABILITIES_INACTIVE_TEXT =
 
 /** The expected-failure-with-nothing-to-serve line; English by the same issue-report policy. */
 const EXPECTED_FAILURES_NOTHING_DECLARED_TEXT =
-	"discovery fails in an expected category and no models are declared; add _declare entries to the entry's modelCapabilities to serve models without discovery";
+	"discovery fails in an expected category and no models are declared; add IDs to the entry's discovery.declared list to serve models without discovery";
 
 /** One notice classification's fixed diagnostics prose; see the constants above. */
 function noticeText(notice: DeclaredServerNotice): string {
@@ -469,7 +468,7 @@ export interface DashboardModel {
 	readonly promptCaching: boolean;
 	/** True when the model advertises the reasoning-effort configuration control. */
 	readonly reasoning: boolean;
-	/** True for a model a `_declare` directive created (discovery does not list it); drives the declared badge. */
+	/** True for a declared model (discovery does not list it); drives the declared badge. */
 	readonly declared?: boolean | undefined;
 }
 
