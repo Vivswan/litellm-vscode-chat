@@ -30,6 +30,8 @@ import { isRecord } from "../../../shared/util/json";
 import { normalizePositiveNumber } from "../../../shared/util/numbers";
 import { MIGRATION_FUZZ_CORPUS } from "../../fuzzCorpus";
 import { resolveFuzzSeed } from "../../fuzzStream";
+import { expectDefined } from "../../testUtils";
+import { resolveOldModelCapabilities } from "./oldWorldResolvers";
 import {
 	acceptedServers,
 	applyPlanToSnapshot,
@@ -37,6 +39,7 @@ import {
 	resolveNewWorldReference,
 	resolveOldWorld,
 	WALK_BASELINES,
+	wireMaxTokens,
 } from "./settingsRedesignOracle";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 120;
@@ -102,7 +105,10 @@ const paramRecordArb = fc
 		fc.oneof(
 			{ arbitrary: fc.constant(fields), weight: 3 },
 			{ arbitrary: fc.subarray(Object.keys(fields)).map((list) => ({ ...fields, _force: list })), weight: 1 },
-			{ arbitrary: fc.constant({ ...fields, _force: true }), weight: 1 }
+			{ arbitrary: fc.constant({ ...fields, _force: true }), weight: 1 },
+			// Junk directive values behave as absent at value level; generated so
+			// the migration's stays-as-written branch is equivalence-covered.
+			{ arbitrary: fc.constantFrom({ ...fields, _force: false }, { ...fields, _force: "junk" }), weight: 1 }
 		)
 	);
 
@@ -119,16 +125,27 @@ const capRecordArb = fc
 	)
 	.map(([numbers, booleans]) => ({ ...numbers, ...booleans }))
 	.chain((fields) =>
-		fc.oneof(
-			{ arbitrary: fc.constant(fields), weight: 4 },
-			{ arbitrary: fc.subarray(Object.keys(fields)).map((list) => ({ ...fields, _fallback: list })), weight: 1 },
-			{ arbitrary: fc.constant({ ...fields, _fallback: true }), weight: 1 },
-			// `_declare` and `_fallback` never combine here: the generated
-			// configs stay clear of the old resolver's declared-model fallback
-			// ban, whose semantics the redesign retires with the directive.
-			{ arbitrary: fc.constant({ ...fields, _declare: true }), weight: 1 },
-			{ arbitrary: fc.constant({ ...fields, _declare: false }), weight: 1 }
-		)
+		// `_declare` and `_fallback` combine freely, the old ban's home ground
+		// included: the oracle characterizes the retired ban instead of the
+		// generator hiding it. Junk directive values ride along so the
+		// migration's stays-as-written branches see equivalence coverage too.
+		fc
+			.tuple(
+				fc.option(
+					fc.oneof(
+						{ arbitrary: fc.constant<unknown>(true), weight: 2 },
+						{ arbitrary: fc.subarray(Object.keys(fields)), weight: 2 },
+						{ arbitrary: fc.constantFrom<unknown>(false, "junk"), weight: 1 }
+					),
+					{ nil: undefined }
+				),
+				fc.option(fc.constantFrom<unknown>(true, false, "junk"), { nil: undefined })
+			)
+			.map(([fallback, declare]) => ({
+				...fields,
+				...(fallback !== undefined ? { _fallback: fallback } : {}),
+				...(declare !== undefined ? { _declare: declare } : {}),
+			}))
 	);
 
 const unscopedKeyArb = fc.constantFrom(...MODEL_PREFIXES);
@@ -179,10 +196,14 @@ const entryArb = (label: string): fc.Arbitrary<Record<string, unknown>> =>
 			authComboArb,
 			maybe(fc.dictionary(unscopedKeyArb, paramRecordArb, { maxKeys: 2 })),
 			maybe(fc.dictionary(unscopedKeyArb, capRecordArb, { maxKeys: 2 })),
-			maybe(fc.constantFrom(["modelInfo"], ["modelListing", "modelInfo"], ["bogus"]))
+			maybe(fc.constantFrom(["modelInfo"], ["modelListing", "modelInfo"], ["bogus"])),
+			// A hand-mixed entry already carrying the NEW discovery field: moved
+			// `_declare` IDs must MERGE into the existing list (existing first,
+			// deduped), which the oracle unions on the old side.
+			maybe(fc.constantFrom({ declared: ["pre-declared"] }, { declared: ["gpt-5", "pre-declared"] }))
 		)
-		.map(([baseUrl, auth, modelParameters, modelCapabilities, expectedFailures]) =>
-			prune({ label, baseUrl, ...auth, modelParameters, modelCapabilities, expectedFailures })
+		.map(([baseUrl, auth, modelParameters, modelCapabilities, expectedFailures, discovery]) =>
+			prune({ label, baseUrl, ...auth, modelParameters, modelCapabilities, expectedFailures, discovery })
 		);
 
 const serversArb = (minEntries: number): fc.Arbitrary<Record<string, unknown>[]> =>
@@ -485,14 +506,48 @@ suite("extension/migrations/settingsRedesign: fuzz", () => {
 				});
 				assert.deepStrictEqual(resolverView(projectedNoTrio), resolverView(old));
 
-				// The walk-level values compare with the trio included: the fills
+				// The retired `_declare`+`_fallback` ban, characterized: the main
+				// comparison ran BAN-FREE (the redesign's source-invariant
+				// semantics), and every field the real old ban rescued to override
+				// level must surface as a fallback in the migrated world - the
+				// precise shape of the intentional divergence, never a silent one.
+				for (const field of old.banRescuedFields) {
+					assert.ok(
+						Object.hasOwn(projectedNoTrio.capabilityFallbacks, field) ||
+							Object.hasOwn(projectedNoTrio.capabilityOverrides, field),
+						`ban-rescued ${field} must still resolve in the migrated world`
+					);
+				}
+
+				// The walk-level views compare with the trio included: the fills
 				// must reproduce the old default-setting behavior end to end. The
 				// trio-flow corners skip only THIS comparison (the resolver views
 				// above stay live; the trio lived below them).
 				if (!old.skipWalks) {
 					const migrated = applyPlanToSnapshot(snapshot, planSettingsRedesign(snapshot).writes);
 					const projected = resolveNewWorldReference(migrated, server as { label: string; baseUrl: string }, modelId);
-					assert.deepStrictEqual(projected.walks, old.walks);
+					assert.deepStrictEqual(
+						projected.walks.map((walk) => walk.fields),
+						old.walks.map((walk) => walk.fields)
+					);
+					// The wire rule (min(4096, limit) exactly under "defaults"),
+					// exercised per baseline: provenance either agrees - identical
+					// wire max_tokens - or moves "defaults" -> "user" through the ONE
+					// documented lift, the explicitly configured
+					// defaultMaxOutputTokens whose migrated fill counts user-set.
+					for (const [index, oldWalk] of old.walks.entries()) {
+						const newWalk = projected.walks[index];
+						assert.ok(newWalk !== undefined);
+						if (newWalk.outputLimitSource === oldWalk.outputLimitSource) {
+							assert.strictEqual(wireMaxTokens(newWalk), wireMaxTokens(oldWalk), `baseline ${index} wire max_tokens`);
+						} else {
+							assert.strictEqual(oldWalk.outputLimitSource, "defaults", `baseline ${index}: only the lift may differ`);
+							assert.strictEqual(newWalk.outputLimitSource, "user", `baseline ${index}: only the lift may differ`);
+							assert.ok(old.expectsOutputClampLift, `baseline ${index}: a lift needs a configured trio output`);
+							assert.strictEqual(wireMaxTokens(newWalk), newWalk.fields.max_output_tokens as number);
+							assert.strictEqual(wireMaxTokens(oldWalk), Math.min(4096, oldWalk.fields.max_output_tokens as number));
+						}
+					}
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED, maxSkipsPerRun: 400 }
@@ -577,9 +632,9 @@ suite("extension/migrations/settingsRedesign: documented divergence pins", () =>
 		// fallback candidates, so it beat a fallback-marked user value even
 		// when the server reported max_input. New: the migrated "*" fill does
 		// not flow past a record that sets the field, so the server report
-		// wins. The equivalence property skips this corner (the oracle's
-		// maxInputQuirkDiverges), pinned here so the accepted change stays
-		// visible.
+		// wins. The equivalence property skips this walk corner (the oracle's
+		// trioFlowDiverges feeding skipWalks), pinned here so the accepted
+		// change stays visible.
 		const snapshot: SettingsSnapshot = {
 			servers: { globalValue: [{ label: "prod", baseUrl: "https://gw" }] },
 			defaultMaxInputTokens: { globalValue: 111000 },
@@ -591,16 +646,88 @@ suite("extension/migrations/settingsRedesign: documented divergence pins", () =>
 		const old = resolveOldWorld(snapshot, server, "gpt-5");
 		assert.strictEqual(old.skipWalks, true, "the oracle skips exactly this walk corner");
 		assert.strictEqual(old.skipEquivalence, false, "the resolver-level comparison stays live");
-		assert.strictEqual(old.walks[2]?.max_input_tokens, 111000, "old: the quirk beat the server report");
+		assert.strictEqual(old.walks[2]?.fields.max_input_tokens, 111000, "old: the quirk beat the server report");
 
 		const plan = planSettingsRedesign(snapshot);
 		const migrated = applyPlanToSnapshot(snapshot, plan.writes);
 		const projected = resolveNewWorldReference(migrated, server, "gpt-5");
 		assert.strictEqual(
-			projected.walks[2]?.max_input_tokens,
+			projected.walks[2]?.fields.max_input_tokens,
 			serverReported.values.max_input_tokens,
 			"new: the server report wins where the record sets the field"
 		);
+	});
+
+	test("DOCUMENTED DIVERGENCE: the retired _declare+_fallback ban - fallback now fills on declared models", () => {
+		// INTENTIONAL (user-approved source-invariance of capability records):
+		// the old ban was the quirk. Old world: a record whose _declare created
+		// the resolved model had its _fallback IGNORED, so context_length 5000
+		// stayed an OVERRIDE and beat even a server report of 100000. New
+		// world: _declare moves to discovery.declared, the _fallback stands,
+		// and the server report wins where one exists - the fill applies only
+		// where the server says nothing.
+		const snapshot: SettingsSnapshot = {
+			servers: {
+				globalValue: [
+					{
+						label: "prod",
+						baseUrl: "https://gw",
+						modelCapabilities: { "deepseek-r1": { context_length: 5000, _declare: true, _fallback: true } },
+					},
+				],
+			},
+		};
+		const server = { label: "prod", baseUrl: "https://gw" };
+		// The REAL old walk (ban active): the override beats the reported 100000.
+		const bannedWalk = resolveOldModelCapabilities({
+			rawModelId: "deepseek-r1",
+			globalCapabilities: {},
+			serverScopes: ["https://gw"],
+			entryCapabilities: { "deepseek-r1": { context_length: 5000, _declare: true, _fallback: true } },
+			serverDeclared: expectDefined(WALK_BASELINES[2]),
+		});
+		assert.strictEqual(bannedWalk.fields.context_length, 5000, "old: the ban kept the field an override");
+
+		const old = resolveOldWorld(snapshot, server, "deepseek-r1");
+		assert.deepStrictEqual(old.banRescuedFields, ["context_length"], "the oracle names the rescued field");
+
+		const migrated = applyPlanToSnapshot(snapshot, planSettingsRedesign(snapshot).writes);
+		const projected = resolveNewWorldReference(migrated, server, "deepseek-r1");
+		assert.deepStrictEqual(projected.declared, ["deepseek-r1"], "the declaration itself survives the move");
+		assert.strictEqual(
+			projected.walks[2]?.fields.context_length,
+			100000,
+			"new: the server report wins; the fill applies below it"
+		);
+		assert.strictEqual(
+			projected.walks[1]?.fields.context_length,
+			5000,
+			"new: with nothing reported, the fill still applies"
+		);
+		assert.deepStrictEqual(projected.capabilityFallbacks, { context_length: 5000 });
+	});
+
+	test("DOCUMENTED DIVERGENCE: the migrated defaultMaxOutputTokens fill lifts the wire clamp", () => {
+		// INTENTIONAL (tracker: a fallback max_output_tokens counts user-set):
+		// old world clamped the trio-derived guess to min(4096, value) on the
+		// wire; the migrated "*" fill is a user-written _fallback, so the full
+		// value goes out.
+		const snapshot: SettingsSnapshot = {
+			servers: { globalValue: [{ label: "prod", baseUrl: "https://gw" }] },
+			defaultMaxOutputTokens: { globalValue: 32000 },
+		};
+		const server = { label: "prod", baseUrl: "https://gw" };
+		const old = resolveOldWorld(snapshot, server, "gpt-5");
+		assert.strictEqual(old.expectsOutputClampLift, true);
+		const oldWalk = expectDefined(old.walks[1]);
+		assert.strictEqual(oldWalk.outputLimitSource, "defaults");
+		assert.strictEqual(wireMaxTokens(oldWalk), 4096, "old: the guess never escaped the cap");
+
+		const migrated = applyPlanToSnapshot(snapshot, planSettingsRedesign(snapshot).writes);
+		const projected = resolveNewWorldReference(migrated, server, "gpt-5");
+		const newWalk = expectDefined(projected.walks[1]);
+		assert.strictEqual(newWalk.outputLimitSource, "user");
+		assert.strictEqual(wireMaxTokens(newWalk), 32000, "new: the user-set fill goes out uncapped");
 	});
 });
 
@@ -615,8 +742,8 @@ suite("extension/migrations/settingsRedesign: behavior parity spot-checks", () =
 		};
 		const projected = resolveNewWorldReference(migrate(snapshot), server, "gpt-5");
 		// WALK_BASELINES[2] declares context_length 100000.
-		assert.strictEqual(projected.walks[2]?.context_length, 100000, "the server-declared context wins");
-		assert.strictEqual(projected.walks[1]?.context_length, 64000, "with nothing reported, the fill applies");
+		assert.strictEqual(projected.walks[2]?.fields.context_length, 100000, "the server-declared context wins");
+		assert.strictEqual(projected.walks[1]?.fields.context_length, 64000, "with nothing reported, the fill applies");
 	});
 
 	test("a migrated defaultMaxInputTokens override beats the server-reported max input", () => {
@@ -627,7 +754,7 @@ suite("extension/migrations/settingsRedesign: behavior parity spot-checks", () =
 		const projected = resolveNewWorldReference(migrate(snapshot), server, "gpt-5");
 		// WALK_BASELINES[2] reports max_input_tokens 90000; the migrated plain
 		// override preserves the old quirk of beating it.
-		assert.strictEqual(projected.walks[2]?.max_input_tokens, 111000);
+		assert.strictEqual(projected.walks[2]?.fields.max_input_tokens, 111000);
 	});
 
 	test("the migrated '*' record reaches a model that has a specific record (the _inheritable bit)", () => {
@@ -641,6 +768,10 @@ suite("extension/migrations/settingsRedesign: behavior parity spot-checks", () =
 		// marked _inheritable, so it still flows into the resolved view -
 		// exactly how the old defaults applied to every model.
 		assert.strictEqual(projected.capabilityOverrides.supports_vision, true);
-		assert.strictEqual(projected.walks[1]?.context_length, 64000, "the inheritable fill reaches the specific match");
+		assert.strictEqual(
+			projected.walks[1]?.fields.context_length,
+			64000,
+			"the inheritable fill reaches the specific match"
+		);
 	});
 });
