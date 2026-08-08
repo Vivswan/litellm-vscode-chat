@@ -15,30 +15,39 @@ import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
 import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
 import type { CapabilityCatalogLookup, EffectiveCapabilities } from "../../shared/config/capabilityResolution";
 import { resolveModelCapabilities } from "../../shared/config/capabilityResolution";
+import { matchChain } from "../../shared/config/modelMatcher";
+import type { EffectiveParametersProjection } from "../../shared/config/parameterResolution";
+import { projectResolvedParameters, resolveModelParameters } from "../../shared/config/parameterResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
+	normalizeUsageAlertThresholds,
+	normalizeUsageStatusBarMode,
+	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
+	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
-import type { DeclaredServerView } from "../servers/serverSync";
+import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
 import { adoptSourceHandle, modelScopeKey } from "./adoptHandle";
 import type {
 	BooleanSettingId,
+	CatalogStatusView,
+	ConfigDiagnosticView,
 	DashboardModel,
 	DashboardServer,
 	DashboardSettings,
 	DashboardState,
+	DashboardUsage,
 	DeclaredServerNotice,
 	ExternalServerProvenance,
 	HiddenGroup,
 	NumberSettingId,
-	RequestScope,
 	ScopedRecordSetting,
 	SettingScope,
 	TransportErrorClassification,
@@ -314,6 +323,7 @@ function declaredOutcome(
 function buildServers(
 	labeled: readonly LabeledSnapshot[],
 	declared: readonly DeclaredServerView[],
+	entryReports: readonly ServerEntryReport[],
 	removedGroups: RemovedGroupsView,
 	isGroupSnapshot: (serverId: string) => boolean
 ): { servers: DashboardServer[]; snapshotLabels: string[][] } {
@@ -372,8 +382,14 @@ function buildServers(
 		if (entryFieldsInactive && view.modelParameters !== undefined) {
 			notices.push("entry-params-inactive");
 		}
-		if (entryFieldsInactive && (view.modelCapabilities !== undefined || view.expectedFailures !== undefined)) {
+		if (
+			entryFieldsInactive &&
+			(view.modelCapabilities !== undefined || view.expectedFailures !== undefined || view.declaredModels !== undefined)
+		) {
 			notices.push("entry-capabilities-inactive");
+		}
+		if (entryFieldsInactive && view.headers !== undefined) {
+			notices.push("entry-headers-inactive");
 		}
 		const outcome = declaredOutcome(matched?.snapshot.status, view.syncError);
 		if (outcome.state === "error" && outcome.expected === true && (outcome.declaredModelCount ?? 0) === 0) {
@@ -396,6 +412,11 @@ function buildServers(
 				...(view.expectedFailures !== undefined && view.expectedFailures.length > 0
 					? { expectedFailures: view.expectedFailures }
 					: {}),
+				...(view.headers !== undefined && Object.keys(view.headers).length > 0 ? { headers: view.headers } : {}),
+				...(view.declaredModels !== undefined && view.declaredModels.length > 0
+					? { declaredModels: view.declaredModels }
+					: {}),
+				...(view.budget !== undefined ? { budget: view.budget } : {}),
 			},
 			...(notices.length > 0 ? { notices } : {}),
 			...outcome,
@@ -414,6 +435,37 @@ function buildServers(
 				isGroupSnapshot(entry.snapshot.status.serverId)
 			)
 		);
+	}
+	// Entries the parser refused whole (a misconfigured auth shape) still
+	// render as rows: they sit in the setting, and a silently missing row
+	// would read as a removal. Only rejects with a usable, non-duplicate
+	// identity qualify - the remaining reject causes (no label or URL, a
+	// reserved label, a duplicate) have no honest row to draw and stay in
+	// Configuration diagnostics only.
+	const declaredLabels = new Set(declared.map((view) => view.label));
+	for (const report of entryReports) {
+		if (
+			report.accepted ||
+			report.label === undefined ||
+			report.baseUrl === undefined ||
+			declaredLabels.has(report.label)
+		) {
+			continue;
+		}
+		servers.push({
+			label: report.label,
+			baseUrl: report.baseUrl,
+			modelCount: 0,
+			hasApiKey: false,
+			hasOAuth: false,
+			origin: "misconfigured",
+			problems: report.problems,
+			state: "error",
+			// English by the issue-report policy, like the parser problems the
+			// row carries; the webview renders its own localized copy.
+			error: "misconfigured entry; not used until its configuration is fixed",
+			errorEnglish: "misconfigured entry; not used until its configuration is fixed",
+		});
 	}
 	servers.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
 	return {
@@ -555,7 +607,23 @@ function buildScopedRecord<V>(
 	return { editScope, value: sanitize(rawByScope[editScope]), otherScopes, effective: sanitize(effectiveRaw) };
 }
 
-export function readDashboardSettings(reader: SettingsReader): DashboardSettings {
+/** The catalog status a headless or test build renders when no store rides the inputs. */
+export const EMPTY_CATALOG_STATUS: CatalogStatusView = {
+	modelCount: 0,
+	lastSuccessAt: undefined,
+	refreshing: false,
+};
+
+/** The usage snapshot a headless or test build renders when no poller rides the inputs. */
+export const EMPTY_USAGE_VIEW: DashboardUsage = {
+	servers: [],
+	thresholds: [],
+	pollIntervalMs: 0,
+	refreshing: false,
+	generatedAt: 0,
+};
+
+export function readDashboardSettings(reader: SettingsReader, catalog: CatalogStatusView): DashboardSettings {
 	return {
 		numbers: recordFromKeys(NUMBER_SETTING_IDS, (id) => readNumberSetting(reader, id)),
 		booleans: recordFromKeys(BOOLEAN_SETTING_IDS, (id) => readBooleanSetting(reader, id)),
@@ -568,6 +636,18 @@ export function readDashboardSettings(reader: SettingsReader): DashboardSettings
 			reader.inspect(MODEL_PARAMETERS_SETTING_KEY),
 			normalizeModelParameters
 		),
+		modelCapabilities: buildScopedRecord(
+			reader.get(MODEL_CAPABILITIES_SETTING_KEY),
+			reader.inspect(MODEL_CAPABILITIES_SETTING_KEY),
+			normalizeModelCapabilities
+		),
+		catalog,
+		usage: {
+			statusBarMode: normalizeUsageStatusBarMode(reader.get(USAGE_STATUS_BAR_SETTING_KEY)),
+			statusBarScope: resolveConfiguredScope(reader.inspect(USAGE_STATUS_BAR_SETTING_KEY)),
+			alertThresholds: normalizeUsageAlertThresholds(reader.get(USAGE_ALERT_THRESHOLDS_SETTING_KEY)),
+			thresholdsScope: resolveConfiguredScope(reader.inspect(USAGE_ALERT_THRESHOLDS_SETTING_KEY)),
+		},
 	};
 }
 
@@ -599,26 +679,29 @@ export type EntryParametersResolution = {
 	readonly entryParameters: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 };
 
-export function buildDashboardState(
-	snapshots: readonly ServerModelsSnapshot[],
-	reader: SettingsReader,
-	declared: readonly DeclaredServerView[] = [],
-	legacyServers: readonly { readonly baseUrl: string }[] = [],
-	removedGroups: RemovedGroupsView = NO_REMOVED_GROUPS,
+/**
+ * Everything buildDashboardState reduces, as one options object (the
+ * positional form grew eight parameters with test-only-correct defaults).
+ * Only `snapshots` and `reader` are required; every optional input defaults
+ * to the value that is right where the corresponding store cannot
+ * contribute (tests, headless callers).
+ */
+export interface DashboardStateInputs {
+	readonly snapshots: readonly ServerModelsSnapshot[];
+	readonly reader: SettingsReader;
+	readonly declared?: readonly DeclaredServerView[];
+	/** The per-entry acceptance reports (serverSettingReports); drives the Misconfigured rows. */
+	readonly entryReports?: readonly ServerEntryReport[];
+	/** The legacy registry's servers, reduced to base URLs; see DashboardState.legacyServerCount. */
+	readonly legacyServers?: readonly { readonly baseUrl: string }[];
+	readonly removedGroups?: RemovedGroupsView;
 	/**
 	 * Whether a snapshot belongs to a provider group (vs the legacy registry);
 	 * gates tombstone suppression and the external rows' hideable flag. The
 	 * default treats everything as a group, which is right wherever the
 	 * registry cannot contribute snapshots.
 	 */
-	isGroupSnapshot: (serverId: string) => boolean = () => true,
-	/**
-	 * The production request-path resolution of a server's per-entry
-	 * modelParameters, by snapshot server ID; see EntryParametersResolution.
-	 * The default (nothing resolves) is right only where no declared entry can
-	 * carry parameters.
-	 */
-	resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined = () => undefined,
+	readonly isGroupSnapshot?: (serverId: string) => boolean;
 	/**
 	 * Whether a tombstoned identity's group was observed alive at some point
 	 * this session (a session-sticky set the panel accumulates from group
@@ -628,10 +711,31 @@ export function buildDashboardState(
 	 * nothing. The default shows everything, which is right for tests that
 	 * never age groups out.
 	 */
-	wasGroupObserved: (label: string, baseUrl: string) => boolean = () => true
-): DashboardState {
+	readonly wasGroupObserved?: (label: string, baseUrl: string) => boolean;
+	/** The OpenRouter catalog row's status; defaults to the empty snapshot. */
+	readonly catalog?: CatalogStatusView;
+	/** The Usage tab's snapshot; defaults to the empty view. */
+	readonly usage?: DashboardUsage;
+	/** The Configuration diagnostics list; defaults to none. */
+	readonly diagnostics?: readonly ConfigDiagnosticView[];
+}
+
+export function buildDashboardState(inputs: DashboardStateInputs): DashboardState {
+	const {
+		snapshots,
+		reader,
+		declared = [],
+		entryReports = [],
+		legacyServers = [],
+		removedGroups = NO_REMOVED_GROUPS,
+		isGroupSnapshot = () => true,
+		wasGroupObserved = () => true,
+		catalog = EMPTY_CATALOG_STATUS,
+		usage = EMPTY_USAGE_VIEW,
+		diagnostics = [],
+	} = inputs;
 	const labeled = labeledSnapshots(snapshots);
-	const { servers, snapshotLabels } = buildServers(labeled, declared, removedGroups, isGroupSnapshot);
+	const { servers, snapshotLabels } = buildServers(labeled, declared, entryReports, removedGroups, isGroupSnapshot);
 	// The hidden-groups line renders from the tombstones themselves, not from
 	// live snapshots: an unhide must stay offered even after the suppressed
 	// group's snapshot ages out of the status window mid-session. The
@@ -642,24 +746,6 @@ export function buildDashboardState(
 		.filter((identity) => wasGroupObserved(identity.label, identity.baseUrl))
 		.map((identity) => ({ label: identity.label, baseUrl: identity.baseUrl }))
 		.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
-	// One request scope per snapshot, keyed by the salted hash of the server
-	// ID (modelScopeKey) - never by label (two same-label groups must not swap
-	// entry parameters) and never by position (a snapshot list that changes
-	// between a push and a readModelCapabilities request must de-resolve the
-	// stale key, not re-point it at another server). The scope states what a
-	// request through this server resolves: the base-URL scope its
-	// modelParameters matching runs under, plus the declared entry's own
-	// parameters when the production resolver finds one.
-	const requestScopes: Record<string, RequestScope> = {};
-	const scopeKeys = labeled.map(({ snapshot }) => {
-		const scopeKey = modelScopeKey(snapshot.status.serverId);
-		const entry = resolveEntryParameters(snapshot.status.serverId);
-		requestScopes[scopeKey] = {
-			baseUrlScope: normalizeBaseUrl(snapshot.status.baseUrl),
-			...(entry !== undefined ? { entryLabel: entry.entryLabel, entryParameters: entry.entryParameters } : {}),
-		};
-		return scopeKey;
-	});
 	return {
 		servers,
 		hiddenGroups,
@@ -667,18 +753,14 @@ export function buildDashboardState(
 			.flatMap(({ snapshot, label }, index) =>
 				(snapshotLabels[index] ?? [label]).flatMap((serverLabel) =>
 					snapshot.models.map((info) =>
-						buildModel(
-							info,
-							serverLabel,
-							snapshot.status.serverId,
-							scopeKeys[index] ?? modelScopeKey(snapshot.status.serverId)
-						)
+						buildModel(info, serverLabel, snapshot.status.serverId, modelScopeKey(snapshot.status.serverId))
 					)
 				)
 			)
 			.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.name.localeCompare(b.name)),
-		requestScopes,
-		settings: readDashboardSettings(reader),
+		settings: readDashboardSettings(reader, catalog),
+		usage,
+		diagnostics,
 		legacyServerCount: countUnlistedLegacyServers(servers, legacyServers),
 	};
 }
@@ -758,4 +840,73 @@ export function resolveDashboardModelCapabilities(
 	return query.resolution !== undefined
 		? query.resolution.resolveCapabilities(serverId, rawId, inputs)
 		: resolveModelCapabilities({ rawModelId: rawId, ...inputs });
+}
+
+/** What the readModelParameters responder resolves against; panel.ts supplies the live stores. */
+export interface ModelParametersQuery {
+	readonly snapshots: readonly ServerModelsSnapshot[];
+	readonly reader: SettingsReader;
+	/** The request path's per-entry modelParameters resolution for a snapshot's server. */
+	readonly resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined;
+	/** The provider's shared flat resolution table; absent, the responder runs the same pure walk uncached. */
+	readonly resolution?: ModelResolutionTable | undefined;
+}
+
+/**
+ * Answer one readModelParameters request: locate the model behind the scope
+ * key and raw ID, resolve the configured merge through the provider's shared
+ * flat table (the SAME cache requests read) when the query carries one, and
+ * project it into the inspector's rows. Undefined when the key or model no
+ * longer resolves, exactly like resolveDashboardModelCapabilities.
+ */
+export function resolveDashboardModelParameters(
+	query: ModelParametersQuery,
+	scopeKey: string,
+	rawId: string
+): { projection: EffectiveParametersProjection; entryLabel?: string | undefined } | undefined {
+	const labeled = labeledSnapshots(query.snapshots).find(
+		(entry) => modelScopeKey(entry.snapshot.status.serverId) === scopeKey
+	);
+	if (labeled === undefined) {
+		return undefined;
+	}
+	const { snapshot } = labeled;
+	const serverId = snapshot.status.serverId;
+	const info = snapshot.models.find((model) => rawModelIdFromExposed(model.id, serverId) === rawId);
+	if (info === undefined) {
+		return undefined;
+	}
+	const entry = query.resolveEntryParameters(serverId);
+	const inputs = {
+		globalParameters: normalizeModelParameters(query.reader.get(MODEL_PARAMETERS_SETTING_KEY)),
+		entryParameters: entry?.entryParameters,
+	};
+	const resolved =
+		query.resolution !== undefined
+			? query.resolution.resolveParameters(serverId, rawId, inputs)
+			: resolveModelParameters({ rawModelId: rawId, ...inputs });
+	const projection = projectResolvedParameters(resolved, {
+		maxOutputTokens: info.maxOutputTokens,
+		outputLimitDeclared: info.litellm.outputLimitSource !== "defaults",
+	});
+	return { projection, ...(entry !== undefined ? { entryLabel: entry.entryLabel } : {}) };
+}
+
+/**
+ * The most specific GLOBAL record key matching a model, for the inspectors'
+ * configure-jump: the webview holds no resolver logic (the capsInspector
+ * doctrine), so the extension names the record the jump should focus - or
+ * none, in which case the editor creates a fresh exact-ID draft.
+ */
+export function mostSpecificGlobalRecordKey(
+	reader: SettingsReader,
+	kind: "parameters" | "capabilities",
+	rawId: string
+): string | undefined {
+	const records =
+		kind === "parameters"
+			? normalizeModelParameters(reader.get(MODEL_PARAMETERS_SETTING_KEY))
+			: normalizeModelCapabilities(reader.get(MODEL_CAPABILITIES_SETTING_KEY));
+	const { chain } = matchChain(rawId, records);
+	return chain[chain.length - 1]?.key;
 }

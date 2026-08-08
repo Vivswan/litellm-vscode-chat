@@ -44,6 +44,14 @@ export class RequestError extends Error {
 	readonly logClassification?: string;
 	readonly englishMessage?: string;
 	readonly setupHint?: SetupHintKind;
+	/**
+	 * Set by auth.ts at the OAuth token-endpoint construction sites: the
+	 * failure happened during the token exchange, BEFORE the target endpoint
+	 * was called, so consumers judging the target endpoint from this error
+	 * (usage availability classification) must treat it as proving nothing
+	 * about that endpoint.
+	 */
+	readonly oauthTokenEndpoint?: true;
 
 	constructor(
 		message: string,
@@ -54,6 +62,7 @@ export class RequestError extends Error {
 			logClassification?: string;
 			englishMessage?: string;
 			setupHint?: SetupHintKind;
+			oauthTokenEndpoint?: true;
 		}
 	) {
 		super(message, { cause: options?.cause });
@@ -68,6 +77,9 @@ export class RequestError extends Error {
 		}
 		if (options?.setupHint !== undefined) {
 			this.setupHint = options.setupHint;
+		}
+		if (options?.oauthTokenEndpoint !== undefined) {
+			this.oauthTokenEndpoint = options.oauthTokenEndpoint;
 		}
 	}
 }

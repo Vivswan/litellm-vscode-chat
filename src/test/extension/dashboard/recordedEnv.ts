@@ -60,6 +60,10 @@ export interface RecordedEnv {
 	/** Every unhideGroup call; unhideResult is what the fake reports back. */
 	unhidden: { label: string; baseUrl: string }[];
 	unhideResult: boolean;
+	/** How many refreshCatalogNow kicks arrived (the refreshCatalog intent). */
+	catalogRefreshes: number;
+	/** How many refreshUsageNow kicks arrived (the refreshUsage intent). */
+	usageRefreshes: number;
 	env: IntentEnvironment;
 }
 
@@ -83,6 +87,8 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		hidden: [],
 		unhidden: [],
 		unhideResult: true,
+		catalogRefreshes: 0,
+		usageRefreshes: 0,
 		env: {
 			updateSetting: async (key, value) => {
 				recorded.updates.push([key, value]);
@@ -149,6 +155,12 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			},
 			requestServerSync: () => {
 				recorded.syncRequests += 1;
+			},
+			refreshCatalogNow: () => {
+				recorded.catalogRefreshes += 1;
+			},
+			refreshUsageNow: () => {
+				recorded.usageRefreshes += 1;
 			},
 			resolveAdoptionCredentials: (baseUrl, sourceHandle) => {
 				recorded.adoptionLookups.push([baseUrl, sourceHandle]);

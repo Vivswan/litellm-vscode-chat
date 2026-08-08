@@ -106,6 +106,11 @@ export class UsagePoller {
 		this.schedule(INITIAL_REFRESH_DELAY_MS);
 	}
 
+	/** Whether a refresh pass is in flight; the dashboard's Refresh now button disables on it (one serialized engine). */
+	isRefreshing(): boolean {
+		return this.running !== undefined;
+	}
+
 	/**
 	 * Notified after every completed refresh pass, per-listener isolated; the
 	 * dashboard refreshes on it. Multiple consumers subscribe independently
@@ -117,14 +122,15 @@ export class UsagePoller {
 	}
 
 	/**
-	 * Re-read the poll interval and thresholds after a configuration change:
-	 * rewires the pending tick (interval 0 cancels it outright) and recomputes
-	 * the crossing state of every tracked server from the data already in the
-	 * store - a threshold edit must not wait a full poll cycle to take effect,
-	 * and costs no network.
+	 * Re-read the poll interval after a configuration change: rewires the
+	 * pending tick (interval 0 cancels it outright). Deliberately NO crossing
+	 * recomputation here: alerts evaluate on fetches only (docs/usage.md), so
+	 * a threshold edit must not toast from cached data - and with polling off
+	 * it must not toast at all. The status bar and the usage panel read the
+	 * thresholds live, so their severity updates without any store write; the
+	 * stored crossings re-baseline on the next fetch.
 	 */
 	applyConfiguration(): void {
-		this.recomputeBudgets();
 		this.cancelScheduled?.();
 		this.cancelScheduled = undefined;
 		this.schedule(this.nextTickDelayMs());
@@ -273,6 +279,7 @@ export class UsagePoller {
 		let daily: DailyUsage | undefined = sameServer ? previous.daily : undefined;
 		let user: UserUsage | undefined = sameServer ? previous.user : undefined;
 		let lastUpdatedAt = sameServer ? previous.lastUpdatedAt : undefined;
+		let spendUpdatedAt = sameServer ? previous.spendUpdatedAt : undefined;
 		const attemptAt = this.clock.now();
 
 		let stored: StoredServerSecrets | undefined;
@@ -295,6 +302,9 @@ export class UsagePoller {
 					key = await this.env.client.fetchKeyInfo(connection, this.abort.signal);
 					endpoints.keyInfo = { kind: "ok" };
 					lastUpdatedAt = this.clock.now();
+					// The spend numbers' own age: only a /key/info success advances
+					// it, so an activity success can never relabel old spend fresh.
+					spendUpdatedAt = lastUpdatedAt;
 				} catch (error) {
 					endpoints.keyInfo = this.classifyFailure(entry.label, "keyInfo", logBaseline.keyInfo, error);
 					if (endpoints.keyInfo.kind === "unavailable") {
@@ -388,6 +398,7 @@ export class UsagePoller {
 				endpoints,
 				availability: usageAvailabilityOf(endpoints),
 				lastUpdatedAt,
+				spendUpdatedAt,
 				lastAttemptAt: attemptAt,
 				key,
 				daily,
@@ -437,31 +448,5 @@ export class UsagePoller {
 			});
 		}
 		return { kind: "error" };
-	}
-
-	/**
-	 * Recompute every tracked server's budget position from data already in
-	 * the store (a threshold edit, no network). Emits only for servers whose
-	 * crossing state actually changed; crossings a new threshold list newly
-	 * reaches count as newly crossed.
-	 */
-	private recomputeBudgets(): void {
-		const thresholds = this.env.alertThresholds();
-		for (const state of this.store.getStates()) {
-			const budget = resolveBudget({
-				entryBudget: state.budget.entryBudget,
-				keyBudget: state.budget.keyBudget,
-				spend: state.budget.spend,
-				budgetResetAt: state.budget.budgetResetAt,
-				thresholds,
-			});
-			const changed =
-				budget.crossedThresholds.length !== state.budget.crossedThresholds.length ||
-				budget.crossedThresholds.some((t, i) => t !== state.budget.crossedThresholds[i]);
-			if (changed) {
-				const newly = newlyCrossedThresholds(state.budget.crossedThresholds, budget.crossedThresholds);
-				this.store.upsert({ ...state, budget }, newly);
-			}
-		}
 	}
 }

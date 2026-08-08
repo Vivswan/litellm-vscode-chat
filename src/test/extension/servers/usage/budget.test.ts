@@ -45,6 +45,22 @@ suite("extension/servers/usage budget resolution", () => {
 		assert.deepStrictEqual(status.crossedThresholds, [0.8, 0.95]);
 	});
 
+	test("a key-reported max_budget of 0 reads as NO budget (zero-means-unlimited), never a fully spent one", () => {
+		const status = resolveBudget(input({ keyBudget: 0, spend: 10 }));
+
+		assert.strictEqual(status.keyBudget, undefined);
+		assert.strictEqual(status.effectiveBudget, undefined);
+		assert.strictEqual(status.budgetSource, "none");
+		assert.strictEqual(status.spentFraction, undefined);
+		assert.deepStrictEqual(status.crossedThresholds, []);
+
+		// An entry budget covers a zero-reporting key exactly like a missing one.
+		const withEntry = resolveBudget(input({ entryBudget: 50, keyBudget: 0, spend: 45 }));
+		assert.strictEqual(withEntry.effectiveBudget, 50);
+		assert.strictEqual(withEntry.budgetSource, "entry");
+		assert.strictEqual(withEntry.keyBudget, undefined, "a zero report is not retained as a real budget");
+	});
+
 	test("with neither budget nothing crosses and the fraction is unknown", () => {
 		const status = resolveBudget(input({ spend: 123 }));
 

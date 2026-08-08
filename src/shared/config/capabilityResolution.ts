@@ -23,7 +23,7 @@
 
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
-import { parseSharedDirectives, resolveRecordChain } from "./recordResolution";
+import { lintRecordMap, parseSharedDirectives, resolveRecordChain } from "./recordResolution";
 
 /**
  * The closed capability vocabulary, keyed by wire name (aligned with
@@ -187,6 +187,17 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 /** Resolve one layer's capability record map for a model through the shared chain walk. */
 export function resolveCapabilityLayer(rawModelId: string, records: ModelCapabilitiesRecord): RecordChainResolution {
 	return resolveRecordChain(rawModelId, records, (record) => parseCapabilityRecord(record));
+}
+
+/**
+ * Record-level lint of a capability record map, independent of any model:
+ * invalid matchers, unknown fields, invalid values, malformed directives, and
+ * `_inherit_from` entries naming keys the map does not hold (see
+ * lintParameterRecords for why the per-model chain resolution cannot cover
+ * this); the caller attributes the layer.
+ */
+export function lintCapabilityRecords(records: ModelCapabilitiesRecord): readonly RecordDiagnostic[] {
+	return lintRecordMap(records, (record) => parseCapabilityRecord(record));
 }
 
 /**

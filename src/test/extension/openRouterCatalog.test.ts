@@ -3,7 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import type { CatalogClock, CatalogTimer, OpenRouterCatalogStore } from "../../extension/openRouterCatalog";
+import type {
+	CatalogClock,
+	CatalogTimer,
+	OpenRouterCatalogStatus,
+	OpenRouterCatalogStore,
+} from "../../extension/openRouterCatalog";
 import { createOpenRouterCatalogStore } from "../../extension/openRouterCatalog";
 import { OPENROUTER_CATALOG_METADATA_KEY } from "../../shared/config/storageKeys";
 import { Logger } from "../../shared/logger";
@@ -283,6 +288,14 @@ suite("extension openRouterCatalog store", () => {
 			pendingSchedules(harness.scheduled).map((call) => call.ms),
 			[DAY_MS]
 		);
+		// The dashboard row's status carries the standing failure - the fixed
+		// classification vocabulary, never response text - beside the snapshot
+		// facts. It stands until the next success clears it.
+		const status: OpenRouterCatalogStatus = harness.store.status();
+		assert.strictEqual(status.modelCount, 6);
+		assert.strictEqual(status.lastSuccessAt, undefined);
+		assert.strictEqual(status.refreshing, false);
+		assert.strictEqual(status.lastFailure?.classification, "network error");
 	});
 
 	test("a payload below the model-count floor counts as failure, never as a truncated catalog", async () => {

@@ -29,6 +29,7 @@
  "litellm.command.setServerSecret.title": "LiteLLM: Set Server Secret",
  "litellm.command.reportIssue.title": "LiteLLM: Report Issue",
  "litellm.command.refreshUsage.title": "LiteLLM: Refresh Usage Now",
+ "litellm.command.refreshOpenRouterCatalog.title": "LiteLLM: Refresh OpenRouter Catalog",
  "litellm.walkthrough.title": "Get started with LiteLLM for Copilot Chat",
  "litellm.walkthrough.description": "Connect a LiteLLM server and use its models in GitHub Copilot Chat.",
  "litellm.walkthrough.connectServer.title": "Connect your LiteLLM server",

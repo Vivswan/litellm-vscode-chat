@@ -163,11 +163,15 @@ test("the summary block stands alone: server count and the absolute last-checked
 	});
 	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
 	expect(panel.textContent).toContain("Servers configured: 2");
-	// The absolute timestamp is the copyable fact; the relative echo rides
-	// beside it in the same literal line. Copy diagnostics emits its own
-	// English ISO rendering instead.
-	const absolute = new Date(lastChecked).toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	expect(panel.textContent).toMatch(new RegExp(`Last checked: ${absolute} \\((\\d+ (min|h|d) ago|just now)\\)`));
+	// The absolute timestamp is the copyable fact (seconds-less short style);
+	// the relative echo rides beside it in the same literal line. Copy
+	// diagnostics emits its own English ISO rendering instead.
+	const absolute = new Date(lastChecked)
+		.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
+		.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	expect(panel.textContent).toMatch(
+		new RegExp(`Last checked: ${absolute} \\((\\d+ (min|h) ago|1 day ago|\\d+ days ago|just now)\\)`)
+	);
 });
 
 test("with nothing checked yet the summary says Never", () => {
@@ -361,6 +365,11 @@ test("an expected failure renders warn-toned with its English (expected) annotat
 			]}
 			modelCount={2}
 			legacyServerCount={0}
+			diagnostics={[]}
+			resolvedResponse={undefined}
+			active={false}
+			stateSeq={0}
+			onInspect={() => undefined}
 			now={Date.now()}
 		/>
 	);
@@ -386,6 +395,11 @@ test("an expected failure with nothing declared keeps the Error status but warns
 			]}
 			modelCount={0}
 			legacyServerCount={0}
+			diagnostics={[]}
+			resolvedResponse={undefined}
+			active={false}
+			stateSeq={0}
+			onInspect={() => undefined}
 			now={Date.now()}
 		/>
 	);

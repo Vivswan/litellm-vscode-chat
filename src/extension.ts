@@ -46,16 +46,22 @@ import {
 	showActionableMessage,
 } from "./extension/ui/notifier";
 import { registerOpenSettingKeyCommand } from "./extension/ui/openSettingKey";
-import { StatusBarManager } from "./extension/ui/status";
+import { StatusBarManager, StatusItem } from "./extension/ui/status";
+import { UsageAlerts } from "./extension/ui/usageAlerts";
+import { UsageStatusBar } from "./extension/ui/usageStatusItem";
 import { LiteLLMChatModelProvider } from "./provider";
-import { CMD, VENDOR_ID } from "./shared/config/commandIds";
+import { CMD, INTERNAL_CMD, VENDOR_ID } from "./shared/config/commandIds";
 import type { BooleanSettingId, NumberSettingId } from "./shared/config/settingSpec";
 import { CONFIG_SECTION } from "./shared/config/settingSpec";
 import {
+	getUsageAlertThresholds,
+	getUsagePollIntervalMs,
+	getUsageStatusBarMode,
 	isOpenRouterCatalogEnabled,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	SERVERS_SETTING_KEY,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
+	USAGE_STATUS_BAR_SETTING_KEY,
 } from "./shared/config/settings";
 import { HAS_SHOWN_WELCOME_KEY } from "./shared/config/storageKeys";
 import type { DevSeed } from "./shared/devSeed";
@@ -72,6 +78,20 @@ const USAGE_POLL_INTERVAL_SETTING_ID = "usage.pollInterval" satisfies NumberSett
 const CONFIG_CHANGE_DEBOUNCE_MS = 400;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+	// The activation-production harness calls this compiled function itself
+	// with a fake Production-mode context while the real extension loaded into
+	// its host (Test mode under @vscode/test-cli) must stay inert:
+	// onStartupFinished would otherwise activate it first and every command
+	// registration would collide. The env flag is set only by
+	// .vscode-test.mjs's activation-production label, and the mode check keeps
+	// the harness's own Production-mode call running.
+	if (
+		context.extensionMode !== vscode.ExtensionMode.Production &&
+		process.env.LITELLM_SUPPRESS_STARTUP_ACTIVATION === "1"
+	) {
+		return;
+	}
+
 	// Before anything renders a string: shared modules localize through
 	// @vscode/l10n and need the host bundle (see extension/l10nConfig.ts).
 	configureSharedL10n();
@@ -126,6 +146,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		isEnabled: isOpenRouterCatalogEnabled,
 	});
 	context.subscriptions.push(catalogStore);
+	// The palette twin of the dashboard row's Refresh button: one immediate
+	// catalog refresh; outcomes report in the row status, never as a toast.
+	context.subscriptions.push(
+		vscode.commands.registerCommand(CMD.refreshOpenRouterCatalog, () => catalogStore.refreshNow())
+	);
 	const provider = new LiteLLMChatModelProvider({
 		userAgent: ua,
 		logger,
@@ -189,7 +214,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Status bar, refresh notifications, and the dashboard share the same
 	// status callback, isolated so one consumer's failure cannot starve the
 	// others.
-	const statusBar = new StatusBarManager(context, logger, hasConfiguredServers);
+	const statusBar = new StatusBarManager(
+		context,
+		logger,
+		hasConfiguredServers,
+		new StatusItem({
+			slot: "connection",
+			alignment: vscode.StatusBarAlignment.Right,
+			priority: 100,
+			command: CMD.openDashboard,
+			log: (message) => logger.log(message),
+		})
+	);
 	const notifier = new Notifier(hasConfiguredServers);
 	// The declarative server sync: litellm-vscode-chat.servers entries become
 	// provider groups. Created before the dashboard, which edits the setting
@@ -199,6 +235,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// crossings for the usage surfaces (#232). Polls on its own cadence
 	// (usage.pollInterval; 0 = off) independent of discovery.
 	const usagePoller = new UsagePoller(createUsagePollerEnv(context, logger, ua));
+	// Assigned once the dashboard exists (its click command needs the panel);
+	// the configuration listener below is registered first, so it reaches the
+	// item through this slot.
+	let usageStatusBar: UsageStatusBar | undefined;
 	// One debounced notify shared by every configuration branch below, so a
 	// multi-setting edit re-resolves models once. Errors are isolated like the
 	// other notify call sites: a throw must not escape into the timer.
@@ -231,6 +271,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			}
 			if (affects(USAGE_POLL_INTERVAL_SETTING_ID) || affects(USAGE_ALERT_THRESHOLDS_SETTING_KEY)) {
 				usagePoller.applyConfiguration();
+			}
+			if (
+				affects(USAGE_POLL_INTERVAL_SETTING_ID) ||
+				affects(USAGE_ALERT_THRESHOLDS_SETTING_KEY) ||
+				affects(USAGE_STATUS_BAR_SETTING_KEY)
+			) {
+				// The item re-reads mode, thresholds, and the freshness window at
+				// render time; a re-render is the whole reaction.
+				usageStatusBar?.applyConfiguration();
 			}
 			if (affects(MODEL_CAPABILITIES_SETTING_KEY)) {
 				// Capability overrides are applied where models attach, outside the
@@ -265,9 +314,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		syncEngine,
 		registry,
 		groupRemovals,
-		catalogStore
+		catalogStore,
+		usagePoller
 	);
 	syncEngine.onDidSync = () => dashboard.refresh();
+	// The usage surfaces over the poller's store: the status bar item beside
+	// the connection item, the budget alert toasts, and the deep link both
+	// click through to the dashboard's Usage section. Constructed here because
+	// the click target needs the dashboard.
+	usageStatusBar = new UsageStatusBar({
+		store: usagePoller.store,
+		item: new StatusItem({
+			slot: "usage",
+			alignment: vscode.StatusBarAlignment.Right,
+			priority: 99,
+			command: INTERNAL_CMD.openUsage,
+			log: (message) => logger.log(message),
+		}),
+		getMode: getUsageStatusBarMode,
+		getThresholds: () => getUsageAlertThresholds(),
+		getPollIntervalMs: () => getUsagePollIntervalMs(),
+	});
+	context.subscriptions.push(
+		usageStatusBar,
+		new UsageAlerts(usagePoller.store),
+		vscode.commands.registerCommand(INTERNAL_CMD.openUsage, () => dashboard.open("usage")),
+		// The coarse "pass done" push: the dashboard's usage section re-renders
+		// after every completed poll pass (the poller isolates its listeners).
+		usagePoller.onDidRefresh(() => dashboard.refresh())
+	);
 	// A refreshed catalog snapshot must become visible without waiting for an
 	// unrelated refresh: the debounced notify re-attaches models (catalog
 	// levels re-resolve at attach) and the dashboard re-push re-renders the

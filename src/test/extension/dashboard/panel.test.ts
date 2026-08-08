@@ -14,6 +14,7 @@ import type {
 	EntryParametersResolution,
 	SettingsReader,
 } from "../../../extension/dashboard/state";
+import { EMPTY_CATALOG_STATUS, EMPTY_USAGE_VIEW } from "../../../extension/dashboard/state";
 import { entryModelParametersFor } from "../../../extension/servers/serverSync";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
@@ -128,6 +129,11 @@ function makeHarness(): Harness {
 		resolveEntryParameters: (serverId) => harness.entryResolutions[serverId],
 		resolveEntryCapabilities: (serverId) => harness.entryCapabilities[serverId],
 		getCatalogLookup: () => EMPTY_CATALOG_LOOKUP,
+		getCatalogStatus: () => EMPTY_CATALOG_STATUS,
+		getUsage: () => EMPTY_USAGE_VIEW,
+		getParkedGlobalHeaders: () => undefined,
+		refreshCatalogNow: () => {},
+		refreshUsageNow: () => {},
 		searchCatalog: (query) => {
 			harness.catalogQueries.push(query);
 			return harness.catalogResults;
@@ -1160,24 +1166,49 @@ suite("extension/dashboard/panel", () => {
 		});
 	});
 
-	suite("request scopes in the pushed state", () => {
-		test("the env's entry resolution rides the snapshot's request scope into the push", () => {
+	suite("readModelParameters through the panel", () => {
+		test("the env's entry resolution reaches the projection, and a stale scope answers honestly empty", async () => {
 			const harness = makeHarness();
-			const entryParameters = { "gpt-4": { temperature: 0.2 } };
 			// makeServerStatus defaults to serverId "srv1".
-			harness.entryResolutions.srv1 = { entryLabel: "Prod", entryParameters };
+			harness.entryResolutions.srv1 = { entryLabel: "Prod", entryParameters: { m1: { temperature: 0.2 } } };
 			harness.controller.open();
-
 			const fake = harness.panels[0];
 			assert.ok(fake);
-			const state = lastState(fake).state;
-			const model = state.models[0];
-			assert.ok(model !== undefined);
-			assert.deepStrictEqual(state.requestScopes[model.scopeKey], {
-				baseUrlScope: "http://prod.test",
-				entryLabel: "Prod",
-				entryParameters,
+
+			fake.receiveMessage({
+				type: "readModelParameters",
+				scopeKey: modelScopeKey("srv1"),
+				rawId: "m1",
+				requestId: "params-1",
 			});
+			fake.receiveMessage({
+				type: "readModelParameters",
+				scopeKey: modelScopeKey("no-such-server"),
+				rawId: "m1",
+				requestId: "params-2",
+			});
+			await settle();
+
+			const answered = fake.posted.filter(
+				(message) => (message as ExtensionToWebviewMessage).type === "modelParameters"
+			) as Extract<ExtensionToWebviewMessage, { type: "modelParameters" }>[];
+			assert.strictEqual(answered.length, 2);
+			const [live, stale] = answered;
+			assert.strictEqual(live?.requestId, "params-1");
+			assert.strictEqual(live?.entryLabel, "Prod");
+			const row = live?.projection?.rows.find((candidate) => candidate.name === "temperature");
+			assert.ok(row !== undefined, "the entry parameter reaches the projection");
+			assert.strictEqual(row.value, 0.2);
+			assert.deepStrictEqual(row.source, { layer: "entry", key: "m1" });
+			assert.strictEqual(stale?.requestId, "params-2");
+			assert.strictEqual(stale?.projection, undefined, "a de-resolved scope answers without inventing values");
+			assert.ok(
+				!fake.posted.some((message) => {
+					const type = (message as ExtensionToWebviewMessage).type;
+					return type === "intentSucceeded" || type === "intentFailed";
+				}),
+				"pure reads produce no outcome notices"
+			);
 		});
 	});
 

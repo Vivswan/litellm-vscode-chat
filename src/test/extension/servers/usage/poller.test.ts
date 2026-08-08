@@ -271,6 +271,24 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(h.logs.filter((line) => line.includes("Usage endpoint unavailable")).length, 2);
 	});
 
+	test("an activity success never advances the spend age: spendUpdatedAt follows /key/info only", async () => {
+		// Codex-found regression class: with /key/info failing and the activity
+		// endpoint answering, the shared last-updated stamp advanced and old
+		// spend rendered as "updated just now (stale)". The spend age is its
+		// own field, moved only by a key-info success.
+		const h = makeHarness({ intervalMs: 0 });
+		h.client.keyInfoResult = unavailableError(500);
+		await h.poller.refreshNow();
+		const state = h.poller.store.get("alpha");
+		assert.ok(state !== undefined);
+		assert.notStrictEqual(state.lastUpdatedAt, undefined, "the activity success stamps the overall freshness");
+		assert.strictEqual(state.spendUpdatedAt, undefined, "no key-info success, no spend age");
+
+		h.client.keyInfoResult = KEY_OK;
+		await h.poller.refreshNow();
+		assert.notStrictEqual(h.poller.store.get("alpha")?.spendUpdatedAt, undefined);
+	});
+
 	test("transient failures keep availability and retry on the next poll", async () => {
 		const h = makeHarness({ intervalMs: 300_000 });
 		h.client.keyInfoResult = unavailableError(500);
@@ -454,17 +472,28 @@ suite("extension/servers/usage poller", () => {
 		);
 	});
 
-	test("applyConfiguration recomputes crossings from cached data without network", async () => {
+	test("applyConfiguration never alerts from cached data: crossings re-baseline on the next fetch", async () => {
+		// Alerts evaluate on fetches only (docs/usage.md): a threshold edit -
+		// especially with polling OFF - must not toast from data already in the
+		// store, so applyConfiguration leaves the stored crossings untouched
+		// and the next fetch diffs against them.
 		const h = makeHarness({ intervalMs: 0 });
 		h.client.keyInfoResult = { ...KEY_OK, spend: 70, maxBudget: 100 };
 		await h.poller.refreshNow();
 		assert.deepStrictEqual(h.poller.store.get("alpha")?.budget.crossedThresholds, []);
 		const fetchesBefore = h.client.calls.keyInfo;
+		const eventsBefore = h.events.length;
 
 		h.setThresholds([0.5]);
 		h.poller.applyConfiguration();
 
 		assert.strictEqual(h.client.calls.keyInfo, fetchesBefore, "a threshold edit costs no network");
+		assert.strictEqual(h.events.length, eventsBefore, "no store event, so no toast, without a fetch");
+		assert.deepStrictEqual(h.poller.store.get("alpha")?.budget.crossedThresholds, []);
+
+		// The next fetch evaluates against the new list: the standing 70%
+		// position crosses the new 0.5 threshold exactly once.
+		await h.poller.refreshNow();
 		assert.deepStrictEqual(h.poller.store.get("alpha")?.budget.crossedThresholds, [0.5]);
 		const last = h.events.at(-1);
 		assert.ok(last?.kind === "updated" && last.newlyCrossedThresholds.includes(0.5));

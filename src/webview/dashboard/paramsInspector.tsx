@@ -1,34 +1,35 @@
 /**
  * The effective-values inspector: a read-only slide-over stating what one
- * request to a model would carry. Everything here renders from the same pure
- * resolution the request path runs (projectEffectiveParameters, re-exported
- * through the protocol module), so the table cannot drift from the wire; the
- * two things a request adds that this page cannot know - runtime options and
- * the host-stored picker configuration - render as explicit caveats instead
- * of silent omissions.
+ * request to a model would carry. Request/response-fed like its capability
+ * twin: it posts readModelParameters on open and renders the projection the
+ * extension resolves through the provider's SHARED flat resolution table -
+ * the same cache the request path reads - so the table cannot drift from the
+ * wire. The two things a request adds that this page cannot know - runtime
+ * options and the host-stored picker configuration - render as explicit
+ * caveats instead of silent omissions.
  */
 
 import * as l10n from "@vscode/l10n";
+import { useEffect, useState } from "preact/hooks";
 import type {
 	DashboardModel,
 	EffectiveParameterRow,
-	ModelParametersRecord,
+	ExtensionToWebviewMessage,
 	ParameterDiagnostic,
 	ParameterSourceRef,
 	ProjectedMaxTokens,
-	RequestScope,
 	ShadowedParameterValue,
 } from "../../extension/dashboard/protocol";
-import {
-	DEFAULT_MAX_TOKENS_CAP,
-	formatJsonValue,
-	projectEffectiveParameters,
-} from "../../extension/dashboard/protocol";
+import { DEFAULT_MAX_TOKENS_CAP, formatJsonValue } from "../../extension/dashboard/protocol";
 import { DOCS_LINK_PARAMS_INSPECTOR } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpParamsInspector } from "./helpText";
 import { capabilities, formatCost, formatPricing, formatTokens } from "./models";
 import { SlideOver } from "./slideOver";
+import { newRequestId, postMessage } from "./vscodeApi";
+
+/** The latest modelParameters response; the inspector matches it against its own request ID. */
+export type ModelParametersResponse = Extract<ExtensionToWebviewMessage, { type: "modelParameters" }>;
 
 /** One row of the model-facts grid; rows with nothing to say do not render. */
 function Fact({ label, value }: { label: string; value: string }) {
@@ -104,7 +105,7 @@ function sourceName(ref: ParameterSourceRef, entryLabel: string): string {
 /** The not-sent annotations, resolved at call time (no module-level localized constants). */
 function skipReasonText(reason: "underscore" | "provider-owned"): string {
 	return reason === "underscore"
-		? l10n.t("not sent: keys starting with _ are reserved for extension metadata")
+		? l10n.t("not sent: keys starting with _ are directives - instructions to the extension, never sent")
 		: l10n.t("not sent: a provider-owned request field, never overridable");
 }
 
@@ -197,7 +198,16 @@ function ShadowedLine({ shadow, entryLabel }: { shadow: ShadowedParameterValue; 
 	);
 }
 
-function ParameterRow({ row, entryLabel }: { row: EffectiveParameterRow; entryLabel: string }) {
+function ParameterRow({
+	row,
+	entryLabel,
+	onEditSource,
+}: {
+	row: EffectiveParameterRow;
+	entryLabel: string;
+	/** The per-row jump to the record that owns the value; absent, no affordance renders. */
+	onEditSource?: ((source: ParameterSourceRef) => void) | undefined;
+}) {
 	return (
 		<>
 			<tr class={row.sent ? undefined : "param-not-sent"}>
@@ -205,6 +215,20 @@ function ParameterRow({ row, entryLabel }: { row: EffectiveParameterRow; entryLa
 				<td class="param-value">{formatJsonValue(row.value)}</td>
 				<td>
 					{sourceName(row.source, entryLabel)}
+					{onEditSource !== undefined ? (
+						<button
+							type="button"
+							class="quiet row-edit"
+							aria-label={
+								row.source.layer === "entry"
+									? l10n.t('Edit in server entry "{0}"', entryLabel)
+									: l10n.t('Edit record "{0}" in settings', row.source.key)
+							}
+							onClick={() => onEditSource(row.source)}
+						>
+							{l10n.t("edit")}
+						</button>
+					) : null}
 					{row.inheritedFrom !== undefined ? (
 						<span class="param-skip"> ({l10n.t("inherited from {0}", row.inheritedFrom)})</span>
 					) : null}
@@ -223,30 +247,57 @@ function ParameterRow({ row, entryLabel }: { row: EffectiveParameterRow; entryLa
 
 export function ParamsInspector({
 	model,
-	scope,
-	globalParameters,
+	response,
+	stateSeq,
 	onClose,
+	onEditRecord,
+	onEditEntry,
 }: {
 	model: DashboardModel;
-	/** The model's request scope from DashboardState.requestScopes; undefined only on a malformed push. */
-	scope: RequestScope | undefined;
-	/** The scope-merged modelParameters setting, as the request path reads it. */
-	globalParameters: ModelParametersRecord;
+	/** The latest modelParameters response App holds; matched against this inspector's own requestId. */
+	response: ModelParametersResponse | undefined;
+	/** Bumped on every state push; the inspector re-requests so an open panel follows configuration edits. */
+	stateSeq: number;
 	onClose: () => void;
+	/** Jump into the global parameters editor: focus record `key`, or create an exact-ID draft when `create`. */
+	onEditRecord?: ((key: string, create: boolean) => void) | undefined;
+	/** Jump into a server entry's edit form (the owner of entry-layer values). */
+	onEditEntry?: ((label: string) => void) | undefined;
 }) {
-	const projection = projectEffectiveParameters({
-		rawModelId: model.rawId,
-		globalParameters,
-		entryParameters: scope?.entryParameters,
-		maxOutputTokens: model.maxOutputTokens,
-		outputLimitDeclared: model.outputLimitDeclared,
-	});
-	// Entry-layer rows exist only when the scope resolved a declared entry, so
-	// the fallback label can never actually render; it satisfies the types.
-	const entryLabel = scope?.entryLabel ?? model.serverLabel;
+	const [requestId, setRequestId] = useState<string | undefined>(undefined);
+
+	// One request per inspected model AND per state push: the push means the
+	// stores may have moved (a settings edit, a discovery pass), and an open
+	// inspector must follow instead of showing the pre-edit values. A stale
+	// response is ignored by its requestId.
+	const { scopeKey, rawId } = model;
+	useEffect(() => {
+		const id = newRequestId();
+		setRequestId(id);
+		postMessage({ type: "readModelParameters", scopeKey, rawId, requestId: id });
+	}, [scopeKey, rawId, stateSeq]);
+
+	const answered = requestId !== undefined && response?.requestId === requestId ? response : undefined;
+	const projection = answered?.projection;
+	// Entry-layer rows exist only when the resolution found a declared entry,
+	// so the fallback label can never actually render; it satisfies the types.
+	const entryLabel = answered?.entryLabel ?? model.serverLabel;
+	// The per-row jump: an entry-layer value is owned by the server entry's own
+	// record (edited in its form), everything else by a global settings record.
+	const editSource =
+		onEditRecord === undefined
+			? undefined
+			: (source: { layer: "global" | "entry"; key: string }) => {
+					if (source.layer === "entry") {
+						onEditEntry?.(entryLabel);
+					} else {
+						onEditRecord(source.key, false);
+					}
+				};
 	// A configured max_tokens is real configuration even though it renders on
 	// the derivation line instead of as a row, so it defeats the empty state.
-	const empty = projection.rows.length === 0 && projection.maxTokens.source !== "configured";
+	const empty =
+		projection !== undefined && projection.rows.length === 0 && projection.maxTokens.source !== "configured";
 
 	return (
 		<SlideOver
@@ -268,8 +319,28 @@ export function ParamsInspector({
 						args: [model.rawId, model.serverLabel],
 						comment: ["{0} is a model ID, {1} is the server it is served from"],
 					})}
-					{scope !== undefined ? ` (${scope.baseUrlScope})` : ""}
 				</p>
+				{onEditRecord !== undefined ? (
+					<p class="params-configure">
+						<button
+							type="button"
+							class="secondary"
+							disabled={answered === undefined}
+							onClick={() => {
+								// Reuse the most specific matching global record when one
+								// exists; otherwise a fresh draft keyed by the exact model ID.
+								const key = answered?.globalRecordKey;
+								if (key !== undefined) {
+									onEditRecord(key, false);
+								} else {
+									onEditRecord(model.rawId, true);
+								}
+							}}
+						>
+							{l10n.t("Configure parameters for this model")}
+						</button>
+					</p>
+				) : null}
 				<dl class="model-facts">
 					<Fact label={l10n.t("Family")} value={model.family} />
 					<Fact label={l10n.t("Capabilities")} value={capabilities(model) || l10n.t("none declared")} />
@@ -297,58 +368,70 @@ export function ParamsInspector({
 					))}
 					<span class="hint">{l10n.t("+ tools, tool_choice with tools; not overridable")}</span>
 				</div>
-				{projection.rows.length > 0 ? (
-					<table class="params">
-						<thead>
-							<tr>
-								<th>{l10n.t("Parameter")}</th>
-								<th>{l10n.t("Value")}</th>
-								<th>{l10n.t("Source")}</th>
-							</tr>
-						</thead>
-						<tbody>
-							{projection.rows.map((row) => (
-								<ParameterRow key={row.name} row={row} entryLabel={entryLabel} />
-							))}
-						</tbody>
-					</table>
-				) : empty ? (
-					<p class="hint params-empty">{l10n.t("No configured parameters match this model.")}</p>
-				) : null}
-				{projection.diagnostics.length > 0 ? (
-					<div class="params-replaced">
-						<p class="hint">{l10n.t("Configuration problems in the matched records:")}</p>
-						<ul>
-							{projection.diagnostics.map((diagnostic) => (
-								<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.kind}/${diagnostic.key}`}>
-									{parameterDiagnosticText(diagnostic)}
-								</li>
-							))}
-						</ul>
-					</div>
-				) : null}
-				<p class="params-max-tokens">
-					<code>max_tokens {maxTokensParts(projection.maxTokens, entryLabel).value}</code>
-					<span class="hint"> {maxTokensParts(projection.maxTokens, entryLabel).reason}</span>
-				</p>
-				<dl class="params-caveats">
-					<div>
-						<dt class="params-caveat-label">{l10n.t("Runtime options")}</dt>
-						<dd class="hint">
-							{projection.rows.some((row) => row.forced === true)
-								? l10n.t("Set per request by the chat client; they override every row above except forced rows.")
-								: l10n.t("Set per request by the chat client; they override every row above.")}
-						</dd>
-					</div>
-					{model.reasoning ? (
-						<div>
-							<dt class="params-caveat-label">{l10n.t("Picker: reasoning effort")}</dt>
-							<dd class="hint">
-								{l10n.t("Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.")}
-							</dd>
-						</div>
-					) : null}
-				</dl>
+				{answered === undefined ? (
+					<p class="hint" role="status">
+						{l10n.t("Resolving parameters...")}
+					</p>
+				) : projection === undefined ? (
+					<p class="hint" role="status">
+						{l10n.t("The model list changed; close and reopen the inspector.")}
+					</p>
+				) : (
+					<>
+						{projection.rows.length > 0 ? (
+							<table class="params">
+								<thead>
+									<tr>
+										<th>{l10n.t("Parameter")}</th>
+										<th>{l10n.t("Value")}</th>
+										<th>{l10n.t("Source")}</th>
+									</tr>
+								</thead>
+								<tbody>
+									{projection.rows.map((row) => (
+										<ParameterRow key={row.name} row={row} entryLabel={entryLabel} onEditSource={editSource} />
+									))}
+								</tbody>
+							</table>
+						) : empty ? (
+							<p class="hint params-empty">{l10n.t("No configured parameters match this model.")}</p>
+						) : null}
+						{projection.diagnostics.length > 0 ? (
+							<div class="params-replaced">
+								<p class="hint">{l10n.t("Configuration problems in the matched records:")}</p>
+								<ul>
+									{projection.diagnostics.map((diagnostic) => (
+										<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.kind}/${diagnostic.key}`}>
+											{parameterDiagnosticText(diagnostic)}
+										</li>
+									))}
+								</ul>
+							</div>
+						) : null}
+						<p class="params-max-tokens">
+							<code>max_tokens {maxTokensParts(projection.maxTokens, entryLabel).value}</code>
+							<span class="hint"> {maxTokensParts(projection.maxTokens, entryLabel).reason}</span>
+						</p>
+						<dl class="params-caveats">
+							<div>
+								<dt class="params-caveat-label">{l10n.t("Runtime options")}</dt>
+								<dd class="hint">
+									{projection.rows.some((row) => row.forced === true)
+										? l10n.t("Set per request by the chat client; they override every row above except forced rows.")
+										: l10n.t("Set per request by the chat client; they override every row above.")}
+								</dd>
+							</div>
+							{model.reasoning ? (
+								<div>
+									<dt class="params-caveat-label">{l10n.t("Picker: reasoning effort")}</dt>
+									<dd class="hint">
+										{l10n.t("Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.")}
+									</dd>
+								</div>
+							) : null}
+						</dl>
+					</>
+				)}
 			</div>
 		</SlideOver>
 	);

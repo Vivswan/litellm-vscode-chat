@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
-import type * as vscode from "vscode";
+import * as vscode from "vscode";
 import { classifyOverall } from "../../../extension/dashboard/protocol";
+import type { StatusItemLike, StatusItemView } from "../../../extension/ui/status";
 import { StatusBarManager } from "../../../extension/ui/status";
 import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
@@ -15,7 +16,8 @@ const createdContexts: vscode.ExtensionContext[] = [];
 function createManager(
 	persistedStatus: unknown,
 	hasConfiguredServers: () => boolean = () => false,
-	recorder?: { appendLog(line: string): void; recordError(source: string, error: unknown): void }
+	recorder?: { appendLog(line: string): void; recordError(source: string, error: unknown): void },
+	item?: StatusItemLike
 ): StatusBarManager {
 	const mementoStore = new Map<string, unknown>();
 	if (persistedStatus !== undefined) {
@@ -32,7 +34,36 @@ function createManager(
 		globalState,
 	} as unknown as vscode.ExtensionContext;
 	createdContexts.push(context);
-	return new StatusBarManager(context, new Logger({ info() {}, error() {} }, recorder), hasConfiguredServers);
+	// ALWAYS a recording surface: StatusBarManager takes the item as a required
+	// parameter precisely so a suite can never create a real, visible status
+	// bar item in the shared test host (duplicate items have accumulated there
+	// twice; the guard test below pins the invariant).
+	return new StatusBarManager(
+		context,
+		new Logger({ info() {}, error() {} }, recorder),
+		hasConfiguredServers,
+		item ?? new RecordingItem()
+	);
+}
+
+/** A recording status-bar surface, so the suite can pin rendered text and severity. */
+class RecordingItem implements StatusItemLike {
+	command: string | vscode.Command | undefined = undefined;
+	views: StatusItemView[] = [];
+	dispose(): void {}
+	render(view: StatusItemView): void {
+		this.views.push(view);
+	}
+	show(): void {}
+	hide(): void {}
+
+	get last(): StatusItemView {
+		const view = this.views.at(-1);
+		if (view === undefined) {
+			throw new assert.AssertionError({ message: "nothing was rendered" });
+		}
+		return view;
+	}
 }
 
 /** The single restored element, narrowed to the error variant or failing loudly. */
@@ -46,18 +77,104 @@ function expectErrorElement(serverStatuses: readonly ServerStatus[]): ServerStat
 }
 
 suite("extension/ui/status", () => {
+	// The regression pin for the duplicate-status-item class: NOTHING in this
+	// suite may create a real status bar item in the shared test host. The
+	// real vscode.window.createStatusBarItem is wrapped for the suite's
+	// duration; any call fails the test that made it. (StatusBarManager takes
+	// its item as a required parameter for the same reason.)
+	const realCreateStatusBarItem = vscode.window.createStatusBarItem;
+	let realItemCreations = 0;
+	suiteSetup(() => {
+		(vscode.window as { createStatusBarItem: typeof vscode.window.createStatusBarItem }).createStatusBarItem = ((
+			...args: Parameters<typeof vscode.window.createStatusBarItem>
+		) => {
+			realItemCreations += 1;
+			return realCreateStatusBarItem(...args);
+		}) as typeof vscode.window.createStatusBarItem;
+	});
+	suiteTeardown(() => {
+		(vscode.window as { createStatusBarItem: typeof vscode.window.createStatusBarItem }).createStatusBarItem =
+			realCreateStatusBarItem;
+	});
 	teardown(() => {
 		for (const context of createdContexts.splice(0)) {
 			for (const disposable of context.subscriptions) {
 				disposable.dispose();
 			}
 		}
+		assert.strictEqual(realItemCreations, 0, "a test created a real status bar item in the shared host");
 	});
 
-	test("clicking the status bar item opens the dashboard", () => {
-		const manager = createManager(undefined);
+	test("clicking the status bar item runs the injected item's command", () => {
+		// The command rides the injected item (activation pins it to
+		// CMD.openDashboard when it constructs the real StatusItem); the manager
+		// only surfaces it.
+		const item = new RecordingItem();
+		item.command = "litellm.openDashboard";
+		const manager = createManager(undefined, () => false, undefined, item);
 
 		assert.strictEqual(manager.clickCommand, "litellm.openDashboard");
+	});
+
+	suite("the item's text keeps the bar quiet: counts live in the tooltip", () => {
+		const okServers: ServerStatus[] = [
+			{
+				serverId: "srv1",
+				label: "Prod",
+				baseUrl: "http://prod.test",
+				state: "ok",
+				modelCount: 3,
+				lastChecked: new Date().toISOString(),
+			},
+			{
+				serverId: "srv2",
+				label: "Backup",
+				baseUrl: "http://backup.test",
+				state: "ok",
+				modelCount: 4,
+				lastChecked: new Date().toISOString(),
+			},
+		];
+
+		test("connected shows no model count in the text; the tooltip carries both counts", async () => {
+			const item = new RecordingItem();
+			createManager(undefined, () => true, undefined, item).handleAggregatedStatus({
+				serverStatuses: okServers,
+				totalModels: 7,
+				silent: true,
+			});
+			// updateStatusBar persists the status before rendering it; let that
+			// microtask chain settle.
+			await new Promise((resolve) => setImmediate(resolve));
+
+			assert.strictEqual(item.last.text, "$(check) LiteLLM");
+			assert.strictEqual(item.last.severity, "plain");
+			assert.ok(item.last.tooltip.includes("7 models available from 2 servers"), item.last.tooltip);
+		});
+
+		test("degraded shows no model count in the text; the tooltip carries the counts", async () => {
+			const item = new RecordingItem();
+			const failed: ServerStatus = {
+				serverId: "srv3",
+				label: "Down",
+				baseUrl: "http://down.test",
+				state: "error",
+				error: "boom",
+				logSafeError: markLogSafe("RequestError(connection)"),
+				lastChecked: new Date().toISOString(),
+			};
+			createManager(undefined, () => true, undefined, item).handleAggregatedStatus({
+				serverStatuses: [...okServers, failed],
+				totalModels: 7,
+				silent: true,
+			});
+			await new Promise((resolve) => setImmediate(resolve));
+
+			assert.strictEqual(item.last.text, "$(warning) LiteLLM");
+			assert.strictEqual(item.last.severity, "warning");
+			assert.ok(item.last.tooltip.includes("7 models available"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("1 server unreachable"), item.last.tooltip);
+		});
 	});
 
 	test("an all-failed report logs the log-safe rendering, never the display error", () => {

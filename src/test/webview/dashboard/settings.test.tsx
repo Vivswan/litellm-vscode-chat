@@ -5,11 +5,13 @@
  * equivalence hints.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { act } from "preact/test-utils";
 import { isBoundViolation, NUMBER_SETTING_IDS, parseNumberDraft } from "../../../extension/dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { SettingsSection } from "../../../webview/dashboard/settings";
 import { makeSettings, makeState, statePush } from "../fixtures";
 import {
+	buttonByText,
 	cleanup,
 	fireBlur,
 	fireCheck,
@@ -453,4 +455,125 @@ test("every scalar row carries a settings.json jump that posts revealSetting wit
 	expect(booleanJump?.getAttribute("aria-label")).toBe("Open Prompt caching in settings.json");
 	fireClick(booleanJump as HTMLButtonElement);
 	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "chat.promptCaching" }]);
+});
+
+test("the capabilities editor renders as a second record editor and applies via setModelCapabilities", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const section = editorSection(root, "Model capabilities");
+
+	fireClick(buttonByText(section, "Add capability matcher"));
+	fireInput(section.querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement, "gpt-4*");
+	fireInput(section.querySelector("input.key[placeholder^='Capability']") as HTMLInputElement, "context_length");
+	fireInput(section.querySelector("input.value") as HTMLInputElement, "200000");
+
+	resetPosted();
+	fireClick(buttonByText(section, "Apply"));
+	expect(postedMessages).toEqual([{ type: "setModelCapabilities", value: { "gpt-4*": { context_length: 200000 } } }]);
+});
+
+test("the catalog row states the snapshot's size and age, and Refresh posts refreshCatalog", () => {
+	const now = Date.now();
+	const settings = makeSettings({
+		catalog: { modelCount: 321, lastSuccessAt: now - 5 * 60 * 1000, refreshing: false },
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} now={now} />);
+	const row = root.querySelector(".catalog-row") as HTMLElement;
+	expect(row.textContent).toContain("321 catalog models");
+	expect(row.textContent).toContain("updated 5 min ago");
+
+	const refresh = buttonByText(row, "Refresh");
+	expect(refresh.disabled).toBe(false);
+	resetPosted();
+	fireClick(refresh);
+	expect(postedMessages).toEqual([{ type: "refreshCatalog" }]);
+});
+
+test("the catalog row without a refresh yet names the bundled snapshot; a running refresh disables the button", () => {
+	const bundled = makeSettings({ catalog: { modelCount: 100, lastSuccessAt: undefined, refreshing: false } });
+	const root = mount(<SettingsSection settings={bundled} models={[]} failures={{}} />);
+	expect((root.querySelector(".catalog-row") as HTMLElement).textContent).toContain("bundled snapshot");
+
+	cleanup();
+	const refreshing = makeSettings({ catalog: { modelCount: 100, lastSuccessAt: undefined, refreshing: true } });
+	const busyRoot = mount(<SettingsSection settings={refreshing} models={[]} failures={{}} />);
+	const busyRow = busyRoot.querySelector(".catalog-row") as HTMLElement;
+	const busy = Array.from(busyRow.querySelectorAll("button")).find((button) =>
+		(button.textContent ?? "").includes("Refreshing...")
+	) as HTMLButtonElement;
+	expect(busy).toBeDefined();
+	expect(busy.disabled).toBe(true);
+});
+
+test("with the catalog setting off the row shows the inert hint instead of the status and Refresh", () => {
+	const base = makeSettings();
+	const settings = makeSettings({
+		booleans: { ...base.booleans, "models.openRouterCatalog": false },
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const row = root.querySelector(".catalog-row") as HTMLElement;
+	expect(row.textContent).toContain("Catalog off:");
+	expect(row.textContent).toContain("_openrouter_model");
+	expect(Array.from(row.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())).not.toContain("Refresh");
+});
+
+test("a standing catalog failure renders in the row with its classification, never as a toast", () => {
+	const settings = makeSettings({
+		catalog: {
+			modelCount: 100,
+			lastSuccessAt: Date.now() - 60 * 60 * 1000,
+			lastFailure: { classification: "HTTP 503", at: Date.now() },
+			refreshing: false,
+		},
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const row = root.querySelector(".catalog-row") as HTMLElement;
+	expect(row.querySelector(".error")?.textContent).toBe("Last refresh failed (HTTP 503); serving the cached snapshot.");
+	expect(document.querySelector(".toast")).toBeNull();
+});
+
+test("the thresholds row commits a valid draft on blur, normalized ascending and deduplicated", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const input = settingInput(root, "usage.alertThresholds");
+	expect(input.value).toBe("0.8, 0.95");
+
+	fireInput(input, "0.9, 0.5, 0.9");
+	expect(rowOf(input).querySelector(".setting-equiv")?.textContent).toBe("= 50%, 90%");
+	fireBlur(input);
+	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.5, 0.9] }]);
+
+	// A draft equal to the stored list posts nothing on commit.
+	resetPosted();
+	fireInput(input, "0.8, 0.95");
+	fireKeyDown(input, "Enter");
+	expect(postedMessages).toEqual([]);
+});
+
+test("an invalid thresholds draft shows its error live and never posts", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const input = settingInput(root, "usage.alertThresholds");
+
+	fireInput(input, "1.5");
+	expect(rowOf(input).textContent).toContain("Thresholds are fractions in (0, 1], e.g. 0.8");
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	fireBlur(input);
+	fireKeyDown(input, "Enter");
+	expect(postedMessages).toEqual([]);
+
+	fireInput(input, "soon");
+	expect(rowOf(input).textContent).toContain("Not a number: soon");
+	fireBlur(input);
+	expect(postedMessages).toEqual([]);
+});
+
+test("the status-bar mode select posts setUsageStatusBar on change", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const select = root.querySelector("#setting-usage\\.statusBar") as HTMLSelectElement;
+	expect(select).not.toBeNull();
+	expect(select.value).toBe("always");
+
+	void act(() => {
+		select.value = "alerts-only";
+		select.dispatchEvent(new Event("change", { bubbles: true }));
+	});
+	expect(postedMessages).toEqual([{ type: "setUsageStatusBar", value: "alerts-only" }]);
 });

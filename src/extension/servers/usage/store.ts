@@ -65,8 +65,15 @@ export interface ServerUsageState {
 	readonly endpoints: UsageEndpointStates;
 	/** Derived from `endpoints`; stored so consumers need no recomputation. */
 	readonly availability: UsageAvailability;
-	/** When any endpoint last answered successfully (epoch ms); the sync button's "last updated". */
+	/** When any endpoint last answered successfully (epoch ms). */
 	readonly lastUpdatedAt: number | undefined;
+	/**
+	 * When /key/info last answered successfully (epoch ms): the age of the
+	 * SPEND numbers specifically. The freshness rule and the usage surfaces'
+	 * "last updated" labels read this one - an activity-endpoint success must
+	 * not relabel old spend as current.
+	 */
+	readonly spendUpdatedAt: number | undefined;
 	/** When the poller last tried this server (epoch ms), success or not. */
 	readonly lastAttemptAt: number | undefined;
 	/** Own-key budget and spend, when /key/info answers. */

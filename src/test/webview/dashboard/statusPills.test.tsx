@@ -44,7 +44,8 @@ test("relativeTime rounds to the coarsest readable unit and tolerates clock drif
 	expect(relativeTime(at(300), now)).toBe("5 min ago");
 	expect(relativeTime(at(3600), now)).toBe("1 h ago");
 	expect(relativeTime(at(7500), now)).toBe("2 h ago");
-	expect(relativeTime(at(86400 * 3), now)).toBe("3 d ago");
+	expect(relativeTime(at(86400), now)).toBe("1 day ago");
+	expect(relativeTime(at(86400 * 3), now)).toBe("3 days ago");
 	expect(relativeTime("not a timestamp", now)).toBeUndefined();
 });
 

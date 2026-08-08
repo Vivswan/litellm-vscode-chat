@@ -34,18 +34,14 @@ export {
 // functions are re-exported here (the isValidHeaderName precedent).
 export type {
 	EffectiveParameterRow,
-	ModelParametersRecord,
 	ParameterDiagnostic,
 	ParameterSourceRef,
 	ProjectedMaxTokens,
 	ShadowedParameterValue,
 } from "../../shared/config/parameterResolution";
-export {
-	DEFAULT_MAX_TOKENS_CAP,
-	FORCE_DIRECTIVE,
-	parameterSkipReason,
-	projectEffectiveParameters,
-} from "../../shared/config/parameterResolution";
+export { DEFAULT_MAX_TOKENS_CAP, FORCE_DIRECTIVE, isForceableParameter } from "../../shared/config/parameterResolution";
+export type { RecordDiagnostic } from "../../shared/config/recordResolution";
+export { INHERIT_FROM_DIRECTIVE, INHERITABLE_DIRECTIVE } from "../../shared/config/recordResolution";
 export type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 export { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 // The intentFailed notice's classification: enum ids and a status number,
@@ -64,7 +60,9 @@ export { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers
 export { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 
 import * as l10n from "@vscode/l10n";
-import type { EffectiveCapabilities } from "../../shared/config/capabilityResolution";
+import type { CapabilityLevel, EffectiveCapabilities } from "../../shared/config/capabilityResolution";
+import type { EffectiveParametersProjection } from "../../shared/config/parameterResolution";
+import type { RecordDiagnostic } from "../../shared/config/recordResolution";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
@@ -92,6 +90,12 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
 	readonly modelCapabilities?: EntryModelCapabilitiesPayload | undefined;
 	/** The entry's expected discovery-failure categories, when it declares any. */
 	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
+	/** The entry's custom HTTP headers (plain settings text, not secrets); the edit form's prefill. */
+	readonly headers?: Readonly<Record<string, string>> | undefined;
+	/** The entry's discovery.declared model IDs, when it lists any. */
+	readonly declaredModels?: readonly string[] | undefined;
+	/** The entry's manual usage budget in USD, when set. */
+	readonly budget?: number | undefined;
 }
 
 /**
@@ -117,6 +121,7 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
 export type DeclaredServerNotice =
 	| "entry-params-inactive"
 	| "entry-capabilities-inactive"
+	| "entry-headers-inactive"
 	| "expected-failures-nothing-declared";
 
 /**
@@ -184,6 +189,28 @@ export type DashboardServer = DashboardServerBase &
 				readonly notices?: readonly DeclaredServerNotice[] | undefined;
 				readonly provenance?: undefined;
 				readonly hideable?: undefined;
+				readonly problems?: undefined;
+		  }
+		| {
+				/**
+				 * A servers-setting entry the parser REFUSED (an ambiguous or
+				 * incomplete auth shape, per docs/servers.md#authentication): present
+				 * in the setting but never synced or served until fixed. `problems`
+				 * carries the parser's English structural reports (configuration key
+				 * names only, never entered values - the same text the sync engine
+				 * logs), rendered on the row, in Configuration diagnostics, and in
+				 * copied reports. No `config`: the broken shape cannot round-trip
+				 * through the edit form without silently rewriting what the user
+				 * typed, so the fix lives in settings.json (the row's Fix action
+				 * reveals the entry).
+				 */
+				readonly origin: "misconfigured";
+				readonly problems: readonly string[];
+				readonly config?: undefined;
+				readonly adoptHandle?: undefined;
+				readonly notices?: undefined;
+				readonly provenance?: undefined;
+				readonly hideable?: undefined;
 		  }
 		| {
 				/**
@@ -207,6 +234,7 @@ export type DashboardServer = DashboardServerBase &
 				 * keep serving - hiding those would only make the dashboard lie.
 				 */
 				readonly hideable: boolean;
+				readonly problems?: undefined;
 		  }
 	) &
 	(
@@ -262,24 +290,36 @@ export type DashboardServer = DashboardServerBase &
  * discovery pass has not reached yet stay neutral, and so do failures the
  * entry's expectedFailures declares - an expected failure serving declared
  * models counts as connected, and one serving nothing yields the neutral
- * "needs-declare" verdict instead of a red claim.
+ * "needs-declare" verdict instead of a red claim. Misconfigured entries are
+ * neutral too: they never reach the host, so the status bar cannot see them,
+ * and counting them here would split the headline from the status bar (their
+ * signal is the Misconfigured pill, the red banner, and Configuration
+ * diagnostics) - except that a configuration consisting ONLY of misconfigured
+ * entries is an error, not "waiting" (nothing will ever connect until it is
+ * fixed).
  */
 export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected" | "needs-declare";
 
 export function classifyOverall(
-	servers: readonly Pick<DashboardServer, "state" | "expected" | "declaredModelCount">[]
+	servers: readonly (Pick<DashboardServer, "state" | "expected" | "declaredModelCount"> & {
+		readonly origin?: DashboardServer["origin"];
+	})[]
 ): OverallVerdict {
 	if (servers.length === 0) {
 		return "not-configured";
 	}
-	const errors = servers.filter((server) => server.state === "error" && server.expected !== true).length;
-	if (errors === servers.length) {
+	const transport = servers.filter((server) => server.origin !== "misconfigured");
+	if (transport.length === 0) {
+		return "error";
+	}
+	const errors = transport.filter((server) => server.state === "error" && server.expected !== true).length;
+	if (errors === transport.length) {
 		return "error";
 	}
 	if (errors > 0) {
 		return "degraded";
 	}
-	const serving = servers.some(
+	const serving = transport.some(
 		(server) => server.state === "ok" || (server.state === "error" && (server.declaredModelCount ?? 0) > 0)
 	);
 	if (serving) {
@@ -287,7 +327,7 @@ export function classifyOverall(
 	}
 	// Nothing serves and nothing failed unexpectedly: expected failures with no
 	// declared models are the actionable case, plain unchecked entries wait.
-	if (servers.some((server) => server.state === "error")) {
+	if (transport.some((server) => server.state === "error")) {
 		return "needs-declare";
 	}
 	return "waiting";
@@ -315,8 +355,12 @@ export function overallStatusText(
 				: "Not configured";
 		case "error": {
 			// The verdict guarantees at least one error-state server; the fallback
-			// only satisfies the type checker, which cannot see that.
-			const firstError = servers.find((server) => server.state === "error")?.error ?? "Unknown error";
+			// only satisfies the type checker, which cannot see that. A transport
+			// failure outranks a misconfigured row's fixed text: rows sort by
+			// label, and the real outage is the line worth pasting.
+			const errorRows = servers.filter((server) => server.state === "error");
+			const firstError =
+				(errorRows.find((server) => server.origin !== "misconfigured") ?? errorRows[0])?.error ?? "Unknown error";
 			return `Error: ${firstError}`;
 		}
 		case "degraded":
@@ -343,7 +387,11 @@ const ENTRY_PARAMS_INACTIVE_TEXT =
 
 /** The capabilities twin of ENTRY_PARAMS_INACTIVE_TEXT; English by the same issue-report policy. */
 const ENTRY_CAPABILITIES_INACTIVE_TEXT =
-	"per-entry modelCapabilities and expectedFailures are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+	"per-entry modelCapabilities, declared models, and expectedFailures are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+
+/** The custom-headers twin of ENTRY_PARAMS_INACTIVE_TEXT; English by the same issue-report policy. */
+const ENTRY_HEADERS_INACTIVE_TEXT =
+	"per-entry custom headers are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
 
 /** The expected-failure-with-nothing-to-serve line; English by the same issue-report policy. */
 const EXPECTED_FAILURES_NOTHING_DECLARED_TEXT =
@@ -356,6 +404,8 @@ function noticeText(notice: DeclaredServerNotice): string {
 			return ENTRY_PARAMS_INACTIVE_TEXT;
 		case "entry-capabilities-inactive":
 			return ENTRY_CAPABILITIES_INACTIVE_TEXT;
+		case "entry-headers-inactive":
+			return ENTRY_HEADERS_INACTIVE_TEXT;
 		case "expected-failures-nothing-declared":
 			return EXPECTED_FAILURES_NOTHING_DECLARED_TEXT;
 	}
@@ -371,7 +421,7 @@ function noticeText(notice: DeclaredServerNotice): string {
  */
 export interface ServerOutcomeParts {
 	/** The verdict as a Status cell shows it. */
-	readonly status: "OK" | "Error" | "Not checked yet";
+	readonly status: "OK" | "Error" | "Misconfigured" | "Not checked yet";
 	/** The model-count clause an "ok" line parenthesizes ("3 models"); absent on other states. */
 	readonly models?: string | undefined;
 	/**
@@ -387,6 +437,11 @@ export interface ServerOutcomeParts {
 
 export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts {
 	const notice = (server.notices ?? []).map(noticeText);
+	if (server.origin === "misconfigured") {
+		// The parser's structural reports (configuration key names, never entered
+		// values); English like the notices - these lines land in issue reports.
+		return { status: "Misconfigured", error: server.problems.join("; "), notice };
+	}
 	switch (server.state) {
 		case "ok":
 			return { status: "OK", models: `${server.modelCount} models`, error: server.error, notice };
@@ -445,7 +500,13 @@ export interface DashboardModel {
 	 * namespace.
 	 */
 	readonly rawId: string;
-	/** Key into DashboardState.requestScopes for this model's serving server; push-local, never persisted. */
+	/**
+	 * An opaque per-session handle for the model's serving server (a salted
+	 * hash of the extension-side server ID): what the inspector reads
+	 * (readModelParameters, readModelCapabilities) address a server by, so a
+	 * stale key de-resolves instead of hitting another server. Push-local,
+	 * never persisted.
+	 */
 	readonly scopeKey: string;
 	readonly name: string;
 	readonly family: string;
@@ -675,12 +736,23 @@ export const BOOLEAN_SETTING_IDS = Object.keys(BOOLEAN_SETTING_SPECS) as readonl
  * boundary, and the extension resolves each to "litellm-vscode-chat.<id>"
  * itself.
  */
-export type RevealableSettingId = NumberSettingId | BooleanSettingId | "models.parameters";
+export type RevealableSettingId =
+	| NumberSettingId
+	| BooleanSettingId
+	| "models.parameters"
+	| "models.capabilities"
+	| "servers"
+	| "usage.alertThresholds"
+	| "usage.statusBar";
 
 export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = [
 	...NUMBER_SETTING_IDS,
 	...BOOLEAN_SETTING_IDS,
 	"models.parameters",
+	"models.capabilities",
+	"servers",
+	"usage.alertThresholds",
+	"usage.statusBar",
 ];
 
 /**
@@ -840,24 +912,226 @@ export interface DashboardSettings {
 		readonly booleans: Readonly<Record<BooleanSettingId, SettingScope | null>>;
 	};
 	readonly modelParameters: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+	/** The models.capabilities twin of modelParameters; the Settings tab's second record editor. */
+	readonly modelCapabilities: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
+	/** The OpenRouter catalog row's status line; see CatalogStatusView. */
+	readonly catalog: CatalogStatusView;
+	/** The two non-scalar usage settings' rows (the enum and the fraction list). */
+	readonly usage: {
+		readonly statusBarMode: UsageStatusBarModeSetting;
+		readonly statusBarScope: SettingScope | null;
+		/** The configured thresholds as normalization reads them (valid fractions, deduplicated, ascending). */
+		readonly alertThresholds: readonly number[];
+		readonly thresholdsScope: SettingScope | null;
+	};
+}
+
+/** The usage.statusBar enum, re-declared here so the webview bundle needs no settings-module import. */
+export type UsageStatusBarModeSetting = "always" | "alerts-only" | "off";
+
+/** The settings the resetSetting intent may name: the scalar rows plus the two non-scalar usage rows. */
+export type ResettableSettingId = NumberSettingId | BooleanSettingId | "usage.statusBar" | "usage.alertThresholds";
+
+export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = [
+	...NUMBER_SETTING_IDS,
+	...BOOLEAN_SETTING_IDS,
+	"usage.statusBar",
+	"usage.alertThresholds",
+];
+
+/**
+ * The models.openRouterCatalog row's status: the snapshot's size, when the
+ * last refresh succeeded, and the standing failure classification when the
+ * last one did not (a fixed English vocabulary - "HTTP 503", "network error" -
+ * never response-derived text). `refreshing` disables the row's Refresh
+ * button while a refresh is in flight.
+ */
+export interface CatalogStatusView {
+	readonly modelCount: number;
+	readonly lastSuccessAt: number | undefined;
+	readonly lastFailure?: { readonly classification: string; readonly at: number } | undefined;
+	readonly refreshing: boolean;
 }
 
 /**
- * What the request path would resolve for requests through one server: the
- * base-URL scope its modelParameters matching runs under, and - when a
- * declared entry's label and base URL both match the live group, resolved by
- * the SAME production resolver requests use - that entry's label and its own
- * modelParameters. Keyed per snapshot in DashboardState.requestScopes
- * (push-local keys): a label-keyed scope would misattribute entry parameters
- * across same-label duplicate snapshots.
+ * One server's usage facts as the Usage tab renders them: numbers, epoch
+ * timestamps, and user-configured identity only (the spend client already
+ * narrowed everything response-derived away). Servers whose proxy serves no
+ * usage endpoints never appear here at all.
  */
-export interface RequestScope {
-	/** The server's normalized base URL, as scoped modelParameters keys match it. */
-	readonly baseUrlScope: string;
-	/** The declared entry the request path resolves for this server, when one matches by label and base URL. */
+export interface UsageServerView {
+	readonly label: string;
+	readonly baseUrl: string;
+	/**
+	 * Whether the data is fresh under the polling rule (last fetch OK and
+	 * younger than two poll intervals; ten minutes with polling off). Stale
+	 * data still renders, labeled with its age.
+	 */
+	readonly fresh: boolean;
+	/** Epoch ms of the last successful fetch; the "last updated" label. */
+	readonly lastUpdatedAt?: number | undefined;
+	/** The key's server-side spend in USD, when /key/info reports one. */
+	readonly spend?: number | undefined;
+	/** The budget bars and alerts run against: entry over key. */
+	readonly effectiveBudget?: number | undefined;
+	/** The key-reported max_budget, retained even when the entry's budget wins. */
+	readonly keyBudget?: number | undefined;
+	/** The entry's manual budget, when set. */
+	readonly entryBudget?: number | undefined;
+	readonly budgetSource: "entry" | "key" | "none";
+	/** spend / effectiveBudget; can exceed 1 (the label shows the literal percentage). */
+	readonly spentFraction?: number | undefined;
+	/** The key's budget_reset_at as epoch ms, when it carries one. */
+	readonly budgetResetAt?: number | undefined;
+	/** The recent-window request statistics, when /user/daily/activity answers. */
+	readonly requests?:
+		| {
+				readonly total: number;
+				/** successfulRequests / total, when total > 0. */
+				readonly successRate?: number | undefined;
+				/** cacheReadInputTokens / promptTokens, when prompt tokens exist. */
+				readonly cacheHitRate?: number | undefined;
+		  }
+		| undefined;
+}
+
+/** The Usage tab's whole snapshot; pushed with every state like the rest. */
+export interface DashboardUsage {
+	readonly servers: readonly UsageServerView[];
+	/** The normalized alert thresholds, ascending; empty = alerts off. */
+	readonly thresholds: readonly number[];
+	/** The effective poll interval; 0 = background polling off. */
+	readonly pollIntervalMs: number;
+	/** Whether a usage refresh pass is in flight (one serialized engine); disables Refresh now. */
+	readonly refreshing: boolean;
+	/** When this snapshot was computed (epoch ms); ages render against it. */
+	readonly generatedAt: number;
+}
+
+/** The legacy leftovers worth a dashboard hint; mirrors the migration's LegacyHintKind (never imported: that module is host-only). */
+type LegacyHintViewKind = "inert-url-scoped-key" | "inert-global-headers" | "parked-global-headers";
+
+/**
+ * One configuration problem for the Diagnostics tab, each also rendered
+ * beside the row or editor it concerns. Sources: the record lints of the two
+ * global settings and every entry's records, the servers-setting parser's
+ * per-entry reports, the migration's legacy-leftover hints, and dropped
+ * usage.alertThresholds values. Free text here is structural configuration
+ * only (setting ids, record keys, header names) - never entered values.
+ */
+export type ConfigDiagnosticView =
+	| {
+			readonly kind: "record";
+			/** Which record map: the setting id, or the entry field for entry layers. */
+			readonly setting: "models.parameters" | "models.capabilities";
+			/** The owning entry's label for entry-layer records; absent for the global settings. */
+			readonly entryLabel?: string | undefined;
+			readonly diagnostic: RecordDiagnostic;
+	  }
+	| {
+			/** One rejected or partially-ignored servers-setting entry; `misconfigured` when the entry is skipped whole. */
+			readonly kind: "entry";
+			readonly label?: string | undefined;
+			/** The entry's 1-based position in the raw array, for label-less entries. */
+			readonly position: number;
+			readonly problems: readonly string[];
+			readonly misconfigured: boolean;
+	  }
+	| {
+			readonly kind: "legacy";
+			readonly hint: LegacyHintViewKind;
+			/** The leftover key: a record key for scoped-key hints, the setting id for the headers hints. */
+			readonly oldKey: string;
+			/** The setting id the leftover sits in, or the parked header names. */
+			readonly detail: string;
+	  }
+	| {
+			/** usage.alertThresholds entries outside (0, 1], dropped by normalization. */
+			readonly kind: "thresholds";
+			readonly dropped: number;
+	  };
+
+/**
+ * The Diagnostics tab's Resolved-models view: the precomputed resolution
+ * rendered two ways - the matcher-key inheritance trees and the flat
+ * per-model provenance table. Serialized on demand (the readResolvedModels
+ * request), never in state pushes: the view scales with models x fields.
+ * Local to the dashboard by design - never part of issue reports.
+ */
+export interface ResolvedModelsView {
+	/** One tree per record map that holds records, in render order. */
+	readonly trees: readonly RecordTreeView[];
+	/** One row per (server, model), every resolved field with provenance. */
+	readonly rows: readonly ResolvedModelRow[];
+	/** Total records across every map; 0 drives the no-records empty state. */
+	readonly recordCount: number;
+}
+
+export interface RecordTreeView {
+	readonly kind: "parameters" | "capabilities";
+	readonly layer: "global" | "entry";
+	/** The owning entry's label for entry-layer maps. */
 	readonly entryLabel?: string | undefined;
-	/** That entry's own modelParameters record. */
-	readonly entryParameters?: EntryModelParametersPayload | undefined;
+	readonly roots: readonly RecordTreeNode[];
+	/** Models this map matches with no record at all (the implicit "everything else" leaf). */
+	readonly unmatchedModelIds: readonly string[];
+	/** Invalid matcher keys in this map; they match nothing and sit outside the tree. */
+	readonly invalidKeys: readonly string[];
+}
+
+/**
+ * One record as a tree node: nested under its next-broader match (computed
+ * against the live model set, so the tree changes when the model list does; a
+ * key that sits under different parents for different models renders once
+ * under each). Value texts are formatJsonValue renderings.
+ */
+export interface RecordTreeNode {
+	readonly key: string;
+	readonly fields: readonly {
+		readonly name: string;
+		readonly valueText: string;
+		readonly inheritable: boolean;
+		readonly forced: boolean;
+		readonly fallback: boolean;
+	}[];
+	/** True when `_inherit_from` is false or the empty list: nothing flows past this record. */
+	readonly barrier: boolean;
+	/** The `_inherit_from` directive rendered for display ("true" or the named keys); absent for the default flow. */
+	readonly inheritFrom?: string | undefined;
+	readonly children: readonly RecordTreeNode[];
+	/** Models whose most specific match in this map is this record, with their resolved values. */
+	readonly models: readonly { readonly id: string; readonly resolvedText: string }[];
+}
+
+/** One flat-table cell: a resolved parameter with its provenance. */
+export interface ResolvedParamCell {
+	readonly name: string;
+	readonly valueText: string;
+	readonly layer: "entry" | "global";
+	/** The record key whose literal field carries the value. */
+	readonly key: string;
+	readonly inheritedFrom?: string | undefined;
+	readonly forced?: true | undefined;
+}
+
+/** One flat-table cell: a resolved capability with its provenance level. */
+export interface ResolvedCapCell {
+	readonly name: string;
+	readonly valueText: string;
+	readonly level: CapabilityLevel;
+	readonly key?: string | undefined;
+	readonly inheritedFrom?: string | undefined;
+}
+
+export interface ResolvedModelRow {
+	readonly serverLabel: string;
+	readonly rawId: string;
+	/** The model's scope key (DashboardModel.scopeKey), for the per-row jump to the inspectors. */
+	readonly scopeKey: string;
+	/** Every matcher key that matched this model in any map; the filter's "show everything gpt-5* touched". */
+	readonly matchedKeys: readonly string[];
+	readonly parameters: readonly ResolvedParamCell[];
+	readonly capabilities: readonly ResolvedCapCell[];
 }
 
 export interface DashboardState {
@@ -869,9 +1143,11 @@ export interface DashboardState {
 	 */
 	readonly hiddenGroups: readonly HiddenGroup[];
 	readonly models: readonly DashboardModel[];
-	/** Per-snapshot request scopes, keyed by DashboardModel.scopeKey; see RequestScope. */
-	readonly requestScopes: Readonly<Record<string, RequestScope>>;
 	readonly settings: DashboardSettings;
+	/** The Usage tab's snapshot; see DashboardUsage. */
+	readonly usage: DashboardUsage;
+	/** Configuration problems found in the settings; see ConfigDiagnosticView. */
+	readonly diagnostics: readonly ConfigDiagnosticView[];
 	/**
 	 * Legacy-registry servers (pre-migration installs and test mode) with no
 	 * server row of their own; 0 once the registry is empty or every entry
@@ -889,7 +1165,7 @@ export interface DashboardState {
  * message names a tab by ID (litellm.showDiagnostics lands on "diagnostics"),
  * and the webview's tab bar renders exactly this list.
  */
-export const DASHBOARD_SECTION_IDS = ["overview", "settings", "diagnostics"] as const;
+export const DASHBOARD_SECTION_IDS = ["overview", "usage", "settings", "diagnostics"] as const;
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];
 
@@ -942,6 +1218,41 @@ export type ExtensionToWebviewMessage =
 			readonly type: "modelCapabilities";
 			readonly requestId: string;
 			readonly capabilities?: EffectiveCapabilities | undefined;
+			/**
+			 * The most specific GLOBAL record key matching this model, for the
+			 * inspector's configure-jump into the settings editor; absent when no
+			 * global record matches (the jump creates an exact-ID draft instead).
+			 * Extension-computed: the webview holds no matcher logic.
+			 */
+			readonly globalRecordKey?: string | undefined;
+	  }
+	| {
+			/**
+			 * The answer to a readModelParameters request: the params inspector's
+			 * projection, resolved extension-side through the provider's SHARED
+			 * flat resolution table - the same cache requests read - so the
+			 * inspector cannot drift from the wire. Absent `projection` means the
+			 * scope or model no longer resolves, exactly like modelCapabilities.
+			 * `entryLabel` names the declared entry whose per-entry record the
+			 * resolution used, when one matched.
+			 */
+			readonly type: "modelParameters";
+			readonly requestId: string;
+			readonly projection?: EffectiveParametersProjection | undefined;
+			readonly entryLabel?: string | undefined;
+			/** See modelCapabilities.globalRecordKey; the parameters-map twin. */
+			readonly globalRecordKey?: string | undefined;
+	  }
+	| {
+			/**
+			 * The answer to a readResolvedModels request: the Diagnostics tab's
+			 * Resolved-models view, computed extension-side from the same
+			 * resolution the request path runs. On demand rather than in state
+			 * pushes because it scales with models x fields.
+			 */
+			readonly type: "resolvedModels";
+			readonly requestId: string;
+			readonly view: ResolvedModelsView;
 	  }
 	| {
 			/**
@@ -1014,6 +1325,8 @@ const EXTENSION_MESSAGE_TYPES: Readonly<Record<ExtensionToWebviewMessage["type"]
 	focusSection: true,
 	inlineSecrets: true,
 	modelCapabilities: true,
+	modelParameters: true,
+	resolvedModels: true,
 	catalogSearchResults: true,
 	intentSucceeded: true,
 	intentFailed: true,
@@ -1095,6 +1408,20 @@ export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly modelCapabilities?: EntryModelCapabilitiesPayload | undefined;
 	/** The entry's expected discovery-failure categories; absent or empty means none. */
 	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
+	/**
+	 * The entry's custom HTTP headers (plain settings text, not secrets).
+	 * Absent means the payload predates the editor and the stored headers
+	 * carry forward; present-but-empty is a deliberate clear - the same
+	 * absent-vs-empty rule modelCapabilities follows.
+	 */
+	readonly headers?: Readonly<Record<string, HeaderScalar>> | undefined;
+	/** The entry's discovery.declared model IDs; same absent-vs-empty rule as headers. */
+	readonly declaredModels?: readonly string[] | undefined;
+	/**
+	 * The entry's manual usage budget in USD. Null clears a stored budget;
+	 * absent carries it forward (the optional-field twin of the record rule).
+	 */
+	readonly budget?: number | null | undefined;
 }
 
 /** Webview-to-extension intents. The extension re-validates every one: the webview is a trust boundary. */
@@ -1103,10 +1430,32 @@ export type WebviewToExtensionMessage =
 	| { readonly type: "setNumberSetting"; readonly setting: NumberSettingId; readonly value: number | null }
 	| { readonly type: "setBooleanSetting"; readonly setting: BooleanSettingId; readonly value: boolean }
 	/** Remove the setting from the highest-precedence scope that sets it; the next scope's value or the default shows through. */
-	| { readonly type: "resetSetting"; readonly setting: NumberSettingId | BooleanSettingId }
+	| { readonly type: "resetSetting"; readonly setting: ResettableSettingId }
 	/** Open the user settings.json at "litellm-vscode-chat.<setting>"; only ids from REVEALABLE_SETTING_IDS cross. */
 	| { readonly type: "revealSetting"; readonly setting: RevealableSettingId }
 	| { readonly type: "setModelParameters"; readonly value: Record<string, Record<string, unknown>> }
+	| { readonly type: "setModelCapabilities"; readonly value: Record<string, Record<string, unknown>> }
+	| { readonly type: "setUsageStatusBar"; readonly value: UsageStatusBarModeSetting }
+	/** Values must be fractions in (0, 1]; the extension re-validates and refuses out-of-range entries. */
+	| { readonly type: "setUsageAlertThresholds"; readonly values: readonly number[] }
+	| {
+			/**
+			 * Refresh the OpenRouter catalog now (the settings row's button; the
+			 * same action as the palette command). Fire-and-forget on the panel
+			 * side: the outcome lands in the next state push's catalog status
+			 * (row status, never a toast).
+			 */
+			readonly type: "refreshCatalog";
+	  }
+	| {
+			/**
+			 * Refresh usage data for every server now (the Usage tab's button; the
+			 * same action as LiteLLM: Refresh Usage Now). Fire-and-forget: the
+			 * poller's completion re-pushes state, and `refreshing` in the pushed
+			 * usage snapshot disables the button meanwhile.
+			 */
+			readonly type: "refreshUsage";
+	  }
 	| {
 			readonly type: "saveServerSetting";
 			readonly server: SaveServerPayload;
@@ -1190,6 +1539,27 @@ export type WebviewToExtensionMessage =
 	  }
 	| {
 			/**
+			 * Ask for one model's effective-parameters projection (the params
+			 * inspector; see the modelParameters response). Addressed like
+			 * readModelCapabilities; resolved through the provider's shared flat
+			 * resolution table.
+			 */
+			readonly type: "readModelParameters";
+			readonly scopeKey: string;
+			readonly rawId: string;
+			readonly requestId: string;
+	  }
+	| {
+			/**
+			 * Ask for the Diagnostics tab's Resolved-models view (see the
+			 * resolvedModels response). No parameters: the extension computes the
+			 * whole view over the live model set and configuration.
+			 */
+			readonly type: "readResolvedModels";
+			readonly requestId: string;
+	  }
+	| {
+			/**
 			 * Search the extension-side OpenRouter catalog snapshot (the
 			 * `_openrouter_model` picker; see the catalogSearchResults response).
 			 * The query is user-typed filter text, never a secret.
@@ -1220,12 +1590,18 @@ export type WebviewToExtensionMessage =
 /**
  * The intents that can fail and be reported back; the ready handshake has no
  * failure mode, and the pure request/response reads (readInlineSecrets,
- * readModelCapabilities, searchCatalog) are each answered by their own
- * response message (an unknown label or scope simply yields no values).
+ * readModelCapabilities, readModelParameters, readResolvedModels,
+ * searchCatalog) are each answered by their own response message (an unknown
+ * label or scope simply yields no values).
  */
 export type DashboardIntentType = Exclude<
 	WebviewToExtensionMessage["type"],
-	"ready" | "readInlineSecrets" | "readModelCapabilities" | "searchCatalog"
+	| "ready"
+	| "readInlineSecrets"
+	| "readModelCapabilities"
+	| "readModelParameters"
+	| "readResolvedModels"
+	| "searchCatalog"
 >;
 
 export type ParsedJsonValue =
