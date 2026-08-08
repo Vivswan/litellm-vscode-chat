@@ -9,9 +9,10 @@
  * into the probe's request headers only - never a log line, never a message.
  * The probe itself (createDraftConnectionProbe) rides the production
  * discovery machinery: a throwaway ChatClient per call, which brings the
- * OAuth token exchange, the virtual-key header, the configured custom
- * headers, the discoveryTimeout hard bound, and the idempotent-GET retry
- * budget - and whose per-instance caches die with the call.
+ * OAuth token exchange, the virtual-key header, the entry's custom headers
+ * (resolved from the edited entry, the record a save preserves), the
+ * discoveryTimeout hard bound, and the idempotent-GET retry budget - and
+ * whose per-instance caches die with the call.
  */
 
 import * as vscode from "vscode";
@@ -37,6 +38,14 @@ export interface DraftConnection {
 	readonly apiKey: string;
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
+	/**
+	 * The entry's custom headers: the form has no headers editor yet and a
+	 * save preserves the edited entry's `headers` verbatim (see
+	 * applySaveServerSetting), so the probe carries exactly that record -
+	 * probing without it would test a different configuration than the saved
+	 * entry sends (a gateway requiring a header would report a false failure).
+	 */
+	readonly headers?: Readonly<Record<string, string>> | undefined;
 	/** The draft's expectedFailures in discovery's per-endpoint shape: expected endpoints probe with a single attempt, like production. */
 	readonly expected?: ExpectedDiscoveryFailures | undefined;
 }
@@ -147,6 +156,7 @@ export async function applyTestServerDraft(
 	const connection: DraftConnection = {
 		baseUrl: intent.server.baseUrl.trim(),
 		apiKey,
+		...(existing?.headers !== undefined ? { headers: existing.headers } : {}),
 		...(oauthTokenUrl !== undefined && oauthClientId !== undefined
 			? {
 					oauth: {
@@ -199,8 +209,10 @@ const DRAFT_PROBE_SERVER_ID = "dashboard-draft-probe";
 /**
  * The real probe implementation panel.ts wires into the intent environment:
  * one discovery pass through a throwaway ChatClient, so the OAuth exchange,
- * headers, timeout, and retry behavior are exactly production discovery's,
- * while the instance's client and token caches are discarded with the call.
+ * the entry's custom headers (injected below, exactly like activation
+ * injects readEntryHeaders), timeout, and retry behavior are all production
+ * discovery's, while the instance's client and token caches are discarded
+ * with the call.
  *
  * Deliberately NO logger: discovery's own debug lines carry endpoint URLs and
  * truncated response snippets, which would land in the issue-report buffer
@@ -217,13 +229,19 @@ export function createDraftConnectionProbe(
 	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
 	const userAgent = `litellm-vscode-chat/${extVersion} VSCode/${vscode.version}`;
 	return async (connection) => {
-		const client = new ChatClient({ userAgent });
+		const client = new ChatClient({
+			userAgent,
+			...(connection.headers !== undefined ? { getEntryHeaders: () => connection.headers } : {}),
+		});
 		const { models } = await client.fetchModels(
 			{
 				id: DRAFT_PROBE_SERVER_ID,
 				label: DRAFT_PROBE_SERVER_ID,
 				baseUrl: connection.baseUrl,
 				apiKey: connection.apiKey,
+				// The entry-candidate label the header resolver keys on; the
+				// injected resolver above answers this probe's headers only.
+				entryLabel: DRAFT_PROBE_SERVER_ID,
 				...(connection.oauth !== undefined ? { oauth: connection.oauth } : {}),
 				...(connection.virtualKey !== undefined ? { virtualKey: connection.virtualKey } : {}),
 			},
