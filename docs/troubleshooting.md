@@ -49,6 +49,7 @@ This extension plugs into GitHub Copilot Chat; without it there is no chat view 
 
 - Install the GitHub Copilot Chat extension, sign in to GitHub, and make sure it is enabled.
 - On an older VS Code, update it: the extension needs 1.129.0 or higher.
+- In a window in Restricted Mode (an untrusted folder), VS Code disables this extension entirely: the LiteLLM commands, the status bar item, and the registered models all disappear until you trust the workspace.
 
 ### "Connection Error: Unable to connect"
 
@@ -59,6 +60,13 @@ Nothing answered at the base URL.
 - Check firewall, VPN, or proxy settings between VS Code and the server.
 
 The [entry reference](servers.md#entry-reference) documents the base URL rules.
+
+### "SSL Certificate Error"
+
+VS Code could not establish a trusted HTTPS connection to the base URL; the extension has no setting to bypass certificate validation.
+
+- "The SSL certificate for ... has expired": ask your LiteLLM server administrator to renew the certificate.
+- Any other certificate problem - a self-signed or internal-CA certificate, common on corporate deployments: add the CA to your operating system's trust store, or launch VS Code with `NODE_EXTRA_CA_CERTS` pointing at the CA bundle. The trust decision belongs to VS Code's runtime, not this extension.
 
 ### "Authentication failed"
 
@@ -88,6 +96,7 @@ Check the status bar first - it names the failure class.
 - Everything shows connected but a recently added model is missing: the discovered list is cached (`discovery.cacheTtl`, default 1 hour). Run "LiteLLM: Sync Models Now" to bypass the cache.
 - The gateway cannot list models at all (no `/v1/models`): declare them on the entry with `discovery.declared`, and add `discovery.expectedFailures` beside it so the missing endpoints stop counting as an outage. Recipe: [Servers: declared models](servers.md#declared-models).
 - A warning icon on models you did see before means a background refresh failed and the extension is serving the last known list flagged stale - see [Timeouts and retries](#timeouts-and-retries).
+- Everything shows connected, yet nothing appears under your server's label, and your Copilot seat comes from an organization (Copilot Business or Enterprise): the organization's "Bring your own language model key" policy is disabled. The hiding happens inside Copilot, so the extension's own diagnostics all report success; ask your Copilot administrator to enable the policy, then reload VS Code.
 
 ### "Server returned 0 models"
 
@@ -146,7 +155,8 @@ Your VS Code build lacks the thinking-part API, so streamed reasoning is dropped
 
 The dashboard has no Usage section for a server, no spend percentage appears, and no alerts fire. In likelihood order:
 
-- **The server runs without a database.** LiteLLM serves spend data (`/key/info`) only when backed by a database; without one, the extension detects that once and hides all usage features for that server - by design, nothing to configure. Verify from a terminal: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - an error page instead of JSON confirms it.
+- **The server runs without a database.** LiteLLM serves spend data (`/key/info`) only when backed by a database; without one, the extension detects that once and hides all usage features for that server - by design, nothing to configure. Verify from a terminal: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - an error page instead of JSON confirms it. If you add a database later, background polls will not notice on their own: run "LiteLLM: Refresh Usage Now" to re-check.
+- **The key cannot read usage data.** A database-backed server that answers 401 or 403 on both usage endpoints hides the usage surfaces exactly like a missing database. The curl above then returns 401 or 403 instead of an error page; ask whoever issued the key to allow it to read its own `/key/info`.
 - **Polling is off.** `usage.pollInterval: 0` disables background polling; the dashboard still fetches when opened, no alerts fire, and the status bar item shows on-demand data for ten minutes after a fetch, then hides. Run "LiteLLM: Refresh Usage Now" for an immediate fetch - it always re-lights the item.
 - **Alerts are off.** An empty `usage.alertThresholds` list means no thresholds, so nothing ever fires and `"alerts-only"` status bar mode never shows.
 - **The item is configured away.** `usage.statusBar: "off"` hides the item; `"alerts-only"` shows it only when a threshold is crossed.
@@ -161,7 +171,7 @@ The full feature is described on the [Usage](usage.md#the-usage-panel) page; the
 What the two timeout settings bound, and what retries when:
 
 - **Chat completions are never retried.** A completion may have side effects (spend, tool calls), so the extension surfaces a failure instead of silently paying for a second attempt. `chat.timeout` (default 5 minutes) is therefore the total time one request may take, streaming included; raise it if long reasoning runs get cut off.
-- **Discovery retries.** Model discovery requests are idempotent GETs, retried up to twice on transient failures, with the whole pass - retries and any OAuth token exchange included - bounded by `discovery.timeout` (default 30 seconds). Raise it for slow gateway infrastructure; note that a slow OAuth identity provider spends from the same budget.
+- **Discovery retries.** Model discovery requests are idempotent GETs, retried up to twice on transient failures, with the whole pass - retries and any OAuth token exchange included - bounded by `discovery.timeout` (default 30 seconds). Raise it for slow gateway infrastructure; note that a slow OAuth identity provider spends from the same budget, and the exchange is bounded by `discovery.timeout` on chat requests as well.
 - **Expected failures do not retry.** An endpoint named in the entry's `discovery.expectedFailures` gets a single attempt and an info-level log line instead of a red error ([Servers](servers.md#entry-reference)).
 - **Minimums.** Both timeouts clamp to at least 1000 ms.
 - **The stale-list grace.** When a background refresh fails but the last successful discovery is under ten minutes old, the extension keeps serving the last known model list, flagged stale with a warning icon, instead of dropping your models mid-session.
@@ -187,16 +197,25 @@ VS Code's provider-group API can create groups but never update or remove them, 
 2. Delete the named group's object from the JSON array. Quit or reload VS Code first if editing by hand: it holds the file in memory and can overwrite external edits.
 3. Reload the window and run "LiteLLM: Sync Models Now".
 
-A hidden group returns on its own when you re-add an entry with the same label and base URL, or through the dashboard's hidden-groups Unhide action. The full lifecycle - what each operation leaves behind and why - is at [Servers: lifecycle](servers.md#lifecycle-renames-removals-hidden-groups); external rows and adoption are [covered there too](servers.md#external-servers-and-adoption).
+A hidden group returns on its own when you re-add an entry with the same label and base URL, or through the dashboard's hidden-groups Unhide action. On a VS Code build in a language other than English, the extension may not recognize the host's name-conflict answer: the server row then shows a generic sync failure retried on every pass instead of the single actionable "provider group already uses this name" state - the fix is the same three steps. The full lifecycle - what each operation leaves behind and why - is at [Servers: lifecycle](servers.md#lifecycle-renames-removals-hidden-groups); external rows and adoption are [covered there too](servers.md#external-servers-and-adoption).
 
 ## Per-server model parameters are inactive
 
-The dashboard shows a "params inactive" badge (and a banner naming the affected entries) when a server entry carries per-entry `models.parameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `models.parameters` setting. The twin "capabilities inactive" badge means the same thing for an entry's `models.capabilities` and `discovery.expectedFailures`, and has the same fixes.
+The dashboard shows a "params inactive" badge (and a banner naming the affected entries) when a server entry carries per-entry `models.parameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `models.parameters` setting. The twin "capabilities inactive" badge means the same thing for an entry's `models.capabilities`, `discovery.declared`, and `discovery.expectedFailures`, and an entry's custom `headers` get their own "headers inactive" badge; all have the same fixes.
 
 Two ways to fix it:
 
 - Delete the group's object from the models file (`<profile>/User/chatLanguageModels.json`), reload the window, and run "LiteLLM: Sync Models Now"; the extension recreates the group from the entry, this time carrying its identity.
 - Or save the entry under a new label; a new group is created for it. The old group stays until you delete its object from the models file.
+
+## Secret storage is unavailable
+
+Two server-row messages mean VS Code's secret storage, not your server, is the problem:
+
+- **"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry."** The read failed this pass; the entry is skipped, not failed permanently - the next pass (or "LiteLLM: Sync Models Now") reads again.
+- **"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session."** The extension could not confirm its sync state would survive the session, so it syncs nothing rather than guess.
+
+In both states the entry is only skipped for the pass: its live provider group keeps serving the last synced models, and nothing is lost. The usual cause is the operating system's keychain or keyring being unavailable - on Linux, a desktop session without a keyring service (gnome-keyring, KWallet) is the common case. Restore the keyring, restart VS Code, and run "LiteLLM: Sync Models Now".
 
 ## Settings from an older version
 

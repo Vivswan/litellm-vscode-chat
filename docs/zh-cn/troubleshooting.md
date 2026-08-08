@@ -49,6 +49,7 @@
 
 - 安装 GitHub Copilot Chat 扩展, 登录 GitHub, 并确保它已启用。
 - VS Code 较旧时请更新: 扩展需要 1.129.0 或更高版本。
+- 在处于受限模式的窗口中 (不受信任的文件夹), VS Code 会整个禁用本扩展: LiteLLM 命令、状态栏项和已注册的模型全部消失, 直到你信任该工作区。
 
 ### 「连接错误: 无法连接」
 
@@ -59,6 +60,13 @@
 - 检查 VS Code 与服务器之间的防火墙、VPN 或代理设置。
 
 [条目参考](servers.md#条目参考)记录了基础 URL 规则。
+
+### 「SSL 证书错误」
+
+VS Code 无法与基础 URL 建立可信的 HTTPS 连接; 扩展没有绕过证书验证的设置。
+
+- 「... 的 SSL 证书已过期」: 请你的 LiteLLM 服务器管理员续期证书。
+- 其他任何证书问题 - 自签名或内部 CA 证书, 在企业部署上很常见: 把 CA 加入操作系统的信任存储, 或用指向 CA 证书包的 `NODE_EXTRA_CA_CERTS` 启动 VS Code。信任决定属于 VS Code 的运行时, 不属于本扩展。
 
 ### 「身份验证失败」
 
@@ -88,6 +96,7 @@
 - 一切显示已连接, 但最近添加的模型不见了: 发现的列表有缓存 (`discovery.cacheTtl`, 默认 1 小时)。运行 "LiteLLM: Sync Models Now" 绕过缓存。
 - 网关根本无法列出模型 (没有 `/v1/models`): 用 `discovery.declared` 在条目上声明它们, 并在旁边加上 `discovery.expectedFailures`, 让缺失的终结点不再算作故障。配方: [服务器: 声明的模型](servers.md#声明的模型)。
 - 你之前确实见过的模型上有警告图标, 意味着后台刷新失败, 扩展正在提供标记为过期的最后已知列表 - 见[超时与重试](#超时与重试)。
+- 一切显示已连接, 你服务器的标签下却什么都没有, 而你的 Copilot 席位来自组织 (Copilot Business 或 Enterprise): 组织的「Bring your own language model key」策略被禁用了。隐藏发生在 Copilot 内部, 所以扩展自己的诊断全都报告成功; 请你的 Copilot 管理员启用该策略, 然后重新加载 VS Code。
 
 ### 「服务器返回了 0 个模型」
 
@@ -146,7 +155,8 @@ LiteLLM `model_info.mode` 指向非聊天终结点 (`embedding`、`image_generat
 
 仪表板没有某服务器的用量区块、不显示支出百分比、也没有警报触发。按可能性排序:
 
-- **服务器没有数据库。**LiteLLM 只在有数据库支撑时提供支出数据 (`/key/info`); 没有它, 扩展检测一次后为该服务器隐藏所有用量功能 - 属于设计, 无需配置。从终端核实: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - 回答错误页而非 JSON 即可确认。
+- **服务器没有数据库。**LiteLLM 只在有数据库支撑时提供支出数据 (`/key/info`); 没有它, 扩展检测一次后为该服务器隐藏所有用量功能 - 属于设计, 无需配置。从终端核实: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - 回答错误页而非 JSON 即可确认。之后补上数据库时, 后台轮询不会自己注意到: 运行 "LiteLLM: Refresh Usage Now" 重新检查。
+- **密钥读不了用量数据。**在两个用量终结点上都回答 401 或 403 的数据库支撑服务器, 隐藏用量界面的方式与缺数据库完全相同。此时上面的 curl 返回的是 401 或 403 而不是错误页; 请密钥的签发者允许它读取自己的 `/key/info`。
 - **轮询关了。**`usage.pollInterval: 0` 禁用后台轮询; 仪表板打开时仍会获取, 没有警报触发, 状态栏项在一次获取后显示按需数据十分钟, 然后隐藏。运行 "LiteLLM: Refresh Usage Now" 立即获取 - 它总能重新点亮该项。
 - **警报关了。**空的 `usage.alertThresholds` 列表意味着没有阈值, 所以永远不会触发任何东西, `"alerts-only"` 状态栏模式也永不显示。
 - **该项被配置隐藏了。**`usage.statusBar: "off"` 隐藏该项; `"alerts-only"` 只在阈值被越过时显示。
@@ -161,7 +171,7 @@ LiteLLM `model_info.mode` 指向非聊天终结点 (`embedding`、`image_generat
 两个超时设置约束什么, 什么会重试:
 
 - **聊天补全从不重试。**补全可能有副作用 (支出、工具调用), 所以扩展呈现失败, 而不是悄悄为第二次尝试付费。因此 `chat.timeout` (默认 5 分钟) 是一个请求可占用的总时间, 含流式传输; 长推理运行被截断时调大它。
-- **发现会重试。**模型发现请求是幂等的 GET, 瞬时失败最多重试两次, 整轮 - 含重试和任何 OAuth 令牌交换 - 受 `discovery.timeout` (默认 30 秒) 约束。为缓慢的网关基础设施调大它; 注意缓慢的 OAuth 身份提供方花的是同一份预算。
+- **发现会重试。**模型发现请求是幂等的 GET, 瞬时失败最多重试两次, 整轮 - 含重试和任何 OAuth 令牌交换 - 受 `discovery.timeout` (默认 30 秒) 约束。为缓慢的网关基础设施调大它; 注意缓慢的 OAuth 身份提供方花的是同一份预算, 而且在聊天请求上交换同样受 `discovery.timeout` 约束。
 - **预期失败不重试。**条目的 `discovery.expectedFailures` 点名的终结点只尝试一次, 记一条 info 级日志而非红色错误 ([服务器](servers.md#条目参考))。
 - **最小值。**两个超时都钳制到至少 1000 毫秒。
 - **过期列表宽限。**当后台刷新失败, 但最近一次成功发现距今不足十分钟时, 扩展继续提供最后已知的模型列表, 以警告图标标记为过期, 而不是在会话中途丢掉你的模型。
@@ -187,16 +197,25 @@ VS Code 的提供程序组 API 可以创建组, 但永远无法更新或删除�
 2. 从 JSON 数组中删除该组的对象。手动编辑前先退出或重新加载 VS Code: 它把文件驻留在内存中, 可能覆盖外部编辑。
 3. 重新加载窗口并运行 "LiteLLM: Sync Models Now"。
 
-当你重新添加标签和基础 URL 相同的条目, 或通过仪表板隐藏组的「取消隐藏」操作时, 隐藏的组自行回归。完整生命周期 - 每个操作留下什么、为什么 - 在[服务器: 生命周期](servers.md#生命周期-重命名删除与隐藏的组); 外部行与采用[也在那里](servers.md#外部服务器与采用)。
+当你重新添加标签和基础 URL 相同的条目, 或通过仪表板隐藏组的「取消隐藏」操作时, 隐藏的组自行回归。在非英语语言的 VS Code 构建上, 扩展可能识别不出宿主的名称冲突应答: 服务器行随即显示的不是单条可操作的「提供程序组已占用此名称」状态, 而是每轮都重试的一般同步失败 - 修复方法还是同样三步。完整生命周期 - 每个操作留下什么、为什么 - 在[服务器: 生命周期](servers.md#生命周期-重命名删除与隐藏的组); 外部行与采用[也在那里](servers.md#外部服务器与采用)。
 
 ## 每服务器模型参数未生效
 
-当服务器条目携带每条目 `models.parameters`, 但服务该服务器的 VS Code 提供程序组不携带条目的标签化标识时, 仪表板显示「params inactive」徽章 (和点名受影响条目的横幅)。这发生在组早于条目标签, 或重命名、基础 URL 编辑留下了过期组时; 经过这种组的请求只得到全局 `models.parameters` 设置。孪生的「capabilities inactive」徽章对条目的 `models.capabilities` 和 `discovery.expectedFailures` 表示同样的事, 修复也相同。
+当服务器条目携带每条目 `models.parameters`, 但服务该服务器的 VS Code 提供程序组不携带条目的标签化标识时, 仪表板显示「params inactive」徽章 (和点名受影响条目的横幅)。这发生在组早于条目标签, 或重命名、基础 URL 编辑留下了过期组时; 经过这种组的请求只得到全局 `models.parameters` 设置。孪生的「capabilities inactive」徽章对条目的 `models.capabilities`、`discovery.declared` 和 `discovery.expectedFailures` 表示同样的事, 条目的自定义 `headers` 则有自己的「headers inactive」徽章; 修复全都相同。
 
 两种修复方式:
 
 - 从模型文件 (`<profile>/User/chatLanguageModels.json`) 删除该组的对象, 重新加载窗口, 运行 "LiteLLM: Sync Models Now"; 扩展会从条目重新创建组, 这次带上它的标识。
 - 或者用新标签保存条目; 会为它创建新组。旧组留着, 直到你从模型文件删除它的对象。
+
+## 密钥存储不可用
+
+两条服务器行消息意味着问题出在 VS Code 的密钥存储, 而不是你的服务器:
+
+- **"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry."** 这一轮读取失败; 条目只是被跳过, 不是永久失败 - 下一轮 (或 "LiteLLM: Sync Models Now") 会再次读取。
+- **"VS Code secret storage could not be confirmed this session, so this entry was not synced. Syncing resumes on the next VS Code session."** 扩展无法确认它的同步状态能在本会话之后留存, 所以宁可什么都不同步, 也不去猜。
+
+两种状态下条目都只是本轮被跳过: 它的活动提供程序组继续提供最近一次同步的模型, 什么都不会丢。常见原因是操作系统的钥匙串或钥匙环不可用 - 在 Linux 上, 没有钥匙环服务 (gnome-keyring、KWallet) 的桌面会话是最常见的情况。恢复钥匙环, 重启 VS Code, 然后运行 "LiteLLM: Sync Models Now"。
 
 ## 来自旧版本的设置
 

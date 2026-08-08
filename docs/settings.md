@@ -15,7 +15,7 @@ Two equivalent ways to edit everything:
 |---|---|
 | Scope | `servers` is machine-scoped: user settings only, never overridable by a workspace, never carried by Settings Sync. A `servers` value in a workspace's `.vscode/settings.json` is ignored by VS Code itself (the Settings editor says it can apply in user settings only). Every other setting behaves like a normal user/workspace setting and syncs normally. |
 | Effect | Changes apply immediately - no reload. Model-affecting changes refresh the model list; usage changes rewire the poller; timeout changes apply to the next request. |
-| Migration | Settings from older versions are renamed and restructured automatically on upgrade; see the [rename table](#renamed-and-removed-settings). Nothing needs re-entering. When a new-name setting already holds a value (say, Settings Sync delivered it from an upgraded machine first), the migration keeps it and just drops the old key. |
+| Migration | Settings from older versions are renamed and restructured automatically on upgrade; see the [rename table](#renamed-and-removed-settings). Nothing needs re-entering. When a new-name setting already holds a value (say, Settings Sync delivered it from an upgraded machine first), the migration keeps it and just drops the old key - with one caveat for server-URL-scoped keys ([scope notes](#renamed-and-removed-settings)). |
 | Unknown keys | A `litellm-vscode-chat.*` key the extension does not declare (a typo, say `chat.timout`) is ignored, and VS Code's settings editor marks it as an unknown setting in settings.json. The same goes for old names once [renamed](#renamed-and-removed-settings). |
 
 ## Reference
@@ -30,10 +30,10 @@ Two equivalent ways to edit everything:
 | `litellm-vscode-chat.chat.promptCaching` | `true` | Reuse provider-side prompt caches across the turns of a session on models that advertise support; [details below](#prompt-caching) |
 | `litellm-vscode-chat.discovery.timeout` | `30000` | Hard time budget for one model-discovery pass, in milliseconds - retries and the OAuth token exchange included. Minimum 1000 |
 | `litellm-vscode-chat.discovery.cacheTtl` | `3600000` | How long a discovered model list is reused, in milliseconds. VS Code re-resolves providers often (sometimes several times a second); the cache keeps that off your server. `0` fetches fresh every time (negative values clamp to `0`); failures are never cached; simultaneous refreshes share one request; "LiteLLM: Sync Models Now" bypasses it |
-| `litellm-vscode-chat.usage.pollInterval` | `300000` | Background spend/budget polling cadence, in milliseconds. `0` = off: the dashboard still fetches when opened, but no background requests and no alerts. Full story: [Usage](usage.md) |
+| `litellm-vscode-chat.usage.pollInterval` | `300000` | Background spend/budget polling cadence, in milliseconds. `0` = off: the dashboard still fetches when opened, but no background requests and no alerts. Nonzero values below `30000` clamp up to 30 seconds. Full story: [Usage](usage.md) |
 | `litellm-vscode-chat.usage.alertThresholds` | `[0.8, 0.95]` | Budget fractions that trigger a one-time alert each; every value in (0, 1]; empty list = alerts off. Full story: [Usage - Alerts](usage.md#alerts) |
 | `litellm-vscode-chat.usage.statusBar` | `"always"` | The usage status bar item: `"always"`, `"alerts-only"`, `"off"`. Full story: [Usage - The status bar](usage.md#the-status-bar) |
-| `litellm-vscode-chat.ui.maskSecretInputs` | `true` | Mask secret input fields (API keys and other credentials) while typing in the dashboard |
+| `litellm-vscode-chat.ui.maskSecretInputs` | `true` | Mask credential values while typing them into input-box prompts. The dashboard's secret fields always mask, each behind its own Show toggle, regardless of this setting |
 
 There is deliberately no global headers setting: custom HTTP headers describe how to talk to one server, so they live on the server entry ([`headers`](servers.md#custom-headers)) - machine-scoped and out of Settings Sync's reach, unlike a global setting.
 
@@ -63,7 +63,7 @@ Inside a `models.parameters` or `models.capabilities` record (global or per-entr
 |---|---|---|
 | `"_force": true \| ["field", ...]` | `models.parameters` | Marks all/listed parameter fields as forced: they beat runtime options and the model picker's per-model configuration. Provider-owned fields (`model`, `messages`, `stream`, `stream_options`, `tools`, `tool_choice`) cannot be forced - naming one is reported and skipped. Full story: [Models - Parameters](models.md#parameters) |
 | `"_fallback": true \| ["field", ...]` | `models.capabilities` | Marks all/listed capability fields as fallbacks: they fill in below what the server reports instead of overriding it. A fallback-provided max output tokens counts as user-set (no 4096 cap). Full story: [Models - Capabilities](models.md#capabilities) |
-| `"_openrouter_model": "vendor/id"` | `models.capabilities` | Pulls the named model's capability data from the OpenRouter catalog to fill whatever you and the server leave unset. Works offline from the bundled snapshot. Full story: [Models - Capabilities](models.md#capabilities) |
+| `"_openrouter_model": "vendor/id"` | `models.capabilities` | Pulls the named model's capability data from the OpenRouter catalog. Derived fields rank above what the server reports (the directive says the server's data is not to be trusted for this model) but below your explicit fields in the record. Works offline from the bundled snapshot. Full story: [Models - Capabilities](models.md#capabilities) |
 | `"_inheritable": true \| ["field", ...]` | both records | Marks all/listed fields inheritable by more-specifically-matched models that do not say otherwise. Full story: [Models - Matching](models.md#which-record-applies) |
 | `"_inherit_from": true \| false \| ["key", ...]` | both records | What this record inherits: everything that reaches it, nothing (`false` - also the barrier: nothing flows past a record that inherits nothing), or exactly the named records (bypassing barriers). Full story: [Models - Matching](models.md#which-record-applies) |
 
@@ -106,10 +106,11 @@ The one-time upgrade migration handles all of these automatically:
 | `defaultContextLength`, `defaultMaxOutputTokens` | a `models.capabilities` `"*"` record with `_fallback` ([details](models.md#migrated-from-the-removed-default-settings)) |
 | `defaultMaxInputTokens` | a `models.capabilities` `"*"` override |
 
-Four scope and edge notes on the migration:
+Five scope and edge notes on the migration:
 
 - The old global `headers` applied to every server - declared entries and [externally managed groups](servers.md#external-servers-and-adoption) alike. The new per-entry `headers` cannot reach a server that has no entry, so the migration copies the value into your declared entries only and parks the original; while an externally managed group exists, the dashboard's diagnostics point out that it no longer receives those headers - [adopting](servers.md#external-servers-and-adoption) the group into an entry is how they come back.
 
+- One Settings Sync caveat: when another machine upgrades first, sync delivers the new-name records (and the old keys' deletion) before this machine migrates. The migration then keeps the synced value and drops the old record unprocessed - including any server-URL-scoped keys it held, whose destinations are this machine's own machine-scoped entries; the first machine consumed them into *its* entries, so here they are dropped rather than moved. On a multi-machine setup, copy URL-scoped keys into the matching server entries before upgrading the remaining machines.
 - It rewrites user settings only. An old name set at workspace scope (a committed `.vscode/settings.json`, say) is left in place - counted in the log, never rewritten - and since the extension no longer reads the old names, it has no effect until you move it to the new name by hand.
 - Stored secrets stay put: the entry restructure changes only settings text - secret-storage values keep their keys, and nothing needs re-entering.
 - Afterwards the old names are ordinary unknown keys: VS Code's settings editor flags them and the extension ignores them, so a stray leftover is noise, not behavior.
