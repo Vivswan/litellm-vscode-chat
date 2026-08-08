@@ -15,14 +15,19 @@ Four settings drive it all, each detailed in context below:
 
 ## Requirements
 
-Usage features need a LiteLLM server that runs with a database - the standard setup for spend tracking and [virtual keys](https://docs.litellm.ai/docs/proxy/virtual_keys). The extension reads two endpoints, always about its own key (the one the server entry authenticates with) - it never enumerates other keys or users:
+Usage features need a LiteLLM server that runs with a database - the standard setup for spend tracking and [virtual keys](https://docs.litellm.ai/docs/proxy/virtual_keys). The extension reads up to three endpoints, always about its own key (the one the server entry authenticates with) and, when that key belongs to a user, that user's own rollup - it never enumerates other keys or users:
 
 | Endpoint | What the extension reads |
 |---|---|
 | `/key/info` | the calling key's spend, `max_budget`, and `budget_reset_at` |
-| `/user/daily/activity` | request counts, success rate, and cache-read token counts |
+| `/user/daily/activity` | request counts, success rate, and cache-read token counts for the last 30 days |
+| `/user/info` | the owning user's spend, `max_budget`, and `budget_reset_at` - read only when `/key/info` reports the key belongs to a user |
 
 On a server without a database these endpoints do not exist. The extension detects that once and hides every usage surface for that server silently: no dashboard section, no status bar item, no alerts, no error noise, nothing to configure. Availability is per server, so a mixed fleet works fine - usage appears exactly where the data exists.
+
+That detection sticks: background polls do not re-check an endpoint already found missing. If you enable the database later, run "LiteLLM: Refresh Usage Now" - or edit the server's entry - and the extension re-probes availability.
+
+A key can hide usage the same way on a database-backed server: when the server refuses the key on both `/key/info` and `/user/daily/activity` (401 or 403 - a key not permitted to read usage data), the extension treats that as equally permanent and hides the same surfaces. The curl test below tells the two apart: a missing database answers with a routing error, a restricted key with 401 or 403 - the fix is then a key allowed to read its own usage, not a database.
 
 To check what a server supports, ask it the same question the extension asks:
 
@@ -61,12 +66,13 @@ The reset date shown beside a budget is the key's `budget_reset_at`: when LiteLL
 Edge cases worth knowing:
 
 - **The entry's `budget` needs spend data to measure against.** On a server that serves no usage data it changes nothing - the usage surfaces stay hidden regardless.
+- **An entry `budget` above the key's cap defeats the alerts.** The entry value wins unconditionally, so a `budget` of $200 on a key capped at $100 computes every percentage against $200 - the server cuts the key off at $100, before the first warning fires. The extension cannot raise a server-side `max_budget`: to be warned before the cap, keep the entry value at or below it, or leave it unset and let the key's own number drive.
 - **Spend can pass the budget.** The extension is read-only and never blocks a request; whether the server keeps serving a key past its `max_budget` is LiteLLM policy, not the extension's. Every threshold is at most 1, so spend past the budget sits above the highest one: error background, all alerts fired.
 - **The data follows the key, not the entry.** Rotating an entry's credential switches its numbers to the new key's spend and budget. Two entries authenticating with the same key each show that key's spend - and since the [status bar](#the-status-bar) takes a maximum, never a sum, the shared spend is not double-counted there.
 
 ## Polling
 
-`usage.pollInterval` (milliseconds, default `300000` - 5 minutes) drives a background poller, so alerts and the status bar work with the dashboard closed. Negative values clamp to `0`.
+`usage.pollInterval` (milliseconds, default `300000` - 5 minutes) drives a background poller, so alerts and the status bar work with the dashboard closed. Negative values clamp to `0`; a nonzero value below `30000` (30 seconds) clamps up to it, so the fastest cadence is one fetch per server every 30 seconds.
 
 `0` turns background polling off entirely:
 
@@ -134,7 +140,7 @@ The dashboard's [Usage section](dashboard.md#the-usage-section) is where the com
 
 - A **spend vs budget bar** with the percentage, against the effective budget; the key-reported budget shows beside it when the two differ.
 - The **reset date** (`budget_reset_at`).
-- **Request count, success rate, and cache hit rate**, where the server serves `/user/daily/activity`; servers without it show spend and budget only.
+- **Request count, success rate, and cache hit rate** over the last 30 days (UTC calendar days, today included), where the server serves `/user/daily/activity`; servers without it show spend and budget only.
 - A **Refresh now** button: fetches immediately, disables itself while a fetch is in flight, and shows when the data was last updated.
 
 Opening the dashboard fetches fresh data even when [polling](#polling) is off. When a server's data is stale, its last-known values stay on screen labeled "last updated X ago" - history you can still read, clearly marked as history.
@@ -143,5 +149,5 @@ Opening the dashboard fetches fresh data even when [polling](#polling) is off. W
 
 | Command | What it does |
 |---|---|
-| LiteLLM: Refresh Usage Now | fetches spend data for every server immediately, regardless of `usage.pollInterval` |
+| LiteLLM: Refresh Usage Now | fetches spend data for every server immediately, regardless of `usage.pollInterval`, and re-checks usage availability on every server |
 | LiteLLM: Open Dashboard | opens the dashboard; the Usage section is one click away (or direct, via the status bar item) |

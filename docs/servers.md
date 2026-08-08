@@ -38,6 +38,8 @@ Typical - a hosted gateway with a key kept out of the settings file:
 
 Save, and the server's models appear in the model picker within moments. The dashboard's **Test connection** button probes a draft exactly as entered - unsaved edits included, stored secrets read from wherever they live - with one discovery call, and reports the model count or the exact error, linking the matching [troubleshooting](troubleshooting.md#common-issues) section when the failure looks like a setup problem. It saves and syncs nothing.
 
+One timing rule when the key comes after the entry: the provider group is created from the entry the moment it first syncs, credentials included, and VS Code cannot update an existing group - a key stored after that first sync reaches requests only once the group is recreated, and the server row shows the exact steps ([Lifecycle](#lifecycle-renames-removals-hidden-groups)). The dashboard's add form avoids this by storing the key before the entry first syncs.
+
 ## Entry reference
 
 Every property an entry can carry:
@@ -151,7 +153,7 @@ For gateways behind an identity provider that reject static keys:
 }
 ```
 
-The extension exchanges the credentials for a short-lived bearer token, sends it as `Authorization` on every request to the server, and refreshes it shortly before expiry. The exchange is bounded by `discovery.timeout` on discovery requests and counts inside `chat.timeout`'s whole-call budget on chat requests; a rejected token is discarded so the next request fetches a fresh one.
+The extension exchanges the credentials for a short-lived bearer token, sends it as `Authorization` on every request to the server, and refreshes it shortly before expiry. The exchange is bounded by `discovery.timeout` on every request - it is auth plumbing, not a chat call, so a slow identity provider needs `discovery.timeout` raised, not `chat.timeout`; on chat requests the exchange also counts inside `chat.timeout`'s whole-call budget. A rejected token is discarded so the next request fetches a fresh one.
 
 **Companions** - some corporate gateways check two credentials at once: the OAuth bearer proves you to the identity provider, while a LiteLLM key in a second header tells the proxy which budget or team to bill. Since `Authorization` is already taken by the bearer, the second credential rides its own header:
 
@@ -182,6 +184,7 @@ An entry's `headers` object attaches extra HTTP headers to every request to this
 ```
 
 - Extension-managed auth headers win conflicts: a custom header here loses to any header the entry's `auth` form sends - `Authorization`, `X-API-Key`, or a virtual key's named header, companion or not. Names compare case-insensitively, as HTTP headers do, so writing `authorization` changes nothing.
+- Like every per-entry field, headers apply only through a provider group matching the entry's label and base URL: a stale group (a rename leftover, or one predating entry labels) sends requests without them ([Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive)).
 - Because headers live on the entry, they are machine-scoped and never travel with Settings Sync - a credential-like value here stays on this machine. (There is deliberately no global headers setting for exactly this reason.)
 - Two header names differing only by case are one header (HTTP header names are case-insensitive): the first one in the object wins and the collision is reported as a configuration diagnostic.
 - Header values are plain settings text, not secrets. A value that is truly secret belongs in an [`auth` form](#authentication), which can live in secret storage.
@@ -212,6 +215,7 @@ When discovery cannot list a model - a gateway without `/v1/models`, a model the
 - Two entries may declare the same ID: each registers its own copy under its own server, exactly like a model two servers both serve.
 - Declaring a model and describing it are separate steps: a declared model's capabilities come from `models.capabilities`, the OpenRouter catalog, and the built-in defaults, exactly like every other model's.
 - Declaration is always per server. For a server added through VS Code's own model management (no entry), [adopt it](#external-servers-and-adoption) first.
+- Like every per-entry field, declarations resolve through the entry's label-and-base-URL match: a stale group serving the server (a rename leftover, or one predating entry labels) registers no declared models. The fix is the same as for [inactive per-server parameters](troubleshooting.md#per-server-model-parameters-are-inactive).
 
 ### Discovery and expected failures
 
@@ -238,7 +242,7 @@ The secret-capable fields - `auth.apiKey`, `auth.oauth.clientSecret`, `auth.virt
 
 A stored value has no marker in settings.json, so shape and storage combine: a stored `apiKey` activates the bearer whenever the entry's shape does not say otherwise - on an entry with no `auth` at all, on the API-key form, or beside a declared `virtualKey` (rank reads that as the API-key form with a companion). Under `oauth` it stays the companion: `Authorization` belongs to the OAuth bearer, and the stored key goes out as `X-API-Key` only. To stop sending a stored key, remove the stored value itself (the checkbox below) - deleting settings text alone does not reach it.
 
-What renders back into the dashboard: stored values never do - the form shows where a value lives, not what it is. Inline values do prefill the edit form (masked behind a Show toggle, see `ui.maskSecretInputs`), since they already sit in plain text in your settings.json.
+What renders back into the dashboard: stored values never do - the form shows where a value lives, not what it is. Inline values do prefill the edit form (masked behind a Show toggle), since they already sit in plain text in your settings.json.
 
 A field can end up with both copies - a value stored securely first, then pasted inline later. Requests use the inline one, and the stored copy stays put: emptying the inline field falls back to the stored value rather than clearing it. To be rid of the stored copy, use the edit form's "Remove the stored ..." checkbox below.
 
@@ -247,7 +251,14 @@ When editing a saved entry:
 - An emptied secret field keeps whatever is stored; it does not clear the secret.
 - Deleting a stored secret is an explicit choice: the edit form shows a "Remove the stored ..." checkbox under each secret field that has a value.
 
-Where the extension needs a non-secret identity for a credential (the change detectors that keep sync state in step), it stores a fingerprint keyed by a random per-install secret rather than a plain hash - those records reveal nothing about the credential, even a short guessable key, to anything that can read extension state but not secret storage.
+Setting or rotating a stored secret counts as changing the entry's credentials: the already-synced group cannot pick it up, requests keep using the credentials the group was created with, and the server row shows the recreate steps ([Lifecycle](#lifecycle-renames-removals-hidden-groups)).
+
+Where the extension needs a non-secret identity for a credential (the change detectors that keep sync state in step), it stores a fingerprint keyed by a random per-install secret rather than a plain hash - those records reveal nothing about the credential, even a short guessable key, to anything that can read extension state but not secret storage. And when VS Code's secret storage itself is unavailable (a Linux desktop without a keyring service, say), sync skips the entry for the pass and the server row says so - see [Troubleshooting](troubleshooting.md#secret-storage-is-unavailable).
+
+Stored secrets belong to the entry's label alone - the base URL plays no part. Two consequences:
+
+- A rename typed into settings.json leaves the values under the old label: the renamed entry runs uncredentialed until you set them again or re-save it from the dashboard, whose edit form moves the stored secrets to the new name for you.
+- Re-pointing a familiar label at a different host still picks up the label's stored values and sends them there. Before reusing a retired label for a server that should not see the old credential, remove the stored value first (the edit form's "Remove the stored ..." checkbox).
 
 Removing an entry does not delete its stored secrets: re-adding an entry with the same label finds them again. Removing all secrets before uninstalling is covered in [Troubleshooting](troubleshooting.md#uninstalling-and-cleanup).
 
@@ -258,8 +269,8 @@ One VS Code limitation explains this whole section: **the host API can create pr
 | You do | What happens |
 |---|---|
 | Add an entry | A provider group is created; models appear in the picker |
-| Change an entry's URL or credentials | The existing group cannot be updated. The server row shows an error with the fix: delete the group's object from the models file, reload, run "LiteLLM: Sync Models Now" - the group is recreated from the entry |
-| Rename an entry (`label`) | A new group is created under the new name; the old one stays behind. The extension's notice names it and opens the models file so its object can be deleted; the dashboard marks the leftover row "external" with the rename in its badge tip |
+| Change an entry's URL or credentials | The existing group cannot be updated. The server row shows an error with the fix: delete the group's object from the models file, reload, run "LiteLLM: Sync Models Now" - the group is recreated from the entry. Until then, requests keep using the credentials the group was created with - a rotated key is not in effect |
+| Rename an entry (`label`) | A new group is created under the new name; the old one stays behind. The extension's notice names it and opens the models file so its object can be deleted; the dashboard marks the leftover row "external" with the rename in its badge tip. A settings.json rename does not move the label's stored secrets - they stay under the old name ([Secrets](#secrets-and-secret-storage)); a dashboard rename carries them over |
 | Remove an entry | The group cannot be removed, so the extension *hides* it: remembers the removal, answers the group with an empty model list (models leave the picker), and folds the row into the dashboard's "hidden groups" line with an Unhide action. The removal notice names the group and opens the models file for permanent deletion |
 | Re-add an entry with the same label and base URL | Its hidden group comes back on its own |
 
