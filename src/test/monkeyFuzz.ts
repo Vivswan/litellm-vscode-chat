@@ -9,6 +9,15 @@
  * walk therefore replays and shrinks exactly like a FuzzEvent list: the
  * serialized actions are the whole reproduction.
  *
+ * The action space covers the redesigned settings surface: every auth form
+ * with its sanctioned companions plus the forbidden ambiguous shape,
+ * per-entry headers, budgets (valid and diagnostic-and-ignored), entry
+ * discovery blocks (declared IDs on healthy and dark groups alike,
+ * expectedFailures), the models.parameters record directives
+ * (_force/_inheritable/_inherit_from, valid and junk-valued), and the
+ * usage.* settings (poll interval through the dashboard's intent path,
+ * alert thresholds as raw writes).
+ *
  * The oracle is deliberately built from the REAL pure functions the
  * extension runs (parseServersSetting, buildGroupArgs), so its expectations
  * cannot drift from the sync engine's acceptance and resolution rules. Its
@@ -42,7 +51,11 @@ import {
 } from "../extension/servers/serverSync";
 import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
-import { MODEL_PARAMETERS_SETTING_KEY, SERVERS_SETTING_KEY } from "../shared/config/settings";
+import {
+	MODEL_PARAMETERS_SETTING_KEY,
+	SERVERS_SETTING_KEY,
+	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
+} from "../shared/config/settings";
 import {
 	GROUP_MIGRATION_COMPLETE_KEY,
 	HAS_SHOWN_WELCOME_KEY,
@@ -71,17 +84,56 @@ import { expectDefined } from "./testUtils";
 
 // -- Action alphabet ----------------------------------------------------------
 
-/** How a declared entry authenticates; the executor resolves each mode against the live stack. */
-type CredentialMode = "inline" | "secure" | "none" | "virtual-key" | "oauth" | "bad-key";
+/**
+ * How a declared entry authenticates; the executor resolves each mode
+ * against the live stack. Beyond the plain forms: "inline-with-companion"
+ * is the apiKey form carrying a virtualKey sibling companion,
+ * "oauth-with-companions" nests both companions inside the oauth object,
+ * and "ambiguous" is the forbidden second-form-beside-oauth shape - the
+ * parser must mark the entry misconfigured and the engine must never sync
+ * or serve it.
+ */
+type CredentialMode =
+	| "inline"
+	| "secure"
+	| "none"
+	| "virtual-key"
+	| "oauth"
+	| "bad-key"
+	| "inline-with-companion"
+	| "oauth-with-companions"
+	| "ambiguous";
 
 type ChatVerb = "echo" | "text" | "think" | "stream";
+
+/**
+ * Optional entry fields riding a declare: per-entry headers, a budget
+ * (valid or the invalid-and-ignored kind), a unique declared model ID, and
+ * the expectedFailures pair. All JSON-serializable flags; the executor
+ * derives the concrete values from the declare's serial.
+ */
+export interface DeclareExtras {
+	headers?: boolean;
+	budget?: number | "invalid";
+	declared?: boolean;
+	expectedFailures?: boolean;
+}
+
+/**
+ * The models.parameters shapes the fuzzer writes. "plain"/"invalid" are the
+ * original pass-through spot checks; the directive shapes pin `_force`
+ * beating a runtime option, an `_inheritable` catch-all field riding along,
+ * an `_inherit_from: false` barrier keeping it out, and junk directive
+ * values degrading to diagnostics without touching the wire.
+ */
+type ParamShape = "plain" | "invalid" | "forced" | "inherited" | "barrier" | "junk-directives";
 
 /**
  * One monkey step. Every variant is JSON-serializable and self-contained;
  * label fields carry abstract tokens the executor namespaces per run.
  */
 export type MonkeyAction =
-	| { kind: "declare-server"; label: string; credential: CredentialMode }
+	| { kind: "declare-server"; label: string; credential: CredentialMode; extras?: DeclareExtras }
 	/** Mutate an existing label's baseUrl; the add-only host must refuse the update. */
 	| { kind: "redeclare-server"; label: string }
 	| { kind: "remove-server"; label: string }
@@ -92,7 +144,8 @@ export type MonkeyAction =
 	| { kind: "dashboard-junk"; payload: unknown }
 	| { kind: "chat"; verb: ChatVerb; a: number; b: number; pick: number }
 	| { kind: "chat-cancel"; chunkCount: number; cancelAfter: number }
-	| { kind: "set-model-parameters"; valid: boolean; serial: number };
+	| { kind: "set-model-parameters"; valid: boolean; serial: number; shape?: ParamShape }
+	| { kind: "set-usage-thresholds"; valid: boolean; serial: number };
 
 export interface MonkeyCorpusEntry {
 	name: string;
@@ -120,7 +173,7 @@ function generateDashboardIntent(
 	random: () => number,
 	serial: number
 ): Extract<MonkeyAction, { kind: "dashboard-intent" }> {
-	const roll = Math.floor(random() * 11);
+	const roll = Math.floor(random() * 13);
 	const temperature = expectDefined(TEMPERATURES[serial % TEMPERATURES.length]);
 	switch (roll) {
 		case 0:
@@ -187,6 +240,24 @@ function generateDashboardIntent(
 				intent: { type: "executeCommand", command: "syncModels" },
 				expect: "ok",
 			};
+		case 10:
+			// 0 is the documented polling-off value; larger values just re-arm.
+			return {
+				kind: "dashboard-intent",
+				intent: {
+					type: "setNumberSetting",
+					setting: "usage.pollInterval",
+					value: serial % 2 === 0 ? 0 : 300000 + serial,
+				},
+				expect: "ok",
+			};
+		case 11:
+			// Below the spec minimum (0): validation refuses, nothing lands.
+			return {
+				kind: "dashboard-intent",
+				intent: { type: "setNumberSetting", setting: "usage.pollInterval", value: -1 - serial },
+				expect: "validation-error",
+			};
 		default:
 			return {
 				kind: "dashboard-intent",
@@ -225,7 +296,40 @@ function generateJunkPayload(random: () => number, serial: number): unknown {
 	return structuredClone(templates[Math.floor(random() * templates.length)]);
 }
 
-const CREDENTIAL_MODES: readonly CredentialMode[] = ["inline", "secure", "none", "virtual-key", "oauth", "bad-key"];
+const CREDENTIAL_MODES: readonly CredentialMode[] = [
+	"inline",
+	"secure",
+	"none",
+	"virtual-key",
+	"oauth",
+	"bad-key",
+	"inline-with-companion",
+	"oauth-with-companions",
+	"ambiguous",
+];
+
+/** Roughly half of the declares carry optional entry fields; every field flips independently. */
+function generateDeclareExtras(random: () => number, serial: number): DeclareExtras | undefined {
+	if (random() < 0.5) {
+		return undefined;
+	}
+	const extras: DeclareExtras = {};
+	if (random() < 0.5) {
+		extras.headers = true;
+	}
+	if (random() < 0.4) {
+		extras.budget = random() < 0.7 ? 5 + (serial % 90) : "invalid";
+	}
+	if (random() < 0.4) {
+		extras.declared = true;
+	}
+	if (random() < 0.3) {
+		extras.expectedFailures = true;
+	}
+	return Object.keys(extras).length > 0 ? extras : undefined;
+}
+
+const PARAM_SHAPES: readonly ParamShape[] = ["plain", "invalid", "forced", "inherited", "barrier", "junk-directives"];
 
 /** Chat verbs weighted toward the cheap ones; parameters stay inside the fake grammar's caps. */
 function generateChat(random: () => number): Extract<MonkeyAction, { kind: "chat" }> {
@@ -271,8 +375,13 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 			// while the oracle expects undefined, desynchronizing oracle from engine.
 			const label = `s${++labelCounter}`;
 			const credential = expectDefined(CREDENTIAL_MODES[Math.floor(random() * CREDENTIAL_MODES.length)]);
-			live.push(label);
-			actions.push({ kind: "declare-server", label, credential });
+			// Ambiguous entries never parse, so mutating actions must not plan
+			// around them - the executor tracks them in its own misconfigured set.
+			if (credential !== "ambiguous") {
+				live.push(label);
+			}
+			const extras = generateDeclareExtras(random, serial);
+			actions.push({ kind: "declare-server", label, credential, ...(extras !== undefined ? { extras } : {}) });
 		} else if (roll < 0.22 && live.length > 0) {
 			actions.push({ kind: "redeclare-server", label: expectDefined(randomLive()) });
 		} else if (roll < 0.29 && live.length > 0) {
@@ -295,8 +404,11 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 			actions.push(generateChat(random));
 		} else if (roll < 0.92) {
 			actions.push({ kind: "chat-cancel", chunkCount: 30, cancelAfter: 1 + Math.floor(random() * 5) });
+		} else if (roll < 0.97) {
+			const shape = expectDefined(PARAM_SHAPES[Math.floor(random() * PARAM_SHAPES.length)]);
+			actions.push({ kind: "set-model-parameters", valid: shape !== "invalid", serial, shape });
 		} else {
-			actions.push({ kind: "set-model-parameters", valid: random() < 0.6, serial });
+			actions.push({ kind: "set-usage-thresholds", valid: random() < 0.6, serial });
 		}
 	}
 	return actions;
@@ -319,6 +431,21 @@ interface OracleEntry {
 	 * floors. Dark labels and a declare that died mid-wait never set it.
 	 */
 	provenHealthy: boolean;
+	/**
+	 * The entry's unique discovery.declared model ID, when the declare's
+	 * extras carried one. Unlike the shared anchor IDs this is attributable:
+	 * exactly one label owns it, so the probes assert presence while the
+	 * label lives and the removal path asserts the tombstone took it out.
+	 */
+	declaredId?: string;
+	/**
+	 * The baseUrl the label's group was synced with. Entry-scoped
+	 * configuration (declared models included) reaches a group only while
+	 * the entry still matches it on label AND base URL, so a redeclare's
+	 * mutation legitimately takes the declared model out of the host list -
+	 * the probes stop expecting it once these two diverge.
+	 */
+	syncedBaseUrl: string;
 }
 
 /** Sentinel for "reset removed the configured value"; distinct from "never touched". */
@@ -403,6 +530,19 @@ export class MonkeySession {
 	private hiddenHealthy = { proxy: 0, fake: 0 };
 	private expectedSettings = new Map<string, unknown | typeof UNSET>();
 	private minted: string[] = [];
+	/**
+	 * Labels declared with the ambiguous auth shape: the parser must skip
+	 * them (misconfigured), so they never join `declared`, never sync, and
+	 * never produce a declared view. Kept only so declares can assert the
+	 * absence deliberately rather than by accident.
+	 */
+	private misconfigured = new Set<string>();
+	/**
+	 * Declared-model IDs this session's entries carry (discovery.declared):
+	 * they register whenever discovery does not list them - on any failure
+	 * type included - so the unknown-model probe must admit them.
+	 */
+	private declaredIds = new Set<string>();
 	/**
 	 * Every recentLogs line seen this session, accumulated after each action:
 	 * the extension's buffer is a 50-entry rolling window, so a busy sync
@@ -509,9 +649,12 @@ export class MonkeySession {
 	 * Declare an entry, force a sync, and settle the oracle: a healthy
 	 * configuration must raise its id's copy count (the only host-visible
 	 * proof THIS group's discovery succeeded); a dark one syncs its group and
-	 * serves nothing.
+	 * serves nothing; an ambiguous one must never produce a declared view at
+	 * all. Extras ride the same declare: headers and budgets are view-level
+	 * facts, a declared model ID must reach the host regardless of the
+	 * entry's discovery outcome.
 	 */
-	private async declare(label: string, credential: CredentialMode): Promise<void> {
+	private async declare(label: string, credential: CredentialMode, extras?: DeclareExtras): Promise<void> {
 		const serial = ++this.probeCounter;
 		const entry: Record<string, unknown> = { label, baseUrl: this.env.baseUrl };
 		let health: HealthKind = "proxy";
@@ -532,6 +675,15 @@ export class MonkeySession {
 			case "virtual-key":
 				entry.auth = { virtualKey: { header: "x-litellm-api-key", value: this.env.apiKey } };
 				break;
+			case "inline-with-companion": {
+				// The apiKey form with a virtualKey sibling companion: the bearer
+				// (and its X-API-Key copy) authenticates; the companion header is
+				// extra baggage the proxy ignores.
+				const companion = `sk-monkey-${this.env.seed}-${serial}-companion`;
+				this.minted.push(companion);
+				entry.auth = { apiKey: this.env.apiKey, virtualKey: { header: "x-monkey-companion", value: companion } };
+				break;
+			}
 			case "oauth":
 				entry.baseUrl = `${this.env.fakeUrl}/authed`;
 				entry.auth = {
@@ -543,6 +695,39 @@ export class MonkeySession {
 				};
 				health = "fake";
 				break;
+			case "oauth-with-companions": {
+				// Both companions nested inside the oauth object: the /authed
+				// mirror validates the bearer only, so the extra headers must
+				// change nothing about the group's health.
+				const companionKey = `sk-monkey-${this.env.seed}-${serial}-oauth-companion`;
+				const companionValue = `monkey-vk-${this.env.seed}-${serial}`;
+				this.minted.push(companionKey, companionValue);
+				entry.baseUrl = `${this.env.fakeUrl}/authed`;
+				entry.auth = {
+					oauth: {
+						tokenUrl: `${this.env.fakeUrl}/oauth/token`,
+						clientId: FAKE_OAUTH_CLIENT_ID,
+						clientSecret: FAKE_OAUTH_CLIENT_SECRET,
+						apiKey: companionKey,
+						virtualKey: { header: "x-monkey-oauth-companion", value: companionValue },
+					},
+				};
+				health = "fake";
+				break;
+			}
+			case "ambiguous": {
+				// A second form beside oauth: the one shape the auth grammar
+				// forbids outright. The minted key still joins the leak scan - a
+				// misconfigured entry's values must never reach a log either.
+				const mintedKey = `sk-monkey-${this.env.seed}-${serial}-ambiguous`;
+				this.minted.push(mintedKey);
+				entry.auth = {
+					apiKey: mintedKey,
+					oauth: { tokenUrl: `${this.env.fakeUrl}/oauth/token`, clientId: FAKE_OAUTH_CLIENT_ID },
+				};
+				health = "dark";
+				break;
+			}
 			case "bad-key": {
 				const mintedKey = `sk-monkey-${this.env.seed}-${serial}`;
 				this.minted.push(mintedKey);
@@ -554,9 +739,45 @@ export class MonkeySession {
 				health = "dark";
 				break;
 		}
+		if (extras?.headers) {
+			entry.headers = { "x-monkey-env": `m${serial}` };
+		}
+		if (extras?.budget !== undefined) {
+			// The invalid budget is a diagnostic-and-ignored value; the entry
+			// itself stays usable (settings agreement parses both sides).
+			entry.budget = extras.budget === "invalid" ? -0.5 : extras.budget;
+		}
+		const declaredId = extras?.declared ? `monkey-declared-${this.env.seed}-${serial}` : undefined;
+		if (declaredId !== undefined || extras?.expectedFailures) {
+			entry.discovery = {
+				...(declaredId !== undefined ? { declared: [declaredId] } : {}),
+				...(extras?.expectedFailures ? { expectedFailures: ["modelListing", "modelInfo"] } : {}),
+			};
+		}
 		await this.writeServersSetting([...this.readServersSetting(), entry]);
 		await this.syncNow();
-		const oracle: OracleEntry = { entry, hostArgs: this.resolvedArgs(entry, label), health, provenHealthy: false };
+		if (credential === "ambiguous") {
+			this.misconfigured.add(label);
+			const views = await this.getDeclaredViews();
+			assert.ok(
+				views.every((view) => view.label !== label),
+				"a misconfigured (ambiguous-auth) entry must never produce a declared view"
+			);
+			return;
+		}
+		if (declaredId !== undefined) {
+			// Admitted BEFORE any wait: the registration can land under a probe
+			// that runs while the wait below is still polling.
+			this.declaredIds.add(declaredId);
+		}
+		const oracle: OracleEntry = {
+			entry,
+			hostArgs: this.resolvedArgs(entry, label),
+			health,
+			provenHealthy: false,
+			syncedBaseUrl: String(entry.baseUrl),
+			...(declaredId !== undefined ? { declaredId } : {}),
+		};
 		this.declared.set(label, oracle);
 		if (health === "proxy") {
 			// Increment only after the wait: a timed-out wait must fail THIS
@@ -580,8 +801,26 @@ export class MonkeySession {
 			this.everSyncedHealthy.fake += 1;
 			oracle.provenHealthy = true;
 		}
+		if (declaredId !== undefined) {
+			// Q2 ruling 1, fuzzed: a declared ID registers whenever discovery
+			// does not list it - healthy discovery, expected failure, and dark
+			// 401s alike (the group itself synced in every non-ambiguous mode).
+			await waitForHostModels(
+				MODEL_WAIT_MS,
+				(models) => this.countModels(models, declaredId) >= 1,
+				`the entry-declared model ${declaredId} to reach the host`
+			);
+		}
 		const view = await this.declaredView(label);
 		assert.strictEqual(view.syncError, this.expectedSyncError(label), `declare(${credential}) sync outcome diverged`);
+		if (extras?.headers) {
+			assert.deepStrictEqual(view.headers, entry.headers, "the entry's headers must ride into the declared view");
+		}
+		const expectedBudget = extras?.budget !== undefined && extras.budget !== "invalid" ? extras.budget : undefined;
+		assert.strictEqual(view.budget, expectedBudget, "the view's budget must be the parsed (valid-only) value");
+		if (declaredId !== undefined) {
+			assert.deepStrictEqual(view.declaredModels, [declaredId], "discovery.declared must ride into the view");
+		}
 	}
 
 	private async declaredView(label: string): Promise<DeclaredServerView> {
@@ -636,6 +875,15 @@ export class MonkeySession {
 		);
 	}
 
+	/** A removed label's unique declared ID must leave the host list entirely (single owner, so absence is provable). */
+	private async observeDeclaredGone(declaredId: string): Promise<void> {
+		await waitForHostModels(
+			MODEL_WAIT_MS,
+			(models) => this.countModels(models, declaredId) === 0,
+			`the removed entry's declared model ${declaredId} to leave the host list`
+		);
+	}
+
 	/** Capture the pre-session host models, so pre-existing provider groups never read as monkey escapes. */
 	async setup(): Promise<void> {
 		// A models.ts rename must fail HERE, loudly, not as a mysterious
@@ -667,7 +915,7 @@ export class MonkeySession {
 		const label = (token: string) => `monkey-${this.env.seed}-${namespace}-${token}`;
 		switch (action.kind) {
 			case "declare-server":
-				await this.declare(label(action.label), action.credential);
+				await this.declare(label(action.label), action.credential, action.extras);
 				return;
 			case "redeclare-server": {
 				const real = label(action.label);
@@ -687,10 +935,27 @@ export class MonkeySession {
 					GROUP_UPDATE_UNAVAILABLE_MESSAGE,
 					"a redeclared label must surface the add-only error"
 				);
+				// The mutated base URL no longer identifies the live group, so
+				// the entry's per-entry configuration stops reaching it: the
+				// declared model must leave the host list (the same rule the
+				// "entry parameters are inactive" notice describes). The group
+				// itself keeps serving whatever its first configuration
+				// discovered.
+				if (oracle.declaredId !== undefined) {
+					await this.observeDeclaredGone(oracle.declaredId);
+				}
 				return;
 			}
 			case "remove-server": {
 				const real = label(action.label);
+				if (this.misconfigured.has(real)) {
+					// A misconfigured entry never synced, so its removal is pure
+					// settings hygiene: the raw entry leaves, nothing else moves.
+					await this.writeServersSetting(this.readServersSetting().filter((entry) => entry.label !== real));
+					this.misconfigured.delete(real);
+					await this.syncNow();
+					return;
+				}
 				const oracle = this.declared.get(real);
 				if (oracle === undefined) {
 					return;
@@ -723,6 +988,12 @@ export class MonkeySession {
 				// tombstone and re-raise the floor.
 				if (anchorId !== undefined) {
 					await this.observeHiddenDrop(anchorId, before);
+				}
+				// The declared ID is attributable (one owner label), so the
+				// tombstone must take it out entirely - the strongest absence
+				// assertion the raw-ID model list allows.
+				if (oracle.declaredId !== undefined) {
+					await this.observeDeclaredGone(oracle.declaredId);
 				}
 				return;
 			}
@@ -789,6 +1060,9 @@ export class MonkeySession {
 				return;
 			case "set-model-parameters":
 				await this.runSetModelParameters(action);
+				return;
+			case "set-usage-thresholds":
+				await this.runSetUsageThresholds(action);
 				return;
 		}
 	}
@@ -919,30 +1193,131 @@ export class MonkeySession {
 	 * fake backend's last-request capture. Valid parameters must pass through
 	 * unchanged; the invalid classes the extension owns ("_"-prefixed keys,
 	 * provider-owned fields) must be dropped silently while the chat keeps
-	 * working. Arbitrary junk values are NOT generated: pass-through is the
-	 * contract, so an unknown value would reach LiteLLM and fail the request
-	 * by design, not by bug.
+	 * working; the directive shapes pin `_force` over runtime options,
+	 * `_inheritable` flow, the `_inherit_from: false` barrier, and junk
+	 * directive values degrading to diagnostics. Arbitrary junk parameter
+	 * VALUES are NOT generated: pass-through is the contract, so an unknown
+	 * value would reach LiteLLM and fail the request by design, not by bug.
 	 */
 	private async runSetModelParameters(action: Extract<MonkeyAction, { kind: "set-model-parameters" }>): Promise<void> {
 		const temperature = expectDefined(TEMPERATURES[action.serial % TEMPERATURES.length]);
-		const value = action.valid
-			? { [PLAYBACK_MODEL.alias]: { temperature, seed: 1000 + action.serial } }
-			: { [PLAYBACK_MODEL.alias]: { _monkey: action.serial, model: "monkey-hax-model" } };
+		// Always a different index than `temperature`, so a forced win is
+		// distinguishable from the runtime option merely echoing the record.
+		const runtimeTemperature = expectDefined(TEMPERATURES[(action.serial + 1) % TEMPERATURES.length]);
+		const shape: ParamShape = action.shape ?? (action.valid ? "plain" : "invalid");
+		const alias = PLAYBACK_MODEL.alias;
+		const values: Record<ParamShape, Record<string, Record<string, unknown>>> = {
+			plain: { [alias]: { temperature, seed: 1000 + action.serial } },
+			invalid: { [alias]: { _monkey: action.serial, model: "monkey-hax-model" } },
+			forced: { [alias]: { temperature, _force: true } },
+			inherited: { "*": { top_p: 0.75, _inheritable: true }, [alias]: { temperature } },
+			barrier: {
+				// top_p, the same field the `inherited` shape proves DOES cross
+				// the proxy: a negative assertion on a field nothing else sends
+				// could pass by the proxy dropping it.
+				"*": { top_p: 0.75, _inheritable: true },
+				[alias]: { temperature, _inherit_from: false },
+			},
+			"junk-directives": {
+				// Every directive carries an invalid or wrong-record value:
+				// diagnostics, never behavior, and never a wire key.
+				[alias]: {
+					temperature,
+					_force: "yes",
+					_inheritable: 42,
+					_inherit_from: ["never-declared*"],
+					_fallback: true,
+				},
+			},
+		};
+		const value = values[shape];
 		await this.config().update(MODEL_PARAMETERS_SETTING_KEY, value, vscode.ConfigurationTarget.Global);
 		this.expectedSettings.set(MODEL_PARAMETERS_SETTING_KEY, value);
 
-		const reply = await this.chat(PLAYBACK_MODEL.alias, `${COMMAND_SIGIL}params`);
-		const wire = await this.fetchLastRequest();
-		if (action.valid) {
-			assert.strictEqual(wire.temperature, temperature, "a configured temperature must reach the wire unchanged");
-			assert.strictEqual(wire.seed, 1000 + action.serial, "a configured seed must reach the wire unchanged");
-			assert.ok(reply.includes("temperature"), `%params must report the temperature; got: ${reply.slice(0, 200)}`);
-			assert.ok(reply.includes(String(temperature)), `%params must carry the exact value; got: ${reply.slice(0, 200)}`);
-		} else {
-			assert.ok(!("_monkey" in wire), "underscore-prefixed parameters must never reach the wire");
-			assert.notStrictEqual(wire.model, "monkey-hax-model", "the provider-owned model field must not be overridable");
-			assert.ok(!reply.includes("monkey-hax-model"), "%params must not report a hijacked model");
+		const options: vscode.LanguageModelChatRequestOptions =
+			shape === "forced" ? { modelOptions: { temperature: runtimeTemperature } } : {};
+		try {
+			await this.assertParameterShape(shape, action, options, temperature);
+		} finally {
+			// A catch-all record would otherwise apply to every later chat,
+			// probe echo, and corpus replay in the session; the alias-scoped
+			// shapes are left in place as before (they touch one model).
+			if (Object.hasOwn(value, "*")) {
+				await this.config().update(MODEL_PARAMETERS_SETTING_KEY, undefined, vscode.ConfigurationTarget.Global);
+				this.expectedSettings.set(MODEL_PARAMETERS_SETTING_KEY, UNSET);
+			}
 		}
+	}
+
+	/** One parameter shape's wire assertions; the caller owns the settings write and its cleanup. */
+	private async assertParameterShape(
+		shape: ParamShape,
+		action: Extract<MonkeyAction, { kind: "set-model-parameters" }>,
+		options: vscode.LanguageModelChatRequestOptions,
+		temperature: number
+	): Promise<void> {
+		const alias = PLAYBACK_MODEL.alias;
+		const model = await this.chatModel(alias);
+		const response = await model.sendRequest(
+			[vscode.LanguageModelChatMessage.User(`${COMMAND_SIGIL}params`)],
+			options,
+			new vscode.CancellationTokenSource().token
+		);
+		const reply = extractText(await collectStream(response));
+		const wire = await this.fetchLastRequest();
+		// The capture's own sentinel first, so an unparseable body reports as
+		// the capture failure it is instead of as a leaked directive.
+		assert.ok(!("_parseError" in wire), "the fake backend could not parse the forwarded request body");
+		for (const key of Object.keys(wire)) {
+			assert.ok(!key.startsWith("_"), `record directives must never reach the wire (saw ${key})`);
+		}
+		switch (shape) {
+			case "plain":
+				assert.strictEqual(wire.temperature, temperature, "a configured temperature must reach the wire unchanged");
+				assert.strictEqual(wire.seed, 1000 + action.serial, "a configured seed must reach the wire unchanged");
+				assert.ok(reply.includes("temperature"), `%params must report the temperature; got: ${reply.slice(0, 200)}`);
+				assert.ok(
+					reply.includes(String(temperature)),
+					`%params must carry the exact value; got: ${reply.slice(0, 200)}`
+				);
+				return;
+			case "invalid":
+				assert.notStrictEqual(wire.model, "monkey-hax-model", "the provider-owned model field must not be overridable");
+				assert.ok(!reply.includes("monkey-hax-model"), "%params must not report a hijacked model");
+				return;
+			case "forced":
+				assert.strictEqual(wire.temperature, temperature, "a forced field must beat the runtime option");
+				return;
+			case "inherited":
+				assert.strictEqual(wire.temperature, temperature, "the specific record's own field applies");
+				assert.strictEqual(wire.top_p, 0.75, "the catch-all's inheritable field must ride along");
+				return;
+			case "barrier":
+				assert.strictEqual(wire.temperature, temperature, "the barrier record's own field applies");
+				assert.ok(!("top_p" in wire), "a barrier must keep the catch-all's field off the wire");
+				return;
+			case "junk-directives":
+				assert.strictEqual(wire.temperature, temperature, "junk directive values must not unseat real fields");
+				return;
+		}
+	}
+
+	/**
+	 * usage.alertThresholds is read-normalized, never write-validated: junk
+	 * entries drop at read time with a diagnostic while the raw setting
+	 * stays as written, and nothing else about the session may move.
+	 */
+	private async runSetUsageThresholds(action: Extract<MonkeyAction, { kind: "set-usage-thresholds" }>): Promise<void> {
+		const value = action.valid ? [0.5, 0.9] : [-1, 2, "junk", 0.5 + (action.serial % 3) / 10];
+		await this.config().update(USAGE_ALERT_THRESHOLDS_SETTING_KEY, value, vscode.ConfigurationTarget.Global);
+		this.expectedSettings.set(USAGE_ALERT_THRESHOLDS_SETTING_KEY, value);
+		// The responsiveness contract after a settings write: chat still works.
+		const marker = `thresholds-${action.serial}`;
+		assert.strictEqual(
+			await this.chat(PLAYBACK_MODEL.alias, `${COMMAND_SIGIL}echo:${marker}`),
+			marker,
+			"a usage.alertThresholds write must not disturb the chat path"
+		);
 	}
 
 	// -- The probe bundle -------------------------------------------------------
@@ -978,9 +1353,23 @@ export class MonkeySession {
 		);
 		for (const model of models) {
 			assert.ok(
-				KNOWN_STACK_MODEL_IDS.has(model.id) || this.baselineModelIds.has(model.id),
+				KNOWN_STACK_MODEL_IDS.has(model.id) || this.baselineModelIds.has(model.id) || this.declaredIds.has(model.id),
 				`unknown litellm model ${model.id}: never declared this session and not in the pre-session baseline`
 			);
+		}
+		// Attributable presence: every LIVE entry's unique declared ID must
+		// still serve (its declare already observed the registration land, so
+		// a later disappearance is a real regression, not propagation lag) -
+		// for as long as the entry still matches its group's identity. A
+		// redeclare breaks that match, and the redeclare branch observes the
+		// declared model leaving instead.
+		for (const [label, oracle] of this.declared) {
+			if (oracle.declaredId !== undefined && oracle.entry.baseUrl === oracle.syncedBaseUrl) {
+				assert.ok(
+					this.countModels(models, oracle.declaredId) >= 1,
+					`the live entry ${label} lost its declared model ${oracle.declaredId}`
+				);
+			}
 		}
 	}
 
@@ -1108,12 +1497,22 @@ export class MonkeySession {
 		};
 		const remaining = this.readServersSetting().filter((entry) => !String(entry.label ?? "").startsWith(prefix));
 		await this.writeServersSetting(remaining);
+		for (const label of [...this.misconfigured]) {
+			if (label.startsWith(prefix)) {
+				this.misconfigured.delete(label);
+			}
+		}
 		const drops = new Map<string, number>();
+		const declaredGone: string[] = [];
 		for (const label of [...this.declared.keys()]) {
 			if (label.startsWith(prefix)) {
 				// Cleanup is an explicit removal like the remove-server action:
 				// the sync pass below tombstones each removed label's group, so
 				// its healthy copies leave the model-count floors too.
+				const declaredId = this.declared.get(label)?.declaredId;
+				if (declaredId !== undefined) {
+					declaredGone.push(declaredId);
+				}
 				const anchorId = this.hideRemovedLabel(label);
 				if (anchorId !== undefined) {
 					drops.set(anchorId, (drops.get(anchorId) ?? 0) + 1);
@@ -1126,6 +1525,9 @@ export class MonkeySession {
 		// happened before this run hands over.
 		for (const [anchorId, dropped] of drops) {
 			await this.observeHiddenDrop(anchorId, (before[anchorId] ?? 0) - dropped + 1);
+		}
+		for (const declaredId of declaredGone) {
+			await this.observeDeclaredGone(declaredId);
 		}
 	}
 }
