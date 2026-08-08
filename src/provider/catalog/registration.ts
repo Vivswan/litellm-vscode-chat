@@ -1,5 +1,4 @@
 import type { LanguageModelChatInformation } from "vscode";
-import type { TokenDefaults } from "../../shared/config/settings";
 import type { ServerWithKey } from "../../shared/servers";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
 import type { PreAttachModelInfo } from "./groupModels";
@@ -244,9 +243,7 @@ export function buildModelInfos(
 	models: LiteLLMModelItem[],
 	server: ServerWithKey,
 	serverCount: number,
-	log: (message: string) => void,
-	/** The refresh pass's defaults snapshot; the same one discovery merged deployments with. */
-	tokenDefaults: TokenDefaults
+	log: (message: string) => void
 ): RegistrationResult {
 	const routes = new Map<string, ModelRoute>();
 
@@ -280,12 +277,12 @@ export function buildModelInfos(
 		// so this rides the litellm metadata and gates message conversion.
 		const audioInput = reportedModalities.includes("audio");
 		const baselineFor = (providers: readonly LiteLLMProvider[], toolCalling: boolean, reasoning: boolean) =>
-			discoveredCapabilityBaseline({ providers, tokenDefaults, modalities, toolCalling, reasoning });
+			discoveredCapabilityBaseline({ providers, modalities, toolCalling, reasoning });
 
 		switch (shape.kind) {
 			case "deployment": {
 				const provider = shape.provider;
-				const constraints = deriveTokenConstraints(provider, tokenDefaults);
+				const constraints = deriveTokenConstraints(provider);
 				const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 				registerRoute(exposedId, m.id);
 				return [
@@ -314,7 +311,7 @@ export function buildModelInfos(
 			}
 
 			case "bare": {
-				const constraints = deriveTokenConstraints(undefined, tokenDefaults);
+				const constraints = deriveTokenConstraints(undefined);
 				const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 				registerRoute(exposedId, m.id);
 				return [
@@ -351,7 +348,7 @@ export function buildModelInfos(
 					// proxy routes to, so they advertise the conservative collapse
 					// (the same rule deployment merging applies): never more than the
 					// strictest provider's standalone constraints.
-					const constraints = collapseTokenConstraints([firstTool, ...restTools], tokenDefaults);
+					const constraints = collapseTokenConstraints([firstTool, ...restTools]);
 					const aggregatePromptCaching = toolProviders.every((p) => p.supports_prompt_caching === true);
 					const aggregateMetadata = {
 						supportsPromptCaching: aggregatePromptCaching,
@@ -400,7 +397,7 @@ export function buildModelInfos(
 				}
 
 				for (const p of toolProviders) {
-					const constraints = deriveTokenConstraints(p, tokenDefaults);
+					const constraints = deriveTokenConstraints(p);
 					const rawId = `${m.id}:${p.provider}`;
 					const exposedId = buildExposedModelId(rawId, server.id, serverCount);
 					entries.push({
@@ -434,7 +431,7 @@ export function buildModelInfos(
 					// across every provider, prompt caching and reasoning support need
 					// every provider, and only its display identity (name, family)
 					// follows the first.
-					const constraints = collapseTokenConstraints(providers, tokenDefaults);
+					const constraints = collapseTokenConstraints(providers);
 					const exposedId = buildExposedModelId(m.id, server.id, serverCount);
 					entries.push({
 						...common,

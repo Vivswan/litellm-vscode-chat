@@ -12,7 +12,6 @@ import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMProvider, ModelInfoFields } from "../../../provider/catalog/schemas";
 import { supportsTools } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
-import type { TokenDefaults } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { expectDefined } from "../../testUtils";
@@ -48,25 +47,19 @@ const providerArb: fc.Arbitrary<LiteLLMProvider> = fc
 	})
 	.map((fields) => ({ provider: "some-provider", status: "active", ...fields }));
 
-const defaultsArb: fc.Arbitrary<TokenDefaults> = fc.record({
-	maxOutputTokens: fc.integer({ min: 1, max: 500000 }),
-	contextLength: fc.integer({ min: 1, max: 1000000 }),
-	maxInputTokens: fc.option(fc.integer({ min: 1, max: 1000000 }), { nil: undefined }),
-});
-
 suite("provider/discovery deployment merge properties", () => {
 	test("merged token constraints never exceed any deployment's standalone constraints", () => {
 		fc.assert(
-			fc.property(fc.array(modelInfoArb, { minLength: 1, maxLength: 5 }), defaultsArb, (infos, defaults) => {
+			fc.property(fc.array(modelInfoArb, { minLength: 1, maxLength: 5 }), (infos) => {
 				const deployments = infos.map((modelInfo) =>
 					mapModelInfoEntry(expectDefined(parseModelInfoItem({ model_name: "balanced", model_info: modelInfo })))
 				);
 				const first = expectDefined(deployments[0]);
-				const merged = mergeModelDeployments([first, ...deployments.slice(1)], defaults);
-				const mergedConstraints = deriveTokenConstraints(merged.provider, defaults);
+				const merged = mergeModelDeployments([first, ...deployments.slice(1)]);
+				const mergedConstraints = deriveTokenConstraints(merged.provider);
 
 				for (const [index, deployment] of deployments.entries()) {
-					const standalone = deriveTokenConstraints(deployment.provider, defaults);
+					const standalone = deriveTokenConstraints(deployment.provider);
 					const detail = `deployment ${index}: merged ${JSON.stringify(mergedConstraints)} vs standalone ${JSON.stringify(standalone)}`;
 					assert.ok(mergedConstraints.maxInputTokens <= standalone.maxInputTokens, `maxInputTokens exceeds ${detail}`);
 					assert.ok(
@@ -88,14 +81,13 @@ suite("provider/discovery deployment merge properties", () => {
 		// stand for the tool-capable providers; the untooled base entry stands
 		// for the whole group.
 		fc.assert(
-			fc.property(fc.array(providerArb, { minLength: 1, maxLength: 5 }), defaultsArb, (providers, defaults) => {
+			fc.property(fc.array(providerArb, { minLength: 1, maxLength: 5 }), (providers) => {
 				const first = expectDefined(providers[0]);
 				const { infos } = buildModelInfos(
 					[{ id: "multi", shape: { kind: "group", providers: [first, ...providers.slice(1)] } }],
 					{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" },
 					1,
-					() => {},
-					defaults
+					() => {}
 				);
 				const toolProviders = providers.filter(supportsTools);
 				const [entryId, contributors] =
@@ -103,7 +95,7 @@ suite("provider/discovery deployment merge properties", () => {
 				const entry = expectDefined(infos.find((info) => info.id === entryId));
 
 				for (const [index, provider] of contributors.entries()) {
-					const standalone = deriveTokenConstraints(provider, defaults);
+					const standalone = deriveTokenConstraints(provider);
 					const detail = `${entryId} contributor ${index}: entry {maxInputTokens: ${entry.maxInputTokens}, maxOutputTokens: ${entry.maxOutputTokens}} vs standalone ${JSON.stringify(standalone)}`;
 					assert.ok(entry.maxInputTokens <= standalone.maxInputTokens, `maxInputTokens exceeds ${detail}`);
 					assert.ok(entry.maxOutputTokens <= standalone.maxOutputTokens, `maxOutputTokens exceeds ${detail}`);
@@ -157,7 +149,6 @@ suite("provider/discovery expectedFailures retry properties", () => {
 					client,
 					baseUrl: TEST_BASE_URL,
 					discoveryTimeout: 30000,
-					tokenDefaults: { maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined },
 					expected,
 					log: () => {},
 				});

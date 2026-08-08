@@ -366,8 +366,7 @@ suite("provider", () => {
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
-				() => {},
-				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+				() => {}
 			);
 
 			assert.strictEqual(infos.length, 1, "an untooled group registers exactly its base entry");
@@ -405,8 +404,7 @@ suite("provider", () => {
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
-				() => {},
-				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+				() => {}
 			);
 
 			assert.deepStrictEqual(
@@ -496,8 +494,7 @@ suite("provider", () => {
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
-				() => {},
-				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+				() => {}
 			);
 			const byId = new Map(infos.map((i) => [i.id, i]));
 
@@ -642,8 +639,7 @@ suite("provider", () => {
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
-				() => {},
-				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+				() => {}
 			);
 			const byId = new Map(infos.map((i) => [i.id, i]));
 
@@ -741,8 +737,7 @@ suite("provider", () => {
 				})),
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
-				() => {},
-				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+				() => {}
 			);
 			const byId = new Map(infos.map((i) => [i.id, i]));
 			for (const [perMillion, category] of boundaries) {
@@ -813,8 +808,7 @@ suite("provider", () => {
 				],
 				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 				1,
-				() => {},
-				{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+				() => {}
 			);
 			const byId = new Map(infos.map((i) => [i.id, i]));
 
@@ -863,8 +857,7 @@ suite("provider", () => {
 						],
 						{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
 						1,
-						() => {},
-						{ maxOutputTokens: 4096, contextLength: 128000, maxInputTokens: undefined }
+						() => {}
 					);
 					const info = expectDefined(infos[0]);
 					if (info.priceCategory !== undefined) {

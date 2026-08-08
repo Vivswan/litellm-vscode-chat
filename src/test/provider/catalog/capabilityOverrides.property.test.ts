@@ -22,7 +22,6 @@ import type { LiteLLMModelItem, LiteLLMProvider } from "../../../provider/catalo
 import type {
 	CapabilityCatalogLookup,
 	CapabilityFieldValues,
-	CapabilityTokenDefaults,
 	CatalogLookupResult,
 	EffectiveCapabilities,
 	ModelCapabilitiesRecord,
@@ -39,9 +38,6 @@ const SEED = resolveFuzzSeed();
 
 const SERVER = { id: "srv1", label: "Default", baseUrl: "http://a.test", apiKey: "k" };
 const SCOPE = "http://a.test";
-
-/** The two built-in token defaults (settingSpec), so unconfigured generated defaults stay consistent. */
-const BUILTIN = { contextLength: 128000, maxOutputTokens: 16000 };
 
 // Slash-free so a scoped key "<scope>/<prefix>" can never collide with an
 // unscoped key or match a scope other than its own; ":" stays out so cuts of
@@ -182,15 +178,7 @@ interface Scenario {
 	readonly globalCapabilities: ModelCapabilitiesRecord;
 	readonly entryCapabilities: ModelCapabilitiesRecord | undefined;
 	readonly catalog: CapabilityCatalogLookup;
-	readonly registrationDefaults: { maxOutputTokens: number; contextLength: number; maxInputTokens: number | undefined };
-	readonly capabilityDefaults: CapabilityTokenDefaults;
 }
-
-const tokenDefaultPair = (builtin: number) =>
-	fc.oneof(
-		fc.constant({ value: builtin, explicitlyConfigured: false }),
-		validNumber.map((value) => ({ value, explicitlyConfigured: true }))
-	);
 
 const scenario: fc.Arbitrary<Scenario> = fc
 	.record({
@@ -213,9 +201,6 @@ const scenario: fc.Arbitrary<Scenario> = fc
 		),
 		catalogOne: fc.option(validFieldsArb, { nil: undefined }),
 		implicitFields: fc.option(validFieldsArb, { nil: undefined }),
-		contextDefault: tokenDefaultPair(BUILTIN.contextLength),
-		outputDefault: tokenDefaultPair(BUILTIN.maxOutputTokens),
-		maxInputDefault: fc.option(validNumber, { nil: undefined }),
 	})
 	.map((spec) => {
 		const item = { ...spec.item, id: spec.rawModelId };
@@ -236,21 +221,10 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			...(spec.catalogOne !== undefined ? { "cat/one": spec.catalogOne } : {}),
 			...(spec.implicitFields !== undefined ? { [`imp/${spec.rawModelId}`]: spec.implicitFields } : {}),
 		});
-		const capabilityDefaults: CapabilityTokenDefaults = {
-			contextLength: spec.contextDefault,
-			maxOutputTokens: spec.outputDefault,
-			maxInputTokens: spec.maxInputDefault,
-		};
-		const registrationDefaults = {
-			maxOutputTokens: spec.outputDefault.value,
-			contextLength: spec.contextDefault.value,
-			maxInputTokens: spec.maxInputDefault,
-		};
 		const opts: CapabilityOverrideOptions = {
 			globalCapabilities,
 			entryCapabilities,
 			catalog,
-			tokenDefaults: capabilityDefaults,
 			log: () => {},
 		};
 		return {
@@ -260,8 +234,6 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			globalCapabilities,
 			entryCapabilities,
 			catalog,
-			registrationDefaults,
-			capabilityDefaults,
 		};
 	});
 
@@ -274,7 +246,6 @@ function effectiveFor(info: PreAttachModelInfo, s: Scenario): EffectiveCapabilit
 		entryCapabilities: s.entryCapabilities,
 		catalog: s.catalog,
 		serverDeclared: info.litellm.serverDeclared,
-		tokenDefaults: s.capabilityDefaults,
 	});
 }
 
@@ -292,7 +263,7 @@ suite("provider/catalog capabilityOverrides properties", () => {
 	test("every served model advertises exactly the resolver's effective capabilities, fast path included", () => {
 		fc.assert(
 			fc.property(scenario, (s) => {
-				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {}, s.registrationDefaults);
+				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});
 				const served = applyCapabilityOverrides(infos, SERVER, s.opts);
 				for (const info of served) {
 					assertAdvertisesEffective(info, effectiveFor(info, s));
@@ -305,7 +276,7 @@ suite("provider/catalog capabilityOverrides properties", () => {
 	test("application is idempotent: a second pass changes nothing", () => {
 		fc.assert(
 			fc.property(scenario, (s) => {
-				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {}, s.registrationDefaults);
+				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});
 				const once = applyCapabilityOverrides(infos, SERVER, s.opts);
 				const twice = applyCapabilityOverrides(once, SERVER, s.opts);
 				assert.deepStrictEqual(twice, once);
@@ -317,7 +288,7 @@ suite("provider/catalog capabilityOverrides properties", () => {
 	test("declared models resolve over the declared baseline, stay inert against discovered IDs, and never collide", () => {
 		fc.assert(
 			fc.property(scenario, (s) => {
-				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {}, s.registrationDefaults);
+				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});
 				const served = applyCapabilityOverrides(infos, SERVER, s.opts);
 				const discovered = new Set(s.items.map((item) => item.id));
 				const reserved = new Set(served.map((info) => info.id));

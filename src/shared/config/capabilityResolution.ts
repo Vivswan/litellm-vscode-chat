@@ -363,16 +363,14 @@ export type CapabilityFallbackLevel = "entry-fallback" | "global-fallback";
 /**
  * Where one effective capability value came from, precedence-ordered:
  * entry and global explicit fields, `_openrouter_model`-derived fields, the
- * server-reported value, `_fallback`-demoted entry and global fields, an
- * explicitly configured default* setting, the implicit catalog match, the
- * context-minus-output derivation (only max_input_tokens), and the built-in
- * floor.
+ * server-reported value, `_fallback`-demoted entry and global fields, the
+ * implicit catalog match, the context-minus-output derivation (only
+ * max_input_tokens), and the built-in floor.
  */
 export type CapabilityLevel =
 	| CapabilityOverrideLevel
 	| "server"
 	| CapabilityFallbackLevel
-	| "default-setting"
 	| "catalog"
 	| "derived"
 	| "floor";
@@ -651,30 +649,9 @@ export type ServerDeclaredCapabilities =
 	  }
 	| { readonly kind: "declared" };
 
-/** One deprecated default* token setting: its effective value and whether the user really set it. */
-export interface CapabilityTokenDefault {
-	readonly value: number;
-	readonly explicitlyConfigured: boolean;
-}
-
-/**
- * The deprecated default* trio as the walk consumes it. Only explicitly
- * configured values participate as the default-setting level (an untouched
- * built-in default must not beat a catalog match); defaultMaxInputTokens has
- * no built-in default, so presence alone means configured - and it keeps its
- * quirk of beating even the server-declared max input.
- */
-export interface CapabilityTokenDefaults {
-	readonly contextLength: CapabilityTokenDefault;
-	readonly maxOutputTokens: CapabilityTokenDefault;
-	readonly maxInputTokens: number | undefined;
-}
-
 /**
  * The built-in floor totals as literals, exported for every consumer of the
- * two numbers (pure and webview-safe). The deprecated defaultContextLength /
- * defaultMaxOutputTokens settings' built-in defaults mirror these until their
- * removal.
+ * two numbers (pure and webview-safe).
  */
 export const FLOOR_CONTEXT_LENGTH = 128000;
 export const FLOOR_MAX_OUTPUT_TOKENS = 16000;
@@ -718,8 +695,6 @@ export type EffectiveCapabilityFields = {
 
 export interface ResolveModelCapabilitiesInput extends ResolveCapabilityOverridesInput {
 	readonly serverDeclared: ServerDeclaredCapabilities;
-	/** The deprecated default* trio; omitting it simply skips the default-setting level. */
-	readonly tokenDefaults?: CapabilityTokenDefaults | undefined;
 }
 
 export interface EffectiveCapabilities {
@@ -765,32 +740,38 @@ function resolveField<V extends number | boolean>(
 	};
 }
 
-/** The levels whose values count as user-set for output-limit provenance. */
-const USER_SET_LEVELS: ReadonlySet<CapabilityLevel> = new Set([
-	"entry",
-	"global",
-	"directive",
-	"entry-fallback",
-	"global-fallback",
-]);
+/**
+ * Whether a level's value counts as user-set for output-limit provenance.
+ * Total over CapabilityLevel on purpose, like capabilityOverrides'
+ * LEVEL_TRIGGERS_REBUILD: a level added to the walk fails compilation here
+ * instead of silently resolving to "defaults" and regaining the wire clamp.
+ */
+const LEVEL_IS_USER_SET: Readonly<Record<CapabilityLevel, boolean>> = {
+	entry: true,
+	global: true,
+	directive: true,
+	server: false,
+	"entry-fallback": true,
+	"global-fallback": true,
+	catalog: false,
+	derived: false,
+	floor: false,
+};
 
 /**
  * The one function every consumer calls: the full precedence walk over the
  * user-set overrides, the server-reported baseline, the `_fallback`-demoted
- * fields, the deprecated default* settings, the implicit catalog match, and
- * the built-in floor - per field, top wins:
+ * fields, the implicit catalog match, and the built-in floor - per field,
+ * top wins:
  *
  *  1. explicit field in the entry record
  *  2. explicit field in the global record (scoped replaces unscoped whole)
  *  3. field derived from `_openrouter_model`
  *  4. server-reported value (skipped for `_declare`d models)
- *     - except defaultMaxInputTokens, which keeps its quirk of slotting
- *       between 3 and 4 for max_input_tokens until removal
  *  5. `_fallback`-marked field in the entry record
  *  6. `_fallback`-marked field in the global record
- *  7. explicitly configured default* setting (when tokenDefaults is given)
- *  8. implicit catalog lookup by the model's own raw ID
- *  9. built-in floor; max_input_tokens instead derives
+ *  7. implicit catalog lookup by the model's own raw ID
+ *  8. built-in floor; max_input_tokens instead derives
  *     max(1, context - output) from the effective values
  *
  * Levels 1-3 and 5-6 count as user-declared output limits ("user"); the
@@ -803,7 +784,6 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 	const serverValues: Readonly<Partial<CapabilityFieldValues>> =
 		input.serverDeclared.kind === "discovered" ? input.serverDeclared.values : {};
 	const catalogMatch = overrides.implicitCatalog.kind === "found" ? overrides.implicitCatalog : undefined;
-	const defaults = input.tokenDefaults;
 
 	const fromServer = <K extends CapabilityFieldName>(name: K): LevelCandidate<CapabilityFieldValue<K>>[] => {
 		const value = serverValues[name];
@@ -816,39 +796,20 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 		const value = catalogMatch?.fields[name];
 		return value !== undefined && catalogMatch !== undefined ? [{ level: "catalog", key: catalogMatch.id, value }] : [];
 	};
-	const fromExplicitDefault = (setting: CapabilityTokenDefault | undefined): LevelCandidate<number>[] =>
-		setting?.explicitlyConfigured ? [{ level: "default-setting", value: setting.value }] : [];
 
 	const contextLength = resolveField(
 		overrides.fields.context_length,
-		[
-			...fromServer("context_length"),
-			...fromFallback("context_length"),
-			...fromExplicitDefault(defaults?.contextLength),
-			...fromCatalog("context_length"),
-		],
+		[...fromServer("context_length"), ...fromFallback("context_length"), ...fromCatalog("context_length")],
 		{ level: "floor", value: CAPABILITY_FLOOR.context_length }
 	);
 	const maxOutputTokens = resolveField(
 		overrides.fields.max_output_tokens,
-		[
-			...fromServer("max_output_tokens"),
-			...fromFallback("max_output_tokens"),
-			...fromExplicitDefault(defaults?.maxOutputTokens),
-			...fromCatalog("max_output_tokens"),
-		],
+		[...fromServer("max_output_tokens"), ...fromFallback("max_output_tokens"), ...fromCatalog("max_output_tokens")],
 		{ level: "floor", value: CAPABILITY_FLOOR.max_output_tokens }
 	);
 	const maxInputTokens = resolveField(
 		overrides.fields.max_input_tokens,
-		[
-			...(defaults?.maxInputTokens !== undefined
-				? [{ level: "default-setting" as const, value: defaults.maxInputTokens }]
-				: []),
-			...fromServer("max_input_tokens"),
-			...fromFallback("max_input_tokens"),
-			...fromCatalog("max_input_tokens"),
-		],
+		[...fromServer("max_input_tokens"), ...fromFallback("max_input_tokens"), ...fromCatalog("max_input_tokens")],
 		{ level: "derived", value: Math.max(1, contextLength.value - maxOutputTokens.value) }
 	);
 	const booleanField = (name: BooleanCapabilityField): EffectiveCapabilityField<boolean> =>
@@ -858,7 +819,7 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 		});
 
 	const outputLevel = maxOutputTokens.level;
-	const outputLimitSource: EffectiveOutputLimitSource = USER_SET_LEVELS.has(outputLevel)
+	const outputLimitSource: EffectiveOutputLimitSource = LEVEL_IS_USER_SET[outputLevel]
 		? "user"
 		: outputLevel === "server" && input.serverDeclared.kind === "discovered" && input.serverDeclared.outputDeclared
 			? "provider"
