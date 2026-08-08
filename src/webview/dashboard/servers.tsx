@@ -823,7 +823,7 @@ function ServerForm({
 					problems={modelParameterProblems}
 					hints={modelParameterHints}
 					disabled={saving}
-					prefixPlaceholder={l10n.t("Model prefix, e.g. gpt-4")}
+					prefixPlaceholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
 					prefixHelp={helpEntryModelParameterPrefix()}
 					onChange={(next) => props.patch({ modelParameters: next })}
 				/>
