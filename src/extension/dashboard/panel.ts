@@ -38,6 +38,7 @@ import {
 	readServerSecrets,
 	updateServerSecret,
 } from "../servers/serverSync";
+import { testEntryModelCapabilitiesOverride } from "../ui/commands";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildDashboardHtml } from "./html";
 import { webviewMessageSchema } from "./intentSchema";
@@ -619,13 +620,18 @@ export function registerDashboardCommand(
 			(serverId) => provider.getGroupServer(serverId),
 			readEntryModelParameters
 		),
-		// Integration seam (settings workstream): the entry layer resolves
-		// through the provider's own identity source (group label, or the
-		// registry sweep's recorded label), so the inspector can never
-		// diverge from the composition requests and registration use.
+		// The entry layer resolves through the provider's own identity source
+		// (group label, or the registry sweep's recorded label) AND the same
+		// test seam activation wires ahead of the setting, so the inspector can
+		// never diverge from the composition requests and registration use -
+		// not even in non-production mode, where the two would otherwise
+		// alternate the shared resolution table's cache entries.
 		resolveEntryCapabilities: (serverId) => {
 			const identity = provider.capabilityEntryIdentity(serverId);
-			return identity !== undefined ? readEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;
+			return identity !== undefined
+				? (testEntryModelCapabilitiesOverride(identity.label) ??
+						readEntryModelCapabilities(identity.label, identity.baseUrl))
+				: undefined;
 		},
 		getCatalogLookup: () => catalog.lookup,
 		getResolutionTable: () => provider.resolutionTable,
