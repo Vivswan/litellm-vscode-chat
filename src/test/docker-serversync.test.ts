@@ -38,9 +38,8 @@ import { expectDefined } from "./testUtils";
  * created. Run via `bun run test:docker`.
  */
 
-// Env-derived URLs feed scoped modelCapabilities keys, which match against
-// normalizeBaseUrl(baseUrl) (trailing slashes stripped); stripping here keeps
-// a slash-suffixed env value from silently unmatching every scoped key.
+// Env-derived URLs can arrive slash-suffixed; stripping here keeps the
+// derived NO_DISCOVERY_URL (and every base-URL comparison) canonical.
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
@@ -537,14 +536,14 @@ suite("Docker server sync", () => {
 
 	test("scenario 9: entry and global modelCapabilities patch a listed model and lift the output clamp", async function () {
 		this.timeout(180000);
-		// The global record is scoped to the proxy URL, so every group's copy of
-		// the model advertises the patched input limit; the entry record applies
-		// to the new entry's group alone (label + base URL match) and merges
-		// key by key over the global winner, so only that copy's requests may
-		// carry the overridden output limit.
+		// The global record's exact matcher applies to every group's copy of
+		// the model; the entry record applies to the new entry's group alone
+		// (label + base URL match) and merges key by key over the global
+		// winner, so only that copy's requests may carry the overridden output
+		// limit.
 		await writeCapabilitiesSetting({
 			...readCapabilitiesSetting(),
-			[`${BASE_URL}/${CAPS_MODEL}`]: { max_input_tokens: 90000 },
+			[CAPS_MODEL]: { max_input_tokens: 90000 },
 		});
 		await declareServer({
 			label: LABEL_CAPS,
@@ -559,7 +558,7 @@ suite("Docker server sync", () => {
 				countModels(candidates, ALIAS) >= proxyGroups &&
 				countModels(candidates, CAPS_MODEL) === proxyGroups &&
 				candidates.filter((m) => m.id === CAPS_MODEL).every((m) => m.maxInputTokens === 90000),
-			`every ${CAPS_MODEL} copy to advertise the scoped global input limit`
+			`every ${CAPS_MODEL} copy to advertise the global input limit`
 		);
 		// The host does not expose group identity on the model object (see
 		// scenario 4), so the chat runs through EVERY copy and collects the
@@ -585,17 +584,15 @@ suite("Docker server sync", () => {
 		);
 	});
 
-	test("scenario 10: a URL-scoped _declare registers a chat-capable model on a discovery-less registry server", async function () {
+	test("scenario 10: an entry _declare registers a chat-capable model on a discovery-less registry server", async function () {
 		this.timeout(120000);
 		// The registry path (litellm._test.addServer) serves the legacy chain;
-		// its declared models ride the URL-scoped global setting because a
-		// registry server has no entry. The scoped key is dropped again in the
-		// finally so scenario 11's group at the same base URL cannot inherit
-		// this declaration.
-		const withoutDeclare = readCapabilitiesSetting();
-		await writeCapabilitiesSetting({
-			...withoutDeclare,
-			[`${NO_DISCOVERY_URL}/${REGISTRY_DECLARED_MODEL}`]: {
+		// declarations are entry-level (exact entry keys) and a registry server
+		// has no declared entry, so the label-keyed test seam supplies the
+		// record. Cleared again in the finally so scenario 11's group at the
+		// same base URL cannot inherit this declaration.
+		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", LABEL_DECLARED_REGISTRY, {
+			[REGISTRY_DECLARED_MODEL]: {
 				_declare: true,
 				max_input_tokens: 123000,
 				max_output_tokens: 9000,
@@ -636,7 +633,11 @@ suite("Docker server sync", () => {
 			const params = await chat(model, `${COMMAND_SIGIL}params`);
 			assert.match(params, /max_tokens: `9000`/, "a user-declared output limit reaches the wire uncapped");
 		} finally {
-			await writeCapabilitiesSetting(withoutDeclare);
+			await vscode.commands.executeCommand(
+				"litellm._test.setEntryModelCapabilities",
+				LABEL_DECLARED_REGISTRY,
+				undefined
+			);
 			// Without its declaration the registry server would just fail every
 			// later sweep, churning error lines into the log buffer scenario 11
 			// scans; nothing after this test uses the registry.

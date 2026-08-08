@@ -3,7 +3,7 @@
  * is owned by the shared module (unit + equivalence property suites in the
  * extension host); these tests only pin what the webview shows: the row
  * action that opens it, the identity header, source naming, shadowed and
- * replaced-record rendering, the not-sent reasons, the max_tokens derivation
+ * inherited rendering, the not-sent reasons, the max_tokens derivation
  * wording per branch, the honest caveats, and the empty state.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -72,10 +72,10 @@ test("the header states the raw ID, the server label, and the base URL scope", (
 });
 
 test("a global match renders as a sent row sourced to the settings layer and its winning key", () => {
-	const root = mountInspector({ globalParameters: { "gpt-4": { temperature: 0.2 } } });
+	const root = mountInspector({ globalParameters: { "gpt-4*": { temperature: 0.2 } } });
 	const row = root.querySelector("table.params tbody tr") as HTMLElement;
 	const cells = Array.from(row.querySelectorAll("td")).map((cell) => (cell.textContent ?? "").trim());
-	expect(cells).toEqual(["temperature", "0.2", "Settings - gpt-4"]);
+	expect(cells).toEqual(["temperature", "0.2", "Settings - gpt-4*"]);
 	expect(row.classList.contains("param-not-sent")).toBe(false);
 });
 
@@ -84,9 +84,9 @@ test("an entry override names the entry layer and shows the shadowed global valu
 		scope: {
 			baseUrlScope: "http://prod.test",
 			entryLabel: "Team A",
-			entryParameters: { "gpt-4": { temperature: 0.1 } },
+			entryParameters: { "gpt-4*": { temperature: 0.1 } },
 		},
-		globalParameters: { "gpt-4": { temperature: 0.8, top_p: 0.9 } },
+		globalParameters: { "gpt-4*": { temperature: 0.8, top_p: 0.9 } },
 	});
 	const rows = Array.from(root.querySelectorAll("table.params tbody tr"));
 	const texts = rows.map((row) =>
@@ -95,57 +95,51 @@ test("an entry override names the entry layer and shows the shadowed global valu
 			.join(" | ")
 	);
 	expect(texts).toEqual([
-		'temperature | 0.1 | Server entry "Team A" - gpt-4',
-		" | 0.8 | overridden: Settings - gpt-4",
-		"top_p | 0.9 | Settings - gpt-4",
+		'temperature | 0.1 | Server entry "Team A" - gpt-4*',
+		" | 0.8 | overridden: Settings - gpt-4*",
+		"top_p | 0.9 | Settings - gpt-4*",
 	]);
 	const shadowed = root.querySelector("tr.param-shadowed") as HTMLElement;
 	expect(shadowed.querySelector(".param-value")).not.toBeNull();
 });
 
-test("a scoped win renders the WHOLE replaced unscoped record as not applied, non-colliding keys included", () => {
+test("an inherited field renders its writer key with the inherited-from note", () => {
 	const root = mountInspector({
 		globalParameters: {
-			"gpt-4": { temperature: 0.8, seed: 7 },
-			"http://prod.test/gpt-4": { temperature: 0.2 },
+			"*": { top_p: 0.9, _inheritable: true },
+			"gpt-4*": { temperature: 0.3 },
 		},
 	});
-	// The scoped value is the one sent row.
-	const sentTexts = Array.from(root.querySelectorAll("table.params tbody tr td")).map((cell) =>
-		(cell.textContent ?? "").trim()
-	);
-	expect(sentTexts).toEqual(["temperature", "0.2", "Settings - http://prod.test/gpt-4"]);
-	// The whole unscoped record shows as replaced - including seed, which the
-	// winner never set: replacement is record-level, not a key merge.
-	const replaced = root.querySelector(".params-replaced") as HTMLElement;
-	expect(replaced.textContent).toContain("Not applied - Settings gpt-4");
-	const items = Array.from(replaced.querySelectorAll("li")).map((item) => (item.textContent ?? "").trim());
-	expect(items).toEqual(["temperature: 0.8", "seed: 7"]);
+	const rows = Array.from(root.querySelectorAll("table.params tbody tr"));
+	const texts = rows.map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim());
+	expect(texts.some((text) => text.includes("Settings - *") && text.includes("inherited from *"))).toBe(true);
+	expect(texts.some((text) => text.includes("Settings - gpt-4*") && !text.includes("inherited"))).toBe(true);
 });
 
-test("underscore and provider-owned keys render muted with their not-sent reasons", () => {
-	const root = mountInspector({ globalParameters: { "gpt-4": { _internal: true, stream: false } } });
+test("unknown underscore keys never surface; provider-owned keys render muted with the not-sent reason", () => {
+	const root = mountInspector({ globalParameters: { "gpt-4*": { _internal: true, stream: false } } });
 	const rows = Array.from(root.querySelectorAll("table.params tbody tr")) as HTMLElement[];
+	expect(rows.length).toBe(1);
 	expect(rows.every((row) => row.classList.contains("param-not-sent"))).toBe(true);
-	expect(root.textContent).toContain("not sent: keys starting with _ are reserved");
+	expect(root.textContent).not.toContain("_internal");
 	expect(root.textContent).toContain("not sent: a provider-owned request field");
 });
 
 test("a forced row states that it overrides runtime options, and the runtime caveat excepts it", () => {
-	const root = mountInspector({ globalParameters: { "gpt-4": { temperature: 0.2, _force: true } } });
+	const root = mountInspector({ globalParameters: { "gpt-4*": { temperature: 0.2, _force: true } } });
 	expect(root.textContent).toContain("forced: overrides runtime options and the picker");
 	expect(root.textContent).toContain("they override every row above except forced rows.");
 });
 
 test("without forced rows the runtime caveat keeps its unconditional wording", () => {
-	const root = mountInspector({ globalParameters: { "gpt-4": { temperature: 0.2 } } });
+	const root = mountInspector({ globalParameters: { "gpt-4*": { temperature: 0.2 } } });
 	expect(root.textContent).not.toContain("forced:");
 	expect(root.textContent).toContain("they override every row above.");
 });
 
 test("_force diagnostics render like the capability inspector's: unforceable keys and malformed lists", () => {
 	const root = mountInspector({
-		globalParameters: { "gpt-4": { temperature: 0.2, model: "other", _force: ["model", "typo_entry"] } },
+		globalParameters: { "gpt-4*": { temperature: 0.2, model: "other", _force: ["model", "typo_entry"] } },
 	});
 	expect(root.textContent).toContain("Configuration problems in the matched records:");
 	// The refused provider-owned key names itself and the record that carried it.
@@ -153,18 +147,25 @@ test("_force diagnostics render like the capability inspector's: unforceable key
 	// A listed name the record does not set malforms the directive; the copy
 	// leads with the shape that works and must not claim the whole directive is
 	// dead - valid entries stay forced.
-	expect(root.textContent).toContain('"_force" must be true or a list of parameters the record sets');
-	expect(root.textContent).toContain('e.g. ["temperature"]; offending entries are ignored (settings key gpt-4)');
+	expect(root.textContent).toContain('"_force" must be true or a list of fields the record sets');
+	expect(root.textContent).toContain('e.g. ["temperature"]; offending entries are ignored (settings key gpt-4*)');
+});
+
+test("an invalid matcher key renders its own diagnostic", () => {
+	const root = mountInspector({
+		globalParameters: { "gpt*4o": { temperature: 0.2 }, "gpt-4o": { top_p: 0.5 } },
+	});
+	expect(root.textContent).toContain('"gpt*4o" is not a valid matcher key and never matches');
 });
 
 test("clean configuration renders no diagnostics block", () => {
-	const root = mountInspector({ globalParameters: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } } });
+	const root = mountInspector({ globalParameters: { "gpt-4*": { temperature: 0.2, _force: ["temperature"] } } });
 	expect(root.textContent).not.toContain("Configuration problems in the matched records:");
 });
 
 test("the max_tokens derivation states the configured branch with its attribution", () => {
-	const root = mountInspector({ globalParameters: { "gpt-4": { max_tokens: 2222 } } });
-	expect(textOf(root, ".params-max-tokens")).toBe("max_tokens 2222 set by Settings - gpt-4");
+	const root = mountInspector({ globalParameters: { "gpt-4*": { max_tokens: 2222 } } });
+	expect(textOf(root, ".params-max-tokens")).toBe("max_tokens 2222 set by Settings - gpt-4*");
 	// A configured max_tokens is the derivation's story, never a table row -
 	// and it is real configuration, so the empty-state line must not claim
 	// nothing matched.

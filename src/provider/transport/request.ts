@@ -1,56 +1,16 @@
-import {
-	parameterSkipReason,
-	type ResolvedModelParameters,
-	resolveModelParameters,
-} from "../../shared/config/parameterResolution";
-import { getModelParametersConfig } from "../../shared/config/settings";
+import { parameterSkipReason } from "../../shared/config/parameterResolution";
 import type { ToolConfig } from "../../shared/conversion/tools";
 import type { OpenAIChatMessage } from "../../shared/conversion/wire";
-import type { ModelRoute } from "../catalog/modelCatalog";
 import type { ModelConfigurationRequestParams } from "../catalog/modelConfiguration";
 
-// The prefix resolution, precedence merge, and max_tokens machinery live in
-// the shared module (the dashboard's inspector consumes the same functions);
-// these re-exports keep this module the transport-side entry point.
-export {
-	DEFAULT_MAX_TOKENS_CAP,
-	findLongestPrefixMatch,
-	resolveMaxTokens,
-} from "../../shared/config/parameterResolution";
+// The matcher resolution, precedence merge, and max_tokens machinery live in
+// the shared module (the dashboard's inspector consumes the same functions),
+// and requests read the merged configured parameters through the provider's
+// memoized ModelResolutionTable; these re-exports keep this module the
+// transport-side entry point.
+export { DEFAULT_MAX_TOKENS_CAP, resolveMaxTokens } from "../../shared/config/parameterResolution";
 
 export const MAX_TOOLS_PER_REQUEST = 128;
-
-/**
- * Resolve the configured modelParameters for a model, merging two settings
- * sources. The global setting resolves as before: scoped keys are tried as
- * "<scope>/<modelId>" for every entry in `serverScopes` (the server's
- * normalized base URL), and any scoped match beats an unscoped one.
- * `entryModelParameters` is the declared server entry's own record (already
- * scoped to one entry, so plain longest-prefix matching applies); its
- * matching parameters override the global result key by key, mirroring how
- * the picker configuration and runtime options later override both -
- * except `forcedParams` (the records' `_force`d fields), which
- * buildRequestBody applies above runtime options and the picker.
- * The merge itself lives in resolveModelParameters (shared with the
- * dashboard's inspector); this wrapper only resolves the raw ID and reads
- * the live configuration.
- */
-export function getModelParameters(
-	modelId: string,
-	modelRoutes: Map<string, ModelRoute>,
-	serverScopes: readonly string[] = [],
-	entryModelParameters?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
-): Pick<ResolvedModelParameters, "params" | "forcedParams"> {
-	const route = modelRoutes.get(modelId);
-	const rawId = route?.rawModelId ?? modelId;
-	const { params, forcedParams } = resolveModelParameters({
-		rawModelId: rawId,
-		globalParameters: getModelParametersConfig(),
-		serverScopes,
-		entryParameters: entryModelParameters,
-	});
-	return { params, forcedParams };
-}
 
 export interface RequestBodyParams {
 	rawModelId: string;

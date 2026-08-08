@@ -22,7 +22,6 @@ import { RequestError } from "../../provider/transport/errorMapping";
 import { extractDeclaredModels } from "../../shared/config/capabilityResolution";
 import { getModelCapabilitiesConfig } from "../../shared/config/settings";
 import { transportClassificationOf } from "../../shared/errorClassification";
-import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError, rawServerEntries } from "./intents";
@@ -64,12 +63,12 @@ export type DraftProbeOutcome =
 /**
  * The models the draft's `_declare` directives create, resolved exactly like
  * registration resolves them: the draft's own capability records as the entry
- * layer, the live global setting scoped to the draft's base URL.
+ * layer (only exact entry keys can declare), the live global setting beside
+ * it for its declare diagnostics.
  */
 function draftDeclaredModelIds(server: SaveServerPayload): readonly string[] {
 	return extractDeclaredModels({
 		globalCapabilities: getModelCapabilitiesConfig(),
-		serverScopes: [normalizeBaseUrl(server.baseUrl.trim())],
 		entryCapabilities: server.modelCapabilities,
 	}).models.map((model) => model.rawId);
 }
