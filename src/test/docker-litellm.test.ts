@@ -16,7 +16,7 @@ import {
 	getThinkingPartClass,
 	waitForHostModels,
 } from "./hostApiHelpers";
-import { expectDefined } from "./testUtils";
+import { assertOmits, assertShows, expectDefined } from "./testUtils";
 
 /**
  * Docker-stack test suite.
@@ -109,15 +109,6 @@ suite("Docker LiteLLM stack", () => {
 			(p): p is vscode.LanguageModelDataPart =>
 				p instanceof vscode.LanguageModelDataPart && p.mimeType.startsWith(mimePrefix)
 		);
-	}
-
-	/**
-	 * Containment assert for rendered output. The needle rides a parameter so a
-	 * URL literal never sits at an includes() call, the shape CodeQL reads as
-	 * URL-sanitization-by-substring (js/incomplete-url-substring-sanitization).
-	 */
-	function assertShows(text: string, needle: string, context: string): void {
-		assert.ok(text.includes(needle), `${context}, got "${text}"`);
 	}
 
 	/**
@@ -304,7 +295,7 @@ suite("Docker LiteLLM stack", () => {
 			}
 			const text = extractText(outcome.parts);
 			assert.ok(text.includes("visible text"), `non-text blocks must not erase text, got "${text}"`);
-			assert.ok(!text.includes("example.test/image"), "image block content must not leak into text");
+			assertOmits(text, "example.test/image", "image block content must not leak into text");
 		});
 
 		test("control-token-sections strips section markers split across chunks", async () => {
