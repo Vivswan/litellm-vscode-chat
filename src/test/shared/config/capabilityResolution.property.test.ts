@@ -33,8 +33,6 @@ import type {
 import {
 	CAPABILITY_FIELDS,
 	CAPABILITY_FLOOR,
-	DECLARE_DIRECTIVE,
-	extractDeclaredModels,
 	FALLBACK_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 	resolveCapabilityOverrides,
@@ -114,7 +112,9 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	)
 	.map(([base, declare, openrouterModel, fallback]) => ({
 		...base,
-		...(declare !== undefined ? { [DECLARE_DIRECTIVE]: declare } : {}),
+		// The retired _declare directive stays in the generator as inert
+		// underscore-key noise: resolution must ignore it everywhere.
+		...(declare !== undefined ? { _declare: declare } : {}),
 		...(openrouterModel !== undefined ? { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel } : {}),
 		...(fallback !== undefined ? { [FALLBACK_DIRECTIVE]: fallback } : {}),
 	}));
@@ -234,7 +234,7 @@ const scenario: fc.Arbitrary<Scenario> = fc
 /**
  * The independent statement of what parseCapabilityRecord accepts, so the
  * fallthrough property below is not the parser checking itself: keep validly
- * typed capability fields, boolean `_declare`, non-blank `_openrouter_model`,
+ * typed capability fields, non-blank `_openrouter_model`,
  * and boolean-or-array `_fallback` (its element validation matches the parse:
  * an element that is not a validly kept field is diagnosed and skipped either
  * way); drop everything else.
@@ -242,11 +242,7 @@ const scenario: fc.Arbitrary<Scenario> = fc
 function sanitizeRecord(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
 	const sanitized: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(record)) {
-		if (key === DECLARE_DIRECTIVE) {
-			if (typeof value === "boolean") {
-				sanitized[key] = value;
-			}
-		} else if (key === OPENROUTER_MODEL_DIRECTIVE) {
+		if (key === OPENROUTER_MODEL_DIRECTIVE) {
 			if (typeof value === "string" && value.trim() !== "") {
 				sanitized[key] = value;
 			}
@@ -288,7 +284,6 @@ suite("shared/config capabilityResolution properties", () => {
 				assert.deepStrictEqual(resolved.fields, sanitized.fields);
 				assert.deepStrictEqual(resolved.fallbackFields, sanitized.fallbackFields);
 				assert.deepStrictEqual(resolved.directive, sanitized.directive);
-				assert.strictEqual(resolved.declare, sanitized.declare);
 				assert.deepStrictEqual(resolved.implicitCatalog, sanitized.implicitCatalog);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
@@ -405,22 +400,7 @@ suite("shared/config capabilityResolution properties", () => {
 					}
 				}
 				assert.deepStrictEqual(effective.directive, overrides.directive);
-				assert.strictEqual(effective.declare, overrides.declare);
 				assert.deepStrictEqual(effective.diagnostics, overrides.diagnostics);
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED }
-		);
-	});
-
-	test("declaration and resolution can never disagree about a model being declared", () => {
-		fc.assert(
-			fc.property(scenario, ({ input }) => {
-				const declaredIds = extractDeclaredModels({
-					globalCapabilities: input.globalCapabilities,
-					entryCapabilities: input.entryCapabilities,
-				}).models.map((model) => model.rawId);
-				assert.strictEqual(new Set(declaredIds).size, declaredIds.length, "extraction never emits duplicate IDs");
-				assert.strictEqual(resolveCapabilityOverrides(input).declare, declaredIds.includes(input.rawModelId));
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);

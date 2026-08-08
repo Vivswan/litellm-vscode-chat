@@ -1127,12 +1127,12 @@ suite("provider groups: capability overrides and declared models", () => {
 		assert.strictEqual(discoveryHits, 1, "overrides apply outside the cache: one network fetch serves all three");
 	});
 
-	test("an entry _declare serves a synthesized model beside discovery and joins the count", async () => {
+	test("an entry's declared model serves beside discovery and joins the count", async () => {
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryModelCapabilities: (label, baseUrl) =>
-				label === "Gateway" && baseUrl === TEST_BASE_URL
-					? { "declared-model": { _declare: true, context_length: 32000 } }
-					: undefined,
+				label === "Gateway" && baseUrl === TEST_BASE_URL ? { "declared-model": { context_length: 32000 } } : undefined,
+			getEntryDeclaredModels: (label, baseUrl) =>
+				label === "Gateway" && baseUrl === TEST_BASE_URL ? ["declared-model"] : undefined,
 		});
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
@@ -1154,7 +1154,7 @@ suite("provider groups: capability overrides and declared models", () => {
 		});
 	});
 
-	test("a URL-scoped global _declare no longer creates models", async () => {
+	test("a URL-scoped global _declare directive no longer creates models", async () => {
 		const provider = makeProvider();
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 		await withConfig(
@@ -1173,9 +1173,9 @@ suite("provider groups: capability overrides and declared models", () => {
 		);
 	});
 
-	test("a _declare whose ID discovery lists stays inert", async () => {
+	test("a declared ID discovery lists stays inert", async () => {
 		const provider = makeProvider(undefined, "test-key", undefined, {
-			getEntryModelCapabilities: () => ({ "test-model": { _declare: true } }),
+			getEntryDeclaredModels: () => ["test-model"],
 		});
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 		await withConfig({}, async () => {
@@ -1195,8 +1195,8 @@ suite("provider groups: capability overrides and declared models", () => {
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getExpectedFailures: (label, baseUrl) =>
 				label === "Gateway" && baseUrl === TEST_BASE_URL ? ["modelInfo", "modelListing"] : undefined,
-			getEntryModelCapabilities: (label, baseUrl) =>
-				label === "Gateway" && baseUrl === TEST_BASE_URL ? { "gw-model": { _declare: true } } : undefined,
+			getEntryDeclaredModels: (label, baseUrl) =>
+				label === "Gateway" && baseUrl === TEST_BASE_URL ? ["gw-model"] : undefined,
 		});
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
@@ -1226,7 +1226,7 @@ suite("provider groups: capability overrides and declared models", () => {
 		const expectIt = { value: true };
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getExpectedFailures: () => (expectIt.value ? ["modelInfo", "modelListing"] : undefined),
-			getEntryModelCapabilities: () => ({ "gw-model": { _declare: true } }),
+			getEntryDeclaredModels: () => ["gw-model"],
 		});
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => emptyErrorResponse(500)),
@@ -1257,9 +1257,9 @@ suite("provider groups: capability overrides and declared models", () => {
 	test("a failing refresh merges declared models un-staled with the stale-decorated last known set", async () => {
 		// The declaration is entry-level and mutable, so the tail of the test
 		// can remove it and pin the immediate mid-outage disappearance.
-		let declared: Record<string, Record<string, unknown>> | undefined = { "declared-model": { _declare: true } };
+		let declared: readonly string[] | undefined = ["declared-model"];
 		const provider = makeProvider(undefined, "test-key", undefined, {
-			getEntryModelCapabilities: () => declared,
+			getEntryDeclaredModels: () => declared,
 		});
 		let fail = false;
 		mswServer.use(
@@ -1281,7 +1281,7 @@ suite("provider groups: capability overrides and declared models", () => {
 			const declaredInfo = expectDefined(served.find((info) => info.id === "declared-model"));
 			assert.ok(!("statusIcon" in declaredInfo), "declared models never carry the stale decoration");
 
-			// The window keeps discovered models only: a removed _declare
+			// The window keeps discovered models only: a removed declared ID
 			// disappears immediately even mid-outage, and the projection is
 			// what the dashboard merges instead.
 			const snapshot = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
@@ -1301,7 +1301,7 @@ suite("provider groups: capability overrides and declared models", () => {
 			assert.deepStrictEqual(
 				withoutDeclared.map((info) => info.id),
 				["test-model"],
-				"a removed _declare takes effect immediately even mid-outage"
+				"a removed declared ID takes effect immediately even mid-outage"
 			);
 		});
 	});

@@ -412,10 +412,10 @@ export type ServerTestParse =
  * a probe. The assembled intent carries the draft's real trimmed label (it
  * addresses "keep" resolution extension-side, including an orphan secret blob
  * a fresh label would inherit) and the edited entry's label as replaceLabel.
- * Capability rows ride along only when they parse clean - the probe applies
- * their `_declare` directives and the draft's expectedFailures to report a
- * declared-count or expected outcome, but broken rows never block or distort
- * a connection probe.
+ * Capability rows ride along only when they parse clean, and the probe pairs
+ * the edited entry's declared models with the draft's expectedFailures to
+ * report a declared-count or expected outcome - broken rows never block or
+ * distort a connection probe.
  */
 export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFormContext = {}): ServerTestParse {
 	const parse = parseServerForm({ ...draft, label: "draft", modelParameters: [], modelCapabilities: [] });

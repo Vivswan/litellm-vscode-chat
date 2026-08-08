@@ -313,7 +313,7 @@ suite("extension/dashboard/serverForm", () => {
 							params: [
 								{ key: "context_length", valueText: "128000" },
 								{ key: "supports_vision", valueText: "true" },
-								{ key: "_declare", valueText: "true" },
+								{ key: "_future", valueText: "true" },
 								{ key: "_openrouter_model", valueText: "openai/gpt-4o" },
 							],
 						},
@@ -325,7 +325,7 @@ suite("extension/dashboard/serverForm", () => {
 				"my-model": {
 					context_length: 128000,
 					supports_vision: true,
-					_declare: true,
+					_future: true,
 					_openrouter_model: "openai/gpt-4o",
 				},
 			});
@@ -501,12 +501,12 @@ suite("extension/dashboard/serverForm", () => {
 		test("clean capability rows and expectedFailures ride the probe intent; broken rows are dropped, not blocking", () => {
 			const withCaps = parseServerFormForTest(
 				draft({
-					modelCapabilities: [{ prefix: "my-model", params: [{ key: "_declare", valueText: "true" }] }],
+					modelCapabilities: [{ prefix: "my-model", params: [{ key: "supports_vision", valueText: "true" }] }],
 					expectedFailures: ["modelListing"],
 				})
 			);
 			assert.ok(withCaps.ok);
-			assert.deepStrictEqual(withCaps.intent.server.modelCapabilities, { "my-model": { _declare: true } });
+			assert.deepStrictEqual(withCaps.intent.server.modelCapabilities, { "my-model": { supports_vision: true } });
 			assert.deepStrictEqual(withCaps.intent.server.expectedFailures, ["modelListing"]);
 
 			const withBrokenCaps = parseServerFormForTest(

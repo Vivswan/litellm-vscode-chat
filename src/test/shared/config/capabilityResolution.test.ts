@@ -1,7 +1,7 @@
 /**
  * The capability-resolution unit pins: the closed vocabulary boundary
- * (parseCapabilityRecord), `_declare` extraction under the exact-entry-key
- * rule, the override/fallback/directive layering, the full precedence walk
+ * (parseCapabilityRecord), the override/fallback/directive layering, the
+ * full precedence walk
  * (entry > global > directive > server > fallbacks > catalog > floor), and
  * output-limit provenance - including the redesign's ruling that BOTH
  * catalog paths (the explicit `_openrouter_model` directive included) stay
@@ -15,7 +15,6 @@ import type {
 	CapabilityFallbackCandidate,
 	CapabilityFieldValues,
 	CatalogLookupResult,
-	DeclaredModelSpec,
 	DirectiveOutcome,
 	EffectiveCapabilities,
 	ParsedCapabilityRecord,
@@ -24,9 +23,7 @@ import type {
 } from "../../../shared/config/capabilityResolution";
 import {
 	CAPABILITY_FLOOR,
-	DECLARE_DIRECTIVE,
 	EMPTY_CATALOG_LOOKUP,
-	extractDeclaredModels,
 	FALLBACK_DIRECTIVE,
 	FLOOR_CONTEXT_LENGTH,
 	FLOOR_MAX_OUTPUT_TOKENS,
@@ -71,18 +68,15 @@ function resolve(partial: Partial<ResolveModelCapabilitiesInput>): EffectiveCapa
 
 suite("shared/config capabilityResolution parseCapabilityRecord", () => {
 	test("accepts the whole vocabulary with valid values and no diagnostics", () => {
-		const parsed: ParsedCapabilityRecord = parseCapabilityRecord(
-			{
-				context_length: 128000,
-				max_input_tokens: 100000,
-				max_output_tokens: 16000,
-				supports_function_calling: true,
-				supports_vision: false,
-				supports_reasoning: true,
-				supports_audio_input: false,
-			},
-			{ allowDeclare: true }
-		);
+		const parsed: ParsedCapabilityRecord = parseCapabilityRecord({
+			context_length: 128000,
+			max_input_tokens: 100000,
+			max_output_tokens: 16000,
+			supports_function_calling: true,
+			supports_vision: false,
+			supports_reasoning: true,
+			supports_audio_input: false,
+		});
 		assert.deepStrictEqual(parsed.fields, {
 			context_length: 128000,
 			max_input_tokens: 100000,
@@ -96,7 +90,7 @@ suite("shared/config capabilityResolution parseCapabilityRecord", () => {
 	});
 
 	test("unknown fields are diagnosed; unknown underscore keys stay silent", () => {
-		const parsed = parseCapabilityRecord({ bogus: 1, _future: true }, { allowDeclare: true });
+		const parsed = parseCapabilityRecord({ bogus: 1, _future: true });
 		assert.deepStrictEqual(parsed.fields, {});
 		assert.deepStrictEqual(
 			parsed.diagnostics.map((d) => `${d.kind}:${d.key}`),
@@ -106,117 +100,64 @@ suite("shared/config capabilityResolution parseCapabilityRecord", () => {
 
 	test("number fields take positive integers only; boolean fields take booleans only", () => {
 		for (const value of [0, -5, 1.5, "128k", null, true]) {
-			const parsed = parseCapabilityRecord({ context_length: value }, { allowDeclare: true });
+			const parsed = parseCapabilityRecord({ context_length: value });
 			assert.strictEqual(parsed.fields.context_length, undefined, String(value));
 			assert.deepStrictEqual(parsed.diagnostics, [{ kind: "invalid-value", key: "context_length" }]);
 		}
 		for (const value of [1, "yes", null]) {
-			const parsed = parseCapabilityRecord({ supports_vision: value }, { allowDeclare: true });
+			const parsed = parseCapabilityRecord({ supports_vision: value });
 			assert.strictEqual(parsed.fields.supports_vision, undefined, String(value));
 			assert.deepStrictEqual(parsed.diagnostics, [{ kind: "invalid-value", key: "supports_vision" }]);
 		}
 	});
 
-	test("_declare must be boolean and is honored only where allowed", () => {
-		assert.strictEqual(parseCapabilityRecord({ [DECLARE_DIRECTIVE]: true }, { allowDeclare: true }).declare, true);
-		assert.strictEqual(parseCapabilityRecord({ [DECLARE_DIRECTIVE]: false }, { allowDeclare: true }).declare, false);
-		const invalid = parseCapabilityRecord({ [DECLARE_DIRECTIVE]: "yes" }, { allowDeclare: true });
-		assert.strictEqual(invalid.declare, false);
-		assert.deepStrictEqual(invalid.diagnostics, [{ kind: "invalid-directive", key: DECLARE_DIRECTIVE }]);
-		const unscoped = parseCapabilityRecord({ [DECLARE_DIRECTIVE]: true }, { allowDeclare: false });
-		assert.strictEqual(unscoped.declare, false);
-		assert.deepStrictEqual(unscoped.diagnostics, [{ kind: "unscoped-declare", key: DECLARE_DIRECTIVE }]);
-		const unscopedFalse = parseCapabilityRecord({ [DECLARE_DIRECTIVE]: false }, { allowDeclare: false });
-		assert.deepStrictEqual(unscopedFalse.diagnostics, [], "an explicit false is not an error anywhere");
+	test("a leftover _declare key is an unknown underscore key: silently ignored", () => {
+		// Declaration moved to the entry's discovery.declared list; the retired
+		// directive parses like any reserved underscore key (ruling O4).
+		const parsed = parseCapabilityRecord({ _declare: true, context_length: 1000 });
+		assert.deepStrictEqual(parsed.diagnostics, []);
+		assert.strictEqual(parsed.fields.context_length, 1000);
 	});
 
 	test("_openrouter_model takes a non-blank string", () => {
-		const valid = parseCapabilityRecord({ [OPENROUTER_MODEL_DIRECTIVE]: "vendorx/alpha" }, { allowDeclare: true });
+		const valid = parseCapabilityRecord({ [OPENROUTER_MODEL_DIRECTIVE]: "vendorx/alpha" });
 		assert.strictEqual(valid.openrouterModel, "vendorx/alpha");
 		for (const value of ["", "   ", 5, null, true]) {
-			const parsed = parseCapabilityRecord({ [OPENROUTER_MODEL_DIRECTIVE]: value }, { allowDeclare: true });
+			const parsed = parseCapabilityRecord({ [OPENROUTER_MODEL_DIRECTIVE]: value });
 			assert.strictEqual(parsed.openrouterModel, undefined, String(value));
 			assert.deepStrictEqual(parsed.diagnostics, [{ kind: "invalid-directive", key: OPENROUTER_MODEL_DIRECTIVE }]);
 		}
 	});
 
 	test("_fallback marks all valid fields, or the listed valid ones, diagnosing the rest", () => {
-		const all = parseCapabilityRecord(
-			{ [FALLBACK_DIRECTIVE]: true, context_length: 1000, supports_vision: true, bogus: 1 },
-			{ allowDeclare: true }
-		);
+		const all = parseCapabilityRecord({
+			[FALLBACK_DIRECTIVE]: true,
+			context_length: 1000,
+			supports_vision: true,
+			bogus: 1,
+		});
 		assert.deepStrictEqual([...all.fallback].sort(), ["context_length", "supports_vision"]);
 
-		const listed = parseCapabilityRecord(
-			{
-				[FALLBACK_DIRECTIVE]: ["context_length", "max_output_tokens", "absent_field", 5],
-				context_length: 1000,
-				max_output_tokens: "junk",
-			},
-			{ allowDeclare: true }
-		);
+		const listed = parseCapabilityRecord({
+			[FALLBACK_DIRECTIVE]: ["context_length", "max_output_tokens", "absent_field", 5],
+			context_length: 1000,
+			max_output_tokens: "junk",
+		});
 		assert.deepStrictEqual([...listed.fallback], ["context_length"], "invalid-valued and absent names are skipped");
 		assert.ok(listed.diagnostics.some((d) => d.kind === "invalid-directive" && d.key === FALLBACK_DIRECTIVE));
 
-		const off = parseCapabilityRecord({ [FALLBACK_DIRECTIVE]: false, context_length: 1000 }, { allowDeclare: true });
+		const off = parseCapabilityRecord({ [FALLBACK_DIRECTIVE]: false, context_length: 1000 });
 		assert.deepStrictEqual([...off.fallback], []);
 		assert.deepStrictEqual(off.diagnostics, []);
 	});
 
 	test("_force in a capability record is the wrong record type", () => {
-		const parsed = parseCapabilityRecord({ _force: true, context_length: 1000 }, { allowDeclare: true });
+		const parsed = parseCapabilityRecord({ _force: true, context_length: 1000 });
 		assert.deepStrictEqual(
 			parsed.diagnostics.map((d) => `${d.kind}:${d.key}`),
 			["wrong-record-type:_force"]
 		);
 		assert.strictEqual(parsed.fields.context_length, 1000, "the rest of the record still applies");
-	});
-});
-
-suite("shared/config capabilityResolution extractDeclaredModels", () => {
-	test("an exact entry key with _declare: true declares that exact ID", () => {
-		const extracted = extractDeclaredModels({
-			globalCapabilities: {},
-			entryCapabilities: { "my-model": { [DECLARE_DIRECTIVE]: true, context_length: 1000 } },
-		});
-		const expected: readonly DeclaredModelSpec[] = [{ rawId: "my-model", layer: "entry", recordKey: "my-model" }];
-		assert.deepStrictEqual(extracted.models, expected);
-		assert.deepStrictEqual(extracted.diagnostics, []);
-	});
-
-	test("a global _declare is unscoped: diagnosed, never created", () => {
-		const extracted = extractDeclaredModels({
-			globalCapabilities: { "my-model": { [DECLARE_DIRECTIVE]: true } },
-		});
-		assert.deepStrictEqual(extracted.models, []);
-		assert.deepStrictEqual(extracted.diagnostics, [
-			{ kind: "unscoped-declare", key: DECLARE_DIRECTIVE, layer: "global", recordKey: "my-model" },
-		]);
-	});
-
-	test("glob, regex, and catch-all entry keys cannot declare: matchers select, they do not name", () => {
-		const extracted = extractDeclaredModels({
-			globalCapabilities: {},
-			entryCapabilities: {
-				"my-*": { [DECLARE_DIRECTIVE]: true },
-				"/my-.*/": { [DECLARE_DIRECTIVE]: true },
-				"*": { [DECLARE_DIRECTIVE]: true },
-			},
-		});
-		assert.deepStrictEqual(extracted.models, []);
-		assert.strictEqual(extracted.diagnostics.length, 3);
-		assert.ok(extracted.diagnostics.every((d) => d.kind === "unscoped-declare" && d.layer === "entry"));
-	});
-
-	test("an invalid _declare value is diagnosed; field problems stay with resolution", () => {
-		const extracted = extractDeclaredModels({
-			globalCapabilities: {},
-			entryCapabilities: { m1: { [DECLARE_DIRECTIVE]: "yes", bogus: 1 } },
-		});
-		assert.deepStrictEqual(extracted.models, []);
-		assert.deepStrictEqual(extracted.diagnostics, [
-			{ kind: "invalid-directive", key: DECLARE_DIRECTIVE, layer: "entry", recordKey: "m1" },
-		]);
 	});
 });
 
@@ -329,17 +270,6 @@ suite("shared/config capabilityResolution resolveCapabilityOverrides", () => {
 		assert.deepStrictEqual(resolved.directive, { kind: "not-found", id: "cat/ghost" });
 		assert.strictEqual(resolved.fields.context_length, undefined);
 	});
-
-	test("declare answers extraction's rule for the resolved model", () => {
-		const input = {
-			rawModelId: "my-model",
-			globalCapabilities: {},
-			entryCapabilities: { "my-model": { [DECLARE_DIRECTIVE]: true } },
-			catalog: EMPTY_CATALOG_LOOKUP,
-		};
-		assert.strictEqual(resolveCapabilityOverrides(input).declare, true);
-		assert.strictEqual(resolveCapabilityOverrides({ ...input, rawModelId: "other" }).declare, false);
-	});
 });
 
 suite("shared/config capabilityResolution resolveModelCapabilities walk", () => {
@@ -404,13 +334,14 @@ suite("shared/config capabilityResolution resolveModelCapabilities walk", () => 
 	});
 
 	test("a declared model has no server level and resolves from the remaining sources", () => {
+		// The model exists because the entry's discovery.declared names it; the
+		// walk sees only the "declared" baseline (no server values at all).
 		const effective = resolve({
 			rawModelId: "my-model",
 			globalCapabilities: { "*": { [FALLBACK_DIRECTIVE]: true, context_length: 64000 } },
-			entryCapabilities: { "my-model": { [DECLARE_DIRECTIVE]: true, max_output_tokens: 8000 } },
+			entryCapabilities: { "my-model": { max_output_tokens: 8000 } },
 			serverDeclared: { kind: "declared" },
 		});
-		assert.strictEqual(effective.declare, true);
 		assert.strictEqual(effective.fields.max_output_tokens.value, 8000);
 		assert.strictEqual(effective.fields.context_length.value, 64000);
 		assert.strictEqual(effective.fields.max_input_tokens.value, 56000, "derived: context minus output");
@@ -531,9 +462,9 @@ suite("shared/config capabilityResolution output-limit provenance", () => {
 });
 
 suite("shared/config capabilityResolution diagnostics", () => {
-	test("field and directive problems attribute their layer and record key; _declare stays with extraction", () => {
+	test("field and directive problems attribute their layer and record key; a leftover _declare stays silent", () => {
 		const effective = resolve({
-			globalCapabilities: { "gpt-4": { bogus: 1, [DECLARE_DIRECTIVE]: true } },
+			globalCapabilities: { "gpt-4": { bogus: 1, _declare: true } },
 			entryCapabilities: { "gpt-4": { context_length: "junk" } },
 		});
 		assert.deepStrictEqual(effective.diagnostics.map((d) => `${d.layer}:${d.kind}:${d.key}`).sort(), [

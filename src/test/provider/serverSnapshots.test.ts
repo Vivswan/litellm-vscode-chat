@@ -129,7 +129,7 @@ suite("provider server snapshots", () => {
 	});
 
 	test("snapshots carry the discovered raw IDs, carried forward across failure reports", async () => {
-		// The set behind `_declare` inertness (and the dashboard's declared
+		// The set behind declared-ID inertness (and the dashboard's declared
 		// projection): what discovery RETURNED, not what registration emitted -
 		// synthetic variants may be the only registered forms of a discovered ID.
 		const provider = makeProvider();
@@ -221,12 +221,13 @@ suite("provider server snapshots", () => {
 		];
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getServers: () => Promise.resolve(servers),
-			// Declarations are entry-level (exact keys) since global scoping left
-			// the records; both declared models ride the Gateway entry.
+			// Declarations are entry-level (the entry's discovery.declared list);
+			// both declared models ride the Gateway entry, one with a capability
+			// record beside it.
+			getEntryDeclaredModels: (label, baseUrl) =>
+				label === "Gateway" && baseUrl === TEST_BASE_URL ? ["entry-model", "declared-model"] : undefined,
 			getEntryModelCapabilities: (label, baseUrl) =>
-				label === "Gateway" && baseUrl === TEST_BASE_URL
-					? { "entry-model": { _declare: true }, "declared-model": { _declare: true, context_length: 32000 } }
-					: undefined,
+				label === "Gateway" && baseUrl === TEST_BASE_URL ? { "declared-model": { context_length: 32000 } } : undefined,
 		});
 		mswServer.use(
 			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),

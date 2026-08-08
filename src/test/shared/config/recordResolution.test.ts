@@ -250,10 +250,10 @@ suite("shared/config recordResolution markings and diagnostics", () => {
 	});
 
 	test("a known directive of the other record type is diagnosed and ignored (O4)", () => {
+		// The retired _declare rides along as inert unknown-underscore noise.
 		const records = { "gpt-5*": { temperature: 0.3, _fallback: true, _openrouter_model: "x/y", _declare: true } };
 		const diagnostics = diagnosticsOf("gpt-5.6", records);
 		assert.deepStrictEqual(diagnostics.map((d) => `${d.kind}:${d.key}`).sort(), [
-			"wrong-record-type:_declare",
 			"wrong-record-type:_fallback",
 			"wrong-record-type:_openrouter_model",
 		]);

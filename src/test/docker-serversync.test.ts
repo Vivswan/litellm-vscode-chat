@@ -71,7 +71,7 @@ const LABEL_EXPECTED = "SyncSuite Expected";
  * the clamp bound rather than one exact guess.
  */
 const CAPS_MODEL = "llama-4-scout";
-/** Scenario 10's registry-path declared model; the ID is not in the fake catalog, only `_declare` creates it. */
+/** Scenario 10's registry-path declared model; the ID is not in the fake catalog, only the declared list creates it. */
 const REGISTRY_DECLARED_MODEL = "fake-declared";
 /** Scenario 10's registry server key: its bucket in the fake backend's discovery-attempt counters. */
 const REGISTRY_DECLARED_KEY = "declared-registry-key";
@@ -588,16 +588,19 @@ suite("Docker server sync", () => {
 		);
 	});
 
-	test("scenario 10: an entry _declare registers a chat-capable model on a discovery-less registry server", async function () {
+	test("scenario 10: an entry's declared model registers chat-capable on a discovery-less registry server", async function () {
 		this.timeout(120000);
 		// The registry path (litellm._test.addServer) serves the legacy chain;
-		// declarations are entry-level (exact entry keys) and a registry server
-		// has no declared entry, so the label-keyed test seam supplies the
-		// record. Cleared again in the finally so scenario 11's group at the
-		// same base URL cannot inherit this declaration.
+		// declarations are entry-level (discovery.declared) and a registry
+		// server has no declared entry, so the label-keyed test seams supply
+		// the declared ID and its capability record. Cleared again in the
+		// finally so scenario 11's group at the same base URL cannot inherit
+		// this declaration.
+		await vscode.commands.executeCommand("litellm._test.setEntryDeclared", LABEL_DECLARED_REGISTRY, [
+			REGISTRY_DECLARED_MODEL,
+		]);
 		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", LABEL_DECLARED_REGISTRY, {
 			[REGISTRY_DECLARED_MODEL]: {
-				_declare: true,
 				max_input_tokens: 123000,
 				max_output_tokens: 9000,
 				supports_vision: true,
@@ -637,6 +640,7 @@ suite("Docker server sync", () => {
 			const params = await chat(model, `${COMMAND_SIGIL}params`);
 			assert.match(params, /max_tokens: `9000`/, "a user-declared output limit reaches the wire uncapped");
 		} finally {
+			await vscode.commands.executeCommand("litellm._test.setEntryDeclared", LABEL_DECLARED_REGISTRY, undefined);
 			await vscode.commands.executeCommand(
 				"litellm._test.setEntryModelCapabilities",
 				LABEL_DECLARED_REGISTRY,
@@ -655,10 +659,10 @@ suite("Docker server sync", () => {
 			label: LABEL_EXPECTED,
 			baseUrl: NO_DISCOVERY_URL,
 			auth: { apiKey: EXPECTED_FAILURES_KEY },
-			discovery: { expectedFailures: ["modelListing", "modelInfo"] },
+			discovery: { expectedFailures: ["modelListing", "modelInfo"], declared: [EXPECTED_DECLARED_MODEL] },
 			models: {
 				capabilities: {
-					[EXPECTED_DECLARED_MODEL]: { _declare: true, context_length: 32000, max_output_tokens: 4000 },
+					[EXPECTED_DECLARED_MODEL]: { context_length: 32000, max_output_tokens: 4000 },
 				},
 			},
 		});

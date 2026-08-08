@@ -164,7 +164,7 @@ test("a declared model wears the declared badge with its explanatory tip; discov
 	// Unsorted, so the rows keep the given order: Mine first, Found second.
 	expect(badges).toEqual(["declared", null]);
 	const tip = rows[0]?.querySelector(".model-name .tip-wrap .help-tip");
-	expect(tip?.textContent).toContain("_declare directive");
+	expect(tip?.textContent).toContain("discovery.declared");
 });
 
 test("the Caps action opens the capability inspector, which posts its read for the clicked row", () => {

@@ -49,9 +49,9 @@ function delay(ms: number): Promise<void> {
 
 /**
  * One server's cached discovery result: the registered infos plus the raw
- * model IDs discovery returned. Cache hits need the raw-ID set for `_declare`
+ * model IDs discovery returned. Cache hits need the raw-ID set for declared-ID
  * inertness - the registered infos alone may hold only synthetic variants
- * (`foo:cheapest`) of a discovered `foo`, and a `_declare` on `foo` must stay
+ * (`foo:cheapest`) of a discovered `foo`, and a declared `foo` must stay
  * inert. The cache stays configuration-free: overrides and declared models
  * are applied where models are served, never stored.
  */
@@ -279,11 +279,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/**
 	 * Everything a serve pass hands out, derived from one discovery result and
 	 * the CURRENT configuration: the discovered infos with capability
-	 * overrides applied, and the `_declare`d models discovery did not list
+	 * overrides applied, and the declared models discovery did not list
 	 * (inert against the discovered raw-ID set, suppressed on collision with a
 	 * registered ID). Applied outside the discovery cache and the status
 	 * window on purpose - a configuration edit reaches the next serve without
-	 * a cache clear, and a removed `_declare` disappears immediately.
+	 * a cache clear, and a removed declared ID disappears immediately.
 	 */
 	private decorateServedModels(
 		discovered: DiscoveredGroupModels,
@@ -319,7 +319,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
-	 * The `_declare`d models the current configuration synthesizes for one
+	 * The declared models the current configuration synthesizes for one
 	 * status-window snapshot, for the dashboard's state builder:
 	 * getServerSnapshots() stays discovered-only (declared models are
 	 * config-rebuilt every serve and never stored), so the dashboard merges
@@ -749,7 +749,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// extension layer's persisted status, which can be a stale prior
 			// session's. Declared models are rebuilt from the current
 			// configuration and merged in un-staled (they never depend on the
-			// success anchor and never enter the window); a `_declare`d ID the
+			// success anchor and never enter the window); a declared ID the
 			// last discovery listed stays inert against the stale set. Test
 			// Connection (non-silent) still throws, except that an expected
 			// failure with declared models serves the declared set instead.

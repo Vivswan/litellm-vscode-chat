@@ -177,7 +177,7 @@ suite("extension/dashboard/recordDraft", () => {
 		test("configured records round-trip through rows and back, catalog IDs rendered bare", () => {
 			const value = {
 				"gpt-4": { context_length: 128000, supports_vision: true },
-				"my-model": { _declare: true, _openrouter_model: "openai/gpt-4o" },
+				"my-model": { _future: true, _openrouter_model: "openai/gpt-4o" },
 			};
 			const groups = toCapabilityGroups(value);
 			assert.strictEqual(
@@ -195,7 +195,6 @@ suite("extension/dashboard/recordDraft", () => {
 					params: [
 						{ key: "context_length", valueText: "-5" },
 						{ key: "supports_vision", valueText: "yes" },
-						{ key: "_declare", valueText: "1" },
 						{ key: "_openrouter_model", valueText: "  " },
 					],
 				},
@@ -267,23 +266,7 @@ suite("extension/dashboard/recordDraft", () => {
 			);
 		});
 
-		test("_fallback hints: the _declare combination and list entries the prefix does not set", () => {
-			const banned = parseCapabilityGroups([
-				{
-					prefix: "my-model",
-					params: [
-						{ key: "context_length", valueText: "128000" },
-						{ key: "_declare", valueText: "true" },
-						{ key: "_fallback", valueText: '["context_length"]' },
-					],
-				},
-			]);
-			assert.ok(banned.ok, "the combination never blocks a save; resolution ignores the fallback");
-			assert.ok(
-				banned.issues[0]?.rows[2]?.hint?.includes("_declare"),
-				"the declare combination hints on the _fallback row"
-			);
-
+		test("_fallback hints: list entries the prefix does not set", () => {
 			const unknown = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
@@ -316,7 +299,7 @@ suite("extension/dashboard/recordDraft", () => {
 		test("eligibility: _fallback marks known capability fields, _force refuses owned and underscore keys", () => {
 			assert.ok(directiveEligible("_fallback", "context_length"));
 			assert.ok(!directiveEligible("_fallback", "supports_pdf_input"), "unknown fields carry no checkbox");
-			assert.ok(!directiveEligible("_fallback", "_declare"), "directives carry no checkbox");
+			assert.ok(!directiveEligible("_fallback", "_openrouter_model"), "directives carry no checkbox");
 			assert.ok(directiveEligible("_force", "temperature"));
 			assert.ok(!directiveEligible("_force", "model"), "provider-owned keys are unforceable");
 			assert.ok(!directiveEligible("_force", "max_tokens"), "max_tokens is provider-owned on the wire");
@@ -347,7 +330,7 @@ suite("extension/dashboard/recordDraft", () => {
 				prefix: "gpt-4",
 				params: [
 					{ key: "context_length", valueText: "128000" },
-					{ key: "_declare", valueText: "true" },
+					{ key: "_openrouter_model", valueText: "openai/gpt-4o" },
 					{ key: "_fallback", valueText: "true" },
 				],
 			};

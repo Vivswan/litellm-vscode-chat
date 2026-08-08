@@ -808,7 +808,7 @@ test("the edit form round-trips model capabilities and expected failures into th
 			label: "Prod",
 			config: {
 				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
-				modelCapabilities: { "my-model": { context_length: 128000, _declare: true } },
+				modelCapabilities: { "my-model": { context_length: 128000, supports_vision: true } },
 				expectedFailures: ["modelListing"],
 			},
 		}),
@@ -816,16 +816,16 @@ test("the edit form round-trips model capabilities and expected failures into th
 	fireClick(buttonByText(root, "Edit"));
 
 	// The entry already carries capabilities, so the disclosure opens
-	// prefilled: the number field as a number input, _declare as a checkbox,
-	// and the expected-failure category ticked.
+	// prefilled: the number field as a number input, the support flag as a
+	// checkbox, and the expected-failure category ticked.
 	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or prefix"]');
 	expect(prefixInput?.value).toBe("my-model");
 	const numberInput = root.querySelector<HTMLInputElement>('input[placeholder^="Tokens"]');
 	expect(numberInput?.value).toBe("128000");
-	const declareBox = [...root.querySelectorAll("label.capability-flag")]
-		.find((label) => label.textContent?.includes("declare this model"))
+	const visionBox = [...root.querySelectorAll("label.capability-flag")]
+		.find((label) => label.textContent?.includes("supported"))
 		?.querySelector("input");
-	expect(declareBox?.checked).toBe(true);
+	expect(visionBox?.checked).toBe(true);
 	const listing = [...root.querySelectorAll(".expected-failures label")].find((label) =>
 		label.textContent?.includes("/models")
 	);
@@ -850,7 +850,7 @@ test("the edit form round-trips model capabilities and expected failures into th
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
 	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.server.modelCapabilities).toEqual({ "my-model": { context_length: 200000, _declare: true } });
+	expect(saved.server.modelCapabilities).toEqual({ "my-model": { context_length: 200000, supports_vision: true } });
 	expect(saved.server.expectedFailures).toEqual(["modelListing", "modelInfo"]);
 });
 
@@ -948,32 +948,6 @@ test("fallback checkbox: a support-flag row carries its own box beside the value
 	});
 });
 
-test("fallback checkbox: disabled with the reason while the row group declares, re-enabled when it stops", () => {
-	const root = mountSection([
-		makeDeclaredServer({
-			label: "Prod",
-			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
-				modelCapabilities: { "my-model": { context_length: 128000, _declare: true } },
-			},
-		}),
-	]);
-	fireClick(buttonByText(root, "Edit"));
-
-	const box = () => root.querySelector<HTMLInputElement>(".directive-flag input") as HTMLInputElement;
-	expect(box().disabled).toBe(true);
-	// The help beside the disabled box explains the ban; the tip text is
-	// mounted in the DOM.
-	expect(root.textContent).toContain("Locked while _declare is on");
-
-	// Turning _declare off re-enables the mark.
-	const declareBox = [...root.querySelectorAll("label.capability-flag")]
-		.find((label) => label.textContent?.includes("declare this model"))
-		?.querySelector("input");
-	fireCheck(declareBox as HTMLInputElement, false);
-	expect(box().disabled).toBe(false);
-});
-
 test("fallback checkbox: a hand-written _fallback true loads checked and saves unrewritten", () => {
 	const root = mountSection([
 		makeDeclaredServer({
@@ -993,22 +967,6 @@ test("fallback checkbox: a hand-written _fallback true loads checked and saves u
 	fireClick(buttonByText(root, "Save"));
 	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
 	expect(saved.server.modelCapabilities).toEqual({ "gpt-4": { context_length: 128000, _fallback: true } });
-});
-
-test("the _declare plus _fallback combination hints on the row without blocking the save", () => {
-	const root = mountSection([
-		makeDeclaredServer({
-			label: "Prod",
-			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
-				modelCapabilities: { "my-model": { context_length: 128000, _declare: true, _fallback: ["context_length"] } },
-			},
-		}),
-	]);
-	fireClick(buttonByText(root, "Edit"));
-	expect(root.textContent).toContain("_fallback does nothing for the model _declare creates");
-	fireClick(buttonByText(root, "Save"));
-	expect(postedMessages.length).toBe(1);
 });
 
 test("an expected failure renders the warn pill, the declared-count badge, and the warn banner, never the red one", () => {
@@ -1046,7 +1004,7 @@ test("an expected failure with nothing declared raises the capabilities-and-decl
 	]);
 	const banners = [...root.querySelectorAll(".banner-warn")].map((el) => el.textContent ?? "");
 	expect(banners.some((text) => text.includes("nothing is declared"))).toBe(true);
-	expect(banners.some((text) => text.includes("Add _declare entries"))).toBe(true);
+	expect(banners.some((text) => text.includes("discovery.declared"))).toBe(true);
 });
 
 test("the capabilities-inactive notice renders its own badge and remedy banner beside the params one", () => {
