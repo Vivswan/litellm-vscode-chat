@@ -8,6 +8,7 @@
  */
 export const DOCKER_TEST_LABELS = [
 	"docker",
+	"docker-usage",
 	"docker-transport",
 	"docker-serversync",
 	"docker-fuzz",

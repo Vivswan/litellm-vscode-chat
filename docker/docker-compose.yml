@@ -35,8 +35,35 @@ services:
       timeout: 2s
       retries: 15
 
+  postgres:
+    # LiteLLM's spend/budget endpoints (/key/info, /user/daily/activity) only
+    # exist on a database-backed proxy; this is that database. No host port:
+    # only the litellm container talks to it, so the throwaway credentials
+    # below never leave the compose network (they are not secrets).
+    image: docker.io/postgres:16-alpine
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm
+    # tmpfs instead of the image's declared volume (docker skips the
+    # anonymous volume when a mount covers its path): any restart or
+    # recreate of this container provably starts from an empty database
+    # (deterministic test runs; note that only the stack-starting scripts
+    # reseed the usage fixture key), and `down` leaves nothing behind.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 30s
+      start_interval: 1s
+      start_period: 30s
+      timeout: 3s
+      retries: 15
+
   litellm:
-    image: ghcr.io/berriai/litellm:v1.93.0
+    # The -database flavor of the same version: identical proxy, plus the
+    # bundled prisma client its entrypoint uses to migrate the schema above.
+    image: ghcr.io/berriai/litellm-database:v1.93.0
     command: ["--config", "/app/generated/litellm-config.yaml", "--port", "4000"]
     volumes:
       # The directory is mounted rather than the file: a missing bind-mounted
@@ -55,8 +82,13 @@ services:
     depends_on:
       fake-openai:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-test-1234}
+      # Same throwaway credentials as the postgres service above; enables the
+      # DB-backed spend/budget endpoints the docker-usage suite exercises.
+      DATABASE_URL: postgresql://litellm:litellm@postgres:5432/litellm
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GITHUB_COPILOT_TOKEN_DIR: /copilot-token
@@ -80,9 +112,11 @@ services:
       # Docker runs the interval FOREVER, not just at startup, and every check
       # prints an access-log line in the proxy log. start_interval keeps the
       # startup gate fast (Docker 25+; older engines fall back to the steady
-      # interval); 30s steady-state keeps the dev log readable.
+      # interval); 30s steady-state keeps the dev log readable. The start
+      # period covers the entrypoint's prisma migration against a fresh
+      # postgres, which runs before the proxy starts answering.
       interval: 30s
       start_interval: 3s
       timeout: 5s
       retries: 30
-      start_period: 15s
+      start_period: 90s

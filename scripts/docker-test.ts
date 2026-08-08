@@ -1,16 +1,18 @@
 #!/usr/bin/env bun
 // scripts/docker-test.ts
 // Runs the docker-stack test suites against the dockerized LiteLLM proxy:
-// brings the compose stack up, runs the `docker` label, then optionally the
-// `docker-transport`, `docker-serversync`, `docker-fuzz`, and
-// `docker-conversation` labels, then the host-fidelity live suite pointed at
-// the stack, then the `docker-monkey` label last (it deliberately dirties
-// host state), and tears everything down. --only replaces that selection
-// with an explicit label list (the CI shards use it); the order stays
-// canonical either way.
+// brings the compose stack up (postgres-backed, with the usage/budget
+// fixture key seeded), runs the `docker` label, then optionally the
+// `docker-usage`, `docker-transport`, `docker-serversync`, `docker-fuzz`,
+// and `docker-conversation` labels, then the host-fidelity live suite
+// pointed at the stack, then the `docker-monkey` label last (it deliberately
+// dirties host state), and tears everything down. --only replaces that
+// selection with an explicit label list (the CI shards use it); the order
+// stays canonical either way.
 //
 // Usage:
-//   bun run test:docker                     docker suite + transport + serversync + fuzzer + conversations + host-fidelity live + monkey
+//   bun run test:docker                     docker suite + usage + transport + serversync + fuzzer + conversations + host-fidelity live + monkey
+//   bun run test:docker --skip-usage        skip the usage/budget smoke suite
 //   bun run test:docker --skip-transport    skip the transport-failure suite
 //   bun run test:docker --skip-serversync   skip the server-sync provider-group suite
 //   bun run test:docker --skip-fuzz         skip the stream fuzzer
@@ -40,6 +42,7 @@ const usageError = (message: string): never => {
 // selection outright (the CI shards use it), so combining the two has no
 // coherent meaning and errors. The base `docker` label has no skip flag.
 const SKIP_FLAGS: Partial<Record<DockerTestLabel, string>> = {
+	"docker-usage": "--skip-usage",
 	"docker-transport": "--skip-transport",
 	"docker-serversync": "--skip-serversync",
 	"docker-fuzz": "--skip-fuzz",
@@ -103,7 +106,17 @@ try {
 	// pick this one up instead of poisoning the run.
 	ensureGeneratedConfig({ realProviders: false });
 	console.log(`\nStarting the LiteLLM stack via "${compose}"...`);
-	run(`${compose} up -d --wait --wait-timeout 120 --force-recreate`);
+	// 180 over the litellm healthcheck's 90s start_period: --wait-timeout is
+	// hard wall clock, so a cold runner's first-boot prisma migration needs
+	// real headroom before the shard dies.
+	run(`${compose} up -d --wait --wait-timeout 180 --force-recreate`);
+
+	// The usage/budget fixture key must exist before any suite runs: the
+	// docker-usage smoke suite reads it directly, and later usage suites
+	// spend through it. --force-recreate wiped the DB (tmpfs), so this
+	// always starts from spend 0. Shelled out because this script's top
+	// level is synchronous (no top-level await under the scripts tsconfig).
+	run("bun scripts/stack/seed-usage.ts");
 
 	const suiteEnv = {
 		LITELLM_DOCKER_BASE_URL: baseUrl,
@@ -122,6 +135,7 @@ try {
 	// order.
 	const legs: Record<DockerTestLabel, { banner: string; env: Record<string, string> }> = {
 		docker: { banner: "Running the docker suite...", env: suiteEnv },
+		"docker-usage": { banner: "Running the usage/budget smoke suite...", env: suiteEnv },
 		"docker-transport": { banner: "Running the transport-failure suite...", env: suiteEnv },
 		"docker-serversync": { banner: "Running the server-sync suite...", env: suiteEnv },
 		"docker-fuzz": { banner: "Running the stream fuzzer...", env: suiteEnv },
