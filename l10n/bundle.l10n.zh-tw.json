@@ -177,6 +177,7 @@
 	"Degraded": "部分異常",
 	"Delete the group's object from the models file (chatLanguageModels.json).": "從模型檔案 (chatLanguageModels.json) 中刪除該群組的物件。",
 	"Derived (context length minus output tokens)": "衍生值 (上下文長度減去輸出權杖數)",
+	"Details: {0}": "詳細資訊: {0}",
 	"Diagnostics": "診斷",
 	"Discard": "捨棄",
 	"Discard the unapplied model capability edits": "捨棄尚未套用的模型能力編輯",

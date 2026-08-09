@@ -217,7 +217,7 @@ export class IssueReporter {
 			if (snapshot.latestError.classification !== undefined) {
 				diagLines.push(classificationLine(snapshot.latestError.classification));
 			}
-			diagLines.push(`- Message: ${redactSecrets(snapshot.latestError.message)}`);
+			diagLines.push(`- Message: ${bulletContinuation(redactSecrets(snapshot.latestError.message))}`);
 		}
 		diagLines.push("");
 		sections.push(diagLines.join("\n"));
@@ -322,6 +322,19 @@ function classificationLine(classification: TransportErrorClassification): strin
 	const status = classification.status !== undefined ? ` ${classification.status}` : "";
 	const setupHint = classification.setupHint !== undefined ? ` (${classification.setupHint})` : "";
 	return `- Classification: ${classification.kind}${status}${setupHint}`;
+}
+
+/**
+ * A multi-line message kept inside one markdown list item: blank lines are
+ * dropped and continuation lines indented, because a blank line (the chat
+ * messages' "Details:" paragraph break) would otherwise end the list and
+ * spill the detail out of the bullet.
+ */
+function bulletContinuation(text: string): string {
+	return text
+		.split(/\r?\n/)
+		.filter((line) => line.trim() !== "")
+		.join("\n  ");
 }
 
 function createIssueUrl(title: string, body: string): string {

@@ -66,7 +66,7 @@ The [entry reference](servers.md#entry-reference) documents the base URL rules.
 VS Code could not establish a trusted HTTPS connection to the base URL; the extension has no setting to bypass certificate validation.
 
 - "The SSL certificate for ... has expired": ask your LiteLLM server administrator to renew the certificate.
-- Any other certificate problem reads "The server's SSL certificate couldn't be verified, so the connection was blocked", with a detail line starting `SSL certificate error for ...` naming the server and the TLS failure - a self-signed or internal-CA certificate, common on corporate deployments: add the CA to your operating system's trust store, or launch VS Code with `NODE_EXTRA_CA_CERTS` pointing at the CA bundle. The trust decision belongs to VS Code's runtime, not this extension.
+- Any other certificate problem reads "The server's SSL certificate couldn't be verified, so the connection was blocked", with a detail line (`SSL certificate error for ...`) naming the server and the TLS failure - a self-signed or internal-CA certificate, common on corporate deployments: add the CA to your operating system's trust store, or launch VS Code with `NODE_EXTRA_CA_CERTS` pointing at the CA bundle. The trust decision belongs to VS Code's runtime, not this extension.
 
 ### "Authentication failed"
 
@@ -82,7 +82,7 @@ Two setup mistakes look like auth failures:
 
 ### "The server did not recognize this request" / "answered 404 - it responded, but does not serve the LiteLLM API"
 
-Something answered at that address, but not a LiteLLM proxy - or not with this model. On a chat request the error shows the headline above with a detail line underneath that starts with `LiteLLM 404` and quotes what the server said.
+Something answered at that address, but not a LiteLLM proxy - or not with this model. On a chat request the error shows the headline above with a detail line underneath (`Details: LiteLLM 404 ...`) that quotes what the server said.
 
 - Check what is actually listening there - a web server, another service, or the wrong port (the LiteLLM proxy's default is 4000).
 - The `/v1` trap applies here too: a base URL ending in `/v1` makes the extension request `/v1/v1/...`, which the proxy answers with 404. Remove the suffix; the extension appends `/v1` itself.
@@ -123,7 +123,7 @@ On models without vision support the text still goes through and the images are 
 
 ### "This conversation looks too long for the model"
 
-The extension rejects a request before sending it when its own token estimate exceeds the model's input budget; the detail line under the headline reads `token limit exceeded before send: local estimate N tokens (messages + tools), input limit M`. The count is a local estimate (roughly four characters per token for text, flat figures per image, PDF, or audio clip), so it can differ from what the server would bill.
+The extension rejects a request before sending it when its own token estimate exceeds the model's input budget; the detail line under the headline reads `Details: token limit exceeded before send: local estimate N tokens (messages + tools), input limit M`. The count is a local estimate (roughly four characters per token for text, flat figures per image, PDF, or audio clip), so it can differ from what the server would bill.
 
 - Trim the conversation or drop attachments, or
 - raise the budget when the real model takes more than the limit `M` says. The limit comes from the model's declared input limit (server report, catalog, or your overrides); correct it in `models.capabilities`:

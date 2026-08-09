@@ -187,6 +187,7 @@
 	"Degraded": "Degraded",
 	"Delete the group's object from the models file (chatLanguageModels.json).": "Delete the group's object from the models file (chatLanguageModels.json).",
 	"Derived (context length minus output tokens)": "Derived (context length minus output tokens)",
+	"Details: {0}": "Details: {0}",
 	"Diagnostics": "Diagnostics",
 	"Discard": "Discard",
 	"Discard the unapplied model capability edits": "Discard the unapplied model capability edits",

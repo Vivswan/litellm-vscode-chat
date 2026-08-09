@@ -1262,7 +1262,7 @@ suite("provider/request contract", () => {
 					assert.ok(e instanceof Error);
 					assert.strictEqual(
 						e.message,
-						"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.\n129 tools requested; the limit is 128 (request not sent)"
+						"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.\n\nDetails: 129 tools requested; the limit is 128 (request not sent)"
 					);
 					assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
 					return true;
@@ -1291,7 +1291,7 @@ suite("provider/request contract", () => {
 					assert.ok(e instanceof Error);
 					assert.match(
 						e.message,
-						/^This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong\.\ntoken limit exceeded before send: local estimate \d+ tokens \(messages \+ tools\), input limit 10$/
+						/^This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong\.\n\nDetails: token limit exceeded before send: local estimate \d+ tokens \(messages \+ tools\), input limit 10$/
 					);
 					assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
 					return true;
@@ -1309,7 +1309,7 @@ suite("provider/request contract", () => {
 			});
 			await expectMirroredRejection(
 				send(client, model),
-				/^The server accepted the request but sent nothing back\. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server\.\nLiteLLM answered 200 with a missing response body \(http:\/\/litellm\.test\)$/
+				/^The server accepted the request but sent nothing back\. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server\.\n\nDetails: LiteLLM answered 200 with a missing response body \(http:\/\/litellm\.test\)$/
 			);
 		});
 	});

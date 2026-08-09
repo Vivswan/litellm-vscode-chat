@@ -177,6 +177,7 @@
 	"Degraded": "已降级",
 	"Delete the group's object from the models file (chatLanguageModels.json).": "从模型文件 (chatLanguageModels.json) 中删除该组的对象。",
 	"Derived (context length minus output tokens)": "派生值 (上下文长度减去输出令牌数)",
+	"Details: {0}": "详细信息: {0}",
 	"Diagnostics": "诊断",
 	"Discard": "放弃",
 	"Discard the unapplied model capability edits": "放弃未应用的模型能力编辑",

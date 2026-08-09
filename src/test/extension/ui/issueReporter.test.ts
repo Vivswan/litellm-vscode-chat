@@ -117,6 +117,24 @@ suite("IssueReporter", () => {
 		assert.ok(body.includes("Stack trace"));
 	});
 
+	test("buildBody keeps a multi-line error message inside its Message bullet", () => {
+		// Chat-surface messages separate headline and detail with a blank line
+		// ("Details:" lead-in); rendered raw, the blank line would end the
+		// markdown list and spill the detail out of the bullet.
+		const reporter = new IssueReporter();
+		const body = reporter.buildBody(
+			makeSnapshot({
+				latestError: {
+					source: "chat",
+					message: "Headline text.\n\nDetails: LiteLLM 500: boom",
+					timestamp: "2026-01-01T00:00:00.000Z",
+				},
+			})
+		);
+		assert.ok(body.includes("- Message: Headline text.\n  Details: LiteLLM 500: boom"), body);
+		assert.ok(!body.includes("Headline text.\n\n"), "a blank line would end the markdown list");
+	});
+
 	test("an http RequestError's response body never reaches the issue prefill", () => {
 		const reporter = new IssueReporter();
 		// Through the real mapping: a non-JSON body whose text contains both a

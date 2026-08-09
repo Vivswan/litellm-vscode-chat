@@ -1796,7 +1796,7 @@ suite("provider/streaming end-of-stream policy", () => {
 				assert.strictEqual(e.kind, "http");
 				assert.ok(e.message.startsWith("The server reported an error while it was streaming this reply"), e.message);
 				assert.ok(
-					e.message.endsWith("\nLiteLLM stream error (500): upstream exploded"),
+					e.message.endsWith("\n\nDetails: LiteLLM stream error (500): upstream exploded"),
 					`the envelope fields ride the compact detail line: ${e.message}`
 				);
 				return true;
@@ -2265,7 +2265,7 @@ suite("provider/streaming reasoning-only empty responses", () => {
 			(e: unknown) =>
 				e instanceof Error &&
 				e.message.startsWith("The model sent a broken tool call") &&
-				e.message.endsWith("\n1 tool call arrived with arguments that were not valid JSON") &&
+				e.message.endsWith("\n\nDetails: 1 tool call arrived with arguments that were not valid JSON") &&
 				// The English mirror deliberately diverges from the localized
 				// display: it is the distinctive count-only line the output channel
 				// and issue-report buffer record.
