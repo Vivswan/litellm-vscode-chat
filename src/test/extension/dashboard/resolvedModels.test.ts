@@ -1,7 +1,8 @@
 import * as assert from "node:assert";
+import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import type { RecordTreeNode } from "../../../extension/dashboard/protocol";
 import type { ResolvedModelsQuery } from "../../../extension/dashboard/resolvedModels";
-import { buildResolvedModelsView } from "../../../extension/dashboard/resolvedModels";
+import { buildResolvedModelsView, resolveModelRecordChains } from "../../../extension/dashboard/resolvedModels";
 import type { SettingsReader } from "../../../extension/dashboard/state";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { makeModelInfo, makeServerStatus } from "../../testUtils";
@@ -248,6 +249,75 @@ suite("extension/dashboard/resolvedModels", () => {
 				["gpt-4"],
 				"only the entry's own models leaf in its tree"
 			);
+		});
+	});
+
+	suite("resolveModelRecordChains (the inspectors' inheritance figure)", () => {
+		test("orders the global chain broadest to winner with barrier and exclusive-list display facts", () => {
+			const chains = resolveModelRecordChains(
+				{
+					snapshots: [snapshotWith("g1", "Prod", ["gpt-4"])],
+					reader: makeReader({
+						"models.parameters": {
+							"*": { temperature: 0.1 },
+							"gpt*": { top_p: 0.9, _inherit_from: false },
+							"gpt-4": { temperature: 0.3, _inherit_from: ["*"] },
+						},
+					}),
+					resolveEntryParameters: () => undefined,
+					resolveEntryCapabilities: () => undefined,
+				},
+				"parameters",
+				modelScopeKey("g1"),
+				"gpt-4"
+			);
+
+			assert.deepStrictEqual(chains, [
+				{
+					layer: "global",
+					links: [
+						{ key: "*", barrier: false },
+						{ key: "gpt*", barrier: true, inheritFrom: "false" },
+						{ key: "gpt-4", barrier: false, inheritFrom: "*" },
+					],
+				},
+			]);
+		});
+
+		test("the global map's chain rides above the entry's (lower precedence first); capabilities read their own maps", () => {
+			const query = {
+				snapshots: [snapshotWith("g1", "Prod", ["gpt-4"])],
+				reader: makeReader({
+					"models.capabilities": { "*": { context_length: 100 } },
+				}),
+				resolveEntryParameters: () => undefined,
+				resolveEntryCapabilities: (serverId: string) =>
+					serverId === "g1" ? { "gpt*": { supports_vision: true }, "gpt-4": { context_length: 200 } } : undefined,
+			};
+			const chains = resolveModelRecordChains(query, "capabilities", modelScopeKey("g1"), "gpt-4");
+			assert.deepStrictEqual(
+				chains.map((chain) => [chain.layer, chain.links.map((link) => link.key)]),
+				[
+					["global", ["*"]],
+					["entry", ["gpt*", "gpt-4"]],
+				]
+			);
+		});
+
+		test("a stale scope key, a model gone from its snapshot, or maps matching nothing yield no chains", () => {
+			const query = {
+				snapshots: [snapshotWith("g1", "Prod", ["gpt-4"])],
+				reader: makeReader({ "models.parameters": { "claude*": { temperature: 1 }, "*": { top_p: 0.9 } } }),
+				resolveEntryParameters: () => undefined,
+				resolveEntryCapabilities: () => undefined,
+			};
+			assert.deepStrictEqual(resolveModelRecordChains(query, "parameters", modelScopeKey("gone"), "gpt-4"), []);
+			// A raw ID the matchers WOULD match but the snapshot no longer serves:
+			// the figure must answer empty like the responders, never invent one.
+			assert.deepStrictEqual(resolveModelRecordChains(query, "parameters", modelScopeKey("g1"), "claude-4"), []);
+			// A live model whose maps match nothing contributes no chain either.
+			const noMatch = { ...query, reader: makeReader({ "models.parameters": { "claude*": { temperature: 1 } } }) };
+			assert.deepStrictEqual(resolveModelRecordChains(noMatch, "parameters", modelScopeKey("g1"), "gpt-4"), []);
 		});
 	});
 });

@@ -459,39 +459,92 @@ function UsageStatusBarRow({
 	);
 }
 
-/**
- * The usage.alertThresholds draft's parse: comma-separated fractions in
- * (0, 1], deduplicated and sorted like normalization writes them; empty means
- * alerts off.
- */
-function parseThresholdsDraft(
-	text: string
-): { readonly ok: true; readonly values: readonly number[] } | { readonly ok: false; readonly problem: string } {
-	const parts = text
-		.split(",")
-		.map((part) => part.trim())
-		.filter((part) => part.length > 0);
-	const values: number[] = [];
-	for (const part of parts) {
-		const value = Number(part);
-		if (!Number.isFinite(value)) {
-			return { ok: false, problem: l10n.t("Not a number: {0}", part) };
-		}
-		if (!(value > 0 && value <= 1)) {
-			return { ok: false, problem: l10n.t("Thresholds are fractions in (0, 1], e.g. 0.8") };
-		}
-		values.push(value);
-	}
-	const deduped = [...new Set(values)].sort((a, b) => a - b);
-	// The intent schema's list bound; failing it inline beats a generic
-	// intentFailed toast after the round trip.
-	if (deduped.length > 32) {
-		return { ok: false, problem: l10n.t("At most 32 thresholds") };
-	}
-	return { ok: true, values: deduped };
+/** A stored fraction as the percent text the threshold inputs display, float noise trimmed. */
+function percentText(value: number): string {
+	return `${Number((value * 100).toPrecision(12))}%`;
 }
 
-/** The usage.alertThresholds row: a fraction-list input, committed on blur or Enter like the number rows. */
+/**
+ * One threshold box's parse: a fraction (0.8), a percentage (80%), or a bare
+ * number above 1 read as a percent (80 means 80%). The docs' bound applies
+ * after conversion: each value in (0, 1], so 0 and anything past 100% reject.
+ */
+function parseThresholdBox(
+	text: string
+): { readonly kind: "empty" } | { readonly kind: "value"; readonly value: number } | { readonly kind: "invalid" } {
+	const trimmed = text.trim();
+	if (trimmed.length === 0) {
+		return { kind: "empty" };
+	}
+	const percent = trimmed.endsWith("%");
+	const numberText = percent ? trimmed.slice(0, -1).trim() : trimmed;
+	const parsed = Number(numberText);
+	if (numberText.length === 0 || !Number.isFinite(parsed)) {
+		return { kind: "invalid" };
+	}
+	const value = percent || parsed > 1 ? parsed / 100 : parsed;
+	if (!(value > 0 && value <= 1)) {
+		return { kind: "invalid" };
+	}
+	return { kind: "value", value };
+}
+
+/** One of the two threshold inputs with its label; error and hint lines render at the row level. */
+function ThresholdBox({
+	id,
+	label,
+	text,
+	invalid,
+	errorId,
+	placeholder,
+	onText,
+	onCommit,
+}: {
+	id: string;
+	label: string;
+	text: string;
+	invalid: boolean;
+	errorId: string;
+	placeholder: string;
+	onText: (next: string) => void;
+	/** Blur (with where focus went) or Enter; the row decides whether the pair commits. */
+	onCommit: (event?: FocusEvent) => void;
+}) {
+	return (
+		<>
+			<label class="setting-unit" for={id}>
+				{label}
+			</label>
+			<input
+				id={id}
+				type="text"
+				spellcheck={false}
+				class={invalid ? "threshold-input invalid" : "threshold-input"}
+				aria-invalid={invalid}
+				aria-describedby={invalid ? errorId : undefined}
+				placeholder={placeholder}
+				value={text}
+				onInput={(event) => onText(event.currentTarget.value)}
+				onBlur={(event) => onCommit(event)}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") {
+						onCommit();
+					}
+				}}
+			/>
+		</>
+	);
+}
+
+/**
+ * The usage.alertThresholds row: two inputs over the list setting - "Warning
+ * at" and "Error at", the two-threshold shape the defaults use. Both set
+ * writes [low, high] (sorted; equal values collapse to one); one set writes a
+ * single-element list, which the alerts treat as the error threshold; both
+ * empty writes [] (alerts off). A stored list these two boxes cannot
+ * represent (3+ values, hand-written) renders read-only with the reveal
+ * button, so the dashboard never destroys it.
+ */
 function UsageThresholdsRow({
 	values,
 	configuredScope,
@@ -501,67 +554,125 @@ function UsageThresholdsRow({
 	configuredScope: SettingScope | null;
 	hidden: boolean;
 }) {
-	const external = values.join(", ");
-	const [text, setText] = useState(external);
-	const syncKey = `${external}@${configuredScope ?? "default"}`;
+	// Stored -> boxes: [low, high] fills both; a single value is the error
+	// threshold by the alerts' semantics, so it fills the Error box alone.
+	const externalWarning = values.length === 2 ? percentText(values[0] as number) : "";
+	const externalError =
+		values.length === 2
+			? percentText(values[1] as number)
+			: values.length === 1
+				? percentText(values[0] as number)
+				: "";
+	const [warningText, setWarningText] = useState(externalWarning);
+	const [errorText, setErrorText] = useState(externalError);
+	const syncKey = `${values.join(",")}@${configuredScope ?? "default"}`;
 	useEffect(() => {
-		setText(external);
+		setWarningText(externalWarning);
+		setErrorText(externalError);
 	}, [syncKey]);
-	const parse = parseThresholdsDraft(text);
-	const commit = () => {
-		if (!parse.ok) {
+
+	const warning = parseThresholdBox(warningText);
+	const error = parseThresholdBox(errorText);
+	const parsed =
+		warning.kind === "invalid" || error.kind === "invalid"
+			? undefined
+			: [
+					...new Set([
+						...(warning.kind === "value" ? [warning.value] : []),
+						...(error.kind === "value" ? [error.value] : []),
+					]),
+				].sort((a, b) => a - b);
+
+	const inputId = "setting-usage.alertThresholds";
+	const warningId = `${inputId}-warning`;
+	const errorInputId = `${inputId}-error-at`;
+	const problemId = `${inputId}-problem`;
+	// The two boxes are ONE draft: a blur that only moves focus to the sibling
+	// box must not commit, or the write's own state push would resync the pair
+	// and overwrite what is being typed in the second box. Enter and a blur
+	// leaving the pair commit.
+	const commit = (event?: FocusEvent) => {
+		const next = event?.relatedTarget;
+		if (next instanceof HTMLElement && (next.id === warningId || next.id === errorInputId)) {
 			return;
 		}
-		if (parse.values.join(",") !== values.join(",")) {
-			postMessage({ type: "setUsageAlertThresholds", values: [...parse.values] });
+		if (parsed === undefined) {
+			return;
+		}
+		if (parsed.join(",") !== values.join(",")) {
+			postMessage({ type: "setUsageAlertThresholds", values: parsed });
 		}
 	};
-	const inputId = "setting-usage.alertThresholds";
-	const errorId = `${inputId}-error`;
+
 	const title = l10n.t("Usage alert thresholds");
-	const equiv =
-		parse.ok && parse.values.length > 0
-			? `= ${parse.values.map((v) => `${Math.round(v * 100)}%`).join(", ")}`
-			: undefined;
+	// The 3+ shape only the settings file can write; the two boxes cannot
+	// round-trip it, so the row shows it instead of editing it.
+	const custom = values.length > 2;
+	const semanticsHint =
+		parsed === undefined
+			? undefined
+			: parsed.length === 0
+				? l10n.t("Alerts are off.")
+				: parsed.length === 1
+					? l10n.t("A single threshold goes straight to the error alert.")
+					: undefined;
 	return (
 		<SettingRow modified={configuredScope !== null} hidden={hidden}>
 			<div class="setting-head">
-				<label class="setting-title" for={inputId}>
-					{title}
-				</label>
+				{custom ? (
+					<span class="setting-title">{title}</span>
+				) : (
+					<label class="setting-title" for={warningId}>
+						{title}
+					</label>
+				)}
 				<RevealButton title={title} settingId="usage.alertThresholds" />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
 			</div>
 			<p class="setting-desc">
-				{l10n.t("Budget fractions that trigger a one-time alert each, e.g. 0.8, 0.95; empty turns alerts off.")}
+				{l10n.t("Warning at 80% and error at 95% by default; enter 80% or 0.8. Empty both to turn alerts off.")}
 			</p>
-			<div class="setting-control">
-				<input
-					id={inputId}
-					type="text"
-					spellcheck={false}
-					class={parse.ok ? "" : "invalid"}
-					aria-invalid={!parse.ok}
-					aria-describedby={parse.ok ? undefined : errorId}
-					value={text}
-					onInput={(event) => setText(event.currentTarget.value)}
-					onBlur={commit}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") {
-							commit();
-						}
-					}}
-				/>
-				{!parse.ok ? (
-					<span class="error" id={errorId}>
-						{parse.problem}
-					</span>
-				) : null}
-				{equiv !== undefined ? <span class="setting-equiv">{equiv}</span> : null}
-				{configuredScope !== null ? (
-					<ResetButton title={title} scope={configuredScope} settingId="usage.alertThresholds" />
-				) : null}
-			</div>
+			{custom ? (
+				<div class="setting-control">
+					<span>{values.map(percentText).join(", ")}</span>
+					<span class="hint">{l10n.t("Custom list - edit in settings.json.")}</span>
+					{configuredScope !== null ? (
+						<ResetButton title={title} scope={configuredScope} settingId="usage.alertThresholds" />
+					) : null}
+				</div>
+			) : (
+				<div class="setting-control">
+					<ThresholdBox
+						id={warningId}
+						label={l10n.t("Warning at")}
+						text={warningText}
+						invalid={warning.kind === "invalid"}
+						errorId={problemId}
+						placeholder={l10n.t("e.g. 80%")}
+						onText={setWarningText}
+						onCommit={commit}
+					/>
+					<ThresholdBox
+						id={errorInputId}
+						label={l10n.t("Error at")}
+						text={errorText}
+						invalid={error.kind === "invalid"}
+						errorId={problemId}
+						placeholder={l10n.t("e.g. 95%")}
+						onText={setErrorText}
+						onCommit={commit}
+					/>
+					{parsed === undefined ? (
+						<span class="error" id={problemId}>
+							{l10n.t("Thresholds run from above 0% to 100%: enter 80% or 0.8.")}
+						</span>
+					) : null}
+					{semanticsHint !== undefined ? <span class="hint">{semanticsHint}</span> : null}
+					{configuredScope !== null ? (
+						<ResetButton title={title} scope={configuredScope} settingId="usage.alertThresholds" />
+					) : null}
+				</div>
+			)}
 		</SettingRow>
 	);
 }
@@ -761,8 +872,11 @@ export function SettingsSection({
 			{nothingMatches ? <p class="empty">{l10n.t("No settings match the filter.")}</p> : null}
 			<div class="settings-groups">
 				{SETTING_GROUPS.map((group, index) => {
-					// The Usage group also carries the two non-scalar usage settings:
-					// the status bar mode enum and the alert-thresholds list.
+					// Two groups carry non-scalar tails: Models gets the two record
+					// editors (mirroring the manifest's grouping - they are model
+					// settings, not a page of their own), Usage gets the status bar
+					// mode enum and the alert-thresholds row.
+					const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
 					const isUsageGroup = group.numbers.includes("usage.pollInterval");
 					const statusBarVisible =
 						needle.length === 0 ||
@@ -779,9 +893,30 @@ export function SettingsSection({
 							settings={settings}
 							isVisible={isVisible}
 							booleanExtras={booleanExtras}
-							tailVisible={isUsageGroup && (statusBarVisible || thresholdsVisible)}
+							tailVisible={
+								(isModelsGroup && (paramsVisible || capsVisible)) ||
+								(isUsageGroup && (statusBarVisible || thresholdsVisible))
+							}
 							tail={
-								isUsageGroup ? (
+								isModelsGroup ? (
+									<>
+										<ModelParametersEditor
+											scoped={settings.modelParameters}
+											models={models}
+											failure={failures.setModelParameters}
+											hidden={!paramsVisible}
+											external={editRecordRequest?.kind === "parameters" ? editRecordRequest : undefined}
+										/>
+										<ModelCapabilitiesEditor
+											scoped={settings.modelCapabilities}
+											models={models}
+											failure={failures.setModelCapabilities}
+											catalogResults={catalogResults}
+											hidden={!capsVisible}
+											external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
+										/>
+									</>
+								) : isUsageGroup ? (
 									<>
 										<UsageThresholdsRow
 											values={settings.usage.alertThresholds}
@@ -809,21 +944,6 @@ export function SettingsSection({
 					/>
 				) : null}
 			</div>
-			<ModelParametersEditor
-				scoped={settings.modelParameters}
-				models={models}
-				failure={failures.setModelParameters}
-				hidden={!paramsVisible}
-				external={editRecordRequest?.kind === "parameters" ? editRecordRequest : undefined}
-			/>
-			<ModelCapabilitiesEditor
-				scoped={settings.modelCapabilities}
-				models={models}
-				failure={failures.setModelCapabilities}
-				catalogResults={catalogResults}
-				hidden={!capsVisible}
-				external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
-			/>
 		</section>
 	);
 }

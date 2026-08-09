@@ -33,7 +33,7 @@ const fixture: RenderFixture = {
 			},
 		},
 	},
-	steps: ['[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Caps").click()'],
+	steps: ['[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Capabilities").click()'],
 	viewport: { width: 1300, height: 1100 },
 	settleMs: 500,
 };

@@ -46,6 +46,8 @@ import {
 import type { DeclaredServerView } from "../servers/serverSync";
 import { modelScopeKey } from "./adoptHandle";
 import type {
+	RecordChainLink,
+	RecordChainView,
 	RecordTreeNode,
 	RecordTreeView,
 	ResolvedCapCell,
@@ -110,6 +112,86 @@ function nodeFields(parsed: ParsedRecord): RecordTreeNode["fields"] {
 		forced: parsed.forced.has(name),
 		fallback: parsed.fallback.has(name),
 	}));
+}
+
+/**
+ * One record map's matching chain for a model, as the inspectors' inheritance
+ * figure renders it: matchChain's order (broadest first, the winner last)
+ * with each record's inheritance display facts. The readModelParameters and
+ * readModelCapabilities responders reuse this so the figure cannot drift from
+ * the Diagnostics trees, which read the same inheritDisplay.
+ */
+function recordChainLinks(
+	rawId: string,
+	records: ModelRecordMap,
+	parse: (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord
+): RecordChainLink[] {
+	return matchChain(rawId, records).chain.map((match) => {
+		const inherit = inheritDisplay(parse(records[match.key] ?? {}, match.key));
+		return {
+			key: match.key,
+			barrier: inherit.barrier,
+			...(inherit.inheritFrom !== undefined ? { inheritFrom: inherit.inheritFrom } : {}),
+		};
+	});
+}
+
+/** What resolveModelRecordChains reads; panel.ts supplies the same live stores the responders use. */
+export interface ModelRecordChainsQuery {
+	readonly snapshots: readonly ServerModelsSnapshot[];
+	readonly reader: SettingsReader;
+	readonly resolveEntryParameters: (serverId: string) => EntryParametersResolution | undefined;
+	readonly resolveEntryCapabilities: (serverId: string) => EntryCapabilitiesRecord | undefined;
+}
+
+/**
+ * One model's matching chains for the inspectors' inheritance figure, in the
+ * figure's one reading direction - lower precedence first, winner last: the
+ * global map's chain above the entry map's (entry beats global), each chain
+ * itself broadest first. Maps that match nothing contribute no chain; a stale
+ * scope key or a model no longer in its snapshot resolves to none, like the
+ * responders.
+ */
+export function resolveModelRecordChains(
+	query: ModelRecordChainsQuery,
+	kind: "parameters" | "capabilities",
+	scopeKey: string,
+	rawId: string
+): readonly RecordChainView[] {
+	const labeled = labeledSnapshots(query.snapshots).find(
+		(entry) => modelScopeKey(entry.snapshot.status.serverId) === scopeKey
+	);
+	if (labeled === undefined) {
+		return [];
+	}
+	const serverId = labeled.snapshot.status.serverId;
+	if (!labeled.snapshot.models.some((info) => rawModelIdFromExposed(info.id, serverId) === rawId)) {
+		return [];
+	}
+	const [globalRecords, entryRecords, parse] =
+		kind === "parameters"
+			? [
+					normalizeModelParameters(query.reader.get(MODEL_PARAMETERS_SETTING_KEY)),
+					query.resolveEntryParameters(serverId)?.entryParameters,
+					parseParameterRecord as (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord,
+				]
+			: [
+					normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
+					query.resolveEntryCapabilities(serverId),
+					(record: Readonly<Record<string, unknown>>) => parseCapabilityRecord(record),
+				];
+	const chains: RecordChainView[] = [];
+	const globalLinks = recordChainLinks(rawId, globalRecords, parse);
+	if (globalLinks.length > 0) {
+		chains.push({ layer: "global", links: globalLinks });
+	}
+	if (entryRecords !== undefined) {
+		const links = recordChainLinks(rawId, entryRecords, parse);
+		if (links.length > 0) {
+			chains.push({ layer: "entry", links });
+		}
+	}
+	return chains;
 }
 
 /**

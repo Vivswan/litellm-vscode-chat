@@ -60,7 +60,7 @@ import type {
 	ExtensionToWebviewMessage,
 	TransportErrorClassification,
 } from "./protocol";
-import { buildResolvedModelsView } from "./resolvedModels";
+import { buildResolvedModelsView, resolveModelRecordChains } from "./resolvedModels";
 import type { EntryCapabilitiesRecord, EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
 import {
 	buildDashboardState,
@@ -404,6 +404,17 @@ export class DashboardController implements vscode.Disposable {
 			// no state push and no outcome notice.
 			const capabilitiesReader = this.env.settingsReader();
 			const capsGlobalKey = mostSpecificGlobalRecordKey(capabilitiesReader, "capabilities", parsed.data.rawId);
+			const capsChains = resolveModelRecordChains(
+				{
+					snapshots: this.env.getSnapshots(),
+					reader: capabilitiesReader,
+					resolveEntryParameters: (serverId) => this.env.resolveEntryParameters(serverId),
+					resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
+				},
+				"capabilities",
+				parsed.data.scopeKey,
+				parsed.data.rawId
+			);
 			this.postToPanel({
 				type: "modelCapabilities",
 				requestId: parsed.data.requestId,
@@ -419,6 +430,7 @@ export class DashboardController implements vscode.Disposable {
 					parsed.data.rawId
 				),
 				...(capsGlobalKey !== undefined ? { globalRecordKey: capsGlobalKey } : {}),
+				...(capsChains.length > 0 ? { chains: capsChains } : {}),
 			});
 			return "ok";
 		}
@@ -437,6 +449,17 @@ export class DashboardController implements vscode.Disposable {
 				parsed.data.rawId
 			);
 			const paramsGlobalKey = mostSpecificGlobalRecordKey(parametersReader, "parameters", parsed.data.rawId);
+			const paramsChains = resolveModelRecordChains(
+				{
+					snapshots: this.env.getSnapshots(),
+					reader: parametersReader,
+					resolveEntryParameters: (serverId) => this.env.resolveEntryParameters(serverId),
+					resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
+				},
+				"parameters",
+				parsed.data.scopeKey,
+				parsed.data.rawId
+			);
 			this.postToPanel({
 				type: "modelParameters",
 				requestId: parsed.data.requestId,
@@ -447,6 +470,7 @@ export class DashboardController implements vscode.Disposable {
 						}
 					: {}),
 				...(paramsGlobalKey !== undefined ? { globalRecordKey: paramsGlobalKey } : {}),
+				...(paramsChains.length > 0 ? { chains: paramsChains } : {}),
 			});
 			return "ok";
 		}

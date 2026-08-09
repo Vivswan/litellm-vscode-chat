@@ -12,9 +12,9 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import { IconClose } from "./icons";
 
-/** What can take focus inside the panel; disabled controls drop out of the cycle. */
+/** What can take focus inside the panel; disabled controls and tabindex -1 widgets (listbox options) drop out. */
 const FOCUSABLE =
-	"a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+	"a[href], button:not([disabled]):not([tabindex='-1']), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 export function SlideOver({
 	labelledBy,

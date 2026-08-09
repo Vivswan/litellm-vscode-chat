@@ -1,22 +1,10 @@
 import * as l10n from "@vscode/l10n";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { DashboardModel } from "../../extension/dashboard/protocol";
-import type { ModelCapabilitiesResponse } from "./capsInspector";
-import { CapsInspector } from "./capsInspector";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpModelsSection } from "./helpText";
 import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
-import type { ModelParametersResponse } from "./paramsInspector";
-import { ParamsInspector } from "./paramsInspector";
-
-/** An externally requested inspector open (the Resolved-models table's per-row jump); seq makes repeats fire. */
-export interface InspectRequest {
-	readonly seq: number;
-	readonly scopeKey: string;
-	readonly rawId: string;
-	readonly view: "params" | "caps";
-}
 
 export function formatTokens(count: number): string {
 	return count.toLocaleString();
@@ -208,12 +196,7 @@ export function ModelsSection({
 	models,
 	serverCount,
 	scope,
-	capsResponse,
-	paramsResponse,
-	stateSeq,
-	inspectRequest,
-	onEditRecord,
-	onEditEntry,
+	onInspect,
 }: {
 	models: readonly DashboardModel[];
 	serverCount: number;
@@ -223,72 +206,21 @@ export function ModelsSection({
 	 * object so a scope without a working clear cannot be expressed.
 	 */
 	scope?: { readonly label: string; readonly onClear: () => void } | undefined;
-	/** The latest modelCapabilities response, for the capability inspector; see CapsInspector. */
-	capsResponse?: ModelCapabilitiesResponse | undefined;
-	/** The latest modelParameters response, for the params inspector; see ParamsInspector. */
-	paramsResponse?: ModelParametersResponse | undefined;
-	/** Bumped on every state push; the open inspectors re-request on it. */
-	stateSeq: number;
-	/** An externally requested inspector open (the Resolved-models table's jump). */
-	inspectRequest?: InspectRequest | undefined;
-	/** The inspectors' jump into a global record editor; the popup closes on it. */
-	onEditRecord?: ((kind: "parameters" | "capabilities", key: string, create: boolean) => void) | undefined;
-	/** The inspectors' jump into a server entry's edit form; the popup closes on it. */
-	onEditEntry?: ((label: string) => void) | undefined;
+	/**
+	 * Open a model's inspector overlay. App owns the inspectors (they render
+	 * over whatever tab is active - the Diagnostics table opens them in place),
+	 * so this section only names the row and the view. The full row identity
+	 * travels: one snapshot can render under several labels.
+	 */
+	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, view: "params" | "caps") => void;
 }) {
 	const [filter, setFilter] = useState("");
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
 	const [scrollTop, setScrollTop] = useState(0);
 	const [copied, setCopied] = useState<string | undefined>(undefined);
 	const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
-	// The inspected row's identity (not the model object): every state push
-	// rebuilds the models array, and the open inspector must follow the fresh
-	// values or close when its row leaves the list. scopeKey is part of the
-	// identity because it is what distinguishes two snapshots whose rows could
-	// otherwise render the same ID under the same display label - matching on
-	// it keeps the inspector on the exact snapshot whose action was clicked.
-	// `view` names which inspector is open; one row, one slide-over at a time.
-	const [inspecting, setInspecting] = useState<
-		{ id: string; serverLabel: string; scopeKey: string; view: "params" | "caps" } | undefined
-	>(undefined);
 	const scrollRef = useRef<HTMLElement>(null);
 	const copySeq = useRef(0);
-
-	const inspected =
-		inspecting === undefined
-			? undefined
-			: models.find(
-					(model) =>
-						model.id === inspecting.id &&
-						model.serverLabel === inspecting.serverLabel &&
-						model.scopeKey === inspecting.scopeKey
-				);
-	useEffect(() => {
-		if (inspecting !== undefined && inspected === undefined) {
-			setInspecting(undefined);
-		}
-	}, [inspecting, inspected]);
-
-	// An external jump (the Resolved-models table's per-row action): resolve
-	// the addressed model and open its inspector; a request whose model left
-	// the list is a no-op.
-	useEffect(() => {
-		if (inspectRequest === undefined) {
-			return;
-		}
-		const target = models.find(
-			(model) => model.scopeKey === inspectRequest.scopeKey && model.rawId === inspectRequest.rawId
-		);
-		if (target !== undefined) {
-			setInspecting({
-				id: target.id,
-				serverLabel: target.serverLabel,
-				scopeKey: target.scopeKey,
-				view: inspectRequest.view,
-			});
-		}
-		// Keyed on the request's seq so repeating the same jump re-opens.
-	}, [inspectRequest?.seq]);
 
 	// Re-measure after every render: the guarded set makes this settle in one
 	// extra pass when the theme's font size changes the real row height.
@@ -512,25 +444,23 @@ export function ModelsSection({
 												) : null}
 											</td>
 											<td class="actions">
-												{/* Quiet text actions, not icons: "Params" and "Caps" say
-												    what opens, and the uniform row height survives (no
-												    taller chrome). They stay visible at rest - each is its
-												    inspector's only entry point, so hover-reveal would make
-												    it undiscoverable. */}
+												{/* Quiet text actions, not icons: "Parameters" and
+												    "Capabilities" say what opens, and the uniform row height
+												    survives (no taller chrome). They stay visible at rest -
+												    each is its inspector's only entry point, so hover-reveal
+												    would make it undiscoverable. */}
 												<button
 													type="button"
 													class="quiet params-action"
 													aria-label={l10n.t("Show effective parameters for {0} on {1}", model.name, model.serverLabel)}
 													onClick={() =>
-														setInspecting({
-															id: model.id,
-															serverLabel: model.serverLabel,
-															scopeKey: model.scopeKey,
-															view: "params",
-														})
+														onInspect(
+															{ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel },
+															"params"
+														)
 													}
 												>
-													{l10n.t("Params")}
+													{l10n.t("Parameters")}
 												</button>
 												<button
 													type="button"
@@ -541,15 +471,13 @@ export function ModelsSection({
 														model.serverLabel
 													)}
 													onClick={() =>
-														setInspecting({
-															id: model.id,
-															serverLabel: model.serverLabel,
-															scopeKey: model.scopeKey,
-															view: "caps",
-														})
+														onInspect(
+															{ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel },
+															"caps"
+														)
 													}
 												>
-													{l10n.t("Caps")}
+													{l10n.t("Capabilities")}
 												</button>
 											</td>
 										</tr>
@@ -568,55 +496,6 @@ export function ModelsSection({
 						</table>
 					</section>
 					{sorted.length === 0 ? <p class="empty">{l10n.t("No models match the filter.")}</p> : null}
-					{inspected !== undefined && inspecting?.view === "params" ? (
-						<ParamsInspector
-							model={inspected}
-							response={paramsResponse}
-							stateSeq={stateSeq}
-							onClose={() => setInspecting(undefined)}
-							onEditRecord={
-								onEditRecord === undefined
-									? undefined
-									: (key, create) => {
-											// The popup closes on the jump; the editor is the next surface.
-											setInspecting(undefined);
-											onEditRecord("parameters", key, create);
-										}
-							}
-							onEditEntry={
-								onEditEntry === undefined
-									? undefined
-									: (label) => {
-											setInspecting(undefined);
-											onEditEntry(label);
-										}
-							}
-						/>
-					) : null}
-					{inspected !== undefined && inspecting?.view === "caps" ? (
-						<CapsInspector
-							model={inspected}
-							response={capsResponse}
-							stateSeq={stateSeq}
-							onClose={() => setInspecting(undefined)}
-							onEditRecord={
-								onEditRecord === undefined
-									? undefined
-									: (key, create) => {
-											setInspecting(undefined);
-											onEditRecord("capabilities", key, create);
-										}
-							}
-							onEditEntry={
-								onEditEntry === undefined
-									? undefined
-									: (label) => {
-											setInspecting(undefined);
-											onEditEntry(label);
-										}
-							}
-						/>
-					) : null}
 				</>
 			)}
 		</section>

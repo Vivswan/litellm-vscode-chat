@@ -15,7 +15,6 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 import { projectEffectiveParameters } from "../../../shared/config/parameterResolution";
 import { App } from "../../../webview/dashboard/app";
-import { ModelsSection } from "../../../webview/dashboard/models";
 import { ParamsInspector } from "../../../webview/dashboard/paramsInspector";
 import { makeDeclaredServer, makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import { cleanup, fireClick, mount, postedMessages, pushToWebview, resetPosted, textOf } from "../harness";
@@ -76,11 +75,12 @@ function mountInspector(options: {
 	return container;
 }
 
-test("the models table row carries a quiet Params action that opens the inspector dialog", () => {
-	const root = mount(<ModelsSection models={[model]} serverCount={1} stateSeq={0} />);
-	const action = root.querySelector("button[aria-label='Show effective parameters for Omni on Prod']");
+test("the models table row carries a quiet Parameters action that opens the inspector dialog", () => {
+	mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], models: [model] })));
+	const action = document.querySelector("button[aria-label='Show effective parameters for Omni on Prod']");
 	expect(action).not.toBeNull();
-	expect((action?.textContent ?? "").trim()).toBe("Params");
+	expect((action?.textContent ?? "").trim()).toBe("Parameters");
 	expect(document.querySelector("[role='dialog']")).toBeNull();
 
 	fireClick(action as HTMLButtonElement);
@@ -312,12 +312,20 @@ test("a state push that drops the inspected model closes the inspector instead o
 });
 
 test("two rows sharing an ID and display label still ask about their own snapshot", () => {
-	// The inspected-row identity includes scopeKey: two snapshots can render
-	// the same raw ID under the same display label, and each Params action
+	// The inspected identity includes scopeKey: two snapshots can render the
+	// same raw ID under the same display label, and each Parameters action
 	// must ask about exactly the row it sits on.
 	const rows = [makeModel({ ...model, scopeKey: "s0" }), makeModel({ ...model, scopeKey: "s1" })];
-	const root = mount(<ModelsSection models={rows} serverCount={2} stateSeq={0} />);
-	const actions = root.querySelectorAll("button[aria-label='Show effective parameters for Omni on Prod']");
+	mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				servers: [makeDeclaredServer(), makeDeclaredServer({ label: "Prod", baseUrl: "http://other:4000" })],
+				models: rows,
+			})
+		)
+	);
+	const actions = document.querySelectorAll("button[aria-label='Show effective parameters for Omni on Prod']");
 	expect(actions.length).toBe(2);
 	fireClick(actions[1] as HTMLButtonElement);
 	expect(document.querySelector("[role='dialog']")).not.toBeNull();
@@ -325,6 +333,31 @@ test("two rows sharing an ID and display label still ask about their own snapsho
 	expect(request.type).toBe("readModelParameters");
 	expect(request.scopeKey).toBe("s1");
 	expect(request.rawId).toBe("gpt-4o");
+});
+
+test("one snapshot rendered under two labels: the inspector stays on the clicked row's label", () => {
+	// The inspected identity includes serverLabel too: a group snapshot can
+	// render under several labels with identical (scopeKey, rawId), and the
+	// overlay must attribute the clicked row, not the first claimant.
+	const rows = [
+		makeModel({ ...model, scopeKey: "s0", serverLabel: "A" }),
+		makeModel({ ...model, scopeKey: "s0", serverLabel: "B" }),
+	];
+	mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				servers: [makeDeclaredServer({ label: "A" }), makeDeclaredServer({ label: "B" })],
+				models: rows,
+			})
+		)
+	);
+	fireClick(
+		document.querySelector("button[aria-label='Show effective parameters for Omni on B']") as HTMLButtonElement
+	);
+	const dialog = document.querySelector("[role='dialog']") as HTMLElement;
+	expect(dialog).not.toBeNull();
+	expect(textOf(dialog, ".params-identity")).toBe("gpt-4o on B");
 });
 
 test("the facts grid restates the model's table facts, with conditional pricing tiers", () => {

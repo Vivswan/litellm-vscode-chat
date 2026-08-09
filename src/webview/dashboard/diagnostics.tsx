@@ -541,7 +541,7 @@ function ResolvedModels({
 	response: ResolvedModelsResponse | undefined;
 	active: boolean;
 	stateSeq: number;
-	onInspect: (scopeKey: string, rawId: string, view: "params" | "caps") => void;
+	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, view: "params" | "caps") => void;
 }) {
 	const [requestId, setRequestId] = useState<string | undefined>(undefined);
 	const [filter, setFilter] = useState("");
@@ -656,9 +656,14 @@ function ResolvedModels({
 														type="button"
 														class="quiet params-action"
 														aria-label={l10n.t("Show effective parameters for {0} on {1}", row.rawId, row.serverLabel)}
-														onClick={() => onInspect(row.scopeKey, row.rawId, "params")}
+														onClick={() =>
+															onInspect(
+																{ scopeKey: row.scopeKey, rawId: row.rawId, serverLabel: row.serverLabel },
+																"params"
+															)
+														}
 													>
-														{l10n.t("Params")}
+														{l10n.t("Parameters")}
 													</button>
 													<button
 														type="button"
@@ -668,9 +673,14 @@ function ResolvedModels({
 															row.rawId,
 															row.serverLabel
 														)}
-														onClick={() => onInspect(row.scopeKey, row.rawId, "caps")}
+														onClick={() =>
+															onInspect(
+																{ scopeKey: row.scopeKey, rawId: row.rawId, serverLabel: row.serverLabel },
+																"caps"
+															)
+														}
 													>
-														{l10n.t("Caps")}
+														{l10n.t("Capabilities")}
 													</button>
 												</td>
 											</tr>
@@ -706,8 +716,8 @@ export function DiagnosticsSection({
 	active: boolean;
 	/** Bumped on every state push; the resolved view re-requests on it while visible. */
 	stateSeq: number;
-	/** The Resolved-models table's jump into the models section's inspectors. */
-	onInspect: (scopeKey: string, rawId: string, view: "params" | "caps") => void;
+	/** Open a model's inspector overlay in place; App renders it over the active tab. */
+	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, view: "params" | "caps") => void;
 	now: number;
 }) {
 	const [copied, setCopied] = useState(false);
