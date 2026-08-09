@@ -11,7 +11,12 @@ import type {
 	SetupHintKind,
 	TransportErrorClassification,
 } from "../../extension/dashboard/protocol";
-import { EXPECTED_FAILURE_CATEGORIES, SECRET_FIELD_IDS } from "../../extension/dashboard/protocol";
+import {
+	EXPECTED_FAILURE_CATEGORIES,
+	SECRET_FIELD_IDS,
+	statusErrorDetail,
+	statusErrorHeadline,
+} from "../../extension/dashboard/protocol";
 import type { GroupProblems, HeaderRow } from "../../extension/dashboard/recordDraft";
 import {
 	toCapabilityGroups,
@@ -53,6 +58,7 @@ import {
 	DOCS_LINK_SERVER_FORM,
 	DOCS_LINK_SERVERS,
 } from "./docsLinks";
+import { FailureText } from "./failureText";
 import { DocsLink, Help, HoverTip } from "./help";
 import {
 	helpEntryModelParameterPrefix,
@@ -1897,6 +1903,12 @@ export function ServersSection({
 	const hideFailure = failures.hideExternalServer;
 	const unhideFailure = failures.unhideServer;
 	const noServers = servers.length === 0;
+	// The two aggregate failure banners' entry lists, filtered once so the
+	// separator logic can look at each entry's predecessor.
+	const failingServers = servers.filter(
+		(server) => server.origin !== "misconfigured" && server.error !== undefined && server.expected !== true
+	);
+	const expectedFailureServers = servers.filter((server) => server.error !== undefined && server.expected === true);
 
 	const openForm = (target: FormTarget) => {
 		// A fresh form must never see the previous entry's response (switching
@@ -2089,9 +2101,12 @@ export function ServersSection({
 			{adoptFailure !== undefined ? (
 				<div class="banner banner-error" role="alert">
 					<p>
-						{adoptFailure.kind === "operation"
-							? adoptFailure.message
-							: sectionFailureText(l10n.t("Adopting the server failed:"), adoptFailure.message)}
+						<FailureText
+							message={adoptFailure.message}
+							{...(adoptFailure.kind === "operation"
+								? {}
+								: { frame: (headline: string) => sectionFailureText(l10n.t("Adopting the server failed:"), headline) })}
+						/>
 					</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("adoptServer")}>
 						{l10n.t("Dismiss")}
@@ -2101,9 +2116,12 @@ export function ServersSection({
 			{saveFailure !== undefined ? (
 				<div class="banner banner-error" role="alert">
 					<p>
-						{saveFailure.kind === "operation"
-							? saveFailure.message
-							: sectionFailureText(l10n.t("Saving the server failed:"), saveFailure.message)}
+						<FailureText
+							message={saveFailure.message}
+							{...(saveFailure.kind === "operation"
+								? {}
+								: { frame: (headline: string) => sectionFailureText(l10n.t("Saving the server failed:"), headline) })}
+						/>
 					</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("saveServerSetting")}>
 						{l10n.t("Dismiss")}
@@ -2112,7 +2130,12 @@ export function ServersSection({
 			) : null}
 			{removeFailure !== undefined ? (
 				<div class="banner banner-error" role="alert">
-					<p>{sectionFailureText(l10n.t("Removing failed:"), removeFailure.message)}</p>
+					<p>
+						<FailureText
+							message={removeFailure.message}
+							frame={(headline) => sectionFailureText(l10n.t("Removing failed:"), headline)}
+						/>
+					</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("removeServerSetting")}>
 						{l10n.t("Dismiss")}
 					</button>
@@ -2120,7 +2143,12 @@ export function ServersSection({
 			) : null}
 			{hideFailure !== undefined ? (
 				<div class="banner banner-error" role="alert">
-					<p>{sectionFailureText(l10n.t("Hiding the group failed:"), hideFailure.message)}</p>
+					<p>
+						<FailureText
+							message={hideFailure.message}
+							frame={(headline) => sectionFailureText(l10n.t("Hiding the group failed:"), headline)}
+						/>
+					</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("hideExternalServer")}>
 						{l10n.t("Dismiss")}
 					</button>
@@ -2128,7 +2156,12 @@ export function ServersSection({
 			) : null}
 			{unhideFailure !== undefined ? (
 				<div class="banner banner-error" role="alert">
-					<p>{sectionFailureText(l10n.t("Unhiding the group failed:"), unhideFailure.message)}</p>
+					<p>
+						<FailureText
+							message={unhideFailure.message}
+							frame={(headline) => sectionFailureText(l10n.t("Unhiding the group failed:"), headline)}
+						/>
+					</p>
 					<button type="button" class="quiet" onClick={() => onDismissFailure("unhideServer")}>
 						{l10n.t("Dismiss")}
 					</button>
@@ -2196,26 +2229,26 @@ export function ServersSection({
 				</div>
 			)}
 			<HiddenGroupsLine hidden={hidden} />
-			{servers.some(
-				(server) => server.origin !== "misconfigured" && server.error !== undefined && server.expected !== true
-			) ? (
+			{failingServers.length > 0 ? (
 				<div class="banner banner-error">
 					<p class="error">
-						{servers
-							.filter(
-								(server) => server.origin !== "misconfigured" && server.error !== undefined && server.expected !== true
-							)
-							.map((server, index) => (
-								// Keyed identity (origin plus the external row's opaque handle
-								// or the declared row's setting-unique label) so reconciliation
-								// keeps focus on a Troubleshoot link when an earlier entry
-								// recovers. A classified failure carries the same short
-								// Troubleshoot link as the draft-test footer, inline after its
-								// own entry; an unclassified entry renders exactly the text it
-								// always did.
+						{failingServers.map((server, index) => {
+							// Keyed identity (origin plus the external row's opaque handle
+							// or the declared row's setting-unique label) so reconciliation
+							// keeps focus on a Troubleshoot link when an earlier entry
+							// recovers. A classified failure carries the same short
+							// Troubleshoot link as the draft-test footer, inline after its
+							// own entry's HEADLINE (the link must not drift below a detail
+							// line); a two-part error's technical detail renders as its own
+							// dimmed line after the link. The "; " separator joins inline
+							// entries only: after a block detail line the next entry starts
+							// on its own line, and a leading "; " there would dangle.
+							const detail = statusErrorDetail(server.error ?? "");
+							const afterDetail = index > 0 && statusErrorDetail(failingServers[index - 1]?.error ?? "") !== undefined;
+							return (
 								<Fragment key={`${server.origin}:${server.adoptHandle ?? server.label}`}>
-									{index > 0 ? "; " : ""}
-									{`${server.label}: ${server.error}`}
+									{index > 0 && !afterDetail ? "; " : ""}
+									{`${server.label}: ${statusErrorHeadline(server.error ?? "")}`}
 									{server.classification?.setupHint !== undefined ? (
 										// The leading space keeps copied text (the banner is the
 										// selectable error surface) from gluing the link label
@@ -2229,8 +2262,10 @@ export function ServersSection({
 											</span>
 										</>
 									) : null}
+									{detail !== undefined ? <span class="failure-detail">{detail}</span> : null}
 								</Fragment>
-							))}
+							);
+						})}
 					</p>
 				</div>
 			) : null}
@@ -2260,20 +2295,26 @@ export function ServersSection({
 					</p>
 				</div>
 			) : null}
-			{servers.some((server) => server.error !== undefined && server.expected === true) ? (
+			{expectedFailureServers.length > 0 ? (
 				<div class="banner banner-warn">
 					<p class="state-warn">
-						{servers
-							.filter((server) => server.error !== undefined && server.expected === true)
-							.map((server, index) => (
+						{expectedFailureServers.map((server, index) => {
+							// Warn tone, never the red banner: the entry declared this
+							// category, so the failure is stated with its localized
+							// annotation instead of raised as a problem. Separators join
+							// inline entries only (see the error banner above).
+							const afterDetail =
+								index > 0 && statusErrorDetail(expectedFailureServers[index - 1]?.error ?? "") !== undefined;
+							return (
 								<Fragment key={`${server.origin}:${server.adoptHandle ?? server.label}`}>
-									{index > 0 ? "; " : ""}
-									{/* Warn tone, never the red banner: the entry declared this
-									    category, so the failure is stated with its localized
-									    annotation instead of raised as a problem. */}
-									{l10n.t("{0}: {1} (expected)", server.label, server.error ?? "")}
+									{index > 0 && !afterDetail ? "; " : ""}
+									<FailureText
+										message={server.error ?? ""}
+										frame={(headline) => l10n.t("{0}: {1} (expected)", server.label, headline)}
+									/>
 								</Fragment>
-							))}
+							);
+						})}
 					</p>
 				</div>
 			) : null}

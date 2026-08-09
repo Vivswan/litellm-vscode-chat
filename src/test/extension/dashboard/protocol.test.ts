@@ -176,6 +176,23 @@ suite("extension/dashboard/protocol renderers", () => {
 			assert.strictEqual(serverOutcomeText(declaredServer({ state: "unchecked" })), "Not checked yet");
 		});
 
+		test("a two-part error flattens to one physical line in the paste form", () => {
+			// The grid renders headline and detail as separate lines; the copied
+			// issue-report line must stay one physical line per server.
+			const server = declaredServer({
+				state: "error",
+				error: "The server refused this request.\nLiteLLM 403: blocked by policy",
+			});
+			assert.strictEqual(
+				serverOutcomeText(server),
+				"Error: The server refused this request. - LiteLLM 403: blocked by policy"
+			);
+			assert.strictEqual(
+				serverOutcomeParts(server).error,
+				"The server refused this request.\nLiteLLM 403: blocked by policy"
+			);
+		});
+
 		test("an expected failure with declared models reads as OK, annotated (expected)", () => {
 			const server = declaredServer({
 				state: "error",
@@ -187,6 +204,23 @@ suite("extension/dashboard/protocol renderers", () => {
 			assert.strictEqual(
 				serverOutcomeText(declaredServer({ state: "error", error: "x", expected: true, declaredModelCount: 1 })),
 				"OK (1 declared model) - x (expected)"
+			);
+		});
+
+		test("an expected two-part error carries its (expected) annotation on the headline", () => {
+			const server = declaredServer({
+				state: "error",
+				error: "Discovery is declared unavailable.\nHTTP 404: not found",
+				expected: true,
+				declaredModelCount: 2,
+			});
+			assert.strictEqual(
+				serverOutcomeParts(server).error,
+				"Discovery is declared unavailable. (expected)\nHTTP 404: not found"
+			);
+			assert.strictEqual(
+				serverOutcomeText(server),
+				"OK (2 declared models) - Discovery is declared unavailable. (expected) - HTTP 404: not found"
 			);
 		});
 
@@ -269,11 +303,26 @@ suite("extension/dashboard/protocol renderers", () => {
 					expected: true,
 					notices: ["expected-failures-nothing-declared"],
 				}),
+				declaredServer({ state: "error", error: "headline\nLiteLLM 403: detail line" }),
+				declaredServer({ modelCount: 2, error: "headline\nHTTP 502: upsert detail" }),
+				declaredServer({
+					state: "error",
+					error: "headline\nHTTP 404: detail line",
+					expected: true,
+					declaredModelCount: 2,
+				}),
 			];
 			for (const server of cases) {
 				const parts = serverOutcomeParts(server);
 				const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
-				const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
+				// The one-line form flattens a two-part error's newline to " - ";
+				// the grid renders parts.error two-part on purpose.
+				const flat = parts.error
+					?.split("\n")
+					.map((line) => line.trim())
+					.filter((line) => line.length > 0)
+					.join(" - ");
+				const error = flat === undefined ? "" : parts.status === "OK" ? ` - ${flat}` : `: ${flat}`;
 				const notice = parts.notice.map((text) => ` - ${text}`).join("");
 				assert.strictEqual(serverOutcomeText(server), `${status}${error}${notice}`);
 			}

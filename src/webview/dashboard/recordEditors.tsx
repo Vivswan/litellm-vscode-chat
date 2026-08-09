@@ -35,6 +35,7 @@ import {
 	toggleDirectiveField,
 } from "../../extension/dashboard/recordDraft";
 import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
+import { FailureText } from "./failureText";
 import { DocsLink, Help } from "./help";
 import {
 	helpCapabilityName,
@@ -271,8 +272,17 @@ function FailureNote({ failure, dirty }: { failure: IntentFailure | undefined; d
 	if (failure === undefined || !dirty) {
 		return null;
 	}
+	// Headline first, the extension's own message verbatim as its own line:
+	// interpolating it into the sentence produced run-ons whenever the inner
+	// message lacked a trailing period. The message stays webview-only (the
+	// panel boundary logs classification tokens, never this text).
 	return (
-		<p class="error">{l10n.t("Saving failed: {0} Your edits are kept; fix them and Apply again.", failure.message)}</p>
+		<div class="error failure-note">
+			<p>{l10n.t("Saving failed - your edits are kept. Fix the problem below and Apply again.")}</p>
+			<p>
+				<FailureText message={failure.message} />
+			</p>
+		</div>
 	);
 }
 

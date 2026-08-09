@@ -57,6 +57,7 @@ function makeInput(overrides: Partial<UsageViewInput> = {}): UsageViewInput {
 		states: [],
 		thresholds: [0.8, 0.95],
 		pollIntervalMs: 300000,
+		discoveryTimeoutMs: 30000,
 		refreshing: false,
 		now: 1_754_000_000_000,
 		isFresh: () => true,
@@ -82,14 +83,39 @@ suite("extension/dashboard/usageView", () => {
 		);
 	});
 
-	test("the envelope passes thresholds, poll interval, refreshing, and the generation instant through", () => {
-		const view = buildUsageView(makeInput({ thresholds: [0.5], pollIntervalMs: 0, refreshing: true }));
+	test("the envelope passes thresholds, poll interval, timeout, refreshing, and the generation instant through", () => {
+		const view = buildUsageView(
+			makeInput({ thresholds: [0.5], pollIntervalMs: 0, discoveryTimeoutMs: 45_000, refreshing: true })
+		);
 
 		assert.deepStrictEqual(view.thresholds, [0.5]);
 		assert.strictEqual(view.pollIntervalMs, 0);
+		assert.strictEqual(view.discoveryTimeoutMs, 45_000);
 		assert.strictEqual(view.refreshing, true);
 		assert.strictEqual(view.generatedAt, 1_754_000_000_000);
 		assert.deepStrictEqual(view.servers, []);
+	});
+
+	test("the card carries the keyInfo and dailyActivity standings as closed enums, statuses included", () => {
+		const view = buildUsageView(
+			makeInput({
+				states: [
+					makeUsageState({
+						endpoints: {
+							keyInfo: { kind: "error", classification: "timeout" },
+							dailyActivity: { kind: "unavailable", reason: "forbidden", status: 401 },
+							userInfo: { kind: "unknown" },
+						},
+						availability: "available",
+					}),
+				],
+			})
+		);
+
+		const card = view.servers[0];
+		assert.ok(card !== undefined);
+		assert.deepStrictEqual(card.keyInfo, { kind: "error", classification: "timeout" });
+		assert.deepStrictEqual(card.dailyActivity, { kind: "unavailable", reason: "forbidden", status: 401 });
 	});
 
 	test("a card projects identity, budget numbers, and reset instant; unset facts stay absent, not undefined-keyed", () => {

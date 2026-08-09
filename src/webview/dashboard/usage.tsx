@@ -1,10 +1,16 @@
 /**
  * The Usage tab: spend against budget per server, rendered from the pushed
- * DashboardUsage snapshot (numbers, epoch timestamps, and configured identity
- * only - the extension narrowed everything response-derived away before it
- * reached the store). Servers whose LiteLLM instance serves no usage
- * endpoints never appear; when none does, the section says so instead of
- * showing empty charts (docs/usage.md).
+ * DashboardUsage snapshot (numbers, epoch timestamps, configured identity,
+ * and closed endpoint-standing enums only - the extension narrowed everything
+ * response-derived away before it reached the store). Servers whose LiteLLM
+ * instance serves no usage endpoints never appear; when none does, the
+ * section says so instead of showing empty charts (docs/usage.md).
+ *
+ * Failure rendering is two-part: a localized human headline (what happened,
+ * what to do) plus a compact English detail line built from the standing's
+ * enums (endpoint path, HTTP status, fixed vocabulary). The detail stays
+ * English on purpose: users paste it into GitHub issues, and every term is
+ * protocol vocabulary. Nothing here may ever interpolate server-derived text.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -41,12 +47,144 @@ export function barPresentation(
 	return { widthPercent, tone };
 }
 
+/**
+ * The card head's freshness slot. Never-loaded spend gets a reasoned headline
+ * per the /key/info standing instead of the old self-contradictory "never
+ * updated (stale)"; a stale age keeps the docs-quoted "last updated {age}"
+ * phrase and extends the marker with the cause when the standing knows one.
+ * Every branch is one whole l10n literal so extraction sees full sentences.
+ */
 function lastUpdatedText(server: UsageServerView, now: number): string {
 	if (server.lastUpdatedAt === undefined) {
-		return l10n.t("never updated");
+		if (server.keyInfo.kind === "unavailable") {
+			return server.keyInfo.reason === "forbidden"
+				? l10n.t("This key isn't allowed to read its spend.")
+				: l10n.t("This server doesn't report spend.");
+		}
+		return l10n.t("Spend hasn't loaded for this server yet.");
 	}
 	const ago = relativeTime(new Date(server.lastUpdatedAt).toISOString(), now);
-	return ago === undefined ? l10n.t("just updated") : l10n.t("last updated {0}", ago);
+	if (ago === undefined) {
+		return l10n.t("just updated");
+	}
+	if (server.fresh) {
+		return l10n.t("last updated {0}", ago);
+	}
+	if (server.keyInfo.kind === "error") {
+		return l10n.t("last updated {0} - last refresh failed", ago);
+	}
+	if (server.keyInfo.kind === "unavailable" && server.keyInfo.reason === "forbidden") {
+		return l10n.t("last updated {0} - usage access denied", ago);
+	}
+	// Merely old (laptop asleep, polling off): the plain history marker.
+	return l10n.t("last updated {0} (stale)", ago);
+}
+
+/**
+ * The spend slot when /key/info gave no spend number: why, and what unblocks
+ * it, branched on the standing (a forbidden key, a transient failure, and a
+ * server that simply omits the field must not render identically). Undefined
+ * when the card head already carries the same sentence - the never-fetched
+ * "unknown" standing - so the card never repeats itself word for word.
+ */
+function spendUnknownText(server: UsageServerView, pollingOff: boolean): string | undefined {
+	switch (server.keyInfo.kind) {
+		case "unavailable":
+			return server.keyInfo.reason === "forbidden"
+				? l10n.t(
+						"This key can't read its own spend. Ask whoever issued it to allow /key/info, then use Refresh now - the extension won't re-check on its own."
+					)
+				: l10n.t("This server doesn't report spend for this key.");
+		case "ok":
+			return l10n.t("This server doesn't report spend for this key.");
+		case "unknown":
+			return server.lastUpdatedAt === undefined ? undefined : l10n.t("Spend hasn't loaded for this server yet.");
+		case "error":
+			return pollingOff
+				? l10n.t("Spend hasn't loaded yet - the last check failed; use Refresh now to try again.")
+				: l10n.t("Spend hasn't loaded yet - the last check failed; it retries on the next poll.");
+	}
+}
+
+/**
+ * The compact technical detail for the /key/info standing, undefined when
+ * there is nothing wrong (or the data is merely old). English by policy:
+ * users paste these lines into issue reports, and every term is protocol
+ * vocabulary - endpoint path, HTTP status, setting ID. Built from closed
+ * enums and numbers only; response text never exists here by construction.
+ */
+function keyInfoDetail(server: UsageServerView, pollingOff: boolean, discoveryTimeoutMs: number): string | undefined {
+	const standing = server.keyInfo;
+	const retry = pollingOff ? "use Refresh now to retry" : "retries on the next poll";
+	switch (standing.kind) {
+		case "ok":
+			return server.spend === undefined ? "LiteLLM /key/info: OK, no spend field" : undefined;
+		case "unknown":
+			return server.spend === undefined ? "LiteLLM /key/info: waiting on the first fetch" : undefined;
+		case "unavailable":
+			return standing.reason === "forbidden"
+				? `LiteLLM /key/info:${standing.status !== undefined ? ` HTTP ${standing.status} -` : ""} this key may not read usage data; Refresh now re-probes`
+				: `LiteLLM /key/info: not served on this server${
+						standing.status !== undefined ? ` (HTTP ${standing.status})` : ""
+					}; request stats still update`;
+		case "error": {
+			if (standing.classification === "timeout") {
+				return `LiteLLM /key/info: timed out after ${discoveryTimeoutMs}ms (whole-call bound incl. retries); ${retry}. If the server is just slow, raise the discovery.timeout setting.`;
+			}
+			const how =
+				standing.status !== undefined
+					? `HTTP ${standing.status}`
+					: standing.classification === "network"
+						? "network error"
+						: "request failed";
+			return `LiteLLM /key/info: ${how} on the last attempt; ${retry}`;
+		}
+	}
+}
+
+/** The /user/daily/activity detail line, same English-template rules as keyInfoDetail. */
+function activityDetail(server: UsageServerView): string | undefined {
+	const standing = server.dailyActivity;
+	switch (standing.kind) {
+		case "ok":
+		case "unknown":
+			return undefined;
+		case "unavailable":
+			// Unsupported needs no detail: the headline's parenthetical covers it.
+			return standing.reason === "forbidden"
+				? `LiteLLM /user/daily/activity:${standing.status !== undefined ? ` HTTP ${standing.status}` : " forbidden"}`
+				: undefined;
+		case "error": {
+			const how =
+				standing.status !== undefined
+					? `HTTP ${standing.status}`
+					: standing.classification === "timeout"
+						? "timed out"
+						: standing.classification === "network"
+							? "network error"
+							: "request failed";
+			return `LiteLLM /user/daily/activity: ${how}`;
+		}
+	}
+}
+
+/**
+ * The requests slot when /user/daily/activity has no retained window: the
+ * permanent shapes keep their own sentences (unsupported stays the documented
+ * normal-shape note; forbidden names the fix), and everything else is the
+ * transient couldn't-fetch-yet line.
+ */
+function requestsMissingText(server: UsageServerView): string {
+	if (server.dailyActivity.kind === "unavailable") {
+		return server.dailyActivity.reason === "forbidden"
+			? l10n.t(
+					"This key isn't allowed to read request statistics on this server. After the key's permissions change, use Refresh now to re-check."
+				)
+			: l10n.t(
+					"No request statistics: this server does not serve /user/daily/activity (a normal shape on some setups)."
+				);
+	}
+	return l10n.t("Request statistics couldn't be fetched yet - retries on the next refresh.");
 }
 
 function BudgetLine({ server }: { server: UsageServerView }) {
@@ -81,32 +219,47 @@ function BudgetLine({ server }: { server: UsageServerView }) {
 function UsageCard({
 	server,
 	thresholds,
+	pollingOff,
+	discoveryTimeoutMs,
 	now,
 }: {
 	server: UsageServerView;
 	thresholds: readonly number[];
+	/** Whether background polling is off (usage.pollInterval 0); retry hints name Refresh now instead of the next poll. */
+	pollingOff: boolean;
+	/** The effective discovery.timeout; the timeout detail line prints it. */
+	discoveryTimeoutMs: number;
 	now: number;
 }) {
 	const fraction = server.spentFraction;
 	const bar = fraction !== undefined ? barPresentation(fraction, thresholds) : undefined;
+	const spendDetail = keyInfoDetail(server, pollingOff, discoveryTimeoutMs);
+	// Retained statistics from a failing endpoint must not read as current:
+	// spend freshness (the head marker) says nothing about the activity window.
+	// "unknown" stays unmarked - a re-probe is pending, nothing failed yet.
+	const statsOutdated =
+		server.requests !== undefined &&
+		(server.dailyActivity.kind === "error" || server.dailyActivity.kind === "unavailable");
+	const requestsDetail = server.requests === undefined || statsOutdated ? activityDetail(server) : undefined;
 	return (
 		<div class="usage-card">
 			<div class="usage-card-head">
 				<span class="usage-label">{server.label}</span>
 				<span class="url">{server.baseUrl}</span>
 				<span class="spacer" />
-				<span class={server.fresh ? "hint" : "hint state-warn"}>
-					{server.fresh ? lastUpdatedText(server, now) : `${lastUpdatedText(server, now)} (${l10n.t("stale")})`}
-				</span>
+				<span class={server.fresh ? "hint" : "hint state-warn"}>{lastUpdatedText(server, now)}</span>
 			</div>
 			<div class="usage-spend-row">
 				<span class="usage-spend">
-					{server.spend !== undefined ? l10n.t("spent {0}", formatUsd(server.spend)) : l10n.t("spend unknown")}
+					{server.spend !== undefined
+						? l10n.t("spent {0}", formatUsd(server.spend))
+						: spendUnknownText(server, pollingOff)}
 				</span>
 				{fraction !== undefined && bar !== undefined ? (
 					<span class={`usage-percent tone-${bar.tone}`}>{formatPercent(fraction)}</span>
 				) : null}
 			</div>
+			{spendDetail !== undefined ? <p class="hint usage-detail">{spendDetail}</p> : null}
 			{bar !== undefined ? (
 				// A plain div rather than <meter>: the native element paints its own
 				// UA chrome that ignores the theme tokens, so the bar draws itself
@@ -125,23 +278,26 @@ function UsageCard({
 			) : null}
 			<BudgetLine server={server} />
 			{server.requests !== undefined ? (
-				<p class="hint usage-activity">
-					{server.requests.total === 1
-						? l10n.t("1 request in the last 30 days")
-						: l10n.t("{0} requests in the last 30 days", server.requests.total.toLocaleString())}
-					{server.requests.successRate !== undefined
-						? ` - ${l10n.t("{0} success", formatPercent(server.requests.successRate))}`
-						: ""}
-					{server.requests.cacheHitRate !== undefined
-						? ` - ${l10n.t("{0} cache hits", formatPercent(server.requests.cacheHitRate))}`
-						: ""}
-				</p>
+				<>
+					<p class={statsOutdated ? "hint state-warn usage-activity" : "hint usage-activity"}>
+						{server.requests.total === 1
+							? l10n.t("1 request in the last 30 days")
+							: l10n.t("{0} requests in the last 30 days", server.requests.total.toLocaleString())}
+						{server.requests.successRate !== undefined
+							? ` - ${l10n.t("{0} success", formatPercent(server.requests.successRate))}`
+							: ""}
+						{server.requests.cacheHitRate !== undefined
+							? ` - ${l10n.t("{0} cache hits", formatPercent(server.requests.cacheHitRate))}`
+							: ""}
+						{statsOutdated ? ` - ${l10n.t("may be outdated: the last statistics fetch failed")}` : ""}
+					</p>
+					{requestsDetail !== undefined ? <p class="hint usage-detail">{requestsDetail}</p> : null}
+				</>
 			) : (
-				<p class="hint usage-activity">
-					{l10n.t(
-						"No request statistics: this server does not serve /user/daily/activity (a normal shape on some setups)."
-					)}
-				</p>
+				<>
+					<p class="hint usage-activity">{requestsMissingText(server)}</p>
+					{requestsDetail !== undefined ? <p class="hint usage-detail">{requestsDetail}</p> : null}
+				</>
 			)}
 		</div>
 	);
@@ -215,6 +371,8 @@ export function UsageSection({
 							key={`${server.label} ${server.baseUrl}`}
 							server={server}
 							thresholds={usage.thresholds}
+							pollingOff={usage.pollIntervalMs === 0}
+							discoveryTimeoutMs={usage.discoveryTimeoutMs}
 							now={now}
 						/>
 					))}

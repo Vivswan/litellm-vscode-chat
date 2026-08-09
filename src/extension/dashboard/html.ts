@@ -1175,6 +1175,11 @@ const STYLES = `
 	.usage-bar-fill.tone-error { background: var(--vscode-charts-red, #f14c4c); }
 	.usage-budget-line { margin: 4px 0 0; }
 	.usage-activity { margin: 4px 0 0; }
+	.usage-detail { margin: 2px 0 0; font-size: 0.9em; }
+	.failure-note p { margin: 2px 0; }
+	/* The two-part errors' technical detail line: its own line under the
+	   headline, dimmed, inner newlines preserved (pre-line). */
+	.failure-detail { display: block; white-space: pre-line; opacity: 0.85; font-size: 0.9em; margin-top: 2px; }
 	.config-diagnostics { margin: 8px 0 16px; padding-left: 18px; }
 	.config-diagnostics li { margin: 4px 0; }
 	.record-tree { margin: 8px 0; }

@@ -10,7 +10,8 @@ import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getUsageAlertThresholds, getUsagePollIntervalMs, SERVERS_SETTING_KEY } from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { readServerSecrets } from "../serverSync/secrets";
-import type { UsagePollerEnv } from "./poller";
+import type { UsagePollerEnv, UsageRefreshOutcome } from "./poller";
+import { usageRefreshFailureSummary } from "./poller";
 import { UsageClient } from "./spendClient";
 
 /** The real environment: workspace configuration, SecretStorage, and the fetch-backed spend client. */
@@ -44,7 +45,39 @@ export function createUsagePollerEnv(
 	};
 }
 
+/**
+ * Acknowledge an explicit, user-initiated refresh in which no server returned
+ * any usage data: one warning toast, headline plus the per-server template
+ * detail (labels, endpoint paths, status numbers - never response text).
+ * Partial failures and disposal (outcome undefined) stay silent - the cards
+ * carry their own state lines, and a cancelled pass proves nothing. Never
+ * logged: the poller's one-classification-per-transition discipline already
+ * covers the log.
+ */
+export function notifyUsageRefreshFailure(outcome: UsageRefreshOutcome | undefined): void {
+	if (outcome === undefined) {
+		return;
+	}
+	const summary = usageRefreshFailureSummary(outcome);
+	if (summary === undefined) {
+		return;
+	}
+	void vscode.window.showWarningMessage(
+		vscode.l10n.t(
+			"LiteLLM: {0}",
+			`${vscode.l10n.t("Usage refresh failed - no server returned usage data.")} ${summary}`
+		)
+	);
+}
+
 /** The palette command: one immediate, availability-re-probing refresh; works with polling off. */
-export function registerRefreshUsageCommand(context: vscode.ExtensionContext, refreshNow: () => Promise<void>): void {
-	context.subscriptions.push(vscode.commands.registerCommand(CMD.refreshUsage, () => refreshNow()));
+export function registerRefreshUsageCommand(
+	context: vscode.ExtensionContext,
+	refreshNow: () => Promise<UsageRefreshOutcome | undefined>
+): void {
+	context.subscriptions.push(
+		vscode.commands.registerCommand(CMD.refreshUsage, async () => {
+			notifyUsageRefreshFailure(await refreshNow());
+		})
+	);
 }
