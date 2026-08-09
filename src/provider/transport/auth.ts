@@ -1,5 +1,6 @@
 import { l10n } from "vscode";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
@@ -204,9 +205,10 @@ function timeoutError(tokenUrl: string, timeoutMs: number, cause?: unknown): Req
 
 /**
  * The RFC 6749 error code and description from an error response, when the
- * body carries them. Never the raw body: it is untrusted and can be huge.
- * The configured client secret is scrubbed in case the identity provider
- * echoes it back in the description.
+ * body carries them, as bare "error: description" text (empty when absent).
+ * Never the raw body: it is untrusted and can be huge. The configured client
+ * secret is scrubbed in case the identity provider echoes it back in the
+ * description.
  */
 function oauthErrorDetail(payload: string, clientSecret: string): string {
 	try {
@@ -217,12 +219,20 @@ function oauthErrorDetail(payload: string, clientSecret: string): string {
 			);
 			if (parts.length > 0) {
 				// Scrub before truncating: a secret longer than the cap, or one
-				// crossing it, must not leak its prefix.
+				// crossing it, must not leak its prefix. Scrub again after the
+				// whitespace collapse: a secret containing whitespace dodges the
+				// exact-match pass when the IdP echoes it with different
+				// whitespace, and the collapse would otherwise reassemble it.
 				let detail = parts.join(": ");
 				if (clientSecret.length > 0) {
 					detail = detail.split(clientSecret).join("[REDACTED]");
 				}
-				return ` (${detail.slice(0, 200)})`;
+				detail = collapseWhitespace(detail);
+				const collapsedSecret = collapseWhitespace(clientSecret);
+				if (collapsedSecret.length > 0) {
+					detail = detail.split(collapsedSecret).join("[REDACTED]");
+				}
+				return detail.slice(0, 200);
 			}
 		}
 	} catch {
@@ -254,27 +264,32 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 	} catch {
 		parsed = undefined;
 	}
-	// Each malformed shape throws one complete localized sentence (no
-	// composed fragments; translators see the whole thing) with its full
-	// English mirror for the English-by-policy log surfaces.
+	// Each malformed shape throws a localized headline (a whole sentence per
+	// part; translators never see composed fragments) over a fixed English
+	// detail line, with a single-line English mirror: these errors carry no
+	// logClassification, so the mirror itself is what the one-line diagnostics
+	// surfaces render.
 	if (!isRecord(parsed) || typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
+		const detail = `OAuth token endpoint ${tokenUrl} answered 2xx without JSON containing a non-empty access_token.`;
 		throw new RequestError(
-			l10n.t('Failed to parse OAuth token response from {0}: expected JSON with a non-empty "access_token".', tokenUrl),
+			`${l10n.t(
+				"The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page."
+			)}\n${detail}`,
 			"http",
 			{
-				englishMessage: `Failed to parse OAuth token response from ${tokenUrl}: expected JSON with a non-empty "access_token".`,
+				englishMessage: `The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page. ${detail}`,
 			}
 		);
 	}
 	if (!isValidHeaderValue(parsed.access_token)) {
+		const detail = `OAuth token from ${tokenUrl} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
 		throw new RequestError(
-			l10n.t(
-				"Failed to parse OAuth token response from {0}: the access token contains characters that are not valid in an HTTP header.",
-				tokenUrl
-			),
+			`${l10n.t(
+				"The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server."
+			)}\n${detail}`,
 			"http",
 			{
-				englishMessage: `Failed to parse OAuth token response from ${tokenUrl}: the access token contains characters that are not valid in an HTTP header.`,
+				englishMessage: `The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server. ${detail}`,
 			}
 		);
 	}
@@ -346,53 +361,58 @@ async function exchangeClientCredentials(
 			return parseTokenResponse(payload, config.tokenUrl);
 		}
 		const { status } = response;
-		const detail = oauthErrorDetail(payload, config.clientSecret);
+		const idpDetail = oauthErrorDetail(payload, config.clientSecret);
 		if (status >= 500) {
+			// `idpDetail` quotes the IdP's error/error_description (response-derived),
+			// so the detail line rides only the message and its English mirror; the
+			// classification is what public surfaces record.
+			const detailLine = collapseWhitespace(
+				`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+			);
 			lastFailure = new RequestError(
-				l10n.t({
-					message: "OAuth token request to {0} failed: {1}",
-					args: [config.tokenUrl, `${status}${detail}`],
-					comment: ["{1} is the HTTP status code, followed by the identity provider's error detail when present"],
-				}),
+				`${l10n.t(
+					"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator."
+				)}\n${detailLine}`,
 				"http",
 				{
 					status,
-					// `detail` quotes the IdP's error/error_description (response-derived).
 					logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-					englishMessage: `OAuth token request to ${config.tokenUrl} failed: ${status}${detail}`,
+					englishMessage: `The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator.\n${detailLine}`,
 					oauthTokenEndpoint: true,
 				}
 			);
 			continue;
 		}
 		if (status === 400 || status === 401 || status === 403) {
+			// Same: the IdP detail can carry correlation IDs and tenant text.
+			const detailLine = collapseWhitespace(
+				`OAuth ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+			);
 			throw new RequestError(
-				l10n.t(
-					"OAuth authentication failed: the token endpoint at {0} rejected the client credentials ({1}). Check the OAuth client ID, client secret, and scopes in the provider configuration.",
-					config.tokenUrl,
-					`${status}${detail}`
-				),
+				`${l10n.t(
+					"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry."
+				)}\n${detailLine}`,
 				"auth",
 				{
 					status,
-					// Same: the IdP detail can carry correlation IDs and tenant text.
 					logClassification: `RequestError(auth, status ${status}, oauth token endpoint)`,
-					englishMessage: `OAuth authentication failed: the token endpoint at ${config.tokenUrl} rejected the client credentials (${status}${detail}). Check the OAuth client ID, client secret, and scopes in the provider configuration.`,
+					englishMessage: `The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry.\n${detailLine}`,
 					oauthTokenEndpoint: true,
 				}
 			);
 		}
+		const detailLine = collapseWhitespace(
+			`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
+		);
 		throw new RequestError(
-			l10n.t({
-				message: "OAuth token request to {0} failed: {1}",
-				args: [config.tokenUrl, `${status}${detail}`],
-				comment: ["{1} is the HTTP status code, followed by the identity provider's error detail when present"],
-			}),
+			`${l10n.t(
+				"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings."
+			)}\n${detailLine}`,
 			"http",
 			{
 				status,
 				logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-				englishMessage: `OAuth token request to ${config.tokenUrl} failed: ${status}${detail}`,
+				englishMessage: `The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings.\n${detailLine}`,
 				oauthTokenEndpoint: true,
 			}
 		);
@@ -401,17 +421,44 @@ async function exchangeClientCredentials(
 	if (lastFailure instanceof RequestError) {
 		throw lastFailure;
 	}
-	const detail = lastFailure instanceof Error ? ` ${lastFailure.message}` : "";
+	const detail = socketFailureDetail(lastFailure);
 	throw new RequestError(
 		`${l10n.t(
 			"Network Error: Unable to reach the OAuth token endpoint at {0}. Please check that the URL is correct and the identity provider is reachable.",
 			config.tokenUrl
-		)}${detail}`,
+		)}${detail === "" ? "" : `\n${detail}`}`,
 		"network",
 		{
 			cause: lastFailure,
-			// The English mirror for the output channel and the issue-report buffer; the display message localizes.
-			englishMessage: `Network Error: Unable to reach the OAuth token endpoint at ${config.tokenUrl}. Please check that the URL is correct and the identity provider is reachable.${detail}`,
+			// The English mirror for the output channel and the issue-report
+			// buffer; single-line because this unclassified mirror is what the
+			// one-line diagnostics surfaces render.
+			englishMessage: `Network Error: Unable to reach the OAuth token endpoint at ${config.tokenUrl}. Please check that the URL is correct and the identity provider is reachable.${detail === "" ? "" : ` ${detail}`}`,
 		}
 	);
+}
+
+/**
+ * The socket-level failure text with one level of cause unwrapped: under the
+ * extension host's undici fetch, failures surface as a TypeError whose
+ * message is literally "fetch failed" with the real reason (getaddrinfo
+ * ENOTFOUND, ECONNREFUSED, TLS errors) in error.cause. Runtime error-object
+ * text only - this must never be handed a response payload. Total by
+ * construction: a hostile getter on cause/code/message must not replace the
+ * network error with its own throw.
+ */
+function socketFailureDetail(failure: unknown): string {
+	try {
+		if (!(failure instanceof Error)) {
+			return "";
+		}
+		const cause = failure.cause instanceof AggregateError ? failure.cause.errors[0] : failure.cause;
+		const code = cause instanceof Error ? (cause as { code?: unknown }).code : undefined;
+		const causeMessage = cause instanceof Error && typeof cause.message === "string" ? cause.message : "";
+		const reason = typeof code === "string" && code !== "" ? code : causeMessage;
+		const message = typeof failure.message === "string" ? failure.message : "";
+		return collapseWhitespace([message, reason].filter((part) => part !== "").join(": "));
+	} catch {
+		return "";
+	}
 }

@@ -37,11 +37,25 @@ async function expectRequestError(promise: Promise<unknown>, kind: RequestError[
 	} catch (error) {
 		assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
 		assert.strictEqual(error.kind, kind);
-		// Every auth.ts construction site localizes its display message and
-		// must carry the full English mirror. Under the test host's English
-		// fallback the two coincide, so a drifted mirror (or a site that
-		// forgot one) fails every test that lands here.
-		assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
+		// Every auth.ts construction site localizes its headline and must carry
+		// the full English mirror. Under the test host's English fallback the
+		// two coincide byte-for-byte on classified errors (public surfaces
+		// render their classification, so the mirror may keep the two-line
+		// shape), while unclassified errors must keep the mirror single-line:
+		// it is exactly what the one-line diagnostics surfaces render.
+		if (error.logClassification === undefined) {
+			assert.ok(
+				error.englishMessage !== undefined && !error.englishMessage.includes("\n"),
+				`unclassified mirrors must stay one line: ${error.englishMessage}`
+			);
+			assert.strictEqual(
+				error.englishMessage,
+				error.message.replaceAll("\n", " "),
+				"the English mirror must match the English display"
+			);
+		} else {
+			assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
+		}
 		return error;
 	}
 	assert.fail("expected the promise to reject");
@@ -90,9 +104,11 @@ suite("provider/transport/auth", () => {
 			assert.strictEqual(attempts, 1, "credential rejections must not be retried");
 			assert.strictEqual(error.status, 401);
 			assert.ok(
-				error.message.includes(
-					`the token endpoint at ${TOKEN_URL} rejected the client credentials (401 (invalid_client))`
-				),
+				error.message.includes("The identity provider refused to issue a token for this server"),
+				`unexpected message: ${error.message}`
+			);
+			assert.ok(
+				error.message.includes(`OAuth 401 at ${TOKEN_URL}: invalid_client`),
 				`unexpected message: ${error.message}`
 			);
 			assert.ok(!error.message.includes("secret-1"), "the client secret must never appear in the error message");
@@ -113,6 +129,7 @@ suite("provider/transport/auth", () => {
 			// there), so this construction site opts into a classification that
 			// public surfaces record instead of the message.
 			assert.strictEqual(error.logClassification, "RequestError(auth, status 400, oauth token endpoint)");
+			assert.strictEqual(error.oauthTokenEndpoint, true, "usage-availability classification keys on this flag");
 		});
 
 		test("an error description echoing the client secret is scrubbed before it reaches the message", async () => {
@@ -151,6 +168,30 @@ suite("provider/transport/auth", () => {
 			assert.ok(error.message.includes("[REDACTED]"), `unexpected message: ${error.message}`);
 		});
 
+		test("a secret containing whitespace cannot be reassembled by the whitespace collapse", async () => {
+			// The exact-match scrub misses when the IdP echoes the secret with
+			// different whitespace ("alpha\nbeta" for secret "alpha beta"), and
+			// the detail's newline collapse would then reconstruct it; the
+			// second, post-collapse scrub pass must catch it.
+			mswServer.use(
+				http.post(TOKEN_URL, () =>
+					HttpResponse.json(
+						{ error: "invalid_client", error_description: "the secret alpha\nbeta does not match" },
+						{ status: 401 }
+					)
+				)
+			);
+			const source = new OAuthTokenSource();
+
+			const error = await expectRequestError(
+				source.getToken(oauthConfig({ clientSecret: "alpha beta" }), 5000),
+				"auth"
+			);
+
+			assert.ok(!error.message.includes("alpha beta"), `the collapsed secret leaked: ${error.message}`);
+			assert.ok(error.message.includes("[REDACTED]"), `unexpected message: ${error.message}`);
+		});
+
 		test("a public client's grant omits the client_secret field entirely", async () => {
 			const { requests } = tokenEndpoint({ expiresIn: 3600 });
 			const source = new OAuthTokenSource();
@@ -178,6 +219,57 @@ suite("provider/transport/auth", () => {
 				error.message.includes(`Unable to reach the OAuth token endpoint at ${TOKEN_URL}`),
 				`unexpected message: ${error.message}`
 			);
+		});
+
+		test("the network detail unwraps one level of cause to the socket error code", async () => {
+			// Under the extension host's undici fetch a DNS failure surfaces as
+			// TypeError "fetch failed" with the real reason on error.cause; the
+			// detail line must carry that reason, and the English mirror must
+			// stay one line (it feeds the one-line diagnostics surfaces).
+			const realFetch = globalThis.fetch;
+			globalThis.fetch = () =>
+				Promise.reject(
+					Object.assign(new TypeError("fetch failed"), {
+						cause: Object.assign(new Error("getaddrinfo ENOTFOUND idp.test"), { code: "ENOTFOUND" }),
+					})
+				);
+			try {
+				const source = new OAuthTokenSource();
+
+				const error = await expectRequestError(source.getToken(oauthConfig(), 5000), "network");
+
+				assert.ok(error.message.includes("fetch failed: ENOTFOUND"), `unexpected message: ${error.message}`);
+				assert.ok(
+					!error.englishMessage?.includes("\n"),
+					`the English mirror must stay one line: ${error.englishMessage}`
+				);
+			} finally {
+				globalThis.fetch = realFetch;
+			}
+		});
+
+		test("a hostile cause getter cannot replace the network error with its own throw", async () => {
+			const realFetch = globalThis.fetch;
+			const hostile = new TypeError("fetch failed");
+			Object.defineProperty(hostile, "cause", {
+				get() {
+					throw new Error("hostile getter");
+				},
+			});
+			globalThis.fetch = () => Promise.reject(hostile);
+			try {
+				const source = new OAuthTokenSource();
+
+				const error = await expectRequestError(source.getToken(oauthConfig(), 5000), "network");
+
+				assert.ok(
+					error.message.includes(`Unable to reach the OAuth token endpoint at ${TOKEN_URL}`),
+					`unexpected message: ${error.message}`
+				);
+				assert.ok(!error.message.includes("hostile getter"), `the getter's throw leaked: ${error.message}`);
+			} finally {
+				globalThis.fetch = realFetch;
+			}
 		});
 
 		test("a transient 5xx is retried and the eventual token is returned", async () => {
@@ -211,6 +303,8 @@ suite("provider/transport/auth", () => {
 
 			assert.strictEqual(attempts, 3);
 			assert.strictEqual(error.status, 502);
+			assert.strictEqual(error.logClassification, "RequestError(http, status 502, oauth token endpoint)");
+			assert.strictEqual(error.oauthTokenEndpoint, true, "usage-availability classification keys on this flag");
 		});
 
 		test("a status outside the credential and 5xx sets fails immediately through the catch-all http branch", async () => {
@@ -231,10 +325,15 @@ suite("provider/transport/auth", () => {
 			assert.strictEqual(attempts, 1, "a non-5xx failure must not be retried");
 			assert.strictEqual(error.status, 404);
 			assert.ok(
-				error.message.includes(`OAuth token request to ${TOKEN_URL} failed: 404 (not_found)`),
+				error.message.includes("The OAuth token endpoint gave an unexpected answer"),
+				`unexpected message: ${error.message}`
+			);
+			assert.ok(
+				error.message.includes(`OAuth token endpoint 404 at ${TOKEN_URL}: not_found`),
 				`unexpected message: ${error.message}`
 			);
 			assert.strictEqual(error.logClassification, "RequestError(http, status 404, oauth token endpoint)");
+			assert.strictEqual(error.oauthTokenEndpoint, true, "usage-availability classification keys on this flag");
 		});
 
 		test("a response without an access_token fails as malformed without a retry", async () => {
@@ -248,8 +347,9 @@ suite("provider/transport/auth", () => {
 			const source = new OAuthTokenSource();
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), 5000), "http");
+			assert.ok(error.message.includes("didn't return a usable access token"), `unexpected message: ${error.message}`);
 			assert.ok(
-				error.message.includes(`Failed to parse OAuth token response from ${TOKEN_URL}`),
+				error.message.includes(`OAuth token endpoint ${TOKEN_URL} answered 2xx without JSON`),
 				`unexpected message: ${error.message}`
 			);
 			assert.strictEqual(attempts, 1, "malformed responses must not be retried");
@@ -260,7 +360,7 @@ suite("provider/transport/auth", () => {
 			const source = new OAuthTokenSource();
 
 			const error = await expectRequestError(source.getToken(oauthConfig(), 5000), "http");
-			assert.ok(error.message.includes("not valid in an HTTP header"), `unexpected message: ${error.message}`);
+			assert.ok(error.message.includes("not allowed in an HTTP header value"), `unexpected message: ${error.message}`);
 			assert.ok(!error.message.includes("Injected"), "the invalid token value must not appear in the message");
 		});
 
