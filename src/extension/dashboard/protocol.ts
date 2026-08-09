@@ -550,17 +550,92 @@ export interface DashboardModel {
 
 /**
  * What each number setting counts. Static classification, deliberately apart
- * from the localized presentation: value logic (the duration grammar in
- * draftValue, the clock rendering in defaultDisplay and equivalence) keys off
- * these codes, and the form renders the localized unit suffix from
- * numberSettingPresentation instead.
+ * from the localized presentation: value logic keys off these codes through
+ * NUMBER_UNIT_BEHAVIOR, and the form renders the localized unit suffix from
+ * numberSettingPresentation instead. Module-private with the behavior table:
+ * consumers read a setting's unit through unitBehavior().
  */
-export const NUMBER_SETTING_UNITS = {
+const NUMBER_SETTING_UNITS = {
 	"chat.timeout": "ms",
 	"discovery.timeout": "ms",
 	"discovery.cacheTtl": "ms",
 	"usage.pollInterval": "ms",
-} as const satisfies Record<NumberSettingId, "ms" | "tokens">;
+} as const satisfies Record<NumberSettingId, NumberSettingUnit>;
+
+/**
+ * One unit's value behavior: everything the display and validation paths key
+ * off a setting's unit, so adding a unit (a percentage, a currency) is one
+ * row in NUMBER_UNIT_BEHAVIOR and every consumer picks it up through
+ * unitBehavior(). Localized strings resolve inside the functions, per call,
+ * so the table holds no localized constants.
+ */
+export interface NumberUnitBehavior {
+	/** A draft's numeric reading under the unit's grammar; undefined when the text has no reading. */
+	readonly parseDraft: (text: string) => number | undefined;
+	/** The localized problem to render when parseDraft has no reading. */
+	readonly parseProblem: () => string;
+	/** An exact human rendering of a value ("5 min"), or undefined to show the raw number. */
+	readonly exactDisplay: (value: number) => string | undefined;
+	/** The muted "= ..." equivalence beside the input, or undefined when the unit offers none. */
+	readonly equivalence: (value: number, zeroMeaning: string | undefined) => string | undefined;
+	/** The minimum bound as failure-detail text, unit-suffixed; stays English (it rides intent-failure detail lines). */
+	readonly minimumText: (minimum: number) => string;
+	/** Whether the grammar needs a free-text input (a number input would swallow suffix letters). */
+	readonly freeTextInput: boolean;
+}
+
+// The rows may reference parseDurationDraftMs and formatDuration above their
+// definitions only because those are hoisted function declarations; turning
+// either into a const arrow would crash this table at module load.
+const NUMBER_UNIT_BEHAVIOR = {
+	ms: {
+		parseDraft: parseDurationDraftMs,
+		parseProblem: () =>
+			l10n.t({
+				message: "Not a duration - use ms, s, m, or h",
+				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+			}),
+		exactDisplay: (value) => {
+			const duration = formatDuration(value);
+			return duration?.exact ? duration.label : undefined;
+		},
+		equivalence: (value, zeroMeaning) => {
+			if (value === 0) {
+				return zeroMeaning === undefined ? undefined : `= ${zeroMeaning}`;
+			}
+			const duration = formatDuration(value);
+			return duration === undefined ? undefined : `= ${duration.label}`;
+		},
+		minimumText: (minimum) => `${minimum} ms`,
+		freeTextInput: true,
+	},
+	tokens: {
+		parseDraft: (text) => {
+			const trimmed = text.trim();
+			// Number("") is 0; an empty draft has no reading under any grammar.
+			if (trimmed.length === 0) {
+				return undefined;
+			}
+			const value = Number(trimmed);
+			return Number.isFinite(value) ? value : undefined;
+		},
+		parseProblem: () => l10n.t("Not a number"),
+		exactDisplay: () => undefined,
+		// A digit-grouped echo of the same number would say nothing; the unit
+		// suffix on the input carries the meaning.
+		equivalence: () => undefined,
+		minimumText: (minimum) => String(minimum),
+		freeTextInput: false,
+	},
+} as const satisfies Record<string, NumberUnitBehavior>;
+
+/** The closed unit vocabulary; adding a unit means adding its NUMBER_UNIT_BEHAVIOR row. */
+type NumberSettingUnit = keyof typeof NUMBER_UNIT_BEHAVIOR;
+
+/** The unit behavior of one number setting: the single lookup every unit-dependent path goes through. */
+export function unitBehavior(id: NumberSettingId): NumberUnitBehavior {
+	return NUMBER_UNIT_BEHAVIOR[NUMBER_SETTING_UNITS[id]];
+}
 
 /** One number setting's presentation strings, resolved per call so the l10n bundle is honored. */
 export interface NumberSettingPresentation {
@@ -660,25 +735,23 @@ function parseDurationDraftMs(text: string): number | undefined {
 
 /**
  * One draft's numeric reading under the field's grammar: the duration grammar
- * on ms-unit settings, plain trim-and-Number elsewhere. Undefined when the
- * text has no reading (empty included). The single value extraction behind
- * parseNumberDraft AND isBoundViolation, so the two can never disagree about
- * what a draft is worth.
+ * on ms-unit settings, plain trim-and-Number elsewhere (the unit's parseDraft,
+ * looked up through unitBehavior). Undefined when the text has no reading
+ * (empty included). The single value extraction behind parseNumberDraft AND
+ * isBoundViolation, so the two can never disagree about what a draft is
+ * worth.
  */
 function draftValue(id: NumberSettingId, text: string): number | undefined {
 	const trimmed = text.trim();
 	if (trimmed.length === 0) {
 		return undefined;
 	}
-	if (NUMBER_SETTING_UNITS[id] === "ms") {
-		return parseDurationDraftMs(trimmed);
-	}
-	const value = Number(trimmed);
-	return Number.isFinite(value) ? value : undefined;
+	return unitBehavior(id).parseDraft(trimmed);
 }
 
 /**
- * What a modified number row shows as the setting's built-in default.
+ * What a modified number row shows as the setting's built-in default: the
+ * unit's exact human rendering when it has one, the raw number otherwise.
  * Millisecond defaults speak the same duration idiom as the field's
  * equivalence hint ("5 min", not "300000"), so the two read consistently side
  * by side - but only when the duration is exact: a "~" approximation would
@@ -687,13 +760,7 @@ function draftValue(id: NumberSettingId, text: string): number | undefined {
  */
 export function defaultDisplay(id: NumberSettingId): string {
 	const spec = NUMBER_SETTING_SPECS[id];
-	if (NUMBER_SETTING_UNITS[id] === "ms") {
-		const duration = formatDuration(spec.default);
-		if (duration?.exact) {
-			return duration.label;
-		}
-	}
-	return String(spec.default);
+	return unitBehavior(id).exactDisplay(spec.default) ?? String(spec.default);
 }
 
 /**
@@ -821,16 +888,7 @@ export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraft
 	}
 	const value = draftValue(id, text);
 	if (value === undefined) {
-		return {
-			kind: "invalid",
-			problem:
-				NUMBER_SETTING_UNITS[id] === "ms"
-					? l10n.t({
-							message: "Not a duration - use ms, s, m, or h",
-							comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
-						})
-					: l10n.t("Not a number"),
-		};
+		return { kind: "invalid", problem: unitBehavior(id).parseProblem() };
 	}
 	if (value < spec.minimum) {
 		return { kind: "invalid", problem: l10n.t("Must be at least {0}", spec.minimum) };
@@ -843,19 +901,10 @@ export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraft
  * parsed draft as the user types: millisecond durations in clock units, and
  * the TTL's special zero reading ("= every refresh"). Takes the value
  * parseNumberDraft committed to, so it cannot re-read the raw text by other
- * rules. Token counts get no equivalence (a digit-grouped echo of the same
- * number says nothing); their unit suffix on the input carries the meaning.
+ * rules; the rendering itself is the unit's.
  */
 export function equivalence(id: NumberSettingId, value: number): string | undefined {
-	if (NUMBER_SETTING_UNITS[id] !== "ms") {
-		return undefined;
-	}
-	if (value === 0) {
-		const zeroMeaning = numberSettingPresentation(id).zeroMeaning;
-		return zeroMeaning === undefined ? undefined : `= ${zeroMeaning}`;
-	}
-	const duration = formatDuration(value);
-	return duration === undefined ? undefined : `= ${duration.label}`;
+	return unitBehavior(id).equivalence(value, numberSettingPresentation(id).zeroMeaning);
 }
 
 /**
