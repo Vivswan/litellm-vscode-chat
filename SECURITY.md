@@ -10,7 +10,10 @@ Only the latest release is supported.
 
 Report vulnerabilities privately via
 [GitHub Security Advisories](https://github.com/vivswan/litellm-vscode-chat/security/advisories/new)
-("Report a vulnerability"). A useful report includes:
+("Report a vulnerability"). If that page is unavailable (GitHub offers no
+advisories on private personal repositories), contact
+[@Vivswan](https://github.com/vivswan)
+directly instead. A useful report includes:
 
 - what an attacker can do (impact), and where trust is broken,
 - reproduction steps or a proof of concept,
