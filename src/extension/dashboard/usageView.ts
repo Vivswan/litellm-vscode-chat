@@ -7,7 +7,13 @@
  */
 
 import type { ServerUsageState, UsageEndpointState } from "../servers/usage";
-import type { DashboardUsage, UsageEndpointStandingView, UsageServerView } from "./protocol";
+import type {
+	DashboardUsage,
+	UsageEndpointStandingView,
+	UsageForbiddenServerView,
+	UsageServerCardView,
+	UsageServerView,
+} from "./protocol";
 
 export interface UsageViewInput {
 	readonly states: readonly ServerUsageState[];
@@ -49,15 +55,32 @@ function endpointStandingView(state: UsageEndpointState): UsageEndpointStandingV
 }
 
 /**
- * One store state as the Usage tab's card, or undefined for servers that do
- * not surface: a server is shown once its usage availability is proven
- * ("available" - at least one endpoint answered at some point), and hidden
- * silently while unknown or permanently unavailable (DB-less proxies never
- * appear; see docs/usage.md#requirements).
+ * Whether a usage endpoint's standing blocks usage in a way the USER can fix:
+ * a key the server refuses (401/403). Unsupported endpoints (a DB-less proxy)
+ * are deliberately not "blocked" - there is no key change that unhides them.
  */
-function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageServerView | undefined {
+function forbiddenStanding(state: UsageEndpointState): boolean {
+	return state.kind === "unavailable" && state.reason === "forbidden";
+}
+
+/**
+ * One store state as the Usage tab's card, or undefined for servers that do
+ * not surface. A server is shown in full while its usage availability stands
+ * "available" (at least one endpoint answered and no permanent verdict
+ * replaced it). A server without that - never probed successfully, or
+ * downgraded when both endpoints went permanently unavailable - still gets a
+ * reduced card when a forbidden standing is what blocks it: the user can act
+ * on that (fix the key's permissions, Refresh now), and the poller already
+ * dropped any retained numbers with the unavailable verdict. Unsupported-only
+ * and still-probing servers stay hidden silently (DB-less proxies never
+ * appear; see docs/usage.md#requirements). The rule: hidden states are only
+ * ones the user cannot act on.
+ */
+function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageServerCardView | undefined {
 	if (state.availability !== "available") {
-		return undefined;
+		return forbiddenStanding(state.endpoints.keyInfo) || forbiddenStanding(state.endpoints.dailyActivity)
+			? forbiddenServerView(state)
+			: undefined;
 	}
 	const totals = state.daily?.totals;
 	const requests =
@@ -69,7 +92,8 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 				}
 			: undefined;
 	const budget = state.budget;
-	return {
+	const view: UsageServerView = {
+		kind: "usage",
 		label: state.label,
 		baseUrl: state.baseUrl,
 		fresh: input.isFresh(state, input.now, input.pollIntervalMs),
@@ -84,6 +108,22 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 		...(budget.spentFraction !== undefined ? { spentFraction: budget.spentFraction } : {}),
 		...(budget.budgetResetAt !== undefined ? { budgetResetAt: budget.budgetResetAt } : {}),
 		...(requests !== undefined ? { requests } : {}),
+	};
+	return view;
+}
+
+/**
+ * The reduced card for a server a forbidden standing leaves without readable
+ * usage: identity plus the endpoint standings the detail lines print - no
+ * spend, budget, or request numbers exist to carry.
+ */
+function forbiddenServerView(state: ServerUsageState): UsageForbiddenServerView {
+	return {
+		kind: "forbidden",
+		label: state.label,
+		baseUrl: state.baseUrl,
+		keyInfo: endpointStandingView(state.endpoints.keyInfo),
+		dailyActivity: endpointStandingView(state.endpoints.dailyActivity),
 	};
 }
 
