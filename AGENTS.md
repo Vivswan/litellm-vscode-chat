@@ -112,7 +112,7 @@ Workflow: after adding or changing localized strings, `bun run l10n:extract` reg
 
 ### Repository conventions
 
-- Biome formats and lints: tabs (width 2), semicolons, 120-char lines. Husky pre-commit runs format, lint, actionlint, scripts typecheck, and the unit and capture host-fidelity suites; it runs `biome check --write` repo-wide and aborts the commit when that modifies anything, so re-stage and commit again.
+- Biome formats and lints: tabs (width 2), semicolons, 120-char lines. Husky pre-commit runs format, lint, actionlint, scripts typecheck, and the unit and capture host-fidelity suites; `biome check --write` applies to staged JS/TS files only (via lint-staged, which re-stages its fixes and aborts on unfixable issues), so unstaged sibling edits are left alone, while lints and tests still run against the working tree.
 - release-please manages versioning and Marketplace publishing from Conventional Commit titles. Never bump `package.json` manually.
 - A commit that resolves a community-reported issue or supersedes a community PR credits the author in its subject, e.g. `fix: normalize base URL slashes (#53, thanks @Pandaplanes)` - release-please copies the subject into the changelog, so the credit ships with the release. Commits that land or supersede community CODE also carry a human `Co-authored-by:` trailer and a row in `ACKNOWLEDGMENTS.md`.
 - No AI/tool attribution in commits or PRs: no "Generated with", no "Co-Authored-By: Claude/Copilot/Codex" or similar. `Co-authored-by:` trailers for human community contributors are the one sanctioned use.
