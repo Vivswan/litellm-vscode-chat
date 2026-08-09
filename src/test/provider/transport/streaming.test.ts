@@ -1794,8 +1794,11 @@ suite("provider/streaming end-of-stream policy", () => {
 			(e: unknown) => {
 				assert.ok(e instanceof RequestError, `expected a RequestError, got ${String(e)}`);
 				assert.strictEqual(e.kind, "http");
-				assert.ok(e.message.startsWith("LiteLLM API error: the stream reported an error"), e.message);
-				assert.ok(e.message.includes('"upstream exploded"'), "the envelope is re-serialized into the message");
+				assert.ok(e.message.startsWith("The server reported an error while it was streaming this reply"), e.message);
+				assert.ok(
+					e.message.endsWith("\nLiteLLM stream error (500): upstream exploded"),
+					`the envelope fields ride the compact detail line: ${e.message}`
+				);
 				return true;
 			}
 		);
@@ -1926,7 +1929,10 @@ suite("provider/streaming end-of-stream policy", () => {
 			"data: [DONE]\n",
 		]);
 
-		await assert.rejects(() => stream.processStreamingResponse(body, progress, token()), /Invalid JSON for tool call/);
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			/The model sent a broken tool call/
+		);
 		const invalid = logs.find((l) => l.msg.includes("Invalid JSON for tool call"));
 		assert.ok(invalid, "The invalid buffer must be logged");
 		assert.deepStrictEqual(
@@ -1945,7 +1951,10 @@ suite("provider/streaming end-of-stream policy", () => {
 			'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n',
 		]);
 
-		await assert.rejects(() => stream.processStreamingResponse(body, progress, token()), /Invalid JSON for tool call/);
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			/The model sent a broken tool call/
+		);
 		assert.ok(
 			!logs.some((l) => l.includes("Skipping malformed SSE line")),
 			"The flush error must not be misreported as a malformed SSE line"
@@ -1960,7 +1969,10 @@ suite("provider/streaming end-of-stream policy", () => {
 			"data: [DONE]\n",
 		]);
 
-		await assert.rejects(() => stream.processStreamingResponse(body, progress, token()), /Invalid JSON for tool call/);
+		await assert.rejects(
+			() => stream.processStreamingResponse(body, progress, token()),
+			/The model sent a broken tool call/
+		);
 	});
 
 	test("cancellation downgrades unparseable leftovers to logged drops", async () => {
@@ -2007,7 +2019,7 @@ suite("provider/streaming end-of-stream policy", () => {
 			'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{\\"a\\":"}}]}}]}\n',
 		]);
 
-		await assert.rejects(stream.processStreamingResponse(body, progress, token()), /Invalid JSON for tool call/);
+		await assert.rejects(stream.processStreamingResponse(body, progress, token()), /The model sent a broken tool call/);
 	});
 
 	test("cancellation downgrades an unterminated inline call with invalid JSON to a logged drop", async () => {
@@ -2252,10 +2264,13 @@ suite("provider/streaming reasoning-only empty responses", () => {
 			() => stream.processStreamingResponse(body, progress, token()),
 			(e: unknown) =>
 				e instanceof Error &&
-				e.message === "Invalid JSON for tool call" &&
-				// The localized display and its English mirror coincide under the
-				// English fallback; a missing or drifted mirror fails here.
-				(e as Error & { englishMessage?: string }).englishMessage === e.message
+				e.message.startsWith("The model sent a broken tool call") &&
+				e.message.endsWith("\n1 tool call arrived with arguments that were not valid JSON") &&
+				// The English mirror deliberately diverges from the localized
+				// display: it is the distinctive count-only line the output channel
+				// and issue-report buffer record.
+				(e as Error & { englishMessage?: string }).englishMessage ===
+					"Tool call flush failed at end of stream: 1 tool call(s) with invalid JSON arguments"
 		);
 		assert.strictEqual(parts.length, 0);
 	});
@@ -2723,7 +2738,7 @@ suite("provider/streaming usage DataPart", () => {
 
 		await assert.rejects(
 			() => stream.processStreamingResponse(body, progress, token()),
-			(e: unknown) => e instanceof Error && e.message === "Invalid JSON for tool call"
+			(e: unknown) => e instanceof Error && e.message.startsWith("The model sent a broken tool call")
 		);
 		assert.strictEqual(usagePartsOf(parts).length, 0, "an EOF-only failure ships no usage");
 		assert.strictEqual(parts.length, 0, "nor any other part");

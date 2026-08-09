@@ -343,8 +343,10 @@ export class ChatClient {
 
 		if (options.tools && options.tools.length > MAX_TOOLS_PER_REQUEST) {
 			throw localizedError(
-				vscode.l10n.t("Cannot have more than {0} tools per request.", MAX_TOOLS_PER_REQUEST),
-				`Cannot have more than ${MAX_TOOLS_PER_REQUEST} tools per request.`
+				`${vscode.l10n.t(
+					"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again."
+				)}\n${vscode.l10n.t("{0} tools requested; the limit is {1} (request not sent)", options.tools.length, MAX_TOOLS_PER_REQUEST)}`,
+				`Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.\n${options.tools.length} tools requested; the limit is ${MAX_TOOLS_PER_REQUEST} (request not sent)`
 			);
 		}
 
@@ -357,13 +359,18 @@ export class ChatClient {
 		const toolTokenCount = estimateToolTokens(toolConfig?.tools);
 		const tokenLimit = Math.max(1, model.maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {
+			// The numbers must survive in the detail: docs/troubleshooting.md
+			// teaches comparing the limit against the model's real one (the
+			// models.capabilities fix).
 			throw localizedError(
-				vscode.l10n.t(
-					"Message exceeds token limit (estimated {0} tokens, limit {1}).",
+				`${vscode.l10n.t(
+					"This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong."
+				)}\n${vscode.l10n.t(
+					"token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}",
 					inputTokenCount + toolTokenCount,
 					tokenLimit
-				),
-				`Message exceeds token limit (estimated ${inputTokenCount + toolTokenCount} tokens, limit ${tokenLimit}).`
+				)}`,
+				`This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong.\ntoken limit exceeded before send: local estimate ${inputTokenCount + toolTokenCount} tokens (messages + tools), input limit ${tokenLimit}`
 			);
 		}
 
@@ -462,7 +469,14 @@ export class ChatClient {
 				.asResponse();
 
 			if (!response.body) {
-				throw localizedError(vscode.l10n.t("No response body from LiteLLM API"), "No response body from LiteLLM API");
+				// Free of mapSdkError's socket-signature tokens, so the catch below
+				// cannot reclassify this as a mid-response network death.
+				throw localizedError(
+					`${vscode.l10n.t(
+						"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server."
+					)}\n${vscode.l10n.t("LiteLLM answered {0} with a missing response body ({1})", response.status, connection.baseUrl)}`,
+					`The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server.\nLiteLLM answered ${response.status} with a missing response body (${connection.baseUrl})`
+				);
 			}
 
 			// The user-set audio.format parameter (when a modality-audio request

@@ -268,7 +268,7 @@ suite("Docker LiteLLM stack", () => {
 		// LiteLLM v1.93 rejects array content deltas outright with a 500; only
 		// that specific failure is tolerated (the capture-mode host-fidelity
 		// suite covers the shape without a proxy). Anything else must fail.
-		const KNOWN_ARRAY_DELTA_REJECTION = /LiteLLM API error: 500[\s\S]*can only concatenate str/;
+		const KNOWN_ARRAY_DELTA_REJECTION = /LiteLLM 500[\s\S]*can only concatenate str/;
 
 		test("structured-content renders array text blocks when the proxy forwards them", async () => {
 			const outcome = await play("structured-content").then(

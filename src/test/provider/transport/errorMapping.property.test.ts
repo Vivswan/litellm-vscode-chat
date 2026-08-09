@@ -179,19 +179,27 @@ suite("provider/errorMapping properties", () => {
 					assert.strictEqual(mapped.kind, status === 401 ? "auth" : "http");
 					assert.notStrictEqual(mapped.kind, "network", "a status-bearing error must never classify as network");
 					if (status === 404) {
-						// 404 has its own guidance branch: chat keeps the pinned
-						// status prefix (docker-transport.test.ts asserts it against
-						// the live stack); discovery leads with the base-URL advice.
+						// 404 has its own guidance branch: chat leads with the
+						// removed-model advice; discovery leads with the base-URL
+						// advice (docs/troubleshooting.md quotes the discovery form).
 						const prefix =
 							ctx.surface === "chat"
-								? "LiteLLM API error: 404."
+								? "The server did not recognize this request"
 								: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404`;
 						assert.ok(mapped.message.startsWith(prefix), mapped.message);
 						assert.strictEqual(mapped.setupHint, ctx.surface === "discovery" ? "check-base-url" : undefined);
 					} else if (status !== 401) {
-						const prefix =
-							ctx.surface === "chat" ? `LiteLLM API error: ${status}` : `Failed to fetch LiteLLM models: ${status}`;
-						assert.ok(mapped.message.startsWith(prefix), mapped.message);
+						// Two-part shape: a headline line, then one compact detail line
+						// that keeps the status greppable ("LiteLLM {status}" when the
+						// body was LiteLLM's envelope, "HTTP {status}" on discovery
+						// otherwise) and never a re-serialized envelope.
+						const lines = mapped.message.split("\n");
+						assert.strictEqual(lines.length, 2, mapped.message);
+						const detail = lines[1] ?? "";
+						const marker =
+							ctx.surface === "chat" ? new RegExp(`^LiteLLM ${status}\\b`) : new RegExp(`^(LiteLLM|HTTP) ${status}\\b`);
+						assert.match(detail, marker, mapped.message);
+						assert.ok(!detail.includes('{"error"'), `never a re-serialized envelope: ${mapped.message}`);
 					}
 				}
 			),
