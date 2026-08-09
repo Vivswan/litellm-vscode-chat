@@ -1,80 +1,64 @@
+# Repo-owned auto-format: label a pull request `fix-lint` (the label ships
+# with the template's settings.yml) and this workflow pushes a formatting
+# commit to the PR branch, then removes the label. Generated once by
+# Vivswan/repo-platform and never overwritten by template
+# sync: adjust the format commands to this repository's tooling.
+
 name: Auto Format
 
 on:
-  workflow_dispatch:
   pull_request:
-    types: [labeled, opened, synchronize]
+    types: [labeled]
+
+permissions:
+  contents: read
 
 jobs:
   format:
-    # Only run if PR has 'fix-lint' label
-    if: contains(github.event.pull_request.labels.*.name, 'fix-lint')
+    # Same-repo PRs only: GITHUB_TOKEN cannot push to a fork's branch, and
+    # PR-controlled tool configuration should not run next to write
+    # credentials (checkout below persists none; the push step scopes them).
+    if: github.event.label.name == 'fix-lint' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-
     steps:
-      - name: Checkout PR branch
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
 
       - name: Set up development environment
         run: bash scripts/env/setup-env.sh
 
-      - name: Run Biome
+      - name: Format (biome)
         run: bunx biome check --write .
 
-      - name: Check for changes
-        id: git-check
-        run: |
-          git diff --exit-code || echo "changes=true" >> "$GITHUB_OUTPUT"
-
       - name: Commit and push changes
-        if: steps.git-check.outputs.changes == 'true'
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "style: auto-format code with biome"
-          git push
         env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HUSKY: 0
-
-      - name: Remove fix-lint label
-        if: steps.git-check.outputs.changes == 'true'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            await github.rest.issues.removeLabel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              name: 'fix-lint'
-            });
-
-      - name: Add comment if no changes
-        if: steps.git-check.outputs.changes != 'true'
-        uses: actions/github-script@v9
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body: '✅ Code is already properly formatted. No changes needed.'
-            });
-            await github.rest.issues.removeLabel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              name: 'fix-lint'
-            });
+        run: |
+          if git diff --quiet; then
+            echo "nothing to format"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "style: apply automated formatting"
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$HEAD_REF"
+          fi
+      # The label is a one-shot request: remove it even when a step failed,
+      # so a broken run cannot loop.
+      - name: Remove the fix-lint label
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr edit "$PR_URL" --remove-label fix-lint

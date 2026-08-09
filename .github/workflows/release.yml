@@ -1,11 +1,23 @@
 # Repo-owned release pipeline, called by the managed ci.yml on top of the
 # all-green gate. Generated once by Vivswan/repo-platform and
-# never overwritten by template sync: by default it just runs the managed
-# release-please machinery, and this file is where jobs BEFORE the release
-# (make release-please `needs:` them) and AFTER it (gated on its outputs,
-# e.g. packaging and publishing) go. Everything runs in the same workflow
-# run, so it works with the default GITHUB_TOKEN too, which cannot trigger
-# `on: release` workflows.
+# never overwritten by template sync.
+#
+# GitHub releases are immutable once published: the tag and assets freeze,
+# and a post-publication `gh release upload` gets HTTP 422 (this killed the
+# v0.4.1 asset). Every release therefore moves through the same three
+# steps, always draft-first:
+#   1. release-please cuts the release as a DRAFT with its tag already
+#      forced (`draft` + `force-tag-creation` in release-please-config.json).
+#   2. update-release mutates the draft: this repository's packaging,
+#      asset uploads, and note edits go there.
+#   3. publish-release flips the draft live. It stays the last job: list
+#      every job that mutates the release in its `needs`.
+# If the pipeline dies after the draft exists, a rerun cannot recreate it
+# (release-please sees the forced tag); finish by hand:
+#   gh release upload <tag> extension.vsix --clobber
+#   gh release edit <tag> --draft=false
+# Everything runs in the same workflow run, so it works with the default
+# GITHUB_TOKEN too, which cannot trigger `on: release` workflows.
 
 name: Release
 
@@ -17,28 +29,18 @@ jobs:
     uses: ./.github/workflows/release-please.yml
     secrets: inherit
 
-  # Package the released tag and publish it: VSIX to the VS Code
-  # Marketplace (MARKETPLACE_TOKEN is an Azure DevOps PAT) and as a release
-  # asset. vscode:prepublish runs the production typecheck, the esbuild
-  # bundle, and the ThirdPartyNotices generation.
-  #
-  # GitHub releases are immutable once published: assets freeze at
-  # publication, so a post-publication `gh release upload` gets a 422 (this
-  # killed the v0.4.1 asset). release-please therefore creates the release
-  # as a DRAFT ("draft": true in release-please-config.json, with
-  # "force-tag-creation": true so the tag exists for the checkout below and
-  # for release-please's own changelog bookkeeping); this job attaches the
-  # VSIX while the draft is still mutable and publishes the release as its
-  # last step. If a step fails after the Marketplace publish, the release
-  # stays an invisible draft; finish by hand with
-  #   gh release upload <tag> extension.vsix --clobber
-  #   gh release edit <tag> --draft=false
-  publish:
-    needs: release-please
+  # Step 2: package the released tag and publish it: VSIX to the VS Code
+  # Marketplace (MARKETPLACE_TOKEN is an Azure DevOps PAT) and as a draft
+  # release asset. vscode:prepublish runs the production typecheck, the
+  # esbuild bundle, and the ThirdPartyNotices generation. If a step fails
+  # after the Marketplace publish, the release stays an invisible draft;
+  # finish by hand as the header describes.
+  update-release:
+    needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # also what makes the draft visible to gh
     steps:
       - name: Checkout released source
         uses: actions/checkout@v7
@@ -70,10 +72,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
 
-      # Publishing freezes the release (immutable releases), so this must
-      # stay the last step, after the VSIX is attached.
+  # Step 3: freeze the release. This job stays last.
+  publish-release:
+    needs: [release-please, update-release]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - name: Publish the GitHub release
-        run: gh release edit "$RELEASE_TAG" --draft=false
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          GH_TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: gh release edit "$TAG" --draft=false

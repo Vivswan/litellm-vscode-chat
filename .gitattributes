@@ -19,3 +19,4 @@ LICENSE linguist-language=Markdown
 *.webp binary
 *.pdf binary
 *.zip binary
+*.vsix binary

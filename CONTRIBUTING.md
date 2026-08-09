@@ -46,3 +46,53 @@ Participation in this project is governed by the
      test commands, review expectations) goes below this line. It survives
      template updates via three-way merge. -->
 <!-- repo-platform:local-section -->
+
+## Prerequisites
+
+- [Bun](https://bun.sh): package manager and runtime
+- VS Code: required by the extension test harness
+
+## Setup
+
+On macOS, Linux, or any shell with Bash available:
+
+```bash
+git clone https://github.com/<your-fork>/litellm-vscode-chat.git
+cd litellm-vscode-chat
+bun run setup-env
+```
+
+On Windows without Bash, use PowerShell instead:
+
+```powershell
+git clone https://github.com/<your-fork>/litellm-vscode-chat.git
+cd litellm-vscode-chat
+bun run setup-env:pwsh
+```
+
+## Running checks
+
+From the project directory:
+
+```bash
+bun run lint:actions # lint GitHub Actions workflows
+bun run lint         # run Biome lint
+bun run compile      # compile TypeScript
+bun run test         # run the VS Code extension tests
+bun run format       # format files with Biome
+```
+
+A Husky pre-commit hook runs formatting, workflow linting, source linting, and tests when dependencies are installed.
+
+## Code style
+
+Conventions live in [AGENTS.md](AGENTS.md). In short:
+
+- Biome enforces formatting and TypeScript lint rules.
+- Keep changes focused and avoid unrelated fixes.
+
+## Submitting a pull request
+
+1. Fork the repo and create a branch for your change.
+2. Make sure the checks under "Running checks" pass locally.
+3. Open a PR with a Conventional Commit title (see "Pull requests" above).
