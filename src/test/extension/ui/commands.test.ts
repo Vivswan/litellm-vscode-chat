@@ -1038,10 +1038,12 @@ suite("extension/ui/commands", () => {
 	// unit host pins is that they register in test mode and return the safe
 	// shapes the suite's assertions build on.
 	suite("test-only serversync commands", () => {
-		test("the three serversync harness commands are registered in a non-production host", async () => {
+		test("the serversync harness commands are registered in a non-production host", async () => {
 			const commands = await vscode.commands.getCommands(true);
 			for (const id of [
 				"litellm._test.getRecentLogs",
+				"litellm._test.getSessionLogs",
+				"litellm._test.getLatestError",
 				"litellm._test.setServerSecret",
 				"litellm._test.getDeclaredServers",
 			]) {
@@ -1056,6 +1058,29 @@ suite("extension/ui/commands", () => {
 				logs.every((line) => typeof line === "string"),
 				"every buffer entry is a string"
 			);
+		});
+
+		test("getSessionLogs reads the lossless session tee through a cursor", async () => {
+			type Batch = { next: number; lines: string[]; dropped: number };
+			const first = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", 0)) as Batch;
+			assert.ok(
+				Array.isArray(first.lines) && first.lines.every((line) => typeof line === "string"),
+				"the tee returns string lines"
+			);
+			assert.strictEqual(first.dropped, 0, "nothing can have been evicted this early in a unit host");
+			assert.strictEqual(first.next, first.lines.length, "the cursor counts every line from zero");
+			assert.ok(first.lines.length > 0, "activation must have logged something");
+			const resumed = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", first.next)) as Batch;
+			assert.strictEqual(resumed.dropped, 0, "a current cursor loses nothing");
+			assert.strictEqual(
+				resumed.next - first.next,
+				resumed.lines.length,
+				"a resumed read returns exactly the lines logged since the cursor"
+			);
+			// A junk cursor reads from the start instead of throwing: the seam
+			// must stay usable from the command palette during debugging.
+			const junk = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", "junk")) as Batch;
+			assert.ok(junk.lines.length >= first.lines.length, "a junk cursor reads from the beginning");
 		});
 
 		test("setServerSecret stores and clears a label's secret field", async () => {
@@ -1099,10 +1124,11 @@ suite("extension/ui/commands", () => {
 				context as unknown as vscode.ExtensionContext,
 				{} as unknown as ServerRegistry,
 				{ provideLanguageModelChatInformation: async () => [], getServerSnapshots: () => [] },
-				{ getRecentLogs: () => [] },
+				{ getRecentLogs: () => [], getLatestError: () => undefined },
 				{ getDeclared: () => [] },
 				{ injectMessageForTest: async () => "ok" as const },
-				createTestEntrySeams()
+				createTestEntrySeams(),
+				{ readSince: () => ({ next: 0, lines: [], dropped: 0 }) }
 			);
 			assert.strictEqual(context.subscriptions.length, 0, "the production gate must register nothing");
 		});

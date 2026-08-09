@@ -35,9 +35,10 @@
  *   attributing a copy to a specific group (an explicit removal tombstones
  *   the group and hides its models, so removed labels leave the floor), and
  *   pre-existing host models are grandfathered via a baseline snapshot.
- * - The secret-leak scan is a substring scan over the classification-only
- *   log buffer; every minted secret is recognizable by construction
- *   (sk-monkey-<seed>-<n>, monkey-oauth-secret-<n>).
+ * - The secret-leak scan is a substring scan over the session's issue-report
+ *   log lines and error snapshots (the lossless test tee behind
+ *   litellm._test.getSessionLogs); every minted secret is recognizable by
+ *   construction (sk-monkey-<seed>-<n>, monkey-oauth-secret-<n>).
  */
 
 import * as assert from "node:assert";
@@ -544,15 +545,13 @@ export class MonkeySession {
 	 */
 	private declaredIds = new Set<string>();
 	/**
-	 * Every recentLogs line seen this session, accumulated after each action:
-	 * the extension's buffer is a 50-entry rolling window, so a busy sync
-	 * burst could evict a leaked credential before the every-5-steps probe.
-	 * Residual limitation, documented rather than papered over: lines evicted
-	 * WITHIN one action's burst can still escape, and the separately stored
-	 * latest error is not exposed to tests; closing either gap would need a
-	 * production seam.
+	 * Cursor into the session log tee (litellm._test.getSessionLogs): each
+	 * hygiene probe scans exactly the lines logged since the previous one. A
+	 * line can only carry secrets that existed when it was logged, and the
+	 * minted set only grows, so scanning every line once, at the next probe,
+	 * sees every secret it could contain.
 	 */
-	private seenLogLines = new Set<string>();
+	private logCursor = 0;
 	private baselineModelIds: ReadonlySet<string> = new Set();
 	/**
 	 * Pre-session copies of the two anchor IDs: the model-count floors are
@@ -1411,22 +1410,23 @@ export class MonkeySession {
 		}
 	}
 
-	/** Fold the current rolling log window into the session accumulator (see seenLogLines). */
-	private async recordRecentLogs(): Promise<void> {
-		const logs = (await vscode.commands.executeCommand("litellm._test.getRecentLogs")) as string[];
-		for (const line of logs) {
-			this.seenLogLines.add(line);
-		}
-	}
-
 	private async probeSecretHygiene(): Promise<void> {
-		await this.recordRecentLogs();
+		const batch = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", this.logCursor)) as {
+			next: number;
+			lines: string[];
+			dropped: number;
+		};
+		assert.strictEqual(batch.dropped, 0, "the session log tee evicted lines before the leak scan could read them");
+		this.logCursor = batch.next;
 		// Minted values plus the realistic literals the stack actually uses:
 		// the proxy master key and the fake identity provider's client secret.
+		// Error snapshots (message plus public stack, the fields the reporter's
+		// latest-error slot exposes) ride the same line stream, so overwritten
+		// snapshots are scanned too.
 		const secrets = [...this.minted, this.env.apiKey, FAKE_OAUTH_CLIENT_SECRET];
-		for (const line of this.seenLogLines) {
+		for (const line of batch.lines) {
 			for (const secret of secrets) {
-				assert.ok(!line.includes(secret), "a secret leaked into the classification-only log buffer");
+				assert.ok(!line.includes(secret), "a secret leaked into the issue-report log lines");
 			}
 		}
 	}
@@ -1464,18 +1464,18 @@ export class MonkeySession {
 		// hit the add-only duplicate rejection with a pruned fingerprint (see
 		// generateWalk's label allocation) and desynchronize oracle from engine.
 		const namespace = `${walkTag}-r${++this.executionCounter}`;
+		let walkFailed = false;
 		try {
 			for (const [index, action] of actions.entries()) {
 				await this.runAction(action, namespace);
-				// Every action folds the rolling log window into the session
-				// accumulator: the leak scan's inter-probe eviction window closes
-				// here (see seenLogLines).
-				await this.recordRecentLogs();
 				if ((index + 1) % PROBE_INTERVAL === 0) {
 					await this.runProbes();
 				}
 			}
 			await this.runProbes();
+		} catch (error) {
+			walkFailed = true;
+			throw error;
 		} finally {
 			// A cleanup failure must not mask the walk's own verdict; the next
 			// run's probes would catch durable damage anyway.
@@ -1483,6 +1483,13 @@ export class MonkeySession {
 				await this.cleanupNamespace(namespace);
 			} catch (cleanupError) {
 				console.log(`monkey cleanup for ${namespace} failed: ${String(cleanupError)}`);
+			}
+			// Cleanup writes settings and forces syncs, so it logs, and the last
+			// walk has no later probe to drain those lines; scan them here.
+			// Skipped on a failed walk so a leak assertion out of this finally
+			// cannot replace the walk's own verdict.
+			if (!walkFailed) {
+				await this.probeSecretHygiene();
 			}
 		}
 	}
