@@ -66,7 +66,7 @@ The [entry reference](servers.md#entry-reference) documents the base URL rules.
 VS Code could not establish a trusted HTTPS connection to the base URL; the extension has no setting to bypass certificate validation.
 
 - "The SSL certificate for ... has expired": ask your LiteLLM server administrator to renew the certificate.
-- Any other certificate problem - a self-signed or internal-CA certificate, common on corporate deployments: add the CA to your operating system's trust store, or launch VS Code with `NODE_EXTRA_CA_CERTS` pointing at the CA bundle. The trust decision belongs to VS Code's runtime, not this extension.
+- Any other certificate problem reads "The server's SSL certificate couldn't be verified, so the connection was blocked", with a detail line starting `SSL certificate error for ...` naming the server and the TLS failure - a self-signed or internal-CA certificate, common on corporate deployments: add the CA to your operating system's trust store, or launch VS Code with `NODE_EXTRA_CA_CERTS` pointing at the CA bundle. The trust decision belongs to VS Code's runtime, not this extension.
 
 ### "Authentication failed"
 
@@ -80,9 +80,9 @@ Two setup mistakes look like auth failures:
 - An entry whose `auth` object carries an ambiguous shape (say, `apiKey` and `oauth` side by side) is treated as misconfigured, and the dashboard's server row says so; no guessing between credentials happens. Keep exactly one form - a gateway that really checks two credentials at once wants the second one as a lower-ranked companion (inside `auth.oauth`, or a `virtualKey` beside `auth.apiKey`). See [Servers: authentication](servers.md#authentication).
 - A gateway that expects the key in a custom header (e.g. `x-litellm-api-key`) rejects the standard bearer form; use `auth.virtualKey` with the header name it wants.
 
-### "LiteLLM API error: 404" / "answered 404 - it responded, but does not serve the LiteLLM API"
+### "The server did not recognize this request" / "answered 404 - it responded, but does not serve the LiteLLM API"
 
-Something answered at that address, but not a LiteLLM proxy.
+Something answered at that address, but not a LiteLLM proxy - or not with this model. On a chat request the error shows the headline above with a detail line underneath that starts with `LiteLLM 404` and quotes what the server said.
 
 - Check what is actually listening there - a web server, another service, or the wrong port (the LiteLLM proxy's default is 4000).
 - The `/v1` trap applies here too: a base URL ending in `/v1` makes the extension request `/v1/v1/...`, which the proxy answers with 404. Remove the suffix; the extension appends `/v1` itself.
@@ -121,9 +121,9 @@ Capabilities gate what is offered and sent: images go only to models that declar
 
 On models without vision support the text still goes through and the images are dropped, with a note in the "LiteLLM" output channel. For well-known model IDs the OpenRouter catalog often fills these gaps automatically. See [Models: capabilities](models.md#capabilities).
 
-### "Message exceeds token limit (estimated N tokens, limit M)"
+### "This conversation looks too long for the model"
 
-The extension rejects a request before sending it when its own token estimate exceeds the model's input budget. The count is a local estimate (roughly four characters per token for text, flat figures per image, PDF, or audio clip), so it can differ from what the server would bill.
+The extension rejects a request before sending it when its own token estimate exceeds the model's input budget; the detail line under the headline reads `token limit exceeded before send: local estimate N tokens (messages + tools), input limit M`. The count is a local estimate (roughly four characters per token for text, flat figures per image, PDF, or audio clip), so it can differ from what the server would bill.
 
 - Trim the conversation or drop attachments, or
 - raise the budget when the real model takes more than the limit `M` says. The limit comes from the model's declared input limit (server report, catalog, or your overrides); correct it in `models.capabilities`:
@@ -156,7 +156,7 @@ Your VS Code build lacks the thinking-part API, so streamed reasoning is dropped
 The dashboard has no Usage section for a server, no spend percentage appears, and no alerts fire. In likelihood order:
 
 - **The server runs without a database.** LiteLLM serves spend data (`/key/info`) only when backed by a database; without one, the extension detects that once and hides all usage features for that server - by design, nothing to configure. Verify from a terminal: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - an error page instead of JSON confirms it. If you add a database later, background polls will not notice on their own: run "LiteLLM: Refresh Usage Now" to re-check.
-- **The key cannot read usage data.** A database-backed server that answers 401 or 403 on both usage endpoints hides the usage surfaces exactly like a missing database. The curl above then returns 401 or 403 instead of an error page; ask whoever issued the key to allow it to read its own `/key/info`.
+- **The key cannot read usage data.** A database-backed server that answers 401 or 403 on both usage endpoints hides the usage surfaces exactly like a missing database. The curl above then returns 401 or 403 instead of an error page; ask whoever issued the key to allow it to read its own `/key/info`. A server whose card is already visible says so on the card itself ("This key isn't allowed to read its spend."), with a detail line naming the endpoint and status - the curl is only needed for servers that never appeared.
 - **Polling is off.** `usage.pollInterval: 0` disables background polling; the dashboard still fetches when opened, no alerts fire, and the status bar item shows on-demand data for ten minutes after a fetch, then hides. Run "LiteLLM: Refresh Usage Now" for an immediate fetch - it always re-lights the item.
 - **Alerts are off.** An empty `usage.alertThresholds` list means no thresholds, so nothing ever fires and `"alerts-only"` status bar mode never shows.
 - **The item is configured away.** `usage.statusBar: "off"` hides the item; `"alerts-only"` shows it only when a threshold is crossed.
