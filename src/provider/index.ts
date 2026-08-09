@@ -137,7 +137,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// Pre-attach group discovery results, keyed by group client ID. The host
 	// re-resolves groups in bursts, so cached sweeps must not hit the network.
 	// Explicit refreshes reach it anyway: refreshViaHost clears the cache (and
-	// the epoch guard keeps in-flight loads from re-storing pre-clear data)
+	// clear() detaches in-flight loads, so they cannot re-store pre-clear data)
 	// before the host's re-resolution reads through and repopulates it, and
 	// testKnownGroupConnections invalidates each group it probes. The group
 	// server is attached to the stored infos on every read, never cached. The
@@ -809,9 +809,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 */
 	async refreshViaHost(deadlineMs = 8000, quietMs = 500): Promise<void> {
 		// Every caller of this method wants a real round trip (Test Connection,
-		// Sync Models Now), so the discovery cache is dropped first; the epoch
-		// guard keeps in-flight loads from re-storing pre-drop data. The host's
-		// re-resolution then reads through the empty cache and repopulates it.
+		// Sync Models Now), so the discovery cache is dropped first; clear()
+		// detaches in-flight loads, so they cannot re-store pre-drop data. The
+		// host's re-resolution then reads through the empty cache and repopulates it.
 		this._discoveryCache.clear();
 		const groupReportsBefore = this._groupStatusReportCount;
 		this._onDidChangeEmitter.fire();
