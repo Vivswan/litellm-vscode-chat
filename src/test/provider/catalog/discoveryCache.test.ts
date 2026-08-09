@@ -130,7 +130,7 @@ suite("provider/catalog/discoveryCache", () => {
 		// clear() is how explicit refreshes force a real round trip, so a
 		// post-clear fetch joining a pre-clear load would hand its caller
 		// stale results - and nothing would ever correct them, because the
-		// epoch guard only keeps the stale result out of the store.
+		// store guard only keeps the stale result out of the store.
 		const cache = new DiscoveryCache<string>(makeClock().now);
 		let releasePre: (() => void) | undefined;
 		const preGate = new Promise<void>((resolve) => {
@@ -164,6 +164,50 @@ suite("provider/catalog/discoveryCache", () => {
 			cache.lookup("k", Number.MAX_SAFE_INTEGER),
 			"post-clear",
 			"the detached load's late finish must not displace the fresh load's stored result"
+		);
+	});
+
+	test("a load started before invalidate() of its key does not store its result", async () => {
+		const cache = new DiscoveryCache<string>(makeClock().now);
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+
+		const inFlight = cache.fetch("k", async () => {
+			await gate;
+			return "pre-invalidate";
+		});
+		cache.invalidate("k");
+		expectDefined(release)();
+
+		assert.strictEqual(await inFlight, "pre-invalidate", "the caller of the old load still gets its value");
+		assert.strictEqual(
+			cache.lookup("k", Number.MAX_SAFE_INTEGER),
+			undefined,
+			"a result loaded before the invalidate must not be stored after it"
+		);
+	});
+
+	test("invalidating one key does not discard another key's concurrent load", async () => {
+		const cache = new DiscoveryCache<string>(makeClock().now);
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+
+		const other = cache.fetch("other", async () => {
+			await gate;
+			return "other-value";
+		});
+		cache.invalidate("k");
+		expectDefined(release)();
+
+		assert.strictEqual(await other, "other-value");
+		assert.strictEqual(
+			cache.lookup("other", Number.MAX_SAFE_INTEGER),
+			"other-value",
+			"an unrelated key's concurrent load must still store its result"
 		);
 	});
 

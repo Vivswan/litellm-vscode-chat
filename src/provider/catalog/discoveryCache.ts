@@ -17,13 +17,10 @@
  */
 export class DiscoveryCache<T> {
 	private readonly entries = new Map<string, { value: T; storedAt: number }>();
-	private readonly inFlight = new Map<string, Promise<T>>();
-	// Advanced by clear() and invalidate(): a load that started before the drop
-	// must not store its result afterwards, or an explicit "sync now" could be
-	// silently answered with pre-sync data for the rest of the TTL. Global
-	// rather than per-key: the collateral (an unrelated concurrent load skips
-	// its store and the next read refetches) is safe and rare.
-	private epoch = 0;
+	// storeAllowed: a load that started before an invalidate() of its key must
+	// not store its result afterwards, or an explicit "sync now" could be
+	// silently answered with pre-sync data for the rest of the TTL.
+	private readonly inFlight = new Map<string, { promise: Promise<T>; storeAllowed: boolean }>();
 
 	/** `now` is the only clock seam; tests inject a fake. The default reads Date.now at call time. */
 	constructor(private readonly now: () => number = () => Date.now()) {}
@@ -51,40 +48,48 @@ export class DiscoveryCache<T> {
 	fetch(key: string, load: () => Promise<T>): Promise<T> {
 		const pending = this.inFlight.get(key);
 		if (pending !== undefined) {
-			return pending;
+			return pending.promise;
 		}
-		const startEpoch = this.epoch;
-		const loading = (async () => {
+		const record = {
+			storeAllowed: true,
+			promise: undefined as unknown as Promise<T>,
+		};
+		record.promise = (async () => {
 			const value = await load();
-			if (this.epoch === startEpoch) {
+			// Identity covers clear() (which detaches by emptying the map);
+			// storeAllowed covers invalidate() of this key.
+			if (this.inFlight.get(key) === record && record.storeAllowed) {
 				this.entries.set(key, { value, storedAt: this.now() });
 			}
 			return value;
 		})();
-		this.inFlight.set(key, loading);
+		this.inFlight.set(key, record);
 		// Presence-checked cleanup: a clear() may have detached this load and a
 		// fresh one may already be in flight under the key; deleting
 		// unconditionally would orphan that newer load's coalescing.
 		const cleanup = () => {
-			if (this.inFlight.get(key) === loading) {
+			if (this.inFlight.get(key) === record) {
 				this.inFlight.delete(key);
 			}
 		};
-		void loading.then(cleanup, cleanup);
-		return loading;
+		void record.promise.then(cleanup, cleanup);
+		return record.promise;
 	}
 
 	/** Drop the stored result for `key`. An in-flight load still resolves for its callers but is not stored. */
 	invalidate(key: string): void {
 		this.entries.delete(key);
-		this.epoch += 1;
+		const pending = this.inFlight.get(key);
+		if (pending !== undefined) {
+			pending.storeAllowed = false;
+		}
 	}
 
 	/**
 	 * Drop every stored result AND detach in-flight loads. Detaching matters
 	 * because clear() is how explicit refreshes (Test Connection, Sync Models
 	 * Now) force a real round trip: a fetch after the clear must start a
-	 * fresh load, never join a load that began before it - the epoch guard
+	 * fresh load, never join a load that began before it - the store guard
 	 * alone would only keep the stale result out of the store, not out of
 	 * the joiners' hands. Detached loads still resolve for their original
 	 * callers.
@@ -92,7 +97,6 @@ export class DiscoveryCache<T> {
 	clear(): void {
 		this.entries.clear();
 		this.inFlight.clear();
-		this.epoch += 1;
 	}
 
 	/**
