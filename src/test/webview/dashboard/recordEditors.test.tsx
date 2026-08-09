@@ -4,8 +4,8 @@
  * record, the reflecting push drops the applied draft, a failure reopens it
  * dirty, and invalid rows block Apply. Plus the surfaces around that
  * lifecycle: Discard, the Applying/Saved feedback, field-aligned header
- * problems, the other-scope read-only grids, the datalists, Enter-to-apply,
- * and the Edit-as-JSON side door.
+ * problems, the other-scope read-only grids, the suggestion listboxes,
+ * Enter-to-apply, and the Edit-as-JSON side door.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "preact";
@@ -20,6 +20,7 @@ import {
 	cleanup,
 	fireCheck,
 	fireClick,
+	fireFocus,
 	fireInput,
 	fireKeyDown,
 	mount,
@@ -504,25 +505,31 @@ test("a pristine JSON view follows store pushes; one with local edits is pinned"
 	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
 });
 
-test("Enter stays off the datalist-bearing inputs; the value input still applies", () => {
-	// Enter is also how a datalist suggestion is accepted, and the keydown
-	// outruns the input event that commits it: an Enter-apply on those inputs
-	// would post the half-typed value.
+test("Enter applies from any row input once the draft is clean; a highlighted suggestion is accepted instead", () => {
+	// The key inputs carry their own suggestion listboxes now: Enter with a
+	// highlighted suggestion accepts it and must NOT double as Apply (the
+	// half-typed row would post); Enter with nothing highlighted applies.
 	const root = mount(<App />);
-	pushToWebview(statePush(makeState()));
+	pushToWebview(statePush(makeState({ models: [makeModel({ id: "gpt-test" })] })));
 	const section = () => sectionByHeading(root, "Model parameters");
 	fireClick(buttonByText(section(), "Add model matcher"));
 	const inputs = section().querySelectorAll("input");
-	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
+	fireInput(inputs[0] as HTMLInputElement, "gpt");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
 	fireInput(inputs[2] as HTMLInputElement, "0.2");
 
+	// Highlight the prefix suggestion; Enter accepts it without applying.
+	const prefixInput = () =>
+		section().querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement;
 	resetPosted();
-	fireKeyDown(section().querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement, "Enter");
-	fireKeyDown(section().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement, "Enter");
+	fireKeyDown(prefixInput(), "ArrowDown");
+	fireKeyDown(prefixInput(), "Enter");
+	expect(prefixInput().value).toBe("gpt-test");
 	expect(postedMessages).toEqual([]);
-	fireKeyDown(section().querySelector("input.value") as HTMLInputElement, "Enter");
-	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
+
+	// Nothing highlighted: Enter applies the clean draft from a key input too.
+	fireKeyDown(section().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement, "Enter");
+	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-test": { temperature: 0.2 } } }]);
 });
 
 test("Discard drops a dirty draft back to the store value without posting, under a distinct accessible name", () => {
@@ -639,7 +646,7 @@ test("other-scope records render as the disabled row grid with the edit-there hi
 	expect(paramsOther?.querySelector("button.quiet:not(.help)")).toBeNull();
 });
 
-test("the prefix and parameter-name inputs offer datalists: discovered model IDs and the common parameter names", () => {
+test("the prefix and parameter-name inputs offer suggestion listboxes: discovered model IDs and the common parameter names", () => {
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ models: [makeModel({ id: "gpt-test" }), makeModel({ id: "claude-x", name: "Claude X" })] }))
@@ -647,18 +654,25 @@ test("the prefix and parameter-name inputs offer datalists: discovered model IDs
 	const section = sectionByHeading(root, "Model parameters");
 	fireClick(buttonByText(section, "Add model matcher"));
 
+	// No native datalists anywhere: the webview host renders them all-bold and
+	// unstylable, which is the bug the custom listbox replaces.
+	expect(document.querySelector("datalist")).toBeNull();
+
 	const prefixInput = section.querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement;
-	const prefixList = document.getElementById(prefixInput.getAttribute("list") ?? "");
-	expect(prefixList?.tagName.toLowerCase()).toBe("datalist");
-	expect(Array.from(prefixList?.querySelectorAll("option") ?? []).map((o) => o.getAttribute("value"))).toEqual([
+	expect(prefixInput.getAttribute("role")).toBe("combobox");
+	fireFocus(prefixInput);
+	const prefixList = document.getElementById(prefixInput.getAttribute("aria-controls") ?? "");
+	expect(prefixList?.getAttribute("role")).toBe("listbox");
+	expect(Array.from(prefixList?.querySelectorAll("[role='option']") ?? []).map((o) => o.textContent)).toEqual([
 		"gpt-test",
 		"claude-x",
 	]);
 
 	const nameInput = section.querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement;
-	const nameList = document.getElementById(nameInput.getAttribute("list") ?? "");
-	expect(nameList?.tagName.toLowerCase()).toBe("datalist");
-	const names = Array.from(nameList?.querySelectorAll("option") ?? []).map((o) => o.getAttribute("value"));
+	fireFocus(nameInput);
+	const nameList = document.getElementById(nameInput.getAttribute("aria-controls") ?? "");
+	expect(nameList?.getAttribute("role")).toBe("listbox");
+	const names = Array.from(nameList?.querySelectorAll("[role='option']") ?? []).map((o) => o.textContent);
 	expect(names).toContain("temperature");
 	expect(names).toContain("reasoning_effort");
 });

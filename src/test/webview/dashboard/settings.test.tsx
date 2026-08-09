@@ -531,38 +531,163 @@ test("a standing catalog failure renders in the row with its classification, nev
 	expect(document.querySelector(".toast")).toBeNull();
 });
 
-test("the thresholds row commits a valid draft on blur, normalized ascending and deduplicated", () => {
+test("the record editors live inside the Models group, mirroring the manifest's grouping", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const input = settingInput(root, "usage.alertThresholds");
-	expect(input.value).toBe("0.8, 0.95");
+	const modelsGroup = Array.from(root.querySelectorAll(".settings-group")).find(
+		(group) => group.querySelector(".settings-group-title")?.textContent === "Models"
+	) as HTMLElement;
+	expect(modelsGroup).toBeDefined();
+	const headings = Array.from(modelsGroup.querySelectorAll("h3")).map((h) => (h.textContent ?? "").trim());
+	expect(headings.some((h) => h.startsWith("Model parameters"))).toBe(true);
+	expect(headings.some((h) => h.startsWith("Model capabilities"))).toBe(true);
+	// The editors sit after the catalog row inside the group, and nowhere else.
+	expect(root.querySelectorAll("h3.head-with-icons").length).toBe(2);
+});
 
-	fireInput(input, "0.9, 0.5, 0.9");
-	expect(rowOf(input).querySelector(".setting-equiv")?.textContent).toBe("= 50%, 90%");
-	fireBlur(input);
+/** The two threshold boxes, addressed by their stable ids. */
+function thresholdBoxes(root: ParentNode): { warning: HTMLInputElement; error: HTMLInputElement } {
+	return {
+		warning: settingInput(root, "usage.alertThresholds-warning"),
+		error: settingInput(root, "usage.alertThresholds-error-at"),
+	};
+}
+
+function settingsWithThresholds(alertThresholds: readonly number[]) {
+	return makeSettings({
+		usage: { statusBarMode: "always", statusBarScope: null, alertThresholds, thresholdsScope: null },
+	});
+}
+
+test("the thresholds row renders the stored pair as percents and commits an edited pair sorted on blur", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const { warning, error } = thresholdBoxes(root);
+	expect(warning.value).toBe("80%");
+	expect(error.value).toBe("95%");
+
+	// Sorting is the row's job: the lower value warns whichever box it sits in.
+	fireInput(warning, "0.9");
+	fireInput(error, "50%");
+	fireBlur(error);
 	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.5, 0.9] }]);
 
 	// A draft equal to the stored list posts nothing on commit.
 	resetPosted();
-	fireInput(input, "0.8, 0.95");
-	fireKeyDown(input, "Enter");
+	fireInput(warning, "80%");
+	fireInput(error, "0.95");
+	fireKeyDown(error, "Enter");
 	expect(postedMessages).toEqual([]);
 });
 
-test("an invalid thresholds draft shows its error live and never posts", () => {
+test("thresholds accept fractions, percent signs, and bare numbers above 1 as percents", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
-	const input = settingInput(root, "usage.alertThresholds");
+	const { warning, error } = thresholdBoxes(root);
+	fireInput(warning, "75");
+	fireInput(error, "0.9");
+	fireBlur(warning);
+	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.75, 0.9] }]);
+});
 
-	fireInput(input, "1.5");
-	expect(rowOf(input).textContent).toContain("Thresholds are fractions in (0, 1], e.g. 0.8");
-	expect(input.getAttribute("aria-invalid")).toBe("true");
-	fireBlur(input);
-	fireKeyDown(input, "Enter");
+test("a blur that only moves focus to the sibling box does not commit the half-edited pair", () => {
+	// The two boxes are one draft: committing on the Tab between them would
+	// let the write's own state push resync the pair mid-edit.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const { warning, error } = thresholdBoxes(root);
+	fireInput(warning, "60%");
+	void act(() => {
+		warning.dispatchEvent(new FocusEvent("blur", { relatedTarget: error }));
+	});
 	expect(postedMessages).toEqual([]);
 
-	fireInput(input, "soon");
-	expect(rowOf(input).textContent).toContain("Not a number: soon");
-	fireBlur(input);
-	expect(postedMessages).toEqual([]);
+	// Leaving the pair commits once, with both edits.
+	fireInput(error, "0.9");
+	void act(() => {
+		error.dispatchEvent(new FocusEvent("blur"));
+	});
+	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.6, 0.9] }]);
+});
+
+test("one filled box means error-at-that-value: a single-element list plus the inline hint", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const { warning, error } = thresholdBoxes(root);
+
+	// Only Error set.
+	fireInput(warning, "");
+	fireInput(error, "90%");
+	expect(rowOf(error).textContent).toContain("A single threshold goes straight to the error alert.");
+	fireBlur(error);
+	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.9] }]);
+
+	// Only Warning set: same single-value semantics, same hint.
+	resetPosted();
+	fireInput(error, "");
+	fireInput(warning, "60%");
+	expect(rowOf(warning).textContent).toContain("A single threshold goes straight to the error alert.");
+	fireBlur(warning);
+	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.6] }]);
+});
+
+test("a stored single-element list fills the Error box, and equal boxes collapse to one value", () => {
+	const single = mount(<SettingsSection settings={settingsWithThresholds([0.9])} models={[]} failures={{}} />);
+	const boxes = thresholdBoxes(single);
+	expect(boxes.warning.value).toBe("");
+	expect(boxes.error.value).toBe("90%");
+	expect(rowOf(boxes.error).textContent).toContain("A single threshold goes straight to the error alert.");
+
+	cleanup();
+	resetPosted();
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const { warning, error } = thresholdBoxes(root);
+	fireInput(warning, "0.9");
+	fireInput(error, "90%");
+	fireBlur(error);
+	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.9] }]);
+});
+
+test("both boxes emptied turns alerts off: an empty list with the row saying so", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const { warning, error } = thresholdBoxes(root);
+	fireInput(warning, "");
+	fireInput(error, "");
+	expect(rowOf(error).textContent).toContain("Alerts are off.");
+	fireBlur(error);
+	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [] }]);
+});
+
+test("an invalid threshold shows its error live and never posts: 0, over 100%, and non-numbers reject", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const { warning, error } = thresholdBoxes(root);
+
+	for (const bad of ["0", "150%", "101", "soon"]) {
+		fireInput(warning, bad);
+		expect(rowOf(warning).textContent).toContain("Thresholds run from above 0% to 100%");
+		expect(warning.getAttribute("aria-invalid")).toBe("true");
+		fireBlur(warning);
+		fireKeyDown(error, "Enter");
+		expect(postedMessages).toEqual([]);
+	}
+	// The valid box alone must not commit around the invalid one.
+	expect(error.getAttribute("aria-invalid")).toBe("false");
+});
+
+test("a hand-written list of 3+ values renders read-only with the values, the hint, and the reveal button", () => {
+	const settings = makeSettings({
+		usage: {
+			statusBarMode: "always",
+			statusBarScope: null,
+			alertThresholds: [0.5, 0.8, 0.95],
+			thresholdsScope: "global",
+		},
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const row = Array.from(root.querySelectorAll(".setting-row")).find((candidate) =>
+		candidate.textContent?.includes("Usage alert thresholds")
+	) as HTMLElement;
+	expect(row.textContent).toContain("50%, 80%, 95%");
+	expect(row.textContent).toContain("Custom list - edit in settings.json.");
+	// No inputs: the two boxes cannot represent the list, and rendering them
+	// would let a blur destroy the hand-written values.
+	expect(row.querySelector("input")).toBeNull();
+	expect(row.querySelector("button[aria-label='Open Usage alert thresholds in settings.json']")).not.toBeNull();
 });
 
 test("the status-bar mode select posts setUsageStatusBar on change", () => {

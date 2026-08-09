@@ -16,12 +16,13 @@ import {
 	latestCheckedMs,
 } from "../../extension/dashboard/protocol";
 import type { ModelCapabilitiesResponse } from "./capsInspector";
+import { CapsInspector } from "./capsInspector";
 import type { ResolvedModelsResponse } from "./diagnostics";
 import { DiagnosticsSection } from "./diagnostics";
 import { IconBug, IconClose } from "./icons";
-import type { InspectRequest } from "./models";
 import { ModelsSection } from "./models";
 import type { ModelParametersResponse } from "./paramsInspector";
+import { ParamsInspector } from "./paramsInspector";
 import type { CatalogSearchResponse, IntentFailure } from "./recordEditors";
 import type { ServerEditRequest } from "./servers";
 import { ServersSection } from "./servers";
@@ -346,8 +347,18 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// Bumped on every state push: the open inspectors and the resolved-models
 	// view re-request on it so they follow configuration edits live.
 	const [stateSeq, setStateSeq] = useState(0);
-	// The Resolved-models table's jump into the models section's inspectors.
-	const [inspectRequest, setInspectRequest] = useState<InspectRequest | undefined>(undefined);
+	// The open inspector overlay, held here so it opens IN PLACE over whatever
+	// tab is active (the Diagnostics table's jump must not leave the tab). The
+	// identity is (scopeKey, rawId, serverLabel), never the model object:
+	// every state push rebuilds the models array, and the open inspector must
+	// follow the fresh values or close when its row leaves the list. The
+	// serverLabel matters because one snapshot can render under several
+	// labels, giving rows identical (scopeKey, rawId); the inspector must
+	// stay on the exact row whose action was clicked. `view` names which
+	// inspector is open; one row, one slide-over at a time.
+	const [inspecting, setInspecting] = useState<
+		{ scopeKey: string; rawId: string; serverLabel: string; view: "params" | "caps" } | undefined
+	>(undefined);
 	// The inspectors' configure-jumps: into the settings record editors, and
 	// into a server entry's edit form (the owner of entry-layer values).
 	const [editRecordRequest, setEditRecordRequest] = useState<EditRecordRequest | undefined>(undefined);
@@ -446,6 +457,23 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		}
 	}, [serverScope, state]);
 
+	// The inspected model on the latest push; an inspector whose model left
+	// the list closes instead of rendering stale values.
+	const inspectedModel =
+		inspecting === undefined
+			? undefined
+			: state?.models.find(
+					(model) =>
+						model.scopeKey === inspecting.scopeKey &&
+						model.rawId === inspecting.rawId &&
+						model.serverLabel === inspecting.serverLabel
+				);
+	useEffect(() => {
+		if (inspecting !== undefined && state !== undefined && inspectedModel === undefined) {
+			setInspecting(undefined);
+		}
+	}, [inspecting, state, inspectedModel]);
+
 	if (state === undefined) {
 		return <LoadingSkeleton />;
 	}
@@ -467,11 +495,11 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		target?.focus({ preventScroll: true });
 	};
 
-	// The Resolved-models table's per-row jump: land on the overview section
-	// with the addressed model's inspector open.
-	const inspectModel = (scopeKey: string, rawId: string, view: "params" | "caps") => {
-		setSection("overview");
-		setInspectRequest((current) => ({ seq: (current?.seq ?? 0) + 1, scopeKey, rawId, view }));
+	// A model's inspector overlay: opened from the models table or the
+	// Resolved-models table, rendered over the ACTIVE tab (no tab switch - the
+	// Diagnostics reader keeps their place; closing just removes the overlay).
+	const inspectModel = (target: { scopeKey: string; rawId: string; serverLabel: string }, view: "params" | "caps") => {
+		setInspecting({ ...target, view });
 	};
 
 	// The inspectors' configure-jump: land on the settings tab with the right
@@ -531,12 +559,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						scope={
 							serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
 						}
-						capsResponse={capsResponse}
-						paramsResponse={paramsResponse}
-						stateSeq={stateSeq}
-						inspectRequest={inspectRequest}
-						onEditRecord={editRecord}
-						onEditEntry={editEntry}
+						onInspect={inspectModel}
 					/>
 				) : null}
 			</SectionPanel>
@@ -567,6 +590,43 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				/>
 			</SectionPanel>
 			<ToastHost toasts={toasts} durationMs={toastDurationMs} onDismiss={dismissToast} />
+			{/* The inspector overlays, above the tab panels so they open in place
+			    on any tab; the configure-jumps close the overlay first - the
+			    editor they land on is the next surface. */}
+			{inspectedModel !== undefined && inspecting?.view === "params" ? (
+				<ParamsInspector
+					model={inspectedModel}
+					response={paramsResponse}
+					stateSeq={stateSeq}
+					fallbackFocusId={`tab-${section}`}
+					onClose={() => setInspecting(undefined)}
+					onEditRecord={(key, create) => {
+						setInspecting(undefined);
+						editRecord("parameters", key, create);
+					}}
+					onEditEntry={(label) => {
+						setInspecting(undefined);
+						editEntry(label);
+					}}
+				/>
+			) : null}
+			{inspectedModel !== undefined && inspecting?.view === "caps" ? (
+				<CapsInspector
+					model={inspectedModel}
+					response={capsResponse}
+					stateSeq={stateSeq}
+					fallbackFocusId={`tab-${section}`}
+					onClose={() => setInspecting(undefined)}
+					onEditRecord={(key, create) => {
+						setInspecting(undefined);
+						editRecord("capabilities", key, create);
+					}}
+					onEditEntry={(label) => {
+						setInspecting(undefined);
+						editEntry(label);
+					}}
+				/>
+			) : null}
 		</main>
 	);
 }

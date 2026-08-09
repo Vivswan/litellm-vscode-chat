@@ -74,7 +74,7 @@ function makeView(overrides: Partial<ResolvedModelsView> = {}): ResolvedModelsVi
 function mountDiagnostics(options: {
 	diagnostics?: readonly ConfigDiagnosticView[];
 	view?: ResolvedModelsView;
-	onInspect?: (scopeKey: string, rawId: string, view: "params" | "caps") => void;
+	onInspect?: (target: { scopeKey: string; rawId: string; serverLabel: string }, view: "params" | "caps") => void;
 }) {
 	const props = {
 		servers: [makeDeclaredServer()],
@@ -196,10 +196,10 @@ describe("Resolved models", () => {
 	});
 
 	test("the flat table filters by matcher key and jumps to the inspectors", () => {
-		const jumps: [string, string, string][] = [];
+		const jumps: [string, string, string, string][] = [];
 		const { root } = mountDiagnostics({
-			onInspect: (scopeKey, rawId, view) => {
-				jumps.push([scopeKey, rawId, view]);
+			onInspect: (target, view) => {
+				jumps.push([target.scopeKey, target.rawId, target.serverLabel, view]);
 			},
 		});
 		expect(Array.from(root.querySelectorAll("table.resolved-models tbody tr"))).toHaveLength(2);
@@ -213,8 +213,8 @@ describe("Resolved models", () => {
 		const rows = Array.from(root.querySelectorAll("table.resolved-models tbody tr"));
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.textContent).toContain("gpt-5.6");
-		fireClick(buttonByText(rows[0] as HTMLElement, "Caps"));
-		expect(jumps).toEqual([["s0", "gpt-5.6", "caps"]]);
+		fireClick(buttonByText(rows[0] as HTMLElement, "Capabilities"));
+		expect(jumps).toEqual([["s0", "gpt-5.6", "prod", "caps"]]);
 	});
 
 	test("the zero-record empty state still lists every model", () => {
