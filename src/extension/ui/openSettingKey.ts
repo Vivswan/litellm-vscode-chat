@@ -80,21 +80,40 @@ export function resolveUserSettingsUri(globalStorageUri: vscode.Uri): vscode.Uri
 }
 
 /**
+ * The command body, exported so tests can drive it with an injected opener:
+ * refuse anything but a dotted setting key before any open, then best-effort
+ * reveal. Never throws to the caller: a failed open logs a classification -
+ * the log buffer feeds public issue reports, so never the key or any file
+ * text - and shows a plain error toast.
+ */
+export async function handleOpenSettingKey(
+	key: unknown,
+	openSettingsJson: () => Promise<SettingsJsonEditor | undefined>,
+	logger: Pick<Logger, "log">
+): Promise<void> {
+	if (typeof key !== "string" || !SETTING_KEY_PATTERN.test(key)) {
+		logger.log("openSettingKey refused a malformed key argument");
+		return;
+	}
+	try {
+		await openUserSettingAtKey(key, openSettingsJson);
+	} catch {
+		logger.log("Open user settings.json failed");
+		void vscode.window.showErrorMessage(vscode.l10n.t("LiteLLM: Could not open the user settings.json."));
+	}
+}
+
+/**
  * Register the internal litellm.openSettingKey command (the dashboard's
- * revealSetting intent executes it with the bare key as its one argument).
- * Never throws to the caller: a failed open logs a classification - the log
- * buffer feeds public issue reports, so never the key or any file text - and
- * shows a plain error toast.
+ * revealSetting intent executes it with the bare key as its one argument),
+ * wiring handleOpenSettingKey to the host's real settings-json opener.
  */
 export function registerOpenSettingKeyCommand(context: vscode.ExtensionContext, logger: Logger): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand(INTERNAL_CMD.openSettingKey, async (key: unknown) => {
-			if (typeof key !== "string" || !SETTING_KEY_PATTERN.test(key)) {
-				logger.log("openSettingKey refused a malformed key argument");
-				return;
-			}
-			try {
-				await openUserSettingAtKey(key, async () => {
+		vscode.commands.registerCommand(INTERNAL_CMD.openSettingKey, (key: unknown) =>
+			handleOpenSettingKey(
+				key,
+				async () => {
 					await vscode.commands.executeCommand(OPEN_USER_SETTINGS_JSON);
 					const editor = vscode.window.activeTextEditor;
 					// Select only in the document the command was asked to open (the
@@ -115,11 +134,9 @@ export function registerOpenSettingKeyCommand(context: vscode.ExtensionContext, 
 							editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
 						},
 					};
-				});
-			} catch {
-				logger.log("Open user settings.json failed");
-				void vscode.window.showErrorMessage(vscode.l10n.t("LiteLLM: Could not open the user settings.json."));
-			}
-		})
+				},
+				logger
+			)
+		)
 	);
 }
