@@ -6,6 +6,7 @@
  */
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
+import type { SaveServerPayload } from "../../../extension/dashboard/protocol";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
 
 export const KEEP_ALL = {
@@ -13,6 +14,24 @@ export const KEEP_ALL = {
 	oauthClientSecret: { action: "keep" },
 	virtualKeyValue: { action: "keep" },
 } as const;
+
+/**
+ * A full SaveServerPayload: the always-sent record and list fields empty (the
+ * form's "none"), overridable per test. The schema requires those fields, so
+ * every payload a test mints must carry them like the real form does.
+ */
+export function serverPayload(
+	fields: Partial<SaveServerPayload> & Pick<SaveServerPayload, "label" | "baseUrl">
+): SaveServerPayload {
+	return {
+		modelCapabilities: {},
+		expectedFailures: [],
+		headers: {},
+		declaredModels: [],
+		budget: null,
+		...fields,
+	};
+}
 export interface RecordedEnv {
 	updates: [string, unknown][];
 	/** Every removeSetting call (the resetSetting intent's removals). */

@@ -12,7 +12,6 @@
 import * as l10n from "@vscode/l10n";
 import type {
 	ExpectedFailureCategory,
-	HeaderScalar,
 	NonSecretOptionalFieldId,
 	SaveServerPayload,
 	SecretDirective,
@@ -312,13 +311,27 @@ export type ServerFormParse =
 	  };
 
 /**
- * Parse a draft into the saveServerSetting intent it assembles to, or the
- * problems that block it; there is no separate validation pass to drift from
- * the assembly. The problem messages never repeat an entered value: drafts
- * carry secrets, and the extension surfaces the same messages through logs
- * and the intentFailed notice.
+ * The one shared analysis behind both parsers: every field's problem plus the
+ * parsed pieces the intents assemble from. parseServerForm blocks on any
+ * problem; parseServerFormForTest blocks only on the CONNECTION_FIELDS
+ * problems - both read this one pass, so the save and probe rules cannot
+ * drift.
  */
-export function parseServerForm(draft: ServerFormDraft, context: ServerFormContext = {}): ServerFormParse {
+interface ServerFormAnalysis {
+	readonly problems: ServerFormProblems;
+	/** The draft's trimmed label, possibly empty or reserved (only the save blocks on that). */
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly secrets: Readonly<Record<SecretFieldId, SecretParse>>;
+	readonly groupsParse: ReturnType<typeof parseGroups>;
+	readonly capabilitiesParse: ReturnType<typeof parseCapabilityGroups>;
+	readonly headersParse: ReturnType<typeof parseHeaderRows>;
+	readonly budget: number | null;
+	/** The active auth form's non-empty text fields, ready to spread into the payload. */
+	readonly optionalText: Readonly<Partial<Record<NonSecretOptionalFieldId, string>>>;
+}
+
+function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): ServerFormAnalysis {
 	// The selector decides which credential fields are live: only the picked
 	// form's fields (and its lower-ranked companions) are validated and
 	// assembled; everything else is excluded from the payload and demoted to
@@ -441,7 +454,56 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		}
 	}
 
-	if (Object.values(problems).some((problem) => problem !== undefined)) {
+	// Only the active form's text fields reach the payload: an inactive form's
+	// leftover text (typed, then the selector moved on) is excluded exactly
+	// like an empty input, so the saved entry carries one auth form only.
+	const activeText: Readonly<Record<NonSecretOptionalFieldId, string>> = {
+		oauthTokenUrl: oauthActive ? draft.oauthTokenUrl : "",
+		oauthClientId: oauthActive ? draft.oauthClientId : "",
+		oauthScopes: oauthActive ? draft.oauthScopes : "",
+		virtualKeyHeader: virtualKeyActive ? draft.virtualKeyHeader : "",
+	};
+	const optionalText: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
+	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
+		const value = activeText[field].trim();
+		if (value.length > 0) {
+			optionalText[field] = value;
+		}
+	}
+
+	return { problems, label, baseUrl, secrets, groupsParse, capabilitiesParse, headersParse, budget, optionalText };
+}
+
+/** The intent's secret directives, one per field, straight from the analysis' secret parses. */
+function secretDirectives(
+	secrets: Readonly<Record<SecretFieldId, SecretParse>>
+): Record<SecretFieldId, SecretDirective> {
+	return {
+		apiKey: secrets.apiKey.directive,
+		oauthClientSecret: secrets.oauthClientSecret.directive,
+		virtualKeyValue: secrets.virtualKeyValue.directive,
+	};
+}
+
+/**
+ * Parse a draft into the saveServerSetting intent it assembles to, or the
+ * problems that block it; there is no separate validation pass to drift from
+ * the assembly. The problem messages never repeat an entered value: drafts
+ * carry secrets, and the extension surfaces the same messages through logs
+ * and the intentFailed notice.
+ */
+export function parseServerForm(draft: ServerFormDraft, context: ServerFormContext = {}): ServerFormParse {
+	const { problems, label, baseUrl, secrets, groupsParse, capabilitiesParse, headersParse, budget, optionalText } =
+		analyzeServerForm(draft, context);
+	// The parse-failure conditions are redundant with the problems check (a
+	// failed parse set its field's problem); they are spelled out so the ok
+	// branch below narrows to the parsed values.
+	if (
+		!groupsParse.ok ||
+		!capabilitiesParse.ok ||
+		!headersParse.ok ||
+		Object.values(problems).some((problem) => problem !== undefined)
+	) {
 		return {
 			ok: false,
 			problems,
@@ -452,64 +514,25 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		};
 	}
 
-	const server: {
-		label: string;
-		baseUrl: string;
-		modelParameters?: Record<string, Record<string, unknown>>;
-		modelCapabilities?: Record<string, Record<string, unknown>>;
-		expectedFailures?: readonly ExpectedFailureCategory[];
-		headers?: Record<string, HeaderScalar>;
-		declaredModels?: readonly string[];
-		budget?: number | null;
-	} & {
-		-readonly [K in NonSecretOptionalFieldId]?: string;
-	} = {
+	// The record and list fields are always sent, even empty (the payload
+	// requires them); modelParameters is the one optional field - absent and
+	// empty both mean "none".
+	const server: SaveServerPayload = {
 		label,
 		baseUrl,
-	};
-	// Only the active form's text fields reach the payload: an inactive form's
-	// leftover text (typed, then the selector moved on) is excluded exactly
-	// like an empty input, so the saved entry carries one auth form only.
-	const activeText: Readonly<Record<NonSecretOptionalFieldId, string>> = {
-		oauthTokenUrl: oauthActive ? draft.oauthTokenUrl : "",
-		oauthClientId: oauthActive ? draft.oauthClientId : "",
-		oauthScopes: oauthActive ? draft.oauthScopes : "",
-		virtualKeyHeader: virtualKeyActive ? draft.virtualKeyHeader : "",
-	};
-	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
-		const value = activeText[field].trim();
-		if (value.length > 0) {
-			server[field] = value;
-		}
-	}
-	// groupsParse.ok always holds here (a blocked parse returned above); the
-	// guard is the narrowing. Same for capabilitiesParse and headersParse below.
-	if (groupsParse.ok && Object.keys(groupsParse.value).length > 0) {
-		server.modelParameters = groupsParse.value;
-	}
-	// Always present, even empty: the save distinguishes a deliberate clear
-	// (empty here) from a payload that predates these fields (absent), which
-	// carries the stored values forward instead of deleting them. headers,
-	// declaredModels, and budget ride the same rule.
-	if (capabilitiesParse.ok) {
-		server.modelCapabilities = capabilitiesParse.value;
-	}
-	server.expectedFailures = draft.expectedFailures;
-	if (headersParse.ok) {
-		server.headers = headersParse.value;
-	}
-	server.declaredModels = parseDeclaredModelsText(draft.declaredModels);
-	server.budget = budget;
-	const directives: Record<SecretFieldId, SecretDirective> = {
-		apiKey: secrets.apiKey.directive,
-		oauthClientSecret: secrets.oauthClientSecret.directive,
-		virtualKeyValue: secrets.virtualKeyValue.directive,
+		...optionalText,
+		...(Object.keys(groupsParse.value).length > 0 ? { modelParameters: groupsParse.value } : {}),
+		modelCapabilities: capabilitiesParse.value,
+		expectedFailures: draft.expectedFailures,
+		headers: headersParse.value,
+		declaredModels: parseDeclaredModelsText(draft.declaredModels),
+		budget,
 	};
 	return {
 		ok: true,
 		intent: {
 			server,
-			secrets: directives,
+			secrets: secretDirectives(secrets),
 			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
 		},
 		modelCapabilityIssues: capabilitiesParse.issues,
@@ -551,38 +574,48 @@ export type ServerTestParse =
 
 /**
  * Parse a draft into the testServerDraft intent, or the connection-relevant
- * problems that block it. One probe must test exactly what a save would send,
- * so this reuses parseServerForm wholesale rather than re-deriving any rule:
- * the parse runs on the draft with a placeholder label, no parameter or
- * capability rows, and an empty budget, which by construction leaves exactly
- * the CONNECTION_FIELDS problems - a missing or colliding label, broken
- * record rows, and a malformed budget do not gate a probe, while broken
- * header rows do (the probe sends the headers, so probing without them would
- * test a different configuration). The assembled intent carries the draft's
- * real trimmed label (it addresses "keep" resolution extension-side,
- * including an orphan secret blob a fresh label would inherit) and the edited
- * entry's label as replaceLabel. Capability rows ride along only when they
- * parse clean, and the probe pairs the entry's declared models with the
- * draft's expectedFailures to report a declared-count or expected outcome -
- * broken rows never block or distort a connection probe.
+ * problems that block it. The same analyzeServerForm pass judges the draft,
+ * so no rule is re-derived; the probe blocks only on CONNECTION_FIELDS
+ * problems - a missing or colliding label, broken record rows, and a
+ * malformed budget do not gate a probe, while broken header rows do (the
+ * probe sends the headers, so probing without them would test a different
+ * configuration). The assembled intent omits modelParameters and the budget
+ * (the probe never sends them), carries the capability rows only when they
+ * parse clean, and keeps the draft's real trimmed label: the label addresses
+ * "keep" resolution extension-side, including an orphan secret blob a fresh
+ * label would inherit.
  */
 export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFormContext = {}): ServerTestParse {
-	const parse = parseServerForm({ ...draft, label: "draft", modelParameters: [], modelCapabilities: [], budget: "" });
-	if (!parse.ok) {
-		return { ok: false, problems: parse.problems };
+	const analysis = analyzeServerForm(draft, context);
+	const { headersParse, capabilitiesParse } = analysis;
+	const problems: { -readonly [K in ServerFormField]?: string } = {};
+	for (const field of CONNECTION_FIELDS) {
+		const problem = analysis.problems[field];
+		if (problem !== undefined) {
+			problems[field] = problem;
+		}
 	}
-	const capabilitiesParse = parseCapabilityGroups(draft.modelCapabilities);
-	const capabilities =
-		capabilitiesParse.ok && Object.keys(capabilitiesParse.value).length > 0 ? capabilitiesParse.value : undefined;
+	// The headers-parse condition is redundant with the problems check (a
+	// failed parse set problems.headers, a connection field); it is spelled
+	// out so the ok branch narrows to the parsed rows.
+	if (!headersParse.ok || Object.values(problems).some((problem) => problem !== undefined)) {
+		return { ok: false, problems };
+	}
+	const server: SaveServerPayload = {
+		label: analysis.label,
+		baseUrl: analysis.baseUrl,
+		...analysis.optionalText,
+		modelCapabilities: capabilitiesParse.ok ? capabilitiesParse.value : {},
+		expectedFailures: draft.expectedFailures,
+		headers: headersParse.value,
+		declaredModels: parseDeclaredModelsText(draft.declaredModels),
+		budget: null,
+	};
 	return {
 		ok: true,
 		intent: {
-			server: {
-				...parse.intent.server,
-				label: draft.label.trim(),
-				...(capabilities !== undefined ? { modelCapabilities: capabilities } : {}),
-			},
-			secrets: parse.intent.secrets,
+			server,
+			secrets: secretDirectives(analysis.secrets),
 			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
 		},
 	};

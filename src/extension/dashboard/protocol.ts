@@ -1489,24 +1489,21 @@ export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly baseUrl: string;
 	/** The entry's per-entry modelParameters; absent or empty means the saved entry carries none. */
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
-	/** The entry's per-entry modelCapabilities; absent or empty means the saved entry carries none. */
-	readonly modelCapabilities?: EntryModelCapabilitiesPayload | undefined;
-	/** The entry's expected discovery-failure categories; absent or empty means none. */
-	readonly expectedFailures?: readonly ExpectedFailureCategory[] | undefined;
+	/** The entry's per-entry modelCapabilities; empty means the saved entry carries none. */
+	readonly modelCapabilities: EntryModelCapabilitiesPayload;
+	/** The entry's expected discovery-failure categories; empty means none. */
+	readonly expectedFailures: readonly ExpectedFailureCategory[];
 	/**
-	 * The entry's custom HTTP headers (plain settings text, not secrets).
-	 * Absent means the payload predates the editor and the stored headers
-	 * carry forward; present-but-empty is a deliberate clear - the same
-	 * absent-vs-empty rule modelCapabilities follows.
+	 * The entry's custom HTTP headers (plain settings text, not secrets);
+	 * empty means the saved entry carries none. Always sent - the schema
+	 * refuses a payload without it, so a save can never silently delete a
+	 * stored record it did not mean to touch.
 	 */
-	readonly headers?: Readonly<Record<string, HeaderScalar>> | undefined;
-	/** The entry's discovery.declared model IDs; same absent-vs-empty rule as headers. */
-	readonly declaredModels?: readonly string[] | undefined;
-	/**
-	 * The entry's manual usage budget in USD. Null clears a stored budget;
-	 * absent carries it forward (the optional-field twin of the record rule).
-	 */
-	readonly budget?: number | null | undefined;
+	readonly headers: Readonly<Record<string, HeaderScalar>>;
+	/** The entry's discovery.declared model IDs; empty means none. */
+	readonly declaredModels: readonly string[];
+	/** The entry's manual usage budget in USD; null means none (clearing any stored budget). */
+	readonly budget: number | null;
 }
 
 /** Webview-to-extension intents. The extension re-validates every one: the webview is a trust boundary. */

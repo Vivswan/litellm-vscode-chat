@@ -217,44 +217,32 @@ export async function applySaveServerSetting(
 	if (intent.server.modelParameters !== undefined && Object.keys(intent.server.modelParameters).length > 0) {
 		models.parameters = intent.server.modelParameters;
 	}
-	// For these two the form always sends the field, so absent means the
-	// payload predates the editor: carry the stored values instead of
-	// silently deleting hand-written configuration. Present-but-empty is a
-	// deliberate clear and writes nothing, like the records above.
-	const capabilities = intent.server.modelCapabilities ?? existing?.modelCapabilities;
-	if (capabilities !== undefined && Object.keys(capabilities).length > 0) {
+	const capabilities = intent.server.modelCapabilities;
+	if (Object.keys(capabilities).length > 0) {
 		models.capabilities = capabilities;
 	}
 	if (Object.keys(models).length > 0) {
 		newEntry.models = models;
 	}
 	const discovery: Record<string, unknown> = {};
-	const expectedFailures = intent.server.expectedFailures ?? existing?.expectedFailures;
-	if (expectedFailures !== undefined && expectedFailures.length > 0) {
-		discovery.expectedFailures = expectedFailures;
+	if (intent.server.expectedFailures.length > 0) {
+		discovery.expectedFailures = intent.server.expectedFailures;
 	}
-	// Same absent-vs-present rule as the records above: the form always sends
-	// the field, so absent means the payload predates the editor and the
-	// stored values carry forward; present-but-empty is a deliberate clear.
 	// Declared IDs are trimmed and deduplicated like the parser reads them.
-	const declaredModels =
-		intent.server.declaredModels !== undefined
-			? [...new Set(intent.server.declaredModels.map((id) => id.trim()).filter((id) => id.length > 0))]
-			: (existing?.declaredModels ?? []);
+	const declaredModels = [
+		...new Set(intent.server.declaredModels.map((id) => id.trim()).filter((id) => id.length > 0)),
+	];
 	if (declaredModels.length > 0) {
 		discovery.declared = declaredModels;
 	}
 	if (Object.keys(discovery).length > 0) {
 		newEntry.discovery = discovery;
 	}
-	const headers = intent.server.headers ?? existing?.headers;
-	if (headers !== undefined && Object.keys(headers).length > 0) {
-		newEntry.headers = headers;
+	if (Object.keys(intent.server.headers).length > 0) {
+		newEntry.headers = intent.server.headers;
 	}
-	// Budget: a number sets it, null clears it, absent carries the stored one.
-	const budget = intent.server.budget === undefined ? existing?.budget : (intent.server.budget ?? undefined);
-	if (budget !== undefined) {
-		newEntry.budget = budget;
+	if (intent.server.budget !== null) {
+		newEntry.budget = intent.server.budget;
 	}
 
 	// OAuth is one unit, mirroring serverForm's exact rules: the request path
