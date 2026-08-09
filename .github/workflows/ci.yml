@@ -124,6 +124,9 @@ jobs:
   # scan blocks merges. Each job grants the scan permissions - a caller
   # job's permissions are the ceiling for the called workflow - and the
   # weekly re-scan schedule lives on this workflow's triggers.
+  # Repo-specific scan tuning (paths-ignore, extra queries, packs) goes in
+  # the repo-owned .github/codeql/codeql-config.yml - the standard CodeQL
+  # config file, picked up automatically when present.
 
   codeql-javascript:
     uses: Vivswan/repo-platform/.github/workflows/reusable-codeql.yml@main

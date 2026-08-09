@@ -6,7 +6,7 @@
 [![Installs](https://vsmarketplacebadges.dev/installs/vivswan.litellm-vscode-chat.svg)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat)
 [![Rating](https://vsmarketplacebadges.dev/rating-short/vivswan.litellm-vscode-chat.svg)](https://marketplace.visualstudio.com/items?itemName=vivswan.litellm-vscode-chat&ssr=false#review-details)
 [![CI](https://github.com/Vivswan/litellm-vscode-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/Vivswan/litellm-vscode-chat/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Individual%20%26%20Small%20Org%201.0.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-Individual%20%26%20Small%20Org%201.0.0-blue)](LICENSE.md)
 
 透過 [LiteLLM](https://docs.litellm.ai) 在 VS Code 中與 GitHub Copilot Chat 搭配使用 100 多個 LLM。
 
