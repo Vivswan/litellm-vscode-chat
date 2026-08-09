@@ -1,10 +1,9 @@
 #!/usr/bin/env bun
 // scripts/dev/seed-demo-usage.ts
 //
-// CLI over seedDemoUsage.ts for callers that cannot await an import directly
-// (the same pattern as scripts/stack/seed-usage.ts): the dev launcher runs
-// its legs synchronously, so it seeds the demo usage keys by running this
-// script after the stack is up. `--out <path>` writes the measured results
+// CLI over seedDemoUsage.ts for callers that cannot await an import directly:
+// the dev launcher runs its legs synchronously, so it seeds the demo usage
+// keys by running this script after the stack is up. `--out <path>` writes the measured results
 // as JSON for the launcher to turn into seed entries; without it the script
 // is a standalone re-seeder (more spend, budgets re-pinned to the same
 // fractions) against the running stack. One caveat standalone: the warning
