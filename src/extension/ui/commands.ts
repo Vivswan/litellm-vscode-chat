@@ -20,6 +20,7 @@ import {
 	reconfigureAction,
 	reportIssueAction,
 	showActionableMessage,
+	statusErrorHeadline,
 	viewOutputAction,
 } from "./notifier";
 import { detectSetupProblem, showSetupProblemGate } from "./setupGate";
@@ -140,11 +141,11 @@ export async function runConnectionTest(
 				break;
 			}
 			case "error":
-				// The message stays exactly the transport text (it already carries
-				// its own advice); a classified failure only adds the docs action.
+				// The toast carries the transport headline verbatim (it already
+				// says what to do); a classified failure only adds the docs action.
 				void showActionableMessage(
 					"error",
-					vscode.l10n.t("LiteLLM: Connection failed - {0}", status.error),
+					vscode.l10n.t("LiteLLM: Connection failed - {0}", statusErrorHeadline(status.error)),
 					commandErrorActions(status.classification, outputChannel)
 				);
 				break;
@@ -255,10 +256,11 @@ export async function runModelSync(
 			case "error":
 				// logSafeError, never error: this line lands in the issue-report buffer.
 				logger.log(`Model sync failed: ${status.logSafeError}`);
-				// Same classification treatment as the connection test's error toast.
+				// Same headline-only classification treatment as the connection
+				// test's error toast.
 				void showActionableMessage(
 					"error",
-					vscode.l10n.t("LiteLLM: Model sync failed - {0}", status.error),
+					vscode.l10n.t("LiteLLM: Model sync failed - {0}", statusErrorHeadline(status.error)),
 					commandErrorActions(status.classification, outputChannel)
 				);
 				break;

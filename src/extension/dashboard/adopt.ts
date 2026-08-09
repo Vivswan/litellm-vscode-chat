@@ -206,9 +206,9 @@ export async function applyAdoptServer(
 				// only, and this label's entry never landed. Re-adding the label
 				// makes the entry editable, and the edit form's secret fields are
 				// what fix the leftover state.
-				vscode.l10n.t(
-					"The adoption failed, and restoring this label's stored secrets also failed. Re-add a server under this label with the dashboard form, then edit the entry to set or remove the affected secrets."
-				)
+				`${vscode.l10n.t("The adoption failed, and this label's stored secrets could not be restored.")}\n${vscode.l10n.t(
+					"Re-add a server under this label with the dashboard form, then edit the entry to set or remove the affected secrets."
+				)}`
 			);
 		}
 		throw error;

@@ -381,7 +381,10 @@ suite("extension/ui/notifier", () => {
 			// cannot drift: ENOTFOUND and ECONNREFUSED deliberately render the
 			// same connection message, but only ECONNREFUSED carries
 			// proxy-not-running - a text-only signature would suppress the toast
-			// that first offers the docs action.
+			// that first offers the docs action. Headline-keyed dedup keeps this
+			// safe in both directions: the connection branch is deliberately
+			// single-line today (headline == full text), and if it ever gains a
+			// detail line, the differing setupHint still re-fires the toast.
 			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
 			const connectionFailure = (deepest: string) =>
 				statusErrorTexts(
@@ -403,6 +406,24 @@ suite("extension/ui/notifier", () => {
 			notifier.handleAggregatedStatus(allFailed(refused.error, true, refused.classification));
 			assert.strictEqual(toasts.length, 2, "the refused connection must not dedup against the DNS failure");
 			assert.deepStrictEqual(expectDefined(toasts[1]).buttons, ["Reconfigure", "Troubleshooting Docs", "Report Issue"]);
+		});
+	});
+
+	suite("two-part failure messages", () => {
+		test("the toast carries the headline line only, and detail churn does not re-fire it", () => {
+			const notifier = new Notifier(() => false);
+			notifier.handleAggregatedStatus(
+				allFailed("The server could not be reached.\nGET http://litellm.test/v1/models: ECONNREFUSED")
+			);
+			assert.strictEqual(toasts.length, 1);
+			assert.strictEqual(expectDefined(toasts[0]).message, "LiteLLM: The server could not be reached.");
+			// The detail line carries variable server-derived text (spend
+			// figures, cause chains); its churn is not new information and must
+			// not re-fire a standing toast.
+			notifier.handleAggregatedStatus(
+				allFailed("The server could not be reached.\nGET http://litellm.test/v1/models: ETIMEDOUT")
+			);
+			assert.strictEqual(toasts.length, 1, "a detail-only change must not re-toast");
 		});
 	});
 

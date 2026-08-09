@@ -10,6 +10,7 @@ import {
 	runReportIssue,
 } from "../../../extension/ui/commands";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
+import { statusErrorHeadline } from "../../../extension/ui/notifier";
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { SetupHintKind } from "../../../shared/errorClassification";
@@ -284,9 +285,10 @@ suite("extension/ui/commands", () => {
 
 		// Composed from ACTUAL transport mappings (mapSdkError -> statusErrorTexts),
 		// so the toast construction cannot drift from what the transport really
-		// produces: the message stays exactly the transport text (which already
-		// carries its own advice - nothing is appended), and the classification
-		// only adds the Troubleshooting Docs action with the cause's deep link.
+		// produces: the toast carries the message's headline (its first line -
+		// nothing is appended, and any technical detail line stays off the
+		// notification), and the classification only adds the Troubleshooting
+		// Docs action with the cause's deep link.
 		suite("classified error toasts composed from real transport mappings", () => {
 			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
 			const causes: ReadonlyArray<[string, () => Error, SetupHintKind]> = [
@@ -327,7 +329,7 @@ suite("extension/ui/commands", () => {
 			}
 
 			for (const [label, buildError, setupHint] of causes) {
-				test(`${label} keeps the exact transport message and adds the docs action`, async () => {
+				test(`${label} keeps the exact transport headline and adds the docs action`, async () => {
 					const mapped = buildError();
 					assert.strictEqual(statusErrorTexts(mapped).classification?.setupHint, setupHint);
 					const statusBar = makeStatusBar({ state: "not-configured" });
@@ -338,7 +340,8 @@ suite("extension/ui/commands", () => {
 
 					const toast = expectDefined(toasts[0]);
 					assert.strictEqual(toast.kind, "error");
-					assert.strictEqual(toast.message, `LiteLLM: Connection failed - ${mapped.message}`);
+					assert.strictEqual(toast.message, `LiteLLM: Connection failed - ${statusErrorHeadline(mapped.message)}`);
+					assert.ok(!toast.message.includes("\n"), "notifications render newlines poorly; the toast stays one line");
 					assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Troubleshooting Docs", "Report Issue"]);
 				});
 			}
@@ -392,6 +395,26 @@ suite("extension/ui/commands", () => {
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.message, "LiteLLM: Connection failed - ECONNREFUSED");
 			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Report Issue"]);
+		});
+
+		test("a two-part status error toasts the headline line only", async () => {
+			const statusBar = makeStatusBar({ state: "not-configured" });
+			const provider = {
+				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+					await statusBar.updateStatusBar({
+						state: "error",
+						error: "The server could not be reached.\nGET http://litellm.test/v1/models: ECONNREFUSED",
+						logSafeError: markLogSafe("connection error"),
+					});
+					return [];
+				},
+				refreshViaHost: async () => {},
+			};
+
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.message, "LiteLLM: Connection failed - The server could not be reached.");
 		});
 
 		test("a classified refresh failure reaches the buffer as its classification, never its body", async () => {
@@ -504,9 +527,11 @@ suite("extension/ui/commands", () => {
 			);
 		});
 
-		test("the sync-failed log carries the log-safe rendering while the toast keeps the display text", async () => {
+		test("the sync-failed log carries the log-safe rendering while the toast keeps the display headline", async () => {
 			// The "Model sync failed" line lands in the issue-report buffer, so it
-			// must use logSafeError; the toast is a UI surface and keeps `error`.
+			// must use logSafeError; the toast is a UI surface and keeps `error`'s
+			// headline line, while the detail line (which may carry response
+			// bodies) stays off the notification entirely.
 			const lines: string[] = [];
 			const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
 			const statusBar = makeStatusBar({ state: "not-configured" });
@@ -514,7 +539,7 @@ suite("extension/ui/commands", () => {
 				refreshViaHost: async () => {
 					await statusBar.updateStatusBar({
 						state: "error",
-						error: "LiteLLM API error: 502\n<html>internal-billing-host-MARKER</html>",
+						error: "LiteLLM API error: 502 internal-billing-host-MARKER\n<html>detail-body-MARKER</html>",
 						logSafeError: markLogSafe("RequestError(http, status 502)"),
 						totalModels: 0,
 					});
@@ -524,20 +549,22 @@ suite("extension/ui/commands", () => {
 			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
 
 			const toast = expectDefined(toasts[0]);
-			assert.ok(toast.message.includes("internal-billing-host-MARKER"), "the toast keeps the display rendering");
+			assert.ok(toast.message.includes("internal-billing-host-MARKER"), "the toast keeps the display headline");
+			assert.ok(!toast.message.includes("detail-body-MARKER"), "the detail line stays off the notification");
 			assert.ok(
 				lines.some((line) => line.includes("Model sync failed: RequestError(http, status 502)")),
 				`the log must carry the classification; lines: ${lines.join(" | ")}`
 			);
 			assert.ok(
-				lines.every((line) => !line.includes("internal-billing-host-MARKER")),
-				"the display error's body text leaked into a log line"
+				lines.every((line) => !line.includes("internal-billing-host-MARKER") && !line.includes("detail-body-MARKER")),
+				"the display error's text leaked into a log line"
 			);
 		});
 
-		test("a classified error status keeps the exact transport message and adds the docs action", async () => {
+		test("a classified error status keeps the exact transport headline and adds the docs action", async () => {
 			// Composed from the actual transport mapping, like the connection-test
-			// suite above: nothing is appended to the message.
+			// suite above: the toast carries the message's first line, nothing
+			// appended.
 			const logger = new Logger({ info: () => {}, error: () => {} });
 			const mapped = mapSdkError(
 				new AuthenticationError(401, { message: "Invalid API key" }, undefined, new Headers()),
@@ -558,7 +585,8 @@ suite("extension/ui/commands", () => {
 
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "error");
-			assert.strictEqual(toast.message, `LiteLLM: Model sync failed - ${mapped.message}`);
+			assert.strictEqual(toast.message, `LiteLLM: Model sync failed - ${statusErrorHeadline(mapped.message)}`);
+			assert.ok(!toast.message.includes("\n"), "notifications render newlines poorly; the toast stays one line");
 			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Troubleshooting Docs", "Report Issue"]);
 		});
 

@@ -8,6 +8,7 @@
 
 import * as vscode from "vscode";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -29,7 +30,7 @@ import type {
 	SecretFieldId,
 	TransportErrorClassification,
 } from "./protocol";
-import { NUMBER_SETTING_SPECS, SECRET_FIELD_IDS } from "./protocol";
+import { NUMBER_SETTING_SPECS, NUMBER_SETTING_UNITS, SECRET_FIELD_IDS } from "./protocol";
 import { applySaveServerSetting } from "./saveServer";
 import { isUsableHttpUrl } from "./serverForm";
 import type { DraftConnection } from "./testDraftConnection";
@@ -146,15 +147,30 @@ const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readon
 
 /**
  * Value constraints the message schema cannot express. Returns the reason a
- * number is not writable, or undefined when it is.
+ * number is not writable, or undefined when it is. Reasons are two-part - a
+ * localized headline, then a technical detail line - and the detail names the
+ * setting id because the failure banner is page-global and names no field;
+ * the id stays an ASCII identifier outside the translation, like the form
+ * messages' fieldId prefixes.
  */
 export function validateNumberSetting(setting: NumberSettingId, value: number | null): string | undefined {
 	const spec = NUMBER_SETTING_SPECS[setting];
 	if (value === null) {
-		return spec.nullable ? undefined : `${setting} requires a number`;
+		if (spec.nullable) {
+			return undefined;
+		}
+		return `${vscode.l10n.t("This setting needs a number and cannot be left empty.")}\n${vscode.l10n.t(
+			"setting {0}: no value given; the setting is not clearable",
+			setting
+		)}`;
 	}
 	if (value < spec.minimum) {
-		return `${setting} must be at least ${spec.minimum}`;
+		const minimum = NUMBER_SETTING_UNITS[setting] === "ms" ? `${spec.minimum} ms` : String(spec.minimum);
+		return `${vscode.l10n.t("Enter a number that is at least {0}.", minimum)}\n${vscode.l10n.t(
+			"setting {0}, minimum {1}",
+			setting,
+			minimum
+		)}`;
 	}
 	return undefined;
 }
@@ -410,7 +426,11 @@ export async function executeDashboardIntent(
 			const invalid = intent.values.some((value) => !(value > 0 && value <= 1));
 			if (invalid) {
 				throw new DashboardValidationError(
-					`${USAGE_ALERT_THRESHOLDS_SETTING_KEY}: every threshold must be a fraction in (0, 1]`
+					`${vscode.l10n.t("Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.")}\n${vscode.l10n.t(
+						"setting {0}: allowed range {1}",
+						`${CONFIG_SECTION}.${USAGE_ALERT_THRESHOLDS_SETTING_KEY}`,
+						"0 < value <= 1"
+					)}`
 				);
 			}
 			const canonical = [...new Set(intent.values)].sort((a, b) => a - b);
@@ -486,10 +506,12 @@ export async function executeDashboardIntent(
 			const identity = env.resolveExternalGroup(baseUrl, intent.sourceHandle);
 			if (identity === undefined) {
 				throw new DashboardValidationError(
-					vscode.l10n.t(
-						"This row does not resolve to a hideable VS Code provider group: it may have been adopted or removed, or it is a legacy-registry server (remove those with the {0} command)",
+					`${vscode.l10n.t(
+						"This row no longer matches a hideable server - it may have just been adopted or removed, or it predates provider groups."
+					)}\n${vscode.l10n.t(
+						"The row did not resolve to an external VS Code provider group. Legacy servers are removed with the {0} command instead.",
 						manageCommandTitle()
-					)
+					)}`
 				);
 			}
 			await env.hideGroup(identity);
