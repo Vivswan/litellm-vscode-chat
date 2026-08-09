@@ -71,6 +71,12 @@ export function fireBlur(element: HTMLElement): void {
 	});
 }
 
+export function fireFocus(element: HTMLElement): void {
+	void act(() => {
+		element.dispatchEvent(new Event("focus"));
+	});
+}
+
 /**
  * Pin an element's measured geometry. happy-dom performs no layout, so
  * getBoundingClientRect always returns zeros; placement tests substitute

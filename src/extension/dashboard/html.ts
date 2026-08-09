@@ -488,6 +488,8 @@ const STYLES = `
 	   type="text" (the s/m/h suffixes need letters) and share the width so a
 	   grammar change never shifts the column. */
 	.setting-control input[type="number"], .setting-control input[type="text"] { width: 200px; }
+	/* The two threshold boxes share the row; percent-scale text needs no 200px. */
+	.setting-control input.threshold-input { width: 72px; }
 	.setting-control input[type="number"] { appearance: textfield; }
 	/* Plain fields like the native Settings editor: no spin buttons popping in
 	   on hover/focus and compressing the value. */
@@ -627,6 +629,12 @@ const STYLES = `
 	/* The ID on its own line, the display name muted beneath: every item
 	   reads the same regardless of how long either half is. */
 	.catalog-results .catalog-id { display: block; font-family: var(--vscode-editor-font-family, monospace); }
+	/* The key inputs' suggestion listbox (the datalist replacement): the same
+	   dropdown chrome as the catalog results, anchored under its own input.
+	   The wrapper takes the input's flex slot in the row grid. */
+	.suggest-input { position: relative; display: flex; flex: 1; min-width: 0; }
+	.suggest-input input.key { flex: 1; min-width: 0; }
+	.suggest-input .suggest-results { left: 0; right: auto; font-weight: normal; }
 	/* The expected-failures checkbox set inside the capabilities disclosure. */
 	.expected-failures { border: none; margin: 12px 0 0; padding: 0; }
 	.expected-failures legend { padding: 0; font-weight: 600; }
@@ -676,8 +684,9 @@ const STYLES = `
 	.params-inspector .param-not-sent td { color: var(--vscode-descriptionForeground); }
 	.params-inspector .param-skip { color: var(--vscode-descriptionForeground); }
 	/* The configure-jump: one plain button under the identity line, and a quiet
-	   per-row "edit" beside record-sourced values (the "Params"/"Caps" text
-	   idiom, revealed as a link only on interaction like every quiet action). */
+	   per-row "edit" beside record-sourced values (the "Parameters"/
+	   "Capabilities" text idiom, revealed as a link only on interaction like
+	   every quiet action). */
 	.params-inspector .params-configure { margin: 4px 0 8px; }
 	.params-inspector .row-edit { margin-left: 6px; padding: 0 2px; }
 	/* Capability values are short (a token count, yes/no); wrapping "128,000"
@@ -1175,6 +1184,14 @@ const STYLES = `
 	.tree-node { margin: 3px 0; }
 	.tree-fields { color: var(--vscode-descriptionForeground); }
 	.tree-barrier { color: var(--vscode-editorWarning-foreground); }
+	/* The inspectors' record-path figure: one hint-toned line per map, keys as
+	   quiet inline jumps sharing the tree's barrier tone for the markers. Each
+	   arrow+key+marker link is an inline-block, so long chains wrap between
+	   links, never mid-marker or with an arrow stranded at a line end. */
+	.record-chain { margin: 2px 0 6px; }
+	.record-chain .record-chain-link { display: inline-block; white-space: nowrap; }
+	.record-chain .chain-key { padding: 0 2px; }
+	.record-chain code { font-family: var(--vscode-editor-font-family, monospace); }
 	.tree-model { margin: 2px 0; }
 	.tree-model-id { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
 	table.resolved-models td { vertical-align: top; }

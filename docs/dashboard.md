@@ -77,7 +77,7 @@ Every model your servers report, as registered with Copilot Chat, in a sortable 
 
 ### Effective parameters
 
-Each row's quiet Params action (visible on hover) opens a side panel answering one question: what would a request to this model actually carry?
+Each row's quiet Parameters action opens a side panel answering one question: what would a request to this model actually carry?
 
 - The table lists every configured parameter that matches the model, its value, and which layer and key set it - `Server entry "prod" - key "gpt-5*"` or `Settings - key "*"` - naming the winning [matcher](models.md#model-matching). Where a more specific match or a higher layer overrode another, the losing value shows struck through underneath, so a matcher that fires when you did not expect it is one glance away from its culprit.
 - Forced fields are marked as forced: they will beat even the chat client's runtime options ([the full precedence](models.md#parameters)).
@@ -88,7 +88,7 @@ The panel renders from the same resolution code the request path runs, so it can
 
 ### Effective capabilities
 
-The Params action's twin, the quiet Caps action on each row, answers the other question: what does the extension believe this model can do, and why?
+The Parameters action's twin, the quiet Capabilities action on each row, answers the other question: what does the extension believe this model can do, and why?
 
 - Every capability field is listed with its resolved value and source - a server entry's or the global `models.capabilities` record (naming the winning matcher key), the server's own report, a fallback-marked field, an OpenRouter catalog entry (explicit `_openrouter_model` or exact-ID match), the context-minus-output derivation, or the built-in default - with overridden values shown beneath the winner (the full [precedence](models.md#capabilities)).
 - A line under the table states whether the output limit goes out uncapped (user-set or server-declared) or capped at 4096 (a guessed default).
@@ -136,7 +136,7 @@ The Diagnostics tab also renders the extension's precomputed resolution table - 
 └─ (everything else)             -> 0.7 - 0.9
 ```
 
-- **The flat table**: one row per model with its final resolved values, each carrying a provenance chip (own, inherited from `key`, forced, fallback, server, catalog, floor), a filter box (by model ID or by matcher key - "show everything `gpt-5*` touched"), and a per-row jump to the model's [effective-values inspectors](#effective-parameters).
+- **The flat table**: one row per model with its final resolved values, each carrying a provenance chip (own, inherited from `key`, forced, fallback, server, catalog, floor), a filter box (by model ID or by matcher key - "show everything `gpt-5*` touched"), and per-row actions opening the model's [effective-values inspectors](#effective-parameters) in place, over the Diagnostics page.
 
 One honesty note about the tree: it is drawn against the models your servers serve *right now*. A record node - a regex key especially - shows the live models it currently matches, not everything it could ever match, so the tree changes when the model list does. For the definitive answer about one model, the flat table's per-model row and the inspectors are the canonical view.
 
