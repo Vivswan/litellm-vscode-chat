@@ -881,21 +881,6 @@ const STYLES = `
 		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
 	}
 	.discard-confirm span { font-weight: 600; }
-	.slide-notice {
-		position: sticky;
-		z-index: 2;
-		bottom: -20px;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		flex-wrap: wrap;
-		margin: 8px -20px -20px;
-		padding: 12px 20px;
-		background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
-		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
-		color: var(--vscode-descriptionForeground);
-	}
-
 	.icon { display: inline-block; vertical-align: text-bottom; flex: none; }
 
 	/* The busy marker inside an in-flight Save/Adopt button; motion here is

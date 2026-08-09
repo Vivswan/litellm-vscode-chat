@@ -1,6 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import { Fragment } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type {
 	DashboardIntentType,
 	DashboardServer,
@@ -73,13 +73,6 @@ import { CapabilityGroupsFields, ParamGroupsFields } from "./recordEditors";
 import { SlideOver } from "./slideOver";
 import { relativeTime } from "./time";
 import { newRequestId, postMessage } from "./vscodeApi";
-
-/**
- * How long a pending adopt may hold the modal before the notice bar arms its
- * "Close anyway" escape: long enough for a normal ack, short enough that a
- * hung one cannot trap the user until a reload.
- */
-const ADOPT_ESCAPE_AFTER_MS = 10000;
 
 /** The entry-only-fields-inactive notice classifications; one merged banner covers all three. */
 const INACTIVE_NOTICES = ["entry-params-inactive", "entry-capabilities-inactive", "entry-headers-inactive"] as const;
@@ -258,6 +251,43 @@ type ServerFormTarget = Extract<FormTarget, { kind: "add" | "edit" }>;
 export interface ServerEditRequest {
 	readonly seq: number;
 	readonly label: string;
+}
+
+/** The form's collapsible sections that can hide a field's problem. */
+type ProblemDisclosureId = "vkCompanion" | "oauthCompanions" | "stored" | "headers" | "params" | "caps";
+
+/**
+ * Which collapsed disclosures hide the given problems. The membership depends
+ * on the selected auth form: the virtual key pair sits in the API-key form's
+ * companion disclosure, in OAuth's companions area, or (as a kept stored
+ * value) in the stored-credentials fold; a kept stored client secret sits
+ * there too whenever OAuth is not the form.
+ */
+function disclosuresForProblems(problems: ServerFormProblems, authForm: AuthFormId): readonly ProblemDisclosureId[] {
+	const ids: ProblemDisclosureId[] = [];
+	const vkProblem = problems.virtualKeyHeader !== undefined || problems.virtualKeyValue !== undefined;
+	if (authForm === "apiKey" && vkProblem) {
+		ids.push("vkCompanion");
+	}
+	if (authForm === "oauth" && (vkProblem || problems.apiKey !== undefined)) {
+		ids.push("oauthCompanions");
+	}
+	if (
+		(authForm !== "oauth" && problems.oauthClientSecret !== undefined) ||
+		(authForm === "none" && problems.virtualKeyValue !== undefined)
+	) {
+		ids.push("stored");
+	}
+	if (problems.headers !== undefined) {
+		ids.push("headers");
+	}
+	if (problems.modelParameters !== undefined) {
+		ids.push("params");
+	}
+	if (problems.modelCapabilities !== undefined) {
+		ids.push("caps");
+	}
+	return ids;
 }
 
 /**
@@ -885,56 +915,37 @@ function ServerForm({
 	const modelCapabilityIssues = parse.modelCapabilityIssues;
 	const headerRowProblems: readonly (string | undefined)[] = parse.ok ? [] : parse.headerProblems;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
-	// Which collapsed section each visible problem hides in depends on the
-	// selected form: the virtual key pair sits in the API-key form's companion
-	// disclosure, in OAuth's companions area, or (as a kept stored value) in
-	// the stored-credentials fold; a kept stored client secret sits there too
-	// whenever OAuth is not the form.
-	const vkProblemVisible =
-		visibleProblems.virtualKeyHeader !== undefined || visibleProblems.virtualKeyValue !== undefined;
-	const vkCompanionProblemVisible = draft.authForm === "apiKey" && vkProblemVisible;
-	const oauthCompanionProblemVisible =
-		draft.authForm === "oauth" && (vkProblemVisible || visibleProblems.apiKey !== undefined);
-	const storedProblemVisible =
-		(draft.authForm !== "oauth" && visibleProblems.oauthClientSecret !== undefined) ||
-		(draft.authForm === "none" && visibleProblems.virtualKeyValue !== undefined);
-	const paramsProblemVisible = visibleProblems.modelParameters !== undefined;
-	const capsProblemVisible = visibleProblems.modelCapabilities !== undefined;
-	const headersProblemVisible = visibleProblems.headers !== undefined;
+	const problemDisclosureSetters: Record<ProblemDisclosureId, (open: boolean) => void> = {
+		vkCompanion: setVkCompanionOpen,
+		oauthCompanions: setOauthCompanionsOpen,
+		stored: setStoredOpen,
+		headers: setHeadersOpen,
+		params: setParamsOpen,
+		caps: setCapsOpen,
+	};
+	const openDisclosures = (ids: readonly ProblemDisclosureId[]) => {
+		for (const id of ids) {
+			problemDisclosureSetters[id](true);
+		}
+	};
 	// A problem surfacing inside a collapsed disclosure opens it once
 	// (otherwise Save would refuse over an error the user cannot see); beyond
 	// that the element is the user's: closing it again sticks, and it does not
-	// snap shut when the problems clear.
+	// snap shut when the problems clear. The ref remembers the previous set so
+	// only ids that just APPEARED open - a set change elsewhere must not
+	// reopen a disclosure the user deliberately closed.
+	const problemDisclosureKey = disclosuresForProblems(visibleProblems, draft.authForm).join(",");
+	const openedForProblems = useRef<ReadonlySet<ProblemDisclosureId>>(new Set());
 	useEffect(() => {
-		if (vkCompanionProblemVisible) {
-			setVkCompanionOpen(true);
+		const current = new Set(
+			problemDisclosureKey.length > 0 ? (problemDisclosureKey.split(",") as ProblemDisclosureId[]) : []
+		);
+		const appeared = [...current].filter((id) => !openedForProblems.current.has(id));
+		openedForProblems.current = current;
+		if (appeared.length > 0) {
+			openDisclosures(appeared);
 		}
-	}, [vkCompanionProblemVisible]);
-	useEffect(() => {
-		if (oauthCompanionProblemVisible) {
-			setOauthCompanionsOpen(true);
-		}
-	}, [oauthCompanionProblemVisible]);
-	useEffect(() => {
-		if (storedProblemVisible) {
-			setStoredOpen(true);
-		}
-	}, [storedProblemVisible]);
-	useEffect(() => {
-		if (headersProblemVisible) {
-			setHeadersOpen(true);
-		}
-	}, [headersProblemVisible]);
-	useEffect(() => {
-		if (paramsProblemVisible) {
-			setParamsOpen(true);
-		}
-	}, [paramsProblemVisible]);
-	useEffect(() => {
-		if (capsProblemVisible) {
-			setCapsOpen(true);
-		}
-	}, [capsProblemVisible]);
+	}, [problemDisclosureKey]);
 
 	const save = () => {
 		if (phase.phase !== "editing") {
@@ -943,32 +954,9 @@ function ServerForm({
 			return;
 		}
 		if (!parse.ok) {
-			// Surface every problem instead of refusing silently, opening the
-			// disclosure when one hides inside it (the effects above fire only on
-			// a visibility CHANGE, so a re-closed section must be reopened here).
+			// Surface every problem instead of refusing silently.
 			setTouched(new Set(SERVER_FORM_FIELD_ORDER));
-			const vkProblem = parse.problems.virtualKeyHeader !== undefined || parse.problems.virtualKeyValue !== undefined;
-			if (draft.authForm === "apiKey" && vkProblem) {
-				setVkCompanionOpen(true);
-			}
-			if (draft.authForm === "oauth" && (vkProblem || parse.problems.apiKey !== undefined)) {
-				setOauthCompanionsOpen(true);
-			}
-			if (
-				(draft.authForm !== "oauth" && parse.problems.oauthClientSecret !== undefined) ||
-				(draft.authForm === "none" && parse.problems.virtualKeyValue !== undefined)
-			) {
-				setStoredOpen(true);
-			}
-			if (parse.problems.headers !== undefined) {
-				setHeadersOpen(true);
-			}
-			if (parse.problems.modelParameters !== undefined) {
-				setParamsOpen(true);
-			}
-			if (parse.problems.modelCapabilities !== undefined) {
-				setCapsOpen(true);
-			}
+			openDisclosures(disclosuresForProblems(parse.problems, draft.authForm));
 			return;
 		}
 		const requestId = newRequestId();
@@ -995,23 +983,7 @@ function ServerForm({
 				}
 				return next;
 			});
-			const vkProblem =
-				testParse.problems.virtualKeyHeader !== undefined || testParse.problems.virtualKeyValue !== undefined;
-			if (draft.authForm === "apiKey" && vkProblem) {
-				setVkCompanionOpen(true);
-			}
-			if (draft.authForm === "oauth" && (vkProblem || testParse.problems.apiKey !== undefined)) {
-				setOauthCompanionsOpen(true);
-			}
-			if (
-				(draft.authForm !== "oauth" && testParse.problems.oauthClientSecret !== undefined) ||
-				(draft.authForm === "none" && testParse.problems.virtualKeyValue !== undefined)
-			) {
-				setStoredOpen(true);
-			}
-			if (testParse.problems.headers !== undefined) {
-				setHeadersOpen(true);
-			}
+			openDisclosures(disclosuresForProblems(testParse.problems, draft.authForm));
 			return;
 		}
 		const requestId = newRequestId();
@@ -1396,36 +1368,27 @@ function ServerForm({
  * entry. Credentials exist extension-side only, so instead of secret inputs
  * the form offers one storage choice per secret field; the posted intent
  * carries the label, the source row's identity, and those choices - never a
- * credential value. Ack and failure handling mirror ServerForm: the intent's
- * own requestId closes the form, a validation failure returns it to editing.
+ * credential value. The round trip lives in ServersSection (pendingAdopt):
+ * the section matches the ack or failure by requestId, so the form closes
+ * freely while the intent is in flight and the outcome still lands as the
+ * section's notice or banner.
  */
 function AdoptForm({
 	server,
-	ack,
-	failures,
 	declaredLabels,
+	saving,
 	onUserEdit,
-	onBusyChange,
-	onAdopted,
-	onClose,
+	onAdoptPosted,
 	onCancel,
 }: {
 	server: ExternalDashboardServer;
-	ack: IntentAck | undefined;
-	failures: FailuresByIntent;
 	declaredLabels: readonly string[];
+	/** Whether this form instance's adopt intent is in flight; disables the inputs against a double submit. */
+	saving: boolean;
 	/** Reports the first user edit; the slide-over's close-with-confirm keys on it. */
 	onUserEdit: () => void;
-	/**
-	 * Reports the in-flight adopt: closing then would unmount this form before
-	 * the ack and lose the post-adoption notice (the duplicate-group reminder
-	 * and any missing-credentials caveat), so the slide-over ignores close
-	 * requests while busy.
-	 */
-	onBusyChange: (busy: boolean) => void;
-	/** Called once with the extension's optional caveat when the adoption lands; the parent shows the follow-up notice. */
-	onAdopted: (message: string | undefined) => void;
-	onClose: () => void;
+	/** Hands the posted intent's requestId to the section, which owns the round trip. */
+	onAdoptPosted: (requestId: string) => void;
 	onCancel: () => void;
 }) {
 	const [label, setLabel] = useState(server.label);
@@ -1435,38 +1398,14 @@ function AdoptForm({
 		oauthClientSecret: "secure",
 		virtualKeyValue: "secure",
 	});
-	const [pending, setPending] = useState<string | undefined>(undefined);
-	const saving = pending !== undefined;
-	useEffect(() => {
-		onBusyChange(saving);
-	}, [saving, onBusyChange]);
-	const failure = failures.adoptServer;
-	const failureSeq = failure?.seq;
-	const failureRequestId = failure?.requestId;
-	const failureKind = failure?.kind;
-
-	useEffect(() => {
-		if (pending !== undefined && ack?.requestId === pending) {
-			onAdopted(ack.message);
-			onClose();
-		}
-	}, [ack, pending, onAdopted, onClose]);
-
-	useEffect(() => {
-		if (pending === undefined || failureSeq === undefined || failureRequestId !== pending) {
-			return;
-		}
-		if (saveFailureDisposition(failureKind ?? "validation") === "close") {
-			onClose();
-			return;
-		}
-		setPending(undefined);
-	}, [failureSeq, failureRequestId, failureKind, pending, onClose]);
 
 	const problem = validateAdoptLabel(label, declaredLabels);
 	const showProblem = problem !== undefined && (touched || label.trim() !== server.label);
 
 	const adopt = () => {
+		if (saving) {
+			return;
+		}
 		if (problem !== undefined) {
 			setTouched(true);
 			return;
@@ -1482,7 +1421,7 @@ function AdoptForm({
 			secrets: locations,
 			requestId,
 		});
-		setPending(requestId);
+		onAdoptPosted(requestId);
 	};
 
 	// Which secret rows to offer: hasApiKey is coarse (the provider reports it
@@ -1592,10 +1531,9 @@ function AdoptForm({
 						l10n.t("Adopt")
 					)}
 				</button>
-				{/* Disabled while the intent is in flight: cancelling would unmount
-				    this form before the ack and lose the post-adoption notice (the
-				    duplicate-group reminder and any missing-credentials caveat). */}
-				<button type="button" class="secondary" disabled={saving} onClick={onCancel}>
+				{/* Cancel routes through the slide-over's discard policy; a pending
+				    adopt never blocks it - the section owns the round trip. */}
+				<button type="button" class="secondary" onClick={onCancel}>
 					{l10n.t("Cancel")}
 				</button>
 				{showProblem ? (
@@ -1789,10 +1727,9 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 			</p>
 			{expanded ? (
 				<ul>
-					{hidden.map((group, index) => (
-						// Positional identity like the server rows: the list rebuilds
-						// wholesale on every state push.
-						<li key={index}>
+					{hidden.map((group) => (
+						// Keyed by the identity pair the unhideServer intent posts.
+						<li key={`${group.label}:${group.baseUrl}`}>
 							<span class="hidden-label">{group.label}</span> <span class="url">{group.baseUrl}</span>{" "}
 							<button
 								type="button"
@@ -1828,7 +1765,6 @@ export function ServersSection({
 	onClearInlineSecrets,
 	onShowModels,
 	editRequest,
-	adoptEscapeAfterMs = ADOPT_ESCAPE_AFTER_MS,
 }: {
 	servers: readonly DashboardServer[];
 	/** Groups hidden by an explicit removal; rendered as the collapsed hidden-groups line. */
@@ -1848,37 +1784,27 @@ export function ServersSection({
 	onShowModels?: ((label: string) => void) | undefined;
 	/** The inspectors' jump into a declared entry's edit form; see ServerEditRequest. */
 	editRequest?: ServerEditRequest | undefined;
-	/** The escape hatch's grace period; a prop only so tests need not wait out the real value. */
-	adoptEscapeAfterMs?: number;
 }) {
 	// The form target survives state pushes (editing continues across a
-	// background refresh); a fresh key forces a clean draft per open.
+	// background refresh). Keys come from a never-reused counter: a fresh key
+	// per open forces a clean draft, and pendingAdopt's formKey scoping relies
+	// on a closed form's key never coming back.
 	const [form, setForm] = useState<{ target: FormTarget; key: number } | undefined>(undefined);
-	// The slide-over's close policy: a dirty form asks before discarding, a
-	// busy one (adopt in flight) ignores close requests until its ack lands.
+	const nextFormKey = useRef(1);
+	// The slide-over's close policy: a dirty form asks before discarding.
 	const [formDirty, setFormDirty] = useState(false);
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
-	const [formBusy, setFormBusy] = useState(false);
-	// A close attempt while the adopt is in flight gets a visible answer (the
-	// slide-over's notice bar), not silence.
-	const [busyNote, setBusyNote] = useState(false);
-	// A pending adopt whose ack never arrives must not trap the user until a
-	// reload: after the grace period the notice bar surfaces on its own and
-	// arms a "Close anyway" action. The intent keeps running extension-side,
-	// so its outcome still lands as a toast.
-	const [escapeArmed, setEscapeArmed] = useState(false);
-	useEffect(() => {
-		if (!formBusy) {
-			setEscapeArmed(false);
-			return;
-		}
-		const timer = setTimeout(() => setEscapeArmed(true), adoptEscapeAfterMs);
-		return () => clearTimeout(timer);
-	}, [formBusy, adoptEscapeAfterMs]);
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
 	// The one-time post-adoption notice: the old host-owned group survives (no
 	// removal API), so the user is told plainly why models now appear twice.
 	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
+	// The adopt round trips: each posted intent's requestId plus the posting
+	// form instance's key. A list, not a slot: the form is freely closable
+	// mid-adopt, so a second adopt can be in flight before the first ack lands,
+	// and every ack must still deliver its post-adoption notice. The form key
+	// scopes the follow-up close (and the form's saving state) to the instance
+	// that posted, never a later form.
+	const [pendingAdopts, setPendingAdopts] = useState<readonly { requestId: string; formKey: number }[]>([]);
 	// The hide round trip: the posted intent's requestId plus the row's label,
 	// so the guidance notice below can name the exact group to delete once the
 	// ack lands. Copy is composed here; only the ack crosses the boundary.
@@ -1917,9 +1843,9 @@ export function ServersSection({
 		onClearInlineSecrets();
 		setFormDirty(false);
 		setConfirmingDiscard(false);
-		setFormBusy(false);
-		setBusyNote(false);
-		setForm((current) => ({ target, key: (current?.key ?? 0) + 1 }));
+		const key = nextFormKey.current;
+		nextFormKey.current += 1;
+		setForm({ target, key });
 	};
 
 	// The inspectors' entry-jump: open the addressed declared entry's edit form
@@ -1942,8 +1868,6 @@ export function ServersSection({
 		setForm(undefined);
 		setFormDirty(false);
 		setConfirmingDiscard(false);
-		setFormBusy(false);
-		setBusyNote(false);
 		onClearInlineSecrets();
 		// A test failure renders only inside the form it belongs to; the closed
 		// form's notice would otherwise sit invisibly in the failures map.
@@ -1951,27 +1875,56 @@ export function ServersSection({
 	};
 
 	// Every way out of an open form funnels through here: the form's Cancel,
-	// the slide-over's X, the scrim, and Esc. One policy: while an intent is
-	// in flight, answer with the visible notice bar; on a dirty form, toggle
-	// the discard confirm (so Esc while it shows means "keep editing" - only
-	// the explicit Discard button destroys edits); otherwise close, dismissing
-	// the form's stale failure notice with it.
+	// the slide-over's X, the scrim, and Esc. One policy: on a dirty form,
+	// toggle the discard confirm (so Esc while it shows means "keep editing" -
+	// only the explicit Discard button destroys edits); otherwise close,
+	// dismissing the form's stale failure notice with it.
 	const cancelIntent: DashboardIntentType = form?.target.kind === "adopt" ? "adoptServer" : "saveServerSetting";
 	const discardForm = () => {
 		onDismissFailure(cancelIntent);
 		closeForm();
 	};
 	const requestCloseForm = () => {
-		if (formBusy) {
-			setBusyNote(true);
-			return;
-		}
 		if (formDirty) {
 			setConfirmingDiscard((current) => !current);
 			return;
 		}
 		discardForm();
 	};
+
+	// A pending adopt's own ack: compose the post-adoption notice (plus the
+	// extension's optional caveat) and close the posting form when it is still
+	// the one open. A later or already-closed form is left alone.
+	const ackedAdopt = pendingAdopts.find((pending) => pending.requestId === ack?.requestId);
+	useEffect(() => {
+		if (ackedAdopt === undefined || ack === undefined) {
+			return;
+		}
+		const base = l10n.t(
+			"Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window."
+		);
+		setAdoptNotice(ack.message !== undefined ? `${base} ${ack.message}` : base);
+		setPendingAdopts((current) => current.filter((pending) => pending.requestId !== ackedAdopt.requestId));
+		if (form?.key === ackedAdopt.formKey) {
+			closeForm();
+		}
+	}, [ack, ackedAdopt, form]);
+
+	// A pending adopt's own failure: a validation-kind one returns the still
+	// open form to editing (removing the pending entry re-enables it); an
+	// operation-kind one committed its write, so the stale form closes and the
+	// section banner carries the recovery path.
+	const failedAdopt = pendingAdopts.find((pending) => pending.requestId === adoptFailure?.requestId);
+	const adoptFailureKind = adoptFailure?.kind;
+	useEffect(() => {
+		if (failedAdopt === undefined) {
+			return;
+		}
+		setPendingAdopts((current) => current.filter((pending) => pending.requestId !== failedAdopt.requestId));
+		if (saveFailureDisposition(adoptFailureKind ?? "validation") === "close" && form?.key === failedAdopt.formKey) {
+			closeForm();
+		}
+	}, [failedAdopt, adoptFailureKind, form]);
 
 	// Misconfigured entries count: they occupy their label in the setting, so
 	// a rename onto one or an adopt under one must be refused like any sibling.
@@ -1999,18 +1952,6 @@ export function ServersSection({
 					labelledBy="server-form-title"
 					fallbackFocusId="tab-overview"
 					confirming={confirmingDiscard}
-					notice={
-						busyNote || escapeArmed ? (
-							<>
-								{l10n.t("Still adopting; the form closes by itself when it finishes.")}
-								{escapeArmed ? (
-									<button type="button" class="secondary" onClick={closeForm}>
-										{l10n.t("Close anyway - adoption continues in the background")}
-									</button>
-								) : null}
-							</>
-						) : undefined
-					}
 					onRequestClose={requestCloseForm}
 					onKeepEditing={() => setConfirmingDiscard(false)}
 					onDiscard={discardForm}
@@ -2019,23 +1960,12 @@ export function ServersSection({
 						<AdoptForm
 							key={form.key}
 							server={form.target.server}
-							ack={ack}
-							failures={failures}
 							declaredLabels={declaredLabels}
+							saving={pendingAdopts.some((pending) => pending.formKey === form.key)}
 							onUserEdit={() => setFormDirty(true)}
-							onBusyChange={(busy) => {
-								setFormBusy(busy);
-								if (!busy) {
-									setBusyNote(false);
-								}
-							}}
-							onAdopted={(message) => {
-								const base = l10n.t(
-									"Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window."
-								);
-								setAdoptNotice(message !== undefined ? `${base} ${message}` : base);
-							}}
-							onClose={closeForm}
+							onAdoptPosted={(requestId) =>
+								setPendingAdopts((current) => [...current, { requestId, formKey: form.key }])
+							}
 							onCancel={requestCloseForm}
 						/>
 					) : (
@@ -2198,12 +2128,15 @@ export function ServersSection({
 							</tr>
 						</thead>
 						<tbody>
-							{servers.map((server, index) => (
-								// Rows rebuild wholesale on every state push; the positional
-								// index is the identity (server IDs stay extension-side, they
-								// embed a credential fingerprint).
+							{servers.map((server) => (
+								// Keyed identity (the error banner's idiom: origin plus the
+								// external row's opaque handle or the row's unique label -
+								// declared labels are setting-unique, misconfigured rows are
+								// deduplicated by label extension-side) so an async push that
+								// inserts, removes, or reorders entries does not re-associate
+								// another server's row with the user's focus.
 								<ServerRow
-									key={index}
+									key={`${server.origin}:${server.adoptHandle ?? server.label}`}
 									server={server}
 									now={now}
 									armed={armedRemove === server.label}

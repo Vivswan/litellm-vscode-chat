@@ -186,21 +186,29 @@ export function lintParameterRecords(records: ModelRecordMap): readonly RecordDi
 	return lintRecordMap(records, parseParameterRecord);
 }
 
-/** Which configuration layer set a value, and under which record key. */
-export interface ParameterSourceRef {
+/**
+ * Which configuration layer set a value, and under which record key, as the
+ * dashboard's params inspector renders it. An entry-layer ref always names
+ * the declared entry that owns the record (stamped by the projection), so a
+ * consumer can never pair an entry value with the wrong label.
+ */
+export type ParameterSourceRef =
+	| { readonly layer: "global"; readonly key: string }
+	| { readonly layer: "entry"; readonly key: string; readonly entryLabel: string };
+
+/** A lower-precedence layer's value for a key some higher layer won. */
+export type ShadowedParameterValue = ParameterSourceRef & { readonly value: unknown };
+
+/** The resolver's label-free attribution ref; the projection stamps the entry label onto ParameterSourceRef. */
+interface ResolvedSourceRef {
 	readonly layer: ParameterConfigLayer;
 	/** The record key whose literal field carries the value (the place to edit it). */
 	readonly key: string;
 }
 
-/** A lower-precedence layer's value for a key some higher layer won. */
-export interface ShadowedParameterValue extends ParameterSourceRef {
-	readonly value: unknown;
-}
-
 /** One merged parameter with its attribution. */
 interface ResolvedParameterSource {
-	readonly source: ParameterSourceRef;
+	readonly source: ResolvedSourceRef;
 	/**
 	 * Present exactly when the winning layer's record did not write the field
 	 * itself: the value was inherited, and this names the record it came from
@@ -208,7 +216,7 @@ interface ResolvedParameterSource {
 	 */
 	readonly inheritedFrom?: string;
 	/** Lower-precedence layers that also set this key; present only when one really did. */
-	readonly shadowed: readonly ShadowedParameterValue[];
+	readonly shadowed: readonly (ResolvedSourceRef & { readonly value: unknown })[];
 	/** Present exactly when the value's source record `_force`-marks this key. */
 	readonly forced?: true;
 }
@@ -264,7 +272,7 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 		layer: ParameterConfigLayer,
 		resolution: RecordChainResolution,
 		name: string
-	): { source: ParameterSourceRef; inheritedFrom?: string } => {
+	): { source: ResolvedSourceRef; inheritedFrom?: string } => {
 		const field = resolution.fields.get(name);
 		const sourceKey = field?.sourceKey ?? resolution.winnerKey ?? "";
 		return {
@@ -396,7 +404,8 @@ export interface ProjectedMaxTokens {
 export interface EffectiveParametersInput {
 	readonly rawModelId: string;
 	readonly globalParameters: ModelParametersRecord;
-	readonly entryParameters?: ModelParametersRecord | undefined;
+	/** The declared entry's record together with its label: entry-layer refs carry the label, so the two travel as one. */
+	readonly entry?: { readonly label: string; readonly parameters: ModelParametersRecord } | undefined;
 	readonly maxOutputTokens: number;
 	readonly outputLimitDeclared: boolean;
 }
@@ -426,10 +435,18 @@ export interface EffectiveParametersProjection {
  * NAIVE side of the seed-pinned equivalence property, not dead code.
  */
 export function projectEffectiveParameters(input: EffectiveParametersInput): EffectiveParametersProjection {
-	return projectResolvedParameters(resolveModelParameters(input), {
-		maxOutputTokens: input.maxOutputTokens,
-		outputLimitDeclared: input.outputLimitDeclared,
-	});
+	return projectResolvedParameters(
+		resolveModelParameters({
+			rawModelId: input.rawModelId,
+			globalParameters: input.globalParameters,
+			entryParameters: input.entry?.parameters,
+		}),
+		{
+			maxOutputTokens: input.maxOutputTokens,
+			outputLimitDeclared: input.outputLimitDeclared,
+		},
+		input.entry?.label
+	);
 }
 
 /**
@@ -437,11 +454,26 @@ export function projectEffectiveParameters(input: EffectiveParametersInput): Eff
  * inspector renders when the resolution comes from the provider's shared
  * flat table (the SAME cache requests read) instead of a fresh walk.
  * projectEffectiveParameters delegates here, so the two paths cannot diverge.
+ * `entryLabel` names the declared entry whose record fed the resolution; it
+ * is stamped onto every entry-layer ref and must be present whenever the
+ * resolution used entry parameters.
  */
 export function projectResolvedParameters(
 	resolved: ResolvedModelParameters,
-	limits: { readonly maxOutputTokens: number; readonly outputLimitDeclared: boolean }
+	limits: { readonly maxOutputTokens: number; readonly outputLimitDeclared: boolean },
+	entryLabel?: string
 ): EffectiveParametersProjection {
+	const sourceRef = (ref: ResolvedSourceRef): ParameterSourceRef => {
+		if (ref.layer === "global") {
+			return { layer: "global", key: ref.key };
+		}
+		if (entryLabel === undefined) {
+			// Unreachable through the sanctioned callers: entry parameters and
+			// their entry's label travel together (EntryParametersResolution).
+			throw new Error("entry-layer parameter resolved without an entry label");
+		}
+		return { layer: "entry", key: ref.key, entryLabel };
+	};
 	const configuredMaxTokens = resolved.params.max_tokens;
 	const maxTokensConfigured = typeof configuredMaxTokens === "number";
 
@@ -460,9 +492,9 @@ export function projectResolvedParameters(
 			value,
 			sent: skipReason === undefined,
 			...(skipReason !== undefined ? { skipReason } : {}),
-			source: attribution.source,
+			source: sourceRef(attribution.source),
 			...(attribution.inheritedFrom !== undefined ? { inheritedFrom: attribution.inheritedFrom } : {}),
-			shadowed: attribution.shadowed,
+			shadowed: attribution.shadowed.map((shadow) => ({ ...sourceRef(shadow), value: shadow.value })),
 			...(attribution.forced === true ? { forced: true } : {}),
 		});
 	}
@@ -480,7 +512,7 @@ export function projectResolvedParameters(
 		value: resolvedMax.value,
 		// resolveMaxTokens never answers "runtime" for an undefined runtime option.
 		source: resolvedMax.source as Exclude<MaxTokensSource, "runtime">,
-		...(configuredSource !== undefined ? { configuredSource } : {}),
+		...(configuredSource !== undefined ? { configuredSource: sourceRef(configuredSource) } : {}),
 	};
 
 	return { rows, maxTokens, diagnostics: resolved.diagnostics };

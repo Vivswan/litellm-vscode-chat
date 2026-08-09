@@ -13,7 +13,6 @@ const fixture: RenderFixture = {
 	respond: {
 		readModelParameters: {
 			type: "modelParameters",
-			entryLabel: "prod",
 			globalRecordKey: "gpt-5*",
 			chains: [
 				{
@@ -26,6 +25,7 @@ const fixture: RenderFixture = {
 				},
 				{
 					layer: "entry",
+					entryLabel: "prod",
 					links: [
 						{ key: "*", barrier: false },
 						{ key: "gpt-5*", barrier: false },
@@ -46,7 +46,7 @@ const fixture: RenderFixture = {
 						name: "top_p",
 						value: 0.9,
 						sent: true,
-						source: { layer: "entry", key: "*" },
+						source: { layer: "entry", key: "*", entryLabel: "prod" },
 						shadowed: [],
 					},
 					{

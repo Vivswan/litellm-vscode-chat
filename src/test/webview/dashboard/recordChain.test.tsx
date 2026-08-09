@@ -49,7 +49,6 @@ function mountParamsWithChains(
 		type: "modelParameters",
 		requestId: read.requestId,
 		projection: EMPTY_PROJECTION,
-		entryLabel: "Prod",
 		...(chains !== undefined ? { chains } : {}),
 	} as ModelParametersResponse;
 	void act(() => {
@@ -94,6 +93,7 @@ describe("the params inspector's record path", () => {
 				},
 				{
 					layer: "entry",
+					entryLabel: "Prod",
 					links: [
 						{ key: "*", barrier: false },
 						{ key: "gpt-5*", barrier: false },
@@ -131,6 +131,7 @@ describe("the params inspector's record path", () => {
 			[
 				{
 					layer: "entry",
+					entryLabel: "Prod",
 					links: [
 						{ key: "*", barrier: false },
 						{ key: "gpt-5*", barrier: false },

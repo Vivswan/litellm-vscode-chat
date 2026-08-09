@@ -16,7 +16,6 @@ const fixture: RenderFixture = {
 		readResolvedModels: { type: "resolvedModels", view: RESOLVED_VIEW },
 		readModelParameters: {
 			type: "modelParameters",
-			entryLabel: "prod",
 			globalRecordKey: "gpt-5*",
 			chains: [
 				{

@@ -168,27 +168,34 @@ export function resolveModelRecordChains(
 	if (!labeled.snapshot.models.some((info) => rawModelIdFromExposed(info.id, serverId) === rawId)) {
 		return [];
 	}
-	const [globalRecords, entryRecords, parse] =
+	const [globalRecords, entryRecords, entryLabel, parse] =
 		kind === "parameters"
-			? [
-					normalizeModelParameters(query.reader.get(MODEL_PARAMETERS_SETTING_KEY)),
-					query.resolveEntryParameters(serverId)?.entryParameters,
-					parseParameterRecord as (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord,
-				]
-			: [
+			? (() => {
+					const entry = query.resolveEntryParameters(serverId);
+					return [
+						normalizeModelParameters(query.reader.get(MODEL_PARAMETERS_SETTING_KEY)),
+						entry?.entryParameters,
+						entry?.entryLabel,
+						parseParameterRecord as (record: Readonly<Record<string, unknown>>, key: string) => ParsedRecord,
+					] as const;
+				})()
+			: ([
 					normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
 					query.resolveEntryCapabilities(serverId),
+					// The capability resolver hands back only the record; the entry's
+					// label is the group's (the same join the resolver keys on).
+					labeled.snapshot.status.label,
 					(record: Readonly<Record<string, unknown>>) => parseCapabilityRecord(record),
-				];
+				] as const);
 	const chains: RecordChainView[] = [];
 	const globalLinks = recordChainLinks(rawId, globalRecords, parse);
 	if (globalLinks.length > 0) {
 		chains.push({ layer: "global", links: globalLinks });
 	}
-	if (entryRecords !== undefined) {
+	if (entryRecords !== undefined && entryLabel !== undefined) {
 		const links = recordChainLinks(rawId, entryRecords, parse);
 		if (links.length > 0) {
-			chains.push({ layer: "entry", links });
+			chains.push({ layer: "entry", entryLabel, links });
 		}
 	}
 	return chains;

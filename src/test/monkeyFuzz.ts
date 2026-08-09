@@ -211,7 +211,11 @@ function generateDashboardIntent(
 		case 5:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setModelParameters", value: { [PLAYBACK_MODEL.alias]: { temperature } } },
+				intent: {
+					type: "setModelParameters",
+					value: { [PLAYBACK_MODEL.alias]: { temperature } },
+					requestId: `fuzz-params-${serial}`,
+				},
 				expect: "ok",
 			};
 		case 6:
@@ -220,7 +224,11 @@ function generateDashboardIntent(
 			// action stays JSON-faithful.
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setModelParameters", value: { constructor: { temperature } } },
+				intent: {
+					type: "setModelParameters",
+					value: { constructor: { temperature } },
+					requestId: `fuzz-params-bad-${serial}`,
+				},
 				expect: "validation-error",
 			};
 		case 7:

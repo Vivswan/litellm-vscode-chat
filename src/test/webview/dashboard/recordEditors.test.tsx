@@ -1,7 +1,8 @@
 /**
  * The headers and modelParameters editors' draft-and-apply lifecycle
  * (useDraftRows): a dirty draft survives state pushes, Apply posts the parsed
- * record, the reflecting push drops the applied draft, a failure reopens it
+ * record tagged with a requestId, the correlated ack resolves the phase, the
+ * reflecting push drops the acked draft, a correlated failure reopens it
  * dirty, and invalid rows block Apply. Plus the surfaces around that
  * lifecycle: Discard, the Applying/Saved feedback, field-aligned header
  * problems, the other-scope read-only grids, the suggestion listboxes,
@@ -52,6 +53,25 @@ function settingsWithParams(value: Record<string, Record<string, unknown>>) {
 	return makeSettings({ modelParameters: { editScope: "global", value, otherScopes: [], effective: value } });
 }
 
+/** The posted record writes with their requestIds stripped (each asserted present); Apply mints a fresh ID per post. */
+function postedRecordWrites(): { type: string; value: unknown }[] {
+	return postedMessages.map((message) => {
+		const { requestId, ...rest } = message as { requestId?: unknown; type: string; value: unknown };
+		expect(typeof requestId).toBe("string");
+		return rest;
+	});
+}
+
+/** The last posted write's requestId, for pushing its correlated outcome notice. */
+function lastRequestId(): string {
+	return (postedMessages.at(-1) as { requestId: string }).requestId;
+}
+
+/** Ack the last posted record write, as the panel does right before its reflecting push. */
+function ackLastWrite(intentType: "setModelParameters" | "setModelCapabilities" = "setModelParameters"): void {
+	pushToWebview({ type: "intentSucceeded", intentType, requestId: lastRequestId() });
+}
+
 test("force checkbox: marking a row writes the explicit _force list and Apply posts it", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
@@ -70,7 +90,7 @@ test("force checkbox: marking a row writes the explicit _force list and Apply po
 
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([
+	expect(postedRecordWrites()).toEqual([
 		{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } } },
 	]);
 });
@@ -91,7 +111,7 @@ test("force checkbox: unmarking the last field removes the _force row entirely",
 
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
+	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
 });
 
 test("force checkbox: provider-owned and underscore keys disable with the reason; the _force row has no box", () => {
@@ -143,7 +163,7 @@ test("force checkbox: unchecking one field under a literal true rewrites the exp
 
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([
+	expect(postedRecordWrites()).toEqual([
 		{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, top_p: 0.9, _force: ["temperature"] } } },
 	]);
 });
@@ -247,7 +267,7 @@ test("inheritable checkbox: marking a row writes the explicit _inheritable list 
 
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([
+	expect(postedRecordWrites()).toEqual([
 		{ type: "setModelParameters", value: { "gpt-4*": { temperature: 0.2, _inheritable: ["temperature"] } } },
 	]);
 });
@@ -269,7 +289,7 @@ test("inheritable checkbox: unmarking the last field removes the _inheritable ro
 	expect(keys).not.toContain("_inheritable");
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4*": { temperature: 0.2 } } }]);
+	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4*": { temperature: 0.2 } } }]);
 });
 
 test("the Inherits select writes the _inherit_from barrier row and removes it again on default", () => {
@@ -291,7 +311,7 @@ test("the Inherits select writes the _inherit_from barrier row and removes it ag
 	expect(rowTexts()).toContain("_inherit_from=false");
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([
+	expect(postedRecordWrites()).toEqual([
 		{ type: "setModelParameters", value: { "gpt-4*": { temperature: 0.2, _inherit_from: false } } },
 	]);
 
@@ -328,7 +348,7 @@ test("the keys mode edits the _inherit_from list through the comma input, and an
 	);
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([
+	expect(postedRecordWrites()).toEqual([
 		{
 			type: "setModelParameters",
 			value: { "*": { top_p: 0.9 }, "gpt-4*": { temperature: 0.2, _inherit_from: ["nope", "*"] } },
@@ -336,7 +356,7 @@ test("the keys mode edits the _inherit_from list through the comma input, and an
 	]);
 });
 
-test("a dirty draft wins over pushed state, Apply posts parsed rows, the reflecting push drops the applied draft", () => {
+test("a dirty draft wins over pushed state, Apply posts parsed rows, the ack and reflecting push drop the draft", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -357,9 +377,11 @@ test("a dirty draft wins over pushed state, Apply posts parsed rows, the reflect
 	// Apply posts the whole parsed record; the JSON "0.2" parses as a number.
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
+	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
 
-	// Applied but not yet reflected: still rendering, no longer dirty.
+	// In flight, then acked but not yet reflected: still rendering, not dirty.
+	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
+	ackLastWrite();
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 
 	// The reflecting push drops the draft; the store value renders.
@@ -381,6 +403,7 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
 	fireInput(inputs[2] as HTMLInputElement, "0.2");
+	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 
@@ -389,6 +412,7 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 		intentType: "setModelParameters",
 		message: "gpt-4: refused by validation.",
 		kind: "validation",
+		requestId: lastRequestId(),
 	});
 	// The draft returns dirty and retryable; a failed write must not render as
 	// applied. Headline and the extension's message render as separate lines.
@@ -419,7 +443,7 @@ test("model parameters: invalid JSON blocks Apply with the row problem; fixing i
 	fireInput(section().querySelectorAll("input")[2] as HTMLInputElement, "0.2");
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(false);
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
+	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
 });
 
 test("model parameters: the global editor's matcher copy points server records at entries (the entry editor's must not)", () => {
@@ -445,9 +469,8 @@ test("model parameters: the global editor's matcher copy points server records a
 });
 
 test("a draft edited back to the store value counts as unchanged: Apply and Discard disable, nothing posts", () => {
-	// A no-op write would never produce the reflecting push that ends the
-	// applying phase, so an unchanged draft must not be appliable at all
-	// (the scalar rows' unchanged-posts-nothing rule, in draft form).
+	// The scalar rows' unchanged-posts-nothing rule, in draft form: writing a
+	// value the store already holds is not a change worth posting.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -465,7 +488,7 @@ test("a draft edited back to the store value counts as unchanged: Apply and Disc
 
 test("rows that assemble to the stored record cannot be applied, even under a different spelling or key order", () => {
 	// "1e1" is a different text for the stored 10; applying it would write a
-	// value the store already holds and no reflecting push would ever arrive.
+	// value the store already holds (unchanged-posts-nothing).
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { max_tokens: 10 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -502,9 +525,16 @@ test("a pristine JSON view follows store pushes; one with local edits is pinned"
 
 	// Applied text holds through the applying window and a failure: resyncing
 	// there would flash the pre-apply value back into the textarea.
+	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
-	pushToWebview({ type: "intentFailed", intentType: "setModelParameters", message: "refused.", kind: "validation" });
+	pushToWebview({
+		type: "intentFailed",
+		intentType: "setModelParameters",
+		message: "refused.",
+		kind: "validation",
+		requestId: lastRequestId(),
+	});
 	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
 });
 
@@ -532,7 +562,7 @@ test("Enter applies from any row input once the draft is clean; a highlighted su
 
 	// Nothing highlighted: Enter applies the clean draft from a key input too.
 	fireKeyDown(section().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement, "Enter");
-	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-test": { temperature: 0.2 } } }]);
+	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-test": { temperature: 0.2 } } }]);
 });
 
 test("Discard drops a dirty draft back to the store value without posting, under a distinct accessible name", () => {
@@ -558,7 +588,7 @@ test("Discard drops a dirty draft back to the store value without posting, under
 	expect(discard().disabled).toBe(true);
 });
 
-test("Apply feedback: Applying... until the reflecting push, then a transient Saved that the next edit clears", () => {
+test("Apply feedback: Applying... until the ack resolves it to a transient Saved that the next edit clears", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -571,8 +601,16 @@ test("Apply feedback: Applying... until the reflecting push, then a transient Sa
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
 	fireInput(inputs[2] as HTMLInputElement, "0.2");
 	expect(status()).toBe("");
+	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	expect(status()).toBe("Applying...");
+
+	// The ack resolves the phase; the draft rows keep rendering until the
+	// reflecting push (no flash of the pre-apply value in between).
+	ackLastWrite();
+	expect(status()).toBe("Saved");
+	const names = Array.from(section().querySelectorAll("input.key")).map((input) => (input as HTMLInputElement).value);
+	expect(names).toEqual(["gpt-4", "temperature"]);
 
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	expect(status()).toBe("Saved");
@@ -591,13 +629,128 @@ test("Apply feedback: a failure ends the Applying... window along with reopening
 	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
 	fireInput(inputs[1] as HTMLInputElement, "temperature");
 	fireInput(inputs[2] as HTMLInputElement, "0.2");
+	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	expect(section().querySelector(".apply-status")?.textContent).toBe("Applying...");
 
-	pushToWebview({ type: "intentFailed", intentType: "setModelParameters", message: "refused.", kind: "validation" });
+	pushToWebview({
+		type: "intentFailed",
+		intentType: "setModelParameters",
+		message: "refused.",
+		kind: "validation",
+		requestId: lastRequestId(),
+	});
 	expect(section().querySelector(".apply-status")?.textContent).toBe("");
 	expect(section().textContent).toContain("Saving failed - your edits are kept.");
 	expect(section().textContent).toContain("refused.");
+});
+
+test("a foreign ack or foreign failure leaves an applying draft alone; only its own outcome resolves it", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	const status = () => section().querySelector(".apply-status")?.textContent ?? "";
+
+	fireClick(buttonByText(section(), "Add model matcher"));
+	const inputs = section().querySelectorAll("input");
+	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
+	fireInput(inputs[1] as HTMLInputElement, "temperature");
+	fireInput(inputs[2] as HTMLInputElement, "0.2");
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(status()).toBe("Applying...");
+
+	// Another surface's ack (a server save) and a failure with a foreign
+	// requestId must not resolve or reopen this draft.
+	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: "someone-else" });
+	expect(status()).toBe("Applying...");
+	pushToWebview({
+		type: "intentFailed",
+		intentType: "setModelParameters",
+		message: "not this write.",
+		kind: "validation",
+		requestId: "someone-else",
+	});
+	expect(status()).toBe("Applying...");
+	expect(section().textContent).not.toContain("not this write.");
+
+	// A concurrent state push is not this write's success signal either: the
+	// old drift heuristic would have rendered this as Saved.
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ other: { top_p: 0.9 } }) })));
+	expect(status()).toBe("Applying...");
+
+	ackLastWrite();
+	expect(status()).toBe("Saved");
+});
+
+test("Discard is the escape hatch of an applying draft whose ack never arrives", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	fireClick(buttonByText(section(), "Add model matcher"));
+	const inputs = section().querySelectorAll("input");
+	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
+	fireInput(inputs[1] as HTMLInputElement, "temperature");
+	fireInput(inputs[2] as HTMLInputElement, "0.2");
+	fireClick(buttonByText(section(), "Apply"));
+	expect(section().querySelector(".apply-status")?.textContent).toBe("Applying...");
+
+	const discard = buttonByText(section(), "Discard");
+	expect(discard.disabled).toBe(false);
+	fireClick(discard);
+	expect(section().querySelector(".apply-status")?.textContent).toBe("");
+	const names = Array.from(section().querySelectorAll("input.key")).map((input) => (input as HTMLInputElement).value);
+	expect(names).toEqual([]);
+});
+
+test("a discarded draft's failure notice never resurfaces on the next edit", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	fireClick(buttonByText(section(), "Add model matcher"));
+	const inputs = section().querySelectorAll("input");
+	fireInput(inputs[0] as HTMLInputElement, "gpt-4");
+	fireInput(inputs[1] as HTMLInputElement, "temperature");
+	fireInput(inputs[2] as HTMLInputElement, "0.2");
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	pushToWebview({
+		type: "intentFailed",
+		intentType: "setModelParameters",
+		message: "stale refusal.",
+		kind: "validation",
+		requestId: lastRequestId(),
+	});
+	expect(section().textContent).toContain("stale refusal.");
+
+	// Discard drops the draft; a brand-new edit must not dredge the old
+	// notice back up (its failure belongs to the discarded write).
+	fireClick(buttonByText(section(), "Discard"));
+	fireClick(buttonByText(section(), "Add model matcher"));
+	fireInput(section().querySelector("input.key") as HTMLInputElement, "claude-4");
+	expect(section().textContent).not.toContain("stale refusal.");
+});
+
+test("the JSON textarea holds its applied text through the acked window until the reflecting push", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ a: { x: 1 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	fireClick(buttonByText(section(), "Edit as JSON"));
+	const textarea = () => section().querySelector("textarea") as HTMLTextAreaElement;
+
+	fireInput(textarea(), '{"mine": {"kept": 1}}');
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+
+	// Acked but not yet reflected: resyncing here would flash the pre-apply
+	// store value back into the textarea.
+	ackLastWrite();
+	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
+
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ mine: { kept: 1 } }) })));
+	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
 });
 
 test("a parameter-row problem marks only the offending input: bad JSON flags the value, a bad name the name", () => {
@@ -696,7 +849,7 @@ test("Enter in a record-row input applies a clean draft and does nothing while i
 
 	fireInput(params().querySelector("input.value") as HTMLInputElement, "0.2");
 	fireKeyDown(params().querySelector("input.value") as HTMLInputElement, "Enter");
-	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
+	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
 });
 
 test("each editor's hint names the seam between the two save models: rows apply together via Apply", () => {
@@ -728,7 +881,7 @@ test("Edit as JSON: the textarea seeds from the record, and a valid edit applies
 	fireInput(textarea(), '{"gpt-4": {"temperature": 1}, "claude": {"max_tokens": 100}}');
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([
+	expect(postedRecordWrites()).toEqual([
 		{ type: "setModelParameters", value: { "gpt-4": { temperature: 1 }, claude: { max_tokens: 100 } } },
 	]);
 	expect(section().querySelector(".apply-status")?.textContent).toBe("Applying...");
@@ -798,7 +951,7 @@ test("the settings filter hides an editor with a dirty draft via hidden, and the
 	expect(section().hidden).toBe(false);
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
-	expect(postedMessages).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.9 } } }]);
+	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.9 } } }]);
 });
 
 test("the catalog picker debounces searchCatalog and picking a result writes the ID", async () => {
