@@ -11,12 +11,14 @@ import {
 	CAPABILITY_FIELDS,
 	FALLBACK_DIRECTIVE,
 	FORCE_DIRECTIVE,
+	INHERIT_FROM_DIRECTIVE,
 	INHERITABLE_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 	settingScopeLabel,
 } from "../../extension/dashboard/protocol";
 import type {
 	CapabilityGroupIssues,
+	FieldDirective,
 	GroupHints,
 	GroupProblems,
 	PrefixGroup,
@@ -25,6 +27,7 @@ import {
 	capabilityGroupsFromJsonText,
 	directiveEligible,
 	directiveMarkedFields,
+	directiveRowAbsorbed,
 	groupsFromJsonText,
 	inheritFromChoice,
 	parseCapabilityGroups,
@@ -343,19 +346,23 @@ function OtherScopeNote({ scope }: { scope: SettingScope }) {
 
 /**
  * The group-level `_inherit_from` control: a compact select over the
- * directive's four shapes plus a keys input for the named-records form. It
- * reads and writes the group's `_inherit_from` row (the row stays visible and
- * editable as text, like the other directive rows), and goes hands-off while
- * that row holds text the strict parse rejects - the row's own error tells
- * that story, and the select must not silently rewrite the user's text.
+ * directive's four shapes plus a keys input for the named-records form. It is
+ * the directive's single representation - a readable `_inherit_from` row is
+ * absorbed out of the grid - so it also carries the row's non-blocking hint.
+ * It goes hands-off while the row holds text the strict parse rejects: that
+ * row stays visible with its own error, and the select must not silently
+ * rewrite the user's text.
  */
 function InheritFromControl({
 	group,
 	disabled,
+	hint,
 	onChange,
 }: {
 	group: PrefixGroup;
 	disabled: boolean;
+	/** The absorbed `_inherit_from` row's non-blocking note (an unknown record key), rendered beside the control. */
+	hint?: string | undefined;
 	onChange: (next: PrefixGroup) => void;
 }) {
 	const choice = inheritFromChoice(group);
@@ -366,14 +373,14 @@ function InheritFromControl({
 	// snap the select straight to "nothing - barrier"). The pending flag holds
 	// the UI in keys mode while the row itself stays absent; typing the first
 	// key writes the list, and emptying the input removes the row again while
-	// the mode persists locally. [] stays expressible only as explicit text
-	// in the _inherit_from row itself.
+	// the mode persists locally. [] stays expressible only through Edit as
+	// JSON (it means the same barrier as false).
 	const [keysPending, setKeysPending] = useState(false);
 	const [pendingText, setPendingText] = useState("");
 	if (choice.kind === "unreadable") {
 		return (
 			<span class="inherit-from">
-				<span class="hint">{l10n.t("Inheritance: fix the _inherit_from row below")}</span>
+				<span class="hint">{l10n.t("Inheritance: edit the _inherit_from row below")}</span>
 			</span>
 		);
 	}
@@ -435,6 +442,7 @@ function InheritFromControl({
 					onInput={(event) => writeKeys(event.currentTarget.value)}
 				/>
 			) : null}
+			{hint !== undefined ? <span class="hint">{hint}</span> : null}
 		</span>
 	);
 }
@@ -494,6 +502,78 @@ function InheritableFlag({
 }
 
 /**
+ * The checkbox directives each editor renders per row, which is also the set
+ * directiveRowAbsorbed may absorb for it: `_force` marks belong to the
+ * parameters editor, `_fallback` marks to the capabilities editor,
+ * `_inheritable` to both.
+ */
+const PARAM_FLAG_DIRECTIVES: readonly FieldDirective[] = [FORCE_DIRECTIVE, INHERITABLE_DIRECTIVE];
+const CAPABILITY_FLAG_DIRECTIVES: readonly FieldDirective[] = [FALLBACK_DIRECTIVE, INHERITABLE_DIRECTIVE];
+
+/**
+ * Which row's inputs own focus, so the editors hold off absorbing a directive
+ * row the user is typing in: unmounting the input on the exact keystroke that
+ * makes the value readable would steal focus (the InheritFromControl
+ * keysPending hazard, in row form). The row absorbs on blur instead; focus
+ * moving between the row's own inputs is not a blur.
+ *
+ * The hold is positional, and rows are positional too, so it must not outlive
+ * the index space it was armed in: a hold surviving a row removal would pin
+ * whatever row shifts into the slot (removing the focused element fires no
+ * focusout). Each hold is therefore stamped with the structural epoch - a
+ * counter that advances whenever any group's row count changes - and honored
+ * only in the epoch it was armed in, so a structural change voids it in the
+ * same render for good (a shape stamp alone would resurrect it once a later
+ * change happened to restore the same row counts). Only text-entry inputs arm
+ * the hold; a row's checkboxes and buttons trigger exactly those structural
+ * changes, which must land immediately.
+ */
+function useFocusedRow(groups: readonly PrefixGroup[]): {
+	focused: (groupIndex: number, rowIndex: number) => boolean;
+	rowFocusProps: (
+		groupIndex: number,
+		rowIndex: number
+	) => {
+		onFocusInCapture: (event: FocusEvent) => void;
+		onFocusOutCapture: (event: FocusEvent) => void;
+	};
+} {
+	const shape = groups.map((group) => group.params.length).join(",");
+	const epochRef = useRef({ shape, epoch: 0 });
+	if (epochRef.current.shape !== shape) {
+		epochRef.current = { shape, epoch: epochRef.current.epoch + 1 };
+	}
+	const epoch = epochRef.current.epoch;
+	const [hold, setHold] = useState<
+		{ readonly group: number; readonly row: number; readonly epoch: number } | undefined
+	>(undefined);
+	return {
+		focused: (groupIndex, rowIndex) =>
+			hold !== undefined && hold.epoch === epoch && hold.group === groupIndex && hold.row === rowIndex,
+		rowFocusProps: (groupIndex, rowIndex) => ({
+			onFocusInCapture: (event: FocusEvent) => {
+				if (event.target instanceof HTMLInputElement && event.target.type !== "checkbox") {
+					setHold((current) =>
+						current !== undefined && current.group === groupIndex && current.row === rowIndex && current.epoch === epoch
+							? current
+							: { group: groupIndex, row: rowIndex, epoch }
+					);
+				}
+			},
+			onFocusOutCapture: (event: FocusEvent) => {
+				const next = event.relatedTarget;
+				if (next instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(next)) {
+					return;
+				}
+				setHold((current) =>
+					current !== undefined && current.group === groupIndex && current.row === rowIndex ? undefined : current
+				);
+			},
+		}),
+	};
+}
+
+/**
  * The model-parameter group rows themselves: one group per model prefix, one
  * row per request parameter, values entered as JSON, problems row-aligned
  * from parseGroups. Purely presentational (edits go through onChange), so the
@@ -547,12 +627,25 @@ export function ParamGroupsFields({
 	const patchGroup = (index: number, patch: Partial<PrefixGroup>) => {
 		onChange(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
 	};
+	const focusHold = useFocusedRow(groups);
 	return (
 		<>
 			{groups.map((group, groupIndex) => {
 				// The group's `_force` marks, derived once per render from the same
 				// rows the checkboxes rewrite, so box state and row text cannot drift.
 				const forcedFields = directiveMarkedFields(group, FORCE_DIRECTIVE);
+				// The control-backed directive rows the grid absorbs: the Inherits
+				// select and the per-row checkboxes are their single representation.
+				// A row those controls cannot fully display - an unreadable value, a
+				// duplicate key, or a hinted stranded entry - stays visible and
+				// editable, and a row being typed in absorbs only on blur.
+				const rowAbsorbed = (index: number): boolean =>
+					readOnly !== true &&
+					!focusHold.focused(groupIndex, index) &&
+					directiveRowAbsorbed(group, index, PARAM_FLAG_DIRECTIVES) &&
+					(group.params[index]?.key.trim() === INHERIT_FROM_DIRECTIVE ||
+						hints?.[groupIndex]?.params[index] === undefined);
+				const inheritFromIndex = group.params.findIndex((param) => param.key.trim() === INHERIT_FROM_DIRECTIVE);
 				// Rows are positional while being edited; the index is the identity.
 				return (
 					<div class="group" key={groupIndex}>
@@ -589,127 +682,132 @@ export function ParamGroupsFields({
 								<InheritFromControl
 									group={group}
 									disabled={disabled === true}
+									hint={
+										inheritFromIndex >= 0 && rowAbsorbed(inheritFromIndex)
+											? hints?.[groupIndex]?.params[inheritFromIndex]
+											: undefined
+									}
 									onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
 								/>
 							</div>
 						)}
 						<div class="rows">
-							{group.params.map((param, paramIndex) => (
-								<div class="row" key={paramIndex}>
-									<span class="cell key">
-										<SuggestInput
-											value={param.key}
-											suggestions={paramNameSuggestions ?? []}
-											inputClass="key"
-											invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
-											placeholder={l10n.t("Parameter, e.g. temperature")}
-											disabled={inert}
-											onValue={(next) =>
-												patchGroup(groupIndex, {
-													params: group.params.map((p, i) => (i === paramIndex ? { ...p, key: next } : p)),
-												})
-											}
-											onEnter={onEnter}
-										/>
-										<Help text={helpModelParameterName()} />
-									</span>
-									<span class="cell value">
-										<input
-											type="text"
-											class={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
-											aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
-											placeholder={l10n.t("JSON value, e.g. 0.2")}
-											value={param.valueText}
-											disabled={inert}
-											onInput={(event) =>
-												patchGroup(groupIndex, {
-													params: group.params.map((p, i) =>
-														i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
-													),
-												})
-											}
-											onKeyDown={onKeyDown}
-										/>
-										<Help text={helpModelParameterValue()} />
-									</span>
-									{readOnly === true ? null : (
-										<button
-											type="button"
-											class="quiet"
-											disabled={disabled}
-											onClick={() =>
-												patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
-											}
-										>
-											<IconTrash /> {l10n.t("Remove")}
-										</button>
-									)}
-									{/* The per-row force mark, trailing the row action in DOM and on
-									    screen alike, so the Remove buttons keep one shared column.
-									    Unnamed rows and the directive row itself carry no box;
-									    unforceable keys keep it visible but disabled, with the help
-									    naming why. */}
-									{/* Directive rows (_force, _inheritable, _inherit_from, ...) carry
-								    no flag checkboxes: a directive cannot be forced or inherited,
-								    and the lints diagnose exactly that. Non-directive unforceable
-								    keys keep the disabled box with the reason in its help. */}
-									{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
-										<span class="cell directive-flag">
-											<label>
-												<input
-													type="checkbox"
-													aria-label={l10n.t('Force "{0}"', param.key.trim())}
-													checked={forcedFields.has(param.key.trim())}
-													disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key.trim())}
-													onChange={(event) =>
-														onChange(
-															groups.map((g, i) =>
-																i === groupIndex
-																	? toggleDirectiveField(
-																			g,
-																			FORCE_DIRECTIVE,
-																			param.key.trim(),
-																			event.currentTarget.checked
-																		)
-																	: g
+							{group.params.map((param, paramIndex) =>
+								rowAbsorbed(paramIndex) ? null : (
+									<div class="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
+										<span class="cell key">
+											<SuggestInput
+												value={param.key}
+												suggestions={paramNameSuggestions ?? []}
+												inputClass="key"
+												invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
+												placeholder={l10n.t("Parameter, e.g. temperature")}
+												disabled={inert}
+												onValue={(next) =>
+													patchGroup(groupIndex, {
+														params: group.params.map((p, i) => (i === paramIndex ? { ...p, key: next } : p)),
+													})
+												}
+												onEnter={onEnter}
+											/>
+											<Help text={helpModelParameterName()} />
+										</span>
+										<span class="cell value">
+											<input
+												type="text"
+												class={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
+												aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
+												placeholder={l10n.t("JSON value, e.g. 0.2")}
+												value={param.valueText}
+												disabled={inert}
+												onInput={(event) =>
+													patchGroup(groupIndex, {
+														params: group.params.map((p, i) =>
+															i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
+														),
+													})
+												}
+												onKeyDown={onKeyDown}
+											/>
+											<Help text={helpModelParameterValue()} />
+										</span>
+										{/* The per-row force/inheritable marks in their own fixed grid
+										    column, before the row action, so the boxes align down the
+										    card. Directive rows (_force, _inheritable, ...) carry no
+										    flag checkboxes - a directive cannot be forced or inherited
+										    - and unnamed rows have no key to mark yet; unforceable keys
+										    keep the box visible but disabled, with the help naming
+										    why. */}
+										{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
+											<span class="cell directive-flag">
+												<label>
+													<input
+														type="checkbox"
+														aria-label={l10n.t('Force "{0}"', param.key.trim())}
+														checked={forcedFields.has(param.key.trim())}
+														disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key.trim())}
+														onChange={(event) =>
+															onChange(
+																groups.map((g, i) =>
+																	i === groupIndex
+																		? toggleDirectiveField(
+																				g,
+																				FORCE_DIRECTIVE,
+																				param.key.trim(),
+																				event.currentTarget.checked
+																			)
+																		: g
+																)
 															)
-														)
+														}
+													/>
+													{l10n.t({
+														message: "force",
+														comment: [
+															"Checkbox label on a parameter row; marks the value as forced over runtime options.",
+														],
+													})}
+												</label>
+												<Help
+													text={
+														directiveEligible(FORCE_DIRECTIVE, param.key.trim())
+															? helpForceFlag()
+															: helpForceFlagDisabled()
 													}
 												/>
-												{l10n.t({
-													message: "force",
-													comment: [
-														"Checkbox label on a parameter row; marks the value as forced over runtime options.",
-													],
-												})}
-											</label>
-											<Help
-												text={
-													directiveEligible(FORCE_DIRECTIVE, param.key.trim())
-														? helpForceFlag()
-														: helpForceFlagDisabled()
+												{readOnly === true ? null : (
+													<InheritableFlag
+														group={group}
+														groupIndex={groupIndex}
+														groups={groups}
+														fieldKey={param.key.trim()}
+														disabled={inert}
+														onChange={onChange}
+													/>
+												)}
+											</span>
+										)}
+										{readOnly === true ? null : (
+											<button
+												type="button"
+												class="quiet"
+												disabled={disabled}
+												onClick={() =>
+													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
 												}
-											/>
-											{readOnly === true ? null : (
-												<InheritableFlag
-													group={group}
-													groupIndex={groupIndex}
-													groups={groups}
-													fieldKey={param.key.trim()}
-													disabled={inert}
-													onChange={onChange}
-												/>
-											)}
-										</span>
-									)}
-									{problems[groupIndex]?.params[paramIndex] !== undefined ? (
-										<span class="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
-									) : null}
-									{hints?.[groupIndex]?.params[paramIndex] !== undefined ? (
-										<span class="hint">{hints[groupIndex]?.params[paramIndex]}</span>
-									) : null}
-								</div>
-							))}
+											>
+												<IconTrash /> {l10n.t("Remove")}
+											</button>
+										)}
+										{problems[groupIndex]?.params[paramIndex] !== undefined ? (
+											<span class="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
+										) : null}
+										{hints?.[groupIndex]?.params[paramIndex] !== undefined ? (
+											<span class="hint">{hints[groupIndex]?.params[paramIndex]}</span>
+										) : null}
+									</div>
+								)
+							)}
 						</div>
 						{readOnly === true ? null : (
 							<button
@@ -1102,12 +1200,25 @@ export function CapabilityGroupsFields({
 	const patchGroup = (index: number, patch: Partial<PrefixGroup>) => {
 		onChange(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
 	};
+	const focusHold = useFocusedRow(groups);
 	return (
 		<>
 			{groups.map((group, groupIndex) => {
 				// The group's `_fallback` marks, derived once per render from the
 				// rows the checkboxes rewrite.
 				const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
+				// The control-backed directive rows the grid absorbs, the parameters
+				// editor's rule with this editor's own flag set. The hint clause is
+				// load-bearing here: an `_inheritable` list may name a row key
+				// outside the closed capability vocabulary - eligible for a checkbox
+				// yet hinted as ignored - and only the hint keeps that row visible.
+				const rowAbsorbed = (index: number): boolean =>
+					readOnly !== true &&
+					!focusHold.focused(groupIndex, index) &&
+					directiveRowAbsorbed(group, index, CAPABILITY_FLAG_DIRECTIVES) &&
+					(group.params[index]?.key.trim() === INHERIT_FROM_DIRECTIVE ||
+						issues[groupIndex]?.rows[index]?.hint === undefined);
+				const inheritFromIndex = group.params.findIndex((param) => param.key.trim() === INHERIT_FROM_DIRECTIVE);
 				// Rows are positional while being edited; the index is the identity.
 				return (
 					<div class="group" key={groupIndex}>
@@ -1144,12 +1255,20 @@ export function CapabilityGroupsFields({
 								<InheritFromControl
 									group={group}
 									disabled={disabled === true}
+									hint={
+										inheritFromIndex >= 0 && rowAbsorbed(inheritFromIndex)
+											? issues[groupIndex]?.rows[inheritFromIndex]?.hint
+											: undefined
+									}
 									onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
 								/>
 							</div>
 						)}
 						<div class="rows">
 							{group.params.map((param, paramIndex) => {
+								if (rowAbsorbed(paramIndex)) {
+									return null;
+								}
 								const issue = issues[groupIndex]?.rows[paramIndex];
 								const key = param.key.trim();
 								const kind = capabilityValueKind(key);
@@ -1158,7 +1277,7 @@ export function CapabilityGroupsFields({
 										params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
 									});
 								return (
-									<div class="row" key={paramIndex}>
+									<div class="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
 										<span class="cell key">
 											<SuggestInput
 												value={param.key}
@@ -1213,22 +1332,11 @@ export function CapabilityGroupsFields({
 												<Help text={helpCapabilityValue()} />
 											</span>
 										)}
-										{readOnly === true ? null : (
-											<button
-												type="button"
-												class="quiet"
-												disabled={inert}
-												onClick={() =>
-													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
-												}
-											>
-												<IconTrash /> {l10n.t("Remove")}
-											</button>
-										)}
-										{/* The per-row fallback mark, trailing the row action like the
-									    parameter editor's force mark; only the closed vocabulary's
-									    fields carry one (directives and unknown keys have no server
-									    value to fall under). */}
+										{/* The per-row fallback/inheritable marks in the shared fixed
+										    flag column, before the row action like the parameter
+										    editor's force mark; only the closed vocabulary's fields
+										    carry a fallback box (directives and unknown keys have no
+										    server value to fall under). */}
 										{Object.hasOwn(CAPABILITY_FIELDS, key) ||
 										(readOnly !== true && key.length > 0 && !key.startsWith("_")) ? (
 											<span class="cell directive-flag">
@@ -1269,6 +1377,18 @@ export function CapabilityGroupsFields({
 												)}
 											</span>
 										) : null}
+										{readOnly === true ? null : (
+											<button
+												type="button"
+												class="quiet"
+												disabled={inert}
+												onClick={() =>
+													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
+												}
+											>
+												<IconTrash /> {l10n.t("Remove")}
+											</button>
+										)}
 										{issue?.problem !== undefined ? <span class="error">{issue.problem.message}</span> : null}
 										{issue?.hint !== undefined ? <span class="hint">{issue.hint}</span> : null}
 									</div>

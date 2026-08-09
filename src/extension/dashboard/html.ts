@@ -560,7 +560,18 @@ const STYLES = `
 	.state-warn { color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow)); }
 	.state-muted { color: var(--vscode-descriptionForeground); }
 
-	.rows { margin: 4px 0 8px; }
+	/* The record editors' row grid. .rows owns the column tracks and each
+	   .row inside it subgrids onto them, so the value inputs, the flag
+	   checkboxes, and the Remove buttons line up across every row of a card
+	   regardless of per-row content (the standalone matcher header row keeps
+	   the same template on its own grid). Where subgrid is unsupported the
+	   .row template below applies per row - the pre-alignment layout. */
+	.rows {
+		display: grid;
+		grid-template-columns: 220px minmax(200px, 1fr) max-content max-content;
+		gap: 4px 8px;
+		margin: 4px 0 8px;
+	}
 	.row {
 		display: grid;
 		grid-template-columns: 220px minmax(200px, 1fr) auto auto;
@@ -576,13 +587,13 @@ const STYLES = `
 	.row .cell.key { grid-column: 1; }
 	.row .cell.value { grid-column: 2; }
 	.row .cell input.key, .row .cell input.value { grid-column: auto; flex: 1; min-width: 0; }
-	.row button { grid-column: 3; justify-self: start; }
+	.row button { grid-column: 4; justify-self: start; }
 	.row .error { grid-column: 1 / -1; font-size: 0.9em; margin: 0; }
-	/* The per-row fallback/force mark: a muted checkbox in its own trailing
-	   column, after the row action - the Remove buttons keep their shared
-	   third column on every row, marked or not, so nothing zigzags. */
+	/* The per-row force/fallback/inheritable marks: muted checkboxes in their
+	   own shared column between the value and the row action, the same track
+	   on every row so the boxes read as one aligned column down the card. */
 	.row .directive-flag {
-		grid-column: 4;
+		grid-column: 3;
 		display: flex;
 		gap: 4px;
 		align-items: center;
@@ -595,6 +606,15 @@ const STYLES = `
 	   glyph against the edge. The value column gets the larger share - it
 	   holds the longer content (catalog IDs, token counts). */
 	.form-card .row { grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.4fr) auto auto; }
+	.form-card .rows { grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.4fr) max-content max-content; }
+	/* The flag cell takes its own full line in the form card (see the
+	   directive-flag rules below), which would auto-place the row action after
+	   it, onto a lonely line; pin the action to the input line. Declared
+	   before the 500px media block so its grid-row: auto reset can win there. */
+	.form-card .row > button { grid-row: 1; }
+	/* After every per-context .row template so it wins in each: rows inside
+	   .rows always follow their container's tracks. */
+	.rows > .row, .form-card .rows > .row { grid-column: 1 / -1; grid-template-columns: subgrid; margin: 0; }
 	/* A capability row's non-blocking hint (unknown key) rides under the row
 	   like an error line, in the muted tone. */
 	.row .hint { grid-column: 1 / -1; font-size: 0.9em; margin: 0; }
@@ -1100,10 +1120,15 @@ const STYLES = `
 		.field .hint, .field .error, .field .secret-where, .field .secret-remove { grid-column: 1; }
 		.field .hint { width: auto; max-width: none; }
 		.secret-where { flex-wrap: wrap; white-space: normal; }
+		.rows { grid-template-columns: 1fr; }
 		.row { grid-template-columns: 1fr; }
 		.row input.key, .row input.value, .row button, .row .error { grid-column: 1; }
 		.row .cell.key, .row .cell.value { grid-column: 1; }
 		.row .directive-flag { grid-column: 1; }
+		/* The form-card templates and the row-action pin out-specify the plain
+		   resets above; restate them here or the slide-over never collapses. */
+		.form-card .rows, .form-card .row { grid-template-columns: 1fr; }
+		.form-card .row > button { grid-row: auto; }
 	}
 
 	/* === R4 server form (auth selector, headers, declared, budget) === */
@@ -1209,7 +1234,8 @@ const STYLES = `
 	   wrapping beats overflowing the slide-over's edge. */
 	.row .directive-flag { flex-wrap: wrap; justify-self: start; }
 	/* Inside the narrow form card the flag cell gets its own full line under
-	   the row instead of squeezing the fourth column. */
+	   the row instead of squeezing the third column; the row action's pin to
+	   the input line sits with the form-card templates above. */
 	.form-card .row .directive-flag { grid-column: 1 / -1; }
 	.inherit-from select {
 		background: var(--vscode-dropdown-background);

@@ -725,6 +725,58 @@ export function directiveMarkedFields(group: PrefixGroup, directive: FieldDirect
 	return new Set(directiveListedEntries(group, directive));
 }
 
+/** Whether the Inherits control's comma-joined keys input can reproduce this `_inherit_from` list entry. */
+function inheritKeyRoundTrips(entry: string): boolean {
+	return entry.length > 0 && entry === entry.trim() && !entry.includes(",");
+}
+
+/**
+ * Whether a group's directive row is fully represented by the editors'
+ * dedicated controls - the Inherits select for `_inherit_from`, the per-row
+ * checkboxes for the `flagDirectives` the calling editor renders - so the row
+ * grid absorbs it instead of showing the same state twice. Absorption is
+ * conservative, because hiding a row the controls cannot show and edit would
+ * make its state invisible and uneditable outside the JSON view: a duplicated
+ * key, a value the strict parse rejects, a list entry no eligible row's
+ * checkbox can display, a checkbox directive in a group with no eligible row
+ * at all (a bare `_force: true` would vanish, silently armed for the next
+ * added row), and an `_inherit_from` key the control's comma-joined text
+ * cannot round-trip all keep the row visible. The callers keep the read-only
+ * scope grids un-absorbed - those render no controls.
+ */
+export function directiveRowAbsorbed(
+	group: PrefixGroup,
+	rowIndex: number,
+	flagDirectives: readonly FieldDirective[]
+): boolean {
+	const row = group.params[rowIndex];
+	if (row === undefined) {
+		return false;
+	}
+	const key = row.key.trim();
+	if (group.params.filter((param) => param.key.trim() === key).length !== 1) {
+		return false;
+	}
+	const parsed = parseDirectiveListText(row.valueText);
+	if (!parsed.ok) {
+		return false;
+	}
+	if (key === INHERIT_FROM_DIRECTIVE) {
+		return typeof parsed.value === "boolean" || parsed.value.every(inheritKeyRoundTrips);
+	}
+	if (!(flagDirectives as readonly string[]).includes(key)) {
+		return false;
+	}
+	const eligible = new Set(eligibleRowKeys(group, key as FieldDirective));
+	if (eligible.size === 0) {
+		return false;
+	}
+	if (typeof parsed.value === "boolean") {
+		return true;
+	}
+	return parsed.value.every((entry) => eligible.has(entry));
+}
+
 /**
  * Toggle one field's membership in the group's `_fallback`/`_force`/
  * `_inheritable` list, returning the updated group. Toggles always write the
@@ -772,9 +824,11 @@ export function toggleDirectiveField(
  * The group-level `_inherit_from` control's reading of a draft group:
  * "default" (no directive row), "all" (true), "none" (false or the empty
  * list - the barrier), or "keys" with the named records. "unreadable" keeps
- * the control hands-off while the row holds text the strict parse rejects -
- * the row's own error tells that story, and the select must not silently
- * rewrite it.
+ * the control hands-off while the row must stay the editor: text the strict
+ * parse rejects (the row's own error tells that story), or a list the
+ * control's comma-joined keys input cannot reproduce (a comma inside a
+ * matcher key, padding whitespace, an empty string) - writing through the
+ * select would silently rewrite the user's list.
  */
 export type InheritFromChoice =
 	| { readonly kind: "default" }
@@ -798,6 +852,9 @@ export function inheritFromChoice(group: PrefixGroup): InheritFromChoice {
 	}
 	if (parsed.value === false || (Array.isArray(parsed.value) && parsed.value.length === 0)) {
 		return { kind: "none" };
+	}
+	if (!(parsed.value as string[]).every(inheritKeyRoundTrips)) {
+		return { kind: "unreadable" };
 	}
 	return { kind: "keys", keysText: (parsed.value as string[]).join(", ") };
 }
