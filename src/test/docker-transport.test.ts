@@ -108,7 +108,7 @@ function transportSuite(title: string, directMode: boolean, serverUrl: string, s
 				assert.strictEqual(extractText(outcome.parts), "chunk1 chunk2 chunk3 ");
 				assert.match(
 					String(outcome.error),
-					/Network Error: The connection to .+ was closed before the response completed/
+					/The connection dropped before the model finished replying[\s\S]*closed mid-response/
 				);
 				assert.ok(!String(outcome.error).startsWith("TypeError"), "the raw undici error must never surface");
 			} else {
@@ -210,7 +210,7 @@ function transportSuite(title: string, directMode: boolean, serverUrl: string, s
 			// ServiceUnavailableError, so the proxy answers 503 too. The HTML body
 			// text is deliberately NOT asserted anywhere; a later phase pins the
 			// log buffer instead.
-			assert.match(String(outcome.error), /LiteLLM API error: 503/);
+			assert.match(String(outcome.error), /LiteLLM 503\b/);
 			await assertModelStillAnswers();
 		});
 
@@ -331,7 +331,7 @@ function transportSuite(title: string, directMode: boolean, serverUrl: string, s
 					});
 					const outcome = await runToOutcome(model, `${COMMAND_SIGIL}play:transport-error-frame`);
 					assert.ok(outcome.error !== undefined, "the error frame must fail the request, not truncate it silently");
-					assert.match(String(outcome.error), /LiteLLM API error: the stream reported an error/);
+					assert.match(String(outcome.error), /LiteLLM stream error/);
 					assert.strictEqual(extractText(outcome.parts), "before ");
 				});
 			});
@@ -450,7 +450,7 @@ function errorMappingSuite(title: string, directMode: boolean, serverUrl: string
 					const expected = directMode ? status : expectDefined(PROXY_FORWARDED_STATUS[status]);
 					assert.match(
 						String(outcome.error),
-						new RegExp(`LiteLLM API error: ${expected}\\b`),
+						new RegExp(`LiteLLM ${expected}\\b`),
 						directMode
 							? "the direct target must carry the exact upstream status"
 							: `the proxy's observed forwarding of ${status} is pinned as ${expected}`
