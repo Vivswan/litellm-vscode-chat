@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { pbkdf2Sync } from "node:crypto";
 import { fingerprint, initFingerprintSalt } from "../../../shared/util/fingerprint";
+import { FIXED_TEST_SALT } from "../../util/fingerprintSalt";
 
 /** The same construction fingerprint() pins: PBKDF2-SHA256, one iteration, 32 bytes, hex, truncated. */
 function saltedRendering(text: string, salt: string): string {
@@ -8,9 +9,9 @@ function saltedRendering(text: string, salt: string): string {
 }
 
 suite("shared/util/fingerprint", () => {
-	// The harness-provided fixed salt (.vscode-test.mjs); the module latches it
-	// on the first fingerprint() call because no explicit init runs in tests.
-	const testSalt = process.env.LITELLM_TEST_FINGERPRINT_SALT ?? "";
+	// The fixed salt the unit label's mocha.require bootstrap installed before
+	// any test file loaded (see test/util/fingerprintSalt.ts).
+	const testSalt = FIXED_TEST_SALT;
 
 	test("distinguishes inputs that collide under 32-bit FNV-1a", () => {
 		// This pair collides under the FNV-1a hash the fingerprint used to be:
