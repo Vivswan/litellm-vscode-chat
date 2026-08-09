@@ -550,7 +550,7 @@
 		"generate-config": "bun scripts/stack/generate-litellm-config.ts",
 		"copilot-login": "bun scripts/stack/copilot-login.ts",
 		"test": "bun run test:host",
-		"test:host": "bun run test:webview && bun run compile && bun run bundle:dev && vscode-test --label unit --label activation-production --label host-fidelity",
+		"test:host": "bun run test:webview && bun run compile && bun run bundle:dev && vscode-test --label unit --label activation-production --label host-fidelity --label host-fidelity-groups",
 		"test:coverage": "bun run test:host --coverage && bun scripts/ci/check-coverage.ts",
 		"test:webview": "bun test src/test/webview",
 		"test:docker": "bun scripts/docker-test.ts"
