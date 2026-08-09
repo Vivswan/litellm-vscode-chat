@@ -41,8 +41,6 @@ export interface RecordedEnv {
 	failUnstoreTimes?: number;
 	/** When set, storeServerSecret rejects when storing a value for this field. */
 	failStoreField?: string;
-	/** When set, readServerSecrets rejects once this many reads have succeeded. */
-	failSecretReadsAfter?: number;
 	/** When set, deleteServerSecrets rejects with this error. */
 	failBlobDeletes?: Error;
 	/** What resolveAdoptionCredentials returns; every call is recorded in adoptionLookups. */
@@ -129,12 +127,6 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				recorded.storedSecrets.set(label, blob);
 			},
 			readServerSecrets: async (label) => {
-				if (recorded.failSecretReadsAfter !== undefined) {
-					if (recorded.failSecretReadsAfter <= 0) {
-						throw new Error("keychain locked");
-					}
-					recorded.failSecretReadsAfter -= 1;
-				}
 				return { ...recorded.storedSecrets.get(label) };
 			},
 			copyServerSecrets: async (fromLabel, toLabel) => {

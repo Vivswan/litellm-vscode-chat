@@ -20,7 +20,7 @@ export class DiscoveryCache<T> {
 	// storeAllowed: a load that started before an invalidate() of its key must
 	// not store its result afterwards, or an explicit "sync now" could be
 	// silently answered with pre-sync data for the rest of the TTL.
-	private readonly inFlight = new Map<string, { promise: Promise<T>; storeAllowed: boolean }>();
+	private readonly inFlight = new Map<string, { promise: Promise<T>; guard: { storeAllowed: boolean } }>();
 
 	/** `now` is the only clock seam; tests inject a fake. The default reads Date.now at call time. */
 	constructor(private readonly now: () => number = () => Date.now()) {}
@@ -50,30 +50,27 @@ export class DiscoveryCache<T> {
 		if (pending !== undefined) {
 			return pending.promise;
 		}
-		const record = {
-			storeAllowed: true,
-			promise: undefined as unknown as Promise<T>,
-		};
-		record.promise = (async () => {
+		const guard = { storeAllowed: true };
+		const promise = (async () => {
 			const value = await load();
 			// Identity covers clear() (which detaches by emptying the map);
 			// storeAllowed covers invalidate() of this key.
-			if (this.inFlight.get(key) === record && record.storeAllowed) {
+			if (this.inFlight.get(key)?.guard === guard && guard.storeAllowed) {
 				this.entries.set(key, { value, storedAt: this.now() });
 			}
 			return value;
 		})();
-		this.inFlight.set(key, record);
+		this.inFlight.set(key, { promise, guard });
 		// Presence-checked cleanup: a clear() may have detached this load and a
 		// fresh one may already be in flight under the key; deleting
 		// unconditionally would orphan that newer load's coalescing.
 		const cleanup = () => {
-			if (this.inFlight.get(key) === record) {
+			if (this.inFlight.get(key)?.guard === guard) {
 				this.inFlight.delete(key);
 			}
 		};
-		void record.promise.then(cleanup, cleanup);
-		return record.promise;
+		void promise.then(cleanup, cleanup);
+		return promise;
 	}
 
 	/** Drop the stored result for `key`. An in-flight load still resolves for its callers but is not stored. */
@@ -81,7 +78,7 @@ export class DiscoveryCache<T> {
 		this.entries.delete(key);
 		const pending = this.inFlight.get(key);
 		if (pending !== undefined) {
-			pending.storeAllowed = false;
+			pending.guard.storeAllowed = false;
 		}
 	}
 

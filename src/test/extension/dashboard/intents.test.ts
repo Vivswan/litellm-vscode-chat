@@ -910,6 +910,21 @@ suite("extension/dashboard/intents", () => {
 			);
 		});
 
+		test("a failed settings write also restores a stale blob the adoption had cleared", async () => {
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Adopted", { virtualKeyValue: "vk-stale" });
+			recorded.adoptionCredentials = { apiKey: "sk-live" };
+			recorded.failWrites = new Error("settings store unavailable");
+
+			await assert.rejects(() => adopt(recorded));
+
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("Adopted"),
+				{ virtualKeyValue: "vk-stale" },
+				"the cleared stale blob comes back when the entry never landed"
+			);
+		});
+
 		test("a failed stale-blob clear aborts the adoption and rolls the copied secrets back", async () => {
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Adopted", { virtualKeyValue: "vk-stale" });
@@ -918,7 +933,11 @@ suite("extension/dashboard/intents", () => {
 			// unstore of the copied apiKey then succeeds.
 			recorded.failUnstoreTimes = 1;
 
-			await assert.rejects(() => adopt(recorded));
+			await assert.rejects(
+				() => adopt(recorded),
+				(error: unknown) => error instanceof Error && error.name === "Error" && /keychain locked/.test(error.message),
+				"the storage failure surfaces as-is, not re-wrapped"
+			);
 
 			assert.deepStrictEqual(recorded.serverWrites, [], "the entry never lands when a stale clear fails");
 			assert.deepStrictEqual(
@@ -935,7 +954,10 @@ suite("extension/dashboard/intents", () => {
 			// adoptionCredentials stays unset: nothing to copy, but the stale
 			// blob still must not resolve for the would-be entry.
 
-			await assert.rejects(() => adopt(recorded));
+			await assert.rejects(
+				() => adopt(recorded),
+				(error: unknown) => error instanceof Error && /keychain locked/.test(error.message)
+			);
 
 			assert.deepStrictEqual(recorded.serverWrites, []);
 			assert.deepStrictEqual(recorded.storedSecrets.get("Adopted"), { apiKey: "sk-stale" });
