@@ -25,8 +25,9 @@ import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { VENDOR_ID } from "../../src/shared/config/commandIds";
 import { CONFIG_SECTION } from "../../src/shared/config/settingSpec";
-import { DEV_SEED_FILENAME, type DevSeed } from "../../src/shared/devSeed";
+import { DEV_SEED_FILENAME, type DevSeed, type DevSeedModels } from "../../src/shared/devSeed";
 import { composeSetting, readEnvFile, STACK_DEFAULTS } from "../stack/litellmConfig";
+import { DEMO_USAGE_KEYS, type SeededDemoUsage } from "./seedDemoUsage";
 
 const root = process.cwd();
 
@@ -116,11 +117,55 @@ function onSignal(signal: NodeJS.Signals): void {
 process.on("SIGINT", onSignal);
 process.on("SIGTERM", onSignal);
 
-const seed: DevSeed = {
+/**
+ * The main entry's group identity, known before the stack starts. The full
+ * seed (demo entries with measured budgets, demo records) is assembled after
+ * the stack is up; only the identity below participates in the profile
+ * fingerprint, because only it shapes the host's provider groups.
+ */
+const seedIdentity = {
 	label: "Fake LiteLLM",
 	baseUrl: `http://localhost:${port}`,
 	apiKey,
-	openDashboard: true,
+} as const;
+
+// ── Demo model records ───────────────────────────────────────────────────────
+// The record machinery, visible at a glance: the seed writes these as the
+// global models.parameters / models.capabilities settings (owning exactly
+// these keys - other keys survive verbatim) plus one entry-level record on
+// the main entry, so the dashboard's Resolved models view and both
+// inspectors show inheritance, a barrier, a forced field, a fallback, an
+// OpenRouter derivation, and entry-over-global at once (docs/models.md is
+// the grammar these demonstrate).
+const DEMO_GLOBAL_RECORDS: DevSeedModels = {
+	parameters: {
+		// Inheritable house defaults; every model without a better match shows them.
+		"*": { _inheritable: true, temperature: 0.7, top_p: 0.9 },
+		// Glob over the gpt-5.2 family: a forced temperature (beats runtime
+		// options) that travels to gpt-5.2-mini via inheritance, and a barrier
+		// that stops the catch-all's top_p at this record.
+		"gpt-5*": { _inheritable: true, _inherit_from: false, _force: ["temperature"], temperature: 1 },
+		// Exact ID beside the glob: its own field plus the inherited forced one.
+		"gpt-5.2-mini": { max_tokens: 8192 },
+		// Regex tier: deepseek-r2 gets this plus the catch-all's inheritable fields.
+		"/deepseek.*/i": { reasoning_effort: "high" },
+	},
+	capabilities: {
+		// A fallback fill that WINS somewhere: llama-4-scout declares no
+		// limits, and a fallback outranks its implicit catalog match, so this
+		// is that model's resolved context_length.
+		"*": { _inheritable: true, _fallback: ["context_length"], context_length: 131072 },
+		// Catalog derivation, ranked above the server's report: the Caps
+		// inspector shows deepseek-r2's server-reported limits shadowed
+		// beneath the catalog entry's values.
+		"deepseek-r2": { _openrouter_model: "deepseek/deepseek-r1" },
+	},
+};
+// Entry-over-global on gpt-5.2-mini: the entry's max_tokens beats the global
+// exact record's 8192, while its temperature stays shadowed by the global
+// gpt-5* record's forced value - both visible in the Params inspector.
+const DEMO_MAIN_ENTRY_MODELS: DevSeedModels = {
+	parameters: { "gpt-5.2-mini": { max_tokens: 4000, temperature: 0.2 } },
 };
 
 // Profile preflight, before anything starts or gets written: a refusal below
@@ -158,8 +203,17 @@ if (!rootIsThisRepo) {
 	process.exit(1);
 }
 const markerFile = join(profileDir, "seed-fingerprint");
-// codeql[js/insufficient-password-hash] -- not password storage: a change-detection fingerprint of the dev seed (a well-known local test key)
-const seedFingerprint = createHash("sha256").update(JSON.stringify(seed)).digest("hex");
+// The fingerprint covers exactly what shapes the host's provider groups -
+// each seeded entry's label, base URL, and key. The demo budgets and records
+// stay out on purpose: they are measured or content-tuned per run, land as
+// plain settings the seed upserts freely, and must not wipe the profile
+// (with its Copilot Chat sign-in) when they change.
+const seedGroupIdentity = [
+	seedIdentity,
+	...DEMO_USAGE_KEYS.map((spec) => ({ label: spec.label, baseUrl: seedIdentity.baseUrl, apiKey: spec.key })),
+];
+// codeql[js/insufficient-password-hash] -- not password storage: a change-detection fingerprint of the dev seed (well-known local test keys)
+const seedFingerprint = createHash("sha256").update(JSON.stringify(seedGroupIdentity)).digest("hex");
 const previousFingerprint = existsSync(markerFile) ? readFileSync(markerFile, "utf8").trim() : undefined;
 
 function readProfileFile(...relative: string[]): string | undefined {
@@ -292,7 +346,7 @@ function profileConsumedSeed(): boolean {
 		}
 		const label = (entry as { label?: unknown }).label;
 		// Trimmed like the seed consumer matches labels (upsertSeedEntry).
-		return typeof label === "string" && label.trim() === seed.label;
+		return typeof label === "string" && label.trim() === seedIdentity.label;
 	});
 }
 
@@ -322,7 +376,7 @@ function profileHasSeededGroup(): boolean {
 			group !== null &&
 			typeof group === "object" &&
 			(group as { vendor?: unknown }).vendor === VENDOR_ID &&
-			(group as { name?: unknown }).name === seed.label
+			(group as { name?: unknown }).name === seedIdentity.label
 	);
 }
 
@@ -382,10 +436,72 @@ if (missingGroupReset) {
 run("starting the fake LiteLLM stack", ["bun", "scripts/stack/compose.ts", "up", "-d", "--wait"], {
 	FAKE_VERBOSE: process.env.FAKE_VERBOSE ?? "1",
 });
+
+// Demo usage state, dev-path only (docker:up and the test orchestrator never
+// run this, and the test fixture key is untouched): real spend accrued
+// through deterministic completions, budgets pinned to the healthy /
+// warning / over fractions. Run as a child script because this file is
+// CommonJS (no top-level await); the measured results come back through a
+// JSON file under the gitignored docker/.generated/. A failure costs the
+// usage demo, never the run. DEV_NO_USAGE_SEED=1 skips it for a faster
+// launch (previously seeded demo state, if any, stays as it was).
+const demoResultsPath = join(root, "docker", ".generated", "dev-demo-usage.json");
+// Absolute path like composeCli above: knip's literal-argv scan must not try
+// to resolve the script path relative to this file.
+const demoUsageCli = join(root, "scripts", "dev", "seed-demo-usage.ts");
+let demoUsage: SeededDemoUsage[] = [];
+if (process.env.DEV_NO_USAGE_SEED === "1") {
+	console.log("[dev] DEV_NO_USAGE_SEED=1: skipping the demo usage seeding");
+} else {
+	console.log("[dev] seeding demo usage spend (a few completions, then LiteLLM's spend flush; ~30s)");
+	rmSync(demoResultsPath, { force: true });
+	const demoSeedRun = spawnSync("bun", [demoUsageCli, "--out", demoResultsPath], {
+		stdio: "inherit",
+		cwd: root,
+	});
+	if (demoSeedRun.signal === "SIGINT" || demoSeedRun.signal === "SIGTERM") {
+		onSignal(demoSeedRun.signal);
+	}
+	if (demoSeedRun.status === 0) {
+		try {
+			demoUsage = JSON.parse(readFileSync(demoResultsPath, "utf8")) as SeededDemoUsage[];
+		} catch {
+			// Unreadable results are handled below like a failed seeding run.
+		}
+	}
+	rmSync(demoResultsPath, { force: true });
+	if (demoUsage.length === 0) {
+		console.warn(
+			"[dev] demo usage seeding failed; new runs get no demo usage entries, and entries seeded by an earlier run keep their previous state - rerun: bun scripts/dev/seed-demo-usage.ts"
+		);
+	}
+}
+
 run("building the dev bundle", ["bun", "run", "bundle:dev"]);
 
+const seed: DevSeed = {
+	...seedIdentity,
+	openDashboard: true,
+	models: DEMO_MAIN_ENTRY_MODELS,
+	...(demoUsage.length > 0
+		? {
+				entries: demoUsage.map(({ spec, entryBudget }) => ({
+					label: spec.label,
+					baseUrl: seedIdentity.baseUrl,
+					apiKey: spec.key,
+					...(entryBudget !== undefined ? { budget: entryBudget } : {}),
+				})),
+			}
+		: {}),
+	records: DEMO_GLOBAL_RECORDS,
+};
 writeFileSync(join(root, DEV_SEED_FILENAME), `${JSON.stringify(seed, null, "\t")}\n`);
 console.log(`[dev] seed written for ${seed.baseUrl}`);
+// Loud on purpose: the demo parameter records ride every dev-host request,
+// which would otherwise read as a pass-through regression while debugging.
+console.log(
+	"[dev] demo model records are active (temperature/top_p defaults; gpt-5* forces temperature=1) - delete .dev-profile to reset"
+);
 
 // ── Live log follow ──────────────────────────────────────────────────────────
 // The terminal stays attached: both container logs and the extension's output
