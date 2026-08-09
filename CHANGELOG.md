@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.4.5](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.4...v0.4.5) (2026-08-09)
+
+
+### Features
+
+* _fallback and _force directives for capability and parameter records ([#228](https://github.com/Vivswan/litellm-vscode-chat/issues/228), thanks [@jiang-xiche](https://github.com/jiang-xiche)) ([0734433](https://github.com/Vivswan/litellm-vscode-chat/commit/073443329609906b304c41f20dbd956d26f01724))
+* "*" catch-all prefix in modelParameters and modelCapabilities ([3cfa078](https://github.com/Vivswan/litellm-vscode-chat/commit/3cfa078d74aa27814c5e76af9bb0c4b46c553222))
+* add the composed settings-redesign migration pipeline ([28c127a](https://github.com/Vivswan/litellm-vscode-chat/commit/28c127a4241a4a49137d8cfe7c3173716d921c61))
+* add the usage data layer behind the usage settings ([#232](https://github.com/Vivswan/litellm-vscode-chat/issues/232), thanks [@jiang-xiche](https://github.com/jiang-xiche)) ([e5911fd](https://github.com/Vivswan/litellm-vscode-chat/commit/e5911fd289437316019bd46bd9f7ad34ec3341ed))
+* dashboard redesign surfaces, usage UI, and inspector edit jumps ([d305425](https://github.com/Vivswan/litellm-vscode-chat/commit/d305425ce4192bb47f32bf0f6fe686c01f3efc94))
+* **dev:** seed a rich demo state for bun run dev ([67562b6](https://github.com/Vivswan/litellm-vscode-chat/commit/67562b69cd4c07573d3e3f3cf471294ee3958c29))
+* exact-match model keys with globs, regexes, record inheritance, and a precomputed resolution table ([9702037](https://github.com/Vivswan/litellm-vscode-chat/commit/9702037732bdfb3c0d21785f0f4d4127734c52af))
+* fallback and force editing in the dashboard ([#228](https://github.com/Vivswan/litellm-vscode-chat/issues/228), thanks [@jiang-xiche](https://github.com/jiang-xiche)) ([5555082](https://github.com/Vivswan/litellm-vscode-chat/commit/55550828ca6a3706097c72ae39d568593854dbea))
+* per-model capability overrides and declared models ([#228](https://github.com/Vivswan/litellm-vscode-chat/issues/228), thanks [@jiang-xiche](https://github.com/jiang-xiche)) ([498b2ea](https://github.com/Vivswan/litellm-vscode-chat/commit/498b2ea2f2bde4b563adabac45a2f52cc1b3d566))
+* render two-part errors across the webview and usage UI ([0d31413](https://github.com/Vivswan/litellm-vscode-chat/commit/0d31413ab4e5ec2c74927a821181e46b91f00a60))
+* restructure server entries and move settings into namespaced sections ([7558722](https://github.com/Vivswan/litellm-vscode-chat/commit/75587228b4db269435a61aafdd2fa7f049359e71))
+* rework chat transport errors into a human headline plus technical detail ([c77bfb4](https://github.com/Vivswan/litellm-vscode-chat/commit/c77bfb453bac4e8c6335086fe9ce82ac4705e030))
+* rework dashboard suggestions, thresholds, and model inspectors ([e14b333](https://github.com/Vivswan/litellm-vscode-chat/commit/e14b333c371187e3363dcf056c64db69f883e5e1))
+* show a usage card for servers whose key is refused usage access ([8a1d837](https://github.com/Vivswan/litellm-vscode-chat/commit/8a1d837f317e6bca1d9d25f41170a3769d7d348c))
+* show per-server spend in the servers table ([a424490](https://github.com/Vivswan/litellm-vscode-chat/commit/a4244901493b9002ccd3684daebafcf2a28d87ed))
+* two-part auth and discovery errors ([6622c9d](https://github.com/Vivswan/litellm-vscode-chat/commit/6622c9d4b3b33294c630d1ea5b00c35951420d1a))
+* two-part dashboard and notifier errors with headline-keyed toast dedup ([a64fa12](https://github.com/Vivswan/litellm-vscode-chat/commit/a64fa12d448d09e643279c6a9d26abe2ee1c3185))
+
+
+### Bug Fixes
+
+* absorb control-backed directives into the record editor controls ([4dea2d0](https://github.com/Vivswan/litellm-vscode-chat/commit/4dea2d0728b29d7c44bd5c7076b4a0bf1063495e))
+* apply the lead's migration rulings - _force coverage, auth halves, star keys ([00f93fc](https://github.com/Vivswan/litellm-vscode-chat/commit/00f93fc4ed1b874997537a4925c745d1344c8116))
+* assert inertness, not inactivity, in the production activation hook ([ff8da35](https://github.com/Vivswan/litellm-vscode-chat/commit/ff8da35d80a9d71488e88447cff11edaaaf5479d))
+* drop unsendable virtual-key headers at migration and pin the parser round trip ([0580729](https://github.com/Vivswan/litellm-vscode-chat/commit/0580729b90540ec619d9ff5f6878e42766c28c4f))
+* keep forbidden-usage cards out of the servers-table usage join ([b457ede](https://github.com/Vivswan/litellm-vscode-chat/commit/b457ede0108aaa80c6eac622a3ea8017493d3c18))
+* keep record editor rows inside the card at every viewport width ([613e709](https://github.com/Vivswan/litellm-vscode-chat/commit/613e709940dcccb193d971bdcec721904bc6b9f5))
+* keep scoped marks on fields surviving an entry-side true expansion ([b86bdb2](https://github.com/Vivswan/litellm-vscode-chat/commit/b86bdb2e0854fa761ce859e62ce9c29f484fcfdf))
+* rearm the OpenRouter catalog scheduler after a refresh aborted while disabled ([c4f4642](https://github.com/Vivswan/litellm-vscode-chat/commit/c4f464205f04588a7bf46379ac692bc7bbac8a71))
+* review-fleet fixes - NUL literals, stale grammar copy, and oracle soundness ([15a281a](https://github.com/Vivswan/litellm-vscode-chat/commit/15a281a6be11aef17963c1c9982fd910249c9f75))
+* route the capability inspector through the entry test seam too ([0a671b7](https://github.com/Vivswan/litellm-vscode-chat/commit/0a671b7bb4fe2a6dc0c8377b0f088c65706afa4f))
+* scope discovery-cache invalidation per key and domain-separate credentialed group IDs ([8ecd3cb](https://github.com/Vivswan/litellm-vscode-chat/commit/8ecd3cbd2f9a8cf592eb9693433279a6741605d2))
+* send the edited entry's custom headers on Test Connection probes ([eae92a8](https://github.com/Vivswan/litellm-vscode-chat/commit/eae92a8fbb44bda2b48b3f0ecc2370e576ce125d))
+* set the technical detail apart from the headline in chat errors ([5f91501](https://github.com/Vivswan/litellm-vscode-chat/commit/5f9150129bdda3e1df50525265dbfea8f161848e))
+* version the group-removal blobs so cross-window unhides propagate ([1ff9b25](https://github.com/Vivswan/litellm-vscode-chat/commit/1ff9b25eb90250abca36cd7591d866831534c4c7))
+
 ## [0.4.4](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.3...v0.4.4) (2026-08-02)
 
 
