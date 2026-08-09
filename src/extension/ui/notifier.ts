@@ -4,8 +4,14 @@ import { CMD } from "../../shared/config/commandIds";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { AggregatedStatus } from "../../shared/servers";
 import { isErrorServerStatus } from "../../shared/servers";
+import { statusErrorHeadline } from "../../shared/util/errorText";
 import { GITHUB_DOCS_URL, SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
+
+// The headline extraction lives in shared/util/errorText so the dashboard
+// webview splits messages the same way; re-exported here for the host-side
+// consumers that always imported it from the notifier.
+export { statusErrorHeadline };
 
 export interface MessageAction {
 	label: string;
@@ -299,15 +305,18 @@ export class Notifier implements vscode.Disposable {
 			return {
 				tag: "all-failed",
 				// The dedup signature is an internal English key, never displayed.
-				// It keys on the error text PLUS the setup hint: the hint identifies
-				// the cause, and distinct causes can share display text (ENOTFOUND
-				// and ECONNREFUSED deliberately render the same connection message,
-				// but only the latter carries proxy-not-running), so a failure whose
-				// hint changes must re-fire the toast that first carries the
+				// It keys on the HEADLINE plus the setup hint, matching what the
+				// toast shows: the detail line carries variable server-derived
+				// text (spend figures, cause chains) whose churn is not new
+				// information, while the hint identifies the cause, and distinct
+				// causes can share display text (ENOTFOUND and ECONNREFUSED
+				// deliberately render the same connection message, but only the
+				// latter carries proxy-not-running), so a failure whose hint
+				// changes must re-fire the toast that first carries the
 				// Troubleshooting Docs action.
-				signature: `all-failed:${firstFailure.error}:${firstFailure.classification?.setupHint ?? ""}`,
+				signature: `all-failed:${statusErrorHeadline(firstFailure.error)}:${firstFailure.classification?.setupHint ?? ""}`,
 				kind: "error",
-				message: vscode.l10n.t("LiteLLM: {0}", firstFailure.error),
+				message: vscode.l10n.t("LiteLLM: {0}", statusErrorHeadline(firstFailure.error)),
 				actions: notifierErrorActions(firstFailure.classification),
 			};
 		}
