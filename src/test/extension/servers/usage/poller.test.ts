@@ -6,11 +6,9 @@ import type {
 	ServerUsageState,
 	UsageAvailability,
 	UsageChangeEvent,
-	UsageClock,
 	UsageConnection,
 	UsageFetchClient,
 	UsagePollerEnv,
-	UsageTimer,
 	UsageTotals,
 	UserUsage,
 } from "../../../../extension/servers/usage";
@@ -21,9 +19,10 @@ import {
 	usageRefreshFailureSummary,
 } from "../../../../extension/servers/usage";
 import { RequestError } from "../../../../provider/transport/errorMapping";
+import type { Clock, Timer } from "../../../../shared/util/timer";
 
 /** A recording timer: nothing fires until the test fires it. */
-class FakeTimer implements UsageTimer {
+class FakeTimer implements Timer {
 	readonly scheduled: { callback: () => void; ms: number; cancelled: boolean }[] = [];
 
 	set(callback: () => void, ms: number): () => void {
@@ -125,7 +124,7 @@ function makeHarness(
 	let servers: unknown = options.servers ?? [{ label: "alpha", baseUrl: "http://one.test", apiKey: "sk-1" }];
 	let intervalMs = options.intervalMs ?? 300_000;
 	let thresholds: readonly number[] = [0.8, 0.95];
-	const clock: UsageClock = { now: () => 1_750_000_000_000 };
+	const clock: Clock = { now: () => 1_750_000_000_000 };
 	const env: UsagePollerEnv = {
 		readServersSetting: () => servers,
 		readSecrets: options.readSecrets ?? (() => Promise.resolve({})),

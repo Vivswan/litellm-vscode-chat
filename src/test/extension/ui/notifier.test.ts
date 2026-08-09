@@ -1,12 +1,12 @@
 import * as assert from "node:assert";
 import { APIConnectionError } from "openai";
 import * as vscode from "vscode";
-import type { NotifierTimer } from "../../../extension/ui/notifier";
 import { createConfigurationPrompt, Notifier, reconfigureAction } from "../../../extension/ui/notifier";
 import { mapSdkError, statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
 import { publicErrorText } from "../../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../../shared/servers";
+import type { Timer } from "../../../shared/util/timer";
 import { expectDefined } from "../../testUtils";
 
 suite("extension/ui/notifier", () => {
@@ -95,8 +95,8 @@ suite("extension/ui/notifier", () => {
 		silent,
 	});
 
-	/** A hand-cranked NotifierTimer: nothing fires until the test elapses the grace itself. */
-	function manualTimer(): { timer: NotifierTimer; elapseGrace(): void; pendingCount(): number } {
+	/** A hand-cranked Timer: nothing fires until the test elapses the grace itself. */
+	function manualTimer(): { timer: Timer; elapseGrace(): void; pendingCount(): number } {
 		let nextHandle = 0;
 		const pending = new Map<number, () => void>();
 		return {

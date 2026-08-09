@@ -7,6 +7,8 @@ import { isErrorServerStatus } from "../../shared/servers";
 import { statusErrorHeadline } from "../../shared/util/errorText";
 import { GITHUB_DOCS_URL, SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
+import type { Timer } from "../../shared/util/timer";
+import { PendingCall, REAL_TIMER } from "../../shared/util/timer";
 
 // The headline extraction lives in shared/util/errorText so the dashboard
 // webview splits messages the same way; re-exported here for the host-side
@@ -155,19 +157,6 @@ type NotifierOutcome =
 	| { tag: "recovered" }
 	| { tag: "suppressed" };
 
-/** Timer effects, injectable so the grace deferral is testable without real time. */
-export interface NotifierTimer {
-	/** Schedule `callback` after `ms`; the returned closure cancels the pending call. */
-	set(callback: () => void, ms: number): () => void;
-}
-
-const REAL_TIMER: NotifierTimer = {
-	set: (callback, ms) => {
-		const handle = setTimeout(callback, ms);
-		return () => clearTimeout(handle);
-	},
-};
-
 /**
  * How long an empty status window may claim "no servers configured" before
  * the claim is believed. At cold start the host runs the groupless refresh
@@ -201,14 +190,16 @@ const NO_SERVERS_GRACE_MS = 15000;
  */
 export class Notifier implements vscode.Disposable {
 	private _lastNotifiedSignature: string | undefined;
-	/** Cancels the armed no-servers claim; undefined when none is pending. */
-	private _cancelPendingClaim: (() => void) | undefined;
+	/** The armed no-servers claim; not pending when none is armed. */
+	private readonly pendingClaim: PendingCall;
 
 	constructor(
 		private readonly hasConfiguredServers: () => boolean,
 		private readonly graceMs: number = NO_SERVERS_GRACE_MS,
-		private readonly timer: NotifierTimer = REAL_TIMER
-	) {}
+		timer: Timer = REAL_TIMER
+	) {
+		this.pendingClaim = new PendingCall(timer);
+	}
 
 	/**
 	 * Withdraws an armed claim so it cannot fire after deactivation: a toast
@@ -261,11 +252,10 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	private armNoServersClaim(condition: NotifiableCondition): void {
-		if (this._cancelPendingClaim !== undefined || condition.signature === this._lastNotifiedSignature) {
+		if (this.pendingClaim.pending || condition.signature === this._lastNotifiedSignature) {
 			return;
 		}
-		this._cancelPendingClaim = this.timer.set(() => {
-			this._cancelPendingClaim = undefined;
+		this.pendingClaim.arm(() => {
 			// Re-gated at expiry: by now the host has handed over any groups it
 			// manages, so a still-false gate is evidence of absence.
 			if (this.hasConfiguredServers() || condition.signature === this._lastNotifiedSignature) {
@@ -277,8 +267,7 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	private cancelPendingClaim(): void {
-		this._cancelPendingClaim?.();
-		this._cancelPendingClaim = undefined;
+		this.pendingClaim.cancel();
 	}
 
 	private evaluate(status: AggregatedStatus): NotifierOutcome {
