@@ -11,7 +11,7 @@ import { App } from "../../../webview/dashboard/app";
 import { DOCS_LINK_CHECK_BASE_URL, DOCS_LINK_PROXY_NOT_RUNNING } from "../../../webview/dashboard/docsLinks";
 import { helpEntryModelParameterPrefix } from "../../../webview/dashboard/helpText";
 import { ServersSection } from "../../../webview/dashboard/servers";
-import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
+import { makeDeclaredServer, makeExternalServer, makeState, makeUsage, makeUsageServer, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -1093,4 +1093,66 @@ test("a problem opens its collapsed disclosure once; re-closing sticks even as o
 	fireInput(params.querySelector("input.value") as HTMLInputElement, "not json");
 	expect(detailsBySummary("Model parameters for this server").open).toBe(true);
 	expect(detailsBySummary("Custom headers").open).toBe(false);
+});
+
+test("the usage column shows the spend percentage with the Usage tab's severity tone", () => {
+	const server = makeDeclaredServer({ label: "Prod", baseUrl: "http://localhost:4000" });
+	const root = mount(<App />);
+	const usageFor = (spentFraction: number) =>
+		makeUsage({
+			servers: [makeUsageServer({ label: "Prod", baseUrl: "http://localhost:4000", spend: 21, spentFraction })],
+		});
+
+	pushToWebview(statePush(makeState({ servers: [server], usage: usageFor(0.42) })));
+	const cell = () => root.querySelector("table.servers .usage-cell") as HTMLElement;
+	expect(cell().textContent).toBe("42%");
+	expect(cell().classList.contains("tone-ok")).toBe(true);
+
+	// Reaching a threshold counts as crossing it, exactly as the Usage tab
+	// colors its percentage (the fixture thresholds are 0.8 and 0.95).
+	pushToWebview(statePush(makeState({ servers: [server], usage: usageFor(0.8) })));
+	expect(cell().textContent).toBe("80%");
+	expect(cell().classList.contains("tone-warn")).toBe(true);
+
+	// Over budget shows the literal percentage in the error tone.
+	pushToWebview(statePush(makeState({ servers: [server], usage: usageFor(1.12) })));
+	expect(cell().textContent).toBe("112%");
+	expect(cell().classList.contains("tone-error")).toBe(true);
+});
+
+test("spend without a budget renders as the plain amount, never a percentage", () => {
+	const usage = makeUsage({
+		servers: [
+			makeUsageServer({
+				label: "Prod",
+				baseUrl: "http://localhost:4000",
+				spend: 3.07,
+				effectiveBudget: undefined,
+				keyBudget: undefined,
+				budgetSource: "none",
+				spentFraction: undefined,
+			}),
+		],
+	});
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], usage })));
+	const cell = root.querySelector("table.servers .usage-cell") as HTMLElement;
+	expect(cell.textContent).toBe("$3.07");
+	expect(cell.className).toBe("usage-cell");
+});
+
+test("a server without usage data gets an empty usage cell, not an unknown marker", () => {
+	// The usage snapshot tracks a different entry (usage joins by the store's
+	// label key), so this row has no numbers to show - and says nothing.
+	const usage = makeUsage({
+		servers: [makeUsageServer({ label: "Other", baseUrl: "http://other.example:4000" })],
+	});
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], usage })));
+	const headers = [...root.querySelectorAll("table.servers thead th")].map((th) => th.textContent?.trim());
+	expect(headers).toContain("Usage");
+	const row = root.querySelector("table.servers tbody tr") as HTMLElement;
+	const usageCell = row.querySelectorAll("td")[4] as HTMLElement;
+	expect(usageCell.textContent).toBe("");
+	expect(root.textContent).not.toContain("unknown");
 });
