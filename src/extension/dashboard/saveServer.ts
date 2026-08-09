@@ -139,7 +139,7 @@ export async function applySaveServerSetting(
 	// array. The same helper also reads what the sync engine will read for this
 	// entry's label after the save (see KeepSources on the rename rules), so
 	// the pairing checks and the draft-connection test share one "keep" truth.
-	const { accepted, storedNew, storedEffective, willCopy } = await readKeepSources(
+	const { accepted, storedOld, storedNew, storedEffective, willCopy } = await readKeepSources(
 		entries,
 		label,
 		targetLabel,
@@ -356,23 +356,28 @@ export async function applySaveServerSetting(
 	} catch (error) {
 		// The setting still resolves what it resolved before, so the secure side
 		// must too. A rename's copy replaced the new label's whole blob, so that
-		// blob is restored wholesale to its pre-copy state (deleting fields it
-		// never held), which also undoes any set-secure write on top of the
-		// copy; otherwise only the overwritten fields are touched.
+		// blob is restored to its pre-copy state (deleting fields it never
+		// held), which also undoes any set-secure write on top of the copy;
+		// otherwise only the overwritten fields are touched. Fields no side
+		// ever held are skipped: neither the copy nor a write touched them, so
+		// "restoring" one is a no-op delete whose failure must not report a
+		// secret as changed.
 		const restores: [SecretFieldId, string | undefined][] =
 			mode.kind === "rename" && mode.willCopy
-				? SECRET_FIELD_IDS.map((field) => [field, storedNew[field]])
+				? SECRET_FIELD_IDS.filter(
+						(field) => overwritten.has(field) || storedOld[field] !== undefined || storedNew[field] !== undefined
+					).map((field): [SecretFieldId, string | undefined] => [field, storedNew[field]])
 				: [...overwritten];
-		let restoreFailed = false;
+		const restoreFailures: SecretFieldId[] = [];
 		for (const [field, previous] of restores) {
 			try {
 				await env.storeServerSecret(label, field, previous);
 			} catch {
-				restoreFailed = true;
+				restoreFailures.push(field);
 				env.log("Restoring a secure value after a failed save also failed", { field });
 			}
 		}
-		if (restoreFailed) {
+		if (restoreFailures.length > 0) {
 			// The durable state DID change: a freshly stored secret survived the
 			// rollback and now resolves for the unchanged entry, so this must not
 			// surface as "nothing landed" (which would reopen the form as if the
@@ -381,14 +386,21 @@ export async function applySaveServerSetting(
 			// failed settings write fires no configuration event, and the changed
 			// secure value must reach the provider group (the clean-rollback
 			// rethrow below stays sync-free, nothing durable changed there).
+			// The detail line's field ids are structural configuration and the
+			// label is the user's own text - both webview-legal; neither reaches
+			// the log, which stays classification-only.
 			env.log("A failed save left a secure value unrestored", {
 				error: error instanceof Error ? error.name : typeof error,
 			});
 			env.requestServerSync();
 			throw new DashboardOperationError(
-				vscode.l10n.t(
-					"The save failed, and restoring a stored secret to its previous value also failed. Check the secret with LiteLLM: Set Server Secret."
-				)
+				`${vscode.l10n.t(
+					"The save failed and a stored secret may have been left changed. Check it with LiteLLM: Set Server Secret, then redo the edit."
+				)}\n${vscode.l10n.t(
+					'could not restore {0} for server "{1}"; the settings entry is unchanged (after a rename, the changed values sit under the new label)',
+					restoreFailures.join(", "),
+					label
+				)}`
 			);
 		}
 		throw error;
