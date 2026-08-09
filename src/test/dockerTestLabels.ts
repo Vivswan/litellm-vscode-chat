@@ -14,7 +14,9 @@ export const DOCKER_TEST_LABELS = [
 	"docker-resolution",
 	"docker-fuzz",
 	"docker-conversation",
+	"docker-group-path",
 	"host-fidelity",
+	"host-fidelity-groups",
 	"docker-monkey",
 ] as const;
 
@@ -34,7 +36,9 @@ export const DOCKER_SKIP_FLAGS: Readonly<Partial<Record<DockerTestLabel, string>
 	"docker-resolution": "--skip-resolution",
 	"docker-fuzz": "--skip-fuzz",
 	"docker-conversation": "--skip-conversation",
+	"docker-group-path": "--skip-group-path",
 	"host-fidelity": "--skip-host-fidelity",
+	"host-fidelity-groups": "--skip-host-fidelity-groups",
 	"docker-monkey": "--skip-monkey",
 };
 

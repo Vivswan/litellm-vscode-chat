@@ -41,6 +41,12 @@ const dockerSuites = {
 	"docker-resolution": { timeout: 120000 },
 	"docker-fuzz": { timeout: 120000, extraEnv: passthroughEnv("FUZZ_SEED", "FUZZ_ITERATIONS") },
 	"docker-conversation": { timeout: 120000, extraEnv: passthroughEnv("FUZZ_SEED", "CONVERSATION_ITERATIONS") },
+	// Its own host: the provider group it creates is add-only for the host
+	// lifetime and would linger into any suite sharing the label.
+	"docker-group-path": { timeout: 120000 },
+	// Capture-mode host-fidelity spin-off with the same lingering-groups
+	// isolation need; it runs in the plain `bun run test` chain too.
+	"host-fidelity-groups": { file: "hostFidelity/host-fidelity-groups", timeout: 60000 },
 	// Whole-walk tests; the suite raises its own per-test budgets on top.
 	"docker-monkey": { timeout: 300000, extraEnv: passthroughEnv("FUZZ_SEED", "MONKEY_ITERATIONS") },
 };

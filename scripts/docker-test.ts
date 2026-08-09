@@ -4,26 +4,29 @@
 // brings the compose stack up (postgres-backed, with the usage/budget
 // fixture key seeded), runs the `docker` label, then optionally the
 // `docker-usage`, `docker-transport`, `docker-serversync`,
-// `docker-resolution`, `docker-fuzz`, and `docker-conversation` labels, then
-// the host-fidelity live suite pointed at the stack, then the
+// `docker-resolution`, `docker-fuzz`, `docker-conversation`, and
+// `docker-group-path` labels, then the host-fidelity live suite pointed at
+// the stack and the capture-mode host-fidelity-groups suite, then the
 // `docker-monkey` label last (it deliberately dirties host state), and tears
 // everything down. --only replaces that selection with an explicit label
 // list (the CI shards use it); the order stays canonical either way.
 //
 // Usage:
-//   bun run test:docker                     docker suite + usage + transport + serversync + resolution + fuzzer + conversations + host-fidelity live + monkey
+//   bun run test:docker                     every label in canonical order (see src/test/dockerTestLabels.ts)
 //   bun run test:docker --skip-usage        skip the usage/budget smoke suite
 //   bun run test:docker --skip-transport    skip the transport-failure suite
 //   bun run test:docker --skip-serversync   skip the server-sync provider-group suite
 //   bun run test:docker --skip-resolution   skip the catalog/record resolution suite
 //   bun run test:docker --skip-fuzz         skip the stream fuzzer
 //   bun run test:docker --skip-conversation skip the multi-turn conversation suite
+//   bun run test:docker --skip-group-path   skip the provider-group chat path suite
 //   bun run test:docker --skip-monkey       skip the interaction (monkey) fuzzer
 //   bun run test:docker --only docker,docker-monkey  run only the listed labels, in the canonical order above
 //   FUZZ_ITERATIONS=100 bun run test:docker larger fuzz budget (default 10)
 //   CONVERSATION_ITERATIONS=50 bun run test:docker larger conversation budget (default 10)
 //   MONKEY_ITERATIONS=40 bun run test:docker larger monkey-walk budget (default 5)
 //   bun run test:docker --skip-host-fidelity
+//   bun run test:docker --skip-host-fidelity-groups
 //   KEEP_DOCKER_STACK=1 bun run test:docker leave the stack running afterward
 
 import { execSync } from "node:child_process";
@@ -172,6 +175,7 @@ async function main(): Promise<void> {
 			"docker-resolution": { banner: "Running the catalog/record resolution suite...", env: suiteEnv },
 			"docker-fuzz": { banner: "Running the stream fuzzer...", env: suiteEnv },
 			"docker-conversation": { banner: "Running the multi-turn conversation suite...", env: suiteEnv },
+			"docker-group-path": { banner: "Running the provider-group chat path suite...", env: suiteEnv },
 			"host-fidelity": {
 				banner: "Running the host-fidelity live suite against the stack...",
 				env: {
@@ -181,6 +185,9 @@ async function main(): Promise<void> {
 					LITELLM_REAL_MODEL: PLAYBACK_MODEL.alias,
 				},
 			},
+			// Capture-mode: the suite stands up its own capture server and never
+			// touches the stack, so it takes no connection env.
+			"host-fidelity-groups": { banner: "Running the host-fidelity group-label suite (capture)...", env: {} },
 			"docker-monkey": { banner: "Running the interaction (monkey) fuzzer...", env: suiteEnv },
 		};
 
