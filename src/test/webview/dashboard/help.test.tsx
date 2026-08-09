@@ -271,6 +271,15 @@ test("the model-parameters editor explains prefix, parameter name, and JSON valu
 	if (section === undefined) {
 		throw new Error("no Model parameters section");
 	}
+	// The row inputs live in the matcher editor overlay since the table
+	// redesign; open it through the record's pencil action.
+	const pencil = Array.from(section.querySelectorAll("button")).find(
+		(candidate) => candidate.getAttribute("aria-label") === 'Open the full editor for "gpt-4"'
+	);
+	if (pencil === undefined) {
+		throw new Error("no pencil for the gpt-4 record");
+	}
+	fireClick(pencil as HTMLButtonElement);
 	const prefixCell = section.querySelector("input.key[placeholder^='Model ID or matcher']")?.closest(".cell") ?? null;
 	helpIn(prefixCell, helpModelParameterPrefix());
 	const nameCell = section.querySelector("input.key[placeholder^='Parameter']")?.closest(".cell") ?? null;

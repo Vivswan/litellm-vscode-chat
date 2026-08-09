@@ -8,6 +8,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
+import { compareSpecificity, parseMatcherKey } from "../../shared/config/modelMatcher";
 import { isRecord } from "../../shared/util/json";
 import type { CapabilityFieldName, ExpectedFailureCategory, HeaderScalar } from "./protocol";
 import {
@@ -36,6 +37,52 @@ interface ParamRow {
 export interface PrefixGroup {
 	readonly prefix: string;
 	readonly params: readonly ParamRow[];
+}
+
+/** The matcher table's per-row kind annotation; "invalid" covers keys the grammar rejects (empty included). */
+export type MatcherKind = "catch-all" | "regex" | "glob" | "exact" | "invalid";
+
+/**
+ * Classified RAW, exactly as the resolver matches (the grammar trims
+ * nothing): a stored "gpt-4 " is an exact key for the ID "gpt-4 ", and the
+ * view must not dress it up as something else.
+ */
+export function matcherKind(prefix: string): MatcherKind {
+	const parse = parseMatcherKey(prefix);
+	return parse.ok ? parse.matcher.kind : "invalid";
+}
+
+/**
+ * The record table's display order: draft indices sorted lowest precedence
+ * first (the catch-all, then regexes in declaration order, then globs
+ * shorter-prefix-first, then exact IDs), so the table reads cascade-style -
+ * baseline at the top, overrides below. Invalid keys (a fresh empty matcher
+ * included) sort last, next to the add action that minted them. This is a
+ * VIEW order only: the stored record's own key order is never rewritten,
+ * because regex precedence IS declaration order. Keys are parsed RAW (the
+ * grammar trims nothing) by the real specificity comparison from
+ * shared/config/modelMatcher, never a reimplementation.
+ */
+export function sortedGroupOrder(groups: readonly PrefixGroup[]): readonly number[] {
+	const parsed = groups.map((group, index) => {
+		const parse = parseMatcherKey(group.prefix);
+		return { index, matcher: parse.ok ? parse.matcher : undefined };
+	});
+	return parsed
+		.slice()
+		.sort((a, b) => {
+			if (a.matcher === undefined || b.matcher === undefined) {
+				const rankA = a.matcher === undefined ? 1 : 0;
+				const rankB = b.matcher === undefined ? 1 : 0;
+				return rankA !== rankB ? rankA - rankB : a.index - b.index;
+			}
+			const specificity = compareSpecificity(
+				{ matcher: a.matcher, position: a.index },
+				{ matcher: b.matcher, position: b.index }
+			);
+			return specificity !== 0 ? specificity : a.index - b.index;
+		})
+		.map((entry) => entry.index);
 }
 
 export function toGroups(value: Readonly<Record<string, Readonly<Record<string, unknown>>>>): PrefixGroup[] {
@@ -741,8 +788,9 @@ function inheritKeyRoundTrips(entry: string): boolean {
  * checkbox can display, a checkbox directive in a group with no eligible row
  * at all (a bare `_force: true` would vanish, silently armed for the next
  * added row), and an `_inherit_from` key the control's comma-joined text
- * cannot round-trip all keep the row visible. The callers keep the read-only
- * scope grids un-absorbed - those render no controls.
+ * cannot round-trip all keep the row visible. The read-only scope tables
+ * absorb by the same rule, judged with the same parse, so an ignored mark
+ * never masquerades as an active badge there.
  */
 export function directiveRowAbsorbed(
 	group: PrefixGroup,

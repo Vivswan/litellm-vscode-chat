@@ -60,6 +60,10 @@ export function SlideOver({
 	const onKeyDown = (event: KeyboardEvent) => {
 		if (event.key === "Escape") {
 			event.preventDefault();
+			// Panels can nest (the record editors' matcher overlay opens above
+			// the server form's slide-over); the key must close only the panel
+			// that received it, never the one beneath.
+			event.stopPropagation();
 			onRequestClose();
 			return;
 		}
@@ -67,7 +71,9 @@ export function SlideOver({
 			return;
 		}
 		// Tab cycles inside the dialog: the page behind the scrim must stay
-		// unreachable until the form closes.
+		// unreachable until the form closes. Stop propagation so an outer
+		// nested panel's trap never re-handles the same keystroke.
+		event.stopPropagation();
 		const panel = panelRef.current;
 		if (panel === null) {
 			return;

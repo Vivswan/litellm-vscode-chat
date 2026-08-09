@@ -461,10 +461,13 @@ test("the capabilities editor renders as a second record editor and applies via 
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
 	const section = editorSection(root, "Model capabilities");
 
+	// Add matcher opens the full editor overlay; the row is built there.
 	fireClick(buttonByText(section, "Add capability matcher"));
-	fireInput(section.querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement, "gpt-4*");
-	fireInput(section.querySelector("input.key[placeholder^='Capability']") as HTMLInputElement, "context_length");
-	fireInput(section.querySelector("input.value") as HTMLInputElement, "200000");
+	const overlay = section.querySelector(".matcher-editor") as HTMLElement;
+	fireInput(overlay.querySelector("input.key[placeholder^='Model ID or matcher']") as HTMLInputElement, "gpt-4*");
+	fireClick(buttonByText(overlay, "Add capability"));
+	fireInput(overlay.querySelector("input.key[placeholder^='Capability']") as HTMLInputElement, "context_length");
+	fireInput(overlay.querySelector("input.value") as HTMLInputElement, "200000");
 
 	resetPosted();
 	fireClick(buttonByText(section, "Apply"));

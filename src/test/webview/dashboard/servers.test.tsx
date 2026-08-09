@@ -57,6 +57,33 @@ function mountSection(servers: readonly DashboardServer[]) {
 	);
 }
 
+/** Open the form's full matcher editor overlay for one record through its table pencil. */
+function openMatcherEditor(root: HTMLElement, prefix: string): HTMLElement {
+	const pencil = [...root.querySelectorAll("button")].find(
+		(candidate) => candidate.getAttribute("aria-label") === `Open the full editor for "${prefix}"`
+	);
+	if (pencil === undefined) {
+		throw new Error(`no pencil for matcher ${prefix}`);
+	}
+	fireClick(pencil as HTMLButtonElement);
+	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+	if (overlay === null) {
+		throw new Error("no matcher editor overlay is open");
+	}
+	return overlay;
+}
+
+/** The field chip button whose visible key matches, in the form's record tables. */
+function chipFor(root: HTMLElement, key: string): HTMLButtonElement {
+	const chip = [...root.querySelectorAll("button.chip-field")].find(
+		(candidate) => candidate.querySelector(".chip-key")?.textContent === key
+	);
+	if (chip === undefined) {
+		throw new Error(`no chip for field ${key}`);
+	}
+	return chip as HTMLButtonElement;
+}
+
 test("the toolbar renders only once a server exists, and holds only the add entry point", () => {
 	// First run: the guided card is the only affordance, no strip of dead
 	// controls above it.
@@ -126,10 +153,13 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	]);
 	fireClick(buttonByText(root, "Edit"));
 
-	// The entry already carries parameters, so the disclosure opens prefilled.
-	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
-	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Parameter"]');
-	const valueInput = root.querySelector<HTMLInputElement>('input[placeholder^="JSON value"]');
+	// The entry already carries parameters, so the table summarizes them; the
+	// row inputs live in the record's matcher editor overlay.
+	expect(root.querySelector(".record-table .matcher-key")?.textContent).toBe("gpt-4");
+	const overlay = openMatcherEditor(root, "gpt-4");
+	const prefixInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
+	const keyInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Parameter"]');
+	const valueInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="JSON value"]');
 	if (prefixInput === null || keyInput === null || valueInput === null) {
 		throw new Error("the per-entry model parameters rows did not render");
 	}
@@ -140,7 +170,7 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	// The entry editor's matcher copy must not advertise URL keys: entry
 	// keys match model IDs only (the entry is already scoped to its server),
 	// while the global editor's help routes server records to entries
-	// (pinned in recordEditors.test.tsx). One shared component, two registers.
+	// (pinned in recordEditors.test.tsx). One shared overlay, two registers.
 	expect(prefixInput.placeholder).toBe("Model ID or matcher, e.g. gpt-4 or gpt-4*");
 	const glyph = prefixInput.closest(".cell")?.querySelector("button.help");
 	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
@@ -841,14 +871,16 @@ test("the edit form round-trips model capabilities and expected failures into th
 	]);
 	fireClick(buttonByText(root, "Edit"));
 
-	// The entry already carries capabilities, so the disclosure opens
-	// prefilled: the number field as a number input, the support flag as a
-	// checkbox, and the expected-failure category ticked.
-	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
+	// The entry already carries capabilities: the table summarizes them, the
+	// overlay renders the typed controls (number field as a number input, the
+	// support flag as a checkbox), and the expected-failure category is
+	// ticked in the form itself.
+	const overlay = openMatcherEditor(root, "my-model");
+	const prefixInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
 	expect(prefixInput?.value).toBe("my-model");
-	const numberInput = root.querySelector<HTMLInputElement>('input[placeholder^="Tokens"]');
+	const numberInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Tokens"]');
 	expect(numberInput?.value).toBe("128000");
-	const visionBox = [...root.querySelectorAll("label.capability-flag")]
+	const visionBox = [...overlay.querySelectorAll("label.capability-flag")]
 		.find((label) => label.textContent?.includes("supported"))
 		?.querySelector("input");
 	expect(visionBox?.checked).toBe(true);
@@ -884,15 +916,20 @@ test("an unknown capability key hints without blocking the save", () => {
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));
 	fireClick(buttonByText(root, "Add capability matcher"));
-	const prefixInput = root.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
-	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
+	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+	if (overlay === null) {
+		throw new Error("Add capability matcher did not open the overlay");
+	}
+	fireClick(buttonByText(overlay, "Add capability"));
+	const prefixInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
+	const keyInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
 	if (prefixInput === null || keyInput === null) {
 		throw new Error("the capability rows did not render");
 	}
 	fireInput(prefixInput, "gpt-4");
 	fireInput(keyInput, "supports_pdf_input");
 	// A boolean-shaped unknown key gets a JSON value input, not a checkbox.
-	const valueInput = root.querySelector<HTMLInputElement>('input[placeholder="JSON value"]');
+	const valueInput = overlay.querySelector<HTMLInputElement>('input[placeholder="JSON value"]');
 	if (valueInput === null) {
 		throw new Error("the unknown-key value input did not render");
 	}
@@ -906,16 +943,21 @@ test("switching a row's key onto a support flag seeds it true and renders the ch
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));
 	fireClick(buttonByText(root, "Add capability matcher"));
-	const keyInput = root.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
+	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+	if (overlay === null) {
+		throw new Error("Add capability matcher did not open the overlay");
+	}
+	fireClick(buttonByText(overlay, "Add capability"));
+	const keyInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
 	if (keyInput === null) {
 		throw new Error("the capability rows did not render");
 	}
 	fireInput(keyInput, "supports_vision");
-	const flag = root.querySelector("label.capability-flag input") as HTMLInputElement;
+	const flag = overlay.querySelector("label.capability-flag input") as HTMLInputElement;
 	expect(flag?.checked).toBe(true);
 });
 
-test("fallback checkbox: marking a capability row saves the explicit _fallback list", () => {
+test("fallback checkbox: marking a capability row through its chip popover saves the explicit _fallback list", () => {
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Prod",
@@ -927,11 +969,11 @@ test("fallback checkbox: marking a capability row saves the explicit _fallback l
 	]);
 	fireClick(buttonByText(root, "Edit"));
 
-	const box = root.querySelector<HTMLInputElement>(".directive-flag input");
+	fireClick(chipFor(root, "context_length"));
+	const box = root.querySelector<HTMLInputElement>(`.chip-popover input[aria-label='Fall back for "context_length"']`);
 	if (box === null) {
 		throw new Error("the fallback checkbox did not render");
 	}
-	expect(box.getAttribute("aria-label")).toBe('Fall back for "context_length"');
 	expect(box.checked).toBe(false);
 	expect(box.disabled).toBe(false);
 	fireCheck(box, true);
@@ -944,7 +986,7 @@ test("fallback checkbox: marking a capability row saves the explicit _fallback l
 	});
 });
 
-test("fallback checkbox: a support-flag row carries its own box beside the value checkbox", () => {
+test("fallback checkbox: a support-flag row carries its own box beside the value checkbox in the overlay", () => {
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Prod",
@@ -955,12 +997,13 @@ test("fallback checkbox: a support-flag row carries its own box beside the value
 		}),
 	]);
 	fireClick(buttonByText(root, "Edit"));
+	const overlay = openMatcherEditor(root, "gpt-4");
 
-	// The row already renders the boolean value control (label.capability-flag);
-	// the fallback mark is the separate .directive-flag box.
-	const valueBox = root.querySelector<HTMLInputElement>("label.capability-flag input");
+	// The row renders the boolean value control (label.capability-flag); the
+	// fallback mark is the separate .directive-flag box.
+	const valueBox = overlay.querySelector<HTMLInputElement>("label.capability-flag input");
 	expect(valueBox?.checked).toBe(true);
-	const fallbackBox = root.querySelector<HTMLInputElement>(".directive-flag input");
+	const fallbackBox = overlay.querySelector<HTMLInputElement>(".directive-flag input");
 	if (fallbackBox === null) {
 		throw new Error("the fallback checkbox did not render");
 	}
@@ -986,7 +1029,9 @@ test("fallback checkbox: a hand-written _fallback true loads checked and saves u
 	]);
 	fireClick(buttonByText(root, "Edit"));
 
-	const box = root.querySelector<HTMLInputElement>(".directive-flag input");
+	// The chip badge and the popover checkbox both read the literal true.
+	fireClick(chipFor(root, "context_length"));
+	const box = root.querySelector<HTMLInputElement>(`.chip-popover input[aria-label='Fall back for "context_length"']`);
 	expect(box?.checked).toBe(true);
 
 	// Saving without touching the mark keeps the user's literal true.
@@ -1094,13 +1139,36 @@ test("a problem opens its collapsed disclosure once; re-closing sticks even as o
 
 	// A NEW problem elsewhere opens only its own disclosure; the deliberately
 	// closed one must not snap back open just because the problem set changed.
+	// The matcher rows are built in the overlay the add action opens.
 	fireClick(buttonByText(root, "Add model matcher"));
-	const params = detailsBySummary("Model parameters for this server");
-	fireInput(params.querySelector("input.key") as HTMLInputElement, "gpt-4");
-	fireInput(params.querySelectorAll("input.key")[1] as HTMLInputElement, "temperature");
-	fireInput(params.querySelector("input.value") as HTMLInputElement, "not json");
+	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+	if (overlay === null) {
+		throw new Error("Add model matcher did not open the overlay");
+	}
+	fireInput(overlay.querySelector("input.key") as HTMLInputElement, "gpt-4");
+	fireClick(buttonByText(overlay, "Add parameter"));
+	fireInput([...overlay.querySelectorAll("input.key")].at(-1) as HTMLInputElement, "temperature");
+	fireInput(overlay.querySelector("input.value") as HTMLInputElement, "not json");
 	expect(detailsBySummary("Model parameters for this server").open).toBe(true);
 	expect(detailsBySummary("Custom headers").open).toBe(false);
+});
+
+test("add matcher then cancel is a no-op: the pristine sweep leaves the form clean, no discard confirm", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
+	fireClick(buttonByText(root, "Edit"));
+
+	fireClick(buttonByText(root, "Add model matcher"));
+	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+	if (overlay === null) {
+		throw new Error("Add model matcher did not open the overlay");
+	}
+	fireClick(buttonByText(overlay, "Done"));
+	// The pristine group is swept; nothing counts as a user edit, so Cancel
+	// closes directly instead of raising the discard confirm over a no-op.
+	expect(root.querySelector(".record-table")).toBeNull();
+	fireClick(buttonByText(root, "Cancel"));
+	expect(root.textContent).not.toContain("Discard unsaved changes?");
+	expect(root.querySelector(".form-card")).toBeNull();
 });
 
 test("the usage column shows the spend percentage with the Usage tab's severity tone", () => {

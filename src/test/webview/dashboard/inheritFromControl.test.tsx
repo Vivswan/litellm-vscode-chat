@@ -9,14 +9,25 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 import type { PrefixGroup } from "../../../extension/dashboard/recordDraft";
-import { ParamGroupsFields } from "../../../webview/dashboard/recordEditors";
+import { RecordMatcherEditorOverlay } from "../../../webview/dashboard/recordEditors";
 import { cleanup, fireInput, mount, resetPosted } from "../harness";
 
 beforeEach(resetPosted);
 afterEach(cleanup);
 
+/** The control under test lives in the matcher editor overlay; one group at a time, wrapped back into the list. */
 function Harness({ groups, onChange }: { groups: readonly PrefixGroup[]; onChange: (next: PrefixGroup[]) => void }) {
-	return <ParamGroupsFields groups={groups} problems={[]} prefixPlaceholder="" prefixHelp="help" onChange={onChange} />;
+	return (
+		<RecordMatcherEditorOverlay
+			kind="params"
+			group={groups[0] as PrefixGroup}
+			fallbackFocusId="x"
+			note="note"
+			onChange={(next) => onChange([next])}
+			onRemove={() => onChange([])}
+			onClose={() => undefined}
+		/>
+	);
 }
 
 describe("InheritFromControl keys mode", () => {

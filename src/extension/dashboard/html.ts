@@ -560,18 +560,16 @@ const STYLES = `
 	.state-warn { color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow)); }
 	.state-muted { color: var(--vscode-descriptionForeground); }
 
-	/* The record editors' row grid. .rows owns the column tracks and each
-	   .row inside it subgrids onto them, so the value inputs, the flag
-	   checkboxes, and the Remove buttons line up across every row of a card
-	   regardless of per-row content (the standalone matcher header row reuses
-	   the template on its own grid, so its tracks resolve independently of
-	   the rows beneath it). Where subgrid is unsupported the .row template
-	   below applies per row - the pre-alignment layout.
-	   The input tracks carry no fixed floors (minmax(0, ...)): the flag and
-	   action columns size to their content, so any floor on the inputs can
-	   push the track sum past the card's content box - the settings column
-	   caps at 680px however wide the panel is - and the rows would overflow
-	   the card's right border. The inputs shrink instead; below 640px the
+	/* The record field-row grid: since the table redesign these rows render
+	   only inside slide-over panels (the matcher editor overlay, the server
+	   form's header rows), so one narrow flexible template serves every
+	   context. .rows owns the column tracks and each .row inside it subgrids
+	   onto them, so the value inputs and the Remove buttons line up across
+	   rows regardless of per-row content; where subgrid is unsupported the
+	   per-row template below applies - the pre-alignment layout. The input
+	   tracks carry no fixed floors (minmax(0, ...)): the action column sizes
+	   to its content, and a floor on the inputs could push the track sum past
+	   the panel's content box; the inputs shrink instead, and below 500px the
 	   media block stacks the rows before they get too cramped to use. */
 	.rows {
 		display: grid;
@@ -595,12 +593,16 @@ const STYLES = `
 	.row .cell.value { grid-column: 2; }
 	.row .cell input.key, .row .cell input.value { grid-column: auto; flex: 1; min-width: 0; }
 	.row button { grid-column: 4; justify-self: start; }
+	/* The flag cell takes its own full line under the row (see the
+	   directive-flag rules below), which would auto-place the row action after
+	   it, onto a lonely line; pin the action to the input line. Declared
+	   before the 500px media block so its grid-row: auto reset can win there. */
+	.row > button { grid-row: 1; }
 	.row .error { grid-column: 1 / -1; font-size: 0.9em; margin: 0; }
-	/* The per-row force/fallback/inheritable marks: muted checkboxes in their
-	   own shared column between the value and the row action, the same track
-	   on every row so the boxes read as one aligned column down the card. */
+	/* The per-row force/fallback/inheritable marks: muted checkboxes on their
+	   own full line under the row's inputs, the same position on every row. */
 	.row .directive-flag {
-		grid-column: 3;
+		grid-column: 1 / -1;
 		display: flex;
 		gap: 4px;
 		align-items: center;
@@ -608,14 +610,8 @@ const STYLES = `
 		font-size: 0.9em;
 		color: var(--vscode-descriptionForeground);
 	}
-	/* The slide-over form's rows share the base templates (the same shrinkable
-	   tracks fit the panel), but its flag cell takes its own full line (see
-	   the directive-flag rules below), which would auto-place the row action
-	   after it, onto a lonely line; pin the action to the input line. Declared
-	   before the 640px media block so its grid-row: auto reset can win there. */
-	.form-card .row > button { grid-row: 1; }
-	/* Rows inside .rows always follow their container's tracks; the two-class
-	   selector out-specifies the standalone .row template, whatever the order. */
+	/* After the per-row template so it wins: rows inside .rows always follow
+	   their container's tracks. */
 	.rows > .row { grid-column: 1 / -1; grid-template-columns: subgrid; margin: 0; }
 	/* A capability row's non-blocking hint (unknown key) rides under the row
 	   like an error line, in the muted tone. */
@@ -1117,25 +1113,19 @@ const STYLES = `
 		table.models .col-price { display: none; }
 		table.models .model-name-text { max-width: 12em; }
 	}
-	/* The record editors' rows stack to one column before the shrinkable
-	   input tracks get too cramped to type in: the flag and action columns
-	   hold ~290px of the card (checkbox labels, the Remove button, gaps), and
-	   below a ~560px card the inputs' remainder drops under ~240px. The
-	   settings column is viewport minus the body's 48px padding until its
-	   680px cap, so that card width lands at a ~640px viewport. The slide-over
-	   panel (min(460px, 92vw)) could still grid at these viewports, but it is
-	   cramped for four columns even at its full width, so it shares the one
-	   breakpoint instead of carrying its own templates. */
-	@media (max-width: 640px) {
-		.rows { grid-template-columns: 1fr; }
-		.row { grid-template-columns: 1fr; }
-		.row input.key, .row input.value, .row button, .row .error { grid-column: 1; }
-		.row .cell.key, .row .cell.value { grid-column: 1; }
-		.row .directive-flag { grid-column: 1; }
-		/* The row-action pin out-specifies the plain resets above; restate it
-		   here or the form's stacked rows keep the button on the first line. */
-		.form-card .row > button { grid-row: auto; }
+	/* The record editors' rows always stack to one column inside slide-over
+	   panels - the only place they render since the table redesign. The panel
+	   is min(460px, 92vw) whatever the viewport, so a viewport-keyed media
+	   query would grid the rows into a ~90px matcher input at desktop widths;
+	   full-width stacked inputs read better in the panel at every size. */
+	.slide-over .rows { grid-template-columns: 1fr; }
+	.slide-over .row { grid-template-columns: 1fr; }
+	.slide-over .row input.key, .slide-over .row input.value, .slide-over .row button, .slide-over .row .error {
+		grid-column: 1;
 	}
+	.slide-over .row .cell.key, .slide-over .row .cell.value { grid-column: 1; }
+	.slide-over .row .directive-flag { grid-column: 1; }
+	.slide-over .row > button { grid-row: auto; }
 	@media (max-width: 500px) {
 		.field { grid-template-columns: 1fr; }
 		.field .hint, .field .error, .field .secret-where, .field .secret-remove { grid-column: 1; }
@@ -1240,17 +1230,11 @@ const STYLES = `
 	}
 	.inherit-from { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 	/* The group-level inheritance control on its own line under the matcher
-	   row, so the header keeps its three-column rhythm at any panel width. */
+	   row, so the header keeps its rhythm at any panel width. */
 	.inherit-line { margin: 0 0 4px; }
 	/* Two marks (force/fallback + inheritable) share the row's one flag cell;
 	   wrapping beats overflowing the slide-over's edge. */
 	.row .directive-flag { flex-wrap: wrap; justify-self: start; }
-	/* Inside the narrow form card the flag cell gets its own full line under
-	   the row instead of squeezing the third column; the row action's pin to
-	   the input line sits with the row templates above. This out-specifies
-	   the 640px media resets, which is harmless only because 1 / -1 collapses
-	   to the one track in the stacked single-column grid. */
-	.form-card .row .directive-flag { grid-column: 1 / -1; }
 	.inherit-from select {
 		background: var(--vscode-dropdown-background);
 		color: var(--vscode-dropdown-foreground);
@@ -1274,6 +1258,147 @@ const STYLES = `
 		background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.25));
 		color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 	}
+
+	/* === The record matcher tables (Settings tab + server form) === */
+	/* Screen-reader-only text (the edit column's header). */
+	.visually-hidden {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+		border: 0;
+	}
+	/* One row per matcher, cascade-ordered. No .table-scroll wrapper: the
+	   chips wrap instead, and a scrollport would clip the chip popovers. */
+	table.record-table { margin: 8px 0; }
+	.record-table th, .record-table td { vertical-align: top; padding-top: 5px; padding-bottom: 5px; }
+	/* The key needs a floor: without one, the fields column's width squeezes
+	   the matcher into letter-per-line wrapping. */
+	.record-table .matcher-cell { min-width: 8em; }
+	.record-table .matcher-key {
+		font-family: var(--vscode-editor-font-family, monospace);
+		overflow-wrap: anywhere;
+	}
+	.record-table .matcher-kind { display: block; font-size: 0.85em; color: var(--vscode-descriptionForeground); }
+	.record-table .matcher-cell .error { display: block; font-size: 0.9em; margin: 2px 0 0; }
+	.record-table .inherit-cell { color: var(--vscode-descriptionForeground); }
+	.record-table .inherit-cell code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
+	/* The fields column takes whatever width the fixed columns leave. */
+	.record-table .col-fields, .record-table .fields-cell { width: 100%; }
+	.record-table .edit-cell { white-space: nowrap; }
+	.chip-list { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; max-width: 100%; }
+	/* The anchor wraps a chip and its popover, so outside-press detection and
+	   the popover's position share one element. */
+	.chip-anchor { position: relative; display: inline-flex; max-width: 100%; }
+	/* One field as a combined chip: key, value preview, and flag badges. A
+	   button where editable (opens the popover), a span in the read-only
+	   scope grids; both share the quiet chip chrome. */
+	.chip-field {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		max-width: 100%;
+		padding: 1px 8px;
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+		border-radius: 9px;
+		background: transparent;
+		color: var(--vscode-foreground);
+		font-size: 0.9em;
+	}
+	button.chip-field:hover { background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12)); }
+	button.chip-field:disabled { background: transparent; }
+	.chip-field .chip-key { font-family: var(--vscode-editor-font-family, monospace); }
+	.chip-field .chip-key::after { content: ":"; }
+	.chip-field .chip-value {
+		color: var(--vscode-descriptionForeground);
+		max-width: 14em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.chip-field.invalid { border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground)); }
+	.chip-field.hinted { border-color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow)); }
+	/* The catalog chip (_openrouter_model): dashed, with a plain-language key
+	   instead of the directive name. */
+	.chip-field.chip-catalog { border-style: dashed; }
+	.chip-field.chip-catalog .chip-key { font-family: var(--vscode-font-family); color: var(--vscode-descriptionForeground); }
+	/* The force/fallback/inheritable marks as micro-badges on the chip: a
+	   notch larger and brighter than the badge idiom, or they read as noise
+	   next to the value text. */
+	.chip-flag {
+		font-size: 0.9em;
+		padding: 0 5px;
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+		border-radius: 8px;
+		color: var(--vscode-foreground);
+		white-space: nowrap;
+	}
+	button.chip-add { color: var(--vscode-descriptionForeground); border-style: dashed; padding: 1px 6px; }
+	/* The chip popover: hover-widget chrome under its chip; align-end flips it
+	   leftwards for chips near the panel's right edge. */
+	.chip-popover {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 50;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		width: max-content;
+		min-width: 220px;
+		max-width: min(320px, 84vw);
+		padding: 8px 10px;
+		background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+		color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+		border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+		border-radius: 4px;
+		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+		text-align: left;
+		font-size: var(--vscode-font-size);
+	}
+	.chip-popover.align-end { left: auto; right: 0; }
+	/* Inside a slide-over panel the popover anchors to the fields CELL, not
+	   the chip: a chip-anchored 300px popover fits neither direction in a
+	   460px panel, and content clipped past the panel's left edge is
+	   unreachable (overflow only scrolls rightward). */
+	.slide-over .fields-cell { position: relative; }
+	.slide-over .chip-anchor { position: static; }
+	.slide-over .chip-popover, .slide-over .chip-popover.align-end {
+		left: 0;
+		right: auto;
+		min-width: 0;
+		width: max-content;
+		max-width: 100%;
+	}
+	.chip-popover input.value, .chip-popover input.key { width: 100%; box-sizing: border-box; }
+	.chip-popover .suggest-input { width: 100%; }
+	.chip-popover .cell.value { display: flex; gap: 6px; align-items: center; }
+	.chip-popover .catalog-results, .chip-popover .suggest-results { left: 0; right: auto; }
+	.chip-popover-flags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 10px;
+		align-items: center;
+		font-size: 0.9em;
+		color: var(--vscode-descriptionForeground);
+	}
+	.chip-popover-flags label { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+	.chip-popover-actions { display: flex; gap: 8px; align-items: center; }
+	.chip-popover .error, .chip-popover .hint { margin: 0; font-size: 0.9em; }
+	/* The matcher editor overlay's panel content: the panel is the surface,
+	   so the group sheds its card chrome inside any slide-over. */
+	.matcher-editor h3 { margin: 4px 24px 12px 0; }
+	.slide-over .group { border: none; border-radius: 0; padding: 0; margin: 8px 0; background: transparent; }
+	/* A panel stacked over another panel (the matcher editor above the server
+	   form) sits slightly narrower, so the covered form's edge stays visible
+	   as the depth cue - identical widths would read as the form closing. The
+	   heavier shadow separates the layers so the revealed strip's clipped
+	   text reads as background, not noise. */
+	.slide-over .slide-over { width: min(420px, 86vw); box-shadow: -12px 0 24px rgba(0, 0, 0, 0.5); }
 `;
 
 export function buildDashboardHtml(options: DashboardHtmlOptions): string {

@@ -79,7 +79,7 @@ Keys are compared character for character: nothing is trimmed (a leading space i
 
 Keys are model matchers and nothing else - **there is no server scoping at the global level**. Configuration meant for one server lives in that server entry's own `models.parameters` / `models.capabilities` records, which use the same grammar ([Servers](servers.md#per-server-model-configuration)). For a server added through VS Code's own model management (no entry), [adopt it](servers.md#external-servers-and-adoption) first.
 
-The native settings GUI cannot edit object settings, so the [dashboard](dashboard.md) gives both records row editors: matcher fields suggest your discovered model IDs, an Edit as JSON toggle accepts a pasted record, and edits land only when you press Apply. Editing the JSON in settings.json directly works the same.
+The native settings GUI cannot edit object settings, so the [dashboard](dashboard.md) gives both records matcher tables: one row per matcher with the fields as chips, matcher inputs that suggest your discovered model IDs, an Edit as JSON toggle that accepts a pasted record, and edits land only when you press Apply. Editing the JSON in settings.json directly works the same.
 
 ### Which record applies
 

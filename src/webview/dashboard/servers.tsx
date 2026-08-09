@@ -70,8 +70,8 @@ import {
 	serverFieldHelp,
 } from "./helpText";
 import { IconAdd, IconTrash } from "./icons";
-import type { CatalogSearchResponse } from "./recordEditors";
-import { CapabilityGroupsFields, ParamGroupsFields } from "./recordEditors";
+import type { CatalogSearchResponse, RecordEditorKind } from "./recordEditors";
+import { capabilityIssueViews, paramIssueViews, RecordMatcherEditorOverlay, RecordMatcherTable } from "./recordEditors";
 import { SlideOver } from "./slideOver";
 import { relativeTime } from "./time";
 import { barPresentation, formatPercent, formatUsd } from "./usage";
@@ -799,6 +799,24 @@ function ServerForm({
 	const [capsOpen, setCapsOpen] = useState(
 		() => target.kind === "edit" && Object.keys(target.original.config.modelCapabilities ?? {}).length > 0
 	);
+	// The full matcher editor overlay over this form, by record kind and DRAFT
+	// index (the tables' sorted order is a view; the draft array is the
+	// identity space). Index identity is safe HERE, unlike the settings
+	// editors: the form's draft is local state no store push ever rewrites,
+	// so the arrays only change through the form's own actions. It still
+	// closes itself when its group leaves the draft.
+	const [matcherEditor, setMatcherEditor] = useState<{ kind: RecordEditorKind; index: number } | undefined>(undefined);
+	const draftModelParameters = draft.modelParameters;
+	const draftModelCapabilities = draft.modelCapabilities;
+	useEffect(() => {
+		setMatcherEditor((current) => {
+			if (current === undefined) {
+				return current;
+			}
+			const list = current.kind === "params" ? draftModelParameters : draftModelCapabilities;
+			return list[current.index] === undefined ? undefined : current;
+		});
+	}, [draftModelParameters, draftModelCapabilities]);
 	const saving = phase.phase === "saving";
 	// Save holds until the prefill response lands (phase "prefill"): saving
 	// before it arrives would assemble the still-empty fields as "keep",
@@ -916,6 +934,8 @@ function ServerForm({
 	const modelParameterProblems: readonly GroupProblems[] = parse.ok ? [] : parse.modelParameterProblems;
 	const modelParameterHints = parse.modelParameterHints;
 	const modelCapabilityIssues = parse.modelCapabilityIssues;
+	const entryParamIssueViews = paramIssueViews(draft.modelParameters, modelParameterProblems, modelParameterHints);
+	const entryCapIssueViews = capabilityIssueViews(draft.modelCapabilities, modelCapabilityIssues);
 	const headerRowProblems: readonly (string | undefined)[] = parse.ok ? [] : parse.headerProblems;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
 	const problemDisclosureSetters: Record<ProblemDisclosureId, (open: boolean) => void> = {
@@ -1054,6 +1074,90 @@ function ServerForm({
 		</>
 	);
 
+	// Closing the overlay sweeps up a still-pristine new matcher (no key, no
+	// fields): keeping it would strand an invalid empty row in the table.
+	// Both the sweep and the add that minted the group write through setDraft
+	// directly, NOT props.patch: a structural add-then-cancel is a no-op and
+	// must not arm the form's discard confirm (onUserEdit is one-way).
+	const closeMatcherEditor = () => {
+		if (matcherEditor !== undefined) {
+			const list = matcherEditor.kind === "params" ? draft.modelParameters : draft.modelCapabilities;
+			const group = list[matcherEditor.index];
+			if (group !== undefined && group.prefix.trim().length === 0 && group.params.length === 0) {
+				const remaining = list.filter((_, index) => index !== matcherEditor.index);
+				setDraft((current) =>
+					matcherEditor.kind === "params"
+						? { ...current, modelParameters: remaining }
+						: { ...current, modelCapabilities: remaining }
+				);
+			}
+		}
+		setMatcherEditor(undefined);
+	};
+	const matcherEditorNote = l10n.t("Changes here edit the form; Save stores them on the entry.");
+	const matcherEditorView = (() => {
+		if (matcherEditor === undefined) {
+			return null;
+		}
+		if (matcherEditor.kind === "params") {
+			const group = draft.modelParameters[matcherEditor.index];
+			if (group === undefined) {
+				return null;
+			}
+			return (
+				<RecordMatcherEditorOverlay
+					kind="params"
+					group={group}
+					groupProblems={modelParameterProblems[matcherEditor.index]}
+					groupHints={modelParameterHints[matcherEditor.index]}
+					prefixHelp={helpEntryModelParameterPrefix()}
+					disabled={saving}
+					fallbackFocusId="server-params-add"
+					note={matcherEditorNote}
+					onChange={(next) =>
+						props.patch({
+							modelParameters: draft.modelParameters.map((g, index) => (index === matcherEditor.index ? next : g)),
+						})
+					}
+					onRemove={() => {
+						props.patch({
+							modelParameters: draft.modelParameters.filter((_, index) => index !== matcherEditor.index),
+						});
+						setMatcherEditor(undefined);
+					}}
+					onClose={closeMatcherEditor}
+				/>
+			);
+		}
+		const group = draft.modelCapabilities[matcherEditor.index];
+		if (group === undefined) {
+			return null;
+		}
+		return (
+			<RecordMatcherEditorOverlay
+				kind="caps"
+				group={group}
+				groupIssues={modelCapabilityIssues[matcherEditor.index]}
+				catalogResults={catalogResults}
+				disabled={saving}
+				fallbackFocusId="server-caps-add"
+				note={matcherEditorNote}
+				onChange={(next) =>
+					props.patch({
+						modelCapabilities: draft.modelCapabilities.map((g, index) => (index === matcherEditor.index ? next : g)),
+					})
+				}
+				onRemove={() => {
+					props.patch({
+						modelCapabilities: draft.modelCapabilities.filter((_, index) => index !== matcherEditor.index),
+					});
+					setMatcherEditor(undefined);
+				}}
+				onClose={closeMatcherEditor}
+			/>
+		);
+	})();
+
 	return (
 		<div class="form-card">
 			{/* The dialog's accessible name is the title span alone, so the
@@ -1175,24 +1279,30 @@ function ServerForm({
 						"Sent only with requests routed through this entry; overrides the global Model parameters setting for the same keys. Keys match model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets - the most specific match wins."
 					)}
 				</p>
-				<ParamGroupsFields
-					groups={draft.modelParameters}
-					problems={modelParameterProblems}
-					hints={modelParameterHints}
-					disabled={saving}
-					prefixPlaceholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
-					prefixHelp={helpEntryModelParameterPrefix()}
-					onChange={(next) => props.patch({ modelParameters: next })}
-				/>
+				{draft.modelParameters.length > 0 ? (
+					<RecordMatcherTable
+						kind="params"
+						groups={draft.modelParameters}
+						issues={entryParamIssueViews}
+						disabled={saving}
+						onChange={(next) => props.patch({ modelParameters: next })}
+						onOpenEditor={(index) => setMatcherEditor({ kind: "params", index })}
+					/>
+				) : null}
 				<button
 					type="button"
 					class="secondary"
+					id="server-params-add"
 					disabled={saving}
-					onClick={() =>
-						props.patch({
-							modelParameters: [...draft.modelParameters, { prefix: "", params: [{ key: "", valueText: "" }] }],
-						})
-					}
+					onClick={() => {
+						// setDraft, not patch: appending the empty group is structural,
+						// and the pristine sweep undoes it without arming the confirm.
+						setDraft((current) => ({
+							...current,
+							modelParameters: [...current.modelParameters, { prefix: "", params: [] }],
+						}));
+						setMatcherEditor({ kind: "params", index: draft.modelParameters.length });
+					}}
 				>
 					<IconAdd /> {l10n.t("Add model matcher")}
 				</button>
@@ -1207,22 +1317,30 @@ function ServerForm({
 						"Corrects what discovery reports for matching models, e.g. context_length 128000. Your values beat server-reported ones unless marked fallback."
 					)}
 				</p>
-				<CapabilityGroupsFields
-					groups={draft.modelCapabilities}
-					issues={modelCapabilityIssues}
-					disabled={saving}
-					catalogResults={catalogResults}
-					onChange={(next) => props.patch({ modelCapabilities: next })}
-				/>
+				{draft.modelCapabilities.length > 0 ? (
+					<RecordMatcherTable
+						kind="caps"
+						groups={draft.modelCapabilities}
+						issues={entryCapIssueViews}
+						disabled={saving}
+						catalogResults={catalogResults}
+						onChange={(next) => props.patch({ modelCapabilities: next })}
+						onOpenEditor={(index) => setMatcherEditor({ kind: "caps", index })}
+					/>
+				) : null}
 				<button
 					type="button"
 					class="secondary"
+					id="server-caps-add"
 					disabled={saving}
-					onClick={() =>
-						props.patch({
-							modelCapabilities: [...draft.modelCapabilities, { prefix: "", params: [{ key: "", valueText: "" }] }],
-						})
-					}
+					onClick={() => {
+						// setDraft, not patch: see the parameters twin above.
+						setDraft((current) => ({
+							...current,
+							modelCapabilities: [...current.modelCapabilities, { prefix: "", params: [] }],
+						}));
+						setMatcherEditor({ kind: "caps", index: draft.modelCapabilities.length });
+					}}
 				>
 					<IconAdd /> {l10n.t("Add capability matcher")}
 				</button>
@@ -1362,6 +1480,7 @@ function ServerForm({
 					</span>
 				) : null}
 			</div>
+			{matcherEditorView}
 		</div>
 	);
 }

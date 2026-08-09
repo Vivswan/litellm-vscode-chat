@@ -133,7 +133,7 @@ describe("the params inspector's configure-jump", () => {
 });
 
 describe("the editors' external-edit landing", () => {
-	/** Flush the hook's focus timeout (setTimeout 0). */
+	/** Flush the slide-over's mount-focus effect. */
 	const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 	function Harness({ external }: { external: ExternalRecordEdit | undefined }) {
@@ -148,35 +148,46 @@ describe("the editors' external-edit landing", () => {
 		);
 	}
 
-	test("an existing key focuses that record's matcher input without minting a draft", async () => {
+	/** The table rows' matcher keys in display order. */
+	function matcherKeys(root: HTMLElement): string[] {
+		return Array.from(root.querySelectorAll(".record-table .matcher-key")).map((cell) => cell.textContent ?? "");
+	}
+
+	test("an existing key opens that record's matcher editor overlay without minting a draft", async () => {
 		const root = mount(<Harness external={undefined} />);
 		void act(() => {
 			render(<Harness external={{ seq: 1, key: "gpt-5*", create: false }} />, root);
 		});
 		await settle();
 
-		const groups = [...root.querySelectorAll<HTMLElement>("div.group")];
-		expect(groups).toHaveLength(2);
-		const matcher = groups[0]?.querySelector<HTMLInputElement>("input.key");
+		// The overlay is open on the existing record; the slide-over's own
+		// mount focus lands on its first input, the matcher key.
+		const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+		if (overlay === null) {
+			throw new Error("the jump did not open the matcher editor overlay");
+		}
+		const matcher = overlay.querySelector<HTMLInputElement>("input.key");
+		expect(matcher?.value).toBe("gpt-5*");
 		expect(document.activeElement).toBe(matcher ?? null);
 		// Reused, not drafted: nothing changed, so Apply stays disabled.
 		expect(buttonByText(root, "Apply").disabled).toBe(true);
 	});
 
-	test("create appends a draft group keyed by the exact ID and focuses its first field input", async () => {
+	test("create appends a draft group keyed by the exact ID and opens its overlay", async () => {
 		const root = mount(<Harness external={undefined} />);
 		void act(() => {
 			render(<Harness external={{ seq: 1, key: "claude-4", create: true }} />, root);
 		});
 		await settle();
 
-		const groups = [...root.querySelectorAll<HTMLElement>("div.group")];
-		expect(groups).toHaveLength(3);
-		const created = groups[2];
-		expect(created?.querySelector<HTMLInputElement>("input.key")?.value).toBe("claude-4");
-		// Focus lands on the empty parameter-name input, ready to type; the
-		// draft is not applied (drafts only land on Apply).
-		expect(document.activeElement).toBe(created?.querySelector(".rows input.key") ?? null);
+		const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+		if (overlay === null) {
+			throw new Error("the jump did not open the matcher editor overlay");
+		}
+		expect(overlay.querySelector<HTMLInputElement>("input.key")?.value).toBe("claude-4");
+		// The draft group joined the table (sorted view: the exact ID lands
+		// after the glob) but is not applied - drafts only land on Apply.
+		expect(matcherKeys(root)).toEqual(["*", "gpt-5*", "claude-4"]);
 		expect(postedMessages.some((message) => message.type === "setModelParameters")).toBe(false);
 	});
 
@@ -186,6 +197,7 @@ describe("the editors' external-edit landing", () => {
 			render(<Harness external={{ seq: 1, key: "gone*", create: false }} />, root);
 		});
 		await settle();
-		expect([...root.querySelectorAll<HTMLElement>("div.group")]).toHaveLength(2);
+		expect(root.querySelector(".matcher-editor")).toBeNull();
+		expect(matcherKeys(root)).toEqual(["*", "gpt-5*"]);
 	});
 });

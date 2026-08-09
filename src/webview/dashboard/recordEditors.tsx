@@ -1,4 +1,5 @@
 import * as l10n from "@vscode/l10n";
+import type { ComponentChildren } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import type {
 	DashboardModel,
@@ -21,6 +22,7 @@ import type {
 	FieldDirective,
 	GroupHints,
 	GroupProblems,
+	MatcherKind,
 	PrefixGroup,
 } from "../../extension/dashboard/recordDraft";
 import {
@@ -30,9 +32,11 @@ import {
 	directiveRowAbsorbed,
 	groupsFromJsonText,
 	inheritFromChoice,
+	matcherKind,
 	parseCapabilityGroups,
 	parseGroups,
 	setInheritFromChoice,
+	sortedGroupOrder,
 	toCapabilityGroups,
 	toGroups,
 	toggleDirectiveField,
@@ -57,7 +61,8 @@ import {
 	helpModelParametersSection,
 	helpModelParameterValue,
 } from "./helpText";
-import { IconAdd, IconBraces, IconTrash } from "./icons";
+import { IconAdd, IconBraces, IconEdit, IconTrash } from "./icons";
+import { SlideOver } from "./slideOver";
 import { newRequestId, postMessage } from "./vscodeApi";
 
 /**
@@ -204,7 +209,18 @@ function useDraftRows<T>(
 		failure: failure !== undefined && failure.requestId === appliedRequestId ? failure : undefined,
 		update: (next) => {
 			setSaved(false);
-			setDraft({ kind: "dirty", rows: next });
+			// Rows edited exactly back onto the store value drop the draft
+			// entirely: a pinned value-equal draft would swallow every later
+			// store push with Discard disabled (nothing looks dirty). Textual
+			// equality only - a different spelling of the same value ("1e1")
+			// stays a live draft. The correlation ID goes with it, so an old
+			// write's failure notice cannot resurface on the NEXT draft.
+			if (JSON.stringify(next) === externalKey) {
+				setAppliedRequestId(undefined);
+				setDraft(undefined);
+			} else {
+				setDraft({ kind: "dirty", rows: next });
+			}
 		},
 		apply: (requestId) => {
 			setAppliedRequestId(requestId);
@@ -231,53 +247,6 @@ export interface ExternalRecordEdit {
 	readonly seq: number;
 	readonly key: string;
 	readonly create: boolean;
-}
-
-/**
- * Apply an ExternalRecordEdit to an editor: reuse the existing group when one
- * carries the key, append a draft group otherwise, then scroll to it and
- * focus - the new group's first field-name input (key prefilled, ready to
- * type), an existing group's matcher input. Inert while the JSON view is
- * open: rewriting a JSON draft under the user would lose their text.
- */
-function useExternalRecordEdit(
-	external: ExternalRecordEdit | undefined,
-	sectionRef: { readonly current: HTMLElement | null },
-	rows: readonly PrefixGroup[],
-	update: (next: PrefixGroup[]) => void,
-	jsonOpen: boolean
-): void {
-	const seq = external?.seq;
-	useEffect(() => {
-		if (external === undefined || jsonOpen) {
-			return;
-		}
-		const key = external.key;
-		let index = rows.findIndex((group) => group.prefix.trim() === key);
-		const created = index < 0 && external.create;
-		if (index < 0) {
-			if (!external.create) {
-				return;
-			}
-			update([...rows, { prefix: key, params: [{ key: "", valueText: "" }] }]);
-			index = rows.length;
-		}
-		const groupIndex = index;
-		// Focus after the render that mounts the (possibly new) group.
-		setTimeout(() => {
-			const groupEl = sectionRef.current?.querySelectorAll<HTMLElement>("div.group")[groupIndex];
-			if (groupEl === undefined) {
-				return;
-			}
-			groupEl.scrollIntoView({ block: "center" });
-			const input = created
-				? (groupEl.querySelector<HTMLInputElement>(".rows input.key") ??
-					groupEl.querySelector<HTMLInputElement>("input.key"))
-				: groupEl.querySelector<HTMLInputElement>("input.key");
-			input?.focus({ preventScroll: true });
-		}, 0);
-		// Keyed on the request's seq so repeating the same jump re-focuses.
-	}, [seq]);
 }
 
 /** One reported intent failure; `seq` distinguishes repeated failures with the same text. */
@@ -576,20 +545,20 @@ function useFocusedRow(groups: readonly PrefixGroup[]): {
 /**
  * The model-parameter group rows themselves: one group per model prefix, one
  * row per request parameter, values entered as JSON, problems row-aligned
- * from parseGroups. Purely presentational (edits go through onChange), so the
- * global settings editor below and the server form's per-entry section render
- * the identical rows over their own drafts. The prefix placeholder and help
- * are required props because the two surfaces genuinely differ: global keys
- * may lead with a base URL to scope to one server, entry keys are already
- * scoped and match model IDs only, so a URL prefix there would never match.
- * The parameter-name and value help stay shared; they are scope-agnostic.
+ * from parseGroups. Purely presentational (edits go through onChange). Since
+ * the table redesign this renders inside the matcher editor overlay only,
+ * one group at a time (the enclosing draft still owns the full group list).
+ * The prefix placeholder and help are required props because the two
+ * surfaces genuinely differ: global keys may lead with a base URL to scope
+ * to one server, entry keys are already scoped and match model IDs only, so
+ * a URL prefix there would never match. The parameter-name and value help
+ * stay shared; they are scope-agnostic.
  */
-export function ParamGroupsFields({
+function ParamGroupsFields({
 	groups,
 	problems,
 	hints,
 	disabled,
-	readOnly,
 	prefixPlaceholder,
 	prefixHelp,
 	prefixSuggestions,
@@ -600,20 +569,18 @@ export function ParamGroupsFields({
 	groups: readonly PrefixGroup[];
 	problems: readonly GroupProblems[];
 	/** Row-aligned non-blocking notes from the same parse (the _force semantic warnings). */
-	hints?: readonly GroupHints[];
-	disabled?: boolean;
-	/** Render as a static display: inputs disabled, add/remove actions gone (the other-scope records). */
-	readOnly?: boolean;
+	hints?: readonly GroupHints[] | undefined;
+	disabled?: boolean | undefined;
 	prefixPlaceholder: string;
 	prefixHelp: string;
 	/** Suggestions for the prefix and parameter-name inputs' listboxes; absent, the inputs stay plain. */
-	prefixSuggestions?: readonly string[];
-	paramNameSuggestions?: readonly string[];
+	prefixSuggestions?: readonly string[] | undefined;
+	paramNameSuggestions?: readonly string[] | undefined;
 	onChange: (next: PrefixGroup[]) => void;
 	/** Enter in a row input; the editors apply the draft when it parses clean. */
-	onEnter?: () => void;
+	onEnter?: (() => void) | undefined;
 }) {
-	const inert = disabled === true || readOnly === true;
+	const inert = disabled === true;
 	// The suggestion inputs guard their own Enter (a highlighted suggestion is
 	// accepted, never applied); this handler serves the plain value inputs.
 	const onKeyDown =
@@ -640,7 +607,6 @@ export function ParamGroupsFields({
 				// duplicate key, or a hinted stranded entry - stays visible and
 				// editable, and a row being typed in absorbs only on blur.
 				const rowAbsorbed = (index: number): boolean =>
-					readOnly !== true &&
 					!focusHold.focused(groupIndex, index) &&
 					directiveRowAbsorbed(group, index, PARAM_FLAG_DIRECTIVES) &&
 					(group.params[index]?.key.trim() === INHERIT_FROM_DIRECTIVE ||
@@ -663,34 +629,30 @@ export function ParamGroupsFields({
 								/>
 								<Help text={prefixHelp} />
 							</span>
-							{readOnly === true ? null : (
-								<button
-									type="button"
-									class="quiet"
-									disabled={disabled}
-									onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
-								>
-									<IconTrash /> {l10n.t("Remove matcher")}
-								</button>
-							)}
+							<button
+								type="button"
+								class="quiet"
+								disabled={disabled}
+								onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
+							>
+								<IconTrash /> {l10n.t("Remove matcher")}
+							</button>
 							{problems[groupIndex]?.prefix !== undefined ? (
 								<span class="error">{problems[groupIndex]?.prefix}</span>
 							) : null}
 						</div>
-						{readOnly === true ? null : (
-							<div class="inherit-line">
-								<InheritFromControl
-									group={group}
-									disabled={disabled === true}
-									hint={
-										inheritFromIndex >= 0 && rowAbsorbed(inheritFromIndex)
-											? hints?.[groupIndex]?.params[inheritFromIndex]
-											: undefined
-									}
-									onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
-								/>
-							</div>
-						)}
+						<div class="inherit-line">
+							<InheritFromControl
+								group={group}
+								disabled={disabled === true}
+								hint={
+									inheritFromIndex >= 0 && rowAbsorbed(inheritFromIndex)
+										? hints?.[groupIndex]?.params[inheritFromIndex]
+										: undefined
+								}
+								onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
+							/>
+						</div>
 						<div class="rows">
 							{group.params.map((param, paramIndex) =>
 								rowAbsorbed(paramIndex) ? null : (
@@ -732,12 +694,12 @@ export function ParamGroupsFields({
 											<Help text={helpModelParameterValue()} />
 										</span>
 										{/* The per-row force/inheritable marks in their own fixed grid
-										    column, before the row action, so the boxes align down the
-										    card. Directive rows (_force, _inheritable, ...) carry no
-										    flag checkboxes - a directive cannot be forced or inherited
-										    - and unnamed rows have no key to mark yet; unforceable keys
-										    keep the box visible but disabled, with the help naming
-										    why. */}
+									    column, before the row action, so the boxes align down the
+									    card. Directive rows (_force, _inheritable, ...) carry no
+									    flag checkboxes - a directive cannot be forced or inherited
+									    - and unnamed rows have no key to mark yet; unforceable keys
+									    keep the box visible but disabled, with the help naming
+									    why. */}
 										{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
 											<span class="cell directive-flag">
 												<label>
@@ -775,30 +737,26 @@ export function ParamGroupsFields({
 															: helpForceFlagDisabled()
 													}
 												/>
-												{readOnly === true ? null : (
-													<InheritableFlag
-														group={group}
-														groupIndex={groupIndex}
-														groups={groups}
-														fieldKey={param.key.trim()}
-														disabled={inert}
-														onChange={onChange}
-													/>
-												)}
+												<InheritableFlag
+													group={group}
+													groupIndex={groupIndex}
+													groups={groups}
+													fieldKey={param.key.trim()}
+													disabled={inert}
+													onChange={onChange}
+												/>
 											</span>
 										)}
-										{readOnly === true ? null : (
-											<button
-												type="button"
-												class="quiet"
-												disabled={disabled}
-												onClick={() =>
-													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
-												}
-											>
-												<IconTrash /> {l10n.t("Remove")}
-											</button>
-										)}
+										<button
+											type="button"
+											class="quiet"
+											disabled={disabled}
+											onClick={() =>
+												patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
+											}
+										>
+											<IconTrash /> {l10n.t("Remove")}
+										</button>
 										{problems[groupIndex]?.params[paramIndex] !== undefined ? (
 											<span class="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
 										) : null}
@@ -809,16 +767,14 @@ export function ParamGroupsFields({
 								)
 							)}
 						</div>
-						{readOnly === true ? null : (
-							<button
-								type="button"
-								class="secondary"
-								disabled={disabled}
-								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
-							>
-								<IconAdd /> {l10n.t("Add parameter")}
-							</button>
-						)}
+						<button
+							type="button"
+							class="secondary"
+							disabled={disabled}
+							onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
+						>
+							<IconAdd /> {l10n.t("Add parameter")}
+						</button>
 					</div>
 				);
 			})}
@@ -1096,6 +1052,9 @@ export function CatalogPicker({
 		} else if (event.key === "Escape") {
 			setOpen(false);
 			setActive(-1);
+			// The result list consumes this Escape: inside a chip popover or a
+			// slide-over it must close only the results, not the surface above.
+			event.stopPropagation();
 		} else {
 			return;
 		}
@@ -1164,11 +1123,10 @@ export function CatalogPicker({
  * hint parseCapabilityGroups computed. Purely presentational, over the
  * issues from the same parse that judges the enclosing form.
  */
-export function CapabilityGroupsFields({
+function CapabilityGroupsFields({
 	groups,
 	issues,
 	disabled,
-	readOnly,
 	catalogResults,
 	prefixSuggestions,
 	onChange,
@@ -1176,17 +1134,15 @@ export function CapabilityGroupsFields({
 }: {
 	groups: readonly PrefixGroup[];
 	issues: readonly CapabilityGroupIssues[];
-	disabled?: boolean;
-	/** Render as a static display: inputs disabled, add/remove actions gone (the other-scope records). */
-	readOnly?: boolean;
+	disabled?: boolean | undefined;
 	catalogResults: CatalogSearchResponse | undefined;
 	/** Suggestions for the matcher input's listbox; absent, the input stays plain. */
-	prefixSuggestions?: readonly string[];
+	prefixSuggestions?: readonly string[] | undefined;
 	onChange: (next: PrefixGroup[]) => void;
 	/** Enter in a row input; the editors apply the draft when it parses clean. */
-	onEnter?: () => void;
+	onEnter?: (() => void) | undefined;
 }) {
-	const inert = disabled === true || readOnly === true;
+	const inert = disabled === true;
 	// The suggestion inputs guard their own Enter (a highlighted suggestion is
 	// accepted, never applied); this handler serves the plain value inputs.
 	const onKeyDown =
@@ -1213,7 +1169,6 @@ export function CapabilityGroupsFields({
 				// outside the closed capability vocabulary - eligible for a checkbox
 				// yet hinted as ignored - and only the hint keeps that row visible.
 				const rowAbsorbed = (index: number): boolean =>
-					readOnly !== true &&
 					!focusHold.focused(groupIndex, index) &&
 					directiveRowAbsorbed(group, index, CAPABILITY_FLAG_DIRECTIVES) &&
 					(group.params[index]?.key.trim() === INHERIT_FROM_DIRECTIVE ||
@@ -1236,34 +1191,30 @@ export function CapabilityGroupsFields({
 								/>
 								<Help text={helpCapabilityPrefix()} />
 							</span>
-							{readOnly === true ? null : (
-								<button
-									type="button"
-									class="quiet"
-									disabled={inert}
-									onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
-								>
-									<IconTrash /> {l10n.t("Remove matcher")}
-								</button>
-							)}
+							<button
+								type="button"
+								class="quiet"
+								disabled={inert}
+								onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
+							>
+								<IconTrash /> {l10n.t("Remove matcher")}
+							</button>
 							{issues[groupIndex]?.prefix !== undefined ? (
 								<span class="error">{issues[groupIndex]?.prefix}</span>
 							) : null}
 						</div>
-						{readOnly === true ? null : (
-							<div class="inherit-line">
-								<InheritFromControl
-									group={group}
-									disabled={disabled === true}
-									hint={
-										inheritFromIndex >= 0 && rowAbsorbed(inheritFromIndex)
-											? issues[groupIndex]?.rows[inheritFromIndex]?.hint
-											: undefined
-									}
-									onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
-								/>
-							</div>
-						)}
+						<div class="inherit-line">
+							<InheritFromControl
+								group={group}
+								disabled={disabled === true}
+								hint={
+									inheritFromIndex >= 0 && rowAbsorbed(inheritFromIndex)
+										? issues[groupIndex]?.rows[inheritFromIndex]?.hint
+										: undefined
+								}
+								onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
+							/>
+						</div>
 						<div class="rows">
 							{group.params.map((param, paramIndex) => {
 								if (rowAbsorbed(paramIndex)) {
@@ -1333,12 +1284,11 @@ export function CapabilityGroupsFields({
 											</span>
 										)}
 										{/* The per-row fallback/inheritable marks in the shared fixed
-										    flag column, before the row action like the parameter
-										    editor's force mark; only the closed vocabulary's fields
-										    carry a fallback box (directives and unknown keys have no
-										    server value to fall under). */}
-										{Object.hasOwn(CAPABILITY_FIELDS, key) ||
-										(readOnly !== true && key.length > 0 && !key.startsWith("_")) ? (
+									    flag column, before the row action like the parameter
+									    editor's force mark; only the closed vocabulary's fields
+									    carry a fallback box (directives and unknown keys have no
+									    server value to fall under). */}
+										{Object.hasOwn(CAPABILITY_FIELDS, key) || (key.length > 0 && !key.startsWith("_")) ? (
 											<span class="cell directive-flag">
 												{Object.hasOwn(CAPABILITY_FIELDS, key) ? (
 													<>
@@ -1365,46 +1315,40 @@ export function CapabilityGroupsFields({
 														<Help text={helpFallbackFlag()} />
 													</>
 												) : null}
-												{readOnly === true ? null : (
-													<InheritableFlag
-														group={group}
-														groupIndex={groupIndex}
-														groups={groups}
-														fieldKey={key}
-														disabled={inert}
-														onChange={onChange}
-													/>
-												)}
+												<InheritableFlag
+													group={group}
+													groupIndex={groupIndex}
+													groups={groups}
+													fieldKey={key}
+													disabled={inert}
+													onChange={onChange}
+												/>
 											</span>
 										) : null}
-										{readOnly === true ? null : (
-											<button
-												type="button"
-												class="quiet"
-												disabled={inert}
-												onClick={() =>
-													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
-												}
-											>
-												<IconTrash /> {l10n.t("Remove")}
-											</button>
-										)}
+										<button
+											type="button"
+											class="quiet"
+											disabled={inert}
+											onClick={() =>
+												patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
+											}
+										>
+											<IconTrash /> {l10n.t("Remove")}
+										</button>
 										{issue?.problem !== undefined ? <span class="error">{issue.problem.message}</span> : null}
 										{issue?.hint !== undefined ? <span class="hint">{issue.hint}</span> : null}
 									</div>
 								);
 							})}
 						</div>
-						{readOnly === true ? null : (
-							<button
-								type="button"
-								class="secondary"
-								disabled={inert}
-								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
-							>
-								<IconAdd /> {l10n.t("Add capability")}
-							</button>
-						)}
+						<button
+							type="button"
+							class="secondary"
+							disabled={inert}
+							onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
+						>
+							<IconAdd /> {l10n.t("Add capability")}
+						</button>
 					</div>
 				);
 			})}
@@ -1460,6 +1404,1088 @@ const COMMON_PARAMETER_NAMES = [
 	"reasoning_effort",
 	"seed",
 ] as const;
+
+/** Which record editor a shared table serves; picks the flag set, value controls, and key suggestions. */
+export type RecordEditorKind = "params" | "caps";
+
+/**
+ * One row's issue view - the two parsers' problem/hint shapes normalized so
+ * the shared matcher table renders either editor's verdicts. Field-level
+ * problems keep their input alignment ("name" or "value") for the popover.
+ */
+interface RowIssueView {
+	readonly problem?: { readonly field: "name" | "value"; readonly message: string } | undefined;
+	readonly hint?: string | undefined;
+}
+
+/** Row-aligned issue views for one group: the matcher's own problem plus one slot per field row. */
+export interface GroupIssueView {
+	readonly prefix: string | undefined;
+	readonly rows: readonly RowIssueView[];
+}
+
+/** parseGroups' problems and hints folded into the table's issue views. */
+export function paramIssueViews(
+	groups: readonly PrefixGroup[],
+	problems: readonly GroupProblems[],
+	hints: readonly GroupHints[] | undefined
+): GroupIssueView[] {
+	return groups.map((group, index) => ({
+		prefix: problems[index]?.prefix,
+		rows: group.params.map((_, rowIndex) => ({
+			problem: problems[index]?.params[rowIndex],
+			hint: hints?.[index]?.params[rowIndex],
+		})),
+	}));
+}
+
+/** parseCapabilityGroups' issues folded into the table's issue views. */
+export function capabilityIssueViews(
+	groups: readonly PrefixGroup[],
+	issues: readonly CapabilityGroupIssues[]
+): GroupIssueView[] {
+	return groups.map((group, index) => ({
+		prefix: issues[index]?.prefix,
+		rows: group.params.map((_, rowIndex) => ({
+			problem: issues[index]?.rows[rowIndex]?.problem,
+			hint: issues[index]?.rows[rowIndex]?.hint,
+		})),
+	}));
+}
+
+/** The matcher kind annotation under each table key, resolved at render time. */
+function matcherKindLabel(kind: MatcherKind): string {
+	switch (kind) {
+		case "catch-all":
+			return l10n.t("matches all models");
+		case "regex":
+			return l10n.t("regex");
+		case "glob":
+			return l10n.t("prefix match");
+		case "exact":
+			return l10n.t("exact ID");
+		case "invalid":
+			return l10n.t("invalid matcher");
+	}
+}
+
+/** The Inherits column's short reading of a group's `_inherit_from` state. */
+function InheritsSummary({ group }: { group: PrefixGroup }) {
+	const choice = inheritFromChoice(group);
+	switch (choice.kind) {
+		case "default":
+			return <span class="hint">{l10n.t("default")}</span>;
+		case "all":
+			return <span>{l10n.t("everything")}</span>;
+		case "none":
+			return <span>{l10n.t("barrier")}</span>;
+		case "keys":
+			return <code>{choice.keysText}</code>;
+		case "unreadable":
+			return <span class="hint">{l10n.t("custom")}</span>;
+	}
+}
+
+/** The force mark's word, shared by the row checkboxes and the chip badges so translations stay single-sourced. */
+function forceWord(): string {
+	return l10n.t({
+		message: "force",
+		comment: ["Checkbox label on a parameter row; marks the value as forced over runtime options."],
+	});
+}
+
+function fallbackWord(): string {
+	return l10n.t({
+		message: "fallback",
+		comment: ["Checkbox label on a capability row; applies the value only where the server reports none."],
+	});
+}
+
+function inheritableWord(): string {
+	return l10n.t({
+		message: "inheritable",
+		comment: ["Checkbox label on a record row; marks the field as inheritable by more specific records."],
+	});
+}
+
+/** The flag badges one field chip carries, derived from the same rows the toggles rewrite. */
+function chipFlags(kind: RecordEditorKind, group: PrefixGroup, key: string): string[] {
+	const flags: string[] = [];
+	if (kind === "params" && directiveMarkedFields(group, FORCE_DIRECTIVE).has(key)) {
+		flags.push(forceWord());
+	}
+	if (kind === "caps" && directiveMarkedFields(group, FALLBACK_DIRECTIVE).has(key)) {
+		flags.push(fallbackWord());
+	}
+	if (directiveMarkedFields(group, INHERITABLE_DIRECTIVE).has(key)) {
+		flags.push(inheritableWord());
+	}
+	return flags;
+}
+
+/** The flag directives each editor's chips may absorb; the checkbox sets, unchanged. */
+function flagDirectivesFor(kind: RecordEditorKind): readonly FieldDirective[] {
+	return kind === "params" ? PARAM_FLAG_DIRECTIVES : CAPABILITY_FLAG_DIRECTIVES;
+}
+
+/**
+ * The row indices a group renders as chips: everything except the directive
+ * rows the table's own surfaces fully represent (the Inherits column for
+ * `_inherit_from`, the chips' flag badges for the checkbox directives), per
+ * the same directiveRowAbsorbed contract the row grid uses - a directive the
+ * controls cannot fully show keeps a raw chip. A row the open popover is
+ * editing stays pinned visible, so absorption can never unmount the popover
+ * mid-keystroke (the focused-row hold, in table form).
+ */
+function chipRowIndices(
+	kind: RecordEditorKind,
+	group: PrefixGroup,
+	issueRows: readonly RowIssueView[],
+	pinnedKey: string | undefined
+): number[] {
+	return group.params
+		.map((_, index) => index)
+		.filter((index) => {
+			const key = group.params[index]?.key.trim() ?? "";
+			// The pin compares RAW, like the popover identity it serves.
+			if (pinnedKey !== undefined && group.params[index]?.key === pinnedKey) {
+				return true;
+			}
+			const absorbed =
+				directiveRowAbsorbed(group, index, flagDirectivesFor(kind)) &&
+				(key === INHERIT_FROM_DIRECTIVE || issueRows[index]?.hint === undefined);
+			return !absorbed;
+		});
+}
+
+/**
+ * The add popover's live verdict on its candidate row: append it to the
+ * group and read the same parse that will judge it after the commit, so the
+ * popover can never accept a row the editor then flags as blocking.
+ */
+function candidateProblem(
+	kind: RecordEditorKind,
+	groups: readonly PrefixGroup[],
+	groupIndex: number,
+	row: { readonly key: string; readonly valueText: string }
+): string | undefined {
+	const withRow = groups.map((group, index) =>
+		index === groupIndex ? { ...group, params: [...group.params, row] } : group
+	);
+	if (kind === "params") {
+		const parse = parseGroups(withRow);
+		return parse.ok ? undefined : parse.problems[groupIndex]?.params.at(-1)?.message;
+	}
+	const parse = parseCapabilityGroups(withRow);
+	return parse.issues[groupIndex]?.rows.at(-1)?.problem?.message;
+}
+
+/**
+ * The chip popovers' shared shell: hover-widget chrome anchored under its
+ * chip, focus moved to the first control on open and returned to the opener
+ * on close, Escape and any press outside the chip's anchor closing. Escape
+ * stops propagating so a popover inside the matcher editor overlay (or the
+ * server form's slide-over) closes only itself.
+ */
+function PopoverShell({
+	label,
+	align,
+	onClose,
+	children,
+}: {
+	label: string;
+	/** Which chip edge the popover hangs from; "end" keeps it on-panel for chips near the right edge. */
+	align: "start" | "end";
+	onClose: () => void;
+	children: ComponentChildren;
+}) {
+	const ref = useRef<HTMLDivElement>(null);
+	const closeRef = useRef(onClose);
+	closeRef.current = onClose;
+	useEffect(() => {
+		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+		// Captured now for the close path: Remove field deletes the opening
+		// chip, and focus must land on a neighbor (the row's [+] chip) instead
+		// of falling back to the document.
+		const chipList = opener?.closest(".chip-list") ?? undefined;
+		const first = ref.current?.querySelector<HTMLElement>("input, select, textarea, button");
+		first?.focus();
+		const onPress = (event: MouseEvent) => {
+			// Containment is checked against the chip anchor (the popover's
+			// parent), not the popover alone: a press on the open chip itself is
+			// the chip's own toggle, and closing here first would reopen it.
+			const anchor = ref.current?.parentElement;
+			if (anchor !== null && anchor !== undefined && event.target instanceof Node && !anchor.contains(event.target)) {
+				closeRef.current();
+			}
+		};
+		document.addEventListener("mousedown", onPress);
+		return () => {
+			document.removeEventListener("mousedown", onPress);
+			// Deferred past the commit that unmounted the popover: Remove field
+			// deletes the opening chip in the SAME commit, and a synchronous
+			// restore would land on it a beat before its removal drops focus to
+			// the body.
+			setTimeout(() => {
+				// Something else already owns focus (say, the popover a click on
+				// ANOTHER chip opened): restoring now would steal it. Only a
+				// focus that fell to the body - the closed popover's input going
+				// away - is ours to restore.
+				const active = document.activeElement;
+				if (active instanceof HTMLElement && active !== document.body && active.isConnected) {
+					return;
+				}
+				if (opener?.isConnected === true) {
+					opener.focus();
+					return;
+				}
+				const fallback =
+					chipList?.querySelector<HTMLElement>("button.chip-add") ?? chipList?.querySelector<HTMLElement>("button");
+				fallback?.focus();
+			}, 0);
+		};
+	}, []);
+	return (
+		<div
+			class={align === "end" ? "chip-popover align-end" : "chip-popover"}
+			role="dialog"
+			aria-label={label}
+			ref={ref}
+			onKeyDown={(event) => {
+				if (event.key === "Escape") {
+					event.preventDefault();
+					event.stopPropagation();
+					onClose();
+				}
+			}}
+		>
+			{children}
+		</div>
+	);
+}
+
+/**
+ * The small anchored editor behind a field chip: the value control, the
+ * row's flag toggles, and Remove field. Edits write straight into the draft
+ * (the chip and table stay live; the owner's Apply/Save remains the only
+ * write path). The popover is addressed by the row's KEY, so a flag toggle
+ * that inserts or removes a directive row can never shift it onto another
+ * field.
+ */
+function FieldChipPopover({
+	kind,
+	groups,
+	groupIndex,
+	rowIndex,
+	issue,
+	disabled,
+	catalogResults,
+	align,
+	onChange,
+	onClose,
+}: {
+	kind: RecordEditorKind;
+	groups: readonly PrefixGroup[];
+	groupIndex: number;
+	rowIndex: number;
+	issue: RowIssueView | undefined;
+	disabled: boolean;
+	catalogResults: CatalogSearchResponse | undefined;
+	align: "start" | "end";
+	onChange: (next: PrefixGroup[]) => void;
+	onClose: () => void;
+}) {
+	const group = groups[groupIndex];
+	const row = group?.params[rowIndex];
+	if (group === undefined || row === undefined) {
+		return null;
+	}
+	const key = row.key.trim();
+	const patchValue = (valueText: string) =>
+		onChange(
+			groups.map((g, i) =>
+				i === groupIndex ? { ...g, params: g.params.map((p, r) => (r === rowIndex ? { ...p, valueText } : p)) } : g
+			)
+		);
+	const removeRow = () => {
+		onChange(
+			groups.map((g, i) => (i === groupIndex ? { ...g, params: g.params.filter((_, r) => r !== rowIndex) } : g))
+		);
+		onClose();
+	};
+	const valueKind = kind === "caps" ? capabilityValueKind(key) : "json";
+	const valueInvalid = issue?.problem?.field === "value";
+	// Enter closes the popover once the value is typed - the draft already
+	// holds every keystroke, so there is nothing else to commit here.
+	const onValueKeyDown = (event: KeyboardEvent) => {
+		if (event.key === "Enter") {
+			onClose();
+		}
+	};
+	const forcedFields = directiveMarkedFields(group, FORCE_DIRECTIVE);
+	const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
+	return (
+		<PopoverShell label={l10n.t('Edit field "{0}"', key)} align={align} onClose={onClose}>
+			{valueKind === "boolean" ? (
+				<label class="capability-flag">
+					<input
+						type="checkbox"
+						checked={row.valueText.trim() === "true"}
+						disabled={disabled}
+						onChange={(event) => patchValue(event.currentTarget.checked ? "true" : "false")}
+					/>
+					{l10n.t("supported")}
+				</label>
+			) : valueKind === "catalog-id" ? (
+				<CatalogPicker
+					value={row.valueText}
+					disabled={disabled}
+					invalid={valueInvalid}
+					results={catalogResults}
+					onValue={patchValue}
+				/>
+			) : (
+				<input
+					type={valueKind === "number" ? "number" : "text"}
+					min={valueKind === "number" ? 1 : undefined}
+					class={valueInvalid ? "value invalid" : "value"}
+					aria-invalid={valueInvalid}
+					aria-label={l10n.t('Value for "{0}"', key)}
+					placeholder={valueKind === "number" ? l10n.t("Tokens, e.g. 128000") : l10n.t("JSON value, e.g. 0.2")}
+					value={row.valueText}
+					disabled={disabled}
+					onInput={(event) => patchValue(event.currentTarget.value)}
+					onKeyDown={onValueKeyDown}
+				/>
+			)}
+			{key.length > 0 && !key.startsWith("_") ? (
+				<div class="chip-popover-flags">
+					{kind === "params" ? (
+						<>
+							<label>
+								<input
+									type="checkbox"
+									aria-label={l10n.t('Force "{0}"', key)}
+									checked={forcedFields.has(key)}
+									disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, key)}
+									onChange={(event) =>
+										onChange(
+											groups.map((g, i) =>
+												i === groupIndex
+													? toggleDirectiveField(g, FORCE_DIRECTIVE, key, event.currentTarget.checked)
+													: g
+											)
+										)
+									}
+								/>
+								{forceWord()}
+							</label>
+							<Help text={directiveEligible(FORCE_DIRECTIVE, key) ? helpForceFlag() : helpForceFlagDisabled()} />
+						</>
+					) : null}
+					{kind === "caps" && Object.hasOwn(CAPABILITY_FIELDS, key) ? (
+						<>
+							<label>
+								<input
+									type="checkbox"
+									aria-label={l10n.t('Fall back for "{0}"', key)}
+									checked={fallbackFields.has(key)}
+									disabled={disabled}
+									onChange={(event) =>
+										onChange(
+											groups.map((g, i) =>
+												i === groupIndex
+													? toggleDirectiveField(g, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
+													: g
+											)
+										)
+									}
+								/>
+								{fallbackWord()}
+							</label>
+							<Help text={helpFallbackFlag()} />
+						</>
+					) : null}
+					<InheritableFlag
+						group={group}
+						groupIndex={groupIndex}
+						groups={groups}
+						fieldKey={key}
+						disabled={disabled}
+						onChange={onChange}
+					/>
+				</div>
+			) : null}
+			{issue?.problem !== undefined ? <p class="error">{issue.problem.message}</p> : null}
+			{issue?.hint !== undefined ? <p class="hint">{issue.hint}</p> : null}
+			<div class="chip-popover-actions">
+				<button type="button" class="quiet" disabled={disabled} onClick={removeRow}>
+					<IconTrash /> {l10n.t("Remove field")}
+				</button>
+			</div>
+		</PopoverShell>
+	);
+}
+
+/**
+ * The [+] chip's popover: a complete field is assembled locally (key, value,
+ * flags) and lands in the draft as ONE commit, so half-typed rows never leak
+ * into the table. Validation runs the target parser over the candidate row
+ * on every keystroke - the popover cannot accept what the editor would then
+ * block.
+ */
+function AddFieldPopover({
+	kind,
+	groups,
+	groupIndex,
+	disabled,
+	catalogResults,
+	keySuggestions,
+	align,
+	onChange,
+	onClose,
+}: {
+	kind: RecordEditorKind;
+	groups: readonly PrefixGroup[];
+	groupIndex: number;
+	disabled: boolean;
+	catalogResults: CatalogSearchResponse | undefined;
+	keySuggestions: readonly string[];
+	align: "start" | "end";
+	onChange: (next: PrefixGroup[]) => void;
+	onClose: () => void;
+}) {
+	const [key, setKey] = useState("");
+	const [valueText, setValueText] = useState("");
+	// The user's explicit flag choices only; unset means "whatever the group's
+	// directive rows already say about this key" (a literal `_force: true`
+	// covers the new field the moment it lands, and the box must show that).
+	const [flagOverrides, setFlagOverrides] = useState<Partial<Record<FieldDirective, boolean>>>({});
+	const group = groups[groupIndex];
+	if (group === undefined) {
+		return null;
+	}
+	const trimmed = key.trim();
+	const problem = trimmed.length === 0 ? undefined : candidateProblem(kind, groups, groupIndex, { key, valueText });
+	const canAdd = trimmed.length > 0 && problem === undefined;
+	const valueKind = kind === "caps" ? capabilityValueKind(trimmed) : "json";
+	const setKeyAndSeed = (nextKey: string) => {
+		setKey(nextKey);
+		// A key switched onto a support flag means "turn it on" (the row grid's
+		// seeding rule, so the checkbox and the parse agree without a click).
+		if (kind === "caps" && capabilityValueKind(nextKey.trim()) === "boolean" && valueText.trim().length === 0) {
+			setValueText("true");
+		}
+	};
+	// What the group's directive rows would already mark on the candidate once
+	// its row lands (simulated with the row appended, so a literal true's
+	// expansion sees the new key).
+	const candidateRow = { key: trimmed, valueText };
+	const withCandidate: PrefixGroup = { ...group, params: [...group.params, candidateRow] };
+	const impliedFlag = (flag: FieldDirective): boolean => directiveMarkedFields(withCandidate, flag).has(trimmed);
+	const flagChecked = (flag: FieldDirective): boolean => flagOverrides[flag] ?? impliedFlag(flag);
+	const toggleLocalFlag = (flag: FieldDirective, enabled: boolean) =>
+		setFlagOverrides((current) => ({ ...current, [flag]: enabled }));
+	const commit = () => {
+		if (!canAdd) {
+			return;
+		}
+		let next = withCandidate;
+		// Only explicit choices touch the directive rows, and only when they
+		// change what the rows already say: an untouched box over a literal
+		// `true` must never explode it into a list.
+		for (const flag of [FORCE_DIRECTIVE, FALLBACK_DIRECTIVE, INHERITABLE_DIRECTIVE] as const) {
+			const desired = flagOverrides[flag];
+			if (desired === undefined || !directiveEligible(flag, trimmed)) {
+				continue;
+			}
+			if (directiveMarkedFields(next, flag).has(trimmed) !== desired) {
+				next = toggleDirectiveField(next, flag, trimmed, desired);
+			}
+		}
+		onChange(groups.map((g, i) => (i === groupIndex ? next : g)));
+		onClose();
+	};
+	return (
+		<PopoverShell label={l10n.t("Add field")} align={align} onClose={onClose}>
+			<SuggestInput
+				value={key}
+				suggestions={keySuggestions}
+				inputClass="key"
+				invalid={false}
+				placeholder={
+					kind === "params" ? l10n.t("Parameter, e.g. temperature") : l10n.t("Capability, e.g. context_length")
+				}
+				disabled={disabled}
+				onValue={setKeyAndSeed}
+				onEnter={commit}
+			/>
+			{valueKind === "boolean" ? (
+				<label class="capability-flag">
+					<input
+						type="checkbox"
+						checked={valueText.trim() === "true"}
+						disabled={disabled}
+						onChange={(event) => setValueText(event.currentTarget.checked ? "true" : "false")}
+					/>
+					{l10n.t("supported")}
+				</label>
+			) : valueKind === "catalog-id" ? (
+				<CatalogPicker
+					value={valueText}
+					disabled={disabled}
+					invalid={false}
+					results={catalogResults}
+					onValue={setValueText}
+				/>
+			) : (
+				<input
+					type={valueKind === "number" ? "number" : "text"}
+					min={valueKind === "number" ? 1 : undefined}
+					class="value"
+					aria-label={l10n.t("New field value")}
+					placeholder={valueKind === "number" ? l10n.t("Tokens, e.g. 128000") : l10n.t("JSON value, e.g. 0.2")}
+					value={valueText}
+					disabled={disabled}
+					onInput={(event) => setValueText(event.currentTarget.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") {
+							commit();
+						}
+					}}
+				/>
+			)}
+			{trimmed.length > 0 && !trimmed.startsWith("_") ? (
+				<div class="chip-popover-flags">
+					{kind === "params" ? (
+						<>
+							<label>
+								<input
+									type="checkbox"
+									aria-label={l10n.t('Force "{0}"', trimmed)}
+									checked={flagChecked(FORCE_DIRECTIVE)}
+									disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, trimmed)}
+									onChange={(event) => toggleLocalFlag(FORCE_DIRECTIVE, event.currentTarget.checked)}
+								/>
+								{forceWord()}
+							</label>
+							<Help text={directiveEligible(FORCE_DIRECTIVE, trimmed) ? helpForceFlag() : helpForceFlagDisabled()} />
+						</>
+					) : null}
+					{kind === "caps" && Object.hasOwn(CAPABILITY_FIELDS, trimmed) ? (
+						<>
+							<label>
+								<input
+									type="checkbox"
+									aria-label={l10n.t('Fall back for "{0}"', trimmed)}
+									checked={flagChecked(FALLBACK_DIRECTIVE)}
+									disabled={disabled}
+									onChange={(event) => toggleLocalFlag(FALLBACK_DIRECTIVE, event.currentTarget.checked)}
+								/>
+								{fallbackWord()}
+							</label>
+							<Help text={helpFallbackFlag()} />
+						</>
+					) : null}
+					<label>
+						<input
+							type="checkbox"
+							aria-label={l10n.t('Mark "{0}" inheritable', trimmed)}
+							checked={flagChecked(INHERITABLE_DIRECTIVE)}
+							disabled={disabled}
+							onChange={(event) => toggleLocalFlag(INHERITABLE_DIRECTIVE, event.currentTarget.checked)}
+						/>
+						{inheritableWord()}
+					</label>
+					<Help text={helpInheritableFlag()} />
+				</div>
+			) : null}
+			{problem !== undefined ? <p class="error">{problem}</p> : null}
+			<div class="chip-popover-actions">
+				<button type="button" disabled={disabled || !canAdd} onClick={commit}>
+					<IconAdd /> {l10n.t("Add field")}
+				</button>
+			</div>
+		</PopoverShell>
+	);
+}
+
+/**
+ * The open chip popover: one per table, addressed by the group's MATCHER KEY
+ * and the row's FIELD KEY, never by index - a state push (no draft pinned)
+ * or a flag toggle may reorder or reshape the arrays under an open popover,
+ * and index identity would silently retarget it onto another record. Keys
+ * compare RAW (the resolver's grammar trims nothing, and trimmed identity
+ * would transfer between "gpt-4" and "gpt-4 " on a reorder); the ordinals
+ * disambiguate exact duplicates, which the parse blocks but the rows can
+ * still represent.
+ */
+type ChipPopoverTarget =
+	| {
+			readonly kind: "field";
+			readonly groupKey: string;
+			readonly groupOrdinal: number;
+			readonly fieldKey: string;
+			readonly ordinal: number;
+			readonly align: "start" | "end";
+	  }
+	| {
+			readonly kind: "add";
+			readonly groupKey: string;
+			readonly groupOrdinal: number;
+			readonly align: "start" | "end";
+	  };
+
+/** Which chip edge a popover hangs from: chips in the viewport's right half open leftwards to stay on-panel. */
+function popoverAlign(target: EventTarget | null): "start" | "end" {
+	if (!(target instanceof HTMLElement)) {
+		return "start";
+	}
+	const rect = target.getBoundingClientRect();
+	return rect.left > window.innerWidth / 2 ? "end" : "start";
+}
+
+/**
+ * The compact matcher table both record editors and the server form render:
+ * one row per matcher - the key, its inheritance, the fields as combined
+ * chips, and the full-editor pencil. Rows display in precedence order,
+ * lowest first (sortedGroupOrder; a VIEW order - the draft's storage order
+ * is never rewritten). Chips open the small anchored popover; the pencil
+ * asks the owner to open the full matcher editor overlay. With readOnly the
+ * same table renders as a static display: plain chips, no edit affordances
+ * (the other-scope records).
+ */
+export function RecordMatcherTable({
+	kind,
+	groups,
+	issues,
+	readOnly,
+	disabled,
+	catalogResults,
+	keySuggestions,
+	onChange,
+	onOpenEditor,
+}: {
+	kind: RecordEditorKind;
+	groups: readonly PrefixGroup[];
+	issues: readonly GroupIssueView[];
+	/** Render as a static display: plain chips, no popovers, no add or edit actions (the other-scope records). */
+	readOnly?: boolean;
+	disabled?: boolean;
+	catalogResults?: CatalogSearchResponse | undefined;
+	/** The add popover's field-name suggestions; the capability vocabulary fills in for the caps kind. */
+	keySuggestions?: readonly string[];
+	onChange: (next: PrefixGroup[]) => void;
+	/** The pencil action; the owner opens the full matcher editor overlay on this draft index. */
+	onOpenEditor?: ((groupIndex: number) => void) | undefined;
+}) {
+	const [popover, setPopover] = useState<ChipPopoverTarget | undefined>(undefined);
+	// A popover whose group or field left the draft (a state push with no
+	// draft pinned, a removal elsewhere) closes instead of editing a stale
+	// row; one with live edits is never dropped - its edits sit in the draft,
+	// which pins across pushes.
+	useEffect(() => {
+		setPopover((current) => {
+			if (current === undefined) {
+				return current;
+			}
+			const group = groups.filter((candidate) => candidate.prefix === current.groupKey)[current.groupOrdinal];
+			if (group === undefined) {
+				return undefined;
+			}
+			if (
+				current.kind === "field" &&
+				group.params.filter((param) => param.key === current.fieldKey).length <= current.ordinal
+			) {
+				return undefined;
+			}
+			return current;
+		});
+	}, [groups]);
+	const editable = readOnly !== true;
+	const order = sortedGroupOrder(groups);
+	return (
+		<table class="record-table">
+			<thead>
+				<tr>
+					<th>{l10n.t("Matcher")}</th>
+					<th>{l10n.t("Inherits")}</th>
+					<th class="col-fields">{l10n.t("Fields")}</th>
+					{editable ? (
+						<th>
+							<span class="visually-hidden">{l10n.t("Edit")}</span>
+						</th>
+					) : null}
+				</tr>
+			</thead>
+			<tbody>
+				{order.map((groupIndex) => {
+					const group = groups[groupIndex];
+					if (group === undefined) {
+						return null;
+					}
+					const issueView = issues[groupIndex];
+					// Identity is the RAW key (reorder-stable where trimmed identity
+					// is not) plus the occurrence ordinal for exact duplicates, which
+					// block the parse but stay representable.
+					const groupKey = group.prefix;
+					const groupOrdinal = groups.slice(0, groupIndex).filter((candidate) => candidate.prefix === groupKey).length;
+					const groupHere = (target: ChipPopoverTarget | undefined): boolean =>
+						target !== undefined && target.groupKey === groupKey && target.groupOrdinal === groupOrdinal;
+					const pinnedKey = popover?.kind === "field" && groupHere(popover) ? popover.fieldKey : undefined;
+					const chips = chipRowIndices(kind, group, issueView?.rows ?? [], pinnedKey);
+					const addOpen = popover?.kind === "add" && groupHere(popover);
+					// The visible cell's fallback doubles as the accessible name for
+					// the row's actions: a fresh matcher must not announce as "".
+					const matcherName = group.prefix.trim().length > 0 ? group.prefix : l10n.t("(no matcher)");
+					return (
+						// Rows are keyed by their MATCHER KEY plus occurrence (index
+						// only for the empty edge): an index key would remount the row
+						// when a state push reorders the record, dropping an open add
+						// popover's half-typed field with it.
+						<tr key={`${groupKey}#${groupOrdinal}`}>
+							<td class="matcher-cell">
+								<code class="matcher-key">{matcherName}</code>
+								<span class="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
+								{issueView?.prefix !== undefined ? <span class="error">{issueView.prefix}</span> : null}
+							</td>
+							<td class="inherit-cell">
+								<InheritsSummary group={group} />
+							</td>
+							<td class="fields-cell">
+								<span class="chip-list">
+									{chips.map((rowIndex) => {
+										const row = group.params[rowIndex];
+										if (row === undefined) {
+											return null;
+										}
+										const key = row.key.trim();
+										const issue = issueView?.rows[rowIndex];
+										const catalog = kind === "caps" && key === OPENROUTER_MODEL_DIRECTIVE;
+										// Chip identity mirrors the group's: the RAW key plus the
+										// occurrence ordinal among exact duplicates, so each
+										// duplicate answers its OWN popover and Remove field can
+										// never aim at a sibling row.
+										const ordinal = group.params.slice(0, rowIndex).filter((param) => param.key === row.key).length;
+										const openHere =
+											popover?.kind === "field" &&
+											groupHere(popover) &&
+											popover.fieldKey === row.key &&
+											popover.ordinal === ordinal;
+										const chipClass = [
+											"chip-field",
+											catalog ? "chip-catalog" : "",
+											issue?.problem !== undefined ? "invalid" : "",
+											issue?.hint !== undefined ? "hinted" : "",
+										]
+											.filter((part) => part.length > 0)
+											.join(" ");
+										const body = (
+											<>
+												{catalog ? (
+													<span class="chip-key">{l10n.t("catalog")}</span>
+												) : (
+													<code class="chip-key">{key.length > 0 ? key : l10n.t("(unnamed)")}</code>
+												)}
+												<span class="chip-value">{row.valueText}</span>
+												{chipFlags(kind, group, key).map((flag) => (
+													<span class="chip-flag" key={flag}>
+														{flag}
+													</span>
+												))}
+											</>
+										);
+										return (
+											// Chips are keyed by their FIELD KEY so a directive row
+											// inserted or removed by a flag toggle cannot remount an
+											// open popover mid-interaction.
+											<span class="chip-anchor" key={`${row.key}#${ordinal}`}>
+												{editable ? (
+													<button
+														type="button"
+														class={chipClass}
+														aria-expanded={openHere}
+														disabled={disabled}
+														onClick={(event) =>
+															setPopover(
+																openHere
+																	? undefined
+																	: {
+																			kind: "field",
+																			groupKey,
+																			groupOrdinal,
+																			fieldKey: row.key,
+																			ordinal,
+																			align: popoverAlign(event.currentTarget),
+																		}
+															)
+														}
+													>
+														{/* The action rides a hidden prefix so the accessible
+														    name keeps the chip's visible content - key, value,
+														    and flag badges - instead of masking it. */}
+														<span class="visually-hidden">{l10n.t("Edit field")}</span>
+														{body}
+													</button>
+												) : (
+													<span class={chipClass}>{body}</span>
+												)}
+												{openHere && popover !== undefined ? (
+													<FieldChipPopover
+														kind={kind}
+														groups={groups}
+														groupIndex={groupIndex}
+														rowIndex={rowIndex}
+														issue={issue}
+														disabled={disabled === true}
+														catalogResults={catalogResults}
+														align={popover.align}
+														onChange={onChange}
+														onClose={() => setPopover(undefined)}
+													/>
+												) : null}
+											</span>
+										);
+									})}
+									{editable ? (
+										<span class="chip-anchor">
+											<button
+												type="button"
+												class="chip-field chip-add"
+												aria-expanded={addOpen}
+												disabled={disabled}
+												aria-label={l10n.t('Add a field to "{0}"', matcherName)}
+												onClick={(event) =>
+													setPopover(
+														addOpen
+															? undefined
+															: { kind: "add", groupKey, groupOrdinal, align: popoverAlign(event.currentTarget) }
+													)
+												}
+											>
+												<IconAdd />
+											</button>
+											{addOpen && popover !== undefined ? (
+												<AddFieldPopover
+													kind={kind}
+													groups={groups}
+													groupIndex={groupIndex}
+													disabled={disabled === true}
+													catalogResults={catalogResults}
+													keySuggestions={keySuggestions ?? (kind === "caps" ? CAPABILITY_KEY_SUGGESTIONS : [])}
+													align={popover.align}
+													onChange={onChange}
+													onClose={() => setPopover(undefined)}
+												/>
+											) : null}
+										</span>
+									) : null}
+								</span>
+							</td>
+							{editable ? (
+								<td class="edit-cell">
+									<button
+										type="button"
+										class="quiet"
+										aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
+										disabled={disabled}
+										onClick={() => onOpenEditor?.(groupIndex)}
+									>
+										<IconEdit />
+									</button>
+								</td>
+							) : null}
+						</tr>
+					);
+				})}
+			</tbody>
+		</table>
+	);
+}
+
+/**
+ * The full matcher editor, an in-place overlay on the same slide-over
+ * machinery the model inspectors use: matcher input, the Inherits control,
+ * every field row with its flags, Add parameter/capability, and Remove
+ * matcher. It edits the same draft the table renders - closing commits
+ * nothing and loses nothing; the owner's Apply/Save remains the only write
+ * path. Focus returns to the opening pencil on close (the slide-over's own
+ * restore), with `fallbackFocusId` covering a pencil the removal deleted.
+ */
+export function RecordMatcherEditorOverlay({
+	kind,
+	group,
+	groupProblems,
+	groupHints,
+	groupIssues,
+	prefixPlaceholder,
+	prefixHelp,
+	prefixSuggestions,
+	paramNameSuggestions,
+	catalogResults,
+	disabled,
+	fallbackFocusId,
+	note,
+	onChange,
+	onRemove,
+	onClose,
+	onEnter,
+}: {
+	kind: RecordEditorKind;
+	group: PrefixGroup;
+	/** The group's slice of parseGroups' problems (params kind). */
+	groupProblems?: GroupProblems | undefined;
+	/** The group's slice of parseGroups' hints (params kind). */
+	groupHints?: GroupHints | undefined;
+	/** The group's slice of parseCapabilityGroups' issues (caps kind). */
+	groupIssues?: CapabilityGroupIssues | undefined;
+	prefixPlaceholder?: string | undefined;
+	prefixHelp?: string | undefined;
+	prefixSuggestions?: readonly string[];
+	paramNameSuggestions?: readonly string[];
+	catalogResults?: CatalogSearchResponse | undefined;
+	disabled?: boolean;
+	/** Where focus lands on close when the opening pencil is gone (a removed matcher); the owner's stable control. */
+	fallbackFocusId: string;
+	/** One line naming where these edits land (the draft's Apply, the form's Save). */
+	note: string;
+	onChange: (next: PrefixGroup) => void;
+	/** Remove matcher inside the editor; the owner drops the group and closes. */
+	onRemove: () => void;
+	onClose: () => void;
+	/** Enter in a row input, where the owner supports Enter-to-apply. */
+	onEnter?: (() => void) | undefined;
+}) {
+	const titleId = useId();
+	const onGroupsChange = (next: PrefixGroup[]) => {
+		const first = next[0];
+		if (first === undefined) {
+			onRemove();
+		} else {
+			onChange(first);
+		}
+	};
+	return (
+		<SlideOver
+			labelledBy={titleId}
+			fallbackFocusId={fallbackFocusId}
+			confirming={false}
+			onRequestClose={onClose}
+			onKeepEditing={onClose}
+			onDiscard={onClose}
+		>
+			<div class="matcher-editor">
+				<h3 id={titleId}>{kind === "params" ? l10n.t("Edit parameter matcher") : l10n.t("Edit capability matcher")}</h3>
+				<p class="hint">{note}</p>
+				{kind === "params" ? (
+					<ParamGroupsFields
+						groups={[group]}
+						problems={groupProblems !== undefined ? [groupProblems] : []}
+						hints={groupHints !== undefined ? [groupHints] : undefined}
+						disabled={disabled}
+						prefixPlaceholder={prefixPlaceholder ?? l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
+						prefixHelp={prefixHelp ?? helpModelParameterPrefix()}
+						prefixSuggestions={prefixSuggestions}
+						paramNameSuggestions={paramNameSuggestions}
+						onChange={onGroupsChange}
+						onEnter={onEnter}
+					/>
+				) : (
+					<CapabilityGroupsFields
+						groups={[group]}
+						issues={groupIssues !== undefined ? [groupIssues] : []}
+						disabled={disabled}
+						catalogResults={catalogResults}
+						prefixSuggestions={prefixSuggestions}
+						onChange={onGroupsChange}
+						onEnter={onEnter}
+					/>
+				)}
+				<div class="toolbar">
+					<button type="button" class="secondary" onClick={onClose}>
+						{l10n.t("Done")}
+					</button>
+				</div>
+			</div>
+		</SlideOver>
+	);
+}
+
+/** The open overlay's target: the RAW matcher key captured at open, plus its occurrence among exact duplicates. */
+interface MatcherEditing {
+	/** Identity exactly as stored - the grammar trims nothing, so neither does identity. */
+	readonly key: string;
+	/** Occurrence among groups with the SAME raw key (the exact-duplicate edge). */
+	readonly ordinal: number;
+}
+
+/** The draft index the target currently resolves to; undefined once the group left the rows. */
+function resolveMatcherEditing(
+	groups: readonly PrefixGroup[],
+	editing: MatcherEditing | undefined
+): number | undefined {
+	if (editing === undefined) {
+		return undefined;
+	}
+	let seen = 0;
+	for (let index = 0; index < groups.length; index += 1) {
+		if (groups[index]?.prefix === editing.key) {
+			if (seen === editing.ordinal) {
+				return index;
+			}
+			seen += 1;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * The settings editors' overlay target, resolved to a draft index
+ * SYNCHRONOUSLY on every render: a pristine state push may reorder or remove
+ * groups under an open overlay, and a stored index would hand the render
+ * between the push and any effect a stale target - one keystroke there would
+ * edit the wrong record. Identity is the RAW matcher key (never trimmed,
+ * matching the resolver's grammar) plus an occurrence ordinal for exact
+ * duplicates; a rename typed inside the overlay refreshes the captured key
+ * through trackRename. The effect below only clears the state once the
+ * target is unresolvable, so a key that later REAPPEARS cannot resurrect a
+ * long-closed overlay.
+ */
+function useMatcherEditing(groups: readonly PrefixGroup[]): {
+	/** The open overlay's draft index this render, or undefined when closed. */
+	editingIndex: number | undefined;
+	/** Open on a draft index; `key` overrides the capture when the group is appended in the same tick. */
+	openEditor: (index: number, key?: string) => void;
+	/** Follow the matcher key through the overlay's own edits, with the next rows and the group's index in them. */
+	trackRename: (next: PrefixGroup, nextGroups: readonly PrefixGroup[], index: number) => void;
+	closeEditing: () => void;
+} {
+	const [editing, setEditing] = useState<MatcherEditing | undefined>(undefined);
+	const editingIndex = resolveMatcherEditing(groups, editing);
+	useEffect(() => {
+		setEditing((current) =>
+			current !== undefined && resolveMatcherEditing(groups, current) === undefined ? undefined : current
+		);
+	}, [groups]);
+	return {
+		editingIndex,
+		openEditor: (index, key) => {
+			const raw = key ?? groups[index]?.prefix ?? "";
+			const ordinal = groups.slice(0, Math.min(index, groups.length)).filter((group) => group.prefix === raw).length;
+			setEditing({ key: raw, ordinal });
+		},
+		trackRename: (next, nextGroups, index) =>
+			setEditing((current) =>
+				current === undefined
+					? current
+					: {
+							key: next.prefix,
+							ordinal: nextGroups.slice(0, index).filter((group) => group.prefix === next.prefix).length,
+						}
+			),
+		closeEditing: () => setEditing(undefined),
+	};
+}
 
 /**
  * Structured editor for litellm-vscode-chat.models.parameters, the
@@ -1538,10 +2564,45 @@ export function ModelParametersEditor({
 	};
 
 	const modelIds = Array.from(new Set(models.map((model) => model.id)));
-	const sectionRef = useRef<HTMLElement>(null);
-	useExternalRecordEdit(external, sectionRef, groups, (next) => draft.update(next), json !== undefined);
+	const issueViews = paramIssueViews(groups, problems, parse.hints);
+	// The full matcher editor overlay, re-anchored by matcher key on pushes.
+	const { editingIndex, openEditor, trackRename, closeEditing } = useMatcherEditing(groups);
+	// A removal that lands the rows back on the store value resets the draft
+	// inside useDraftRows.update itself; every path below simply updates.
+	// Closing the overlay sweeps up a still-pristine new matcher (no key, no
+	// fields): keeping it would strand an invalid empty row in the table.
+	const closeEditor = () => {
+		if (editingIndex !== undefined) {
+			const group = groups[editingIndex];
+			if (group !== undefined && group.prefix.trim().length === 0 && group.params.length === 0) {
+				draft.update(groups.filter((_, index) => index !== editingIndex));
+			}
+		}
+		closeEditing();
+	};
+	// The inspectors' configure-jump lands in the overlay: the existing record
+	// opens directly, a create request appends the draft group first. Inert
+	// while the JSON view is open (rewriting a JSON draft would lose text).
+	// Keyed on the request's seq so repeating the same jump re-opens.
+	const externalSeq = external?.seq;
+	const jsonOpen = json !== undefined;
+	useEffect(() => {
+		if (external === undefined || externalSeq === undefined || jsonOpen) {
+			return;
+		}
+		const index = groups.findIndex((group) => group.prefix.trim() === external.key);
+		if (index >= 0) {
+			openEditor(index);
+			return;
+		}
+		if (!external.create) {
+			return;
+		}
+		draft.update([...groups, { prefix: external.key, params: [] }]);
+		openEditor(groups.length, external.key);
+	}, [externalSeq]);
 	return (
-		<section hidden={hidden} ref={sectionRef}>
+		<section hidden={hidden}>
 			<h3 class="head-with-icons">
 				{modelParametersTitle()} <Help text={helpModelParametersSection()} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
@@ -1574,17 +2635,16 @@ export function ModelParametersEditor({
 			) : (
 				<>
 					{groups.length === 0 ? <p class="empty">{l10n.t("No model parameters configured in this scope.")}</p> : null}
-					<ParamGroupsFields
-						groups={groups}
-						problems={problems}
-						hints={parse.hints}
-						prefixPlaceholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
-						prefixHelp={helpModelParameterPrefix()}
-						prefixSuggestions={modelIds}
-						paramNameSuggestions={COMMON_PARAMETER_NAMES}
-						onChange={(next) => draft.update(next)}
-						onEnter={apply}
-					/>
+					{groups.length > 0 ? (
+						<RecordMatcherTable
+							kind="params"
+							groups={groups}
+							issues={issueViews}
+							keySuggestions={COMMON_PARAMETER_NAMES}
+							onChange={(next) => draft.update(next)}
+							onOpenEditor={openEditor}
+						/>
+					) : null}
 				</>
 			)}
 			<FailureNote failure={draft.failure} dirty={draft.dirty} />
@@ -1593,7 +2653,11 @@ export function ModelParametersEditor({
 					<button
 						type="button"
 						class="secondary"
-						onClick={() => draft.update([...groups, { prefix: "", params: [{ key: "", valueText: "" }] }])}
+						id="params-add-matcher"
+						onClick={() => {
+							draft.update([...groups, { prefix: "", params: [] }]);
+							openEditor(groups.length, "");
+						}}
 					>
 						<IconAdd /> {l10n.t("Add model matcher")}
 					</button>
@@ -1632,19 +2696,50 @@ export function ModelParametersEditor({
 				)}
 				<ApplyStatus phase={draft.phase} />
 			</div>
-			{scoped.otherScopes.map((other) => (
-				<div class="other-scope" key={other.scope}>
-					<OtherScopeNote scope={other.scope} />
-					<ParamGroupsFields
-						groups={toGroups(other.value)}
-						problems={[]}
-						readOnly
-						prefixPlaceholder=""
-						prefixHelp={helpModelParameterPrefix()}
-						onChange={() => undefined}
-					/>
-				</div>
-			))}
+			{scoped.otherScopes.map((other) => {
+				// The static table judges its rows with the same parse as the edit
+				// scope: absorption reads the hints, and a directive the badges
+				// cannot faithfully summarize must keep its raw chip here too.
+				const otherGroups = toGroups(other.value);
+				const otherParse = parseGroups(otherGroups);
+				return (
+					<div class="other-scope" key={other.scope}>
+						<OtherScopeNote scope={other.scope} />
+						<RecordMatcherTable
+							kind="params"
+							groups={otherGroups}
+							issues={paramIssueViews(otherGroups, otherParse.ok ? [] : otherParse.problems, otherParse.hints)}
+							readOnly
+							onChange={() => undefined}
+						/>
+					</div>
+				);
+			})}
+			{editingIndex !== undefined && groups[editingIndex] !== undefined ? (
+				<RecordMatcherEditorOverlay
+					kind="params"
+					group={groups[editingIndex] as PrefixGroup}
+					groupProblems={problems[editingIndex]}
+					groupHints={parse.hints[editingIndex]}
+					prefixPlaceholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
+					prefixHelp={helpModelParameterPrefix()}
+					prefixSuggestions={modelIds}
+					paramNameSuggestions={COMMON_PARAMETER_NAMES}
+					fallbackFocusId="params-add-matcher"
+					note={l10n.t("Changes here edit the draft; Apply in the editor saves them.")}
+					onChange={(next) => {
+						const remapped = groups.map((group, index) => (index === editingIndex ? next : group));
+						draft.update(remapped);
+						trackRename(next, remapped, editingIndex);
+					}}
+					onRemove={() => {
+						draft.update(groups.filter((_, index) => index !== editingIndex));
+						closeEditing();
+					}}
+					onClose={closeEditor}
+					onEnter={apply}
+				/>
+			) : null}
 		</section>
 	);
 }
@@ -1720,10 +2815,40 @@ export function ModelCapabilitiesEditor({
 	};
 
 	const modelIds = Array.from(new Set(models.map((model) => model.id)));
-	const sectionRef = useRef<HTMLElement>(null);
-	useExternalRecordEdit(external, sectionRef, groups, (next) => draft.update(next), json !== undefined);
+	const issueViews = capabilityIssueViews(groups, issues);
+	// The full matcher editor overlay, re-anchored by matcher key on pushes;
+	// see the parameters editor's twin block for the close-sweep and
+	// external-jump contracts.
+	const { editingIndex, openEditor, trackRename, closeEditing } = useMatcherEditing(groups);
+	const closeEditor = () => {
+		if (editingIndex !== undefined) {
+			const group = groups[editingIndex];
+			if (group !== undefined && group.prefix.trim().length === 0 && group.params.length === 0) {
+				draft.update(groups.filter((_, index) => index !== editingIndex));
+			}
+		}
+		closeEditing();
+	};
+	// Keyed on the request's seq so repeating the same jump re-opens.
+	const externalSeq = external?.seq;
+	const jsonOpen = json !== undefined;
+	useEffect(() => {
+		if (external === undefined || externalSeq === undefined || jsonOpen) {
+			return;
+		}
+		const index = groups.findIndex((group) => group.prefix.trim() === external.key);
+		if (index >= 0) {
+			openEditor(index);
+			return;
+		}
+		if (!external.create) {
+			return;
+		}
+		draft.update([...groups, { prefix: external.key, params: [] }]);
+		openEditor(groups.length, external.key);
+	}, [externalSeq]);
 	return (
-		<section hidden={hidden} ref={sectionRef}>
+		<section hidden={hidden}>
 			<h3 class="head-with-icons">
 				{modelCapabilitiesTitle()} <Help text={helpModelCapabilitiesSection()} />
 				<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
@@ -1758,14 +2883,16 @@ export function ModelCapabilitiesEditor({
 					{groups.length === 0 ? (
 						<p class="empty">{l10n.t("No model capabilities configured in this scope.")}</p>
 					) : null}
-					<CapabilityGroupsFields
-						groups={groups}
-						issues={issues}
-						catalogResults={catalogResults}
-						prefixSuggestions={modelIds}
-						onChange={(next) => draft.update(next)}
-						onEnter={apply}
-					/>
+					{groups.length > 0 ? (
+						<RecordMatcherTable
+							kind="caps"
+							groups={groups}
+							issues={issueViews}
+							catalogResults={catalogResults}
+							onChange={(next) => draft.update(next)}
+							onOpenEditor={openEditor}
+						/>
+					) : null}
 				</>
 			)}
 			<FailureNote failure={draft.failure} dirty={draft.dirty} />
@@ -1774,7 +2901,11 @@ export function ModelCapabilitiesEditor({
 					<button
 						type="button"
 						class="secondary"
-						onClick={() => draft.update([...groups, { prefix: "", params: [{ key: "", valueText: "" }] }])}
+						id="caps-add-matcher"
+						onClick={() => {
+							draft.update([...groups, { prefix: "", params: [] }]);
+							openEditor(groups.length, "");
+						}}
 					>
 						<IconAdd /> {l10n.t("Add capability matcher")}
 					</button>
@@ -1813,18 +2944,45 @@ export function ModelCapabilitiesEditor({
 				)}
 				<ApplyStatus phase={draft.phase} />
 			</div>
-			{scoped.otherScopes.map((other) => (
-				<div class="other-scope" key={other.scope}>
-					<OtherScopeNote scope={other.scope} />
-					<CapabilityGroupsFields
-						groups={toCapabilityGroups(other.value)}
-						issues={[]}
-						readOnly
-						catalogResults={undefined}
-						onChange={() => undefined}
-					/>
-				</div>
-			))}
+			{scoped.otherScopes.map((other) => {
+				// The same-parse rule as the parameters editor's static tables.
+				const otherGroups = toCapabilityGroups(other.value);
+				const otherParse = parseCapabilityGroups(otherGroups);
+				return (
+					<div class="other-scope" key={other.scope}>
+						<OtherScopeNote scope={other.scope} />
+						<RecordMatcherTable
+							kind="caps"
+							groups={otherGroups}
+							issues={capabilityIssueViews(otherGroups, otherParse.issues)}
+							readOnly
+							onChange={() => undefined}
+						/>
+					</div>
+				);
+			})}
+			{editingIndex !== undefined && groups[editingIndex] !== undefined ? (
+				<RecordMatcherEditorOverlay
+					kind="caps"
+					group={groups[editingIndex] as PrefixGroup}
+					groupIssues={issues[editingIndex]}
+					prefixSuggestions={modelIds}
+					catalogResults={catalogResults}
+					fallbackFocusId="caps-add-matcher"
+					note={l10n.t("Changes here edit the draft; Apply in the editor saves them.")}
+					onChange={(next) => {
+						const remapped = groups.map((group, index) => (index === editingIndex ? next : group));
+						draft.update(remapped);
+						trackRename(next, remapped, editingIndex);
+					}}
+					onRemove={() => {
+						draft.update(groups.filter((_, index) => index !== editingIndex));
+						closeEditing();
+					}}
+					onClose={closeEditor}
+					onEnter={apply}
+				/>
+			) : null}
 		</section>
 	);
 }

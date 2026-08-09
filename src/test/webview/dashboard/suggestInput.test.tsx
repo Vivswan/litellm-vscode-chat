@@ -41,7 +41,7 @@ function sectionByHeading(root: ParentNode, heading: string): HTMLElement {
 	return section as HTMLElement;
 }
 
-/** Mount App with one model and a fresh matcher group in the named editor; returns the section getter. */
+/** Mount App, open a fresh matcher's overlay in the named editor, and add one field row; returns the overlay getter. */
 function mountEditor(heading: string, addButton: string): () => HTMLElement {
 	const root = mount(<App />);
 	pushToWebview(
@@ -54,7 +54,16 @@ function mountEditor(heading: string, addButton: string): () => HTMLElement {
 	);
 	const section = () => sectionByHeading(root, heading);
 	fireClick(buttonByText(section(), addButton));
-	return section;
+	const overlay = () => {
+		const editor = section().querySelector<HTMLElement>(".matcher-editor");
+		if (editor === null) {
+			throw new Error("no matcher editor overlay is open");
+		}
+		return editor;
+	};
+	// The suggestion inputs under test live on the overlay's field rows.
+	fireClick(buttonByText(overlay(), heading === "Model parameters" ? "Add parameter" : "Add capability"));
+	return overlay;
 }
 
 function listboxOf(input: HTMLInputElement): HTMLElement | null {
@@ -157,31 +166,24 @@ test("Escape closes the listbox without picking; ArrowDown reopens onto a highli
 	expect(nameInput().getAttribute("aria-expanded")).toBe("false");
 });
 
-test("an open listbox consumes Escape; a closed one lets it bubble (the slide-over must not close)", () => {
-	// The server edit form renders these inputs inside a SlideOver whose own
-	// Escape handler closes the form; the listbox's Escape must stop there.
+test("an open listbox consumes Escape; a closed one lets it reach the enclosing overlay", () => {
+	// These inputs render inside the matcher editor overlay (a slide-over
+	// panel): with the listbox open, Escape must close only the suggestions;
+	// with it closed, Escape is the panel's to consume - it closes the
+	// overlay, never both at once.
 	const section = mountEditor("Model parameters", "Add model matcher");
 	const nameInput = () => section().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement;
-	const escapes: string[] = [];
-	const listener = (event: KeyboardEvent) => {
-		if (event.key === "Escape") {
-			escapes.push(event.key);
-		}
-	};
-	document.addEventListener("keydown", listener);
-	try {
-		fireInput(nameInput(), "te");
-		expect(nameInput().getAttribute("aria-expanded")).toBe("true");
-		fireKeyDown(nameInput(), "Escape");
-		expect(nameInput().getAttribute("aria-expanded")).toBe("false");
-		expect(escapes).toEqual([]);
+	fireInput(nameInput(), "te");
+	expect(nameInput().getAttribute("aria-expanded")).toBe("true");
+	fireKeyDown(nameInput(), "Escape");
+	expect(nameInput().getAttribute("aria-expanded")).toBe("false");
+	// The overlay is still open: the listbox consumed that Escape.
+	expect(document.querySelector(".matcher-editor")).not.toBeNull();
 
-		// With nothing open, Escape is not the listbox's to consume.
-		fireKeyDown(nameInput(), "Escape");
-		expect(escapes).toEqual(["Escape"]);
-	} finally {
-		document.removeEventListener("keydown", listener);
-	}
+	// With nothing open, Escape is not the listbox's to consume: the overlay
+	// closes instead.
+	fireKeyDown(nameInput(), "Escape");
+	expect(document.querySelector(".matcher-editor")).toBeNull();
 });
 
 test("the matcher key input suggests discovered model IDs; mousedown on an option accepts it", () => {

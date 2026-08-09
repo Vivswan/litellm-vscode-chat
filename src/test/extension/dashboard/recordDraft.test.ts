@@ -3,10 +3,12 @@ import type { CapabilityGroupsParse, GroupsParse, HeaderRowsParse } from "../../
 import {
 	directiveEligible,
 	directiveMarkedFields,
+	matcherKind,
 	parseCapabilityGroups,
 	parseCatalogIdText,
 	parseGroups,
 	parseHeaderRows,
+	sortedGroupOrder,
 	toCapabilityGroups,
 	toGroups,
 	toggleDirectiveField,
@@ -398,6 +400,52 @@ suite("extension/dashboard/recordDraft", () => {
 				"gpt-4": { context_length: 128000, _fallback: ["context_length"] },
 			});
 			assert.ok(directiveMarkedFields(marked, "_fallback").has("context_length"));
+		});
+	});
+
+	suite("the matcher table's view order", () => {
+		const group = (prefix: string) => ({ prefix, params: [] });
+
+		test("sorts lowest precedence first: catch-all, regexes by position, globs by prefix length, exacts", () => {
+			const groups = [
+				group("gpt-4"),
+				group("/late-.*/"),
+				group("*"),
+				group("gpt-4-turbo*"),
+				group("/early-.*/"),
+				group("gpt-4*"),
+			];
+			// Indices into the DRAFT array: the sort is a view, never a rewrite.
+			assert.deepStrictEqual([...sortedGroupOrder(groups)], [2, 1, 4, 5, 3, 0]);
+			assert.strictEqual(groups[1]?.prefix, "/late-.*/", "the input array is untouched");
+		});
+
+		test("regex display order follows declaration order, because that IS their precedence", () => {
+			const order = sortedGroupOrder([group("/b.*/"), group("/a.*/")]);
+			assert.deepStrictEqual([...order], [0, 1]);
+		});
+
+		test("invalid and empty keys sort last, stably, next to the add action that minted them", () => {
+			const order = sortedGroupOrder([group("bad*key"), group("gpt-4"), group(""), group("*")]);
+			assert.deepStrictEqual([...order], [3, 1, 0, 2]);
+		});
+
+		test("exact keys keep their stored order among themselves (stable ties)", () => {
+			const order = sortedGroupOrder([group("b-exact"), group("a-exact")]);
+			assert.deepStrictEqual([...order], [0, 1]);
+		});
+
+		test("matcherKind names each tier off the real grammar, RAW like the resolver (no trimming)", () => {
+			assert.strictEqual(matcherKind("*"), "catch-all");
+			assert.strictEqual(matcherKind("/re/i"), "regex");
+			assert.strictEqual(matcherKind("gpt-4*"), "glob");
+			assert.strictEqual(matcherKind("anthropic/claude-4"), "exact");
+			// Whitespace is part of the key: " gpt-4 " is an exact key for the
+			// ID " gpt-4 ", and a trailing space after a star is no glob.
+			assert.strictEqual(matcherKind(" gpt-4 "), "exact");
+			assert.strictEqual(matcherKind("gpt-4* "), "invalid");
+			assert.strictEqual(matcherKind("bad*key"), "invalid");
+			assert.strictEqual(matcherKind(""), "invalid");
 		});
 	});
 });
