@@ -1,6 +1,7 @@
 import type OpenAI from "openai";
 import { l10n } from "vscode";
-import { errorMessageText } from "../../shared/logger";
+import { classificationOf, errorMessageText } from "../../shared/logger";
+import { collapseWhitespace } from "../../shared/util/errorText";
 import { isRecord } from "../../shared/util/json";
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
@@ -367,27 +368,51 @@ function extractDataArray(parsed: unknown): unknown[] {
  */
 const UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION = "RequestError(http, unparseable models response body)";
 
+/** Cap on the parser reason quoted in the user-facing detail line; the full error stays on the cause. */
+const UNPARSEABLE_REASON_MAX_LENGTH = 100;
+
+/**
+ * The one constructor for both unparseable-payload sites (coerceJsonPayload
+ * and the SDK's own response.json() SyntaxError rethrow), so their
+ * classification, display message, and English mirror cannot drift apart.
+ * V8's SyntaxError message quotes a snippet of the unparseable payload
+ * (response-derived), so the classification keeps it off public surfaces
+ * while the user-facing detail line keeps the diagnostic value.
+ */
+function unparseableModelsResponse(endpointUrl: string, reason: string, cause: unknown): RequestError {
+	// V8's SyntaxError reason quotes the payload verbatim, newlines included;
+	// collapsing keeps the detail one physical line under the headline.
+	const detail = `Unparseable response from ${endpointUrl}: ${collapseWhitespace(reason).slice(
+		0,
+		UNPARSEABLE_REASON_MAX_LENGTH
+	)}`;
+	return new RequestError(
+		`${l10n.t(
+			"The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: leave off the /v1 suffix (the extension appends it); LiteLLM's default port is 4000."
+		)}\n${detail}`,
+		"http",
+		{
+			cause,
+			logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
+			englishMessage: `The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: leave off the /v1 suffix (the extension appends it); LiteLLM's default port is 4000.\n${detail}`,
+		}
+	);
+}
+
 /**
  * The SDK only parses JSON when the response advertises a JSON content type;
  * anything else arrives as a string. Servers that return JSON with a missing
  * or wrong content-type header worked with the old response.json() transport,
  * so a string payload gets one JSON.parse attempt here.
  */
-function coerceJsonPayload(value: unknown, baseUrl: string): unknown {
+function coerceJsonPayload(value: unknown, endpointUrl: string): unknown {
 	if (typeof value !== "string") {
 		return value;
 	}
 	try {
 		return JSON.parse(value);
 	} catch (error) {
-		// V8's SyntaxError message quotes a snippet of the unparseable payload
-		// (response-derived), so the classification keeps it off public
-		// surfaces while the user-facing message keeps the diagnostic value.
-		const reason = errorMessageText(error);
-		throw new RequestError(l10n.t("Failed to parse LiteLLM models response from {0}: {1}", baseUrl, reason), "http", {
-			logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
-			englishMessage: `Failed to parse LiteLLM models response from ${baseUrl}: ${reason}`,
-		});
+		throw unparseableModelsResponse(endpointUrl, errorMessageText(error), error);
 	}
 }
 
@@ -524,7 +549,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				}),
 				infoSignal
 			),
-			baseUrl
+			modelInfoUrl(baseUrl)
 		);
 		if (isRecord(parsedInfo) && Array.isArray(parsedInfo.data)) {
 			const data: unknown[] = parsedInfo.data;
@@ -553,8 +578,12 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// provider boundary.
 		const mapped = mapSdkError(error, { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout });
 		const expectedNote = expected?.modelInfo === true ? " (expected: modelInfo)" : "";
+		// The `error` field prefers the classification: the mapped error's name
+		// is a constant class name (RequestError, or CancellationError on a
+		// pass-through) that says nothing about what failed, while the
+		// classification names the shape - and it is never message text.
 		log(`model/info failed, falling back to ${modelsUrl(baseUrl)}${expectedNote}`, {
-			error: mapped.name,
+			error: classificationOf(mapped) ?? mapped.name,
 			...(mapped instanceof RequestError
 				? { kind: mapped.kind, ...(mapped.status !== undefined ? { status: mapped.status } : {}) }
 				: {}),
@@ -576,7 +605,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				}),
 				timeoutSignal
 			),
-			baseUrl
+			modelsUrl(baseUrl)
 		);
 	} catch (error) {
 		if (timeoutSignal.aborted) {
@@ -588,15 +617,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		if (error instanceof SyntaxError) {
 			// The SDK's own response.json() on a malformed application/json body:
 			// same leak shape as coerceJsonPayload, same classification.
-			throw new RequestError(
-				l10n.t("Failed to parse LiteLLM models response from {0}: {1}", baseUrl, error.message),
-				"http",
-				{
-					cause: error,
-					logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
-					englishMessage: `Failed to parse LiteLLM models response from ${baseUrl}: ${error.message}`,
-				}
-			);
+			throw unparseableModelsResponse(modelsUrl(baseUrl), error.message, error);
 		}
 		throw mapSdkError(error, errorContext);
 	}
