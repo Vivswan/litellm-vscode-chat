@@ -4,11 +4,12 @@
  * the status bar, and the notifier (both subscribe to onDidChange and read
  * the newly crossed thresholds off each event).
  *
- * Contents are numbers, epoch timestamps, day keys, and user-configured
- * identity (label, base URL) ONLY: everything response-derived was narrowed
- * away in the spend client, so a state object is always safe to push to the
- * webview. The poller is the sole writer; consumers read and subscribe.
- * Deliberately vscode-free so the unit suites drive it directly.
+ * Contents are numbers, epoch timestamps, day keys, user-configured identity
+ * (label, base URL), and closed classification enums (endpoint standings,
+ * failure kinds, HTTP status codes) ONLY: everything response-derived was
+ * narrowed away in the spend client, so a state object is always safe to push
+ * to the webview. The poller is the sole writer; consumers read and
+ * subscribe. Deliberately vscode-free so the unit suites drive it directly.
  */
 
 import type { BudgetStatus } from "./budget";
@@ -18,17 +19,30 @@ import type { DailyUsage, KeyUsage, UsageUnavailableReason, UserUsage } from "./
 export type UsageEndpointId = "keyInfo" | "dailyActivity" | "userInfo";
 
 /**
+ * How a transient endpoint failure failed, as a closed vocabulary (never
+ * message text): "http" answered with a status, "network" never reached the
+ * server, "timeout" hit the whole-call discovery.timeout bound. Carried to
+ * the dashboard so the card can say why its numbers are not updating.
+ */
+export type UsageFailureClassification = "http" | "network" | "timeout";
+
+/**
  * One endpoint's standing on one server. "unknown" means never probed (or
  * awaiting a re-probe after a config change), "unavailable" is a permanent
  * classification scheduled polls never retry (only an explicit refresh or a
  * server config change re-probes it), and "error" is a transient failure the
- * next poll retries.
+ * next poll retries. `status` is the HTTP status code behind the standing
+ * when one exists; both extras are classification data, never response text.
  */
 export type UsageEndpointState =
 	| { readonly kind: "unknown" }
 	| { readonly kind: "ok" }
-	| { readonly kind: "unavailable"; readonly reason: UsageUnavailableReason }
-	| { readonly kind: "error" };
+	| { readonly kind: "unavailable"; readonly reason: UsageUnavailableReason; readonly status?: number | undefined }
+	| {
+			readonly kind: "error";
+			readonly classification?: UsageFailureClassification | undefined;
+			readonly status?: number | undefined;
+	  };
 
 /** The per-endpoint standings of one server. */
 export type UsageEndpointStates = Readonly<Record<UsageEndpointId, UsageEndpointState>>;
@@ -63,7 +77,12 @@ export interface ServerUsageState {
 	readonly label: string;
 	readonly baseUrl: string;
 	readonly endpoints: UsageEndpointStates;
-	/** Derived from `endpoints`; stored so consumers need no recomputation. */
+	/**
+	 * The card-visibility verdict. Usually usageAvailabilityOf(endpoints), but
+	 * sticky: the poller keeps a once-available server "available" through
+	 * transient failures (so a forced re-probe during an outage cannot drop a
+	 * rendered card), and only a both-endpoints-unavailable verdict hides it.
+	 */
 	readonly availability: UsageAvailability;
 	/** When any endpoint last answered successfully (epoch ms). */
 	readonly lastUpdatedAt: number | undefined;

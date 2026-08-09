@@ -26,7 +26,7 @@ import { parseServersSetting } from "../serverSync/setting";
 import { newlyCrossedThresholds, resolveBudget } from "./budget";
 import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UserUsage } from "./spendClient";
 import { activityWindow, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
-import type { UsageEndpointId, UsageEndpointState, UsageEndpointStates } from "./store";
+import type { UsageEndpointId, UsageEndpointState, UsageEndpointStates, UsageFailureClassification } from "./store";
 import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "./store";
 
 /** How many calendar days the daily-activity window reaches back (today included). */
@@ -80,6 +80,90 @@ const REAL_TIMER: UsageTimer = {
 	},
 };
 
+/**
+ * One endpoint attempt that failed during an explicit refresh pass, as
+ * classification data only (endpoint id, closed failure vocabulary, HTTP
+ * status, unavailability reason - never message text). Feeds the refresh
+ * command's failure toast; never written to the log.
+ */
+export interface UsageEndpointFailure {
+	readonly endpoint: UsageEndpointId;
+	readonly classification?: UsageFailureClassification | undefined;
+	readonly status?: number | undefined;
+	readonly reason?: "unsupported" | "forbidden" | undefined;
+}
+
+/** One server's endpoint attempts in one refresh pass: what failed, and whether anything answered. */
+export interface UsageServerRefreshOutcome {
+	readonly label: string;
+	readonly failures: readonly UsageEndpointFailure[];
+	readonly succeededAny: boolean;
+	/** The pass never reached the network: the entry's stored secrets could not be read. */
+	readonly secretsUnreadable?: true | undefined;
+}
+
+/** A completed refresh pass's per-server outcomes; refreshNow resolves with it (undefined when disposed mid-pass). */
+export interface UsageRefreshOutcome {
+	readonly servers: readonly UsageServerRefreshOutcome[];
+}
+
+/** The usage endpoint paths as the failure summary prints them (English protocol terms). */
+const ENDPOINT_PATH: Readonly<Record<UsageEndpointId, string>> = {
+	keyInfo: "/key/info",
+	dailyActivity: "/user/daily/activity",
+	userInfo: "/user/info",
+};
+
+function describeEndpointFailure(failure: UsageEndpointFailure): string {
+	const how =
+		failure.status !== undefined
+			? String(failure.status)
+			: failure.classification === "timeout"
+				? "timeout"
+				: failure.classification === "network"
+					? "network error"
+					: "failed";
+	return `${ENDPOINT_PATH[failure.endpoint]} ${how}${failure.reason !== undefined ? ` ${failure.reason}` : ""}`;
+}
+
+/**
+ * The failures worth an explicit-refresh acknowledgment. "unsupported" is a
+ * documented normal shape (a DB-less proxy answers 400/404 forever), so a
+ * server whose only failures are unsupported endpoints must never trip the
+ * toast - the card and empty state already say so - while an unreadable
+ * secrets blob means the user's refresh never reached the network at all.
+ */
+function actionableFailureText(server: UsageServerRefreshOutcome): string | undefined {
+	if (server.secretsUnreadable === true) {
+		return `${server.label}: stored secrets unreadable`;
+	}
+	const failures = server.failures.filter((failure) => failure.reason !== "unsupported");
+	if (failures.length === 0) {
+		return undefined;
+	}
+	return `${server.label}: ${failures.map(describeEndpointFailure).join(", ")}`;
+}
+
+/**
+ * The compact per-server detail for an explicit refresh in which NO server
+ * returned any usage data: "alpha: /key/info 401 forbidden; beta: /key/info
+ * timeout". Undefined when any endpoint succeeded, when nothing was probed,
+ * or when nothing actionable failed - partial failures stay toast-free (the
+ * cards carry their own state lines), and all-unsupported servers (DB-less
+ * proxies, a documented normal shape) stay silent. Template-only by
+ * construction: labels, endpoint paths, status numbers, and fixed vocabulary.
+ */
+export function usageRefreshFailureSummary(outcome: UsageRefreshOutcome): string | undefined {
+	if (outcome.servers.some((server) => server.succeededAny)) {
+		return undefined;
+	}
+	const failed = outcome.servers.map(actionableFailureText).filter((text): text is string => text !== undefined);
+	if (failed.length === 0) {
+		return undefined;
+	}
+	return failed.join("; ");
+}
+
 export class UsagePoller {
 	/** The consumer surface: the dashboard, status bar, and notifier read and subscribe here. */
 	readonly store: UsageStore;
@@ -89,8 +173,14 @@ export class UsagePoller {
 	private readonly clock: UsageClock;
 	private readonly abort = new AbortController();
 	private cancelScheduled: (() => void) | undefined;
-	private running: Promise<void> | undefined;
-	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
+	private running: Promise<UsageRefreshOutcome | undefined> | undefined;
+	private queued:
+		| {
+				force: boolean;
+				promise: Promise<UsageRefreshOutcome | undefined>;
+				resolve: (outcome: UsageRefreshOutcome | undefined) => void;
+		  }
+		| undefined;
 	/** A pending availability re-probe (servers changed) the next scheduled pass consumes. */
 	private probePending = false;
 	private disposed = false;
@@ -157,9 +247,12 @@ export class UsagePoller {
 	 * One immediate refresh, availability re-probed, working whether or not
 	 * polling is on: the palette command and the dashboard's sync button.
 	 * Serialized with any pass in flight (a call during one queues exactly one
-	 * follow-up and resolves after it). Never rejects.
+	 * follow-up and resolves after it). Never rejects; resolves with the pass's
+	 * per-server outcomes so the caller can acknowledge a total failure, or
+	 * undefined when the poller was disposed before the pass completed
+	 * (cancellation must stay silent).
 	 */
-	refreshNow(): Promise<void> {
+	refreshNow(): Promise<UsageRefreshOutcome | undefined> {
 		return this.refresh(true);
 	}
 
@@ -168,8 +261,9 @@ export class UsagePoller {
 		this.cancelScheduled?.();
 		this.cancelScheduled = undefined;
 		this.abort.abort();
-		// A queued follow-up will never run; its waiters must still settle.
-		this.queued?.resolve();
+		// A queued follow-up will never run; its waiters must still settle -
+		// with no outcome, so no waiter mistakes disposal for a failed refresh.
+		this.queued?.resolve(undefined);
 		this.queued = undefined;
 	}
 
@@ -188,11 +282,11 @@ export class UsagePoller {
 		}, ms);
 	}
 
-	private async refresh(force: boolean): Promise<void> {
+	private async refresh(force: boolean): Promise<UsageRefreshOutcome | undefined> {
 		if (this.running !== undefined) {
 			if (this.queued === undefined) {
-				let resolve!: () => void;
-				const promise = new Promise<void>((resolvePromise) => {
+				let resolve!: (outcome: UsageRefreshOutcome | undefined) => void;
+				const promise = new Promise<UsageRefreshOutcome | undefined>((resolvePromise) => {
 					resolve = resolvePromise;
 				});
 				this.queued = { force, promise, resolve };
@@ -202,26 +296,27 @@ export class UsagePoller {
 		}
 		this.running = this.runOnce(force);
 		try {
-			await this.running;
+			return await this.running;
 		} finally {
 			this.running = undefined;
 			const queued = this.queued;
 			this.queued = undefined;
 			if (queued !== undefined) {
-				void this.refresh(queued.force).then(queued.resolve, queued.resolve);
+				void this.refresh(queued.force).then(queued.resolve, () => queued.resolve(undefined));
 			}
 		}
 	}
 
-	private async runOnce(force: boolean): Promise<void> {
+	private async runOnce(force: boolean): Promise<UsageRefreshOutcome | undefined> {
 		if (force) {
 			// A forced pass re-probes every endpoint, so it satisfies any pending
 			// servers-change probe; without this a refreshNow right after a
 			// servers edit would be followed by a redundant prompt pass.
 			this.probePending = false;
 		}
+		let outcome: UsageRefreshOutcome | undefined;
 		try {
-			await this.runPass(force);
+			outcome = await this.runPass(force);
 		} catch (error) {
 			// Per-server failures are handled inside the pass; this catches the
 			// stores themselves misbehaving. Never rethrown: refreshes run from
@@ -240,6 +335,7 @@ export class UsagePoller {
 		// while this pass ran must not be postponed to the full interval, so
 		// the delay honors it (see nextTickDelayMs).
 		this.schedule(this.nextTickDelayMs());
+		return outcome;
 	}
 
 	/**
@@ -252,20 +348,45 @@ export class UsagePoller {
 		return this.probePending ? SERVERS_CHANGE_REFRESH_DELAY_MS : this.env.pollIntervalMs();
 	}
 
-	private async runPass(force: boolean): Promise<void> {
+	private async runPass(force: boolean): Promise<UsageRefreshOutcome | undefined> {
 		const { entries } = parseServersSetting(this.env.readServersSetting());
 		this.store.prune(new Set(entries.map((entry) => entry.label)));
 		const thresholds = this.env.alertThresholds();
+		const servers: UsageServerRefreshOutcome[] = [];
 		for (const entry of entries) {
 			if (this.disposed) {
-				return;
+				// An interrupted pass proves nothing; no caller may toast on it.
+				return undefined;
 			}
-			await this.refreshServer(entry, thresholds, force);
+			const server = await this.refreshServer(entry, thresholds, force);
+			if (server !== undefined) {
+				servers.push(server);
+			}
 		}
+		return this.disposed ? undefined : { servers };
 	}
 
-	private async refreshServer(entry: DeclaredServer, thresholds: readonly number[], force: boolean): Promise<void> {
+	/**
+	 * Refresh one server's endpoints and store the result. Returns the pass's
+	 * outcome for this server (what failed, whether anything answered), or
+	 * undefined when nothing can be said truthfully: disposal interrupted the
+	 * fetches, or the entry left the setting mid-pass.
+	 */
+	private async refreshServer(
+		entry: DeclaredServer,
+		thresholds: readonly number[],
+		force: boolean
+	): Promise<UsageServerRefreshOutcome | undefined> {
 		const previous = this.store.get(entry.label);
+		const failures: UsageEndpointFailure[] = [];
+		let succeededAny = false;
+		// Disposal aborts in-flight fetches; the interrupted attempt proves
+		// nothing and must not read as a failed endpoint.
+		const recordFailure = (endpoint: UsageEndpointId, error: unknown) => {
+			if (!this.disposed) {
+				failures.push(this.failureOf(endpoint, error));
+			}
+		};
 		// A re-pointed entry is a different server: carried standings and data
 		// would describe the old host, so both reset with the URL.
 		const sameServer = previous !== undefined && normalizeBaseUrl(previous.baseUrl) === normalizeBaseUrl(entry.baseUrl);
@@ -283,12 +404,15 @@ export class UsagePoller {
 		const attemptAt = this.clock.now();
 
 		let stored: StoredServerSecrets | undefined;
+		let secretsUnreadable = false;
 		try {
 			stored = await this.env.readSecrets(entry.label);
 		} catch (error) {
 			// Skipped for this pass, like the sync engine's unreadable-secrets
 			// branch: the next pass reads again, and the carried state keeps
-			// rendering.
+			// rendering. An explicit refresh still acknowledges it (the outcome
+			// carries the flag; the error itself stays out of the toast).
+			secretsUnreadable = true;
 			this.env.log("Reading a server entry's stored secrets failed; usage refresh skipped", {
 				label: entry.label,
 				error: error instanceof Error ? error.name : typeof error,
@@ -301,11 +425,13 @@ export class UsagePoller {
 				try {
 					key = await this.env.client.fetchKeyInfo(connection, this.abort.signal);
 					endpoints.keyInfo = { kind: "ok" };
+					succeededAny = true;
 					lastUpdatedAt = this.clock.now();
 					// The spend numbers' own age: only a /key/info success advances
 					// it, so an activity success can never relabel old spend fresh.
 					spendUpdatedAt = lastUpdatedAt;
 				} catch (error) {
+					recordFailure("keyInfo", error);
 					endpoints.keyInfo = this.classifyFailure(entry.label, "keyInfo", logBaseline.keyInfo, error);
 					if (endpoints.keyInfo.kind === "unavailable") {
 						key = undefined;
@@ -314,7 +440,7 @@ export class UsagePoller {
 			}
 
 			if (this.disposed) {
-				return;
+				return undefined;
 			}
 			if (endpoints.dailyActivity.kind !== "unavailable") {
 				try {
@@ -324,8 +450,10 @@ export class UsagePoller {
 						this.abort.signal
 					);
 					endpoints.dailyActivity = { kind: "ok" };
+					succeededAny = true;
 					lastUpdatedAt = this.clock.now();
 				} catch (error) {
+					recordFailure("dailyActivity", error);
 					endpoints.dailyActivity = this.classifyFailure(
 						entry.label,
 						"dailyActivity",
@@ -339,7 +467,7 @@ export class UsagePoller {
 			}
 
 			if (this.disposed) {
-				return;
+				return undefined;
 			}
 			// The rollup exists only for keys that carry a user. A key that
 			// answered WITHOUT one also clears any carried rollup: after a
@@ -356,8 +484,10 @@ export class UsagePoller {
 				try {
 					user = await this.env.client.fetchUserInfo(connection, this.abort.signal);
 					endpoints.userInfo = { kind: "ok" };
+					succeededAny = true;
 					lastUpdatedAt = this.clock.now();
 				} catch (error) {
+					recordFailure("userInfo", error);
 					endpoints.userInfo = this.classifyFailure(entry.label, "userInfo", logBaseline.userInfo, error);
 					if (endpoints.userInfo.kind === "unavailable") {
 						user = undefined;
@@ -367,7 +497,7 @@ export class UsagePoller {
 		}
 
 		if (this.disposed) {
-			return;
+			return undefined;
 		}
 		// The pass snapshots the entries at its start, so a concurrent
 		// applyServersChange may have pruned this label mid-fetch; writing the
@@ -377,7 +507,7 @@ export class UsagePoller {
 			(declared) => declared.label === entry.label
 		);
 		if (!stillDeclared) {
-			return;
+			return undefined;
 		}
 		const budget = resolveBudget({
 			entryBudget: entry.budget,
@@ -391,12 +521,23 @@ export class UsagePoller {
 		// server must still alert.
 		const crossedBefore = sameServer && previous !== undefined ? previous.budget.crossedThresholds : [];
 		const newly = newlyCrossedThresholds(crossedBefore, budget.crossedThresholds);
+		// Reset or all-failed standings can compute "unknown" (a forced pass
+		// clears the carried states; a transient outage fails both endpoints),
+		// which would silently drop a card the user was looking at. Once this
+		// server proved availability, only a permanent both-endpoints-unavailable
+		// verdict may hide it again; the retained data keeps rendering with its
+		// failure state line.
+		const computedAvailability = usageAvailabilityOf(endpoints);
+		const availability =
+			computedAvailability === "unknown" && sameServer && previous.availability === "available"
+				? "available"
+				: computedAvailability;
 		this.store.upsert(
 			{
 				label: entry.label,
 				baseUrl: entry.baseUrl,
 				endpoints,
-				availability: usageAvailabilityOf(endpoints),
+				availability,
 				lastUpdatedAt,
 				spendUpdatedAt,
 				lastAttemptAt: attemptAt,
@@ -407,13 +548,33 @@ export class UsagePoller {
 			},
 			newly
 		);
+		return { label: entry.label, failures, succeededAny, ...(secretsUnreadable ? { secretsUnreadable: true } : {}) };
+	}
+
+	/**
+	 * The outcome record for one failed endpoint attempt: the same
+	 * classification data classifyFailure derives (closed vocabulary, status,
+	 * unavailability reason), for the refresh command's feedback path.
+	 */
+	private failureOf(endpoint: UsageEndpointId, error: unknown): UsageEndpointFailure {
+		const reason = usageUnavailabilityOf(error);
+		const status = error instanceof RequestError ? error.status : undefined;
+		const classification = failureClassificationOf(error);
+		return {
+			endpoint,
+			...(classification !== undefined ? { classification } : {}),
+			...(status !== undefined ? { status } : {}),
+			...(reason !== undefined ? { reason } : {}),
+		};
 	}
 
 	/**
 	 * Classify one endpoint failure into its next standing, logging exactly one
 	 * info-level line per state TRANSITION (a server answering 404 every probe
 	 * must not write a line per poll). English classifications only: label,
-	 * endpoint id, reason or error name, HTTP status - never message text.
+	 * endpoint id, reason or error name, HTTP status - never message text. The
+	 * returned standing carries the same status and closed failure vocabulary
+	 * so the dashboard card can say why its numbers are not updating.
 	 */
 	private classifyFailure(
 		label: string,
@@ -437,7 +598,7 @@ export class UsagePoller {
 					...(status !== undefined ? { status } : {}),
 				});
 			}
-			return { kind: "unavailable", reason };
+			return { kind: "unavailable", reason, ...(status !== undefined ? { status } : {}) };
 		}
 		if (previous.kind !== "error") {
 			this.env.log("Usage endpoint request failed; retrying on the next poll", {
@@ -447,6 +608,30 @@ export class UsagePoller {
 				...(status !== undefined ? { status } : {}),
 			});
 		}
-		return { kind: "error" };
+		const classification = failureClassificationOf(error);
+		return {
+			kind: "error",
+			...(classification !== undefined ? { classification } : {}),
+			...(status !== undefined ? { status } : {}),
+		};
 	}
+}
+
+/**
+ * The closed failure vocabulary for a transient endpoint error, judged from
+ * the thrown error's own classification (never its message): undefined for
+ * anything that is not a classified transport error.
+ */
+function failureClassificationOf(error: unknown): UsageFailureClassification | undefined {
+	if (!(error instanceof RequestError)) {
+		return undefined;
+	}
+	if (error.kind === "timeout") {
+		return "timeout";
+	}
+	if (error.kind === "network") {
+		return "network";
+	}
+	// "auth" and "http" both mean the server answered; the status says how.
+	return "http";
 }

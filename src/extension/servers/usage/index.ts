@@ -15,7 +15,7 @@ export type { BudgetStatus, ResolveBudgetInput } from "./budget";
 export { crossedThresholds, newlyCrossedThresholds, resolveBudget } from "./budget";
 export { isUsageFresh } from "./freshness";
 export type { UsageClock, UsageFetchClient, UsagePollerEnv, UsageTimer } from "./poller";
-export { USAGE_ACTIVITY_WINDOW_DAYS, UsagePoller } from "./poller";
+export { USAGE_ACTIVITY_WINDOW_DAYS, UsagePoller, usageRefreshFailureSummary } from "./poller";
 export type {
 	ActivityWindow,
 	DailyUsage,
@@ -35,5 +35,5 @@ export {
 	usageUnavailabilityOf,
 	userInfoUrl,
 } from "./spendClient";
-export type { ServerUsageState, UsageAvailability, UsageChangeEvent } from "./store";
-export { createUsagePollerEnv, registerRefreshUsageCommand } from "./vscodeEnv";
+export type { ServerUsageState, UsageAvailability, UsageChangeEvent, UsageEndpointState } from "./store";
+export { createUsagePollerEnv, notifyUsageRefreshFailure, registerRefreshUsageCommand } from "./vscodeEnv";
