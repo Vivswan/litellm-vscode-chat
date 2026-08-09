@@ -6,7 +6,7 @@ import {
 	APIUserAbortError,
 	AuthenticationError,
 } from "openai";
-import { LanguageModelError } from "vscode";
+import { CancellationError, LanguageModelError } from "vscode";
 import {
 	localizedError,
 	type MapErrorContext,
@@ -143,7 +143,7 @@ suite("provider/transport/errorMapping", () => {
 			assert.ok(mapped.message.startsWith("Authentication failed upstream:"), mapped.message);
 		});
 
-		test("400 with a JSON error body re-serializes the LiteLLM error envelope per surface", () => {
+		test("400 with a JSON error body renders a headline plus a compact LiteLLM detail line per surface", () => {
 			const err = APIError.generate(
 				400,
 				{ error: { message: "unsupported parameter: frobnicate", type: "invalid_request_error" } },
@@ -156,23 +156,83 @@ suite("provider/transport/errorMapping", () => {
 				type: "invalid_request_error",
 			});
 
-			const body = '{"error":{"message":"unsupported parameter: frobnicate","type":"invalid_request_error"}}';
+			const detail = "LiteLLM 400 invalid_request_error: unsupported parameter: frobnicate";
 			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
-			assert.strictEqual(chat.message, `LiteLLM API error: 400\n${body}`);
+			assert.strictEqual(chat.message, `The server rejected this request as invalid.\n${detail}`);
 			assert.strictEqual(chat.status, 400);
 			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
-			assert.strictEqual(discovery.message, `Failed to fetch LiteLLM models: 400\n${body}`);
+			assert.strictEqual(discovery.message, `The server refused the model-list request.\n${detail}`);
 			assert.strictEqual(discovery.status, 400);
+			assert.ok(!chat.message.includes('{"error"'), "the JSON envelope is never re-serialized into the message");
 		});
 
-		test("400 with a non-JSON body recovers the text from the SDK message", () => {
+		test("a blown budget gets the budget headline and the classifier's own token on the classification", () => {
+			const err = APIError.generate(
+				429,
+				{
+					error: {
+						message: "Budget has been exceeded! Current cost: 0.40, Max budget: 0.37",
+						type: "budget_exceeded",
+						code: "429",
+					},
+				},
+				undefined,
+				new Headers()
+			);
+			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+			assert.strictEqual(chat.status, 429, "Blocked mapping keys off status 429; it must survive");
+			assert.ok(
+				chat.message.startsWith(
+					"This key's budget is used up - requests will fail until the budget resets or an admin raises it."
+				),
+				chat.message
+			);
+			// The code is just the stringified status, so the detail carries only
+			// the type - never "LiteLLM 429 429".
+			assert.ok(
+				chat.message.endsWith(
+					"\nLiteLLM 429 budget_exceeded: Budget has been exceeded! Current cost: 0.40, Max budget: 0.37"
+				),
+				chat.message
+			);
+			// The token is the classifier's own closed-set decision, never echoed
+			// body text (the isUpstreamAuthFailure precedent).
+			assert.strictEqual(chat.logClassification, "RequestError(http, status 429, budget_exceeded)");
+			assert.strictEqual(chat.englishMessage, chat.message);
+
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			assert.ok(
+				discovery.message.startsWith("This key's budget is used up - the server refused to refresh the model list."),
+				discovery.message
+			);
+			assert.strictEqual(discovery.logClassification, "RequestError(http, status 429, budget_exceeded)");
+		});
+
+		test("a plain 429 keeps the rate-limit headline and the status-only classification", () => {
+			const err = APIError.generate(429, { error: { message: "Rate limit reached" } }, undefined, new Headers());
+			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+			assert.ok(
+				chat.message.startsWith("The server is handling too many requests - wait a moment and try again."),
+				chat.message
+			);
+			assert.strictEqual(chat.logClassification, "RequestError(http, status 429)");
+		});
+
+		test("400 with a non-JSON body recovers the text from the SDK message into the detail line", () => {
 			const err = new APIError(400, undefined, "plain text failure, not JSON", new Headers());
 			assert.strictEqual(err.error, undefined);
 			assert.strictEqual(err.message, "400 plain text failure, not JSON");
 
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "http");
-			assert.strictEqual(mapped.message, "LiteLLM API error: 400\nplain text failure, not JSON");
+			assert.strictEqual(
+				mapped.message,
+				"The server rejected this request as invalid.\nLiteLLM 400: plain text failure, not JSON"
+			);
 			assert.strictEqual(mapped.status, 400);
+			// Discovery does not brand a non-envelope body as LiteLLM's: the
+			// gateway may be the one speaking.
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			assert.ok(discovery.message.endsWith("\nHTTP 400: plain text failure, not JSON"), discovery.message);
 		});
 
 		test("discovery 404 points at the base URL with the /v1 and default-port guidance", () => {
@@ -184,18 +244,17 @@ suite("provider/transport/errorMapping", () => {
 			assert.ok(mapped.message.includes("/v1 suffix"), mapped.message);
 			assert.ok(mapped.message.includes("default port is 4000"), mapped.message);
 			assert.strictEqual(mapped.logClassification, "RequestError(http, status 404, discovery)");
-			// The response body rides as the same suffix the generic branch appends.
-			assert.ok(mapped.message.endsWith('\n{"error":{"message":"no such route"}}'), mapped.message);
+			// The envelope's message rides as a compact detail line, never the
+			// re-serialized JSON envelope.
+			assert.ok(mapped.message.endsWith("\nLiteLLM 404: no such route"), mapped.message);
 			assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
 		});
 
-		test("chat 404 keeps the pinned status prefix and suggests Sync Models, with no setupHint", () => {
+		test("chat 404 leads with the removed-model guidance and suggests Sync Models, with no setupHint", () => {
 			const err = APIError.generate(404, { error: { message: "model not found" } }, undefined, new Headers());
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "http");
 			assert.strictEqual(mapped.status, 404);
-			// docker-transport.test.ts pins `LiteLLM API error: ${status}\b`
-			// against the live stack; the guidance may only follow the prefix.
-			assert.ok(mapped.message.startsWith("LiteLLM API error: 404."), mapped.message);
+			assert.ok(mapped.message.startsWith("The server did not recognize this request"), mapped.message);
 			assert.ok(mapped.message.includes("LiteLLM: Sync Models Now"), mapped.message);
 			assert.strictEqual(
 				mapped.setupHint,
@@ -203,16 +262,23 @@ suite("provider/transport/errorMapping", () => {
 				"a chat 404 usually means a removed model, not a bad base URL, so no hint"
 			);
 			assert.strictEqual(mapped.logClassification, "RequestError(http, status 404, chat)");
-			assert.ok(mapped.message.endsWith('\n{"error":{"message":"model not found"}}'), mapped.message);
+			// docker-transport.test.ts pins `LiteLLM ${status}\b` against the live
+			// stack, so the detail line must keep the status greppable.
+			assert.ok(mapped.message.endsWith("\nLiteLLM 404: model not found"), mapped.message);
 			assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
 		});
 
-		test("a 404 with a non-JSON body recovers the text from the SDK message like the generic branch", () => {
+		test("a 404 with a non-JSON body keeps the recovery on chat and drops the detail on discovery", () => {
 			const err = new APIError(404, undefined, "default backend - 404", new Headers());
+			// Chat keeps the recovered text: the nginx/wrong-server signature of a
+			// /v1-doubled base URL is the useful clue.
 			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
-			assert.ok(chat.message.endsWith("\ndefault backend - 404"), chat.message);
+			assert.ok(chat.message.endsWith("\nLiteLLM 404: default backend - 404"), chat.message);
+			// The discovery headline already says this address does not serve the
+			// LiteLLM API; an HTML 404 page or plain-text body adds nothing.
 			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
-			assert.ok(discovery.message.endsWith("\ndefault backend - 404"), discovery.message);
+			assert.ok(!discovery.message.includes("\n"), discovery.message);
+			assert.ok(!discovery.message.includes("default backend"), discovery.message);
 		});
 	});
 
@@ -254,12 +320,30 @@ suite("provider/transport/errorMapping", () => {
 			);
 		});
 
-		test("other certificate failures map to the generic SSL message carrying the cause text", () => {
+		test("other certificate failures get the untrusted-certificate headline with the cause on the detail line", () => {
 			const err = connectionError(new Error("self-signed certificate"));
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
 			assert.strictEqual(
 				mapped.message,
-				"SSL Certificate Error: There is an issue with the SSL certificate for http://litellm.test. Error: self-signed certificate"
+				"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.\nSSL certificate error for http://litellm.test: self-signed certificate"
+			);
+			// Node's hostname-mismatch text can embed the certificate's SAN list
+			// (server-supplied), so the public surfaces get a classification.
+			assert.strictEqual(mapped.logClassification, "RequestError(certificate, unverified)");
+		});
+
+		test("the certificate detail picks the deepest certificate-naming chain link and carries its code", () => {
+			const err = connectionError(
+				Object.assign(new Error("unable to verify the first certificate"), {
+					code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+				})
+			);
+			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
+			assert.ok(
+				mapped.message.endsWith(
+					"\nSSL certificate error for http://litellm.test: unable to verify the first certificate (UNABLE_TO_VERIFY_LEAF_SIGNATURE)"
+				),
+				mapped.message
 			);
 		});
 	});
@@ -313,16 +397,17 @@ suite("provider/transport/errorMapping", () => {
 				cause: Object.assign(new Error("other side closed"), { name: "SocketError", code: "UND_ERR_SOCKET" }),
 			});
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "network");
+			assert.ok(mapped.message.startsWith("The connection dropped before the model finished replying"), mapped.message);
 			assert.ok(
-				mapped.message.startsWith(
-					"Network Error: The connection to http://litellm.test was closed before the response completed."
+				mapped.message.endsWith(
+					"\nConnection to http://litellm.test closed mid-response: terminated (cause: other side closed)"
 				),
-				mapped.message
+				"the deepest cause stays in the detail line"
 			);
-			assert.ok(mapped.message.includes("other side closed"), "the deepest cause stays in the detail");
 			assert.strictEqual(mapped.cause, err);
 			const disco = expectRequestError(mapSdkError(err, discoveryCtx), "network");
-			assertStartsWith(disco.message, "Network Error: Failed to fetch models from http://litellm.test.");
+			assertStartsWith(disco.message, "The connection to http://litellm.test dropped while fetching models");
+			assert.ok(disco.message.endsWith("\nterminated (cause: other side closed)"), disco.message);
 		});
 
 		test("an ECONNRESET without SDK wrapping still classifies as a network error", () => {
@@ -330,34 +415,83 @@ suite("provider/transport/errorMapping", () => {
 			expectRequestError(mapSdkError(err, chatCtx), "network");
 		});
 
+		test("the never-connected fallback splits headline and cause detail per surface", () => {
+			const err = connectionError(
+				Object.assign(new Error("getaddrinfo EAI_AGAIN litellm.internal"), { code: "EAI_AGAIN" })
+			);
+			const chat = expectRequestError(mapSdkError(err, chatCtx), "network");
+			assert.strictEqual(
+				chat.message,
+				"Could not reach http://litellm.test. Check your network, VPN, or proxy settings, and that the server is up.\nfetch failed (cause: getaddrinfo EAI_AGAIN litellm.internal)"
+			);
+			const disco = expectRequestError(mapSdkError(err, discoveryCtx), "network");
+			assertStartsWith(disco.message, "Could not reach http://litellm.test to list its models.");
+			assert.ok(
+				disco.message.endsWith("\nfetch failed (cause: getaddrinfo EAI_AGAIN litellm.internal)"),
+				disco.message
+			);
+		});
+
 		test("an already-classified RequestError passes through even when its message mentions a socket term", () => {
 			const err = new RequestError("upstream said: terminated", "http", { status: 500 });
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
 		});
 
-		test("a plain Error merely containing the word terminated is not reclassified", () => {
-			// The termination branch requires a socket-level signature or undici's
-			// exact top-level TypeError; unrelated errors keep their identity.
-			const err = new Error("worker terminated by policy");
-			assert.strictEqual(mapSdkError(err, chatCtx), err);
-		});
-
-		test("an unknown plain Error passes through as the same instance", () => {
-			const err = new Error("boom");
+		test("a CancellationError passes through unwrapped", () => {
+			const err = new CancellationError();
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
 			assert.strictEqual(mapSdkError(err, discoveryCtx), err);
 		});
 
-		test("a non-Error value is wrapped in an Error with its string form", () => {
-			const mapped = mapSdkError("boom", chatCtx);
+		test("an Error already carrying an englishMessage mirror passes through unwrapped", () => {
+			// The localizedError construction sites (chatClient pre-flight throws,
+			// the stream processor) arrive here already shaped; re-headlining
+			// would double-wrap them.
+			const err = localizedError("display", "english");
+			assert.strictEqual(mapSdkError(err, chatCtx), err);
+		});
+
+		test("a plain Error merely containing the word terminated is not reclassified as network", () => {
+			// The termination branch requires a socket-level signature or undici's
+			// exact top-level TypeError; unrelated errors fall to the anonymous
+			// wrapper instead.
+			const err = new Error("worker terminated by policy");
+			const mapped = mapSdkError(err, chatCtx);
+			assert.ok(!(mapped instanceof RequestError), "must not classify as a transport RequestError");
+			assert.ok(mapped.message.startsWith("The request failed unexpectedly."), mapped.message);
+		});
+
+		test("an unknown plain Error is wrapped with the unexpected-failure headline and a fixed classification", () => {
+			const err = new Error("boom");
+			const mapped = mapSdkError(err, chatCtx) as Error & { englishMessage?: string; logClassification?: string };
+			assert.strictEqual(
+				mapped.message,
+				"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.\nUnexpected Error during the chat request to http://litellm.test: boom"
+			);
+			assert.strictEqual(mapped.englishMessage, mapped.message);
+			// The thrown value's text is arbitrary, so the public surfaces record
+			// only the fixed shape.
+			assert.strictEqual(mapped.logClassification, "unhandled Error in transport (Error, chat)");
+			assert.strictEqual(mapped.cause, err);
+			const disco = mapSdkError(err, discoveryCtx) as Error & { logClassification?: string };
+			assert.ok(disco.message.includes("during the discovery request to http://litellm.test"), disco.message);
+			assert.strictEqual(disco.logClassification, "unhandled Error in transport (Error, discovery)");
+		});
+
+		test("a non-Error value is wrapped with its string form on the detail line", () => {
+			const mapped = mapSdkError("boom", chatCtx) as Error & { logClassification?: string };
 			assert.ok(mapped instanceof Error);
-			assert.strictEqual(mapped.message, "boom");
+			assert.ok(
+				mapped.message.endsWith("\nUnexpected string during the chat request to http://litellm.test: boom"),
+				mapped.message
+			);
+			assert.strictEqual(mapped.logClassification, "non-Error throw in transport (string, chat)");
 		});
 
 		test("a value whose String() coercion throws still maps to an Error", () => {
 			const mapped = mapSdkError({ toString: null, valueOf: null }, chatCtx);
 			assert.ok(mapped instanceof Error);
-			assert.strictEqual(mapped.message, "[object Object]");
+			assert.ok(mapped.message.includes("[object Object]"), mapped.message);
 		});
 
 		test("RequestError preserves cause, status, kind, and name", () => {
@@ -370,17 +504,30 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(err.message, "wrapped");
 		});
 
-		test("streamErrorFrame re-serializes the envelope and carries no HTTP status", () => {
+		test("streamErrorFrame renders the envelope fields on a compact detail line and carries no HTTP status", () => {
 			const envelope = { message: "upstream died mid-stream", code: "500" };
 			const err = streamErrorFrame(envelope);
 			assert.strictEqual(err.kind, "http");
 			assert.strictEqual(err.status, undefined, "the response was already 200; there is no status to carry");
-			assert.strictEqual(
-				err.message,
-				`LiteLLM API error: the stream reported an error\n${JSON.stringify({ error: envelope })}`
-			);
+			assert.ok(err.message.startsWith("The server reported an error while it was streaming this reply"), err.message);
+			assert.ok(err.message.endsWith("\nLiteLLM stream error (500): upstream died mid-stream"), err.message);
+			assert.ok(!err.message.includes('{"error"'), "the envelope is never re-serialized");
 			// mapSdkError must hand it through untouched on the way out of send().
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
+		});
+
+		test("a message-less stream error frame still surfaces its type and code", () => {
+			const err = streamErrorFrame({ type: "rate_limit_error", code: 429 });
+			// A known class swaps in that class's headline: "trying again may
+			// work" would be wrong advice for a rate limit or a blown budget.
+			assert.ok(err.message.startsWith("The server is handling too many requests"), err.message);
+			assert.ok(err.message.endsWith("\nLiteLLM stream error rate_limit_error (429)"), err.message);
+			assert.strictEqual(err.status, undefined, "no status may be derived from the envelope's code");
+		});
+
+		test("an empty stream error frame says the server provided no detail", () => {
+			const err = streamErrorFrame({});
+			assert.ok(err.message.endsWith("\nLiteLLM stream error (no detail provided by the server)"), err.message);
 		});
 
 		test("logClassification is an explicit construction-site opt-in, never derived from kind", () => {

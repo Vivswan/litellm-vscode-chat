@@ -45,9 +45,10 @@ function objectTag(value: unknown): string {
  * Errors whose user-facing message embeds response-derived text offer a
  * classification-only rendering under a `logClassification` property (a
  * RequestError construction site opts in explicitly; see errorMapping.ts).
- * Total against hostile getters.
+ * Total against hostile getters. Exported for log sites that want the
+ * classification alone (never the message fallback publicErrorText carries).
  */
-function classificationOf(error: unknown): string | undefined {
+export function classificationOf(error: unknown): string | undefined {
 	try {
 		const classification = (error as { logClassification?: unknown } | null | undefined)?.logClassification;
 		return typeof classification === "string" ? classification : undefined;

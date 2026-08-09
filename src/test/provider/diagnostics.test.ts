@@ -62,7 +62,7 @@ suite("provider/diagnostics", () => {
 		assert.ok(callbackStatus);
 		assert.equal(expectDefined(callbackStatus).totalModels, 0);
 		assert.ok(expectDefined(callbackStatus).serverStatuses.some((s) => s.state === "error"));
-		assert.ok(expectDefined(callbackStatus).serverStatuses.some((s) => s.error?.includes("Network")));
+		assert.ok(expectDefined(callbackStatus).serverStatuses.some((s) => s.error?.includes("Could not reach")));
 	});
 
 	// Stays on withFetch: msw cannot produce a rejection with an empty message.

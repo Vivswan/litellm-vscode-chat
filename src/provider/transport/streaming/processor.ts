@@ -705,7 +705,19 @@ export class StreamProcessor {
 		this.logDroppedReasoningAggregate();
 
 		if (invalidCount > 0 && finishedNormally) {
-			throw localizedError(vscode.l10n.t("Invalid JSON for tool call"), "Invalid JSON for tool call");
+			// The English mirror is what the output channel and issue-report
+			// buffer record: distinctive, count-only, forever - tool names and
+			// argument snippets are response text and must never join it.
+			const detail =
+				invalidCount === 1
+					? vscode.l10n.t("1 tool call arrived with arguments that were not valid JSON")
+					: vscode.l10n.t("{0} tool calls arrived with arguments that were not valid JSON", invalidCount);
+			throw localizedError(
+				`${vscode.l10n.t(
+					"The model sent a broken tool call, so this response could not be completed. Trying again usually fixes it."
+				)}\n${detail}`,
+				`Tool call flush failed at end of stream: ${invalidCount} tool call(s) with invalid JSON arguments`
+			);
 		}
 
 		// A normally-finished stream that emitted nothing but did drop reasoning
