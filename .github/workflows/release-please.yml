@@ -7,8 +7,9 @@
 # the generated release-please-config.json sets `draft` +
 # `force-tag-creation`: merging the release PR creates a DRAFT release with
 # its tag already forced at the merge SHA, and the repo-owned release.yml
-# pipeline mutates the draft (asset uploads, note edits) and publishes it
-# as its last job. Config and pipeline are both repo-owned, so a repo
+# pipeline updates the draft (asset uploads, note edits) and publishes it
+# as its last job - always the same three steps, never direct publishing.
+# Config and pipeline are both repo-owned, so a repo
 # generated before the draft flow keeps publishing directly. Called from
 # release.yml downstream of the all-green gate, so releases and release-PR
 # refreshes only happen on a green main.
