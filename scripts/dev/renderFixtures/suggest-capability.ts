@@ -13,9 +13,13 @@ const fixture: RenderFixture = {
 		{ type: "focusSection", section: "settings" },
 	],
 	steps: [
-		// A fresh row: an empty key input shows the whole vocabulary.
+		// A fresh matcher opens the editor overlay; a fresh row's empty key
+		// input shows the whole vocabulary.
 		`[...document.querySelectorAll("button")]
 			.find((b) => b.textContent.trim() === "Add capability matcher")
+			.click()`,
+		`[...document.querySelectorAll(".matcher-editor button")]
+			.find((b) => b.textContent.trim() === "Add capability")
 			.click()`,
 		`(() => {
 			const inputs = [...document.querySelectorAll("input[placeholder^='Capability']")];
