@@ -19,7 +19,7 @@ import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
 import type { SecretFieldId } from "./protocol";
 import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "./protocol";
-import { isUsableHttpUrl, serverFormFieldLabel } from "./serverForm";
+import { isUsableHttpUrl } from "./serverForm";
 import { joinDeclared, labeledSnapshots } from "./state";
 
 /**
@@ -125,10 +125,11 @@ export function resolveAdoptableCredentials(
  * registry server) still writes the plain entry and reports the caveat through
  * the returned notice, because the user asked for the entry either way.
  *
- * Failure ordering mirrors applySaveServerSetting's guarded unit: additive
- * secure writes first, then the settings write; if the write fails, secure
- * values overwritten under this label are restored so the (absent) entry
- * resolves nothing new.
+ * Failure ordering mirrors applySaveServerSetting's guarded unit: secure
+ * writes and stale-blob clears first, then the settings write; if any step
+ * fails, secure values changed under this label are restored so the (absent)
+ * entry resolves nothing new. The stale clears are safe before the write
+ * because no entry exists under the label yet.
  */
 export async function applyAdoptServer(
 	intent: Extract<DashboardIntent, { type: "adoptServer" }>,
@@ -167,14 +168,18 @@ export async function applyAdoptServer(
 	try {
 		for (const field of SECRET_FIELD_IDS) {
 			const value = credentials?.[field];
-			if (value === undefined) {
-				continue;
-			}
-			if (intent.secrets[field] === "secure") {
+			if (value !== undefined && intent.secrets[field] === "secure") {
 				overwritten.set(field, storedBefore[field]);
 				await env.storeServerSecret(label, field, value);
-			} else {
+				continue;
+			}
+			if (value !== undefined) {
 				newEntry[field] = value;
+			}
+			// Blobs kept from removals must not leak into the adopted entry.
+			if (storedBefore[field] !== undefined) {
+				overwritten.set(field, storedBefore[field]);
+				await env.storeServerSecret(label, field, undefined);
 			}
 		}
 		await env.writeServersSetting([...entries, newEntry]);
@@ -189,9 +194,9 @@ export async function applyAdoptServer(
 			}
 		}
 		if (restoreFailed) {
-			// A copied secret survived the rollback under this label; see the
-			// save path's matching case for why this must not read as "nothing
-			// landed".
+			// A secure value under this label may no longer match its
+			// pre-adoption state; see the save path's matching case for why
+			// this must not read as "nothing landed".
 			env.log("A failed adoption left a secure value unrestored", {
 				error: error instanceof Error ? error.name : typeof error,
 			});
@@ -199,60 +204,17 @@ export async function applyAdoptServer(
 			throw new DashboardOperationError(
 				// Not "Set Server Secret": that command lists declared entries
 				// only, and this label's entry never landed. Re-adding the label
-				// makes the entry editable, and the edit form's remove checkbox
-				// is what clears the leftover blob field.
+				// makes the entry editable, and the edit form's secret fields are
+				// what fix the leftover state.
 				vscode.l10n.t(
-					"The adoption failed, and removing a copied secret again also failed. Re-add a server under this label with the dashboard form, then edit the entry to remove the leftover secret."
+					"The adoption failed, and restoring this label's stored secrets also failed. Re-add a server under this label with the dashboard form, then edit the entry to set or remove the affected secrets."
 				)
 			);
 		}
 		throw error;
 	}
-	// The label is new to the setting, but a secure blob can survive under it
-	// (removals keep blobs so re-adding a label picks its secrets back up).
-	// For adoption that inheritance is wrong - the entry must resolve exactly
-	// what was copied from the group - so stale fields the adoption did not
-	// itself write secure-side are removed now that the write landed, and the
-	// removal is verified by re-reading: a stale secret that survives would
-	// silently take effect wherever the entry carries no inline copy, so a
-	// failure has to reach the user through the success notice, not just the
-	// log.
-	const staleFields = SECRET_FIELD_IDS.filter((field) => storedBefore[field] !== undefined && !overwritten.has(field));
-	let staleRemaining: SecretFieldId[] = [];
-	if (staleFields.length > 0) {
-		for (const field of staleFields) {
-			try {
-				await env.storeServerSecret(label, field, undefined);
-			} catch {
-				// Counted by the verification below.
-			}
-		}
-		try {
-			const after = await env.readServerSecrets(label);
-			staleRemaining = staleFields.filter((field) => after[field] !== undefined);
-		} catch {
-			// Unverifiable counts as failed: the caveat must err toward warning.
-			staleRemaining = staleFields;
-		}
-		if (staleRemaining.length > 0) {
-			env.log("Post-adoption cleanup of stale stored secrets failed", { fields: staleRemaining });
-		}
-	}
 	env.requestServerSync();
-	const caveats: string[] = [];
-	if (credentials === undefined) {
-		caveats.push(
-			vscode.l10n.t("The live group's credentials could not be read, so none were copied; edit the server to set them.")
-		);
-	}
-	if (staleRemaining.length > 0) {
-		const names = staleRemaining.map((field) => serverFormFieldLabel(field)).join(", ");
-		caveats.push(
-			vscode.l10n.t(
-				"A previously stored secret under this label ({0}) could not be cleared and may take effect; clear or replace it by editing the server or with LiteLLM: Set Server Secret.",
-				names
-			)
-		);
-	}
-	return caveats.length > 0 ? caveats.join(" ") : undefined;
+	return credentials === undefined
+		? vscode.l10n.t("The live group's credentials could not be read, so none were copied; edit the server to set them.")
+		: undefined;
 }

@@ -910,51 +910,35 @@ suite("extension/dashboard/intents", () => {
 			);
 		});
 
-		test("a stale blob that survives cleanup surfaces in the success caveat, never silently", async () => {
+		test("a failed stale-blob clear aborts the adoption and rolls the copied secrets back", async () => {
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Adopted", { virtualKeyValue: "vk-stale" });
 			recorded.adoptionCredentials = { apiKey: "sk-live" };
-			recorded.failUnstore = new Error("keychain locked");
+			// The stale clear (an unstore) fails once; the rollback's own
+			// unstore of the copied apiKey then succeeds.
+			recorded.failUnstoreTimes = 1;
 
-			const notice = await adopt(recorded);
+			await assert.rejects(() => adopt(recorded));
 
-			assert.ok(notice !== undefined, "expected a caveat");
-			assert.ok(/could not be cleared/.test(notice), notice);
-			assert.ok(notice.includes("Virtual key value"), "the caveat uses the display name");
-			assert.ok(!notice.includes("vk-stale"), "the caveat names the field, never the value");
-			assert.strictEqual(recorded.serverWrites.length, 1, "the entry write stands; only the caveat warns");
-			assert.deepStrictEqual(recorded.storedSecrets.get("Adopted"), {
-				apiKey: "sk-live",
-				virtualKeyValue: "vk-stale",
-			});
+			assert.deepStrictEqual(recorded.serverWrites, [], "the entry never lands when a stale clear fails");
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("Adopted"),
+				{ virtualKeyValue: "vk-stale" },
+				"the copied secret is rolled back and the pre-existing blob is intact, so retrying converges"
+			);
 		});
 
-		test("missing credentials and a failed stale-blob cleanup combine into one caveat", async () => {
+		test("a failed stale clear aborts the caveat-path adoption too, restoring the blob", async () => {
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Adopted", { apiKey: "sk-stale" });
-			recorded.failUnstore = new Error("keychain locked");
-			// adoptionCredentials stays unset: nothing to copy.
+			recorded.failUnstoreTimes = 1;
+			// adoptionCredentials stays unset: nothing to copy, but the stale
+			// blob still must not resolve for the would-be entry.
 
-			const notice = await adopt(recorded);
+			await assert.rejects(() => adopt(recorded));
 
-			assert.ok(notice !== undefined, "expected a caveat");
-			assert.ok(/could not be read/.test(notice) && /could not be cleared/.test(notice), notice);
-		});
-
-		test("an unverifiable cleanup counts as failed: adoption completes with the caveat", async () => {
-			const recorded = makeEnv([]);
-			recorded.storedSecrets.set("Adopted", { apiKey: "sk-stale" });
-			recorded.adoptionCredentials = { virtualKeyHeader: "x-litellm-api-key", virtualKeyValue: "vk-live" };
-			// The initial blob read succeeds; the post-cleanup verification read
-			// throws, so the cleanup outcome is unknowable and must warn.
-			recorded.failSecretReadsAfter = 1;
-
-			const notice = await adopt(recorded);
-
-			assert.ok(notice !== undefined, "expected a caveat");
-			assert.ok(/could not be cleared/.test(notice), notice);
-			assert.ok(notice.includes("API key"), notice);
-			assert.strictEqual(recorded.serverWrites.length, 1, "the adoption still completes");
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Adopted"), { apiKey: "sk-stale" });
 		});
 
 		test("a failed write whose rollback also fails reports the reachable recovery path", async () => {
