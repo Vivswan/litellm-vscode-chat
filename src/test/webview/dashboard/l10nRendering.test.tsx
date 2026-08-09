@@ -79,7 +79,7 @@ test("the hero picks the translated comment-form plural nouns by count", () => {
 
 test("the pricing column resolves the composite in/out keys with {0} substituted", () => {
 	const priced = makeModel({ inputCost: 2.5, outputCost: 10.125 });
-	const root = mount(<ModelsSection models={[priced]} serverCount={1} stateSeq={0} />);
+	const root = mount(<ModelsSection models={[priced]} serverCount={1} onInspect={() => {}} />);
 
 	const pricing = root.querySelector(".col-price .tip-wrap > span")?.textContent;
 	expect(pricing).toBe("IN[$2.5] / OUT[$10.1]");

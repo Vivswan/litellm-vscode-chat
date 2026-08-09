@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ModelsSection } from "../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";
-import { cleanup, fireClick, fireInput, mount, postedMessages, resetPosted } from "../harness";
+import { cleanup, fireClick, fireInput, mount, resetPosted } from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -34,7 +34,7 @@ test("renders one row per model with formatted tokens, pricing, capabilities, an
 		reasoning: true,
 	});
 	const bare = makeModel({ id: "bare", name: "Bare", toolCalling: false, imageInput: false });
-	const root = mount(<ModelsSection models={[priced, bare]} serverCount={1} stateSeq={0} />);
+	const root = mount(<ModelsSection models={[priced, bare]} serverCount={1} onInspect={() => {}} />);
 
 	const rows = Array.from(root.querySelectorAll("tbody tr"));
 	expect(rows.length).toBe(2);
@@ -81,7 +81,7 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 		makeModel({ id: "gpt-4o", name: "Omni", family: "gpt", serverLabel: "Prod" }),
 		makeModel({ id: "claude-sonnet", name: "Sonnet", family: "claude", serverLabel: "Staging" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={2} stateSeq={0} />);
+	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
 	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	const visibleNames = () =>
 		Array.from(root.querySelectorAll("tbody tr")).map((row) => (row.querySelector("td")?.textContent ?? "").trim());
@@ -105,12 +105,12 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 
 test("the server column appears only when serverCount > 1, keyed to the count rather than distinct labels", () => {
 	const models = [makeModel({ serverLabel: "Shared" }), makeModel({ id: "b", serverLabel: "Shared" })];
-	const single = mount(<ModelsSection models={models} serverCount={1} stateSeq={0} />);
+	const single = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
 	const singleHeaders = Array.from(single.querySelectorAll("th")).map((th) => (th.textContent ?? "").trim());
 	expect(singleHeaders).not.toContain("Server");
 
 	// Two groups can share one label; their models must stay attributable.
-	const dual = mount(<ModelsSection models={models} serverCount={2} stateSeq={0} />);
+	const dual = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
 	const dualHeaders = Array.from(dual.querySelectorAll("th")).map((th) => (th.textContent ?? "").trim());
 	expect(dualHeaders).toContain("Server");
 });
@@ -123,7 +123,12 @@ test("a server scope narrows the rows before the text filter and renders as a cl
 	];
 	let cleared = 0;
 	const root = mount(
-		<ModelsSection models={models} serverCount={2} scope={{ label: "Prod", onClear: () => cleared++ }} stateSeq={0} />
+		<ModelsSection
+			models={models}
+			serverCount={2}
+			scope={{ label: "Prod", onClear: () => cleared++ }}
+			onInspect={() => {}}
+		/>
 	);
 	const visibleNames = () =>
 		Array.from(root.querySelectorAll("tbody tr")).map((row) => (row.querySelector("td")?.textContent ?? "").trim());
@@ -149,7 +154,7 @@ test("a declared model wears the declared badge with its explanatory tip; discov
 		<ModelsSection
 			models={[makeModel({ id: "my-model", name: "Mine", declared: true }), makeModel({ id: "gpt", name: "Found" })]}
 			serverCount={1}
-			stateSeq={0}
+			onInspect={() => {}}
 		/>
 	);
 	const rows = Array.from(root.querySelectorAll("tbody tr"));
@@ -160,15 +165,18 @@ test("a declared model wears the declared badge with its explanatory tip; discov
 	expect(tip?.textContent).toContain("discovery.declared");
 });
 
-test("the Caps action opens the capability inspector, which posts its read for the clicked row", () => {
+test("the Capabilities action reports the clicked row's full identity to the inspector owner", () => {
 	const model = makeModel({ id: "gpt-4", rawId: "gpt-4", scopeKey: "s3" });
-	const root = mount(<ModelsSection models={[model]} serverCount={1} stateSeq={0} />);
+	const opened: [{ scopeKey: string; rawId: string; serverLabel: string }, string][] = [];
+	const root = mount(
+		<ModelsSection models={[model]} serverCount={1} onInspect={(target, view) => opened.push([target, view])} />
+	);
 	const caps = root.querySelector("button[aria-label='Show effective capabilities for GPT Test on Prod']");
 	expect(caps).not.toBeNull();
+	expect((caps?.textContent ?? "").trim()).toBe("Capabilities");
 	fireClick(caps as HTMLElement);
-	expect(root.textContent).toContain("Resolving capabilities...");
-	const request = postedMessages.at(-1) as unknown as { type: string; scopeKey: string; rawId: string };
-	expect(request.type).toBe("readModelCapabilities");
-	expect(request.scopeKey).toBe("s3");
-	expect(request.rawId).toBe("gpt-4");
+	// The overlay itself is App's (it opens over any tab); the section names
+	// the full row identity - serverLabel included, since one snapshot can
+	// render under several labels - and the view.
+	expect(opened).toEqual([[{ scopeKey: "s3", rawId: "gpt-4", serverLabel: "Prod" }, "caps"]]);
 });

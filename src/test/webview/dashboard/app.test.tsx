@@ -153,3 +153,51 @@ test("with only legacy-registry servers the hero says so instead of claiming not
 	pushToWebview(statePush(makeState()));
 	expect(root.querySelector(".hero .pill")?.textContent).toContain("Not configured");
 });
+
+test("the Diagnostics table's inspector opens in place over the tab and closing stays there", () => {
+	// The inspector is an App-level overlay: opening it from the Resolved-models
+	// table must not switch to the overview tab, and closing it must leave the
+	// Diagnostics page exactly as the reader left it.
+	const model = makeModel({ id: "gpt-4o", rawId: "gpt-4o", name: "Omni", scopeKey: "s0" });
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], models: [model] })));
+
+	fireClick(root.querySelector("#tab-diagnostics") as HTMLButtonElement);
+	const diagnosticsTab = () => root.querySelector("#tab-diagnostics") as HTMLButtonElement;
+	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
+
+	// Answer the tab's readResolvedModels with one row for the model.
+	const read = postedMessages.find((message) => message.type === "readResolvedModels") as { requestId: string };
+	pushToWebview({
+		type: "resolvedModels",
+		requestId: read.requestId,
+		view: {
+			trees: [],
+			recordCount: 0,
+			rows: [
+				{
+					serverLabel: "Prod",
+					rawId: "gpt-4o",
+					scopeKey: "s0",
+					matchedKeys: [],
+					parameters: [],
+					capabilities: [],
+				},
+			],
+		},
+	});
+
+	const row = root.querySelector("table.resolved-models tbody tr") as HTMLElement;
+	fireClick(buttonByText(row, "Parameters"));
+	expect(document.querySelector("[role='dialog']")).not.toBeNull();
+	// No tab switch: the overlay rides over the Diagnostics page.
+	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
+	const request = postedMessages.at(-1) as { type: string; scopeKey: string; rawId: string };
+	expect(request.type).toBe("readModelParameters");
+	expect(request.scopeKey).toBe("s0");
+
+	fireClick(document.querySelector("[role='dialog'] button[aria-label='Close']") as HTMLButtonElement);
+	expect(document.querySelector("[role='dialog']")).toBeNull();
+	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
+	expect(root.querySelector("table.resolved-models")).not.toBeNull();
+});

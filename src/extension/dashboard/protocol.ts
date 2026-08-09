@@ -1103,6 +1103,26 @@ export interface RecordTreeNode {
 	readonly models: readonly { readonly id: string; readonly resolvedText: string }[];
 }
 
+/** One record in a model's per-map matching chain; see RecordChainView. */
+export interface RecordChainLink {
+	readonly key: string;
+	/** True when `_inherit_from` is false or the empty list: nothing flows past this record. */
+	readonly barrier: boolean;
+	/** The `_inherit_from` directive rendered for display ("true" or the named keys); absent for the default flow. */
+	readonly inheritFrom?: string | undefined;
+}
+
+/**
+ * One record map's matching chain for an inspected model, broadest to most
+ * specific (the winner last): the inspectors' compact inheritance figure.
+ * Computed extension-side from the same matchChain the resolvers run; the
+ * webview holds no matcher logic.
+ */
+export interface RecordChainView {
+	readonly layer: "global" | "entry";
+	readonly links: readonly RecordChainLink[];
+}
+
 /** One flat-table cell: a resolved parameter with its provenance. */
 export interface ResolvedParamCell {
 	readonly name: string;
@@ -1225,6 +1245,8 @@ export type ExtensionToWebviewMessage =
 			 * Extension-computed: the webview holds no matcher logic.
 			 */
 			readonly globalRecordKey?: string | undefined;
+			/** The model's per-map matching chains (the inspector's inheritance figure); absent when nothing matches. */
+			readonly chains?: readonly RecordChainView[] | undefined;
 	  }
 	| {
 			/**
@@ -1242,6 +1264,8 @@ export type ExtensionToWebviewMessage =
 			readonly entryLabel?: string | undefined;
 			/** See modelCapabilities.globalRecordKey; the parameters-map twin. */
 			readonly globalRecordKey?: string | undefined;
+			/** See modelCapabilities.chains; the parameters-map twin. */
+			readonly chains?: readonly RecordChainView[] | undefined;
 	  }
 	| {
 			/**

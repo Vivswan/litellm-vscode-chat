@@ -465,8 +465,8 @@ export function ParamGroupsFields({
 	readOnly,
 	prefixPlaceholder,
 	prefixHelp,
-	prefixListId,
-	paramNameListId,
+	prefixSuggestions,
+	paramNameSuggestions,
 	onChange,
 	onEnter,
 }: {
@@ -479,17 +479,16 @@ export function ParamGroupsFields({
 	readOnly?: boolean;
 	prefixPlaceholder: string;
 	prefixHelp: string;
-	/** Datalist IDs for the prefix and parameter-name inputs; the owning editor renders the lists. */
-	prefixListId?: string;
-	paramNameListId?: string;
+	/** Suggestions for the prefix and parameter-name inputs' listboxes; absent, the inputs stay plain. */
+	prefixSuggestions?: readonly string[];
+	paramNameSuggestions?: readonly string[];
 	onChange: (next: PrefixGroup[]) => void;
 	/** Enter in a row input; the editors apply the draft when it parses clean. */
 	onEnter?: () => void;
 }) {
 	const inert = disabled === true || readOnly === true;
-	// No Enter-apply on an input that carries a datalist: Enter also accepts
-	// the highlighted suggestion, and the keydown outruns the input event that
-	// commits it, so applying there would post the half-typed value.
+	// The suggestion inputs guard their own Enter (a highlighted suggestion is
+	// accepted, never applied); this handler serves the plain value inputs.
 	const onKeyDown =
 		onEnter === undefined
 			? undefined
@@ -512,16 +511,15 @@ export function ParamGroupsFields({
 					<div class="group" key={groupIndex}>
 						<div class="row">
 							<span class="cell key">
-								<input
-									type="text"
-									class={`key${problems[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
-									aria-invalid={problems[groupIndex]?.prefix !== undefined}
-									placeholder={prefixPlaceholder}
+								<SuggestInput
 									value={group.prefix}
+									suggestions={prefixSuggestions ?? []}
+									inputClass="key"
+									invalid={problems[groupIndex]?.prefix !== undefined}
+									placeholder={prefixPlaceholder}
 									disabled={inert}
-									list={prefixListId}
-									onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
-									onKeyDown={prefixListId === undefined ? onKeyDown : undefined}
+									onValue={(next) => patchGroup(groupIndex, { prefix: next })}
+									onEnter={onEnter}
 								/>
 								<Help text={prefixHelp} />
 							</span>
@@ -552,22 +550,19 @@ export function ParamGroupsFields({
 							{group.params.map((param, paramIndex) => (
 								<div class="row" key={paramIndex}>
 									<span class="cell key">
-										<input
-											type="text"
-											class={`key${problems[groupIndex]?.params[paramIndex]?.field === "name" ? " invalid" : ""}`}
-											aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
-											placeholder={l10n.t("Parameter, e.g. temperature")}
+										<SuggestInput
 											value={param.key}
+											suggestions={paramNameSuggestions ?? []}
+											inputClass="key"
+											invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
+											placeholder={l10n.t("Parameter, e.g. temperature")}
 											disabled={inert}
-											list={paramNameListId}
-											onInput={(event) =>
+											onValue={(next) =>
 												patchGroup(groupIndex, {
-													params: group.params.map((p, i) =>
-														i === paramIndex ? { ...p, key: event.currentTarget.value } : p
-													),
+													params: group.params.map((p, i) => (i === paramIndex ? { ...p, key: next } : p)),
 												})
 											}
-											onKeyDown={paramNameListId === undefined ? onKeyDown : undefined}
+											onEnter={onEnter}
 										/>
 										<Help text={helpModelParameterName()} />
 									</span>
@@ -696,7 +691,183 @@ const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = [
 	OPENROUTER_MODEL_DIRECTIVE,
 ];
 
-const CAPABILITY_KEY_LIST_ID = "model-capabilities-key-options";
+/**
+ * A text input with its own suggestion listbox, replacing the native datalist
+ * (which the webview host renders all-bold and unstylable). The combobox
+ * pattern the catalog picker set: typing filters the suggestions
+ * (case-insensitive substring), arrows move the highlight, Enter accepts it,
+ * Escape closes, blur closes, mousedown picks. Enter WITHOUT a highlighted
+ * suggestion falls through to `onEnter` (the editors' Enter-apply), so
+ * accepting a suggestion can never double as Apply on a half-typed row.
+ */
+function SuggestInput({
+	value,
+	suggestions,
+	inputClass,
+	invalid,
+	placeholder,
+	disabled,
+	onValue,
+	onEnter,
+}: {
+	value: string;
+	suggestions: readonly string[];
+	/** The input's base class ("key"); invalid appends the shared error class. */
+	inputClass: string;
+	invalid: boolean;
+	placeholder?: string | undefined;
+	disabled?: boolean | undefined;
+	onValue: (next: string) => void;
+	/** Enter with no highlighted suggestion; the editors apply the draft when it parses clean. */
+	onEnter?: (() => void) | undefined;
+}) {
+	const [open, setOpen] = useState(false);
+	// The keyboard cursor over the suggestion list; -1 means nothing highlighted.
+	const [active, setActive] = useState(-1);
+	const listId = useId();
+	const listRef = useRef<HTMLDivElement>(null);
+	const needle = value.trim().toLowerCase();
+	const matches =
+		needle.length === 0 ? suggestions : suggestions.filter((candidate) => candidate.toLowerCase().includes(needle));
+	const expanded = open && disabled !== true && matches.length > 0;
+	// Typing reshapes the match list under the cursor, so input resets it; the
+	// render-time clamp covers the same list shrinking for any other reason.
+	const highlighted = active >= 0 && active < matches.length ? active : -1;
+	// Focus stays on the input (the aria-activedescendant pattern), so the
+	// browser never scrolls the highlight into the popup's view on its own.
+	useEffect(() => {
+		if (highlighted >= 0) {
+			listRef.current?.querySelector(`[aria-selected="true"]`)?.scrollIntoView({ block: "nearest" });
+		}
+	}, [highlighted]);
+	const pick = (suggestion: string) => {
+		onValue(suggestion);
+		setOpen(false);
+		setActive(-1);
+	};
+	const onKeyDown = (event: KeyboardEvent) => {
+		if (event.key === "Enter") {
+			const match = highlighted >= 0 ? matches[highlighted] : undefined;
+			if (expanded && match !== undefined) {
+				pick(match);
+				event.preventDefault();
+				return;
+			}
+			onEnter?.();
+			return;
+		}
+		if (!expanded) {
+			// Reopen after an Escape (or blur) with the arrow landing straight on
+			// an option, per the combobox pattern: an unhighlighted reopen would
+			// send the very next Enter to Apply instead of accepting.
+			if (event.key === "ArrowDown" && matches.length > 0 && disabled !== true) {
+				setOpen(true);
+				setActive(0);
+				event.preventDefault();
+			} else if (event.key === "ArrowUp" && matches.length > 0 && disabled !== true) {
+				setOpen(true);
+				setActive(matches.length - 1);
+				event.preventDefault();
+			}
+			return;
+		}
+		if (event.key === "ArrowDown") {
+			setActive((highlighted + 1) % matches.length);
+		} else if (event.key === "ArrowUp") {
+			setActive(highlighted <= 0 ? matches.length - 1 : highlighted - 1);
+		} else if (event.key === "Escape") {
+			setOpen(false);
+			setActive(-1);
+			// The listbox consumes this Escape: inside a slide-over form it must
+			// close only the suggestions, not request the form's close.
+			event.stopPropagation();
+		} else {
+			return;
+		}
+		event.preventDefault();
+	};
+	// With nothing to suggest (the read-only scope grids, entry editors without
+	// model data) the input stays a plain text field: combobox aria naming a
+	// listbox that can never exist would be a lie to assistive tech. A separate
+	// element, not conditional attributes: the a11y lint checks role/aria pairs
+	// statically.
+	if (suggestions.length === 0) {
+		return (
+			<span class="suggest-input">
+				<input
+					type="text"
+					class={invalid ? `${inputClass} invalid` : inputClass}
+					aria-invalid={invalid}
+					placeholder={placeholder}
+					value={value}
+					disabled={disabled}
+					onInput={(event) => onValue(event.currentTarget.value)}
+					onKeyDown={onKeyDown}
+				/>
+			</span>
+		);
+	}
+	return (
+		<span class="suggest-input">
+			<input
+				type="text"
+				class={invalid ? `${inputClass} invalid` : inputClass}
+				role="combobox"
+				aria-invalid={invalid}
+				aria-expanded={expanded}
+				aria-controls={listId}
+				aria-autocomplete="list"
+				aria-activedescendant={highlighted >= 0 ? `${listId}-${highlighted}` : undefined}
+				placeholder={placeholder}
+				value={value}
+				disabled={disabled}
+				onInput={(event) => {
+					setOpen(true);
+					setActive(-1);
+					onValue(event.currentTarget.value);
+				}}
+				onFocus={() => setOpen(true)}
+				onBlur={() => {
+					setOpen(false);
+					setActive(-1);
+				}}
+				onKeyDown={onKeyDown}
+			/>
+			{expanded ? (
+				<div
+					class="catalog-results suggest-results"
+					role="listbox"
+					id={listId}
+					ref={listRef}
+					aria-label={l10n.t("Suggestions")}
+				>
+					{matches.map((suggestion, index) => (
+						<button
+							key={suggestion}
+							type="button"
+							role="option"
+							id={`${listId}-${index}`}
+							aria-selected={index === highlighted}
+							tabIndex={-1}
+							class={index === highlighted ? "quiet active" : "quiet"}
+							// mousedown, not click: the input's blur closes the list
+							// before a click could land. The click handler still picks
+							// for activations that never send a mousedown (assistive
+							// tech's synthesized clicks); pick is idempotent.
+							onMouseDown={(event) => {
+								event.preventDefault();
+								pick(suggestion);
+							}}
+							onClick={() => pick(suggestion)}
+						>
+							{suggestion}
+						</button>
+					))}
+				</div>
+			) : null}
+		</span>
+	);
+}
 
 /** What input a capability row's value takes, keyed off the closed vocabulary and the directives. */
 function capabilityValueKind(key: string): "number" | "boolean" | "catalog-id" | "json" {
@@ -854,8 +1025,9 @@ export function CapabilityGroupsFields({
 	disabled,
 	readOnly,
 	catalogResults,
-	prefixListId,
+	prefixSuggestions,
 	onChange,
+	onEnter,
 }: {
 	groups: readonly PrefixGroup[];
 	issues: readonly CapabilityGroupIssues[];
@@ -863,21 +1035,28 @@ export function CapabilityGroupsFields({
 	/** Render as a static display: inputs disabled, add/remove actions gone (the other-scope records). */
 	readOnly?: boolean;
 	catalogResults: CatalogSearchResponse | undefined;
-	/** Datalist ID for the matcher input; the owning editor renders the list. */
-	prefixListId?: string;
+	/** Suggestions for the matcher input's listbox; absent, the input stays plain. */
+	prefixSuggestions?: readonly string[];
 	onChange: (next: PrefixGroup[]) => void;
+	/** Enter in a row input; the editors apply the draft when it parses clean. */
+	onEnter?: () => void;
 }) {
 	const inert = disabled === true || readOnly === true;
+	// The suggestion inputs guard their own Enter (a highlighted suggestion is
+	// accepted, never applied); this handler serves the plain value inputs.
+	const onKeyDown =
+		onEnter === undefined
+			? undefined
+			: (event: KeyboardEvent) => {
+					if (event.key === "Enter") {
+						onEnter();
+					}
+				};
 	const patchGroup = (index: number, patch: Partial<PrefixGroup>) => {
 		onChange(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
 	};
 	return (
 		<>
-			<datalist id={CAPABILITY_KEY_LIST_ID}>
-				{CAPABILITY_KEY_SUGGESTIONS.map((key) => (
-					<option key={key} value={key} />
-				))}
-			</datalist>
 			{groups.map((group, groupIndex) => {
 				// The group's `_fallback` marks, derived once per render from the
 				// rows the checkboxes rewrite.
@@ -887,15 +1066,15 @@ export function CapabilityGroupsFields({
 					<div class="group" key={groupIndex}>
 						<div class="row">
 							<span class="cell key">
-								<input
-									type="text"
-									class={`key${issues[groupIndex]?.prefix === undefined ? "" : " invalid"}`}
-									aria-invalid={issues[groupIndex]?.prefix !== undefined}
-									placeholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
+								<SuggestInput
 									value={group.prefix}
+									suggestions={prefixSuggestions ?? []}
+									inputClass="key"
+									invalid={issues[groupIndex]?.prefix !== undefined}
+									placeholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
 									disabled={inert}
-									list={prefixListId}
-									onInput={(event) => patchGroup(groupIndex, { prefix: event.currentTarget.value })}
+									onValue={(next) => patchGroup(groupIndex, { prefix: next })}
+									onEnter={onEnter}
 								/>
 								<Help text={helpCapabilityPrefix()} />
 							</span>
@@ -934,16 +1113,14 @@ export function CapabilityGroupsFields({
 								return (
 									<div class="row" key={paramIndex}>
 										<span class="cell key">
-											<input
-												type="text"
-												class={`key${issue?.problem?.field === "name" ? " invalid" : ""}`}
-												aria-invalid={issue?.problem?.field === "name"}
-												placeholder={l10n.t("Capability, e.g. context_length")}
+											<SuggestInput
 												value={param.key}
+												suggestions={CAPABILITY_KEY_SUGGESTIONS}
+												inputClass="key"
+												invalid={issue?.problem?.field === "name"}
+												placeholder={l10n.t("Capability, e.g. context_length")}
 												disabled={inert}
-												list={CAPABILITY_KEY_LIST_ID}
-												onInput={(event) => {
-													const nextKey = event.currentTarget.value;
+												onValue={(nextKey) => {
 													// A row just switched onto a support flag means "turn it
 													// on"; seeding true keeps the checkbox and the parse in
 													// agreement without an extra click.
@@ -951,6 +1128,7 @@ export function CapabilityGroupsFields({
 														capabilityValueKind(nextKey.trim()) === "boolean" && param.valueText.trim().length === 0;
 													patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
 												}}
+												onEnter={onEnter}
 											/>
 											<Help text={helpCapabilityName()} />
 										</span>
@@ -983,6 +1161,7 @@ export function CapabilityGroupsFields({
 													value={param.valueText}
 													disabled={inert}
 													onInput={(event) => patchRow({ valueText: event.currentTarget.value })}
+													onKeyDown={onKeyDown}
 												/>
 												<Help text={helpCapabilityValue()} />
 											</span>
@@ -1116,9 +1295,6 @@ const COMMON_PARAMETER_NAMES = [
 	"seed",
 ] as const;
 
-const MODEL_PREFIX_LIST_ID = "model-parameters-prefix-options";
-const PARAM_NAME_LIST_ID = "model-parameters-name-options";
-
 /**
  * Structured editor for litellm-vscode-chat.models.parameters, the
  * object-of-objects the native Settings GUI cannot edit: one group per model
@@ -1206,16 +1382,6 @@ export function ModelParametersEditor({
 				)}
 			</p>
 			<ScopeNote scoped={scoped} />
-			<datalist id={MODEL_PREFIX_LIST_ID}>
-				{modelIds.map((id) => (
-					<option key={id} value={id} />
-				))}
-			</datalist>
-			<datalist id={PARAM_NAME_LIST_ID}>
-				{COMMON_PARAMETER_NAMES.map((name) => (
-					<option key={name} value={name} />
-				))}
-			</datalist>
 			{json !== undefined ? (
 				<div class="record-json">
 					<textarea
@@ -1243,8 +1409,8 @@ export function ModelParametersEditor({
 						hints={parse.hints}
 						prefixPlaceholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
 						prefixHelp={helpModelParameterPrefix()}
-						prefixListId={MODEL_PREFIX_LIST_ID}
-						paramNameListId={PARAM_NAME_LIST_ID}
+						prefixSuggestions={modelIds}
+						paramNameSuggestions={COMMON_PARAMETER_NAMES}
 						onChange={(next) => draft.update(next)}
 						onEnter={apply}
 					/>
@@ -1309,8 +1475,6 @@ export function ModelParametersEditor({
 		</section>
 	);
 }
-
-const CAPABILITY_PREFIX_LIST_ID = "model-capabilities-prefix-options";
 
 /**
  * Structured editor for litellm-vscode-chat.models.capabilities, the
@@ -1394,11 +1558,6 @@ export function ModelCapabilitiesEditor({
 				)}
 			</p>
 			<ScopeNote scoped={scoped} />
-			<datalist id={CAPABILITY_PREFIX_LIST_ID}>
-				{modelIds.map((id) => (
-					<option key={id} value={id} />
-				))}
-			</datalist>
 			{json !== undefined ? (
 				<div class="record-json">
 					<textarea
@@ -1426,8 +1585,9 @@ export function ModelCapabilitiesEditor({
 						groups={groups}
 						issues={issues}
 						catalogResults={catalogResults}
-						prefixListId={CAPABILITY_PREFIX_LIST_ID}
+						prefixSuggestions={modelIds}
 						onChange={(next) => draft.update(next)}
+						onEnter={apply}
 					/>
 				</>
 			)}

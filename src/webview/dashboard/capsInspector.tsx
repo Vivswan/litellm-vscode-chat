@@ -27,6 +27,7 @@ import { DOCS_LINK_CAPS_INSPECTOR } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpCapsInspector } from "./helpText";
 import { formatTokens } from "./models";
+import { RecordChainFigure } from "./recordChain";
 import { SlideOver } from "./slideOver";
 import { newRequestId, postMessage } from "./vscodeApi";
 
@@ -268,6 +269,7 @@ export function CapsInspector({
 	model,
 	response,
 	stateSeq,
+	fallbackFocusId = "models-section",
 	onClose,
 	onEditRecord,
 	onEditEntry,
@@ -277,6 +279,8 @@ export function CapsInspector({
 	response: ModelCapabilitiesResponse | undefined;
 	/** Bumped on every state push; the inspector re-requests so an open panel follows configuration edits. */
 	stateSeq: number;
+	/** Where focus lands on close when the opener is gone; the overlay's owner names a visible element (the active tab). */
+	fallbackFocusId?: string;
 	onClose: () => void;
 	/** Jump into the global capabilities editor: focus record `key`, or create an exact-ID draft when `create`. */
 	onEditRecord?: ((key: string, create: boolean) => void) | undefined;
@@ -314,7 +318,7 @@ export function CapsInspector({
 	return (
 		<SlideOver
 			labelledBy="caps-inspector-title"
-			fallbackFocusId="models-section"
+			fallbackFocusId={fallbackFocusId}
 			confirming={false}
 			onRequestClose={onClose}
 			onKeepEditing={onClose}
@@ -332,6 +336,12 @@ export function CapsInspector({
 						comment: ["{0} is a model ID, {1} is the server it is served from"],
 					})}
 				</p>
+				<RecordChainFigure
+					chains={answered?.chains}
+					entryLabel={model.serverLabel}
+					onEditRecord={onEditRecord === undefined ? undefined : (key) => onEditRecord(key, false)}
+					onEditEntry={onEditEntry}
+				/>
 				{onEditRecord !== undefined ? (
 					<p class="params-configure">
 						<button

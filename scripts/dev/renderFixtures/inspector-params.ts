@@ -1,7 +1,8 @@
 /**
- * The params inspector popup with the configure-jump affordances: the
- * "Configure parameters for this model" button and the per-row "edit"
- * actions (global record and server entry sourced rows). The step opens the
+ * The params inspector popup with the configure-jump affordances and the
+ * inheritance chain figure: the "Configure parameters for this model" button,
+ * the per-row "edit" actions (global record and server entry sourced rows),
+ * and the record-path lines with a barrier marker. The step opens the
  * inspector from the GPT-5.6 row; the respond map answers its read.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -14,6 +15,23 @@ const fixture: RenderFixture = {
 			type: "modelParameters",
 			entryLabel: "prod",
 			globalRecordKey: "gpt-5*",
+			chains: [
+				{
+					layer: "global",
+					links: [
+						{ key: "*", barrier: false },
+						{ key: "gpt-5*", barrier: true, inheritFrom: "false" },
+						{ key: "gpt-5.6", barrier: false, inheritFrom: "*" },
+					],
+				},
+				{
+					layer: "entry",
+					links: [
+						{ key: "*", barrier: false },
+						{ key: "gpt-5*", barrier: false },
+					],
+				},
+			],
 			projection: {
 				rows: [
 					{
@@ -45,7 +63,7 @@ const fixture: RenderFixture = {
 			},
 		},
 	},
-	steps: ['[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Params").click()'],
+	steps: ['[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Parameters").click()'],
 	viewport: { width: 1300, height: 1100 },
 	settleMs: 500,
 };
