@@ -1,15 +1,29 @@
 /**
- * The single source of truth for the extension's configuration section and
- * the value side of its scalar settings: key names, defaults, and minimums.
- * package.json's contributed configuration mirrors this table
- * (settingSpec.test.ts pins the mirror, docs numbers included), the
- * settings readers clamp against it, and the dashboard protocol layers its
- * presentation metadata on top. Pure constants: no vscode, no Node, no zod
- * (the dashboard protocol pulls this module into the webview bundle).
+ * The single source of truth for the extension's configuration section, the
+ * value side of its scalar settings (key names, defaults, and minimums), and
+ * the object settings' key names. package.json's contributed configuration
+ * mirrors this table (settingSpec.test.ts pins the mirror, docs numbers
+ * included), the settings readers clamp against it, and the dashboard
+ * protocol layers its presentation metadata on top. Pure constants: no
+ * vscode, no Node, no zod (the dashboard protocol pulls this module into the
+ * webview bundle, and the dev launcher loads it outside the host).
  */
 
 /** The configuration section every litellm-vscode-chat.* setting lives under. */
 export const CONFIG_SECTION = "litellm-vscode-chat";
+
+/**
+ * The object settings' keys under the config section. They have no scalar
+ * spec; their readers (shared/config/settings.ts, the server sync engine,
+ * the dashboard's editors, and the dev launcher's profile inspection) share
+ * the key names through these constants, and settingSpec.test.ts pins the
+ * package.json contributions against them.
+ */
+export const MODEL_CAPABILITIES_SETTING_KEY = "models.capabilities";
+export const MODEL_PARAMETERS_SETTING_KEY = "models.parameters";
+export const SERVERS_SETTING_KEY = "servers";
+export const USAGE_ALERT_THRESHOLDS_SETTING_KEY = "usage.alertThresholds";
+export const USAGE_STATUS_BAR_SETTING_KEY = "usage.statusBar";
 
 /** The floor both timeout settings clamp to; sub-second timeouts would abort requests before they leave. */
 export const MIN_TIMEOUT_MS = 1000;
