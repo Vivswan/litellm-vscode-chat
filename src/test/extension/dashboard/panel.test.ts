@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
-import type { DashboardControllerEnv, DashboardPanel } from "../../../extension/dashboard/panel";
+import type { DashboardControllerEnv, DashboardPanel, ServerResolution } from "../../../extension/dashboard/panel";
 import {
 	DashboardController,
 	declaredMergedSnapshots,
@@ -114,6 +114,11 @@ function makeHarness(): Harness {
 		get: (key) => settingsValues[key],
 		inspect: (key) => (Object.hasOwn(settingsValues, key) ? { globalValue: settingsValues[key] } : undefined),
 	};
+	const serverResolution: ServerResolution = {
+		isGroupSnapshot: () => true,
+		resolveEntryParameters: (serverId) => harness.entryResolutions[serverId],
+		resolveEntryCapabilities: (serverId) => harness.entryCapabilities[serverId],
+	};
 	const env: DashboardControllerEnv = {
 		createPanel: () => {
 			const fake = makeFakePanel();
@@ -126,9 +131,7 @@ function makeHarness(): Harness {
 		getDeclaredServers: () => [],
 		getLegacyServers: () => harness.legacyServers,
 		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
-		isGroupSnapshot: () => true,
-		resolveEntryParameters: (serverId) => harness.entryResolutions[serverId],
-		resolveEntryCapabilities: (serverId) => harness.entryCapabilities[serverId],
+		serverResolution,
 		getCatalogLookup: () => EMPTY_CATALOG_LOOKUP,
 		getCatalogStatus: () => EMPTY_CATALOG_STATUS,
 		getUsage: () => EMPTY_USAGE_VIEW,
