@@ -34,7 +34,6 @@ import {
 	deleteServerSecrets,
 	inlineSecretValues,
 	parseServersSetting,
-	readEntryModelCapabilities,
 	readEntryModelParameters,
 	readServerSecrets,
 	serverSettingReports,
@@ -42,7 +41,6 @@ import {
 } from "../servers/serverSync";
 import type { UsagePoller } from "../servers/usage";
 import { isUsageFresh } from "../servers/usage";
-import { testEntryModelCapabilitiesOverride } from "../ui/commands";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
 import { buildDashboardHtml } from "./html";
@@ -686,7 +684,11 @@ export function registerDashboardCommand(
 	catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">,
 	// The usage poller: its store feeds the Usage tab, refreshNow backs the
 	// tab's Refresh button and the open-fetches-fresh rule.
-	usagePoller: UsagePoller
+	usagePoller: UsagePoller,
+	// The same composed entry-capabilities resolver activation wires into the
+	// provider, so the inspector structurally cannot diverge from registration
+	// and requests.
+	getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined
 ): DashboardController {
 	const controller = new DashboardController({
 		createPanel: () => createRealPanel(context.extensionUri),
@@ -722,17 +724,11 @@ export function registerDashboardCommand(
 			readEntryModelParameters
 		),
 		// The entry layer resolves through the provider's own identity source
-		// (group label, or the registry sweep's recorded label) AND the same
-		// test seam activation wires ahead of the setting, so the inspector can
-		// never diverge from the composition requests and registration use -
-		// not even in non-production mode, where the two would otherwise
-		// alternate the shared resolution table's cache entries.
+		// (group label, or the registry sweep's recorded label) and the injected
+		// resolver.
 		resolveEntryCapabilities: (serverId) => {
 			const identity = provider.capabilityEntryIdentity(serverId);
-			return identity !== undefined
-				? (testEntryModelCapabilitiesOverride(identity.label) ??
-						readEntryModelCapabilities(identity.label, identity.baseUrl))
-				: undefined;
+			return identity !== undefined ? getEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;
 		},
 		getCatalogLookup: () => catalog.lookup,
 		getCatalogStatus: () => catalog.status(),
