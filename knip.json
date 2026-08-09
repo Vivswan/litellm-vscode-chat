@@ -21,6 +21,7 @@
 	],
 	"ignoreBinaries": [
 		"pwsh",
-		"ps"
+		"down",
+		"logs"
 	]
 }

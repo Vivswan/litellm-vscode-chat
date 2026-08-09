@@ -4,24 +4,31 @@ import type { HeaderScalar } from "../util/headers";
 import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../util/headers";
 import { isUnsafeRecordKey } from "../util/json";
 import type { BooleanSettingId, NumberSettingId } from "./settingSpec";
-import { BOOLEAN_SETTING_SPECS, CONFIG_SECTION, MIN_TIMEOUT_MS, NUMBER_SETTING_SPECS } from "./settingSpec";
+import {
+	BOOLEAN_SETTING_SPECS,
+	CONFIG_SECTION,
+	MIN_TIMEOUT_MS,
+	MODEL_CAPABILITIES_SETTING_KEY,
+	MODEL_PARAMETERS_SETTING_KEY,
+	NUMBER_SETTING_SPECS,
+	SERVERS_SETTING_KEY,
+	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
+	USAGE_STATUS_BAR_SETTING_KEY,
+} from "./settingSpec";
 
 type LogFn = (message: string, data?: unknown) => void;
 
-export { MIN_TIMEOUT_MS };
-
-/**
- * The object settings' keys under the config section. The scalar settings get
- * theirs from settingSpec.ts; these have no scalar spec, so their readers
- * (here, the server sync engine, and the dashboard's editors) share the keys
- * through these constants, and settingSpec.test.ts pins the package.json
- * contributions against them.
- */
-export const MODEL_CAPABILITIES_SETTING_KEY = "models.capabilities";
-export const MODEL_PARAMETERS_SETTING_KEY = "models.parameters";
-export const SERVERS_SETTING_KEY = "servers";
-export const USAGE_ALERT_THRESHOLDS_SETTING_KEY = "usage.alertThresholds";
-export const USAGE_STATUS_BAR_SETTING_KEY = "usage.statusBar";
+// The object settings' keys live in settingSpec.ts beside the scalar specs
+// (vscode-free, so non-host consumers can load them); re-exported here for
+// the readers that take everything settings-related from this module.
+export {
+	MIN_TIMEOUT_MS,
+	MODEL_CAPABILITIES_SETTING_KEY,
+	MODEL_PARAMETERS_SETTING_KEY,
+	SERVERS_SETTING_KEY,
+	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
+	USAGE_STATUS_BAR_SETTING_KEY,
+};
 
 export const DEFAULT_DISCOVERY_TIMEOUT_MS = NUMBER_SETTING_SPECS["discovery.timeout"].default;
 export const DEFAULT_REQUEST_TIMEOUT_MS = NUMBER_SETTING_SPECS["chat.timeout"].default;
