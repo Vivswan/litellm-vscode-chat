@@ -6,19 +6,9 @@ if [ ! -d node_modules ]; then
 	exit 1
 fi
 
-# Run formatting on staged files
+# Format, apply safe lint fixes, and sort imports on staged files only;
+# repo-wide formatting is CI's job (biome ci and the auto-format workflow).
 bunx lint-staged
-
-# Format, apply safe lint fixes, and sort imports across the repo
-bunx biome check --write .
-
-# Check if any files were modified by formatting
-if ! git diff --exit-code; then
-	echo ""
-	echo "❌ Formatting changes detected!"
-	echo "Files were modified by biome. Please review and stage the changes, then commit again."
-	exit 1
-fi
 
 # Lint GitHub Actions workflows
 bun run lint:actions
@@ -49,3 +39,8 @@ bun run l10n:check
 
 # Run tests
 bun run test
+
+# Lints and tests above ran against the working tree, not the index.
+if ! git diff --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+	echo "note: unstaged or untracked changes present; lint and test results reflect the working tree, not the exact commit."
+fi
