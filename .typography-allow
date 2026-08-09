@@ -5,3 +5,4 @@
 # release-please writes CHANGELOG.md from commit and PR text, which is not
 # ASCII-guaranteed.
 CHANGELOG.md
+# END REPO-PLATFORM MANAGED
