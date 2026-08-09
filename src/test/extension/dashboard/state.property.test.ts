@@ -68,8 +68,19 @@ const saveServerPayload = fc.record(
 			maxKeys: 3,
 		}),
 		expectedFailures: fc.uniqueArray(fc.constantFrom(...EXPECTED_FAILURE_CATEGORIES)),
+		headers: fc.dictionary(
+			fc.string({ maxLength: 32 }),
+			fc.oneof(fc.string({ maxLength: 64 }), finiteNumber, fc.boolean()),
+			{
+				maxKeys: 3,
+			}
+		),
+		declaredModels: fc.array(fc.string({ maxLength: 64 }), { maxLength: 4 }),
+		budget: fc.oneof(finiteNumber, fc.constant(null)),
 	},
-	{ requiredKeys: ["label", "baseUrl"] }
+	// The always-sent fields are schema-required; only modelParameters and the
+	// non-secret text fields may be absent.
+	{ requiredKeys: ["label", "baseUrl", "modelCapabilities", "expectedFailures", "headers", "declaredModels", "budget"] }
 );
 
 /**

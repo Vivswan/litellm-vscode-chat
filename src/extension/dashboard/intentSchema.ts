@@ -34,26 +34,28 @@ export const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminated
 
 /**
  * The saveServerSetting payload's shape. Strict, so unknown fields never ride
- * along into the setting; the value constraints (usable URLs, header charset,
- * paired OAuth fields, reserved labels) live in validateSaveServerSetting,
- * whose rules the webview form shares through serverForm.ts.
+ * along into the setting, and the record and list fields are required - the
+ * form always sends them (empty means "none"), so a payload that omits one is
+ * malformed rather than a signal to carry stored values forward. The value
+ * constraints (usable URLs, header charset, paired OAuth fields, reserved
+ * labels) live in validateSaveServerSetting, whose rules the webview form
+ * shares through serverForm.ts.
  */
 const saveServerSchema = z.strictObject({
 	label: z.string(),
 	baseUrl: z.string(),
 	...recordFromKeys(NON_SECRET_OPTIONAL_FIELD_IDS, () => z.string().optional()),
 	modelParameters: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
-	modelCapabilities: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
-	expectedFailures: z.array(asEnum(EXPECTED_FAILURE_CATEGORIES)).optional(),
+	modelCapabilities: z.record(z.string(), z.record(z.string(), z.unknown())),
+	expectedFailures: z.array(asEnum(EXPECTED_FAILURE_CATEGORIES)),
 	// Header values are scalars (parseHeaderValue's contract); the charset and
 	// name rules live in validateSaveServerSetting. Sizes are bounded like
 	// every other webview-minted list: no honest entry needs more.
 	headers: z
 		.record(z.string().max(256), z.union([z.string().max(4096), z.number(), z.boolean()]))
-		.refine((record) => Object.keys(record).length <= 64)
-		.optional(),
-	declaredModels: z.array(z.string().max(512)).max(256).optional(),
-	budget: z.union([z.number().finite(), z.null()]).optional(),
+		.refine((record) => Object.keys(record).length <= 64),
+	declaredModels: z.array(z.string().max(512)).max(256),
+	budget: z.union([z.number().finite(), z.null()]),
 });
 
 const secretDirectivesSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretDirectiveSchema));

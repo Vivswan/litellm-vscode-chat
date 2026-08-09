@@ -19,6 +19,7 @@ import { entryModelParametersFor } from "../../../extension/servers/serverSync";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { expectDefined, makeModelInfo, makeServerStatus } from "../../testUtils";
+import { serverPayload } from "./recordedEnv";
 
 interface FakePanel {
 	panel: DashboardPanel;
@@ -486,7 +487,7 @@ suite("extension/dashboard/panel", () => {
 		// A probe that will hang for a whole discovery timeout, then a Save.
 		fake.receiveMessage({
 			type: "testServerDraft",
-			server: { label: "Prod", baseUrl: "http://prod.test" },
+			server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 			secrets: {
 				apiKey: { action: "keep" },
 				oauthClientSecret: { action: "keep" },
@@ -496,7 +497,7 @@ suite("extension/dashboard/panel", () => {
 		});
 		fake.receiveMessage({
 			type: "saveServerSetting",
-			server: { label: "Prod", baseUrl: "http://prod.test" },
+			server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 			secrets: {
 				apiKey: { action: "keep" },
 				oauthClientSecret: { action: "keep" },
@@ -627,7 +628,7 @@ suite("extension/dashboard/panel", () => {
 
 		fake.receiveMessage({
 			type: "testServerDraft",
-			server: { label: "Prod", baseUrl: "http://prod.test" },
+			server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 			secrets: {
 				apiKey: { action: "keep" },
 				oauthClientSecret: { action: "keep" },
@@ -763,7 +764,7 @@ suite("extension/dashboard/panel", () => {
 
 		fake.receiveMessage({
 			type: "saveServerSetting",
-			server: { label: "Prod", baseUrl: "http://prod.test" },
+			server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 			secrets: {
 				apiKey: { action: "set", location: "secure", value: "sk-secret-value" },
 				oauthClientSecret: { action: "keep" },
@@ -787,10 +788,10 @@ suite("extension/dashboard/panel", () => {
 		);
 	});
 
-	test("editing an entry from the dashboard carries its modelCapabilities and expectedFailures", async () => {
-		// The save rebuilds the entry from the intent, and the form has no
-		// editor for these two fields yet: without the carry-forward a key
-		// rotation or URL fix would silently delete hand-written configuration.
+	test("a save payload omitting the always-sent fields is rejected at the schema, deleting nothing", async () => {
+		// The save rebuilds the entry from the intent, so a payload that could
+		// omit modelCapabilities or expectedFailures would silently delete
+		// hand-written configuration; the schema requires the fields instead.
 		const harness = makeHarness();
 		harness.serversSetting = [
 			{
@@ -818,17 +819,12 @@ suite("extension/dashboard/panel", () => {
 		await settle();
 		await settle();
 
-		assert.deepStrictEqual(harness.serverWrites, [
-			[
-				{
-					label: "Prod",
-					baseUrl: "http://prod.test",
-					models: { capabilities: { "gpt-4": { supports_vision: true } } },
-					discovery: { expectedFailures: ["modelInfo"] },
-					auth: { apiKey: "sk-rotated" },
-				},
-			],
-		]);
+		assert.deepStrictEqual(harness.serverWrites, [], "a malformed save must not write");
+		assert.deepStrictEqual(harness.secretOps, [], "a malformed save must not touch secrets");
+		assert.ok(
+			harness.loggedMessages.some(([message]) => message === "Ignoring malformed dashboard message"),
+			"the schema rejection is logged"
+		);
 	});
 
 	test("an adoption without resolvable credentials acks success with the caveat message", async () => {
@@ -870,7 +866,7 @@ suite("extension/dashboard/panel", () => {
 		// failed cleanup must not fail the intent.
 		fake.receiveMessage({
 			type: "saveServerSetting",
-			server: { label: "Prod", baseUrl: "http://prod.test" },
+			server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 			secrets: {
 				apiKey: { action: "set", location: "settings", value: "sk-inline" },
 				oauthClientSecret: { action: "keep" },
@@ -901,7 +897,7 @@ suite("extension/dashboard/panel", () => {
 
 		fake.receiveMessage({
 			type: "saveServerSetting",
-			server: { label: "Prod", baseUrl: "http://prod.test" },
+			server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 			secrets: {
 				apiKey: { action: "clear" },
 				oauthClientSecret: { action: "keep" },
@@ -944,7 +940,7 @@ suite("extension/dashboard/panel", () => {
 		// webview must not reopen the form as if nothing landed.
 		fake.receiveMessage({
 			type: "saveServerSetting",
-			server: { label: "Prod", baseUrl: "http://prod.test" },
+			server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 			secrets: {
 				apiKey: { action: "set", location: "secure", value: "sk-new" },
 				oauthClientSecret: { action: "keep" },
@@ -1045,13 +1041,13 @@ suite("extension/dashboard/panel", () => {
 
 		fake.receiveMessage({
 			type: "saveServerSetting",
-			server: { label: "A", baseUrl: "http://a.test" },
+			server: serverPayload({ label: "A", baseUrl: "http://a.test" }),
 			secrets: keepAll,
 			requestId: "req-a",
 		});
 		fake.receiveMessage({
 			type: "saveServerSetting",
-			server: { label: "B", baseUrl: "http://b.test" },
+			server: serverPayload({ label: "B", baseUrl: "http://b.test" }),
 			secrets: keepAll,
 			requestId: "req-b",
 		});
@@ -1075,7 +1071,7 @@ suite("extension/dashboard/panel", () => {
 		// A save that succeeds and one that fails validation, both carrying the secret.
 		fake.receiveMessage({
 			type: "saveServerSetting",
-			server: { label: "Prod", baseUrl: "http://prod.test" },
+			server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 			secrets: {
 				apiKey: { action: "set", location: "secure", value: secret },
 				oauthClientSecret: { action: "keep" },
@@ -1085,7 +1081,7 @@ suite("extension/dashboard/panel", () => {
 		});
 		fake.receiveMessage({
 			type: "saveServerSetting",
-			server: { label: "Prod", baseUrl: "not a url" },
+			server: serverPayload({ label: "Prod", baseUrl: "not a url" }),
 			secrets: {
 				apiKey: { action: "set", location: "secure", value: secret },
 				oauthClientSecret: { action: "keep" },
@@ -1146,7 +1142,7 @@ suite("extension/dashboard/panel", () => {
 			// finds its entry ONLY if the chain serialized it behind the save.
 			fake.receiveMessage({
 				type: "saveServerSetting",
-				server: { label: "Chained", baseUrl: "http://chained.test" },
+				server: serverPayload({ label: "Chained", baseUrl: "http://chained.test" }),
 				secrets: {
 					apiKey: { action: "keep" },
 					oauthClientSecret: { action: "keep" },

@@ -42,7 +42,7 @@ import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { assertOmits, makeModelInfo, makeServerStatus } from "../../testUtils";
-import { KEEP_ALL, makeEnv, type RecordedEnv } from "./recordedEnv";
+import { KEEP_ALL, makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
 
 /** A declared-server view with every secret absent; overrides fill in the specifics. */
 function makeDeclared(overrides: Partial<DeclaredServerView> = {}): DeclaredServerView {
@@ -1975,20 +1975,20 @@ suite("extension/dashboard/state", () => {
 				{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, stop: ["\n"] } } },
 				{
 					type: "saveServerSetting",
-					server: { label: "Prod", baseUrl: "http://prod.test" },
+					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 					secrets: KEEP_ALL,
 					requestId: "req-1",
 				},
 				{
 					type: "saveServerSetting",
-					server: {
+					server: serverPayload({
 						label: "Prod",
 						baseUrl: "http://prod.test",
 						oauthTokenUrl: "https://idp.test/token",
 						oauthClientId: "client",
 						oauthScopes: "read",
 						virtualKeyHeader: "x-litellm-api-key",
-					},
+					}),
 					secrets: {
 						apiKey: { action: "set", location: "secure", value: "sk-1" },
 						oauthClientSecret: { action: "clear" },
@@ -2000,13 +2000,13 @@ suite("extension/dashboard/state", () => {
 				{ type: "removeServerSetting", label: "Prod", requestId: "req-3" },
 				{
 					type: "testServerDraft",
-					server: { label: "", baseUrl: "http://prod.test", oauthTokenUrl: "https://idp.test/token" },
+					server: serverPayload({ label: "", baseUrl: "http://prod.test", oauthTokenUrl: "https://idp.test/token" }),
 					secrets: KEEP_ALL,
 					requestId: "req-t",
 				},
 				{
 					type: "testServerDraft",
-					server: { label: "Prod", baseUrl: "http://prod.test" },
+					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-1" } },
 					replaceLabel: "Prod",
 					requestId: "req-t2",
@@ -2077,6 +2077,17 @@ suite("extension/dashboard/state", () => {
 					secrets: { apiKey: { action: "keep" } },
 					requestId: "r",
 				},
+				// The always-sent fields are required: a payload that omits one is
+				// malformed, never a signal to carry stored values forward (a save
+				// rebuilds the whole entry, so an omission-tolerant schema would let
+				// a stale sender silently delete hand-written configuration).
+				...(["modelCapabilities", "expectedFailures", "headers", "declaredModels", "budget"] as const).map(
+					(omitted) => {
+						const server: Record<string, unknown> = { ...serverPayload({ label: "P", baseUrl: "http://x" }) };
+						delete server[omitted];
+						return { type: "saveServerSetting", server, secrets: KEEP_ALL, requestId: "r" };
+					}
+				),
 				{ type: "removeServerSetting", requestId: "r" },
 				{ type: "removeServerSetting", label: 4, requestId: "r" },
 				{ type: "removeServerSetting", label: "P" },
@@ -2294,22 +2305,25 @@ suite("extension/dashboard/state", () => {
 			const bad = (server: Parameters<typeof validateSaveServerSetting>[0], why: string) =>
 				assert.notStrictEqual(validateSaveServerSetting(server, KEEP_ALL), undefined, why);
 
-			ok({ label: "Prod", baseUrl: "http://localhost:4000" });
-			ok({ label: "Prod", baseUrl: "https://litellm.example.com/" });
-			bad({ label: "", baseUrl: "http://x" }, "empty label");
-			bad({ label: "   ", baseUrl: "http://x" }, "whitespace label");
-			bad({ label: "__proto__", baseUrl: "http://x" }, "prototype-polluting label");
-			bad({ label: "constructor", baseUrl: "http://x" }, "prototype-polluting label");
-			bad({ label: "Prod", baseUrl: "" }, "missing baseUrl");
-			bad({ label: "Prod", baseUrl: "localhost:4000" }, "URL without a scheme");
-			bad({ label: "Prod", baseUrl: "ftp://host" }, "non-http scheme");
-			bad({ label: "Prod", baseUrl: "not a url" }, "junk baseUrl");
-			bad({ label: "Prod", baseUrl: "http://x", oauthTokenUrl: "idp.test/token" }, "bad OAuth URL");
-			bad({ label: "Prod", baseUrl: "http://x", virtualKeyHeader: "bad header" }, "header name with a space");
+			ok(serverPayload({ label: "Prod", baseUrl: "http://localhost:4000" }));
+			ok(serverPayload({ label: "Prod", baseUrl: "https://litellm.example.com/" }));
+			bad(serverPayload({ label: "", baseUrl: "http://x" }), "empty label");
+			bad(serverPayload({ label: "   ", baseUrl: "http://x" }), "whitespace label");
+			bad(serverPayload({ label: "__proto__", baseUrl: "http://x" }), "prototype-polluting label");
+			bad(serverPayload({ label: "constructor", baseUrl: "http://x" }), "prototype-polluting label");
+			bad(serverPayload({ label: "Prod", baseUrl: "" }), "missing baseUrl");
+			bad(serverPayload({ label: "Prod", baseUrl: "localhost:4000" }), "URL without a scheme");
+			bad(serverPayload({ label: "Prod", baseUrl: "ftp://host" }), "non-http scheme");
+			bad(serverPayload({ label: "Prod", baseUrl: "not a url" }), "junk baseUrl");
+			bad(serverPayload({ label: "Prod", baseUrl: "http://x", oauthTokenUrl: "idp.test/token" }), "bad OAuth URL");
+			bad(
+				serverPayload({ label: "Prod", baseUrl: "http://x", virtualKeyHeader: "bad header" }),
+				"header name with a space"
+			);
 		});
 
 		test("validateSaveServerSetting: secret directives must carry sendable values", () => {
-			const server = { label: "Prod", baseUrl: "http://x" };
+			const server = serverPayload({ label: "Prod", baseUrl: "http://x" });
 			assert.notStrictEqual(
 				validateSaveServerSetting(server, { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "" } }),
 				undefined,
@@ -2333,10 +2347,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("validateSaveServerSetting messages never repeat the entered values", () => {
-			const problem = validateSaveServerSetting(
-				{ label: "Prod", baseUrl: "http://x" },
-				{ ...KEEP_ALL, virtualKeyValue: { action: "set", location: "secure", value: "vk-secret\n" } }
-			);
+			const problem = validateSaveServerSetting(serverPayload({ label: "Prod", baseUrl: "http://x" }), {
+				...KEEP_ALL,
+				virtualKeyValue: { action: "set", location: "secure", value: "vk-secret\n" },
+			});
 			assert.ok(problem !== undefined);
 			assert.ok(!problem.includes("vk-secret"), problem);
 		});
@@ -2354,7 +2368,7 @@ suite("extension/dashboard/state", () => {
 			executeDashboardIntent(
 				{
 					type: "testServerDraft",
-					server: { label: "Prod", baseUrl: "http://prod.test" },
+					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 					secrets: KEEP_ALL,
 					requestId: "req-t1",
 					...partial,
@@ -2365,30 +2379,48 @@ suite("extension/dashboard/state", () => {
 		test("validateTestServerDraft: connection rules apply, label rules do not", () => {
 			// The probe cares about the connection only: an empty or reserved
 			// label must not block it (the button gates on the base URL alone).
-			assert.strictEqual(validateTestServerDraft({ label: "", baseUrl: "http://x" }, KEEP_ALL), undefined);
-			assert.strictEqual(validateTestServerDraft({ label: "__proto__", baseUrl: "http://x" }, KEEP_ALL), undefined);
-			assert.notStrictEqual(validateTestServerDraft({ label: "Prod", baseUrl: "" }, KEEP_ALL), undefined);
-			assert.notStrictEqual(validateTestServerDraft({ label: "Prod", baseUrl: "not a url" }, KEEP_ALL), undefined);
-			assert.notStrictEqual(
-				validateTestServerDraft({ label: "Prod", baseUrl: "http://x", oauthTokenUrl: "idp.test/token" }, KEEP_ALL),
+			assert.strictEqual(
+				validateTestServerDraft(serverPayload({ label: "", baseUrl: "http://x" }), KEEP_ALL),
+				undefined
+			);
+			assert.strictEqual(
+				validateTestServerDraft(serverPayload({ label: "__proto__", baseUrl: "http://x" }), KEEP_ALL),
 				undefined
 			);
 			assert.notStrictEqual(
-				validateTestServerDraft({ label: "Prod", baseUrl: "http://x", virtualKeyHeader: "bad header" }, KEEP_ALL),
+				validateTestServerDraft(serverPayload({ label: "Prod", baseUrl: "" }), KEEP_ALL),
+				undefined
+			);
+			assert.notStrictEqual(
+				validateTestServerDraft(serverPayload({ label: "Prod", baseUrl: "not a url" }), KEEP_ALL),
 				undefined
 			);
 			assert.notStrictEqual(
 				validateTestServerDraft(
-					{ label: "Prod", baseUrl: "http://x" },
-					{ ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "" } }
+					serverPayload({ label: "Prod", baseUrl: "http://x", oauthTokenUrl: "idp.test/token" }),
+					KEEP_ALL
 				),
+				undefined
+			);
+			assert.notStrictEqual(
+				validateTestServerDraft(
+					serverPayload({ label: "Prod", baseUrl: "http://x", virtualKeyHeader: "bad header" }),
+					KEEP_ALL
+				),
+				undefined
+			);
+			assert.notStrictEqual(
+				validateTestServerDraft(serverPayload({ label: "Prod", baseUrl: "http://x" }), {
+					...KEEP_ALL,
+					apiKey: { action: "set", location: "secure", value: "" },
+				}),
 				undefined,
 				"an empty set-value must be a clear, not a set"
 			);
-			const problem = validateTestServerDraft(
-				{ label: "Prod", baseUrl: "http://x" },
-				{ ...KEEP_ALL, virtualKeyValue: { action: "set", location: "secure", value: "vk-secret\n" } }
-			);
+			const problem = validateTestServerDraft(serverPayload({ label: "Prod", baseUrl: "http://x" }), {
+				...KEEP_ALL,
+				virtualKeyValue: { action: "set", location: "secure", value: "vk-secret\n" },
+			});
 			assert.ok(problem !== undefined);
 			assert.ok(!problem.includes("vk-secret"), problem);
 		});
@@ -2418,19 +2450,21 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(await draftTest(recorded), "Connected - 12 models");
 		});
 
-		test("the edited entry's declared models join the count when not discovered; discovered ones stay inert", async () => {
-			// The probe reports what a save would produce, and a save preserves
-			// the edited entry's discovery.declared list verbatim.
+		test("the draft's declared models join the count when not discovered; discovered ones stay inert", async () => {
+			// The probe reports what a save would produce: the payload's declared
+			// list (the form sends the edited entry's list in the draft). The
+			// stored entry's conflicting list pins payload-wins: it must not leak
+			// into the count.
 			const recorded = makeEnv([
-				{
-					label: "Prod",
-					baseUrl: "http://prod.test",
-					discovery: { declared: ["my-model", "gpt-4"] },
-				},
+				{ label: "Prod", baseUrl: "http://prod.test", discovery: { declared: ["stored-only"] } },
 			]);
 			recorded.probeResult = ["gpt-4"];
 			const notice = await draftTest(recorded, {
-				server: { label: "Prod", baseUrl: "http://prod.test" },
+				server: serverPayload({
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					declaredModels: ["my-model", "gpt-4"],
+				}),
 				replaceLabel: "Prod",
 			});
 			// gpt-4 is discovered, so its declaration is inert; my-model adds one.
@@ -2438,37 +2472,44 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a lone declared model on an empty discovery keeps the singular reading", async () => {
-			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", discovery: { declared: ["my-model"] } }]);
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			recorded.probeResult = [];
 			const notice = await draftTest(recorded, {
-				server: { label: "Prod", baseUrl: "http://prod.test" },
+				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", declaredModels: ["my-model"] }),
 				replaceLabel: "Prod",
 			});
 			assert.strictEqual(notice, "Connected - 1 model (declared)");
 		});
 
-		test("the probe carries the edited entry's custom headers, exactly what a save preserves", async () => {
+		test("the probe carries the draft's custom headers, exactly what a save would write", async () => {
 			// A gateway requiring a header must not report a false probe failure
-			// for a configuration that works once saved (the saved entry keeps
-			// its headers verbatim, and the request path sends them).
-			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", headers: { "x-cf-access": "token-1" } }]);
+			// for a configuration that works once saved (the payload's headers are
+			// what the save writes, and the request path sends them). The stored
+			// entry's conflicting record pins payload-wins: the probe must send
+			// the draft's value, never the stored one.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", headers: { "x-cf-access": "stale" } }]);
 			recorded.probeResult = ["m1"];
 			await draftTest(recorded, {
-				server: { label: "Prod", baseUrl: "http://prod.test" },
+				server: serverPayload({
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					headers: { "x-cf-access": "token-1" },
+				}),
 				replaceLabel: "Prod",
 			});
 			assert.deepStrictEqual(recorded.probes[0]?.headers, { "x-cf-access": "token-1" });
 		});
 
 		test("an expected modelListing failure reports the declared models instead of failing", async () => {
-			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", discovery: { declared: ["my-model"] } }]);
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
 			const notice = await draftTest(recorded, {
-				server: {
+				server: serverPayload({
 					label: "Prod",
 					baseUrl: "http://prod.test",
+					declaredModels: ["my-model"],
 					expectedFailures: ["modelListing"],
-				},
+				}),
 				replaceLabel: "Prod",
 			});
 			assert.strictEqual(notice, "Discovery failed (expected) - serving 1 declared model");
@@ -2484,7 +2525,7 @@ suite("extension/dashboard/state", () => {
 			const recorded = makeEnv([]);
 			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
 			const notice = await draftTest(recorded, {
-				server: { label: "Prod", baseUrl: "http://prod.test", expectedFailures: ["modelListing"] },
+				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", expectedFailures: ["modelListing"] }),
 			});
 			assert.strictEqual(notice, "Discovery failed (expected) - serving 0 declared models");
 		});
@@ -2495,7 +2536,7 @@ suite("extension/dashboard/state", () => {
 			await assert.rejects(
 				() =>
 					draftTest(recorded, {
-						server: { label: "Prod", baseUrl: "http://prod.test", expectedFailures: ["modelInfo"] },
+						server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", expectedFailures: ["modelInfo"] }),
 					}),
 				(error: unknown) => error instanceof DashboardValidationError
 			);
@@ -2514,13 +2555,13 @@ suite("extension/dashboard/state", () => {
 			]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-stale-secure", oauthClientSecret: "oa-secret" });
 			await draftTest(recorded, {
-				server: {
+				server: serverPayload({
 					label: "Prod",
 					baseUrl: "http://new.test",
 					oauthTokenUrl: "http://idp.test/token",
 					oauthClientId: "client-1",
 					oauthScopes: "read write",
-				},
+				}),
 				replaceLabel: "Prod",
 			});
 
@@ -2563,7 +2604,7 @@ suite("extension/dashboard/state", () => {
 		test("the virtual key pair rides the probe; partial pairs are refused before it", async () => {
 			const recorded = makeEnv([]);
 			await draftTest(recorded, {
-				server: { label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" },
+				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
 				secrets: { ...KEEP_ALL, virtualKeyValue: { action: "set", location: "secure", value: "vk-1" } },
 			});
 			assert.deepStrictEqual(recorded.probes, [
@@ -2576,7 +2617,9 @@ suite("extension/dashboard/state", () => {
 			]);
 
 			await assert.rejects(
-				draftTest(recorded, { server: { label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" } }),
+				draftTest(recorded, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
+				}),
 				/virtualKeyValue/
 			);
 			await assert.rejects(
@@ -2586,12 +2629,14 @@ suite("extension/dashboard/state", () => {
 				/virtualKeyHeader/
 			);
 			await assert.rejects(
-				draftTest(recorded, { server: { label: "Prod", baseUrl: "http://prod.test", oauthClientId: "client-1" } }),
+				draftTest(recorded, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", oauthClientId: "client-1" }),
+				}),
 				/oauthTokenUrl/
 			);
 			await assert.rejects(
 				draftTest(recorded, {
-					server: { label: "Prod", baseUrl: "http://prod.test", oauthTokenUrl: "http://idp.test/token" },
+					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", oauthTokenUrl: "http://idp.test/token" }),
 				}),
 				/oauthClientId/
 			);
@@ -2600,7 +2645,10 @@ suite("extension/dashboard/state", () => {
 
 		test("an unusable base URL is refused before the probe runs", async () => {
 			const recorded = makeEnv([]);
-			await assert.rejects(draftTest(recorded, { server: { label: "Prod", baseUrl: "not a url" } }), /baseUrl/);
+			await assert.rejects(
+				draftTest(recorded, { server: serverPayload({ label: "Prod", baseUrl: "not a url" }) }),
+				/baseUrl/
+			);
 			assert.deepStrictEqual(recorded.probes, []);
 		});
 
@@ -2639,7 +2687,7 @@ suite("extension/dashboard/state", () => {
 		test("a non-transport validation refusal carries no classification", async () => {
 			const recorded = makeEnv([]);
 			await assert.rejects(
-				draftTest(recorded, { server: { label: "Prod", baseUrl: "not a url" } }),
+				draftTest(recorded, { server: serverPayload({ label: "Prod", baseUrl: "not a url" }) }),
 				(error: unknown) => {
 					assert.ok(error instanceof DashboardValidationError);
 					assert.strictEqual(error.classification, undefined);
