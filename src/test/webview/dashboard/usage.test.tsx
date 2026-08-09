@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { UsageServerView } from "../../../extension/dashboard/protocol";
 import { barPresentation, formatPercent, formatUsd, UsageSection } from "../../../webview/dashboard/usage";
-import { makeUsage, makeUsageServer } from "../fixtures";
+import { makeForbiddenUsageServer, makeUsage, makeUsageServer } from "../fixtures";
 import { buttonByText, cleanup, fireClick, mount, postedMessages, resetPosted, textOf } from "../harness";
 
 const NOW = 1_700_000_000_000;
@@ -289,6 +289,66 @@ describe("UsageSection", () => {
 		);
 		expect(textOf(transient, ".usage-activity")).toContain("Request statistics couldn't be fetched yet");
 		expect(textOf(transient, ".usage-detail")).toContain("LiteLLM /user/daily/activity: network error");
+	});
+
+	test("a server with no readable usage behind a forbidden key renders the reduced card: headline, details, no numbers", () => {
+		const root = mount(
+			<UsageSection
+				usage={makeUsage({ servers: [makeForbiddenUsageServer({ label: "locked", baseUrl: "http://locked.test" })] })}
+				serverCount={1}
+				now={NOW}
+			/>
+		);
+		expect(textOf(root, ".usage-label")).toBe("locked");
+		expect(textOf(root, ".usage-card")).toContain("Usage unavailable: this key isn't allowed to read its usage.");
+		expect(textOf(root, ".usage-card")).toContain("Ask whoever issued the key");
+		const details = Array.from(root.querySelectorAll(".usage-detail")).map((node) => node.textContent ?? "");
+		expect(details).toEqual([
+			"LiteLLM /key/info: HTTP 403 - this key may not read usage data; Refresh now re-probes",
+			"LiteLLM /user/daily/activity: HTTP 403 - this key may not read usage data; Refresh now re-probes",
+		]);
+		// No spend bar, no budget line, no fake numbers.
+		expect(root.querySelector(".usage-bar")).toBeNull();
+		expect(root.querySelector(".usage-budget-line")).toBeNull();
+		expect(textOf(root, ".usage-card")).not.toContain("$");
+		// And it counts as a card: the no-usage-servers empty state must not show.
+		expect(root.textContent).not.toContain("None of your servers serves usage data");
+	});
+
+	test("the forbidden card names an unsupported partner endpoint and skips transient ones", () => {
+		const mixed = mount(
+			<UsageSection
+				usage={makeUsage({
+					servers: [
+						makeForbiddenUsageServer({
+							keyInfo: { kind: "unavailable", reason: "unsupported", status: 404 },
+							dailyActivity: { kind: "unavailable", reason: "forbidden", status: 403 },
+						}),
+					],
+				})}
+				serverCount={1}
+				now={NOW}
+			/>
+		);
+		const mixedDetails = Array.from(mixed.querySelectorAll(".usage-detail")).map((node) => node.textContent ?? "");
+		expect(mixedDetails).toEqual([
+			"LiteLLM /key/info: not served on this server (HTTP 404)",
+			"LiteLLM /user/daily/activity: HTTP 403 - this key may not read usage data; Refresh now re-probes",
+		]);
+		cleanup();
+		const transientPartner = mount(
+			<UsageSection
+				usage={makeUsage({
+					servers: [makeForbiddenUsageServer({ dailyActivity: { kind: "error", classification: "network" } })],
+				})}
+				serverCount={1}
+				now={NOW}
+			/>
+		);
+		const details = Array.from(transientPartner.querySelectorAll(".usage-detail")).map(
+			(node) => node.textContent ?? ""
+		);
+		expect(details).toEqual(["LiteLLM /key/info: HTTP 403 - this key may not read usage data; Refresh now re-probes"]);
 	});
 
 	test("Refresh now posts the intent and disables while a pass is in flight", () => {

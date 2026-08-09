@@ -134,6 +134,7 @@ export const MODELS: readonly DashboardModel[] = [
 export const USAGE: DashboardUsage = {
 	servers: [
 		{
+			kind: "usage",
 			label: "prod",
 			baseUrl: "https://litellm.example.com",
 			fresh: true,
@@ -150,6 +151,7 @@ export const USAGE: DashboardUsage = {
 			requests: { total: 1841, successRate: 0.984, cacheHitRate: 0.37 },
 		},
 		{
+			kind: "usage",
 			label: "gateway",
 			baseUrl: "https://gateway.internal",
 			fresh: true,
@@ -163,6 +165,7 @@ export const USAGE: DashboardUsage = {
 			spentFraction: 0.87,
 		},
 		{
+			kind: "usage",
 			label: "research",
 			baseUrl: "https://research.example.com",
 			fresh: false,
@@ -178,6 +181,7 @@ export const USAGE: DashboardUsage = {
 			requests: { total: 96, successRate: 0.91 },
 		},
 		{
+			kind: "usage",
 			label: "sandbox",
 			baseUrl: "http://localhost:4000",
 			fresh: true,
@@ -186,6 +190,13 @@ export const USAGE: DashboardUsage = {
 			lastUpdatedAt: minutesAgoMs(2),
 			spend: 3.07,
 			budgetSource: "none",
+		},
+		{
+			kind: "forbidden",
+			label: "locked-down",
+			baseUrl: "https://locked.example.com",
+			keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 },
+			dailyActivity: { kind: "unavailable", reason: "forbidden", status: 403 },
 		},
 	],
 	thresholds: [0.8, 0.95],

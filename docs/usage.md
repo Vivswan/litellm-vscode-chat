@@ -27,7 +27,7 @@ On a server without a database these endpoints do not exist. The extension detec
 
 That detection sticks: background polls do not re-check an endpoint already found missing. If you enable the database later, run "LiteLLM: Refresh Usage Now" - or edit the server's entry - and the extension re-probes availability.
 
-A key can hide usage the same way on a database-backed server: when the server refuses the key on both `/key/info` and `/user/daily/activity` (401 or 403 - a key not permitted to read usage data), the extension treats that as equally permanent and hides the same surfaces. The curl test below tells the two apart: a missing database answers with a routing error, a restricted key with 401 or 403 - the fix is then a key allowed to read its own usage, not a database.
+A key the server refuses is a different case. When `/key/info` or `/user/daily/activity` answers 401 or 403 (a key not permitted to read usage data), the extension treats that as equally permanent - but a permission is something you can fix, so when such a refusal leaves a server with no readable usage at all, the server is not hidden: the [usage panel](#the-usage-panel) shows a card saying its usage is unavailable, with the refused endpoint and HTTP status beneath. That card has no numbers to show - no spend bar, and the server never alerts; after the key's permissions change, run "LiteLLM: Refresh Usage Now" (or edit the entry) to re-probe. A key refused on only one endpoint while the other answers gets the regular card instead, with the refused part marked on it. The curl test below tells the two shapes apart: a missing database answers with a routing error, a restricted key with 401 or 403 - the fix is then a key allowed to read its own usage, not a database.
 
 To check what a server supports, ask it the same question the extension asks:
 
@@ -142,6 +142,8 @@ The dashboard's [Usage section](dashboard.md#the-usage-section) is where the com
 - The **reset date** (`budget_reset_at`).
 - **Request count, success rate, and cache hit rate** over the last 30 days (UTC calendar days, today included), where the server serves `/user/daily/activity`; servers without it show spend and budget only.
 - A **Refresh now** button: fetches immediately, disables itself while a fetch is in flight, and shows when the data was last updated.
+
+A server the extension cannot read any usage from because the key is refused shows a reduced card here instead: a note that its usage is unavailable, with the refused endpoint and HTTP status beneath - no numbers (see [Requirements](#requirements)).
 
 Opening the dashboard fetches fresh data even when [polling](#polling) is off. When a server's data is stale, its last-known values stay on screen labeled "last updated X ago (stale)" - history you can still read, clearly marked as history; when the staleness has a known cause the label names it instead ("- last refresh failed", "- usage access denied"), with a compact technical line beneath naming the endpoint and status.
 

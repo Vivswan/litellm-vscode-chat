@@ -14,6 +14,7 @@ import type {
 	ExtensionToWebviewMessage,
 	SecretFieldId,
 	SecretLocation,
+	UsageForbiddenServerView,
 	UsageServerView,
 } from "../../extension/dashboard/protocol";
 
@@ -62,6 +63,7 @@ export function makeUsage(overrides: Partial<DashboardUsage> = {}): DashboardUsa
 /** One usage server card's view; override per test. */
 export function makeUsageServer(overrides: Partial<UsageServerView> = {}): UsageServerView {
 	return {
+		kind: "usage",
 		label: "Prod",
 		baseUrl: "http://localhost:4000",
 		fresh: true,
@@ -73,6 +75,18 @@ export function makeUsageServer(overrides: Partial<UsageServerView> = {}): Usage
 		keyBudget: 50,
 		budgetSource: "key",
 		spentFraction: 0.25,
+		...overrides,
+	};
+}
+
+/** The reduced card for a never-available server blocked by a forbidden standing. */
+export function makeForbiddenUsageServer(overrides: Partial<UsageForbiddenServerView> = {}): UsageForbiddenServerView {
+	return {
+		kind: "forbidden",
+		label: "Locked",
+		baseUrl: "http://locked.test:4000",
+		keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 },
+		dailyActivity: { kind: "unavailable", reason: "forbidden", status: 403 },
 		...overrides,
 	};
 }

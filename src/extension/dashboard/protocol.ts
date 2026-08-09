@@ -992,6 +992,7 @@ export type UsageEndpointStandingView =
  * Servers whose proxy serves no usage endpoints never appear here at all.
  */
 export interface UsageServerView {
+	readonly kind: "usage";
 	readonly label: string;
 	readonly baseUrl: string;
 	/**
@@ -1031,9 +1032,31 @@ export interface UsageServerView {
 		| undefined;
 }
 
+/**
+ * A server left with no readable usage by a forbidden standing (401/403 -
+ * typically since the key's very first probe): actionable, so it gets a
+ * reduced card - a localized headline plus the standings' English detail
+ * lines - with no spend numbers to fake. Servers whose endpoints are merely
+ * unsupported (a DB-less proxy) stay hidden instead: there is nothing the
+ * user can do about those. Same closed-enum discipline as UsageServerView;
+ * nothing response-derived rides here.
+ */
+export interface UsageForbiddenServerView {
+	readonly kind: "forbidden";
+	readonly label: string;
+	readonly baseUrl: string;
+	/** The /key/info standing behind the block. */
+	readonly keyInfo: UsageEndpointStandingView;
+	/** The /user/daily/activity standing behind the block. */
+	readonly dailyActivity: UsageEndpointStandingView;
+}
+
+/** One Usage tab card: full usage facts, or the reduced forbidden card. */
+export type UsageServerCardView = UsageServerView | UsageForbiddenServerView;
+
 /** The Usage tab's whole snapshot; pushed with every state like the rest. */
 export interface DashboardUsage {
-	readonly servers: readonly UsageServerView[];
+	readonly servers: readonly UsageServerCardView[];
 	/** The normalized alert thresholds, ascending; empty = alerts off. */
 	readonly thresholds: readonly number[];
 	/** The effective poll interval; 0 = background polling off. */

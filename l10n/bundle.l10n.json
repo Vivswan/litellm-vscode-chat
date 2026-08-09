@@ -113,6 +113,7 @@
 	"Applies this value only when the server reports nothing, e.g. filling a missing context_length. Unchecked, your value overrides the server's.": "Applies this value only when the server reports nothing, e.g. filling a missing context_length. Unchecked, your value overrides the server's.",
 	"Apply": "Apply",
 	"Applying...": "Applying...",
+	"Ask whoever issued the key to allow reading its own usage, then use Refresh now - the extension won't re-check on its own.": "Ask whoever issued the key to allow reading its own usage, then use Refresh now - the extension won't re-check on its own.",
 	"Attached to every request to this server, e.g. routing or tracing tags. The entry's auth headers win conflicts; values sit in plain text in settings.json - credentials belong in Authentication above.": "Attached to every request to this server, e.g. routing or tracing tags. The entry's auth headers win conflicts; values sit in plain text in settings.json - credentials belong in Authentication above.",
 	"Audio input": "Audio input",
 	"Authentication": "Authentication",
@@ -736,6 +737,7 @@
 	"Usage poll interval": "Usage poll interval",
 	"Usage refresh failed - no server returned usage data.": "Usage refresh failed - no server returned usage data.",
 	"Usage status bar": "Usage status bar",
+	"Usage unavailable: this key isn't allowed to read its usage.": "Usage unavailable: this key isn't allowed to read its usage.",
 	"User": "User",
 	"VS Code cannot remove the original group: its models appear twice until its object is deleted from the models file.": "VS Code cannot remove the original group: its models appear twice until its object is deleted from the models file.",
 	"Value": "Value",
@@ -931,6 +933,7 @@
 	"token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}": "token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}",
 	"tools": "tools",
 	"updated {0}": "updated {0}",
+	"usage unavailable": "usage unavailable",
 	"vision": "vision",
 	"write {0}/cache write price; {0} is a dollar amount": {
 		"message": "write {0}",
