@@ -72,7 +72,7 @@ function ackLastWrite(intentType: "setModelParameters" | "setModelCapabilities" 
 	pushToWebview({ type: "intentSucceeded", intentType, requestId: lastRequestId() });
 }
 
-test("force checkbox: marking a row writes the explicit _force list and Apply posts it", () => {
+test("force checkbox: marking a row writes the _force list without surfacing a generic row, and Apply posts it", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -84,9 +84,10 @@ test("force checkbox: marking a row writes the explicit _force list and Apply po
 	expect(box.checked).toBe(false);
 	fireCheck(box, true);
 
-	// The mark materializes as the _force row's explicit list, visible as text.
-	const values = Array.from(section().querySelectorAll("input.value")).map((i) => (i as HTMLInputElement).value);
-	expect(values).toContain('["temperature"]');
+	// The checkbox is the mark's single representation: no _force key/value row
+	// materializes beside it.
+	const keys = Array.from(section().querySelectorAll("input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(keys).not.toContain("_force");
 
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
@@ -114,7 +115,7 @@ test("force checkbox: unmarking the last field removes the _force row entirely",
 	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
 });
 
-test("force checkbox: provider-owned and underscore keys disable with the reason; the _force row has no box", () => {
+test("force checkbox: provider-owned and underscore keys disable with the reason; _force true is absorbed, _meta is not", () => {
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -126,9 +127,8 @@ test("force checkbox: provider-owned and underscore keys disable with the reason
 	const section = sectionByHeading(root, "Model parameters");
 
 	// One force box per non-directive row: model and temperature. Directive
-	// rows (keys starting "_", here _meta and _force) carry no flag checkboxes
-	// at all (the inheritable boxes are their own directive-flag cells, scoped
-	// out by the aria-label).
+	// rows carry no flag checkboxes, and _meta (a directive without a dedicated
+	// control) still renders as a row while _force does not.
 	const boxes = Array.from(
 		section.querySelectorAll(".directive-flag input[aria-label^='Force']")
 	) as HTMLInputElement[];
@@ -143,10 +143,12 @@ test("force checkbox: provider-owned and underscore keys disable with the reason
 	// The disabled boxes' help names why; the tooltip text is mounted in the DOM.
 	expect(section.textContent).toContain("Cannot be forced: provider-owned fields like model");
 
-	// A hand-written true is preserved on load: nothing was toggled, so the
-	// directive row still reads true and the draft stays clean (Apply disabled).
-	const values = Array.from(section.querySelectorAll("input.value")).map((i) => (i as HTMLInputElement).value);
-	expect(values).toContain("true");
+	// The checkboxes absorb the _force row (a hand-written true is preserved in
+	// the draft, not rewritten); _meta keeps its generic row. Nothing was
+	// toggled, so the draft stays clean (Apply disabled).
+	const keys = Array.from(section.querySelectorAll("input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(keys).not.toContain("_force");
+	expect(keys).toContain("_meta");
 	expect((buttonByText(section, "Apply") as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -252,7 +254,7 @@ function groupByPrefix(section: HTMLElement, prefix: string): HTMLElement {
 	return group as HTMLElement;
 }
 
-test("inheritable checkbox: marking a row writes the explicit _inheritable list and Apply posts it", () => {
+test("inheritable checkbox: marking a row writes the _inheritable list without surfacing a generic row, and Apply posts it", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4*": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -261,9 +263,9 @@ test("inheritable checkbox: marking a row writes the explicit _inheritable list 
 	expect(box.checked).toBe(false);
 	fireCheck(box, true);
 
-	// The mark materializes as the _inheritable row's explicit list, visible as text.
-	const values = Array.from(section().querySelectorAll("input.value")).map((i) => (i as HTMLInputElement).value);
-	expect(values).toContain('["temperature"]');
+	// The checkbox is the mark's single representation: no _inheritable row.
+	const keys = Array.from(section().querySelectorAll("input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(keys).not.toContain("_inheritable");
 
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
@@ -292,7 +294,7 @@ test("inheritable checkbox: unmarking the last field removes the _inheritable ro
 	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4*": { temperature: 0.2 } } }]);
 });
 
-test("the Inherits select writes the _inherit_from barrier row and removes it again on default", () => {
+test("the Inherits select writes the _inherit_from barrier without a generic row and removes it again on default", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4*": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -301,24 +303,22 @@ test("the Inherits select writes the _inherit_from barrier row and removes it ag
 	expect(select().value).toBe("default");
 	fireSelect(select(), "none");
 
-	// The barrier materializes as the visible _inherit_from row, value false.
-	const rowTexts = () =>
-		Array.from(section().querySelectorAll(".rows .row")).map((row) => {
-			const key = row.querySelector("input.key") as HTMLInputElement | null;
-			const value = row.querySelector("input.value") as HTMLInputElement | null;
-			return `${key?.value ?? ""}=${value?.value ?? ""}`;
-		});
-	expect(rowTexts()).toContain("_inherit_from=false");
+	// The select is the barrier's single representation: it reads "none" while
+	// no _inherit_from key/value row appears in the grid.
+	const rowKeys = () =>
+		Array.from(section().querySelectorAll(".rows .row input.key")).map((input) => (input as HTMLInputElement).value);
+	expect(select().value).toBe("none");
+	expect(rowKeys()).not.toContain("_inherit_from");
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	expect(postedRecordWrites()).toEqual([
 		{ type: "setModelParameters", value: { "gpt-4*": { temperature: 0.2, _inherit_from: false } } },
 	]);
 
-	// Back to default: the directive row disappears and the draft matches the
+	// Back to default: the directive leaves the draft and it matches the
 	// (still un-reflected) store again, so Apply disables.
 	fireSelect(select(), "default");
-	expect(rowTexts()).not.toContain("_inherit_from=false");
+	expect(select().value).toBe("default");
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -341,9 +341,12 @@ test("the keys mode edits the _inherit_from list through the comma input, and an
 	expect(keysInput().value).toBe("*");
 
 	// Naming a record that does not exist hints (the resolver skips the name
-	// and applies the rest) and must not block Apply.
+	// and applies the rest) and must not block Apply. With the row absorbed,
+	// the hint renders on the Inherits control itself.
 	fireInput(keysInput(), "nope, *");
-	expect(section().textContent).toContain(
+	const rowKeys = Array.from(group().querySelectorAll(".rows input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(rowKeys).not.toContain("_inherit_from");
+	expect(group().querySelector(".inherit-from span.hint")?.textContent).toBe(
 		'"nope" is not a record key here; that name is skipped and the rest still applies'
 	);
 	resetPosted();
@@ -352,6 +355,220 @@ test("the keys mode edits the _inherit_from list through the comma input, and an
 		{
 			type: "setModelParameters",
 			value: { "*": { top_p: 0.9 }, "gpt-4*": { temperature: 0.2, _inherit_from: ["nope", "*"] } },
+		},
+	]);
+});
+
+/** The dev-seed demo shape: every control-backed directive at once. */
+const ABSORBED_DIRECTIVES_RECORD = {
+	"gpt-5*": { temperature: 0.3, _inheritable: true, _inherit_from: false, _force: ["temperature"] },
+};
+
+test("control-backed directive rows are absorbed: the controls carry their state and no generic rows render", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams(ABSORBED_DIRECTIVES_RECORD) })));
+	const section = sectionByHeading(root, "Model parameters");
+
+	// The only key/value row is temperature; the directives never render as rows.
+	const keys = Array.from(section.querySelectorAll(".rows input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(keys).toEqual(["temperature"]);
+	// Each directive's state shows exactly once, on its dedicated control.
+	expect((section.querySelector(".inherit-from select") as HTMLSelectElement).value).toBe("none");
+	expect(inheritableBox(section, "temperature").checked).toBe(true);
+	const force = section.querySelector<HTMLInputElement>(`.directive-flag input[aria-label='Force "temperature"']`);
+	expect(force?.checked).toBe(true);
+});
+
+test("absorbed directives round-trip: an unrelated edit preserves their exact shapes", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams(ABSORBED_DIRECTIVES_RECORD) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	// Edit only the temperature value: _inheritable stays the literal true
+	// (never exploded into a field list), _force keeps its list shape, and the
+	// _inherit_from barrier survives untouched.
+	fireInput(section().querySelector(".rows input.value") as HTMLInputElement, "0.4");
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedRecordWrites()).toEqual([
+		{
+			type: "setModelParameters",
+			value: { "gpt-5*": { temperature: 0.4, _inheritable: true, _inherit_from: false, _force: ["temperature"] } },
+		},
+	]);
+});
+
+test("Edit as JSON shows the absorbed directives verbatim", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams(ABSORBED_DIRECTIVES_RECORD) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	fireClick(buttonByText(section(), "Edit as JSON"));
+	expect(JSON.parse((section().querySelector("textarea") as HTMLTextAreaElement).value)).toEqual(
+		ABSORBED_DIRECTIVES_RECORD
+	);
+});
+
+test("directive rows the controls cannot fully show stay visible and editable", () => {
+	// _force naming a parameter no row sets is a stranded mark no checkbox can
+	// display, and 42 is no _inheritable value: both rows stay in the grid with
+	// their own hint or error instead of hiding broken state.
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithParams({
+					"gpt-4": { temperature: 0.2, _force: ["ghost"] },
+					"gpt-5*": { temperature: 0.3, _inheritable: 42 },
+				}),
+			})
+		)
+	);
+	const section = sectionByHeading(root, "Model parameters");
+	const keys = Array.from(section.querySelectorAll(".rows input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(keys).toContain("_force");
+	expect(keys).toContain("_inheritable");
+	expect(section.textContent).toContain('"ghost" is not a parameter this record sets');
+	expect(section.textContent).toContain("Enter true or a list of field names");
+});
+
+test("an _inherit_from list with a comma-containing key keeps its row and the Inherits select goes hands-off", () => {
+	// ["base,blue"] is one matcher key; the select's comma-joined keys input
+	// would silently rewrite it as two, so the row stays the lossless editor.
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithParams({
+					"base,blue": { top_p: 0.9 },
+					"gpt-4": { temperature: 0.2, _inherit_from: ["base,blue"] },
+				}),
+			})
+		)
+	);
+	const section = sectionByHeading(root, "Model parameters");
+	const group = groupByPrefix(section, "gpt-4");
+	const keys = Array.from(group.querySelectorAll(".rows input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(keys).toContain("_inherit_from");
+	expect(group.querySelector(".inherit-from select")).toBeNull();
+	expect(group.querySelector(".inherit-from")?.textContent).toBe("Inheritance: edit the _inherit_from row below");
+});
+
+test("a directive row being typed in absorbs only on blur, never mid-edit under the cursor", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	fireClick(buttonByText(section(), "Add parameter"));
+
+	// Type the directive into the fresh row while it owns focus.
+	const keyInput = () => Array.from(section().querySelectorAll(".rows input.key")).at(-1) as HTMLInputElement;
+	const valueInput = () => Array.from(section().querySelectorAll(".rows input.value")).at(-1) as HTMLInputElement;
+	void act(() => {
+		keyInput().dispatchEvent(new Event("focusin", { bubbles: true }));
+	});
+	fireInput(keyInput(), "_force");
+	fireInput(valueInput(), '["temperature"]');
+
+	// The value just became readable and control-representable, but the row
+	// must not unmount under the cursor (that would steal focus mid-edit).
+	const rowKeys = () =>
+		Array.from(section().querySelectorAll(".rows input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(rowKeys()).toContain("_force");
+
+	// Focus moving between the row's own inputs is not a blur: the hold stands.
+	void act(() => {
+		valueInput().dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: keyInput() }));
+	});
+	expect(rowKeys()).toContain("_force");
+
+	// Leaving the row lets it absorb; the checkbox now carries the mark.
+	void act(() => {
+		valueInput().dispatchEvent(new Event("focusout", { bubbles: true }));
+	});
+	expect(rowKeys()).not.toContain("_force");
+	const box = section().querySelector<HTMLInputElement>(`.directive-flag input[aria-label='Force "temperature"']`);
+	expect(box?.checked).toBe(true);
+});
+
+test("removing a row voids the focus hold instead of pinning the row that shifts into its slot", () => {
+	// Rows are positional: with top_p's value focused, removing top_p slides
+	// the absorbed _force row into the held index. The hold is stamped with
+	// the row-count shape, so the structural change voids it and _force stays
+	// absorbed (no focusout fires for a removed element).
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9, _force: ["temperature"] } }),
+			})
+		)
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+	const rowKeys = () =>
+		Array.from(section().querySelectorAll(".rows input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(rowKeys()).toEqual(["temperature", "top_p"]);
+
+	const topPValue = Array.from(section().querySelectorAll(".rows input.value")).at(-1) as HTMLInputElement;
+	void act(() => {
+		topPValue.dispatchEvent(new Event("focusin", { bubbles: true }));
+	});
+	const removeButtons = Array.from(section().querySelectorAll(".rows button")).filter(
+		(b) => (b.textContent ?? "").trim() === "Remove"
+	);
+	fireClick(removeButtons.at(-1) as HTMLButtonElement);
+	expect(rowKeys()).toEqual(["temperature"]);
+
+	// Nor does the void hold resurrect when a later change restores the same
+	// row counts: adding a row brings the count back, and _force stays absorbed.
+	fireClick(buttonByText(section(), "Add parameter"));
+	expect(rowKeys()).toEqual(["temperature", ""]);
+});
+
+function settingsWithCaps(value: Record<string, Record<string, unknown>>) {
+	return makeSettings({ modelCapabilities: { editScope: "global", value, otherScopes: [], effective: value } });
+}
+
+test("model capabilities: _fallback and _inheritable absorb into their checkboxes while _openrouter_model keeps its row", () => {
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: settingsWithCaps({
+					"*": { _inheritable: true, _fallback: ["context_length"], context_length: 131072 },
+					"my-alias": { _openrouter_model: "anthropic/claude-sonnet-4" },
+				}),
+			})
+		)
+	);
+	const section = () => sectionByHeading(root, "Model capabilities");
+
+	// _openrouter_model has no dedicated control, so it keeps its row; the
+	// checkbox-backed directives do not.
+	const keys = Array.from(section().querySelectorAll(".rows input.key")).map((i) => (i as HTMLInputElement).value);
+	expect(keys).toEqual(["context_length", "_openrouter_model"]);
+	const fallback = section().querySelector<HTMLInputElement>(
+		`.directive-flag input[aria-label='Fall back for "context_length"']`
+	);
+	expect(fallback?.checked).toBe(true);
+	const inheritable = section().querySelector<HTMLInputElement>(
+		`.directive-flag input[aria-label='Mark "context_length" inheritable']`
+	);
+	expect(inheritable?.checked).toBe(true);
+	if (fallback === null) {
+		throw new Error("the fallback checkbox did not render");
+	}
+
+	// Unmarking fallback removes only that directive; the untouched
+	// _inheritable keeps its literal true.
+	fireCheck(fallback, false);
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedRecordWrites()).toEqual([
+		{
+			type: "setModelCapabilities",
+			value: {
+				"*": { _inheritable: true, context_length: 131072 },
+				"my-alias": { _openrouter_model: "anthropic/claude-sonnet-4" },
+			},
 		},
 	]);
 });
@@ -781,18 +998,20 @@ test("other-scope records render as the disabled row grid with the edit-there hi
 		modelParameters: {
 			editScope: "global",
 			value: {},
-			otherScopes: [{ scope: "workspace", value: { "gpt-4": { temperature: 0.2 } } }],
-			effective: { "gpt-4": { temperature: 0.2 } },
+			otherScopes: [{ scope: "workspace", value: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } } }],
+			effective: { "gpt-4": { temperature: 0.2, _force: ["temperature"] } },
 		},
 	});
 	pushToWebview(statePush(makeState({ settings })));
 
 	const paramsOther = sectionByHeading(root, "Model parameters").querySelector(".other-scope");
 	expect(paramsOther?.textContent).toContain("Set in Workspace settings - edit there.");
+	// The static grid absorbs nothing: it renders no controls, so the _force
+	// row is the state's only representation there.
 	const paramValues = Array.from(paramsOther?.querySelectorAll('input:not([type="checkbox"])') ?? []).map(
 		(i) => (i as HTMLInputElement).value
 	);
-	expect(paramValues).toEqual(["gpt-4", "temperature", "0.2"]);
+	expect(paramValues).toEqual(["gpt-4", "temperature", "0.2", "_force", '["temperature"]']);
 	for (const input of Array.from(paramsOther?.querySelectorAll("input") ?? [])) {
 		expect((input as HTMLInputElement).disabled).toBe(true);
 	}

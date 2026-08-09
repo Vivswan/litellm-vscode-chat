@@ -297,7 +297,7 @@
 		]
 	},
 	"IDs are exact; a declaration goes inert once discovery lists the ID.": "IDs are exact; a declaration goes inert once discovery lists the ID.",
-	"Inheritance: fix the _inherit_from row below": "Inheritance: fix the _inherit_from row below",
+	"Inheritance: edit the _inherit_from row below": "Inheritance: edit the _inherit_from row below",
 	"Inherits": "Inherits",
 	"Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.": "Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.",
 	"Input tokens": "Input tokens",
