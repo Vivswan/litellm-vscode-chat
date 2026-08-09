@@ -36,6 +36,7 @@ import {
 import { PLAYBACK_MODEL } from "../src/test/fakeStack/models";
 import { resolveComposeCommand } from "./stack/composeCommand";
 import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } from "./stack/litellmConfig";
+import { seedStackUsageBudgetKey } from "./stack/seedUsage";
 
 const args = process.argv.slice(2);
 
@@ -129,90 +130,96 @@ const run = (command: string, env: Record<string, string> = {}): void => {
 };
 
 let failed = false;
-try {
-	// Test config is always generated without real-provider wildcards, so a
-	// developer's keys in .env cannot change the model list under test, and
-	// --force-recreate makes a stack already running with a different config
-	// pick this one up instead of poisoning the run.
-	ensureGeneratedConfig({ realProviders: false });
-	console.log(`\nStarting the LiteLLM stack via "${compose}"...`);
-	// 180 over the litellm healthcheck's 90s start_period: --wait-timeout is
-	// hard wall clock, so a cold runner's first-boot prisma migration needs
-	// real headroom before the shard dies.
-	run(`${compose} up -d --wait --wait-timeout 180 --force-recreate`);
-
-	// The usage/budget fixture key must exist before any suite runs: the
-	// docker-usage smoke suite reads it directly, and later usage suites
-	// spend through it. --force-recreate wiped the DB (tmpfs), so this
-	// always starts from spend 0. Shelled out because this script's top
-	// level is synchronous (no top-level await under the scripts tsconfig).
-	run("bun scripts/stack/seed-usage.ts");
-
-	const suiteEnv = {
-		LITELLM_DOCKER_BASE_URL: baseUrl,
-		LITELLM_DOCKER_API_KEY: masterKey,
-		LITELLM_DOCKER_FAKE_URL: fakeUrl,
-	};
-
-	run("bun run compile && bun run bundle:dev");
-
-	// One entry per label, keyed on the full set (Record, not Partial) so a
-	// label added to DOCKER_TEST_LABELS cannot compile without a leg to run.
-	// Each label gets its own fresh extension host; that isolation is
-	// load-bearing for docker-serversync (its provider groups are add-only
-	// for the host lifetime) and docker-monkey (walks deliberately dirty
-	// host state), which is also why monkey sits last in the canonical
-	// order.
-	const legs: Record<DockerTestLabel, { banner: string; env: Record<string, string> }> = {
-		docker: { banner: "Running the docker suite...", env: suiteEnv },
-		"docker-usage": { banner: "Running the usage/budget smoke suite...", env: suiteEnv },
-		"docker-transport": { banner: "Running the transport-failure suite...", env: suiteEnv },
-		"docker-serversync": { banner: "Running the server-sync suite...", env: suiteEnv },
-		"docker-resolution": { banner: "Running the catalog/record resolution suite...", env: suiteEnv },
-		"docker-fuzz": { banner: "Running the stream fuzzer...", env: suiteEnv },
-		"docker-conversation": { banner: "Running the multi-turn conversation suite...", env: suiteEnv },
-		"host-fidelity": {
-			banner: "Running the host-fidelity live suite against the stack...",
-			env: {
-				LITELLM_REAL_LIVE: "1",
-				LITELLM_REAL_BASE_URL: baseUrl,
-				LITELLM_REAL_API_KEY: masterKey,
-				LITELLM_REAL_MODEL: PLAYBACK_MODEL.alias,
-			},
-		},
-		"docker-monkey": { banner: "Running the interaction (monkey) fuzzer...", env: suiteEnv },
-	};
-
-	for (const label of DOCKER_TEST_LABELS) {
-		if (!selected.has(label)) {
-			continue;
-		}
-		console.log(`\n${legs[label].banner}`);
-		run(`vscode-test --config .vscode-test.mjs --label ${label}`, legs[label].env);
-	}
-} catch (error) {
-	failed = true;
-	console.error("\nDocker test run failed; recent LiteLLM logs:");
+async function main(): Promise<void> {
 	try {
-		run(`${compose} logs litellm --tail 100`);
-	} catch {
-		// Logs are best-effort; the original failure is what matters.
-	}
-	const status = (error as { status?: number }).status;
-	process.exitCode = status ?? 1;
-} finally {
-	if (process.env.KEEP_DOCKER_STACK === "1") {
-		console.log(`\nKEEP_DOCKER_STACK=1: stack left running at ${baseUrl} (fake backend at ${fakeUrl})`);
-	} else {
-		try {
-			run(`${compose} down -v`);
-		} catch (teardownError) {
-			// Teardown noise must not replace the original test failure.
-			console.error(`Teardown failed: ${String(teardownError)}`);
-			process.exitCode ??= 1;
+		// Test config is always generated without real-provider wildcards, so a
+		// developer's keys in .env cannot change the model list under test, and
+		// --force-recreate makes a stack already running with a different config
+		// pick this one up instead of poisoning the run.
+		ensureGeneratedConfig({ realProviders: false });
+		console.log(`\nStarting the LiteLLM stack via "${compose}"...`);
+		// 180 over the litellm healthcheck's 90s start_period: --wait-timeout is
+		// hard wall clock, so a cold runner's first-boot prisma migration needs
+		// real headroom before the shard dies.
+		run(`${compose} up -d --wait --wait-timeout 180 --force-recreate`);
+
+		// The usage/budget fixture key must exist before any suite runs: the
+		// docker-usage smoke suite reads it directly, and later usage suites
+		// spend through it. --force-recreate wiped the DB (tmpfs), so this
+		// always starts from spend 0.
+		await seedStackUsageBudgetKey();
+
+		const suiteEnv = {
+			LITELLM_DOCKER_BASE_URL: baseUrl,
+			LITELLM_DOCKER_API_KEY: masterKey,
+			LITELLM_DOCKER_FAKE_URL: fakeUrl,
+		};
+
+		run("bun run compile && bun run bundle:dev");
+
+		// One entry per label, keyed on the full set (Record, not Partial) so a
+		// label added to DOCKER_TEST_LABELS cannot compile without a leg to run.
+		// Each label gets its own fresh extension host; that isolation is
+		// load-bearing for docker-serversync (its provider groups are add-only
+		// for the host lifetime) and docker-monkey (walks deliberately dirty
+		// host state), which is also why monkey sits last in the canonical
+		// order.
+		const legs: Record<DockerTestLabel, { banner: string; env: Record<string, string> }> = {
+			docker: { banner: "Running the docker suite...", env: suiteEnv },
+			"docker-usage": { banner: "Running the usage/budget smoke suite...", env: suiteEnv },
+			"docker-transport": { banner: "Running the transport-failure suite...", env: suiteEnv },
+			"docker-serversync": { banner: "Running the server-sync suite...", env: suiteEnv },
+			"docker-resolution": { banner: "Running the catalog/record resolution suite...", env: suiteEnv },
+			"docker-fuzz": { banner: "Running the stream fuzzer...", env: suiteEnv },
+			"docker-conversation": { banner: "Running the multi-turn conversation suite...", env: suiteEnv },
+			"host-fidelity": {
+				banner: "Running the host-fidelity live suite against the stack...",
+				env: {
+					LITELLM_REAL_LIVE: "1",
+					LITELLM_REAL_BASE_URL: baseUrl,
+					LITELLM_REAL_API_KEY: masterKey,
+					LITELLM_REAL_MODEL: PLAYBACK_MODEL.alias,
+				},
+			},
+			"docker-monkey": { banner: "Running the interaction (monkey) fuzzer...", env: suiteEnv },
+		};
+
+		for (const label of DOCKER_TEST_LABELS) {
+			if (!selected.has(label)) {
+				continue;
+			}
+			console.log(`\n${legs[label].banner}`);
+			run(`vscode-test --config .vscode-test.mjs --label ${label}`, legs[label].env);
 		}
-	}
-	if (failed) {
-		process.exit(process.exitCode ?? 1);
+	} catch (error) {
+		failed = true;
+		console.error("\nDocker test run failed; recent LiteLLM logs:");
+		try {
+			run(`${compose} logs litellm --tail 100`);
+		} catch {
+			// Logs are best-effort; the original failure is what matters.
+		}
+		const status = (error as { status?: number }).status;
+		process.exitCode = status ?? 1;
+	} finally {
+		if (process.env.KEEP_DOCKER_STACK === "1") {
+			console.log(`\nKEEP_DOCKER_STACK=1: stack left running at ${baseUrl} (fake backend at ${fakeUrl})`);
+		} else {
+			try {
+				run(`${compose} down -v`);
+			} catch (teardownError) {
+				// Teardown noise must not replace the original test failure.
+				console.error(`Teardown failed: ${String(teardownError)}`);
+				process.exitCode ??= 1;
+			}
+		}
+		if (failed) {
+			process.exit(process.exitCode ?? 1);
+		}
 	}
 }
+
+main().catch((error) => {
+	console.error(error);
+	process.exit(1);
+});
