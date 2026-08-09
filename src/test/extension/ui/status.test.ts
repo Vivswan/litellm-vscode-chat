@@ -337,6 +337,20 @@ suite("extension/ui/status", () => {
 			assert.strictEqual(manager.connectionStatus.state, "connecting");
 			assert.strictEqual(manager.connectingAttention, false, "loading must not invent attention it never carried");
 		});
+
+		test("a restored degraded connecting survives the connection test's loading overwrite", async () => {
+			// The restore path seeds the manager's carry directly (no report has
+			// arrived yet), so last session's degraded verdict must still be
+			// there when a loading overwrite and an empty report follow.
+			const manager = createManager({ state: "connecting" }, () => true);
+			assert.strictEqual(manager.connectingAttention, true);
+
+			await manager.updateStatusBar({ state: "loading" });
+			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
+
+			assert.strictEqual(manager.connectionStatus.state, "connecting");
+			assert.strictEqual(manager.connectingAttention, true, "the restored verdict survives the transient loading");
+		});
 	});
 
 	suite("expected failures", () => {
@@ -663,6 +677,20 @@ suite("extension/ui/status", () => {
 			const manager = createManager({ state: "connecting", attention: false });
 
 			assert.deepStrictEqual(manager.connectionStatus, { state: "connecting", attention: true });
+		});
+
+		test("a loading blob persisted with a carried attention flag restores neutral and never counts as consecutive", () => {
+			// Older versions persisted the connection test's loading status with
+			// the smuggled attention flag; the session boundary makes it stale,
+			// so the restored state drops it and the first empty report after the
+			// restart stays the neutral spinner.
+			const manager = createManager({ state: "loading", attention: true }, () => true);
+
+			assert.deepStrictEqual(manager.connectionStatus, { state: "loading" });
+
+			manager.handleAggregatedStatus({ serverStatuses: [], totalModels: 0, silent: true });
+			assert.strictEqual(manager.connectionStatus.state, "connecting");
+			assert.strictEqual(manager.connectingAttention, false, "last session's flag must not degrade this session");
 		});
 
 		test("junk serverStatuses elements are dropped, never rendered or crashed on", () => {
