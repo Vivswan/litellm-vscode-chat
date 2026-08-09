@@ -13,7 +13,7 @@ import {
 	thinkingPartCtor,
 } from "../../../shared/conversion/thinkingPart";
 import { tryParseJSONObject } from "../../../shared/util/json";
-import { localizedError, streamErrorFrame } from "../errorMapping";
+import { chatErrorMessage, localizedError, streamErrorFrame } from "../errorMapping";
 import type { TextParseResult, TextToolCall } from "../textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "../textToolCallParser";
 import type { ChatCompletionChunk, ChunkAudio, ChunkDelta, ChunkSearchResult, ToolCallBuffer } from "../wire";
@@ -713,9 +713,12 @@ export class StreamProcessor {
 					? vscode.l10n.t("1 tool call arrived with arguments that were not valid JSON")
 					: vscode.l10n.t("{0} tool calls arrived with arguments that were not valid JSON", invalidCount);
 			throw localizedError(
-				`${vscode.l10n.t(
-					"The model sent a broken tool call, so this response could not be completed. Trying again usually fixes it."
-				)}\n${detail}`,
+				chatErrorMessage(
+					vscode.l10n.t(
+						"The model sent a broken tool call, so this response could not be completed. Trying again usually fixes it."
+					),
+					detail
+				),
 				`Tool call flush failed at end of stream: ${invalidCount} tool call(s) with invalid JSON arguments`
 			);
 		}

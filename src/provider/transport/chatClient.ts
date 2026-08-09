@@ -22,9 +22,16 @@ import { groupClientId, parseModelMetadata } from "../catalog/groupModels";
 import type { ModelRoute } from "../catalog/modelCatalog";
 import { requestParamsFromModelConfiguration } from "../catalog/modelConfiguration";
 import { resolveServer } from "../config";
-import { type OAuthConfig, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
+import { type OAuthConfig, type OAuthErrorSurface, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
-import { localizedError, mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
+import {
+	chatErrorMessage,
+	englishChatErrorMessage,
+	localizedError,
+	mapSdkError,
+	RequestError,
+	timeoutRequestError,
+} from "./errorMapping";
 import { buildRequestBody, MAX_TOOLS_PER_REQUEST, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
@@ -180,7 +187,7 @@ export class ChatClient {
 			userAgent: this.userAgent,
 			customHeaders,
 		});
-		const { headers, sentOAuthToken } = await this.resolveAuthHeaders(server, discoveryTimeout);
+		const { headers, sentOAuthToken } = await this.resolveAuthHeaders(server, "discovery", discoveryTimeout);
 		try {
 			return await fetchModels({
 				client,
@@ -213,6 +220,7 @@ export class ChatClient {
 	 */
 	private async resolveAuthHeaders(
 		credentials: { oauth?: OAuthConfig | undefined; virtualKey?: VirtualKeyConfig | undefined },
+		surface: OAuthErrorSurface,
 		discoveryTimeout: number,
 		signal?: AbortSignal
 	): Promise<{ headers: Record<string, string> | undefined; sentOAuthToken: string | undefined }> {
@@ -224,7 +232,7 @@ export class ChatClient {
 		// identity provider must not fail a request that would not carry it.
 		const authorizationOverridden = credentials.virtualKey?.header.toLowerCase() === "authorization";
 		if (credentials.oauth && !authorizationOverridden) {
-			sentOAuthToken = await this.oauthTokens.getToken(credentials.oauth, discoveryTimeout, signal);
+			sentOAuthToken = await this.oauthTokens.getToken(credentials.oauth, surface, discoveryTimeout, signal);
 			headers.Authorization = `Bearer ${sentOAuthToken}`;
 		}
 		if (credentials.virtualKey) {
@@ -343,10 +351,20 @@ export class ChatClient {
 
 		if (options.tools && options.tools.length > MAX_TOOLS_PER_REQUEST) {
 			throw localizedError(
-				`${vscode.l10n.t(
-					"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again."
-				)}\n${vscode.l10n.t("{0} tools requested; the limit is {1} (request not sent)", options.tools.length, MAX_TOOLS_PER_REQUEST)}`,
-				`Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.\n${options.tools.length} tools requested; the limit is ${MAX_TOOLS_PER_REQUEST} (request not sent)`
+				chatErrorMessage(
+					vscode.l10n.t(
+						"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again."
+					),
+					vscode.l10n.t(
+						"{0} tools requested; the limit is {1} (request not sent)",
+						options.tools.length,
+						MAX_TOOLS_PER_REQUEST
+					)
+				),
+				englishChatErrorMessage(
+					"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.",
+					`${options.tools.length} tools requested; the limit is ${MAX_TOOLS_PER_REQUEST} (request not sent)`
+				)
 			);
 		}
 
@@ -363,14 +381,20 @@ export class ChatClient {
 			// teaches comparing the limit against the model's real one (the
 			// models.capabilities fix).
 			throw localizedError(
-				`${vscode.l10n.t(
-					"This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong."
-				)}\n${vscode.l10n.t(
-					"token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}",
-					inputTokenCount + toolTokenCount,
-					tokenLimit
-				)}`,
-				`This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong.\ntoken limit exceeded before send: local estimate ${inputTokenCount + toolTokenCount} tokens (messages + tools), input limit ${tokenLimit}`
+				chatErrorMessage(
+					vscode.l10n.t(
+						"This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong."
+					),
+					vscode.l10n.t(
+						"token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}",
+						inputTokenCount + toolTokenCount,
+						tokenLimit
+					)
+				),
+				englishChatErrorMessage(
+					"This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong.",
+					`token limit exceeded before send: local estimate ${inputTokenCount + toolTokenCount} tokens (messages + tools), input limit ${tokenLimit}`
+				)
 			);
 		}
 
@@ -455,6 +479,7 @@ export class ChatClient {
 		try {
 			const resolvedAuth = await this.resolveAuthHeaders(
 				{ oauth: connection.oauth, virtualKey: connection.virtualKey },
+				"chat",
 				getDiscoveryTimeout(this.log),
 				requestSignal
 			);
@@ -472,10 +497,20 @@ export class ChatClient {
 				// Free of mapSdkError's socket-signature tokens, so the catch below
 				// cannot reclassify this as a mid-response network death.
 				throw localizedError(
-					`${vscode.l10n.t(
-						"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server."
-					)}\n${vscode.l10n.t("LiteLLM answered {0} with a missing response body ({1})", response.status, connection.baseUrl)}`,
-					`The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server.\nLiteLLM answered ${response.status} with a missing response body (${connection.baseUrl})`
+					chatErrorMessage(
+						vscode.l10n.t(
+							"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server."
+						),
+						vscode.l10n.t(
+							"LiteLLM answered {0} with a missing response body ({1})",
+							response.status,
+							connection.baseUrl
+						)
+					),
+					englishChatErrorMessage(
+						"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server.",
+						`LiteLLM answered ${response.status} with a missing response body (${connection.baseUrl})`
+					)
 				);
 			}
 

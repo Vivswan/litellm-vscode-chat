@@ -432,7 +432,7 @@ export class UsageClient {
 		let sentOAuthToken: string | undefined;
 		const authorizationOverridden = connection.virtualKey?.header.toLowerCase() === "authorization";
 		if (connection.oauth && !authorizationOverridden) {
-			sentOAuthToken = await this.oauthTokens.getToken(connection.oauth, timeoutMs, signal);
+			sentOAuthToken = await this.oauthTokens.getToken(connection.oauth, "discovery", timeoutMs, signal);
 			setAuthHeader("Authorization", `Bearer ${sentOAuthToken}`);
 		}
 		if (connection.virtualKey) {

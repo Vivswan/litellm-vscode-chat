@@ -158,7 +158,7 @@ suite("provider/transport/errorMapping", () => {
 
 			const detail = "LiteLLM 400 invalid_request_error: unsupported parameter: frobnicate";
 			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
-			assert.strictEqual(chat.message, `The server rejected this request as invalid.\n${detail}`);
+			assert.strictEqual(chat.message, `The server rejected this request as invalid.\n\nDetails: ${detail}`);
 			assert.strictEqual(chat.status, 400);
 			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
 			assert.strictEqual(discovery.message, `The server refused the model-list request.\n${detail}`);
@@ -188,10 +188,11 @@ suite("provider/transport/errorMapping", () => {
 				chat.message
 			);
 			// The code is just the stringified status, so the detail carries only
-			// the type - never "LiteLLM 429 429".
+			// the type - never "LiteLLM 429 429". The chat surface separates the
+			// detail with the "Details:" lead-in (Copilot Chat flattens newlines).
 			assert.ok(
 				chat.message.endsWith(
-					"\nLiteLLM 429 budget_exceeded: Budget has been exceeded! Current cost: 0.40, Max budget: 0.37"
+					"\n\nDetails: LiteLLM 429 budget_exceeded: Budget has been exceeded! Current cost: 0.40, Max budget: 0.37"
 				),
 				chat.message
 			);
@@ -218,6 +219,18 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(chat.logClassification, "RequestError(http, status 429)");
 		});
 
+		test('chat messages separate headline and detail with "Details:"; discovery keeps the plain newline', () => {
+			// Copilot Chat's error block flattens newlines, so the chat surface
+			// needs the textual boundary; the dashboard and tooltips split
+			// discovery messages on the single "\n".
+			const err = APIError.generate(500, { error: { message: "boom" } }, undefined, new Headers());
+			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
+			assert.ok(chat.message.includes("\n\nDetails: "), chat.message);
+			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
+			assert.ok(!discovery.message.includes("Details:"), discovery.message);
+			assert.ok(discovery.message.includes("\n") && !discovery.message.includes("\n\n"), discovery.message);
+		});
+
 		test("400 with a non-JSON body recovers the text from the SDK message into the detail line", () => {
 			const err = new APIError(400, undefined, "plain text failure, not JSON", new Headers());
 			assert.strictEqual(err.error, undefined);
@@ -226,7 +239,7 @@ suite("provider/transport/errorMapping", () => {
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "http");
 			assert.strictEqual(
 				mapped.message,
-				"The server rejected this request as invalid.\nLiteLLM 400: plain text failure, not JSON"
+				"The server rejected this request as invalid.\n\nDetails: LiteLLM 400: plain text failure, not JSON"
 			);
 			assert.strictEqual(mapped.status, 400);
 			// Discovery does not brand a non-envelope body as LiteLLM's: the
@@ -264,7 +277,7 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(mapped.logClassification, "RequestError(http, status 404, chat)");
 			// docker-transport.test.ts pins `LiteLLM ${status}\b` against the live
 			// stack, so the detail line must keep the status greppable.
-			assert.ok(mapped.message.endsWith("\nLiteLLM 404: model not found"), mapped.message);
+			assert.ok(mapped.message.endsWith("\n\nDetails: LiteLLM 404: model not found"), mapped.message);
 			assert.strictEqual(mapped.englishMessage, mapped.message, "English fallback: the two renderings coincide");
 		});
 
@@ -273,7 +286,7 @@ suite("provider/transport/errorMapping", () => {
 			// Chat keeps the recovered text: the nginx/wrong-server signature of a
 			// /v1-doubled base URL is the useful clue.
 			const chat = expectRequestError(mapSdkError(err, chatCtx), "http");
-			assert.ok(chat.message.endsWith("\nLiteLLM 404: default backend - 404"), chat.message);
+			assert.ok(chat.message.endsWith("\n\nDetails: LiteLLM 404: default backend - 404"), chat.message);
 			// The discovery headline already says this address does not serve the
 			// LiteLLM API; an HTML 404 page or plain-text body adds nothing.
 			const discovery = expectRequestError(mapSdkError(err, discoveryCtx), "http");
@@ -325,7 +338,7 @@ suite("provider/transport/errorMapping", () => {
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
 			assert.strictEqual(
 				mapped.message,
-				"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.\nSSL certificate error for http://litellm.test: self-signed certificate"
+				"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.\n\nDetails: SSL certificate error for http://litellm.test: self-signed certificate"
 			);
 			// Node's hostname-mismatch text can embed the certificate's SAN list
 			// (server-supplied), so the public surfaces get a classification.
@@ -341,7 +354,7 @@ suite("provider/transport/errorMapping", () => {
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "certificate");
 			assert.ok(
 				mapped.message.endsWith(
-					"\nSSL certificate error for http://litellm.test: unable to verify the first certificate (UNABLE_TO_VERIFY_LEAF_SIGNATURE)"
+					"\n\nDetails: SSL certificate error for http://litellm.test: unable to verify the first certificate (UNABLE_TO_VERIFY_LEAF_SIGNATURE)"
 				),
 				mapped.message
 			);
@@ -400,7 +413,7 @@ suite("provider/transport/errorMapping", () => {
 			assert.ok(mapped.message.startsWith("The connection dropped before the model finished replying"), mapped.message);
 			assert.ok(
 				mapped.message.endsWith(
-					"\nConnection to http://litellm.test closed mid-response: terminated (cause: other side closed)"
+					"\n\nDetails: Connection to http://litellm.test closed mid-response: terminated (cause: other side closed)"
 				),
 				"the deepest cause stays in the detail line"
 			);
@@ -422,7 +435,7 @@ suite("provider/transport/errorMapping", () => {
 			const chat = expectRequestError(mapSdkError(err, chatCtx), "network");
 			assert.strictEqual(
 				chat.message,
-				"Could not reach http://litellm.test. Check your network, VPN, or proxy settings, and that the server is up.\nfetch failed (cause: getaddrinfo EAI_AGAIN litellm.internal)"
+				"Could not reach http://litellm.test. Check your network, VPN, or proxy settings, and that the server is up.\n\nDetails: fetch failed (cause: getaddrinfo EAI_AGAIN litellm.internal)"
 			);
 			const disco = expectRequestError(mapSdkError(err, discoveryCtx), "network");
 			assertStartsWith(disco.message, "Could not reach http://litellm.test to list its models.");
@@ -466,7 +479,7 @@ suite("provider/transport/errorMapping", () => {
 			const mapped = mapSdkError(err, chatCtx) as Error & { englishMessage?: string; logClassification?: string };
 			assert.strictEqual(
 				mapped.message,
-				"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.\nUnexpected Error during the chat request to http://litellm.test: boom"
+				"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.\n\nDetails: Unexpected Error during the chat request to http://litellm.test: boom"
 			);
 			assert.strictEqual(mapped.englishMessage, mapped.message);
 			// The thrown value's text is arbitrary, so the public surfaces record
@@ -482,7 +495,7 @@ suite("provider/transport/errorMapping", () => {
 			const mapped = mapSdkError("boom", chatCtx) as Error & { logClassification?: string };
 			assert.ok(mapped instanceof Error);
 			assert.ok(
-				mapped.message.endsWith("\nUnexpected string during the chat request to http://litellm.test: boom"),
+				mapped.message.endsWith("\n\nDetails: Unexpected string during the chat request to http://litellm.test: boom"),
 				mapped.message
 			);
 			assert.strictEqual(mapped.logClassification, "non-Error throw in transport (string, chat)");
@@ -510,7 +523,7 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(err.kind, "http");
 			assert.strictEqual(err.status, undefined, "the response was already 200; there is no status to carry");
 			assert.ok(err.message.startsWith("The server reported an error while it was streaming this reply"), err.message);
-			assert.ok(err.message.endsWith("\nLiteLLM stream error (500): upstream died mid-stream"), err.message);
+			assert.ok(err.message.endsWith("\n\nDetails: LiteLLM stream error (500): upstream died mid-stream"), err.message);
 			assert.ok(!err.message.includes('{"error"'), "the envelope is never re-serialized");
 			// mapSdkError must hand it through untouched on the way out of send().
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
@@ -521,13 +534,16 @@ suite("provider/transport/errorMapping", () => {
 			// A known class swaps in that class's headline: "trying again may
 			// work" would be wrong advice for a rate limit or a blown budget.
 			assert.ok(err.message.startsWith("The server is handling too many requests"), err.message);
-			assert.ok(err.message.endsWith("\nLiteLLM stream error rate_limit_error (429)"), err.message);
+			assert.ok(err.message.endsWith("\n\nDetails: LiteLLM stream error rate_limit_error (429)"), err.message);
 			assert.strictEqual(err.status, undefined, "no status may be derived from the envelope's code");
 		});
 
 		test("an empty stream error frame says the server provided no detail", () => {
 			const err = streamErrorFrame({});
-			assert.ok(err.message.endsWith("\nLiteLLM stream error (no detail provided by the server)"), err.message);
+			assert.ok(
+				err.message.endsWith("\n\nDetails: LiteLLM stream error (no detail provided by the server)"),
+				err.message
+			);
 		});
 
 		test("logClassification is an explicit construction-site opt-in, never derived from kind", () => {
