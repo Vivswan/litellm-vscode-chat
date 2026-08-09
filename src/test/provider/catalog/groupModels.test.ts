@@ -235,6 +235,21 @@ suite("provider/catalog/groupModels", () => {
 			assert.notStrictEqual(groupClientId(smuggled), groupClientId(labeled));
 		});
 
+		test("an unlabeled API key spelling the credentialed encoding never collides with a real credentialed group", () => {
+			// The credentialed unlabeled form's twin of the labeled test above:
+			// group:cred: is its own namespace, so a bare key that IS the
+			// credentialed form's JSON text cannot reach it.
+			const credentialed = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
+			const credId = groupClientId(credentialed);
+			const spelledKey = JSON.stringify([
+				"",
+				credentialed.oauth ? oauthCredentialFingerprint(credentialed.oauth) : null,
+				null,
+			]);
+			const smuggled = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: spelledKey }));
+			assert.notStrictEqual(groupClientId(smuggled), credId);
+		});
+
 		test("rotating the client secret mints a new identity", () => {
 			const withOAuth = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
 			const rotated = expectDefined(
