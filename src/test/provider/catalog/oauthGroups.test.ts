@@ -445,6 +445,36 @@ suite("provider groups with OAuth", () => {
 		assert.strictEqual(serverHits, 0, "no request may reach the LiteLLM server without a token");
 	});
 
+	test('a chat-triggered token rejection carries the chat "Details:" lead-in end to end', async () => {
+		// Pins the surface wiring through ChatClient.send, not just
+		// OAuthTokenSource: expires_in 0 keeps the discovery token out of the
+		// cache, so the chat call performs its own exchange and its rejection
+		// must render with the chat-surface join.
+		const provider = makeProvider();
+		let exchanges = 0;
+		mswServer.use(
+			http.post(TOKEN_URL, () => {
+				exchanges += 1;
+				return exchanges === 1
+					? HttpResponse.json({ access_token: "tok-1", token_type: "Bearer", expires_in: 0 })
+					: HttpResponse.json({ error: "invalid_client" }, { status: 401 });
+			}),
+			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD)
+		);
+
+		const infos = await provider.provideLanguageModelChatInformation(
+			groupOptions(OAUTH_GROUP_CONFIGURATION),
+			cancellation()
+		);
+		await assert.rejects(sendChat(provider, expectDefined(infos[0])), (e: unknown) => {
+			assert.ok(e instanceof Error, `expected an Error, got ${String(e)}`);
+			assert.match(e.message, /The identity provider refused to issue a token for this server/);
+			assert.ok(e.message.includes(`\n\nDetails: OAuth 401 at ${TOKEN_URL}`), e.message);
+			return true;
+		});
+		assert.strictEqual(exchanges, 2, "the chat call must have exchanged afresh");
+	});
+
 	test("neither the client secret nor the token nor the virtual key reaches the log channel", async () => {
 		const lines: string[] = [];
 		const channel = {

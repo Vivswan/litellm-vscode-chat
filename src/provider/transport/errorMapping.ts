@@ -4,11 +4,12 @@ import { manageCommandTitle, syncModelsCommandTitle } from "../../shared/config/
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification, TransportErrorKind } from "../../shared/errorClassification";
 import { transportClassificationOf } from "../../shared/errorClassification";
+import { chatErrorMessage, englishChatErrorMessage } from "../../shared/localizedError";
 import type { LogSafeErrorText } from "../../shared/logger";
 import { errorMessageText, markLogSafe, publicErrorText } from "../../shared/logger";
 import { collapseWhitespace } from "../../shared/util/errorText";
 
-export { localizedError } from "../../shared/localizedError";
+export { chatErrorMessage, englishChatErrorMessage, localizedError } from "../../shared/localizedError";
 
 /** The kind union lives in shared (status surfaces and the dashboard protocol may not import this layer); the transport keeps its established name. */
 export type RequestErrorKind = TransportErrorKind;
@@ -596,11 +597,11 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 	if (type === undefined && code === undefined && message === undefined) {
 		detail = "LiteLLM stream error (no detail provided by the server)";
 	}
-	return new RequestError(`${headline.display}\n${detail}`, "http", {
+	return new RequestError(chatErrorMessage(headline.display, detail), "http", {
 		// The detail is response-derived; the distinct classification keeps a
 		// mid-stream death recognizable in an issue.
 		logClassification: "RequestError(http, in-band stream error frame)",
-		englishMessage: `${headline.english}\n${detail}`,
+		englishMessage: englishChatErrorMessage(headline.english, detail),
 	});
 }
 
@@ -609,9 +610,12 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
  * errors. Every mapped message follows the two-part shape: a plain-language
  * headline (localized, stating what happened and what the user can do) plus
  * one compact English technical line - never a re-serialized response
- * envelope. Network classification walks the full cause chain because the
- * SDK adds a wrapper level ("Connection error." -> TypeError "fetch failed"
- * -> the socket/TLS error that carries the actionable string).
+ * envelope. The join is per surface: chat messages carry the "Details:"
+ * lead-in after a blank line (chatErrorMessage - Copilot Chat's error block
+ * flattens newlines), discovery messages the single "\n" the dashboard and
+ * tooltips split on. Network classification walks the full cause chain
+ * because the SDK adds a wrapper level ("Connection error." -> TypeError
+ * "fetch failed" -> the socket/TLS error that carries the actionable string).
  */
 export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof APIError && typeof err.status === "number") {
@@ -675,10 +679,13 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(404, err, 200);
 			const detail = text !== "" ? `LiteLLM 404${kind}: ${text}` : `LiteLLM 404${kind}`;
 			return new RequestError(
-				`${l10n.t(
-					'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (do not include a /v1 suffix - the extension adds it).',
-					syncModelsCommandTitle()
-				)}\n${detail}`,
+				chatErrorMessage(
+					l10n.t(
+						'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (do not include a /v1 suffix - the extension adds it).',
+						syncModelsCommandTitle()
+					),
+					detail
+				),
 				"http",
 				{
 					status: 404,
@@ -686,7 +693,10 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 					logClassification: "RequestError(http, status 404, chat)",
 					// "LiteLLM: Sync Models Now" is the palette title package.json
 					// contributes (the manageCommandTitle mirror pattern).
-					englishMessage: `The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (do not include a /v1 suffix - the extension adds it).\n${detail}`,
+					englishMessage: englishChatErrorMessage(
+						'The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (do not include a /v1 suffix - the extension adds it).',
+						detail
+					),
 				}
 			);
 		}
@@ -700,11 +710,15 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		// (classify FROM the body, never quote it); the response text itself
 		// rides only in message/englishMessage.
 		const token = cls === "budget_exceeded" || cls === "context_window_exceeded" ? `, ${cls}` : "";
-		return new RequestError(`${headline.display}\n${detail}`, "http", {
+		const message =
+			ctx.surface === "chat" ? chatErrorMessage(headline.display, detail) : `${headline.display}\n${detail}`;
+		const english =
+			ctx.surface === "chat" ? englishChatErrorMessage(headline.english, detail) : `${headline.english}\n${detail}`;
+		return new RequestError(message, "http", {
 			status: err.status,
 			cause: err,
 			logClassification: `RequestError(http, status ${err.status}${token})`,
-			englishMessage: `${headline.english}\n${detail}`,
+			englishMessage: english,
 		});
 	}
 
@@ -752,15 +766,23 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			const certMessage = compactText(certLink?.message ?? err.message, 300);
 			const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80) : "";
 			const detail = `SSL certificate error for ${ctx.baseUrl}: ${certMessage}${certCode !== "" ? ` (${certCode})` : ""}`;
-			return new RequestError(
-				`${l10n.t(
+			const headline: LocalizedText = {
+				display: l10n.t(
 					"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator."
-				)}\n${detail}`,
+				),
+				english:
+					"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.",
+			};
+			return new RequestError(
+				ctx.surface === "chat" ? chatErrorMessage(headline.display, detail) : `${headline.display}\n${detail}`,
 				"certificate",
 				{
 					cause: err,
 					logClassification: "RequestError(certificate, unverified)",
-					englishMessage: `The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.\n${detail}`,
+					englishMessage:
+						ctx.surface === "chat"
+							? englishChatErrorMessage(headline.english, detail)
+							: `${headline.english}\n${detail}`,
 				}
 			);
 		}
@@ -800,10 +822,21 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 						english: `Could not reach ${ctx.baseUrl} to list its models. Check your network, VPN, or proxy settings, and that the server is up.`,
 					};
 		// An empty cause chain gets no detail line rather than a trailing blank.
-		const suffix = detail !== "" ? `\n${detail}` : "";
-		return new RequestError(`${headline.display}${suffix}`, "network", {
+		const message =
+			detail === ""
+				? headline.display
+				: ctx.surface === "chat"
+					? chatErrorMessage(headline.display, detail)
+					: `${headline.display}\n${detail}`;
+		const english =
+			detail === ""
+				? headline.english
+				: ctx.surface === "chat"
+					? englishChatErrorMessage(headline.english, detail)
+					: `${headline.english}\n${detail}`;
+		return new RequestError(message, "network", {
 			cause: err,
-			englishMessage: `${headline.english}${suffix}`,
+			englishMessage: english,
 		});
 	}
 
@@ -849,13 +882,19 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			if (ctx.surface === "chat") {
 				const detail = `Connection to ${ctx.baseUrl} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
 				return new RequestError(
-					`${l10n.t(
-						"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
-					)}\n${detail}`,
+					chatErrorMessage(
+						l10n.t(
+							"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+						),
+						detail
+					),
 					"network",
 					{
 						cause: err,
-						englishMessage: `The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.\n${detail}`,
+						englishMessage: englishChatErrorMessage(
+							"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
+							detail
+						),
 					}
 				);
 			}
@@ -895,13 +934,22 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	const rawText = errorMessageText(err);
 	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
 	const detail = `Unexpected ${name} during the ${ctx.surface} request to ${ctx.baseUrl}${text !== "" ? `: ${text}` : ""}`;
+	const tailHeadline: LocalizedText = {
+		display: l10n.t(
+			"The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it."
+		),
+		english: "The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.",
+	};
 	return Object.assign(
 		new Error(
-			`${l10n.t("The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.")}\n${detail}`,
+			ctx.surface === "chat" ? chatErrorMessage(tailHeadline.display, detail) : `${tailHeadline.display}\n${detail}`,
 			{ cause: err }
 		),
 		{
-			englishMessage: `The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.\n${detail}`,
+			englishMessage:
+				ctx.surface === "chat"
+					? englishChatErrorMessage(tailHeadline.english, detail)
+					: `${tailHeadline.english}\n${detail}`,
 			logClassification:
 				err instanceof Error
 					? `unhandled Error in transport (${name}, ${ctx.surface})`

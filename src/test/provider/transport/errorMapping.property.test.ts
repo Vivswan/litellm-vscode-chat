@@ -189,13 +189,25 @@ suite("provider/errorMapping properties", () => {
 						assert.ok(mapped.message.startsWith(prefix), mapped.message);
 						assert.strictEqual(mapped.setupHint, ctx.surface === "discovery" ? "check-base-url" : undefined);
 					} else if (status !== 401) {
-						// Two-part shape: a headline line, then one compact detail line
-						// that keeps the status greppable ("LiteLLM {status}" when the
-						// body was LiteLLM's envelope, "HTTP {status}" on discovery
-						// otherwise) and never a re-serialized envelope.
+						// Two-part shape: a headline, then one compact detail line that
+						// keeps the status greppable ("LiteLLM {status}" when the body
+						// was LiteLLM's envelope, "HTTP {status}" on discovery
+						// otherwise) and never a re-serialized envelope. Chat separates
+						// the parts with a blank line and the "Details:" lead-in
+						// (Copilot Chat flattens newlines); discovery keeps the single
+						// newline the dashboard and tooltips split on.
 						const lines = mapped.message.split("\n");
-						assert.strictEqual(lines.length, 2, mapped.message);
-						const detail = lines[1] ?? "";
+						let detail: string;
+						if (ctx.surface === "chat") {
+							assert.strictEqual(lines.length, 3, mapped.message);
+							assert.strictEqual(lines[1], "", mapped.message);
+							const lead = lines[2] ?? "";
+							assert.ok(lead.startsWith("Details: "), mapped.message);
+							detail = lead.slice("Details: ".length);
+						} else {
+							assert.strictEqual(lines.length, 2, mapped.message);
+							detail = lines[1] ?? "";
+						}
 						const marker =
 							ctx.surface === "chat" ? new RegExp(`^LiteLLM ${status}\\b`) : new RegExp(`^(LiteLLM|HTTP) ${status}\\b`);
 						assert.match(detail, marker, mapped.message);

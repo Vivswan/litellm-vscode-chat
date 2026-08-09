@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { isToolResultPart } from "./conversion/messages";
-import { localizedError } from "./localizedError";
+import { chatErrorMessage, englishChatErrorMessage, localizedError } from "./localizedError";
 
 /**
  * English mirror of the tool-pairing headline. The call IDs in the detail
@@ -28,10 +28,16 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 	const lastMessage = messages[messages.length - 1];
 	if (!lastMessage) {
 		throw localizedError(
-			`${l10n.t("Nothing to send - this chat request contained no messages, so nothing was sent to the server.")}\n${l10n.t(
+			chatErrorMessage(
+				l10n.t("Nothing to send - this chat request contained no messages, so nothing was sent to the server."),
+				l10n.t(
+					"Request rejected before send: the message list was empty. No request left the extension; sending again without a message will fail the same way."
+				)
+			),
+			englishChatErrorMessage(
+				"Nothing to send - this chat request contained no messages, so nothing was sent to the server.",
 				"Request rejected before send: the message list was empty. No request left the extension; sending again without a message will fail the same way."
-			)}`,
-			"Nothing to send - this chat request contained no messages, so nothing was sent to the server.\nRequest rejected before send: the message list was empty. No request left the extension; sending again without a message will fail the same way."
+			)
 		);
 	}
 
@@ -52,8 +58,8 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 				if (!nextMessage || nextMessage.role !== vscode.LanguageModelChatMessageRole.User) {
 					const ids = Array.from(toolCallIds).join(", ");
 					throw localizedError(
-						`${toolPairingHeadline()}\n${l10n.t("Unpaired tool call IDs: {0}.", ids)}`,
-						`${TOOL_PAIRING_HEADLINE_ENGLISH}\nUnpaired tool call IDs: ${ids}.`,
+						chatErrorMessage(toolPairingHeadline(), l10n.t("Unpaired tool call IDs: {0}.", ids)),
+						englishChatErrorMessage(TOOL_PAIRING_HEADLINE_ENGLISH, `Unpaired tool call IDs: ${ids}.`),
 						`ValidationError(unpaired tool calls: ${toolCallIds.size})`
 					);
 				}
@@ -66,8 +72,14 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 						// The constructor name is caller-controlled text, so it stays out
 						// of the classification.
 						throw localizedError(
-							`${toolPairingHeadline()}\n${l10n.t("Expected a tool result after a tool call, got {0}.", ctorName)}`,
-							`${TOOL_PAIRING_HEADLINE_ENGLISH}\nExpected a tool result after a tool call, got ${ctorName}.`,
+							chatErrorMessage(
+								toolPairingHeadline(),
+								l10n.t("Expected a tool result after a tool call, got {0}.", ctorName)
+							),
+							englishChatErrorMessage(
+								TOOL_PAIRING_HEADLINE_ENGLISH,
+								`Expected a tool result after a tool call, got ${ctorName}.`
+							),
 							"ValidationError(non-tool-result part after tool call)"
 						);
 					}

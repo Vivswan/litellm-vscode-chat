@@ -6,7 +6,7 @@ import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
-import { RequestError } from "./errorMapping";
+import { chatErrorMessage, englishChatErrorMessage, type MapErrorContext, RequestError } from "./errorMapping";
 
 /**
  * OAuth2 client-credentials authentication for gateways behind an identity
@@ -33,6 +33,34 @@ export interface OAuthConfig {
 export interface VirtualKeyConfig {
 	header: string;
 	value: string;
+}
+
+/**
+ * Which caller's error surface renders a token failure: the exchange itself
+ * is the same on every path, but the two-part message join differs (chat gets
+ * the "Details:" lead-in, discovery the plain "\n"), so every token request
+ * states the surface it fails toward.
+ */
+export type OAuthErrorSurface = MapErrorContext["surface"];
+
+/**
+ * Both renderings of a two-part token-endpoint failure, joined per surface:
+ * chat carries the "Details:" lead-in after a blank line (Copilot Chat's
+ * error block flattens newlines), discovery the single "\n" the status
+ * surfaces split on. The English mirror is byte-faithful to the English
+ * display on both surfaces.
+ */
+function twoPartTexts(
+	surface: OAuthErrorSurface,
+	headline: { display: string; english: string },
+	detail: string
+): { message: string; englishMessage: string } {
+	return surface === "chat"
+		? {
+				message: chatErrorMessage(headline.display, detail),
+				englishMessage: englishChatErrorMessage(headline.english, detail),
+			}
+		: { message: `${headline.display}\n${detail}`, englishMessage: `${headline.english}\n${detail}` };
 }
 
 /**
@@ -91,9 +119,16 @@ export class OAuthTokenSource {
 	 * the user can interrupt the exchange). A caller that joins an exchange
 	 * another call started shares that call's bounds, except that its own
 	 * signal still stops its wait: the shared exchange continues for the
-	 * other waiters.
+	 * other waiters. `surface` shapes a failure's two-part message join; a
+	 * joiner shares the starter's exchange and therefore the starter's
+	 * surface shape when it rejects.
 	 */
-	async getToken(config: OAuthConfig, timeoutMs: number, signal?: AbortSignal): Promise<string> {
+	async getToken(
+		config: OAuthConfig,
+		surface: OAuthErrorSurface,
+		timeoutMs: number,
+		signal?: AbortSignal
+	): Promise<string> {
 		const key = oauthCredentialFingerprint(config);
 		const cached = this.tokens.get(key);
 		if (cached && Date.now() < cached.refreshAtMs) {
@@ -105,7 +140,7 @@ export class OAuthTokenSource {
 		}
 		const exchange = (async () => {
 			try {
-				const { accessToken, expiresInSeconds } = await exchangeClientCredentials(config, timeoutMs, signal);
+				const { accessToken, expiresInSeconds } = await exchangeClientCredentials(config, surface, timeoutMs, signal);
 				const lifetimeMs = expiresInSeconds * 1000;
 				const skewMs = Math.min(REFRESH_SKEW_MS, lifetimeMs / 2);
 				this.tokens.set(key, { accessToken, refreshAtMs: Date.now() + lifetimeMs - skewMs });
@@ -239,7 +274,11 @@ function tokenLifetimeSeconds(parsed: Record<string, unknown>): number {
 	return Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
 }
 
-function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: string; expiresInSeconds: number } {
+function parseTokenResponse(
+	payload: string,
+	tokenUrl: string,
+	surface: OAuthErrorSurface
+): { accessToken: string; expiresInSeconds: number } {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(payload);
@@ -248,32 +287,38 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
 	}
 	// Each malformed shape throws a localized headline (a whole sentence per
 	// part; translators never see composed fragments) over a fixed English
-	// detail line, with a single-line English mirror: these errors carry no
-	// logClassification, so the mirror itself is what the one-line diagnostics
-	// surfaces render.
+	// detail line, joined per surface by twoPartTexts; these errors carry no
+	// logClassification, so the byte-faithful English mirror is what the
+	// diagnostics surfaces render.
 	if (!isRecord(parsed) || typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
 		const detail = `OAuth token endpoint ${tokenUrl} answered 2xx without JSON containing a non-empty access_token.`;
-		throw new RequestError(
-			`${l10n.t(
-				"The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page."
-			)}\n${detail}`,
-			"http",
+		const texts = twoPartTexts(
+			surface,
 			{
-				englishMessage: `The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page. ${detail}`,
-			}
+				display: l10n.t(
+					"The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page."
+				),
+				english:
+					"The identity provider answered but didn't return a usable access token - check that the OAuth token URL points at an OAuth2 token endpoint, not a login or SSO page.",
+			},
+			detail
 		);
+		throw new RequestError(texts.message, "http", { englishMessage: texts.englishMessage });
 	}
 	if (!isValidHeaderValue(parsed.access_token)) {
 		const detail = `OAuth token from ${tokenUrl} contains characters not allowed in an HTTP header value (control characters or non-Latin-1 text); the token was not sent, and its value is never shown or logged.`;
-		throw new RequestError(
-			`${l10n.t(
-				"The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server."
-			)}\n${detail}`,
-			"http",
+		const texts = twoPartTexts(
+			surface,
 			{
-				englishMessage: `The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server. ${detail}`,
-			}
+				display: l10n.t(
+					"The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server."
+				),
+				english:
+					"The identity provider returned an access token the extension can't use - check the OAuth token endpoint configuration for this server.",
+			},
+			detail
 		);
+		throw new RequestError(texts.message, "http", { englishMessage: texts.englishMessage });
 	}
 	return { accessToken: parsed.access_token, expiresInSeconds: tokenLifetimeSeconds(parsed) };
 }
@@ -290,6 +335,7 @@ function parseTokenResponse(payload: string, tokenUrl: string): { accessToken: s
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
+	surface: OAuthErrorSurface,
 	timeoutMs: number,
 	outerSignal?: AbortSignal
 ): Promise<{ accessToken: string; expiresInSeconds: number }> {
@@ -340,7 +386,7 @@ async function exchangeClientCredentials(
 		}
 
 		if (response.ok) {
-			return parseTokenResponse(payload, config.tokenUrl);
+			return parseTokenResponse(payload, config.tokenUrl, surface);
 		}
 		const { status } = response;
 		const idpDetail = oauthErrorDetail(payload, config.clientSecret);
@@ -351,18 +397,23 @@ async function exchangeClientCredentials(
 			const detailLine = collapseWhitespace(
 				`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
-			lastFailure = new RequestError(
-				`${l10n.t(
-					"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator."
-				)}\n${detailLine}`,
-				"http",
+			const texts = twoPartTexts(
+				surface,
 				{
-					status,
-					logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-					englishMessage: `The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator.\n${detailLine}`,
-					oauthTokenEndpoint: true,
-				}
+					display: l10n.t(
+						"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator."
+					),
+					english:
+						"The identity provider had a server problem, so the extension could not get an access token. It already retried; try again in a moment or contact the identity provider's administrator.",
+				},
+				detailLine
 			);
+			lastFailure = new RequestError(texts.message, "http", {
+				status,
+				logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
+				englishMessage: texts.englishMessage,
+				oauthTokenEndpoint: true,
+			});
 			continue;
 		}
 		if (status === 400 || status === 401 || status === 403) {
@@ -370,54 +421,67 @@ async function exchangeClientCredentials(
 			const detailLine = collapseWhitespace(
 				`OAuth ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
-			throw new RequestError(
-				`${l10n.t(
-					"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry."
-				)}\n${detailLine}`,
-				"auth",
+			const texts = twoPartTexts(
+				surface,
 				{
-					status,
-					logClassification: `RequestError(auth, status ${status}, oauth token endpoint)`,
-					englishMessage: `The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry.\n${detailLine}`,
-					oauthTokenEndpoint: true,
-				}
+					display: l10n.t(
+						"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry."
+					),
+					english:
+						"The identity provider refused to issue a token for this server - check the OAuth client ID, client secret, and scopes in the server entry.",
+				},
+				detailLine
 			);
+			throw new RequestError(texts.message, "auth", {
+				status,
+				logClassification: `RequestError(auth, status ${status}, oauth token endpoint)`,
+				englishMessage: texts.englishMessage,
+				oauthTokenEndpoint: true,
+			});
 		}
 		const detailLine = collapseWhitespace(
 			`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 		);
-		throw new RequestError(
-			`${l10n.t(
-				"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings."
-			)}\n${detailLine}`,
-			"http",
+		const texts = twoPartTexts(
+			surface,
 			{
-				status,
-				logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
-				englishMessage: `The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings.\n${detailLine}`,
-				oauthTokenEndpoint: true,
-			}
+				display: l10n.t(
+					"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings."
+				),
+				english:
+					"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings.",
+			},
+			detailLine
 		);
+		throw new RequestError(texts.message, "http", {
+			status,
+			logClassification: `RequestError(http, status ${status}, oauth token endpoint)`,
+			englishMessage: texts.englishMessage,
+			oauthTokenEndpoint: true,
+		});
 	}
 
 	if (lastFailure instanceof RequestError) {
 		throw lastFailure;
 	}
 	const detail = socketFailureDetail(lastFailure);
-	throw new RequestError(
-		`${l10n.t(
+	const headline = {
+		display: l10n.t(
 			"Network Error: Unable to reach the OAuth token endpoint at {0}. Please check that the URL is correct and the identity provider is reachable.",
 			config.tokenUrl
-		)}${detail === "" ? "" : `\n${detail}`}`,
-		"network",
-		{
-			cause: lastFailure,
-			// The English mirror for the output channel and the issue-report
-			// buffer; single-line because this unclassified mirror is what the
-			// one-line diagnostics surfaces render.
-			englishMessage: `Network Error: Unable to reach the OAuth token endpoint at ${config.tokenUrl}. Please check that the URL is correct and the identity provider is reachable.${detail === "" ? "" : ` ${detail}`}`,
-		}
-	);
+		),
+		english: `Network Error: Unable to reach the OAuth token endpoint at ${config.tokenUrl}. Please check that the URL is correct and the identity provider is reachable.`,
+	};
+	// A failure with no socket-level text gets the headline alone rather than
+	// a trailing blank detail; the mirror stays byte-faithful either way.
+	const texts =
+		detail === ""
+			? { message: headline.display, englishMessage: headline.english }
+			: twoPartTexts(surface, headline, detail);
+	throw new RequestError(texts.message, "network", {
+		cause: lastFailure,
+		englishMessage: texts.englishMessage,
+	});
 }
 
 /**

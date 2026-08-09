@@ -30,6 +30,9 @@ suite("shared/validation", () => {
 			(e: unknown) => {
 				assert.ok(e instanceof Error);
 				assert.match(e.message, /contained no messages/);
+				// Chat-surface shape: the "Details:" lead-in separates headline and
+				// detail (Copilot Chat's error block flattens newlines).
+				assert.ok(e.message.includes("\n\nDetails: "), e.message);
 				// English host: the mirror coincides with the display; a bare
 				// localized message from shared/validation.ts would land translated
 				// text in the output channel.
@@ -63,6 +66,7 @@ suite("shared/validation", () => {
 			(e: unknown) => {
 				assert.ok(e instanceof Error);
 				assert.match(e.message, /Unpaired tool call IDs: call-1\./);
+				assert.ok(e.message.includes("\n\nDetails: "), e.message);
 				assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
 				// The call IDs are earlier model output (response-derived), so the
 				// public log surfaces get a count-only classification instead.
@@ -93,6 +97,7 @@ suite("shared/validation", () => {
 				// The detail embeds the part's constructor name, which is minified
 				// in the packaged VS Code API, so only the shape is pinned.
 				assert.match(e.message, /Expected a tool result after a tool call, got \S+\./);
+				assert.ok(e.message.includes("\n\nDetails: "), e.message);
 				// The constructor name is caller-controlled text, so the
 				// classification stays a fixed string without it.
 				assert.strictEqual(
