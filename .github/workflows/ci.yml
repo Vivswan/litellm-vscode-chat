@@ -116,12 +116,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         if: github.event_name == 'pull_request'
-      - uses: actions/dependency-review-action@v5
+      # The severity threshold and the upstream pin live in the wrapper.
+      - uses: Vivswan/repo-platform/actions/dependency-review@main
         if: github.event_name == 'pull_request'
-        with:
-          # Deliberate strictest threshold (also the action's default,
-          # pinned so a default change cannot loosen the gate silently).
-          fail-on-severity: low
 
   # CodeQL analysis runs inside the gate (one job per language), so a failed
   # scan blocks merges. Each job grants the scan permissions - a caller

@@ -16,6 +16,11 @@ local edits to managed files are replaced on the next template sync.
   [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/),
   for example `feat: add X` or `fix(parser): handle Y`. Releases are
   versioned from these subjects.
+- By opening a pull request, or offering code in an issue or review for
+  inclusion, you agree to the Contributions section of the
+  [LICENSE](LICENSE), which licenses that code to the licensor -
+  including for relicensing under any terms - unless you conspicuously
+  say otherwise when you submit it.
 
 ## CI
 
