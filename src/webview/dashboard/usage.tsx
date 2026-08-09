@@ -3,8 +3,11 @@
  * DashboardUsage snapshot (numbers, epoch timestamps, configured identity,
  * and closed endpoint-standing enums only - the extension narrowed everything
  * response-derived away before it reached the store). Servers whose LiteLLM
- * instance serves no usage endpoints never appear; when none does, the
- * section says so instead of showing empty charts (docs/usage.md).
+ * instance serves no usage endpoints never appear; a server a refused key
+ * (401/403) leaves without readable usage gets a reduced card naming the
+ * block instead - forbidden is fixable, unsupported is not. When no server
+ * surfaces at all, the section says so instead of showing empty charts
+ * (docs/usage.md).
  *
  * Failure rendering is two-part: a localized human headline (what happened,
  * what to do) plus a compact English detail line built from the standing's
@@ -14,7 +17,12 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { DashboardUsage, UsageServerView } from "../../extension/dashboard/protocol";
+import type {
+	DashboardUsage,
+	UsageEndpointStandingView,
+	UsageForbiddenServerView,
+	UsageServerView,
+} from "../../extension/dashboard/protocol";
 import { DOCS_LINK_USAGE } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpUsageSection } from "./helpText";
@@ -107,6 +115,14 @@ function spendUnknownText(server: UsageServerView, pollingOff: boolean): string 
 }
 
 /**
+ * The one English template for a forbidden endpoint standing; every card
+ * shape prints this same line so pasted issue reports stay uniform.
+ */
+function forbiddenLine(path: string, status: number | undefined): string {
+	return `LiteLLM ${path}:${status !== undefined ? ` HTTP ${status} -` : ""} this key may not read usage data; Refresh now re-probes`;
+}
+
+/**
  * The compact technical detail for the /key/info standing, undefined when
  * there is nothing wrong (or the data is merely old). English by policy:
  * users paste these lines into issue reports, and every term is protocol
@@ -123,7 +139,7 @@ function keyInfoDetail(server: UsageServerView, pollingOff: boolean, discoveryTi
 			return server.spend === undefined ? "LiteLLM /key/info: waiting on the first fetch" : undefined;
 		case "unavailable":
 			return standing.reason === "forbidden"
-				? `LiteLLM /key/info:${standing.status !== undefined ? ` HTTP ${standing.status} -` : ""} this key may not read usage data; Refresh now re-probes`
+				? forbiddenLine("/key/info", standing.status)
 				: `LiteLLM /key/info: not served on this server${
 						standing.status !== undefined ? ` (HTTP ${standing.status})` : ""
 					}; request stats still update`;
@@ -151,9 +167,7 @@ function activityDetail(server: UsageServerView): string | undefined {
 			return undefined;
 		case "unavailable":
 			// Unsupported needs no detail: the headline's parenthetical covers it.
-			return standing.reason === "forbidden"
-				? `LiteLLM /user/daily/activity:${standing.status !== undefined ? ` HTTP ${standing.status}` : " forbidden"}`
-				: undefined;
+			return standing.reason === "forbidden" ? forbiddenLine("/user/daily/activity", standing.status) : undefined;
 		case "error": {
 			const how =
 				standing.status !== undefined
@@ -185,6 +199,58 @@ function requestsMissingText(server: UsageServerView): string {
 				);
 	}
 	return l10n.t("Request statistics couldn't be fetched yet - retries on the next refresh.");
+}
+
+/**
+ * The forbidden card's English detail line for one endpoint standing:
+ * the shared forbidden template for the refused endpoint, the not-served
+ * note for an unsupported partner (so a mixed 404-plus-403 server states
+ * both facts), undefined otherwise. Same policy as keyInfoDetail: English
+ * protocol vocabulary users paste into issue reports, built from closed
+ * enums and the status number only.
+ */
+function forbiddenCardDetail(path: string, standing: UsageEndpointStandingView): string | undefined {
+	if (standing.kind !== "unavailable") {
+		return undefined;
+	}
+	return standing.reason === "forbidden"
+		? forbiddenLine(path, standing.status)
+		: `LiteLLM ${path}: not served on this server${standing.status !== undefined ? ` (HTTP ${standing.status})` : ""}`;
+}
+
+/**
+ * The reduced card for a server a refused key (401/403) leaves without any
+ * readable usage: the localized headline says what happened and what
+ * unblocks it, the dimmed English lines carry the endpoint standings. No
+ * spend bar, no budget line - there are no numbers to show, and faking a
+ * zero would misread as data.
+ */
+function ForbiddenUsageCard({ server }: { server: UsageForbiddenServerView }) {
+	const details = [
+		forbiddenCardDetail("/key/info", server.keyInfo),
+		forbiddenCardDetail("/user/daily/activity", server.dailyActivity),
+	].filter((detail): detail is string => detail !== undefined);
+	return (
+		<div class="usage-card">
+			<div class="usage-card-head">
+				<span class="usage-label">{server.label}</span>
+				<span class="url">{server.baseUrl}</span>
+				<span class="spacer" />
+				<span class="hint state-warn">{l10n.t("usage unavailable")}</span>
+			</div>
+			<p>{l10n.t("Usage unavailable: this key isn't allowed to read its usage.")}</p>
+			<p class="hint">
+				{l10n.t(
+					"Ask whoever issued the key to allow reading its own usage, then use Refresh now - the extension won't re-check on its own."
+				)}
+			</p>
+			{details.map((detail) => (
+				<p key={detail} class="hint usage-detail">
+					{detail}
+				</p>
+			))}
+		</div>
+	);
 }
 
 function BudgetLine({ server }: { server: UsageServerView }) {
@@ -366,16 +432,20 @@ export function UsageSection({
 				</div>
 			) : (
 				<div class="usage-cards">
-					{usage.servers.map((server) => (
-						<UsageCard
-							key={`${server.label} ${server.baseUrl}`}
-							server={server}
-							thresholds={usage.thresholds}
-							pollingOff={usage.pollIntervalMs === 0}
-							discoveryTimeoutMs={usage.discoveryTimeoutMs}
-							now={now}
-						/>
-					))}
+					{usage.servers.map((server) =>
+						server.kind === "forbidden" ? (
+							<ForbiddenUsageCard key={`${server.label} ${server.baseUrl}`} server={server} />
+						) : (
+							<UsageCard
+								key={`${server.label} ${server.baseUrl}`}
+								server={server}
+								thresholds={usage.thresholds}
+								pollingOff={usage.pollIntervalMs === 0}
+								discoveryTimeoutMs={usage.discoveryTimeoutMs}
+								now={now}
+							/>
+						)
+					)}
 				</div>
 			)}
 		</section>

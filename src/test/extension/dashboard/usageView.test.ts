@@ -1,7 +1,17 @@
 import * as assert from "node:assert";
+import type { UsageServerCardView, UsageServerView } from "../../../extension/dashboard/protocol";
 import type { UsageViewInput } from "../../../extension/dashboard/usageView";
 import { buildUsageView } from "../../../extension/dashboard/usageView";
 import type { BudgetStatus, ServerUsageState, UsageTotals } from "../../../extension/servers/usage";
+
+/** Narrow a card to the full usage view; fails the test on the forbidden variant. */
+function fullCard(card: UsageServerCardView | undefined): UsageServerView {
+	assert.ok(card !== undefined);
+	if (card.kind !== "usage") {
+		assert.fail(`expected the full usage card, got "${card.kind}"`);
+	}
+	return card;
+}
 
 const NO_BUDGET: BudgetStatus = {
 	entryBudget: undefined,
@@ -83,6 +93,133 @@ suite("extension/dashboard/usageView", () => {
 		);
 	});
 
+	test("a never-available server blocked by a forbidden standing gets the reduced forbidden card", () => {
+		const view = buildUsageView(
+			makeInput({
+				states: [
+					makeUsageState({
+						label: "Locked",
+						endpoints: {
+							keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 },
+							dailyActivity: { kind: "unavailable", reason: "forbidden", status: 403 },
+							userInfo: { kind: "unknown" },
+						},
+						availability: "unavailable",
+					}),
+				],
+			})
+		);
+
+		assert.deepStrictEqual(view.servers, [
+			{
+				kind: "forbidden",
+				label: "Locked",
+				baseUrl: "http://prod.test",
+				keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 },
+				dailyActivity: { kind: "unavailable", reason: "forbidden", status: 403 },
+			},
+		]);
+	});
+
+	test("a forbidden keyInfo surfaces the card even while the activity endpoint is still transient", () => {
+		const view = buildUsageView(
+			makeInput({
+				states: [
+					makeUsageState({
+						label: "Locked",
+						endpoints: {
+							keyInfo: { kind: "unavailable", reason: "forbidden", status: 401 },
+							dailyActivity: { kind: "error", classification: "network" },
+							userInfo: { kind: "unknown" },
+						},
+						availability: "unknown",
+					}),
+				],
+			})
+		);
+
+		const card = view.servers[0];
+		assert.ok(card !== undefined);
+		assert.strictEqual(card.kind, "forbidden");
+		assert.deepStrictEqual(card.keyInfo, { kind: "unavailable", reason: "forbidden", status: 401 });
+	});
+
+	test("unsupported-only unavailability stays hidden: a DB-less proxy is not actionable", () => {
+		const view = buildUsageView(
+			makeInput({
+				states: [
+					makeUsageState({
+						label: "DB-less",
+						endpoints: {
+							keyInfo: { kind: "unavailable", reason: "unsupported", status: 404 },
+							dailyActivity: { kind: "unavailable", reason: "unsupported", status: 404 },
+							userInfo: { kind: "unknown" },
+						},
+						availability: "unavailable",
+					}),
+					makeUsageState({
+						label: "Flaky",
+						endpoints: {
+							keyInfo: { kind: "error", classification: "timeout" },
+							dailyActivity: { kind: "error", classification: "network" },
+							userInfo: { kind: "unknown" },
+						},
+						availability: "unknown",
+					}),
+				],
+			})
+		);
+
+		assert.deepStrictEqual(view.servers, []);
+	});
+
+	test("a once-available server keeps its full card even when its key turns forbidden", () => {
+		const view = buildUsageView(
+			makeInput({
+				states: [
+					makeUsageState({
+						endpoints: {
+							keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 },
+							dailyActivity: { kind: "ok" },
+							userInfo: { kind: "unknown" },
+						},
+						availability: "available",
+						lastUpdatedAt: 1_753_999_999_000,
+					}),
+				],
+			})
+		);
+
+		assert.strictEqual(view.servers[0]?.kind, "usage");
+	});
+
+	test("a once-available server whose BOTH endpoints turn forbidden downgrades to the forbidden card", () => {
+		// The poller recomputes availability to "unavailable" when both key
+		// endpoints go permanently unavailable, and drops the retained numbers
+		// with them: the honest surface left is the reduced forbidden card, not
+		// a full card of another key's stale data - and not silence.
+		const view = buildUsageView(
+			makeInput({
+				states: [
+					makeUsageState({
+						label: "Rotated",
+						endpoints: {
+							keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 },
+							dailyActivity: { kind: "unavailable", reason: "forbidden", status: 403 },
+							userInfo: { kind: "unknown" },
+						},
+						availability: "unavailable",
+						lastUpdatedAt: 1_753_999_999_000,
+						lastAttemptAt: 1_754_000_000_000,
+					}),
+				],
+			})
+		);
+
+		assert.strictEqual(view.servers[0]?.kind, "forbidden");
+		assert.strictEqual(view.servers[0]?.label, "Rotated");
+	});
+
 	test("the envelope passes thresholds, poll interval, timeout, refreshing, and the generation instant through", () => {
 		const view = buildUsageView(
 			makeInput({ thresholds: [0.5], pollIntervalMs: 0, discoveryTimeoutMs: 45_000, refreshing: true })
@@ -135,8 +272,7 @@ suite("extension/dashboard/usageView", () => {
 			})
 		);
 
-		const card = view.servers[0];
-		assert.ok(card !== undefined);
+		const card = fullCard(view.servers[0]);
 		assert.strictEqual(card.label, "Prod");
 		assert.strictEqual(card.baseUrl, "http://prod.test");
 		assert.strictEqual(card.lastUpdatedAt, 1_753_999_999_000);
@@ -148,8 +284,7 @@ suite("extension/dashboard/usageView", () => {
 		assert.strictEqual(card.spentFraction, 0.9);
 		assert.strictEqual(card.budgetResetAt, 1_700_000_000_000);
 
-		const bare = buildUsageView(makeInput({ states: [makeUsageState()] })).servers[0];
-		assert.ok(bare !== undefined);
+		const bare = fullCard(buildUsageView(makeInput({ states: [makeUsageState()] })).servers[0]);
 		assert.strictEqual(bare.budgetSource, "none");
 		for (const key of ["lastUpdatedAt", "spend", "effectiveBudget", "keyBudget", "entryBudget", "spentFraction"]) {
 			assert.ok(!(key in bare), `${key} must be absent, not an explicit undefined`);
@@ -157,34 +292,38 @@ suite("extension/dashboard/usageView", () => {
 	});
 
 	test("request rates derive from the daily totals, each ratio only when its denominator exists", () => {
-		const withRates = buildUsageView(
-			makeInput({
-				states: [
-					makeUsageState({
-						daily: {
-							days: [],
-							totals: makeTotals({
-								apiRequests: 200,
-								successfulRequests: 150,
-								promptTokens: 1000,
-								cacheReadInputTokens: 250,
-							}),
-						},
-					}),
-				],
-			})
-		).servers[0];
-		assert.deepStrictEqual(withRates?.requests, { total: 200, successRate: 0.75, cacheHitRate: 0.25 });
+		const withRates = fullCard(
+			buildUsageView(
+				makeInput({
+					states: [
+						makeUsageState({
+							daily: {
+								days: [],
+								totals: makeTotals({
+									apiRequests: 200,
+									successfulRequests: 150,
+									promptTokens: 1000,
+									cacheReadInputTokens: 250,
+								}),
+							},
+						}),
+					],
+				})
+			).servers[0]
+		);
+		assert.deepStrictEqual(withRates.requests, { total: 200, successRate: 0.75, cacheHitRate: 0.25 });
 
-		const zeroDenominators = buildUsageView(
-			makeInput({
-				states: [makeUsageState({ daily: { days: [], totals: makeTotals() } })],
-			})
-		).servers[0];
-		assert.deepStrictEqual(zeroDenominators?.requests, { total: 0 }, "zero requests and tokens yield no ratios");
+		const zeroDenominators = fullCard(
+			buildUsageView(
+				makeInput({
+					states: [makeUsageState({ daily: { days: [], totals: makeTotals() } })],
+				})
+			).servers[0]
+		);
+		assert.deepStrictEqual(zeroDenominators.requests, { total: 0 }, "zero requests and tokens yield no ratios");
 
-		const noDaily = buildUsageView(makeInput({ states: [makeUsageState()] })).servers[0];
-		assert.ok(noDaily !== undefined && !("requests" in noDaily), "no daily answer means no requests block at all");
+		const noDaily = fullCard(buildUsageView(makeInput({ states: [makeUsageState()] })).servers[0]);
+		assert.ok(!("requests" in noDaily), "no daily answer means no requests block at all");
 	});
 
 	test("freshness comes from the injected rule, called with the card's state and the input's clock", () => {
@@ -201,7 +340,7 @@ suite("extension/dashboard/usageView", () => {
 		);
 
 		assert.deepStrictEqual(
-			view.servers.map((server) => [server.label, server.fresh]),
+			view.servers.map((server) => [server.label, fullCard(server).fresh]),
 			[
 				["A", true],
 				["B", false],
