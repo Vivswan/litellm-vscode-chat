@@ -24,7 +24,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { VENDOR_ID } from "../../src/shared/config/commandIds";
-import { CONFIG_SECTION } from "../../src/shared/config/settingSpec";
+import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../src/shared/config/settingSpec";
 import { DEV_SEED_FILENAME, type DevSeed, type DevSeedModels } from "../../src/shared/devSeed";
 import { composeSetting, readEnvFile, STACK_DEFAULTS } from "../stack/litellmConfig";
 import { DEMO_USAGE_KEYS, type SeededDemoUsage } from "./seedDemoUsage";
@@ -70,16 +70,9 @@ function run(label: string, cmd: string[], extraEnv?: Record<string, string>): v
 // the host launch, the log follow) tears the stack down instead of leaving it
 // running. The handler is upgraded once log-following starts.
 const composeCli = join(root, "scripts", "stack", "compose.ts");
-// knip parses literal child_process argument arrays and reported the compose
-// subcommands here ("logs", "down") as unlisted binaries; building the argv
-// through a helper keeps the call sites opaque to that scan.
-function composeArgv(...args: string[]): [string, string[]] {
-	return ["bun", [composeCli, ...args]];
-}
 function composeDownExitCode(): number {
 	console.log("\n[dev] stopping the fake stack");
-	const [downCmd, downArgs] = composeArgv("down");
-	const down = spawnSync(downCmd, downArgs, { stdio: "inherit", cwd: root });
+	const down = spawnSync("bun", [composeCli, "down"], { stdio: "inherit", cwd: root });
 	if (down.signal !== null) {
 		// A second Ctrl+C lands on the compose child directly while spawnSync
 		// blocks signal dispatch here; honor it as an interrupt.
@@ -307,10 +300,7 @@ function stripJsoncExtensions(text: string): string {
 	return out.join("");
 }
 
-// shared/config/settings.ts owns SERVERS_SETTING_KEY, but that module
-// imports vscode and cannot load outside the host; this literal must track
-// it.
-const serversSettingKey = `${CONFIG_SECTION}.servers`;
+const serversSettingKey = `${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`;
 
 /**
  * Whether a previous run's host actually consumed the seed: applying it
@@ -572,8 +562,7 @@ function followComposeService(service: string, label: string): void {
 	// supports both runtimes. detached puts the compose child in its own
 	// process group so teardown can kill the real `docker compose logs -f`
 	// grandchild, not just the bun wrapper.
-	const [logsCmd, logsArgs] = composeArgv("logs", "-f", service);
-	const child = spawn(logsCmd, logsArgs, { cwd: root, detached: true });
+	const child = spawn("bun", [composeCli, "logs", "-f", service], { cwd: root, detached: true });
 	logChildren.push(child);
 	// One forwarder per stream: stdout and stderr chunks must not share a
 	// partial-line buffer.
@@ -756,31 +745,55 @@ const tailTimer = setInterval(tailExtensionLogsOnce, 1000);
  * it maintains its own code.lock with the main pid, which would also work
  * but is undocumented, while argv is observable everywhere ps exists. The
  * whole-element match means a sibling profile like "<profileDir>-other"
- * can never be mistaken for this one. The LAST match wins: when an old and
- * a new dev host briefly overlap (relaunch after a config change), the
- * newer process appears later in kernel enumeration more often than not,
- * and single-host runs are unaffected.
+ * can never be mistaken for this one. When an old and a new dev host
+ * briefly overlap (relaunch after a config change), the youngest match by
+ * elapsed time wins - the newer process is the one this run cares about.
  */
 function findDevHostPid(): number | undefined {
 	// -ww: GNU ps truncates command= to COLUMNS otherwise, which would
 	// silently hide a long profile path; macOS accepts the flag as a no-op.
-	const ps = spawnSync("ps", ["-axww", "-o", "pid=,command="], { encoding: "utf8" });
+	// etime is the POSIX-portable elapsed-time keyword ([[dd-]hh:]mm:ss).
+	const ps = spawnSync("ps", ["-axww", "-o", "pid=,etime=,command="], { encoding: "utf8" });
 	if (ps.status !== 0) {
 		return undefined;
 	}
 	const flag = `--user-data-dir=${profileDir}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const element = new RegExp(`(^|\\s)${flag}(\\s|$)`);
 	let found: number | undefined;
+	let foundElapsed = Number.POSITIVE_INFINITY;
 	for (const line of ps.stdout.split("\n")) {
-		if (!element.test(line.trimEnd()) || / --type=/.test(line)) {
+		const fields = /^\s*(\d+)\s+(\S+)\s+(.*)$/.exec(line);
+		if (fields === null) {
 			continue;
 		}
-		const pid = Number(line.trim().split(/\s+/, 1)[0]);
-		if (Number.isInteger(pid) && pid > 0) {
+		const command = (fields[3] as string).trimEnd();
+		if (!element.test(command) || / --type=/.test(` ${command}`)) {
+			continue;
+		}
+		const pid = Number(fields[1]);
+		if (!Number.isInteger(pid) || pid <= 0) {
+			continue;
+		}
+		// An unparsable elapsed field counts as infinitely old; equal ages keep
+		// the later line, so a ps whose etime column is unusable degrades to
+		// last-match instead of finding nothing.
+		const elapsed = parseEtimeSeconds(fields[2] as string) ?? Number.POSITIVE_INFINITY;
+		if (elapsed <= foundElapsed) {
 			found = pid;
+			foundElapsed = elapsed;
 		}
 	}
 	return found;
+}
+
+/** ps's `etime` value ([[dd-]hh:]mm:ss) as seconds; undefined for anything else. */
+function parseEtimeSeconds(etime: string): number | undefined {
+	const match = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(etime);
+	if (match === null) {
+		return undefined;
+	}
+	const [, days, hours, minutes, seconds] = match;
+	return Number(days ?? 0) * 86400 + Number(hours ?? 0) * 3600 + Number(minutes) * 60 + Number(seconds);
 }
 
 /**
