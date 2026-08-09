@@ -11,9 +11,11 @@ import * as vscode from "vscode";
 import type { SettingsJsonEditor } from "../../../extension/ui/openSettingKey";
 import {
 	findSettingKeyRange,
+	handleOpenSettingKey,
 	openUserSettingAtKey,
 	resolveUserSettingsUri,
 } from "../../../extension/ui/openSettingKey";
+import { ensureActivated } from "../../hostApiHelpers";
 
 suite("extension/ui/openSettingKey", () => {
 	suite("resolveUserSettingsUri", () => {
@@ -87,19 +89,38 @@ suite("extension/ui/openSettingKey", () => {
 	});
 
 	suite("the litellm.openSettingKey command", () => {
+		suiteSetup(async function () {
+			this.timeout(30000);
+			await ensureActivated();
+		});
+
 		test("is registered on activation", async () => {
 			const commands = await vscode.commands.getCommands(true);
 			assert.ok(commands.includes("litellm.openSettingKey"), "the settings-jump command must be registered");
 		});
 
-		test("refuses junk arguments without opening or throwing", async () => {
-			// A refused key must never reach the workbench open command; the
-			// executeCommand seam cannot be monkeypatched (it is how the command
-			// itself is invoked), so refusal is observed as "no editor activity
-			// and no throw" for arguments the key pattern rejects.
-			await vscode.commands.executeCommand("litellm.openSettingKey", 42);
-			await vscode.commands.executeCommand("litellm.openSettingKey", undefined);
-			await vscode.commands.executeCommand("litellm.openSettingKey", '"; rm -rf');
+		test("refuses junk arguments before any open, logging the refusal classification", async () => {
+			const logged: string[] = [];
+			const logger = {
+				log: (message: string) => {
+					logged.push(message);
+				},
+			};
+			let opens = 0;
+			const opener = async (): Promise<SettingsJsonEditor | undefined> => {
+				opens += 1;
+				return undefined;
+			};
+
+			for (const junk of [42, undefined, '"; rm -rf']) {
+				await handleOpenSettingKey(junk, opener, logger);
+			}
+
+			assert.strictEqual(opens, 0, "a refused key must never reach the opener");
+			assert.deepStrictEqual(
+				logged,
+				Array.from({ length: 3 }, () => "openSettingKey refused a malformed key argument")
+			);
 		});
 
 		test("opens the user settings.json and selects a configured key end to end", async () => {
