@@ -11,7 +11,15 @@ import { App } from "../../../webview/dashboard/app";
 import { DOCS_LINK_CHECK_BASE_URL, DOCS_LINK_PROXY_NOT_RUNNING } from "../../../webview/dashboard/docsLinks";
 import { helpEntryModelParameterPrefix } from "../../../webview/dashboard/helpText";
 import { ServersSection } from "../../../webview/dashboard/servers";
-import { makeDeclaredServer, makeExternalServer, makeState, makeUsage, makeUsageServer, statePush } from "../fixtures";
+import {
+	makeDeclaredServer,
+	makeExternalServer,
+	makeForbiddenUsageServer,
+	makeState,
+	makeUsage,
+	makeUsageServer,
+	statePush,
+} from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -1155,4 +1163,18 @@ test("a server without usage data gets an empty usage cell, not an unknown marke
 	const usageCell = row.querySelectorAll("td")[4] as HTMLElement;
 	expect(usageCell.textContent).toBe("");
 	expect(root.textContent).not.toContain("unknown");
+});
+
+test("a forbidden-usage card leaves its server row's usage cell empty", () => {
+	// The reduced forbidden card carries no numbers, so the servers-table join
+	// skips it: the row renders an empty cell and the Usage tab tells the story.
+	const usage = makeUsage({
+		servers: [makeForbiddenUsageServer({ label: "Prod", baseUrl: "http://localhost:4000" })],
+	});
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })], usage })));
+	const row = root.querySelector("table.servers tbody tr") as HTMLElement;
+	const usageCell = row.querySelectorAll("td")[4] as HTMLElement;
+	expect(usageCell.textContent).toBe("");
+	expect(usageCell.querySelector(".usage-cell")).toBeNull();
 });
