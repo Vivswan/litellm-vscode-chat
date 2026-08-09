@@ -312,7 +312,7 @@ suite("provider/streaming SSE framing properties", () => {
 				} catch (e) {
 					// The one legitimate rejection: end-of-stream leftovers that were a
 					// tool call with unparseable arguments.
-					assert.match(String(e), /Invalid JSON for tool call/, `unexpected rejection: ${String(e)}`);
+					assert.match(String(e), /The model sent a broken tool call/, `unexpected rejection: ${String(e)}`);
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

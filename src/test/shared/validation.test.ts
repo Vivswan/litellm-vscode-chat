@@ -24,8 +24,19 @@ suite("shared/validation", () => {
 		assert.throws(() => validateRequest(invalid));
 	});
 
-	test("validateRequest rejects an empty message list", () => {
-		assert.throws(() => validateRequest([]), /no messages/);
+	test("validateRequest rejects an empty message list with the mirrored nothing-to-send message", () => {
+		assert.throws(
+			() => validateRequest([]),
+			(e: unknown) => {
+				assert.ok(e instanceof Error);
+				assert.match(e.message, /contained no messages/);
+				// English host: the mirror coincides with the display; a bare
+				// localized message from shared/validation.ts would land translated
+				// text in the output channel.
+				assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
+				return true;
+			}
+		);
 	});
 
 	test("tool results may be consumed across consecutive user messages", () => {
@@ -47,7 +58,21 @@ suite("shared/validation", () => {
 			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [toolCall], name: undefined },
 			{ role: vscode.LanguageModelChatMessageRole.User, content: [], name: undefined },
 		];
-		assert.throws(() => validateRequest(messages), /Missing results for call IDs: call-1/);
+		assert.throws(
+			() => validateRequest(messages),
+			(e: unknown) => {
+				assert.ok(e instanceof Error);
+				assert.match(e.message, /Unpaired tool call IDs: call-1\./);
+				assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
+				// The call IDs are earlier model output (response-derived), so the
+				// public log surfaces get a count-only classification instead.
+				assert.strictEqual(
+					(e as Error & { logClassification?: string }).logClassification,
+					"ValidationError(unpaired tool calls: 1)"
+				);
+				return true;
+			}
+		);
 	});
 
 	test("a non-result part interleaved with pending tool results is rejected naming the offending part", () => {
@@ -61,8 +86,21 @@ suite("shared/validation", () => {
 				name: undefined,
 			},
 		];
-		// The message embeds the part's constructor name, which is minified in
-		// the packaged VS Code API, so only the "Got ... instead" shape is pinned.
-		assert.throws(() => validateRequest(messages), /must be followed by a User message .* Got \S+ instead\./);
+		assert.throws(
+			() => validateRequest(messages),
+			(e: unknown) => {
+				assert.ok(e instanceof Error);
+				// The detail embeds the part's constructor name, which is minified
+				// in the packaged VS Code API, so only the shape is pinned.
+				assert.match(e.message, /Expected a tool result after a tool call, got \S+\./);
+				// The constructor name is caller-controlled text, so the
+				// classification stays a fixed string without it.
+				assert.strictEqual(
+					(e as Error & { logClassification?: string }).logClassification,
+					"ValidationError(non-tool-result part after tool call)"
+				);
+				return true;
+			}
+		);
 	});
 });

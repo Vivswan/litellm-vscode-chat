@@ -1,11 +1,14 @@
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
-import { LanguageModelError, l10n } from "vscode";
+import { CancellationError, LanguageModelError, l10n } from "vscode";
 import { manageCommandTitle, syncModelsCommandTitle } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification, TransportErrorKind } from "../../shared/errorClassification";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import type { LogSafeErrorText } from "../../shared/logger";
 import { errorMessageText, markLogSafe, publicErrorText } from "../../shared/logger";
+import { collapseWhitespace } from "../../shared/util/errorText";
+
+export { localizedError } from "../../shared/localizedError";
 
 /** The kind union lives in shared (status surfaces and the dashboard protocol may not import this layer); the transport keeps its established name. */
 export type RequestErrorKind = TransportErrorKind;
@@ -229,17 +232,6 @@ export function timeoutRequestError(ctx: MapErrorContext, cause: unknown): Reque
 	return new RequestError(timeoutMessage(ctx), "timeout", { cause, englishMessage: englishTimeoutMessage(ctx) });
 }
 
-/**
- * A plain Error whose display message may be localized: `english` rides as
- * the englishMessage mirror, so the output channel, the issue-report buffer,
- * and the latest-error prefill (see shared/logger.ts) keep the English
- * rendering whatever the display locale. For the transport sites that throw
- * plain Errors rather than classified RequestErrors.
- */
-export function localizedError(display: string, english: string): Error {
-	return Object.assign(new Error(display), { englishMessage: english });
-}
-
 interface ChainLink {
 	name: string;
 	message: string;
@@ -250,21 +242,312 @@ function causeChain(err: unknown): ChainLink[] {
 	const chain: ChainLink[] = [];
 	let current: unknown = err;
 	while (current instanceof Error && chain.length < 10) {
-		chain.push({
-			name: current.name,
-			message: current.message,
-			code: (current as Error & { code?: string }).code,
-		});
-		current = current.cause;
+		// Every read is guarded and coerced: a hostile subclass's throwing
+		// getter or non-string field must not escape mapSdkError, whose
+		// contract is total.
+		let link: ChainLink;
+		try {
+			const rawCode = (current as Error & { code?: unknown }).code;
+			link = {
+				name: typeof current.name === "string" ? current.name : "Error",
+				message: typeof current.message === "string" ? current.message : "",
+				code: typeof rawCode === "string" ? rawCode : undefined,
+			};
+		} catch {
+			link = { name: "Error", message: "" };
+		}
+		chain.push(link);
+		try {
+			current = current.cause;
+		} catch {
+			break;
+		}
 	}
 	return chain;
 }
 
-/** The first message plus the deepest cause, the detail suffix both network branches share. */
+/**
+ * One compact diagnostic from the cause chain: the first message (trailing
+ * period trimmed) plus the deepest distinct cause, e.g.
+ * "fetch failed (cause: getaddrinfo EAI_AGAIN litellm.internal)". The detail
+ * line both network branches put under their headline; compacted so a
+ * multi-line cause cannot break the two-line message shape.
+ */
 function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
-	const first = chain[0]?.message ?? fallbackMessage;
+	const fallback = typeof fallbackMessage === "string" ? fallbackMessage : "";
+	const first = chain[0]?.message ?? fallback;
 	const deepest = chain.at(-1)?.message;
-	return `${first}${deepest && deepest !== first ? `. Cause: ${deepest}` : ""}`;
+	const head = first.replace(/\.$/, "");
+	const joined = deepest !== undefined && deepest !== "" && deepest !== first ? `${head} (cause: ${deepest})` : head;
+	return compactText(joined, 300);
+}
+
+/** Server-derived text made one compact line: whitespace runs collapsed, trimmed, capped. */
+function compactText(text: string, cap: number): string {
+	const collapsed = collapseWhitespace(text);
+	return collapsed.length > cap ? `${collapsed.slice(0, cap)}...` : collapsed;
+}
+
+/** A compact non-empty string, with LiteLLM's literal "None" counting as absent; capped so a hostile type/code field cannot bloat a detail line. */
+function meaningfulString(value: unknown): string | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const compact = compactText(value, 80);
+	return compact !== "" && compact !== "None" ? compact : undefined;
+}
+
+/** LiteLLM's error envelope when the body parsed as one: err.error as an object, fields kept only when meaningful. */
+interface ErrorEnvelope {
+	message: string | undefined;
+	type: string | undefined;
+	code: string | undefined;
+}
+
+function errorEnvelopeOf(err: APIError): ErrorEnvelope | undefined {
+	const raw = err.error;
+	if (typeof raw !== "object" || raw === null) {
+		return undefined;
+	}
+	const { message, type, code } = raw as { message?: unknown; type?: unknown; code?: unknown };
+	const envelope: ErrorEnvelope = {
+		message: typeof message === "string" && message.trim() !== "" ? message : undefined,
+		type: meaningfulString(type),
+		code: typeof code === "number" ? String(code) : meaningfulString(code),
+	};
+	// An object body with none of the envelope fields ({}, [], FastAPI's
+	// {"detail": ...}) is not LiteLLM's envelope; headline branches keying on
+	// envelope presence (the 403 split) must not treat it as one.
+	return envelope.message === undefined && envelope.type === undefined && envelope.code === undefined
+		? undefined
+		: envelope;
+}
+
+/**
+ * The recovery the old raw-body suffix performed for bodies that did not
+ * parse as a JSON envelope: the SDK keeps the raw text in its message behind
+ * a "{status} " prefix.
+ */
+function recoveredSdkText(status: number, err: APIError, cap: number): string {
+	const prefix = `${status} `;
+	const text = err.message.startsWith(prefix) ? err.message.slice(prefix.length) : err.message;
+	return compactText(text, cap);
+}
+
+/**
+ * The user-facing classes the generic HTTP branch (and the stream error
+ * frame) sorts a status plus envelope into. A CLOSED set decided by this
+ * classifier: budget_exceeded and context_window_exceeded ride the
+ * logClassification (the isUpstreamAuthFailure precedent - classify FROM the
+ * body, never quote it), so response text must never become a member.
+ */
+type HttpErrorClass =
+	| "budget_exceeded"
+	| "rate_limited"
+	| "context_window_exceeded"
+	| "invalid_request"
+	| "model_access"
+	| "forbidden"
+	| "billing"
+	| "request_timeout"
+	| "server_error"
+	| "bad_gateway"
+	| "unavailable"
+	| "unexpected";
+
+function classifyHttpError(status: number, envelope: ErrorEnvelope | undefined): HttpErrorClass {
+	const marks = `${envelope?.type ?? ""} ${envelope?.code ?? ""}`;
+	const budget = marks.includes("budget_exceeded") || /budget has been exceeded/i.test(envelope?.message ?? "");
+	if ((status === 429 || status === 400) && budget) {
+		return "budget_exceeded";
+	}
+	if (status === 429) {
+		return "rate_limited";
+	}
+	if (status === 400) {
+		const contextWindow =
+			marks.includes("context_window_exceeded") ||
+			marks.includes("context_length_exceeded") ||
+			/context (window|length)/i.test(envelope?.message ?? "");
+		return contextWindow ? "context_window_exceeded" : "invalid_request";
+	}
+	if (status === 403) {
+		return envelope !== undefined ? "model_access" : "forbidden";
+	}
+	if (status === 402) {
+		return "billing";
+	}
+	if (status === 408) {
+		return "request_timeout";
+	}
+	if (status === 500) {
+		return "server_error";
+	}
+	if (status === 502 || status === 504) {
+		return "bad_gateway";
+	}
+	if (status === 503) {
+		return "unavailable";
+	}
+	return "unexpected";
+}
+
+/** A localized display string paired with its English mirror; the pair is built at call time (no localized constants). */
+interface LocalizedText {
+	display: string;
+	english: string;
+}
+
+/** The chat-surface headline per error class; streamErrorFrame reuses the budget and rate-limit entries. */
+function chatHttpHeadline(cls: HttpErrorClass): LocalizedText {
+	switch (cls) {
+		case "budget_exceeded":
+			return {
+				display: l10n.t(
+					"This key's budget is used up - requests will fail until the budget resets or an admin raises it."
+				),
+				english: "This key's budget is used up - requests will fail until the budget resets or an admin raises it.",
+			};
+		case "rate_limited":
+			return {
+				display: l10n.t("The server is handling too many requests - wait a moment and try again."),
+				english: "The server is handling too many requests - wait a moment and try again.",
+			};
+		case "context_window_exceeded":
+			return {
+				display: l10n.t(
+					"The conversation is too long for this model - trim it, remove attachments, or start a new chat."
+				),
+				english: "The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
+			};
+		case "invalid_request":
+			return {
+				display: l10n.t("The server rejected this request as invalid."),
+				english: "The server rejected this request as invalid.",
+			};
+		case "model_access":
+			return {
+				display: l10n.t("This key is not allowed to use this model."),
+				english: "This key is not allowed to use this model.",
+			};
+		case "forbidden":
+			return {
+				display: l10n.t("The server refused this request."),
+				english: "The server refused this request.",
+			};
+		case "billing":
+			return {
+				display: l10n.t("The server reports a billing problem with this key."),
+				english: "The server reports a billing problem with this key.",
+			};
+		case "request_timeout":
+			return {
+				display: l10n.t("The server gave up waiting on this request - try again."),
+				english: "The server gave up waiting on this request - try again.",
+			};
+		case "server_error":
+			return {
+				display: l10n.t(
+					"The LiteLLM server hit an internal error - try again, and check the server's logs if it persists."
+				),
+				english: "The LiteLLM server hit an internal error - try again, and check the server's logs if it persists.",
+			};
+		case "bad_gateway":
+		case "unavailable":
+			return {
+				display: l10n.t("The LiteLLM server is unreachable or overloaded - try again shortly."),
+				english: "The LiteLLM server is unreachable or overloaded - try again shortly.",
+			};
+		case "unexpected":
+			return {
+				display: l10n.t("The server answered with an unexpected error."),
+				english: "The server answered with an unexpected error.",
+			};
+	}
+}
+
+/** The discovery-surface headline per error class: what the failure means for the model list. */
+function discoveryHttpHeadline(cls: HttpErrorClass): LocalizedText {
+	switch (cls) {
+		case "budget_exceeded":
+			return {
+				display: l10n.t("This key's budget is used up - the server refused to refresh the model list."),
+				english: "This key's budget is used up - the server refused to refresh the model list.",
+			};
+		case "rate_limited":
+			return {
+				display: l10n.t(
+					'The server rate limited the model list refresh - try again shortly or run "{0}".',
+					syncModelsCommandTitle()
+				),
+				english:
+					'The server rate limited the model list refresh - try again shortly or run "LiteLLM: Sync Models Now".',
+			};
+		case "model_access":
+			return {
+				display: l10n.t("This key is not allowed to list the server's models."),
+				english: "This key is not allowed to list the server's models.",
+			};
+		case "server_error":
+			return {
+				display: l10n.t("The LiteLLM server hit an internal error while listing models."),
+				english: "The LiteLLM server hit an internal error while listing models.",
+			};
+		case "bad_gateway":
+			return {
+				display: l10n.t("A gateway in front of the server could not reach it while listing models."),
+				english: "A gateway in front of the server could not reach it while listing models.",
+			};
+		case "unavailable":
+			return {
+				display: l10n.t("The server is unavailable or overloaded - the model list could not be refreshed."),
+				english: "The server is unavailable or overloaded - the model list could not be refreshed.",
+			};
+		default:
+			return {
+				display: l10n.t("The server refused the model-list request."),
+				english: "The server refused the model-list request.",
+			};
+	}
+}
+
+/**
+ * Compact technical line for a chat-surface HTTP error, e.g.
+ * "LiteLLM 429 budget_exceeded: Budget has been exceeded! ...". Never a
+ * re-serialized JSON envelope and never the literal "undefined"; the type
+ * outranks the code, and a code that is just the stringified status is
+ * dropped (never "LiteLLM 429 429"). Response-derived, so it rides only in
+ * message/englishMessage, never the logClassification.
+ */
+function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
+	const kind =
+		envelope?.type !== undefined
+			? ` ${envelope.type}`
+			: envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
+				? ` ${envelope.code}`
+				: "";
+	const text =
+		envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(status, err, 300);
+	return text !== "" ? `LiteLLM ${status}${kind}: ${text}` : `LiteLLM ${status}${kind}`;
+}
+
+/**
+ * Discovery twin of chatHttpDetail. "LiteLLM" brands only bodies that parsed
+ * as LiteLLM's envelope - a 502/504 body is often the gateway speaking, and
+ * gets the plain HTTP form with the recovered body text.
+ */
+function discoveryHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
+	if (envelope?.message !== undefined) {
+		const kind =
+			envelope.type !== undefined
+				? ` ${envelope.type}`
+				: envelope.code !== undefined && !/^\d+$/.test(envelope.code)
+					? ` ${envelope.code}`
+					: "";
+		return `LiteLLM ${status}${kind}: ${compactText(envelope.message, 300)}`;
+	}
+	const recovered = recoveredSdkText(status, err, 200);
+	return recovered !== "" ? `HTTP ${status}: ${recovered}` : `HTTP ${status}`;
 }
 
 /**
@@ -272,39 +555,63 @@ function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
  * shape LiteLLM emits when an upstream dies after the 200 and the first
  * chunks already went out. Constructed here so the stream processor throws a
  * classified transport error instead of ending the request as a silent
- * truncation; the envelope is re-serialized exactly like errorBodyText does
- * for HTTP errors. There is no HTTP status - the response was already 200 -
- * so the RequestError carries none.
+ * truncation. There is no HTTP status - the response was already 200 - so
+ * the RequestError carries none, and none may be derived from the envelope's
+ * code: a synthesized status 429 would re-map the frame as Blocked.
  */
 export function streamErrorFrame(error: Record<string, unknown>): RequestError {
-	const envelope = JSON.stringify({ error });
-	return new RequestError(`${l10n.t("LiteLLM API error: the stream reported an error")}\n${envelope}`, "http", {
-		// The re-serialized envelope is response-derived; the distinct
-		// classification keeps a mid-stream death recognizable in an issue.
+	const message = typeof error.message === "string" && error.message.trim() !== "" ? error.message : undefined;
+	const type = meaningfulString(error.type);
+	const code = typeof error.code === "number" ? String(error.code) : meaningfulString(error.code);
+	// A frame carrying a known failure class gets that class's headline (a
+	// budget frame must not promise that trying again may work); classified
+	// FROM the envelope, never quoting it.
+	const marks = `${type ?? ""} ${code ?? ""}`;
+	const knownClass: HttpErrorClass | undefined =
+		marks.includes("budget_exceeded") || /budget has been exceeded/i.test(message ?? "")
+			? "budget_exceeded"
+			: marks.includes("rate_limit")
+				? "rate_limited"
+				: undefined;
+	const headline: LocalizedText =
+		knownClass !== undefined
+			? chatHttpHeadline(knownClass)
+			: {
+					display: l10n.t(
+						"The server reported an error while it was streaming this reply, so the response was interrupted. This is often temporary - trying again may work; if it repeats, the detail below shows what the server said."
+					),
+					english:
+						"The server reported an error while it was streaming this reply, so the response was interrupted. This is often temporary - trying again may work; if it repeats, the detail below shows what the server said.",
+				};
+	let detail = "LiteLLM stream error";
+	if (type !== undefined) {
+		detail += ` ${type}`;
+	}
+	if (code !== undefined) {
+		detail += ` (${code})`;
+	}
+	if (message !== undefined) {
+		detail += `: ${compactText(message, 300)}`;
+	}
+	if (type === undefined && code === undefined && message === undefined) {
+		detail = "LiteLLM stream error (no detail provided by the server)";
+	}
+	return new RequestError(`${headline.display}\n${detail}`, "http", {
+		// The detail is response-derived; the distinct classification keeps a
+		// mid-stream death recognizable in an issue.
 		logClassification: "RequestError(http, in-band stream error frame)",
-		englishMessage: `LiteLLM API error: the stream reported an error\n${envelope}`,
+		englishMessage: `${headline.english}\n${detail}`,
 	});
 }
 
 /**
- * The old raiseHttpError appended the raw response text; the SDK only keeps a
- * parsed representation, so the body is re-serialized in the LiteLLM error
- * envelope when it parsed as one, and recovered from the SDK message otherwise.
- */
-function errorBodyText(err: APIError): string {
-	if (err.error !== undefined) {
-		return JSON.stringify({ error: err.error });
-	}
-	const prefix = `${err.status} `;
-	return err.message.startsWith(prefix) ? err.message.slice(prefix.length) : err.message;
-}
-
-/**
  * Map an error thrown by the openai SDK transport onto the provider's typed
- * errors, preserving the established user-facing strings per surface.
- * Network classification walks the full cause chain because the SDK adds a
- * wrapper level ("Connection error." -> TypeError "fetch failed" -> the
- * socket/TLS error that carries the actionable string).
+ * errors. Every mapped message follows the two-part shape: a plain-language
+ * headline (localized, stating what happened and what the user can do) plus
+ * one compact English technical line - never a re-serialized response
+ * envelope. Network classification walks the full cause chain because the
+ * SDK adds a wrapper level ("Connection error." -> TypeError "fetch failed"
+ * -> the socket/TLS error that carries the actionable string).
  */
 export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof APIError && typeof err.status === "number") {
@@ -325,8 +632,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 						setupHint: "configure-api-key",
 					});
 		}
-		const text = errorBodyText(err);
-		const suffix = text ? `\n${text}` : "";
+		const envelope = errorEnvelopeOf(err);
 		// 404 gets its own guidance per surface: on discovery it almost always
 		// means the base URL points at something that is not a LiteLLM proxy
 		// (wrong port, a /v1 suffix doubling the path); on chat it usually means
@@ -334,26 +640,45 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		// would be wrong advice for an otherwise healthy server.
 		if (err.status === 404) {
 			if (ctx.surface === "discovery") {
+				// The headline is quoted verbatim by docs/troubleshooting.md - only
+				// the detail line may change. It renders only when the body parsed
+				// as an error envelope with a message: an HTML 404 page or FastAPI's
+				// {"detail":"Not Found"} adds nothing the headline does not say.
+				const typeSeg = envelope?.type !== undefined ? ` ${envelope.type}` : "";
+				const detail =
+					envelope?.message !== undefined ? `\nLiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
 				return new RequestError(
 					`${l10n.t(
 						"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: do not include a /v1 suffix (the extension appends it), and note the LiteLLM proxy's default port is 4000.",
 						ctx.baseUrl
-					)}${suffix}`,
+					)}${detail}`,
 					"http",
 					{
 						status: 404,
 						cause: err,
 						logClassification: "RequestError(http, status 404, discovery)",
-						englishMessage: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: do not include a /v1 suffix (the extension appends it), and note the LiteLLM proxy's default port is 4000.${suffix}`,
+						englishMessage: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: do not include a /v1 suffix (the extension appends it), and note the LiteLLM proxy's default port is 4000.${detail}`,
 						setupHint: "check-base-url",
 					}
 				);
 			}
+			// The envelope code outranks the type here, and the non-envelope
+			// recovery keeps the nginx/wrong-server signature of a /v1-doubled
+			// base URL visible in the detail.
+			const kind =
+				envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
+					? ` ${envelope.code}`
+					: envelope?.type !== undefined
+						? ` ${envelope.type}`
+						: "";
+			const text =
+				envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(404, err, 200);
+			const detail = text !== "" ? `LiteLLM 404${kind}: ${text}` : `LiteLLM 404${kind}`;
 			return new RequestError(
 				`${l10n.t(
-					'LiteLLM API error: 404. The server no longer recognizes this request - the model may have been removed from the proxy (run "{0}" to refresh the list); if every request fails with 404, check the base URL (do not include a /v1 suffix).',
+					'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (do not include a /v1 suffix - the extension adds it).',
 					syncModelsCommandTitle()
-				)}${suffix}`,
+				)}\n${detail}`,
 				"http",
 				{
 					status: 404,
@@ -361,32 +686,25 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 					logClassification: "RequestError(http, status 404, chat)",
 					// "LiteLLM: Sync Models Now" is the palette title package.json
 					// contributes (the manageCommandTitle mirror pattern).
-					englishMessage: `LiteLLM API error: 404. The server no longer recognizes this request - the model may have been removed from the proxy (run "LiteLLM: Sync Models Now" to refresh the list); if every request fails with 404, check the base URL (do not include a /v1 suffix).${suffix}`,
+					englishMessage: `The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (do not include a /v1 suffix - the extension adds it).\n${detail}`,
 				}
 			);
 		}
-		const message =
+		const cls = classifyHttpError(err.status, envelope);
+		const headline = ctx.surface === "chat" ? chatHttpHeadline(cls) : discoveryHttpHeadline(cls);
+		const detail =
 			ctx.surface === "chat"
-				? `${l10n.t({
-						message: "LiteLLM API error: {0}",
-						args: [err.status],
-						comment: ["{0} is the HTTP status code the server answered with"],
-					})}${suffix}`
-				: `${l10n.t({
-						message: "Failed to fetch LiteLLM models: {0}",
-						args: [err.status],
-						comment: ["{0} is the HTTP status code the server answered with"],
-					})}${suffix}`;
-		const englishMessage =
-			ctx.surface === "chat"
-				? `LiteLLM API error: ${err.status}${suffix}`
-				: `Failed to fetch LiteLLM models: ${err.status}${suffix}`;
-		return new RequestError(message, "http", {
+				? chatHttpDetail(err.status, err, envelope)
+				: discoveryHttpDetail(err.status, err, envelope);
+		// The classifier's own closed-set token may ride the classification
+		// (classify FROM the body, never quote it); the response text itself
+		// rides only in message/englishMessage.
+		const token = cls === "budget_exceeded" || cls === "context_window_exceeded" ? `, ${cls}` : "";
+		return new RequestError(`${headline.display}\n${detail}`, "http", {
 			status: err.status,
 			cause: err,
-			// The message embeds the response body (errorBodyText above).
-			logClassification: `RequestError(http, status ${err.status})`,
-			englishMessage,
+			logClassification: `RequestError(http, status ${err.status}${token})`,
+			englishMessage: `${headline.english}\n${detail}`,
 		});
 	}
 
@@ -422,17 +740,27 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			);
 		}
 		if (haystack.includes("certificate")) {
-			const certMessage = chain.find((link) => link.message.includes("certificate"))?.message ?? haystack;
+			// The deepest chain link naming the certificate carries the
+			// socket-level diagnosis; the joined haystack is never rendered (it
+			// splices unrelated wrapper messages together). Node's
+			// hostname-mismatch text embeds the certificate's SAN list
+			// (server-supplied), so the public surfaces get the classification.
+			const certLink =
+				[...chain]
+					.reverse()
+					.find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ?? chain.at(-1);
+			const certMessage = compactText(certLink?.message ?? err.message, 300);
+			const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80) : "";
+			const detail = `SSL certificate error for ${ctx.baseUrl}: ${certMessage}${certCode !== "" ? ` (${certCode})` : ""}`;
 			return new RequestError(
-				l10n.t(
-					"SSL Certificate Error: There is an issue with the SSL certificate for {0}. Error: {1}",
-					ctx.baseUrl,
-					certMessage
-				),
+				`${l10n.t(
+					"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator."
+				)}\n${detail}`,
 				"certificate",
 				{
 					cause: err,
-					englishMessage: `SSL Certificate Error: There is an issue with the SSL certificate for ${ctx.baseUrl}. Error: ${certMessage}`,
+					logClassification: "RequestError(certificate, unverified)",
+					englishMessage: `The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.\n${detail}`,
 				}
 			);
 		}
@@ -455,15 +783,49 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			);
 		}
 		const detail = chainDetail(chain, err.message);
-		const message =
+		const headline: LocalizedText =
 			ctx.surface === "chat"
-				? l10n.t("Network Error: Unable to reach {0}. {1}", ctx.baseUrl, detail)
-				: l10n.t("Network Error: Failed to fetch models from {0}. {1}", ctx.baseUrl, detail);
-		const english =
-			ctx.surface === "chat"
-				? `Network Error: Unable to reach ${ctx.baseUrl}. ${detail}`
-				: `Network Error: Failed to fetch models from ${ctx.baseUrl}. ${detail}`;
-		return new RequestError(message, "network", { cause: err, englishMessage: english });
+				? {
+						display: l10n.t(
+							"Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.",
+							ctx.baseUrl
+						),
+						english: `Could not reach ${ctx.baseUrl}. Check your network, VPN, or proxy settings, and that the server is up.`,
+					}
+				: {
+						display: l10n.t(
+							"Could not reach {0} to list its models. Check your network, VPN, or proxy settings, and that the server is up.",
+							ctx.baseUrl
+						),
+						english: `Could not reach ${ctx.baseUrl} to list its models. Check your network, VPN, or proxy settings, and that the server is up.`,
+					};
+		// An empty cause chain gets no detail line rather than a trailing blank.
+		const suffix = detail !== "" ? `\n${detail}` : "";
+		return new RequestError(`${headline.display}${suffix}`, "network", {
+			cause: err,
+			englishMessage: `${headline.english}${suffix}`,
+		});
+	}
+
+	if (err instanceof RequestError || err instanceof CancellationError) {
+		return err;
+	}
+	// Errors shaped by a localizedError construction site (chatClient's
+	// pre-flight throws, the stream processor's end-of-stream errors) arrive
+	// already carrying their display/English pair; re-headlining them would
+	// double-wrap, and a socket term quoted in their text must not reclassify
+	// them, so this pass-through sits before the socket branch. The property
+	// read is guarded: a hostile getter must not escape mapSdkError.
+	if (err instanceof Error) {
+		let mirrored = false;
+		try {
+			mirrored = typeof (err as { englishMessage?: unknown }).englishMessage === "string";
+		} catch {
+			mirrored = false;
+		}
+		if (mirrored) {
+			return err;
+		}
 	}
 
 	// A socket that dies AFTER headers surfaces from the body reader, not from
@@ -473,35 +835,77 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	// branch the user would see the raw "terminated". The match requires a
 	// socket-level signature (or undici's exact top-level TypeError): a mere
 	// "terminated" inside some other error's message must not reclassify it.
-	// RequestErrors are excluded: an already-classified error whose message
-	// happens to mention a socket term must pass through unchanged.
-	if (err instanceof Error && !(err instanceof RequestError)) {
+	if (err instanceof Error) {
 		const chain = causeChain(err);
 		const haystack = chain.map((link) => `${link.name} ${link.message} ${link.code ?? ""}`).join(" ");
 		const socketSignature = /other side closed|ECONNRESET|UND_ERR_SOCKET/.test(haystack);
-		const undiciTermination = err instanceof TypeError && err.message === "terminated";
+		// The top link is causeChain's guarded read of err.message: arbitrary
+		// errors reach this branch from the body reader, so err.message is
+		// never read directly here (a hostile getter must not escape).
+		const topMessage = chain[0]?.message ?? "";
+		const undiciTermination = err instanceof TypeError && topMessage === "terminated";
 		if (socketSignature || undiciTermination) {
-			const detail = chainDetail(chain, err.message);
-			const message =
-				ctx.surface === "chat"
-					? l10n.t(
-							"Network Error: The connection to {0} was closed before the response completed. {1}",
-							ctx.baseUrl,
-							detail
-						)
-					: l10n.t("Network Error: Failed to fetch models from {0}. {1}", ctx.baseUrl, detail);
-			const english =
-				ctx.surface === "chat"
-					? `Network Error: The connection to ${ctx.baseUrl} was closed before the response completed. ${detail}`
-					: `Network Error: Failed to fetch models from ${ctx.baseUrl}. ${detail}`;
-			return new RequestError(message, "network", { cause: err, englishMessage: english });
+			const chainText = chainDetail(chain, topMessage);
+			if (ctx.surface === "chat") {
+				const detail = `Connection to ${ctx.baseUrl} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
+				return new RequestError(
+					`${l10n.t(
+						"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
+					)}\n${detail}`,
+					"network",
+					{
+						cause: err,
+						englishMessage: `The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.\n${detail}`,
+					}
+				);
+			}
+			// Distinct from the never-connected discovery headline above: here the
+			// server did respond, then the connection died.
+			const suffix = chainText !== "" ? `\n${chainText}` : "";
+			return new RequestError(
+				`${l10n.t(
+					"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
+					ctx.baseUrl
+				)}${suffix}`,
+				"network",
+				{
+					cause: err,
+					englishMessage: `The connection to ${ctx.baseUrl} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.${suffix}`,
+				}
+			);
 		}
 	}
 
+	// The truly anonymous tail: an Error no branch recognized, or a non-Error
+	// throw. errorMessageText is total (it falls back to the
+	// Object.prototype.toString tag when a hostile value's String() coercion
+	// throws); the name read is guarded the same way, and only an
+	// identifier-shaped name may enter the classification - an arbitrary name
+	// string is caller-controlled text and stays off the public log surfaces.
+	let name: string;
 	if (err instanceof Error) {
-		return err;
+		try {
+			name = typeof err.name === "string" && /^[\w$.]{1,64}$/.test(err.name) ? err.name : "Error";
+		} catch {
+			name = "Error";
+		}
+	} else {
+		name = typeof err;
 	}
-	// errorMessageText is total: it falls back to the Object.prototype.toString
-	// tag when a hostile value's String() coercion throws.
-	return new Error(errorMessageText(err));
+	const rawText = errorMessageText(err);
+	const text = compactText(typeof rawText === "string" ? rawText : "", 300);
+	const detail = `Unexpected ${name} during the ${ctx.surface} request to ${ctx.baseUrl}${text !== "" ? `: ${text}` : ""}`;
+	return Object.assign(
+		new Error(
+			`${l10n.t("The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.")}\n${detail}`,
+			{ cause: err }
+		),
+		{
+			englishMessage: `The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.\n${detail}`,
+			logClassification:
+				err instanceof Error
+					? `unhandled Error in transport (${name}, ${ctx.surface})`
+					: `non-Error throw in transport (${name}, ${ctx.surface})`,
+		}
+	);
 }
