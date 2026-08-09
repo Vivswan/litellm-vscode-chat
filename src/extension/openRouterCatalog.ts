@@ -36,6 +36,8 @@ import {
 import { OPENROUTER_CATALOG_METADATA_KEY } from "../shared/config/storageKeys";
 import type { Logger } from "../shared/logger";
 import { isRecord } from "../shared/util/json";
+import type { Clock, Timer } from "../shared/util/timer";
+import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../shared/util/timer";
 
 /** The artifact/cache file name, identical in dist/ and globalStorage; the test seam writes the same path. */
 export const CATALOG_FILE_NAME = "openrouter-models.json";
@@ -58,23 +60,6 @@ const MIN_SCHEDULE_DELAY_MS = 60_000;
  */
 const REFRESH_FETCH_TIMEOUT_MS = 30_000;
 
-/** One-shot timer effects, injectable so refresh cadence is testable without real time (see ui/notifier.ts). */
-export interface CatalogTimer {
-	/** Schedule `callback` after `ms`; the returned closure cancels the pending call. */
-	set(callback: () => void, ms: number): () => void;
-}
-
-const REAL_TIMER: CatalogTimer = {
-	set: (callback, ms) => {
-		const handle = setTimeout(callback, ms);
-		return () => clearTimeout(handle);
-	},
-};
-
-export interface CatalogClock {
-	now(): number;
-}
-
 export interface OpenRouterCatalogStoreOptions {
 	readonly extensionUri: vscode.Uri;
 	readonly globalStorageUri: vscode.Uri;
@@ -84,8 +69,8 @@ export interface OpenRouterCatalogStoreOptions {
 	readonly isEnabled: () => boolean;
 	/** Injectable network seam; the default GETs OPENROUTER_MODELS_URL and returns the parsed JSON payload. */
 	readonly fetchCatalog?: (signal: AbortSignal) => Promise<unknown>;
-	readonly timer?: CatalogTimer;
-	readonly clock?: CatalogClock;
+	readonly timer?: Timer;
+	readonly clock?: Clock;
 }
 
 export interface OpenRouterCatalogStore extends vscode.Disposable {
@@ -154,13 +139,13 @@ class Store implements OpenRouterCatalogStore {
 
 	private readonly updateEmitter = new vscode.EventEmitter<void>();
 	private readonly fetchCatalog: (signal: AbortSignal) => Promise<unknown>;
-	private readonly timer: CatalogTimer;
-	private readonly clock: CatalogClock;
+	private readonly timer: Timer;
+	private readonly clock: Clock;
 	private readonly abort = new AbortController();
 
 	private current = EMPTY_CATALOG_SNAPSHOT;
 	private inner = createCatalogLookup(EMPTY_CATALOG_SNAPSHOT, { implicitLookup: true });
-	private cancelScheduled: (() => void) | undefined;
+	private readonly scheduled: PendingCall;
 	private pendingBackoff: { cancel: () => void; resolve: () => void } | undefined;
 	private inFlight: Promise<void> | undefined;
 	private disposed = false;
@@ -170,7 +155,8 @@ class Store implements OpenRouterCatalogStore {
 	constructor(private readonly options: OpenRouterCatalogStoreOptions) {
 		this.fetchCatalog = options.fetchCatalog ?? fetchOpenRouterCatalog;
 		this.timer = options.timer ?? REAL_TIMER;
-		this.clock = options.clock ?? { now: () => Date.now() };
+		this.clock = options.clock ?? SYSTEM_CLOCK;
+		this.scheduled = new PendingCall(this.timer);
 		this.onDidUpdate = this.updateEmitter.event;
 		this.lookup = {
 			byExactId: (id) => this.inner.byExactId(id),
@@ -213,8 +199,7 @@ class Store implements OpenRouterCatalogStore {
 
 	applyEnabledSetting(): void {
 		if (!this.options.isEnabled()) {
-			this.cancelScheduled?.();
-			this.cancelScheduled = undefined;
+			this.scheduled.cancel();
 			return;
 		}
 		this.ensureScheduled();
@@ -230,8 +215,7 @@ class Store implements OpenRouterCatalogStore {
 
 	dispose(): void {
 		this.disposed = true;
-		this.cancelScheduled?.();
-		this.cancelScheduled = undefined;
+		this.scheduled.cancel();
 		this.abort.abort();
 		// A backoff sleep must not strand an in-flight refresh promise.
 		this.pendingBackoff?.cancel();
@@ -288,19 +272,17 @@ class Store implements OpenRouterCatalogStore {
 	 * here; schedule() stays a no-op while disabled or disposed.
 	 */
 	private ensureScheduled(): void {
-		if (this.cancelScheduled === undefined && this.inFlight === undefined) {
+		if (!this.scheduled.pending && this.inFlight === undefined) {
 			this.scheduleFromMetadata();
 		}
 	}
 
 	private schedule(ms: number): void {
-		this.cancelScheduled?.();
-		this.cancelScheduled = undefined;
+		this.scheduled.cancel();
 		if (this.disposed || !this.options.isEnabled()) {
 			return;
 		}
-		this.cancelScheduled = this.timer.set(() => {
-			this.cancelScheduled = undefined;
+		this.scheduled.arm(() => {
 			void this.refreshNow();
 		}, ms);
 	}

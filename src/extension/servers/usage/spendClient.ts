@@ -30,6 +30,7 @@ import { getDiscoveryTimeout } from "../../../shared/config/settings";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { isValidHeaderName, isValidHeaderValue } from "../../../shared/util/headers";
 import { isRecord } from "../../../shared/util/json";
+import { sleepUnlessAborted } from "../../../shared/util/timer";
 import type { StoredServerSecrets } from "../serverSync/secrets";
 import { inlineSecretValues } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
@@ -291,25 +292,6 @@ function parseDailyUsage(payload: unknown): DailyUsage {
 		EMPTY_TOTALS
 	);
 	return { days, totals };
-}
-
-/** Resolves after `ms` or as soon as the signal aborts, whichever comes first. */
-function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
-	return new Promise((resolve) => {
-		if (signal.aborted) {
-			resolve();
-			return;
-		}
-		const onAbort = () => {
-			clearTimeout(timer);
-			resolve();
-		};
-		const timer = setTimeout(() => {
-			signal.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-		signal.addEventListener("abort", onAbort, { once: true });
-	});
 }
 
 function timeoutError(url: string, timeoutMs: number, cause?: unknown): RequestError {
