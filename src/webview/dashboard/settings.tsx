@@ -21,10 +21,10 @@ import {
 	isBoundViolation,
 	NUMBER_SETTING_IDS,
 	NUMBER_SETTING_SPECS,
-	NUMBER_SETTING_UNITS,
 	numberSettingPresentation,
 	parseNumberDraft,
 	settingScopeLabel,
+	unitBehavior,
 } from "../../extension/dashboard/protocol";
 import type { FailuresByIntent } from "./app";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
@@ -202,10 +202,10 @@ function NumberField({
 	const [text, setText] = useState(value === null ? "" : String(value));
 	const [blurred, setBlurred] = useState(false);
 	const help = settingRowHelp(id);
-	// ms settings take the duration grammar ("90s", "5m"), so their input must
-	// be type="text": a number input silently swallows the suffix letters.
-	// Token settings keep type="number".
-	const duration = NUMBER_SETTING_UNITS[id] === "ms";
+	// Suffix-grammar units (ms durations: "90s", "5m") need type="text": a
+	// number input silently swallows the suffix letters. Plain-number units
+	// keep type="number".
+	const freeText = unitBehavior(id).freeTextInput;
 
 	// Keyed on draftSyncKey, not on the value alone: a successful reset of a
 	// value pinned to exactly its default changes only the configured scope,
@@ -258,12 +258,12 @@ function NumberField({
 			<div class="setting-control">
 				<input
 					id={inputId}
-					type={duration ? "text" : "number"}
+					type={freeText ? "text" : "number"}
 					// The default text inputmode, stated on purpose: a numeric one
 					// would hide the s/m/h suffix keys the duration grammar needs.
-					inputMode={duration ? "text" : undefined}
-					spellcheck={duration ? false : undefined}
-					min={duration ? undefined : NUMBER_SETTING_SPECS[id].minimum}
+					inputMode={freeText ? "text" : undefined}
+					spellcheck={freeText ? false : undefined}
+					min={freeText ? undefined : NUMBER_SETTING_SPECS[id].minimum}
 					class={error === undefined ? "" : "invalid"}
 					aria-invalid={error !== undefined}
 					aria-describedby={error === undefined ? unitId : `${unitId} ${errorId}`}
