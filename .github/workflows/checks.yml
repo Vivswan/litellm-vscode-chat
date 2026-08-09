@@ -193,3 +193,26 @@ jobs:
   # @types/vscode vs engines.vscode, and the packaged-file-list check.
   format-check:
     uses: ./.github/workflows/format-check-reusable.yml
+
+  # All four tsconfig projects. The reusable format-check only typechecks
+  # the helper scripts, the pre-commit hook likewise, and the webview suite
+  # and bundle are transpile-only - so without this job nothing automated
+  # typechecks src/webview or src/test/webview at all (a broken webview
+  # project once reached a merge commit through that gap).
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up development environment
+        run: bash scripts/env/setup-env.sh
+
+      - name: Typecheck all four tsconfig projects
+        run: bun run typecheck
