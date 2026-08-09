@@ -36,6 +36,7 @@ import {
 	registerSyncModelsCommand,
 	registerTestCommands,
 	registerTestConnectionCommand,
+	SessionLogTee,
 } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
 import {
@@ -104,7 +105,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	context.subscriptions.push(outputChannel);
 
 	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri));
-	const logger = new Logger(outputChannel, issueReporter);
+	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
+	// Non-production only: litellm._test.getSessionLogs reads the session's
+	// log lines losslessly through this tee (the production buffer behind it
+	// is a small rolling window a leak scan could race).
+	const sessionLogTee = testMode ? new SessionLogTee(issueReporter) : undefined;
+	const logger = new Logger(outputChannel, sessionLogTee ?? issueReporter);
 	logger.log(`LiteLLM Extension activated (v${extVersion})`);
 	// Before anything else: every credential identity in the process (group
 	// client IDs, cached clients, the sync engine's fingerprint map) is keyed
@@ -115,7 +121,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Test mode keeps the registry live for the group-agnostic refresh even
 	// after migration: there is no programmatic way to remove provider groups,
 	// so the host-fidelity suite drives models through the registry.
-	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
 	// The litellm._test.setEntry* seams for the registry path (no programmatic
 	// provider-group removal, so the host-fidelity and docker suites exercise
 	// entry records there). The seams exist only in non-production mode, and
@@ -411,8 +416,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Test-only commands; registered after the sync engine and the dashboard
 	// exist because the docker-serversync suite reads the engine's declared
 	// views through them and the monkey fuzzer injects dashboard messages.
-	if (testEntrySeams !== undefined) {
-		registerTestCommands(context, registry, provider, issueReporter, syncEngine, dashboard, testEntrySeams);
+	if (testEntrySeams !== undefined && sessionLogTee !== undefined) {
+		registerTestCommands(
+			context,
+			registry,
+			provider,
+			issueReporter,
+			syncEngine,
+			dashboard,
+			testEntrySeams,
+			sessionLogTee
+		);
 	}
 	// The docker-resolution suite's deterministic catalog seeding (inert in
 	// production, like the commands above).

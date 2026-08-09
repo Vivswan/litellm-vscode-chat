@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
-import type { Logger } from "../../shared/logger";
+import type { ErrorRecorder, Logger } from "../../shared/logger";
+import { publicErrorStack, publicErrorText } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerConfig, ServerStatus } from "../../shared/servers";
@@ -416,10 +417,11 @@ export function registerTestCommands(
 	context: vscode.ExtensionContext,
 	registry: ServerRegistry,
 	provider: ModelInfoProvider & StatusSnapshotProvider,
-	issueReporter: Pick<IssueReporter, "getRecentLogs">,
+	issueReporter: Pick<IssueReporter, "getRecentLogs" | "getLatestError">,
 	syncEngine: Pick<ServerSyncEngine, "getDeclared">,
 	dashboard: Pick<DashboardController, "injectMessageForTest">,
-	seams: TestEntrySeams
+	seams: TestEntrySeams,
+	sessionLogs: Pick<SessionLogTee, "readSince">
 ): void {
 	if (context.extensionMode === vscode.ExtensionMode.Production) {
 		return;
@@ -482,13 +484,22 @@ export function registerTestCommands(
 		vscode.commands.registerCommand("litellm._test.getServers", () => {
 			return registry.getServers();
 		}),
-		// The docker-serversync suite's observability trio. getRecentLogs is the
-		// same classification-only buffer that feeds public issue reports, so a
-		// suite can assert secrets never reach it. setServerSecret writes a
-		// label's SecretStorage blob exactly as the dashboard and palette do.
+		// Observability commands. getRecentLogs is the production
+		// classification-only buffer that feeds public issue reports (the
+		// 50-entry rolling window itself). setServerSecret writes a label's
+		// SecretStorage blob exactly as the dashboard and palette do.
 		// getDeclaredServers returns the sync engine's views, which carry secret
 		// locations but no secret values by construction.
 		vscode.commands.registerCommand("litellm._test.getRecentLogs", () => issueReporter.getRecentLogs()),
+		// The lossless counterpart for the leak oracles: the rolling window
+		// above can evict a line between two probes, so the fuzzer and the
+		// docker suites' secrecy sweeps read the session tee through a cursor
+		// instead (error snapshots ride the same stream). The latest-error
+		// snapshot stays exposed for command-palette debugging.
+		vscode.commands.registerCommand("litellm._test.getSessionLogs", (cursor: unknown) =>
+			sessionLogs.readSince(typeof cursor === "number" && Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0)
+		),
+		vscode.commands.registerCommand("litellm._test.getLatestError", () => issueReporter.getLatestError()),
 		vscode.commands.registerCommand(
 			"litellm._test.setServerSecret",
 			(label: string, field: string, value: string | undefined) => {
@@ -562,4 +573,70 @@ export interface TestEntrySeams {
 
 export function createTestEntrySeams(): TestEntrySeams {
 	return { capabilities: new Map(), declared: new Map() };
+}
+
+/**
+ * A sequence-numbered tee of the session's issue-report log lines and error
+ * snapshots, wrapped around the production recorder in non-production mode
+ * only (activate() puts it in front of the Logger's recorder). The
+ * production buffer is a small rolling window, so a busy sync burst can
+ * evict a line between two probes of a test's leak scan; readSince gives
+ * suites a lossless read instead, and reports how many lines a lagging
+ * cursor lost to eviction so an overflow fails loudly rather than silently
+ * shrinking the oracle. MAX_LINES is the load-bearing bound: it caps the
+ * LINE COUNT (not bytes) a whole docker-suite session can reach - sweeps
+ * over add-only provider groups log per group per poll, so whole-session
+ * from-zero reads need generous headroom. Eviction retires a chunk at a
+ * time so the array shift cost amortizes.
+ */
+export class SessionLogTee implements ErrorRecorder {
+	private static readonly MAX_LINES = 250000;
+	private static readonly EVICT_CHUNK = 25000;
+	private readonly lines: string[] = [];
+	/** The sequence number of lines[0]; grows as evictions retire old lines. */
+	private firstSeq = 0;
+
+	constructor(private readonly inner: ErrorRecorder) {}
+
+	appendLog(line: string): void {
+		this.inner.appendLog(line);
+		this.push(line);
+	}
+
+	recordError(source: string, error: unknown): void {
+		this.inner.recordError(source, error);
+		// The reporter's latest-error slot is last-write-wins, so a snapshot
+		// overwritten between two reads would escape a scan of the slot; every
+		// snapshot's public rendering (the exact fields the slot exposes)
+		// joins the line stream instead. Self-contained on purpose - it must
+		// not rely on the caller also having appended a message line.
+		const stack = publicErrorStack(error);
+		this.push(`[error] ${source}: ${publicErrorText(error)}${stack === undefined ? "" : `\n${stack}`}`);
+	}
+
+	private push(line: string): void {
+		this.lines.push(line);
+		if (this.lines.length > SessionLogTee.MAX_LINES) {
+			this.lines.splice(0, SessionLogTee.EVICT_CHUNK);
+			this.firstSeq += SessionLogTee.EVICT_CHUNK;
+		}
+	}
+
+	/**
+	 * Lines at sequence >= cursor, the next cursor, and how many lines the
+	 * cursor missed to eviction. A cursor past the end means the reader
+	 * outlived this tee (a fresh activation started a new one): everything
+	 * live is returned and the evicted prefix reported, so a stale cursor
+	 * degrades loudly instead of skipping the new tee's early lines.
+	 */
+	readSince(cursor: number): { next: number; lines: string[]; dropped: number } {
+		const end = this.firstSeq + this.lines.length;
+		const stale = cursor > end;
+		const start = stale ? this.firstSeq : Math.max(cursor, this.firstSeq);
+		return {
+			next: end,
+			lines: this.lines.slice(start - this.firstSeq),
+			dropped: stale ? this.firstSeq : Math.max(0, this.firstSeq - cursor),
+		};
+	}
 }
