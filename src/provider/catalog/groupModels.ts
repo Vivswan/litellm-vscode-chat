@@ -116,6 +116,14 @@ const GROUP_CLIENT_ID_PREFIX = "group:";
 const GROUP_CLIENT_ID_LABELED_SEGMENT = "labeled:";
 
 /**
+ * The unlabeled credentialed form's discriminator segment, same output-side
+ * separation as GROUP_CLIENT_ID_LABELED_SEGMENT: it sits where the plain form
+ * carries its 32-hex fingerprint, and "cred" is not a 32-hex string, so no
+ * bare API key - whatever it contains - can spell a credentialed-form ID.
+ */
+const GROUP_CLIENT_ID_CRED_SEGMENT = "cred:";
+
+/**
  * Two groups may point at one base URL with different credentials, so group
  * identity includes a non-secret fingerprint over the whole credential
  * material: API key, OAuth client credentials (delegated to
@@ -131,15 +139,14 @@ const GROUP_CLIENT_ID_LABELED_SEGMENT = "labeled:";
  * free-form, so a delimiter join would let two different credential sets
  * serialize identically. The unlabeled plain branch hashes the raw API key
  * so those identities survive credential-field additions and encoding
- * changes unchanged (pinned by test); the trade-off is that the two
- * unlabeled branches share a hash domain, so a bare API key that is
- * byte-for-byte the credential branch's JSON text collides with that
- * configuration - accepted, since both configurations are the same user's
- * own settings. A group without a label (external, adopted, or created
- * before labels flowed) keeps the exact pre-label identity, so nobody
- * else's identity churns. Rotating any part mints a new identity: the group
- * double-counts in the status window for one cycle until the old identity
- * ages out, which self-heals.
+ * changes unchanged (pinned by test), and the unlabeled credentialed branch
+ * carries its own namespace segment (group:cred:<fingerprint>:<url>) so a
+ * bare API key spelling that branch's JSON text cannot collide with it. A
+ * plain group without a label (external, adopted, or created before labels
+ * flowed) keeps the exact pre-label identity, so nobody else's identity
+ * churns. Rotating any part mints a new identity: the group double-counts
+ * in the status window for one cycle until the old identity ages out, which
+ * self-heals.
  */
 export function groupClientId(server: GroupServer): string {
 	if (server.label !== undefined) {
@@ -151,15 +158,15 @@ export function groupClientId(server: GroupServer): string {
 		]);
 		return `${GROUP_CLIENT_ID_PREFIX}${GROUP_CLIENT_ID_LABELED_SEGMENT}${fingerprint(credentials)}:${server.baseUrl}`;
 	}
-	const credentials =
-		server.oauth || server.virtualKey
-			? JSON.stringify([
-					server.apiKey,
-					server.oauth ? oauthCredentialFingerprint(server.oauth) : null,
-					server.virtualKey ? [server.virtualKey.header, server.virtualKey.value] : null,
-				])
-			: server.apiKey;
-	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(credentials)}:${server.baseUrl}`;
+	if (server.oauth || server.virtualKey) {
+		const credentials = JSON.stringify([
+			server.apiKey,
+			server.oauth ? oauthCredentialFingerprint(server.oauth) : null,
+			server.virtualKey ? [server.virtualKey.header, server.virtualKey.value] : null,
+		]);
+		return `${GROUP_CLIENT_ID_PREFIX}${GROUP_CLIENT_ID_CRED_SEGMENT}${fingerprint(credentials)}:${server.baseUrl}`;
+	}
+	return `${GROUP_CLIENT_ID_PREFIX}${fingerprint(server.apiKey)}:${server.baseUrl}`;
 }
 
 /**
