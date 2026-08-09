@@ -90,7 +90,13 @@ jobs:
             echo "hit=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          changed="$(git diff --name-only "$BASE...HEAD")"
+          # A history rewrite can leave BASE present as an object but with no
+          # merge base against HEAD; the three-dot diff dies fatally there.
+          if ! changed="$(git diff --name-only "$BASE...HEAD" 2>/dev/null)"; then
+            echo "no merge base with $BASE, running the fuzz pass"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           printf '%s\n' "$changed"
           if printf '%s\n' "$changed" | grep -qE "$pattern"; then
             echo "hit=true" >> "$GITHUB_OUTPUT"
