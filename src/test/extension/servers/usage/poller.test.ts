@@ -14,7 +14,12 @@ import type {
 	UsageTotals,
 	UserUsage,
 } from "../../../../extension/servers/usage";
-import { activityWindow, USAGE_ACTIVITY_WINDOW_DAYS, UsagePoller } from "../../../../extension/servers/usage";
+import {
+	activityWindow,
+	USAGE_ACTIVITY_WINDOW_DAYS,
+	UsagePoller,
+	usageRefreshFailureSummary,
+} from "../../../../extension/servers/usage";
 import { RequestError } from "../../../../provider/transport/errorMapping";
 
 /** A recording timer: nothing fires until the test fires it. */
@@ -240,7 +245,7 @@ suite("extension/servers/usage poller", () => {
 		await settle();
 		assert.strictEqual(h.client.calls.keyInfo, 1);
 		const state = h.poller.store.get("alpha");
-		assert.deepStrictEqual(state?.endpoints.keyInfo, { kind: "unavailable", reason: "unsupported" });
+		assert.deepStrictEqual(state?.endpoints.keyInfo, { kind: "unavailable", reason: "unsupported", status: 404 });
 		assert.strictEqual(state?.availability, "available", "daily activity still answers");
 
 		// The next scheduled poll must not hammer the classified endpoint.
@@ -296,7 +301,11 @@ suite("extension/servers/usage poller", () => {
 
 		h.timer.firePending();
 		await settle();
-		assert.deepStrictEqual(h.poller.store.get("alpha")?.endpoints.keyInfo, { kind: "error" });
+		assert.deepStrictEqual(h.poller.store.get("alpha")?.endpoints.keyInfo, {
+			kind: "error",
+			classification: "http",
+			status: 500,
+		});
 
 		h.timer.firePending();
 		await settle();
@@ -563,5 +572,113 @@ suite("extension/servers/usage poller", () => {
 		h.poller.dispose();
 
 		assert.deepStrictEqual(h.timer.pending(), []);
+	});
+
+	test("refreshNow resolves with per-server outcomes: what failed, and whether anything answered", async () => {
+		const h = makeHarness({ intervalMs: 0 });
+		h.client.keyInfoResult = unavailableError(401);
+
+		const outcome = await h.poller.refreshNow();
+
+		assert.ok(outcome !== undefined);
+		assert.strictEqual(outcome.servers.length, 1);
+		const server = outcome.servers[0];
+		assert.strictEqual(server?.label, "alpha");
+		assert.strictEqual(server?.succeededAny, true, "daily activity still answered");
+		assert.deepStrictEqual(server?.failures, [
+			{ endpoint: "keyInfo", classification: "http", status: 401, reason: "forbidden" },
+		]);
+		assert.strictEqual(
+			usageRefreshFailureSummary(outcome),
+			undefined,
+			"a partial failure never produces the total-failure summary"
+		);
+	});
+
+	test("an all-unsupported refresh stays silent: a DB-less proxy is a documented normal shape", async () => {
+		const h = makeHarness({ intervalMs: 0 });
+		h.client.keyInfoResult = unavailableError(404);
+		h.client.dailyResult = unavailableError(400);
+
+		const outcome = await h.poller.refreshNow();
+
+		assert.ok(outcome !== undefined);
+		assert.strictEqual(outcome.servers[0]?.succeededAny, false);
+		assert.strictEqual(outcome.servers[0]?.failures.length, 2);
+		assert.strictEqual(usageRefreshFailureSummary(outcome), undefined, "unsupported endpoints never trip the toast");
+	});
+
+	test("an unreadable secrets blob still acknowledges an explicit refresh, without the error itself", async () => {
+		const h = makeHarness({ intervalMs: 0, readSecrets: () => Promise.reject(new Error("store broken")) });
+
+		const outcome = await h.poller.refreshNow();
+
+		assert.ok(outcome !== undefined);
+		assert.strictEqual(outcome.servers[0]?.secretsUnreadable, true);
+		assert.strictEqual(usageRefreshFailureSummary(outcome), "alpha: stored secrets unreadable");
+	});
+
+	test("a totally failed explicit refresh summarizes per server: label, endpoint, status, reason", async () => {
+		const h = makeHarness({
+			intervalMs: 0,
+			servers: [
+				{ label: "alpha", baseUrl: "http://one.test", apiKey: "sk-1" },
+				{ label: "beta", baseUrl: "http://two.test", apiKey: "sk-2" },
+			],
+		});
+		h.client.keyInfoResult = unavailableError(401);
+		h.client.dailyResult = new RequestError("timed out", "timeout");
+
+		const outcome = await h.poller.refreshNow();
+
+		assert.ok(outcome !== undefined);
+		assert.strictEqual(
+			usageRefreshFailureSummary(outcome),
+			"alpha: /key/info 401 forbidden, /user/daily/activity timeout; beta: /key/info 401 forbidden, /user/daily/activity timeout"
+		);
+	});
+
+	test("a refresh interrupted by disposal resolves without an outcome: cancellation stays silent", async () => {
+		let release = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const h = makeHarness({
+			intervalMs: 0,
+			readSecrets: async () => {
+				await gate;
+				return {};
+			},
+		});
+
+		const pass = h.poller.refreshNow();
+		await Promise.resolve();
+		h.poller.dispose();
+		release();
+
+		assert.strictEqual(await pass, undefined, "an interrupted pass proves nothing and must not toast");
+	});
+
+	test("a once-available server stays visible through a transient outage on a forced re-probe", async () => {
+		const h = makeHarness({ intervalMs: 0 });
+		await h.poller.refreshNow();
+		assert.strictEqual(availabilityOf(h, "alpha"), "available");
+
+		// The whole server goes dark transiently: the forced pass resets the
+		// carried standings, but the card the user is looking at must not vanish.
+		h.client.keyInfoResult = new RequestError("net down", "network");
+		h.client.dailyResult = new RequestError("net down", "network");
+		await h.poller.refreshNow();
+
+		const state = stateOf(h, "alpha");
+		assert.strictEqual(state.availability, "available", "retained data keeps rendering with its failure state");
+		assert.strictEqual(state.key?.spend, 10, "the last-known numbers stay");
+		assert.deepStrictEqual(state.endpoints.keyInfo, { kind: "error", classification: "network" });
+
+		// A permanent both-endpoints verdict still hides the server.
+		h.client.keyInfoResult = unavailableError(400);
+		h.client.dailyResult = unavailableError(400);
+		await h.poller.refreshNow();
+		assert.strictEqual(availabilityOf(h, "alpha"), "unavailable");
 	});
 });

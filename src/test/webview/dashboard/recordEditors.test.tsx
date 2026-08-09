@@ -390,9 +390,12 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 		message: "gpt-4: refused by validation.",
 		kind: "validation",
 	});
-	// The draft returns dirty and retryable; a failed write must not render as applied.
-	expect(section().textContent).toContain("Saving failed: gpt-4: refused by validation.");
-	expect(section().textContent).toContain("Your edits are kept");
+	// The draft returns dirty and retryable; a failed write must not render as
+	// applied. Headline and the extension's message render as separate lines.
+	expect(section().textContent).toContain(
+		"Saving failed - your edits are kept. Fix the problem below and Apply again."
+	);
+	expect(section().textContent).toContain("gpt-4: refused by validation.");
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(false);
 });
 
@@ -593,7 +596,8 @@ test("Apply feedback: a failure ends the Applying... window along with reopening
 
 	pushToWebview({ type: "intentFailed", intentType: "setModelParameters", message: "refused.", kind: "validation" });
 	expect(section().querySelector(".apply-status")?.textContent).toBe("");
-	expect(section().textContent).toContain("Saving failed: refused.");
+	expect(section().textContent).toContain("Saving failed - your edits are kept.");
+	expect(section().textContent).toContain("refused.");
 });
 
 test("a parameter-row problem marks only the offending input: bad JSON flags the value, a bad name the name", () => {

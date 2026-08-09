@@ -6,19 +6,46 @@
  * rule without importing each other.
  */
 
-import type { ServerUsageState } from "../servers/usage";
-import type { DashboardUsage, UsageServerView } from "./protocol";
+import type { ServerUsageState, UsageEndpointState } from "../servers/usage";
+import type { DashboardUsage, UsageEndpointStandingView, UsageServerView } from "./protocol";
 
 export interface UsageViewInput {
 	readonly states: readonly ServerUsageState[];
 	/** The normalized alert thresholds, as getUsageAlertThresholds returns them. */
 	readonly thresholds: readonly number[];
 	readonly pollIntervalMs: number;
+	/** The effective discovery.timeout; the card's timeout detail line prints it. */
+	readonly discoveryTimeoutMs: number;
 	/** Whether a refresh pass is in flight (UsagePoller.isRefreshing). */
 	readonly refreshing: boolean;
 	readonly now: number;
 	/** The shared freshness rule (extension/servers/usage/freshness.ts). */
 	readonly isFresh: (state: ServerUsageState, nowMs: number, pollIntervalMs: number) => boolean;
+}
+
+/**
+ * The store's endpoint standing as the protocol carries it: the same closed
+ * enums and status number, restated so the webview type stays self-contained
+ * (nothing here is response-derived; the spend client guarantees that).
+ */
+function endpointStandingView(state: UsageEndpointState): UsageEndpointStandingView {
+	switch (state.kind) {
+		case "unknown":
+		case "ok":
+			return { kind: state.kind };
+		case "unavailable":
+			return {
+				kind: "unavailable",
+				reason: state.reason,
+				...(state.status !== undefined ? { status: state.status } : {}),
+			};
+		case "error":
+			return {
+				kind: "error",
+				...(state.classification !== undefined ? { classification: state.classification } : {}),
+				...(state.status !== undefined ? { status: state.status } : {}),
+			};
+	}
 }
 
 /**
@@ -46,6 +73,8 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 		label: state.label,
 		baseUrl: state.baseUrl,
 		fresh: input.isFresh(state, input.now, input.pollIntervalMs),
+		keyInfo: endpointStandingView(state.endpoints.keyInfo),
+		dailyActivity: endpointStandingView(state.endpoints.dailyActivity),
 		...(state.spendUpdatedAt !== undefined ? { lastUpdatedAt: state.spendUpdatedAt } : {}),
 		...(budget.spend !== undefined ? { spend: budget.spend } : {}),
 		...(budget.effectiveBudget !== undefined ? { effectiveBudget: budget.effectiveBudget } : {}),
@@ -66,6 +95,7 @@ export function buildUsageView(input: UsageViewInput): DashboardUsage {
 		}),
 		thresholds: input.thresholds,
 		pollIntervalMs: input.pollIntervalMs,
+		discoveryTimeoutMs: input.discoveryTimeoutMs,
 		refreshing: input.refreshing,
 		generatedAt: input.now,
 	};
