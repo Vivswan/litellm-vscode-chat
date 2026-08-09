@@ -100,7 +100,7 @@ It renders from the same resolver the registration path runs, so what it shows i
 
 Spend against budget, per server, for every server whose LiteLLM instance tracks spend - servers without a database simply do not appear, and when none of your servers tracks spend the section says so instead of showing empty charts.
 
-Each server card shows the spend-vs-budget bar and percentage, the effective and key-reported budgets when they differ, the budget's reset date, and - where the server serves daily activity data - request count, success rate, and cache hit rate. A Refresh now button fetches immediately (disabled while a fetch is in flight) and shows when the data was last updated; stale data stays visible, labeled with its age.
+Each server card shows the spend-vs-budget bar and percentage, the effective and key-reported budgets when they differ, the budget's reset date, and - where the server serves daily activity data - request count, success rate, and cache hit rate. A Refresh now button fetches immediately (disabled while a fetch is in flight) and shows when the data was last updated; stale data stays visible, labeled with its age and, when known, the cause ("- last refresh failed", "- usage access denied"). When an explicit refresh fails on every server, one warning toast says so; the per-server detail stays on the cards.
 
 Opening the dashboard always fetches fresh usage data, even when background polling is off. The depth - what the extension reads and from where, how the two budget sources interact, polling and freshness, alert thresholds, the status bar item - lives on the [Usage and budgets](usage.md) page.
 

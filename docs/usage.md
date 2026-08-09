@@ -80,7 +80,7 @@ Edge cases worth knowing:
 - The dashboard still fetches fresh data every time it opens.
 - "LiteLLM: Refresh Usage Now" still fetches immediately, whenever you run it.
 
-**Freshness.** A server's usage data counts as *fresh* while the last fetch succeeded and is less than two poll intervals old; with polling off, data from an on-demand fetch counts as fresh for ten minutes (twice the default interval), and "LiteLLM: Refresh Usage Now" always produces fresh data. Once data goes stale - the server stopped answering, or the window ran out - the extension keeps showing the last-known values in the [usage panel](#the-usage-panel), labeled with their age ("last updated 25 minutes ago"), but the [status bar](#the-status-bar) drops the server from its aggregation rather than present an old number as current.
+**Freshness.** A server's usage data counts as *fresh* while the last fetch succeeded and is less than two poll intervals old; with polling off, data from an on-demand fetch counts as fresh for ten minutes (twice the default interval), and "LiteLLM: Refresh Usage Now" always produces fresh data. Once data goes stale - the server stopped answering, or the window ran out - the extension keeps showing the last-known values in the [usage panel](#the-usage-panel), labeled with their age: "last updated 25 minutes ago (stale)" for merely-old data, and with the cause named when there is one ("last updated 25 minutes ago - last refresh failed", or "- usage access denied" when the key lost permission). A card whose spend never loaded at all says "Spend hasn't loaded for this server yet." instead of an age. The [status bar](#the-status-bar) drops a stale server from its aggregation rather than present an old number as current.
 
 The same rule covers a machine that was offline or asleep: no polls run while it sleeps, so anything older than two intervals wakes up stale - the panel keeps showing it with its age, and the status bar item stays hidden until the next successful fetch replaces it.
 
@@ -143,7 +143,7 @@ The dashboard's [Usage section](dashboard.md#the-usage-section) is where the com
 - **Request count, success rate, and cache hit rate** over the last 30 days (UTC calendar days, today included), where the server serves `/user/daily/activity`; servers without it show spend and budget only.
 - A **Refresh now** button: fetches immediately, disables itself while a fetch is in flight, and shows when the data was last updated.
 
-Opening the dashboard fetches fresh data even when [polling](#polling) is off. When a server's data is stale, its last-known values stay on screen labeled "last updated X ago" - history you can still read, clearly marked as history.
+Opening the dashboard fetches fresh data even when [polling](#polling) is off. When a server's data is stale, its last-known values stay on screen labeled "last updated X ago (stale)" - history you can still read, clearly marked as history; when the staleness has a known cause the label names it instead ("- last refresh failed", "- usage access denied"), with a compact technical line beneath naming the endpoint and status.
 
 ## Commands
 
