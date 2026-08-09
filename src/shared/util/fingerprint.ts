@@ -23,16 +23,6 @@ export type Fingerprint = z.infer<typeof fingerprintSchema>;
 let activeSalt: string | undefined;
 
 /**
- * The test seam: extension-host suites cannot run a shared bootstrap before
- * each file, so the harness (.vscode-test.mjs) exports a fixed salt in this
- * variable and fingerprint() latches it when no explicit init happened first.
- * Production cannot reach it: activate() calls initFingerprintSalt() before
- * anything fingerprints, and an explicit init always wins because it happens
- * before the first fingerprint() call latches anything.
- */
-const TEST_SALT_ENV = "LITELLM_TEST_FINGERPRINT_SALT";
-
-/**
  * Install the process-wide fingerprint salt. Set-once: a second call with the
  * same value is a no-op, a different value throws, because re-keying mid
  * process would churn every credential identity at once (cached clients,
@@ -53,11 +43,6 @@ export function initFingerprintSalt(salt: string): void {
 
 function requireSalt(): string {
 	if (activeSalt === undefined) {
-		const testSalt = process.env[TEST_SALT_ENV];
-		if (testSalt !== undefined && testSalt.length > 0) {
-			activeSalt = testSalt;
-			return activeSalt;
-		}
 		throw new Error("fingerprint() was called before initFingerprintSalt()");
 	}
 	return activeSalt;
