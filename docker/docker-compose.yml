@@ -10,8 +10,11 @@ services:
     working_dir: /app
     volumes:
       - .:/app:ro
-      # Mask the Copilot token dir out of the repo mount: this container has
-      # no business reading a credential.
+    # Mask the Copilot token dir out of the repo mount: this container has no
+    # business reading a credential. tmpfs, not an anonymous volume: recreates
+    # can leave anonymous volumes behind as empty orphans (they accumulate),
+    # while a tmpfs mount leaves nothing to clean up.
+    tmpfs:
       - /app/docker/.copilot-token
     environment:
       # Explicit rather than relying on the server's default; must stay equal
