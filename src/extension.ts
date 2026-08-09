@@ -397,8 +397,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			logger.error("Dashboard refresh failed", error);
 		}
 	};
-	// The store's persists are best-effort (the session journal is the truth
-	// and rewrites the whole view on the next mutation); failures are log-only.
+	// The store's persists are best-effort (the in-memory view is the truth
+	// and the next mutation rewrites the whole blob); failures are log-only.
 	groupRemovals.onPersistError = (error) => {
 		logger.error("Persisting group-removal bookkeeping failed", error);
 	};
