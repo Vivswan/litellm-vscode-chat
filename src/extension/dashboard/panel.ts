@@ -113,6 +113,30 @@ export interface DashboardPanel {
 	dispose(): void;
 }
 
+/**
+ * The per-server resolver seams, grouped: how the dashboard answers
+ * questions about one snapshot server's identity and configuration (plus the
+ * shared resolution cache those answers read through). Every member resolves
+ * through the provider's own machinery (the group lookup, the request path's
+ * entry resolvers, the shared flat table), so the dashboard structurally
+ * cannot diverge from registration and requests; the next per-server
+ * resolver belongs here, not as another loose env member.
+ */
+export interface ServerResolution {
+	/** Whether a snapshot belongs to a provider group (vs the legacy registry); see buildDashboardState. */
+	isGroupSnapshot(serverId: string): boolean;
+	/** The request path's per-entry modelParameters resolution for a snapshot's server; see entryParametersResolver. */
+	resolveEntryParameters(serverId: string): EntryParametersResolution | undefined;
+	/** The declared entry's own modelCapabilities for a snapshot's server; the readModelCapabilities responder's entry layer. */
+	resolveEntryCapabilities(serverId: string): EntryCapabilitiesRecord | undefined;
+	/**
+	 * The provider's shared flat resolution table, so the capability inspector
+	 * reads the SAME cache requests and registration use. Optional: without it
+	 * the responder resolves through the same pure walk, uncached.
+	 */
+	getResolutionTable?(): ModelResolutionTable;
+}
+
 /** Everything the controller needs, injected; registerDashboardCommand builds the real one. */
 export interface DashboardControllerEnv extends IntentEnvironment {
 	/** Create the panel with its HTML already set. */
@@ -123,12 +147,8 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	getLegacyServers(): readonly { readonly baseUrl: string }[];
 	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
 	getRemovedGroups(): RemovedGroupsView;
-	/** Whether a snapshot belongs to a provider group (vs the legacy registry); see buildDashboardState. */
-	isGroupSnapshot(serverId: string): boolean;
-	/** The request path's per-entry modelParameters resolution for a snapshot's server; see entryParametersResolver. */
-	resolveEntryParameters(serverId: string): EntryParametersResolution | undefined;
-	/** The declared entry's own modelCapabilities for a snapshot's server; the readModelCapabilities responder's entry layer. */
-	resolveEntryCapabilities(serverId: string): EntryCapabilitiesRecord | undefined;
+	/** The per-server resolver seams, grouped; see ServerResolution. */
+	readonly serverResolution: ServerResolution;
 	/** The OpenRouter catalog as in-memory lookup data; EMPTY_CATALOG_LOOKUP while no snapshot exists. */
 	getCatalogLookup(): CapabilityCatalogLookup;
 	/** The catalog row's status facts (size, last refresh, standing failure, in-flight). */
@@ -137,12 +157,6 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	getUsage(): DashboardUsage;
 	/** The PARKED_GLOBAL_HEADERS_KEY globalState value, for the parked-headers legacy hint. */
 	getParkedGlobalHeaders(): unknown;
-	/**
-	 * The provider's shared flat resolution table, so the capability inspector
-	 * reads the SAME cache requests and registration use. Optional: without it
-	 * the responder resolves through the same pure walk, uncached.
-	 */
-	getResolutionTable?(): ModelResolutionTable;
 	/** Search the catalog snapshot for the picker; the panel bounds the result list before it crosses. */
 	searchCatalog(query: string): readonly CatalogModelSummary[];
 	settingsReader(): SettingsReader;
@@ -333,7 +347,7 @@ export class DashboardController implements vscode.Disposable {
 		}
 		const snapshots = this.env.getSnapshots();
 		for (const snapshot of snapshots) {
-			if (this.env.isGroupSnapshot(snapshot.status.serverId)) {
+			if (this.env.serverResolution.isGroupSnapshot(snapshot.status.serverId)) {
 				this._observedGroupIdentities.add(observedIdentityKey(snapshot.status.label, snapshot.status.baseUrl));
 			}
 		}
@@ -353,7 +367,7 @@ export class DashboardController implements vscode.Disposable {
 				entryReports,
 				legacyServers: this.env.getLegacyServers(),
 				removedGroups: this.env.getRemovedGroups(),
-				isGroupSnapshot: (serverId) => this.env.isGroupSnapshot(serverId),
+				isGroupSnapshot: (serverId) => this.env.serverResolution.isGroupSnapshot(serverId),
 				wasGroupObserved: (label, baseUrl) => this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl)),
 				catalog: this.env.getCatalogStatus(),
 				usage: this.env.getUsage(),
@@ -412,8 +426,8 @@ export class DashboardController implements vscode.Disposable {
 				{
 					snapshots: this.env.getSnapshots(),
 					reader: capabilitiesReader,
-					resolveEntryParameters: (serverId) => this.env.resolveEntryParameters(serverId),
-					resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
+					resolveEntryParameters: (serverId) => this.env.serverResolution.resolveEntryParameters(serverId),
+					resolveEntryCapabilities: (serverId) => this.env.serverResolution.resolveEntryCapabilities(serverId),
 				},
 				"capabilities",
 				message.scopeKey,
@@ -426,9 +440,9 @@ export class DashboardController implements vscode.Disposable {
 					{
 						snapshots: this.env.getSnapshots(),
 						reader: capabilitiesReader,
-						resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
+						resolveEntryCapabilities: (serverId) => this.env.serverResolution.resolveEntryCapabilities(serverId),
 						catalog: this.env.getCatalogLookup(),
-						resolution: this.env.getResolutionTable?.(),
+						resolution: this.env.serverResolution.getResolutionTable?.(),
 					},
 					message.scopeKey,
 					message.rawId
@@ -446,8 +460,8 @@ export class DashboardController implements vscode.Disposable {
 				{
 					snapshots: this.env.getSnapshots(),
 					reader: parametersReader,
-					resolveEntryParameters: (serverId) => this.env.resolveEntryParameters(serverId),
-					resolution: this.env.getResolutionTable?.(),
+					resolveEntryParameters: (serverId) => this.env.serverResolution.resolveEntryParameters(serverId),
+					resolution: this.env.serverResolution.getResolutionTable?.(),
 				},
 				message.scopeKey,
 				message.rawId
@@ -457,8 +471,8 @@ export class DashboardController implements vscode.Disposable {
 				{
 					snapshots: this.env.getSnapshots(),
 					reader: parametersReader,
-					resolveEntryParameters: (serverId) => this.env.resolveEntryParameters(serverId),
-					resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
+					resolveEntryParameters: (serverId) => this.env.serverResolution.resolveEntryParameters(serverId),
+					resolveEntryCapabilities: (serverId) => this.env.serverResolution.resolveEntryCapabilities(serverId),
 				},
 				"parameters",
 				message.scopeKey,
@@ -487,11 +501,11 @@ export class DashboardController implements vscode.Disposable {
 				view: buildResolvedModelsView({
 					snapshots: this.env.getSnapshots(),
 					reader: this.env.settingsReader(),
-					resolveEntryParameters: (serverId) => this.env.resolveEntryParameters(serverId),
-					resolveEntryCapabilities: (serverId) => this.env.resolveEntryCapabilities(serverId),
+					resolveEntryParameters: (serverId) => this.env.serverResolution.resolveEntryParameters(serverId),
+					resolveEntryCapabilities: (serverId) => this.env.serverResolution.resolveEntryCapabilities(serverId),
 					declared: this.env.getDeclaredServers(),
 					catalog: this.env.getCatalogLookup(),
-					resolution: this.env.getResolutionTable?.(),
+					resolution: this.env.serverResolution.getResolutionTable?.(),
 				}),
 			});
 			return "ok";
@@ -718,6 +732,23 @@ export function registerDashboardCommand(
 	// and requests.
 	getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined
 ): DashboardController {
+	const serverResolution: ServerResolution = {
+		isGroupSnapshot: (serverId) => provider.getGroupServer(serverId) !== undefined,
+		// The exact resolver chat requests use (activation wires the provider's
+		// getEntryModelParameters to the same readEntryModelParameters).
+		resolveEntryParameters: entryParametersResolver(
+			(serverId) => provider.getGroupServer(serverId),
+			readEntryModelParameters
+		),
+		// The entry layer resolves through the provider's own identity source
+		// (group label, or the registry sweep's recorded label) and the injected
+		// resolver.
+		resolveEntryCapabilities: (serverId) => {
+			const identity = provider.capabilityEntryIdentity(serverId);
+			return identity !== undefined ? getEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;
+		},
+		getResolutionTable: () => provider.resolutionTable,
+	};
 	const controller = new DashboardController({
 		createPanel: () => createRealPanel(context.extensionUri),
 		// Declared models never enter the status window (they are config-rebuilt
@@ -744,20 +775,7 @@ export function registerDashboardCommand(
 				origin: record.origin,
 			})),
 		}),
-		isGroupSnapshot: (serverId) => provider.getGroupServer(serverId) !== undefined,
-		// The exact resolver chat requests use (activation wires the provider's
-		// getEntryModelParameters to the same readEntryModelParameters).
-		resolveEntryParameters: entryParametersResolver(
-			(serverId) => provider.getGroupServer(serverId),
-			readEntryModelParameters
-		),
-		// The entry layer resolves through the provider's own identity source
-		// (group label, or the registry sweep's recorded label) and the injected
-		// resolver.
-		resolveEntryCapabilities: (serverId) => {
-			const identity = provider.capabilityEntryIdentity(serverId);
-			return identity !== undefined ? getEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;
-		},
+		serverResolution,
 		getCatalogLookup: () => catalog.lookup,
 		getCatalogStatus: () => catalog.status(),
 		getUsage: () =>
@@ -785,7 +803,6 @@ export function registerDashboardCommand(
 				.then(notifyUsageRefreshFailure)
 				.finally(() => controller.refresh());
 		},
-		getResolutionTable: () => provider.resolutionTable,
 		searchCatalog: (query) => searchCatalogModels(catalog.snapshot(), query),
 		settingsReader: () => {
 			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
@@ -841,7 +858,7 @@ export function registerDashboardCommand(
 				syncEngine.getDeclared(),
 				baseUrl,
 				sourceHandle,
-				(serverId) => provider.getGroupServer(serverId) !== undefined
+				serverResolution.isGroupSnapshot
 			),
 		// Tombstone writes fire the store's onDidChange, which the activation
 		// wiring points at the provider's model-change event: the host
