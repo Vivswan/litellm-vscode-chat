@@ -114,7 +114,7 @@ suite("extension/dashboard/intents", () => {
 			for (const values of [[0], [1.5], [0.8, -1]]) {
 				await assert.rejects(
 					executeDashboardIntent({ type: "setUsageAlertThresholds", values }, recorded.env),
-					/fraction in \(0, 1\]/
+					/allowed range 0 < value <= 1/
 				);
 			}
 			assert.deepStrictEqual(recorded.updates, []);
@@ -465,8 +465,9 @@ suite("extension/dashboard/intents", () => {
 				}),
 				(error: unknown) =>
 					error instanceof DashboardOperationError &&
-					error.message.includes("restoring a stored secret") &&
-					error.message.includes("Set Server Secret")
+					error.message.includes("a stored secret may have been left changed") &&
+					error.message.includes("Set Server Secret") &&
+					error.message.includes("could not restore apiKey")
 			);
 
 			assert.strictEqual(recorded.storedSecrets.get("Prod")?.apiKey, "sk-new", "the unrestored secret is live");
@@ -483,7 +484,14 @@ suite("extension/dashboard/intents", () => {
 			recorded.failUnstore = new Error("keychain locked");
 			await assert.rejects(
 				save(recorded, { server: { label: "New", baseUrl: "http://prod.test" }, replaceLabel: "Old" }),
-				(error: unknown) => error instanceof DashboardOperationError
+				(error: unknown) =>
+					error instanceof DashboardOperationError &&
+					// Only the fields a side actually held are reported: the
+					// wholesale restore's no-op deletes must not name secrets that
+					// never existed.
+					error.message.includes("could not restore apiKey") &&
+					!error.message.includes("oauthClientSecret") &&
+					!error.message.includes("virtualKeyValue")
 			);
 
 			assert.strictEqual(recorded.syncRequests, 1, "the unrestored blob must reach the provider group");
@@ -1018,7 +1026,7 @@ suite("extension/dashboard/intents", () => {
 					{ type: "hideExternalServer", baseUrl: "http://prod.test", sourceHandle: "stale", requestId: "r" },
 					recorded.env
 				),
-				/does not resolve to a hideable/
+				/no longer matches a hideable server/
 			);
 			assert.deepStrictEqual(recorded.hidden, []);
 		});
