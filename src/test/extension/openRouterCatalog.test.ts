@@ -3,15 +3,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import type {
-	CatalogClock,
-	CatalogTimer,
-	OpenRouterCatalogStatus,
-	OpenRouterCatalogStore,
-} from "../../extension/openRouterCatalog";
+import type { OpenRouterCatalogStatus, OpenRouterCatalogStore } from "../../extension/openRouterCatalog";
 import { createOpenRouterCatalogStore } from "../../extension/openRouterCatalog";
 import { OPENROUTER_CATALOG_METADATA_KEY } from "../../shared/config/storageKeys";
 import { Logger } from "../../shared/logger";
+import type { Clock, Timer } from "../../shared/util/timer";
 import { makeExtensionStorage, withFetch } from "../testUtils";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -47,9 +43,9 @@ interface ScheduledCall {
  * retry backoff sleeps inside one refresh) run on a microtask so awaited
  * refreshes complete without real time.
  */
-function makeTimer(): { timer: CatalogTimer; scheduled: ScheduledCall[] } {
+function makeTimer(): { timer: Timer; scheduled: ScheduledCall[] } {
 	const scheduled: ScheduledCall[] = [];
-	const timer: CatalogTimer = {
+	const timer: Timer = {
 		set: (cb, ms) => {
 			if (ms < MIN_DELAY_MS) {
 				queueMicrotask(cb);
@@ -132,7 +128,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
 		options.metadata !== undefined ? { [OPENROUTER_CATALOG_METADATA_KEY]: options.metadata } : {}
 	);
 	const { timer, scheduled } = makeTimer();
-	const clock: CatalogClock = { now: () => options.now ?? 1_000_000_000_000 };
+	const clock: Clock = { now: () => options.now ?? 1_000_000_000_000 };
 	const logLines: string[] = [];
 	const harness: Harness = {
 		store: undefined as unknown as OpenRouterCatalogStore,

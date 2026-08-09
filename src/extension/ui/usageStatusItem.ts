@@ -15,8 +15,9 @@
 
 import * as vscode from "vscode";
 import type { UsageStatusBarMode } from "../../shared/config/settings";
+import type { Clock, Timer } from "../../shared/util/timer";
+import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../shared/util/timer";
 import { isUsageFresh, usageFreshnessWindowMs } from "../servers/usage/freshness";
-import type { UsageClock, UsageTimer } from "../servers/usage/poller";
 import type { ServerUsageState, UsageStore } from "../servers/usage/store";
 import type { StatusItemLike } from "./status";
 
@@ -171,27 +172,19 @@ export interface UsageStatusBarOptions {
 	readonly getMode: () => UsageStatusBarMode;
 	readonly getThresholds: () => readonly number[];
 	readonly getPollIntervalMs: () => number;
-	readonly clock?: UsageClock;
-	readonly timer?: UsageTimer;
+	readonly clock?: Clock;
+	readonly timer?: Timer;
 }
-
-const REAL_TIMER: UsageTimer = {
-	set: (callback, ms) => {
-		const handle = setTimeout(callback, ms);
-		return () => clearTimeout(handle);
-	},
-};
 
 export class UsageStatusBar implements vscode.Disposable {
 	private readonly subscription: { dispose(): void };
-	private readonly clock: UsageClock;
-	private readonly timer: UsageTimer;
-	private cancelStaleEdge: (() => void) | undefined;
+	private readonly clock: Clock;
+	private readonly staleEdge: PendingCall;
 	private disposed = false;
 
 	constructor(private readonly options: UsageStatusBarOptions) {
-		this.clock = options.clock ?? { now: () => Date.now() };
-		this.timer = options.timer ?? REAL_TIMER;
+		this.clock = options.clock ?? SYSTEM_CLOCK;
+		this.staleEdge = new PendingCall(options.timer ?? REAL_TIMER);
 		this.subscription = options.store.onDidChange(() => this.render());
 		// If the slot registry's self-heal disposes the item out from under us,
 		// tear the owner down too: otherwise the store subscription and the
@@ -210,8 +203,7 @@ export class UsageStatusBar implements vscode.Disposable {
 			return;
 		}
 		this.disposed = true;
-		this.cancelStaleEdge?.();
-		this.cancelStaleEdge = undefined;
+		this.staleEdge.cancel();
 		this.subscription.dispose();
 		this.options.item.dispose();
 	}
@@ -220,8 +212,7 @@ export class UsageStatusBar implements vscode.Disposable {
 		if (this.disposed) {
 			return;
 		}
-		this.cancelStaleEdge?.();
-		this.cancelStaleEdge = undefined;
+		this.staleEdge.cancel();
 		const nowMs = this.clock.now();
 		const pollIntervalMs = this.options.getPollIntervalMs();
 		const states = this.options.store.getStates();
@@ -248,12 +239,6 @@ export class UsageStatusBar implements vscode.Disposable {
 		if (expiries.length === 0) {
 			return;
 		}
-		this.cancelStaleEdge = this.timer.set(
-			() => {
-				this.cancelStaleEdge = undefined;
-				this.render();
-			},
-			Math.max(0, Math.min(...expiries))
-		);
+		this.staleEdge.arm(() => this.render(), Math.max(0, Math.min(...expiries)));
 	}
 }

@@ -2,8 +2,8 @@
  * The usage polling engine: keeps the UsageStore in step with the declared
  * servers on a user-configured cadence, headless (alerts must fire without
  * the dashboard open). Effects arrive through the injected env, so the whole
- * engine is unit-testable without vscode or real time (the timer/clock seams
- * follow openRouterCatalog.ts).
+ * engine is unit-testable without vscode or real time (the shared
+ * timer/clock seams from shared/util/timer.ts, like openRouterCatalog.ts).
  *
  * Cadence rules: the poll interval is milliseconds (usage.pollInterval), 0
  * disables polling entirely (no background requests; refreshNow still works
@@ -20,6 +20,8 @@
 
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import type { Clock, Timer } from "../../../shared/util/timer";
+import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../../shared/util/timer";
 import type { StoredServerSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 import { parseServersSetting } from "../serverSync/setting";
@@ -42,16 +44,6 @@ const INITIAL_REFRESH_DELAY_MS = 5_000;
  */
 const SERVERS_CHANGE_REFRESH_DELAY_MS = 2_000;
 
-/** One-shot timer effects, injectable so the poll cadence is testable without real time. */
-export interface UsageTimer {
-	/** Schedule `callback` after `ms`; the returned closure cancels the pending call. */
-	set(callback: () => void, ms: number): () => void;
-}
-
-export interface UsageClock {
-	now(): number;
-}
-
 /** The spend client's fetch surface, as the poller consumes it; UsageClient satisfies it. */
 export interface UsageFetchClient {
 	fetchKeyInfo(connection: UsageConnection, signal?: AbortSignal): Promise<KeyUsage>;
@@ -69,16 +61,9 @@ export interface UsagePollerEnv {
 	pollIntervalMs(): number;
 	alertThresholds(): readonly number[];
 	log(message: string, data?: unknown): void;
-	readonly timer?: UsageTimer;
-	readonly clock?: UsageClock;
+	readonly timer?: Timer;
+	readonly clock?: Clock;
 }
-
-const REAL_TIMER: UsageTimer = {
-	set: (callback, ms) => {
-		const handle = setTimeout(callback, ms);
-		return () => clearTimeout(handle);
-	},
-};
 
 /**
  * One endpoint attempt that failed during an explicit refresh pass, as
@@ -169,10 +154,9 @@ export class UsagePoller {
 	readonly store: UsageStore;
 
 	private readonly refreshListeners = new Set<() => void>();
-	private readonly timer: UsageTimer;
-	private readonly clock: UsageClock;
+	private readonly scheduled: PendingCall;
+	private readonly clock: Clock;
 	private readonly abort = new AbortController();
-	private cancelScheduled: (() => void) | undefined;
 	private running: Promise<UsageRefreshOutcome | undefined> | undefined;
 	private queued:
 		| {
@@ -187,8 +171,8 @@ export class UsagePoller {
 
 	constructor(private readonly env: UsagePollerEnv) {
 		this.store = new UsageStore(env.log);
-		this.timer = env.timer ?? REAL_TIMER;
-		this.clock = env.clock ?? { now: () => Date.now() };
+		this.scheduled = new PendingCall(env.timer ?? REAL_TIMER);
+		this.clock = env.clock ?? SYSTEM_CLOCK;
 	}
 
 	/** Schedule the first pass; a no-op while polling is off (interval 0). */
@@ -221,8 +205,6 @@ export class UsagePoller {
 	 * stored crossings re-baseline on the next fetch.
 	 */
 	applyConfiguration(): void {
-		this.cancelScheduled?.();
-		this.cancelScheduled = undefined;
 		this.schedule(this.nextTickDelayMs());
 	}
 
@@ -258,8 +240,7 @@ export class UsagePoller {
 
 	dispose(): void {
 		this.disposed = true;
-		this.cancelScheduled?.();
-		this.cancelScheduled = undefined;
+		this.scheduled.cancel();
 		this.abort.abort();
 		// A queued follow-up will never run; its waiters must still settle -
 		// with no outcome, so no waiter mistakes disposal for a failed refresh.
@@ -269,13 +250,11 @@ export class UsagePoller {
 
 	/** Schedule the next tick unless disposed or polling is off; replaces any pending tick. */
 	private schedule(ms: number): void {
-		this.cancelScheduled?.();
-		this.cancelScheduled = undefined;
+		this.scheduled.cancel();
 		if (this.disposed || this.env.pollIntervalMs() <= 0) {
 			return;
 		}
-		this.cancelScheduled = this.timer.set(() => {
-			this.cancelScheduled = undefined;
+		this.scheduled.arm(() => {
 			const probe = this.probePending;
 			this.probePending = false;
 			void this.refresh(probe);

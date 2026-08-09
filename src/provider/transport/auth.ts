@@ -4,6 +4,7 @@ import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
+import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
 import { RequestError } from "./errorMapping";
 
@@ -164,25 +165,6 @@ function abortableWait<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> 
 				reject(error);
 			}
 		);
-	});
-}
-
-/** Resolves after `ms` or as soon as the signal aborts, whichever comes first. */
-function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
-	return new Promise((resolve) => {
-		if (signal.aborted) {
-			resolve();
-			return;
-		}
-		const onAbort = () => {
-			clearTimeout(timer);
-			resolve();
-		};
-		const timer = setTimeout(() => {
-			signal.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-		signal.addEventListener("abort", onAbort, { once: true });
 	});
 }
 
