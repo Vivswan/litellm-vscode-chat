@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../../shared/config/storageKeys";
-import { makeExtensionStorage } from "../../testUtils";
+import { expectDefined, makeExtensionStorage } from "../../testUtils";
 
 function makeStore(initial: Record<string, unknown> = {}) {
 	const storage = makeExtensionStorage(initial);
@@ -16,7 +16,6 @@ suite("extension/servers/groupRemovals", () => {
 		test("add, match, and explicit removal round-trip; base URLs compare normalized", async () => {
 			const { store, changes } = makeStore();
 			assert.deepStrictEqual(store.tombstones(), []);
-
 			await store.addTombstone({ label: "Prod", baseUrl: "http://prod.test/" });
 			assert.deepStrictEqual(store.tombstones(), [{ label: "Prod", baseUrl: "http://prod.test" }]);
 			assert.strictEqual(store.isTombstoned("Prod", "http://prod.test"), true);
@@ -81,6 +80,51 @@ suite("extension/servers/groupRemovals", () => {
 
 			const { store: notAList } = makeStore({ [REMOVED_GROUP_TOMBSTONES_KEY]: "junk" });
 			assert.deepStrictEqual(notAList.tombstones(), []);
+
+			const { store: junkRecords } = makeStore({ [REMOVED_GROUP_TOMBSTONES_KEY]: { version: 3, records: "junk" } });
+			assert.deepStrictEqual(junkRecords.tombstones(), []);
+		});
+
+		test("a pre-versioning bare-array blob is readable and upgraded on write", async () => {
+			const { store, storage } = makeStore({
+				[REMOVED_GROUP_TOMBSTONES_KEY]: [{ label: "Old", baseUrl: "http://old.test" }],
+			});
+			assert.strictEqual(store.isTombstoned("Old", "http://old.test"), true);
+
+			await store.addTombstone({ label: "New", baseUrl: "http://new.test" });
+			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
+				version: "1",
+				records: [
+					{ label: "Old", baseUrl: "http://old.test" },
+					{ label: "New", baseUrl: "http://new.test" },
+				],
+			});
+		});
+
+		test("a broken persisted version re-enters versioning at 0 instead of freezing adoption", async () => {
+			// Versions are decimal strings compared as BigInt; junk of any shape
+			// (a poisoned number, a non-decimal string) re-enters at 0 with the
+			// records kept, so no hand-edited value can park the protocol at an
+			// unexceedable version.
+			for (const broken of [Number.POSITIVE_INFINITY, Number.NaN, 1e20, -1, 1.5, "junk", "-1", "1.5", ""]) {
+				const { store, storage } = makeStore({
+					[REMOVED_GROUP_TOMBSTONES_KEY]: { version: broken, records: [{ label: "A", baseUrl: "http://host.test" }] },
+				});
+				assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, `records survive version ${broken}`);
+
+				await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+				assert.deepStrictEqual(
+					storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
+					{
+						version: "1",
+						records: [
+							{ label: "A", baseUrl: "http://host.test" },
+							{ label: "B", baseUrl: "http://host.test" },
+						],
+					},
+					`version ${broken} re-enters at 0`
+				);
+			}
 		});
 
 		test("a stale memento read cannot lose an awaited tombstone (#220)", async () => {
@@ -89,24 +133,28 @@ suite("extension/servers/groupRemovals", () => {
 			// after an awaited update (the hazard the sync engine's fingerprint
 			// session map documents), so a re-read inside the next add's
 			// read-modify-write dropped the earlier tombstone, and the provider's
-			// suppression read missed a just-written one. The session journal is
-			// applied over every read, so this session's ops always win.
+			// suppression read missed a just-written one. A reverted snapshot
+			// carries an older-or-equal version, so the in-memory list keeps
+			// serving reads and the next write rebuilds the store from it.
 			const { store, storage } = makeStore();
 			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
 			// The storage layer reverts the key to its pre-add value.
 			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, []);
 
-			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the session journal serves the read");
+			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the stale snapshot is ignored");
 
-			// The next add must build on the session list, not the reverted store:
-			// both tombstones survive, and the persisted write carries both.
+			// The next add must build on the in-memory list, not the reverted
+			// store: both tombstones survive, and the persisted write carries both.
 			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
 			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "A survives B's read-modify-write");
 			assert.strictEqual(store.isTombstoned("B", "http://host.test"), true);
-			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), [
-				{ label: "A", baseUrl: "http://host.test" },
-				{ label: "B", baseUrl: "http://host.test" },
-			]);
+			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
+				version: "2",
+				records: [
+					{ label: "A", baseUrl: "http://host.test" },
+					{ label: "B", baseUrl: "http://host.test" },
+				],
+			});
 		});
 
 		test("a stale store cannot resurrect a cleared tombstone (a re-declared group never stays suppressed)", async () => {
@@ -115,55 +163,57 @@ suite("extension/servers/groupRemovals", () => {
 			assert.strictEqual(await store.removeTombstone({ label: "A", baseUrl: "http://host.test" }), true);
 
 			// The storage layer reverts to the version that still holds A; the
-			// session journal must keep the group unsuppressed anyway.
-			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, [{ label: "A", baseUrl: "http://host.test" }]);
+			// older snapshot must not win over the in-memory list.
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, {
+				version: 1,
+				records: [{ label: "A", baseUrl: "http://host.test" }],
+			});
 			assert.strictEqual(store.isTombstoned("A", "http://host.test"), false);
 		});
 
 		test("another window's tombstone rides through this window's mutations", async () => {
-			// globalState is shared across windows: the journal shadows only this
-			// session's own ops, so a record another window persisted must both
-			// answer reads here and survive this window's next full-list write.
+			// globalState is shared across windows: another window syncs before it
+			// mutates, so its write carries a strictly newer version plus this
+			// window's records, and is adopted here on the next read.
 			const { store, storage } = makeStore();
 			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
-			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, [
-				{ label: "A", baseUrl: "http://host.test" },
-				{ label: "W", baseUrl: "http://host.test" },
-			]);
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, {
+				version: 2,
+				records: [
+					{ label: "A", baseUrl: "http://host.test" },
+					{ label: "W", baseUrl: "http://host.test" },
+				],
+			});
 
 			assert.strictEqual(store.isTombstoned("W", "http://host.test"), true, "fresh reads see the other window");
 			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
-			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), [
-				{ label: "A", baseUrl: "http://host.test" },
-				{ label: "W", baseUrl: "http://host.test" },
-				{ label: "B", baseUrl: "http://host.test" },
-			]);
+			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
+				version: "3",
+				records: [
+					{ label: "A", baseUrl: "http://host.test" },
+					{ label: "W", baseUrl: "http://host.test" },
+					{ label: "B", baseUrl: "http://host.test" },
+				],
+			});
 		});
 
-		test("this window's journal op outlives another window's store-level clear (the deliberate contract)", async () => {
-			// The flip side of the ride-through above, pinned so the trade-off
-			// reads as chosen: a journal op is sticky for the session and every
-			// persist re-asserts it. After this window tombstones A, another
-			// window's store-level clear of A (its dashboard Unhide) is neither
-			// observed here nor preserved by this window's next write - the
-			// journal cannot tell that clear apart from the reverted store read
-			// it exists to shadow (#220). A re-declared entry still unhides
-			// everywhere: each window's own sync pass journals the remove through
-			// clearTombstonesFor.
+		test("another window's store-level unhide is adopted, never re-clobbered", async () => {
+			// The version is what tells a genuine foreign clear apart from the
+			// reverted store read of #220: another window's dashboard Unhide
+			// synced first, so its blob is strictly newer and wins, while a revert
+			// is older-or-equal and loses. This window's next write then builds on
+			// the adopted view instead of re-asserting the cleared tombstone.
 			const { store, storage } = makeStore();
 			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
-			// Another window clears A directly in shared storage.
-			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, []);
+			// Another window adopted version 1, unhid A, and persisted version 2.
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, { version: 2, records: [] });
 
-			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the sticky add still answers here");
+			assert.strictEqual(store.isTombstoned("A", "http://host.test"), false, "the foreign unhide is honored here");
 			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
 			assert.deepStrictEqual(
 				storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
-				[
-					{ label: "A", baseUrl: "http://host.test" },
-					{ label: "B", baseUrl: "http://host.test" },
-				],
-				"the next write re-asserts A into the store"
+				{ version: "3", records: [{ label: "B", baseUrl: "http://host.test" }] },
+				"A stays cleared through this window's next write"
 			);
 		});
 
@@ -181,24 +231,190 @@ suite("extension/servers/groupRemovals", () => {
 				return update(key, value);
 			};
 
-			// Persistence is best-effort: the journal hides the group, the
+			// Persistence is best-effort: the in-memory list hides the group, the
 			// provider is notified, and the failure is reported instead of thrown
 			// (a thrown persist would make callers report the opposite of the
 			// effective state).
 			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
-			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the journal hides the group anyway");
+			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the in-memory list hides the group");
 			assert.strictEqual(changes.length, 1, "the provider is notified despite the failed persist");
 			assert.strictEqual(persistErrors.length, 1, "the failure is reported, not thrown");
 
 			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
 			assert.deepStrictEqual(
 				storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
-				[
+				{
+					version: "1",
+					records: [
+						{ label: "A", baseUrl: "http://host.test" },
+						{ label: "B", baseUrl: "http://host.test" },
+					],
+				},
+				"the next write persists the whole in-memory view, healing the store"
+			);
+		});
+
+		test("a foreign snapshot cannot drop records a failed persist left unwritten", async () => {
+			// After a rejected write, memory is ahead of storage, so adoption is
+			// suspended: a strictly newer foreign blob arriving in that window
+			// must not silently drop the unpersisted tombstone. The healing write
+			// versions above the skipped snapshot (last-write-wins).
+			const { store, storage } = makeStore();
+			store.onPersistError = () => {};
+			const update = storage.memento.update.bind(storage.memento);
+			let failNext = true;
+			(storage.memento as { update: (key: string, value: unknown) => Thenable<void> }).update = (key, value) => {
+				if (failNext) {
+					failNext = false;
+					return Promise.reject(new Error("storage write failed"));
+				}
+				return update(key, value);
+			};
+
+			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, { version: 5, records: [] });
+
+			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "A survives while unpersisted");
+			await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			assert.deepStrictEqual(storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY), {
+				version: "6",
+				records: [
 					{ label: "A", baseUrl: "http://host.test" },
 					{ label: "B", baseUrl: "http://host.test" },
 				],
-				"the next write persists the journaled view, healing the store"
+			});
+		});
+
+		test("onDidChange listeners observe the mutated state, and the persist settles after", async () => {
+			// The activation wiring re-resolves models synchronously from the
+			// change event, so the in-memory list must already answer with the
+			// mutation when the listener runs.
+			const { store } = makeStore();
+			const seen: boolean[] = [];
+			store.onDidChange = () => seen.push(store.isTombstoned("A", "http://host.test"));
+
+			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			await store.removeTombstone({ label: "A", baseUrl: "http://host.test" });
+
+			assert.deepStrictEqual(seen, [true, false], "each listener call sees the state its mutation produced");
+		});
+
+		test("serialized writes: a covered failure leaves no false dirty state, an uncovered one suspends adoption", async () => {
+			// Writes run serialized and each persists the records as of the
+			// moment it runs. Here the stalled first write lands AFTER both adds,
+			// so it persists A and B together; the second (identical) write's
+			// failure is covered and must NOT suspend adoption - a genuine
+			// foreign clear afterwards is honored, never overwritten.
+			const { store, storage } = makeStore();
+			store.onPersistError = () => {};
+			const update = storage.memento.update.bind(storage.memento);
+			let firstGate: (() => void) | undefined;
+			let call = 0;
+			(storage.memento as { update: (key: string, value: unknown) => Thenable<void> }).update = (key, value) => {
+				call += 1;
+				if (call === 1) {
+					// The first write stalls until released.
+					return new Promise((resolve) => {
+						firstGate = () => resolve(update(key, value));
+					});
+				}
+				if (call === 2) {
+					return Promise.reject(new Error("storage write failed"));
+				}
+				return update(key, value);
+			};
+
+			const first = store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			const second = store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			// The queued first write reaches the stalled update on a microtask.
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expectDefined(firstGate)();
+			await Promise.all([first, second]);
+
+			assert.deepStrictEqual(
+				storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
+				{
+					version: "1",
+					records: [
+						{ label: "A", baseUrl: "http://host.test" },
+						{ label: "B", baseUrl: "http://host.test" },
+					],
+				},
+				"the first write persisted both adds"
 			);
+
+			// Everything committed is in storage, so a foreign clear is adopted.
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, { version: 9, records: [] });
+			assert.strictEqual(store.isTombstoned("B", "http://host.test"), false, "the foreign clear is honored");
+		});
+
+		test("an earlier success cannot mark a later, uncovered failure as persisted", async () => {
+			// The mirror case: the first write is already in flight (holding only
+			// A) when B is committed, so its success covers A alone; the second
+			// write's failure leaves B genuinely unwritten and adoption suspended.
+			const { store, storage } = makeStore();
+			store.onPersistError = () => {};
+			const update = storage.memento.update.bind(storage.memento);
+			let firstGate: (() => void) | undefined;
+			let call = 0;
+			(storage.memento as { update: (key: string, value: unknown) => Thenable<void> }).update = (key, value) => {
+				call += 1;
+				if (call === 1) {
+					return new Promise((resolve) => {
+						firstGate = () => resolve(update(key, value));
+					});
+				}
+				if (call === 2) {
+					return Promise.reject(new Error("storage write failed"));
+				}
+				return update(key, value);
+			};
+
+			const first = store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			// Let the first write start (and stall) before B is committed.
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			const second = store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+			expectDefined(firstGate)();
+			await Promise.all([first, second]);
+
+			// B never reached storage, so a newer foreign snapshot must be skipped.
+			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, { version: 9, records: [] });
+			assert.strictEqual(store.isTombstoned("B", "http://host.test"), true, "B survives its failed write");
+		});
+
+		test("the version keeps advancing past every numeric boundary (BigInt, no overflow)", async () => {
+			// Number.MAX_SAFE_INTEGER and a 64-digit string are both boundaries a
+			// numeric or length-capped scheme would freeze or re-enter at; here
+			// each successor is exact, strictly newer, and round-trips through a
+			// fresh store, so cross-window adoption keeps working.
+			for (const start of [BigInt(Number.MAX_SAFE_INTEGER), BigInt("9".repeat(64))]) {
+				const { store, storage } = makeStore({
+					[REMOVED_GROUP_TOMBSTONES_KEY]: {
+						version: start.toString(),
+						records: [{ label: "A", baseUrl: "http://host.test" }],
+					},
+				});
+
+				await store.addTombstone({ label: "B", baseUrl: "http://host.test" });
+				assert.deepStrictEqual(
+					storage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY),
+					{
+						version: (start + 1n).toString(),
+						records: [
+							{ label: "A", baseUrl: "http://host.test" },
+							{ label: "B", baseUrl: "http://host.test" },
+						],
+					},
+					`the successor of ${start} is exact and strictly newer`
+				);
+				// The written string version round-trips: a fresh store adopts it
+				// and keeps counting.
+				const { store: reread, storage: rereadStorage } = makeStore(Object.fromEntries(storage.mementoStore.entries()));
+				await reread.addTombstone({ label: "C", baseUrl: "http://host.test" });
+				const blob = rereadStorage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { version: string };
+				assert.strictEqual(blob.version, (start + 2n).toString());
+				assert.strictEqual(reread.isTombstoned("B", "http://host.test"), true, "the fresh store adopted the records");
+			}
 		});
 	});
 

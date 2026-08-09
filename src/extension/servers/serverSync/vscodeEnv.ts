@@ -164,7 +164,7 @@ export function createServerSyncEnv(
 				logger.error("Clearing removed-group tombstones failed", error);
 			}
 			// The notice claims "hidden" once the store accepted the tombstone
-			// (its session journal now hides the group; persistence is the
+			// (its in-memory list now hides the group; persistence is the
 			// store's own best-effort concern). A throw here is unexpected -
 			// e.g. the change-event wiring - and degrades the event to the
 			// untracked wording rather than promising a hiding that may not
