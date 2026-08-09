@@ -26,7 +26,7 @@ import {
 	settingScopeLabel,
 	unitBehavior,
 } from "../../extension/dashboard/protocol";
-import type { FailuresByIntent } from "./app";
+import type { FailuresByIntent, IntentAck } from "./app";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpCatalogRow, helpSettingsSection, settingRowHelp } from "./helpText";
@@ -792,6 +792,7 @@ function recordEditorMatches(
 export function SettingsSection({
 	settings,
 	models,
+	ack,
 	failures,
 	catalogResults,
 	now,
@@ -799,6 +800,8 @@ export function SettingsSection({
 }: {
 	settings: DashboardSettings;
 	models: readonly DashboardModel[];
+	/** The latest intentSucceeded notice; the record editors match it against their own requestIds. */
+	ack?: IntentAck | undefined;
 	failures: FailuresByIntent;
 	/** The latest catalogSearchResults response, for the capability editor's `_openrouter_model` picker. */
 	catalogResults?: CatalogSearchResponse | undefined;
@@ -903,6 +906,7 @@ export function SettingsSection({
 										<ModelParametersEditor
 											scoped={settings.modelParameters}
 											models={models}
+											ack={ack}
 											failure={failures.setModelParameters}
 											hidden={!paramsVisible}
 											external={editRecordRequest?.kind === "parameters" ? editRecordRequest : undefined}
@@ -910,6 +914,7 @@ export function SettingsSection({
 										<ModelCapabilitiesEditor
 											scoped={settings.modelCapabilities}
 											models={models}
+											ack={ack}
 											failure={failures.setModelCapabilities}
 											catalogResults={catalogResults}
 											hidden={!capsVisible}

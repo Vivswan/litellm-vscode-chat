@@ -34,6 +34,7 @@ import {
 	toGroups,
 	toggleDirectiveField,
 } from "../../extension/dashboard/recordDraft";
+import type { IntentAck } from "./app";
 import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { FailureText } from "./failureText";
 import { DocsLink, Help } from "./help";
@@ -95,49 +96,81 @@ function HeadingRevealButton({
 	);
 }
 
-/** How long the "Saved" note lingers after the reflecting push; toast-scale, and any new edit clears it early. */
+/** How long the "Saved" note lingers after the ack; toast-scale, and any new edit clears it early. */
 const SAVED_NOTICE_MS = 4000;
 
 /**
  * Where a draft is in its apply lifecycle. "applying" is the window between
- * Apply and the store push that reflects the write; "saved" is the transient
- * confirmation right after that push drops the draft.
+ * Apply and its correlated ack; "saved" is the transient confirmation the
+ * ack starts.
  */
 type DraftPhase = "idle" | "dirty" | "applying" | "saved";
+
+/** The local draft's states: edited rows, an in-flight write, or an acked write awaiting the reflecting push. */
+type DraftState<T> =
+	| { readonly kind: "dirty"; readonly rows: T }
+	| { readonly kind: "applying"; readonly rows: T; readonly requestId: string }
+	| { readonly kind: "acked"; readonly rows: T; readonly externalAtAck: string };
 
 /**
  * Both editors here follow one draft-and-apply model: rows are edited
  * locally, validated on every keystroke, and written back to configuration
  * only through Apply, so the object settings never pass through an invalid
  * intermediate shape. With no draft the store value renders directly; a
- * dirty draft wins until Apply or Discard. An applied draft keeps rendering
- * (no flicker back to the pre-apply value) until either the store push that
- * reflects the write arrives (which drops it and shows the transient Saved
- * note) or the extension reports the write failed (which returns it to a
- * dirty, retryable state).
+ * dirty draft wins until Apply or Discard. Apply posts an intent tagged with
+ * a requestId and waits for its own correlated ack: intentSucceeded resolves
+ * the phase (the Saved note), intentFailed returns the draft to a dirty,
+ * retryable state. An acked draft keeps rendering until the store push that
+ * reflects the write arrives (dropping it at the ack would flash the
+ * pre-apply value for the one frame before that push); should that push
+ * outrun the ack, the acked draft simply holds its value-equal rows until
+ * the next store change.
  */
 function useDraftRows<T>(
 	external: T,
+	ack: IntentAck | undefined,
 	failure: IntentFailure | undefined
 ): {
 	rows: T;
 	dirty: boolean;
 	phase: DraftPhase;
+	/** Whether a draft of any kind is live (dirty, in flight, or acked awaiting the reflecting push). */
+	pinned: boolean;
+	/** The reported failure of THIS draft's own write; a leftover notice from a discarded draft never resurfaces. */
+	failure: IntentFailure | undefined;
 	update: (next: T) => void;
-	apply: () => void;
+	apply: (requestId: string) => void;
 	reset: () => void;
 } {
 	const externalKey = JSON.stringify(external);
-	const [draft, setDraft] = useState<{ rows: T; applied: boolean; baseKey: string } | undefined>(undefined);
+	const [draft, setDraft] = useState<DraftState<T> | undefined>(undefined);
 	const [saved, setSaved] = useState(false);
-	const failureSeq = failure?.seq;
+	// The last Apply's correlation ID, kept past the failure transition (the
+	// failure note must name the write the still-open draft came from) and
+	// dropped with the draft on Discard.
+	const [appliedRequestId, setAppliedRequestId] = useState<string | undefined>(undefined);
 
+	// This draft's own ack: the write landed, so the phase resolves. The rows
+	// keep rendering until the store visibly reflects the write, unless they
+	// already match it.
+	const ackRequestId = ack?.requestId;
 	useEffect(() => {
-		if (draft?.applied === true && externalKey !== draft.baseKey) {
-			setDraft(undefined);
-			setSaved(true);
+		if (draft?.kind !== "applying" || draft.requestId !== ackRequestId) {
+			return;
 		}
-	}, [draft, externalKey]);
+		setSaved(true);
+		setDraft(
+			JSON.stringify(draft.rows) === externalKey
+				? undefined
+				: { kind: "acked", rows: draft.rows, externalAtAck: externalKey }
+		);
+	}, [draft, ackRequestId, externalKey]);
+
+	// The reflecting push: the store moved past its at-ack value, so the fresh
+	// store rows take over from the acked draft.
+	useEffect(() => {
+		setDraft((current) => (current?.kind === "acked" && externalKey !== current.externalAtAck ? undefined : current));
+	}, [externalKey]);
 
 	useEffect(() => {
 		if (!saved) {
@@ -147,34 +180,38 @@ function useDraftRows<T>(
 		return () => clearTimeout(timer);
 	}, [saved]);
 
-	// A reported write failure re-opens the applied draft for editing.
+	// This draft's own reported write failure re-opens it for editing.
+	const failureRequestId = failure?.requestId;
+	const failureSeq = failure?.seq;
 	useEffect(() => {
-		if (failureSeq !== undefined) {
-			setSaved(false);
-			setDraft((current) => (current?.applied === true ? { ...current, applied: false } : current));
+		if (failureSeq === undefined || draft?.kind !== "applying" || draft.requestId !== failureRequestId) {
+			return;
 		}
-	}, [failureSeq]);
+		setSaved(false);
+		setDraft({ kind: "dirty", rows: draft.rows });
+	}, [failureSeq, failureRequestId, draft]);
 
-	const phase: DraftPhase = draft === undefined ? (saved ? "saved" : "idle") : draft.applied ? "applying" : "dirty";
+	const phase: DraftPhase = draft === undefined || draft.kind === "acked" ? (saved ? "saved" : "idle") : draft.kind;
 	return {
 		rows: draft?.rows ?? external,
-		// A draft whose rows match the store is not dirty: applying it would
-		// write a no-op the store never reflects, stranding the applying phase
-		// (the scalar rows' unchanged-posts-nothing rule, in draft form).
-		dirty: draft !== undefined && !draft.applied && JSON.stringify(draft.rows) !== externalKey,
+		// Unchanged rows post nothing (the scalar rows' rule, in draft form).
+		dirty: draft?.kind === "dirty" && JSON.stringify(draft.rows) !== externalKey,
 		phase,
+		pinned: draft !== undefined,
+		failure: failure !== undefined && failure.requestId === appliedRequestId ? failure : undefined,
 		update: (next) => {
 			setSaved(false);
-			setDraft({ rows: next, applied: false, baseKey: externalKey });
+			setDraft({ kind: "dirty", rows: next });
 		},
-		// Applying re-baselines against the external state as of the click:
-		// a push that arrived while the draft was dirty must not count as the
-		// one reflecting this write, or the draft would drop the moment Apply
-		// lands and render the concurrent value as "Saved".
-		apply: () =>
-			setDraft((current) => (current === undefined ? undefined : { ...current, applied: true, baseKey: externalKey })),
+		apply: (requestId) => {
+			setAppliedRequestId(requestId);
+			setDraft((current) =>
+				current?.kind === "dirty" ? { kind: "applying", rows: current.rows, requestId } : current
+			);
+		},
 		reset: () => {
 			setSaved(false);
+			setAppliedRequestId(undefined);
 			setDraft(undefined);
 		},
 	};
@@ -1272,8 +1309,7 @@ function seededJson(value: unknown): JsonDraft {
 /**
  * JSON.stringify with object keys sorted at every level (by code unit - a
  * total order, unlike locale collation), so records that differ only in key
- * order compare equal. Gates Apply on a real value change: a no-op write
- * produces no store change and would strand the applying phase.
+ * order compare equal. Gates Apply on a real value change.
  */
 function canonicalKey(value: unknown): string {
 	return (
@@ -1314,6 +1350,7 @@ const COMMON_PARAMETER_NAMES = [
 export function ModelParametersEditor({
 	scoped,
 	models,
+	ack,
 	failure,
 	hidden,
 	external,
@@ -1321,13 +1358,15 @@ export function ModelParametersEditor({
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
 	/** The discovered models, feeding the prefix input's suggestions. */
 	models: readonly DashboardModel[];
+	/** The latest intentSucceeded notice; the draft matches it against its own requestId. */
+	ack: IntentAck | undefined;
 	failure: IntentFailure | undefined;
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
 	hidden?: boolean;
 	/** The inspectors' configure-jump; see ExternalRecordEdit. */
 	external?: ExternalRecordEdit | undefined;
 }) {
-	const draft = useDraftRows(toGroups(scoped.value), failure);
+	const draft = useDraftRows(toGroups(scoped.value), ack, failure);
 	const groups = draft.rows;
 	// One parse per keystroke: the row problems, the Apply gate, and the
 	// assembled record are the same verdict, so a draft that renders clean can
@@ -1339,13 +1378,14 @@ export function ModelParametersEditor({
 	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
 
 	// A JSON view without a live draft follows the store like the rows do.
-	// Any draft - dirty or applied - pins it: a dirty one because the text is
-	// (or seeded) the user's, an applied one because resyncing before the
-	// reflecting push would flash the pre-apply value back into the textarea.
+	// Any draft - dirty, in flight, or acked - pins it: a dirty one because
+	// the text is (or seeded) the user's, the others because resyncing before
+	// the reflecting push would flash the pre-apply value back into the
+	// textarea.
 	const externalJsonText = JSON.stringify(scoped.value, null, 2) ?? "{}";
-	const draftPhase = draft.phase;
+	const draftPinned = draft.pinned;
 	useEffect(() => {
-		if (draftPhase === "dirty" || draftPhase === "applying") {
+		if (draftPinned) {
 			return;
 		}
 		setJson((current) =>
@@ -1353,19 +1393,20 @@ export function ModelParametersEditor({
 				? { text: externalJsonText, base: externalJsonText }
 				: current
 		);
-	}, [externalJsonText, draftPhase]);
+	}, [externalJsonText, draftPinned]);
 
 	// Apply needs a real value change on top of a dirty draft: rows can differ
-	// in spelling ("1e1" vs "10") while assembling to the record already stored,
-	// and writing that no-op would strand the applying phase.
+	// in spelling ("1e1" vs "10") while assembling to the record already stored
+	// (the scalar rows' unchanged-posts-nothing rule).
 	const changed = parse.ok && canonicalKey(parse.value) !== canonicalKey(scoped.value);
 	const canApply = draft.dirty && changed && !jsonBlocked;
 	const apply = () => {
 		if (!parse.ok || !canApply) {
 			return;
 		}
-		postMessage({ type: "setModelParameters", value: parse.value });
-		draft.apply();
+		const requestId = newRequestId();
+		postMessage({ type: "setModelParameters", value: parse.value, requestId });
+		draft.apply(requestId);
 		// The applied text becomes the JSON baseline; only edits after it count as discardable again.
 		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
 	};
@@ -1426,7 +1467,7 @@ export function ModelParametersEditor({
 					/>
 				</>
 			)}
-			<FailureNote failure={failure} dirty={draft.dirty} />
+			<FailureNote failure={draft.failure} dirty={draft.dirty} />
 			<div class="toolbar">
 				{json === undefined ? (
 					<button
@@ -1440,10 +1481,12 @@ export function ModelParametersEditor({
 				<button type="button" disabled={!canApply} onClick={apply}>
 					{l10n.t("Apply")}
 				</button>
+				{/* Discard stays available while a write is in flight: a lost ack
+				    must not wedge the editor until a reload. */}
 				<button
 					type="button"
 					class="secondary"
-					disabled={!draft.dirty && !(json !== undefined && json.text !== json.base)}
+					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
 					aria-label={l10n.t("Discard the unapplied model parameter edits")}
 					onClick={discard}
 				>
@@ -1496,6 +1539,7 @@ export function ModelParametersEditor({
 export function ModelCapabilitiesEditor({
 	scoped,
 	models,
+	ack,
 	failure,
 	catalogResults,
 	hidden,
@@ -1504,6 +1548,8 @@ export function ModelCapabilitiesEditor({
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
 	/** The discovered models, feeding the matcher input's suggestions. */
 	models: readonly DashboardModel[];
+	/** The latest intentSucceeded notice; the draft matches it against its own requestId. */
+	ack: IntentAck | undefined;
 	failure: IntentFailure | undefined;
 	/** The latest catalogSearchResults response, for the `_openrouter_model` picker. */
 	catalogResults: CatalogSearchResponse | undefined;
@@ -1512,7 +1558,7 @@ export function ModelCapabilitiesEditor({
 	/** The inspectors' configure-jump; see ExternalRecordEdit. */
 	external?: ExternalRecordEdit | undefined;
 }) {
-	const draft = useDraftRows(toCapabilityGroups(scoped.value), failure);
+	const draft = useDraftRows(toCapabilityGroups(scoped.value), ack, failure);
 	const groups = draft.rows;
 	// One parse per keystroke, like the parameters editor: the row issues, the
 	// Apply gate, and the assembled record are the same verdict.
@@ -1523,9 +1569,9 @@ export function ModelCapabilitiesEditor({
 	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
 
 	const externalJsonText = JSON.stringify(scoped.value, null, 2) ?? "{}";
-	const draftPhase = draft.phase;
+	const draftPinned = draft.pinned;
 	useEffect(() => {
-		if (draftPhase === "dirty" || draftPhase === "applying") {
+		if (draftPinned) {
 			return;
 		}
 		setJson((current) =>
@@ -1533,7 +1579,7 @@ export function ModelCapabilitiesEditor({
 				? { text: externalJsonText, base: externalJsonText }
 				: current
 		);
-	}, [externalJsonText, draftPhase]);
+	}, [externalJsonText, draftPinned]);
 
 	const changed = parse.ok && canonicalKey(parse.value) !== canonicalKey(scoped.value);
 	const canApply = draft.dirty && changed && !jsonBlocked;
@@ -1541,8 +1587,9 @@ export function ModelCapabilitiesEditor({
 		if (!parse.ok || !canApply) {
 			return;
 		}
-		postMessage({ type: "setModelCapabilities", value: parse.value });
-		draft.apply();
+		const requestId = newRequestId();
+		postMessage({ type: "setModelCapabilities", value: parse.value, requestId });
+		draft.apply(requestId);
 		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
 	};
 	const discard = () => {
@@ -1601,7 +1648,7 @@ export function ModelCapabilitiesEditor({
 					/>
 				</>
 			)}
-			<FailureNote failure={failure} dirty={draft.dirty} />
+			<FailureNote failure={draft.failure} dirty={draft.dirty} />
 			<div class="toolbar">
 				{json === undefined ? (
 					<button
@@ -1615,10 +1662,12 @@ export function ModelCapabilitiesEditor({
 				<button type="button" disabled={!canApply} onClick={apply}>
 					{l10n.t("Apply")}
 				</button>
+				{/* Discard stays available while a write is in flight: a lost ack
+				    must not wedge the editor until a reload. */}
 				<button
 					type="button"
 					class="secondary"
-					disabled={!draft.dirty && !(json !== undefined && json.text !== json.base)}
+					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
 					aria-label={l10n.t("Discard the unapplied model capability edits")}
 					onClick={discard}
 				>

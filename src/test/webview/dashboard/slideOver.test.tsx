@@ -1,14 +1,13 @@
 /**
  * The server form slide-over: dialog semantics, initial focus, the Tab focus
  * trap, Esc/scrim close requests, the dirty-form discard confirm, and the
- * busy guard (an in-flight adopt must not be closable out from under its
- * ack). Rendered through App so the tests exercise the real wiring in
- * ServersSection, not a synthetic harness.
+ * adopt round trip (the section matches the ack, so the form closes freely
+ * while an adopt is in flight). Rendered through App so the tests exercise
+ * the real wiring in ServersSection, not a synthetic harness.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "preact/test-utils";
 import { App } from "../../../webview/dashboard/app";
-import { ServersSection } from "../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
@@ -184,7 +183,7 @@ test("the form's own Cancel button routes through the discard confirm when dirty
 	expect(root.querySelector(".slide-over")).toBeNull();
 });
 
-test("an in-flight adopt refuses close requests with a visible notice until its ack lands", () => {
+test("the adopt ack closes the still-open form and raises the post-adoption notice", () => {
 	const external = makeExternalServer();
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [external] })));
@@ -194,11 +193,9 @@ test("an in-flight adopt refuses close requests with a visible notice until its 
 	fireClick(buttonByText(dialog(root), "Adopt"));
 	const posted = postedMessages[0] as { requestId: string };
 
-	// The refusal is not silent: the panel answers with a status bar.
-	fireKeyDown(dialog(root), "Escape");
+	// In flight: the inputs disable against a double submit, the form stays up.
+	expect((buttonByText(dialog(root), "Adopting...") as HTMLButtonElement).disabled).toBe(true);
 	expect(root.querySelector(".slide-over")).not.toBeNull();
-	expect(root.querySelector(".discard-confirm")).toBeNull();
-	expect(root.querySelector(".slide-notice")?.textContent).toContain("Still adopting");
 
 	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: posted.requestId });
 	expect(root.querySelector(".slide-over")).toBeNull();
@@ -235,36 +232,58 @@ test("editing continues across a background state push while the slide-over is o
 	expect(inputByLabel(dialog(root), "Base URL").value).toBe("http://localhost:9999");
 });
 
-test("a hung adopt arms a Close anyway escape after the grace period", async () => {
-	const noop = () => {};
-	const root = mount(
-		<ServersSection
-			servers={[makeExternalServer()]}
-			now={Date.now()}
-			ack={undefined}
-			failures={{}}
-			inlineSecrets={undefined}
-			onDismissFailure={noop}
-			onClearInlineSecrets={noop}
-			adoptEscapeAfterMs={20}
-		/>
-	);
+test("a pending adopt never traps the user: the form closes freely and the ack still lands as the section notice", () => {
+	const external = makeExternalServer();
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [external] })));
 	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(dialog(root), "Label"), "Adopted");
 	resetPosted();
 	fireClick(buttonByText(dialog(root), "Adopt"));
-	expect(postedMessages.length).toBe(1);
+	const posted = postedMessages[0] as { requestId: string };
 
-	// Before the grace period: refused closes answer with the plain notice.
+	// Esc on the edited form asks the usual discard question; Discard closes it
+	// with the intent still running extension-side.
 	fireKeyDown(dialog(root), "Escape");
-	expect(root.querySelector(".slide-notice")?.textContent).toContain("Still adopting");
-	expect(root.querySelector(".slide-notice")?.querySelector("button")).toBeNull();
+	expect(root.querySelector(".discard-confirm")).not.toBeNull();
+	fireClick(buttonByText(dialog(root), "Discard"));
+	expect(root.querySelector(".slide-over")).toBeNull();
+
+	// The late ack still raises the post-adoption notice.
+	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: posted.requestId });
+	expect(root.textContent).toContain("Models appear twice");
+});
+
+test("two adopts in flight resolve independently: the first ack still raises its notice, only the second closes its form", () => {
+	const alpha = makeExternalServer({ label: "Alpha", adoptHandle: "handle-a", baseUrl: "http://a.example:4000" });
+	const beta = makeExternalServer({ label: "Beta", adoptHandle: "handle-b", baseUrl: "http://b.example:4000" });
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [alpha, beta] })));
+	const editButtons = () =>
+		[...root.querySelectorAll("button")].filter((button) => button.textContent?.trim() === "Edit");
+
+	// Adopt Alpha, then close the form with the intent still in flight.
+	fireClick(editButtons()[0] as HTMLButtonElement);
+	fireInput(inputByLabel(dialog(root), "Label"), "Adopted Alpha");
+	resetPosted();
+	fireClick(buttonByText(dialog(root), "Adopt"));
+	const alphaRequestId = (postedMessages[0] as { requestId: string }).requestId;
+	fireKeyDown(dialog(root), "Escape");
+	fireClick(buttonByText(dialog(root), "Discard"));
+
+	// Start a second adopt while the first still runs.
+	fireClick(editButtons()[1] as HTMLButtonElement);
+	fireInput(inputByLabel(dialog(root), "Label"), "Adopted Beta");
+	resetPosted();
+	fireClick(buttonByText(dialog(root), "Adopt"));
+	const betaRequestId = (postedMessages[0] as { requestId: string }).requestId;
+
+	// Alpha's ack raises its notice without touching Beta's open form.
+	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: alphaRequestId });
+	expect(root.textContent).toContain("Models appear twice");
 	expect(root.querySelector(".slide-over")).not.toBeNull();
 
-	// After it, the notice surfaces the escape on its own; the modal is never
-	// permanently trappable.
-	await new Promise((resolve) => setTimeout(resolve, 60));
-	await act(() => {});
-	const escapeButton = buttonByText(dialog(root), "Close anyway - adoption continues in the background");
-	fireClick(escapeButton);
+	// Beta's own ack closes its form.
+	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: betaRequestId });
 	expect(root.querySelector(".slide-over")).toBeNull();
 });

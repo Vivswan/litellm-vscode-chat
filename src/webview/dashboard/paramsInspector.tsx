@@ -97,9 +97,9 @@ function longContextPricing(model: DashboardModel): string | undefined {
 }
 
 /** The Source column's naming: the layer that set the value plus its winning record key. */
-function sourceName(ref: ParameterSourceRef, entryLabel: string): string {
+function sourceName(ref: ParameterSourceRef): string {
 	return ref.layer === "entry"
-		? l10n.t('Server entry "{0}" - {1}', entryLabel, ref.key)
+		? l10n.t('Server entry "{0}" - {1}', ref.entryLabel, ref.key)
 		: l10n.t("Settings - {0}", ref.key);
 }
 
@@ -155,17 +155,14 @@ function parameterDiagnosticText(diagnostic: ParameterDiagnostic): string {
 const ALWAYS_SENT_FIELDS = ["model", "messages", "stream", "stream_options", "max_tokens"] as const;
 
 /** The max_tokens derivation, split into the value and one short reason per branch. */
-function maxTokensParts(maxTokens: ProjectedMaxTokens, entryLabel: string): { value: number; reason: string } {
+function maxTokensParts(maxTokens: ProjectedMaxTokens): { value: number; reason: string } {
 	switch (maxTokens.source) {
 		case "forced":
 			return {
 				value: maxTokens.value,
 				reason:
 					maxTokens.configuredSource !== undefined
-						? l10n.t(
-								"forced by {0}; overrides runtime options and the picker",
-								sourceName(maxTokens.configuredSource, entryLabel)
-							)
+						? l10n.t("forced by {0}; overrides runtime options and the picker", sourceName(maxTokens.configuredSource))
 						: l10n.t("forced in configuration; overrides runtime options and the picker"),
 			};
 		case "configured":
@@ -173,7 +170,7 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens, entryLabel: string): { va
 				value: maxTokens.value,
 				reason:
 					maxTokens.configuredSource !== undefined
-						? l10n.t("set by {0}", sourceName(maxTokens.configuredSource, entryLabel))
+						? l10n.t("set by {0}", sourceName(maxTokens.configuredSource))
 						: l10n.t("set in configuration"),
 			};
 		case "declared":
@@ -189,23 +186,21 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens, entryLabel: string): { va
 	}
 }
 
-function ShadowedLine({ shadow, entryLabel }: { shadow: ShadowedParameterValue; entryLabel: string }) {
+function ShadowedLine({ shadow }: { shadow: ShadowedParameterValue }) {
 	return (
 		<tr class="param-shadowed">
 			<td />
 			<td class="param-value">{formatJsonValue(shadow.value)}</td>
-			<td>{l10n.t("overridden: {0}", sourceName(shadow, entryLabel))}</td>
+			<td>{l10n.t("overridden: {0}", sourceName(shadow))}</td>
 		</tr>
 	);
 }
 
 function ParameterRow({
 	row,
-	entryLabel,
 	onEditSource,
 }: {
 	row: EffectiveParameterRow;
-	entryLabel: string;
 	/** The per-row jump to the record that owns the value; absent, no affordance renders. */
 	onEditSource?: ((source: ParameterSourceRef) => void) | undefined;
 }) {
@@ -215,14 +210,14 @@ function ParameterRow({
 				<td class="param-name">{row.name}</td>
 				<td class="param-value">{formatJsonValue(row.value)}</td>
 				<td>
-					{sourceName(row.source, entryLabel)}
+					{sourceName(row.source)}
 					{onEditSource !== undefined ? (
 						<button
 							type="button"
 							class="quiet row-edit"
 							aria-label={
 								row.source.layer === "entry"
-									? l10n.t('Edit in server entry "{0}"', entryLabel)
+									? l10n.t('Edit in server entry "{0}"', row.source.entryLabel)
 									: l10n.t('Edit record "{0}" in settings', row.source.key)
 							}
 							onClick={() => onEditSource(row.source)}
@@ -240,7 +235,7 @@ function ParameterRow({
 				</td>
 			</tr>
 			{row.shadowed.map((shadow) => (
-				<ShadowedLine key={`${shadow.layer}/${shadow.key}`} shadow={shadow} entryLabel={entryLabel} />
+				<ShadowedLine key={`${shadow.layer}/${shadow.key}`} shadow={shadow} />
 			))}
 		</>
 	);
@@ -283,17 +278,15 @@ export function ParamsInspector({
 
 	const answered = requestId !== undefined && response?.requestId === requestId ? response : undefined;
 	const projection = answered?.projection;
-	// Entry-layer rows exist only when the resolution found a declared entry,
-	// so the fallback label can never actually render; it satisfies the types.
-	const entryLabel = answered?.entryLabel ?? model.serverLabel;
 	// The per-row jump: an entry-layer value is owned by the server entry's own
-	// record (edited in its form), everything else by a global settings record.
+	// record (edited in its form, addressed by the ref's own label), everything
+	// else by a global settings record.
 	const editSource =
 		onEditRecord === undefined
 			? undefined
-			: (source: { layer: "global" | "entry"; key: string }) => {
+			: (source: ParameterSourceRef) => {
 					if (source.layer === "entry") {
-						onEditEntry?.(entryLabel);
+						onEditEntry?.(source.entryLabel);
 					} else {
 						onEditRecord(source.key, false);
 					}
@@ -326,7 +319,6 @@ export function ParamsInspector({
 				</p>
 				<RecordChainFigure
 					chains={answered?.chains}
-					entryLabel={entryLabel}
 					onEditRecord={onEditRecord === undefined ? undefined : (key) => onEditRecord(key, false)}
 					onEditEntry={onEditEntry}
 				/>
@@ -399,7 +391,7 @@ export function ParamsInspector({
 								</thead>
 								<tbody>
 									{projection.rows.map((row) => (
-										<ParameterRow key={row.name} row={row} entryLabel={entryLabel} onEditSource={editSource} />
+										<ParameterRow key={row.name} row={row} onEditSource={editSource} />
 									))}
 								</tbody>
 							</table>
@@ -419,8 +411,8 @@ export function ParamsInspector({
 							</div>
 						) : null}
 						<p class="params-max-tokens">
-							<code>max_tokens {maxTokensParts(projection.maxTokens, entryLabel).value}</code>
-							<span class="hint"> {maxTokensParts(projection.maxTokens, entryLabel).reason}</span>
+							<code>max_tokens {maxTokensParts(projection.maxTokens).value}</code>
+							<span class="hint"> {maxTokensParts(projection.maxTokens).reason}</span>
 						</p>
 						<dl class="params-caveats">
 							<div>

@@ -102,10 +102,12 @@ export const webviewMessageSchema: z.ZodType<WebviewToExtensionMessage> = z.disc
 	z.strictObject({
 		type: z.literal("setModelParameters"),
 		value: z.record(z.string(), z.record(z.string(), z.unknown())),
+		requestId: requestIdSchema,
 	}),
 	z.strictObject({
 		type: z.literal("setModelCapabilities"),
 		value: z.record(z.string(), z.record(z.string(), z.unknown())),
+		requestId: requestIdSchema,
 	}),
 	z.strictObject({
 		type: z.literal("setUsageStatusBar"),

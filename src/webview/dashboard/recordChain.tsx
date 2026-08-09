@@ -13,14 +13,11 @@ import type { RecordChainView } from "../../extension/dashboard/protocol";
 
 export function RecordChainFigure({
 	chains,
-	entryLabel,
 	onEditRecord,
 	onEditEntry,
 }: {
 	/** The response's per-map chains; absent or single-link chains render nothing. */
 	chains: readonly RecordChainView[] | undefined;
-	/** The declared entry's label, naming the entry-layer chain and addressing its edit jump. */
-	entryLabel: string;
 	/** Jump into the global record editor focused on the key; absent, keys render as plain text. */
 	onEditRecord?: ((key: string) => void) | undefined;
 	/** Jump into the server entry's edit form (the owner of entry-layer records). */
@@ -37,14 +34,18 @@ export function RecordChainFigure({
 				// exist: an entry key must open the entry's form or nothing - falling
 				// back to the global editor would contradict its own aria-label.
 				const jump =
-					chain.layer === "entry" ? (onEditEntry === undefined ? undefined : () => onEditEntry(entryLabel)) : undefined;
+					chain.layer === "entry"
+						? onEditEntry === undefined
+							? undefined
+							: () => onEditEntry(chain.entryLabel)
+						: undefined;
 				const jumpFor = (key: string) =>
 					chain.layer === "entry" ? jump : onEditRecord === undefined ? undefined : () => onEditRecord(key);
 				return (
 					<p class="record-chain hint" key={chain.layer}>
 						<span class="record-chain-label">
 							{chain.layer === "entry"
-								? l10n.t('Record path (server entry "{0}"):', entryLabel)
+								? l10n.t('Record path (server entry "{0}"):', chain.entryLabel)
 								: l10n.t("Record path (settings):")}
 						</span>{" "}
 						{chain.links.map((link, index) => {
@@ -61,7 +62,7 @@ export function RecordChainFigure({
 											class="quiet chain-key"
 											aria-label={
 												chain.layer === "entry"
-													? l10n.t('Edit in server entry "{0}"', entryLabel)
+													? l10n.t('Edit in server entry "{0}"', chain.entryLabel)
 													: l10n.t('Edit record "{0}" in settings', link.key)
 											}
 											onClick={onJump}

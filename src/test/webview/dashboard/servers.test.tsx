@@ -5,6 +5,7 @@
  * into adoptServer must fail here).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { act } from "preact/test-utils";
 import type { DashboardServer, WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { DOCS_LINK_CHECK_BASE_URL, DOCS_LINK_PROXY_NOT_RUNNING } from "../../../webview/dashboard/docsLinks";
@@ -1057,4 +1058,39 @@ test("editing a capability row or an expected-failure checkbox clears a standing
 	}
 	fireInput(prefixInput, "gpt");
 	expect(root.textContent).not.toContain("Testing...");
+});
+
+test("a problem opens its collapsed disclosure once; re-closing sticks even as other problems come and go", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
+	fireClick(buttonByText(root, "Edit"));
+	const detailsBySummary = (text: string) =>
+		[...root.querySelectorAll("details")].find((candidate) =>
+			candidate.querySelector("summary")?.textContent?.includes(text)
+		) as HTMLDetailsElement;
+	const collapse = (details: HTMLDetailsElement) => {
+		void act(() => {
+			details.open = false;
+			details.dispatchEvent(new Event("toggle"));
+		});
+	};
+
+	// A header problem surfaces inside the collapsed headers disclosure: it
+	// opens once so Save cannot refuse over an invisible error.
+	fireClick(buttonByText(root, "Add header"));
+	fireInput(root.querySelector("input[aria-label='Header name']") as HTMLInputElement, "bad name");
+	expect(detailsBySummary("Custom headers").open).toBe(true);
+
+	// The user closes it again; that sticks.
+	collapse(detailsBySummary("Custom headers"));
+	expect(detailsBySummary("Custom headers").open).toBe(false);
+
+	// A NEW problem elsewhere opens only its own disclosure; the deliberately
+	// closed one must not snap back open just because the problem set changed.
+	fireClick(buttonByText(root, "Add model matcher"));
+	const params = detailsBySummary("Model parameters for this server");
+	fireInput(params.querySelector("input.key") as HTMLInputElement, "gpt-4");
+	fireInput(params.querySelectorAll("input.key")[1] as HTMLInputElement, "temperature");
+	fireInput(params.querySelector("input.value") as HTMLInputElement, "not json");
+	expect(detailsBySummary("Model parameters for this server").open).toBe(true);
+	expect(detailsBySummary("Custom headers").open).toBe(false);
 });

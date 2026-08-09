@@ -669,6 +669,7 @@ suite("extension/dashboard/panel", () => {
 		fake.receiveMessage({
 			type: "setModelParameters",
 			value: { constructor: { temperature: 1 } },
+			requestId: "req-params-1",
 		});
 		await settle();
 
@@ -687,7 +688,11 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		fake.receiveMessage({ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } });
+		fake.receiveMessage({
+			type: "setModelParameters",
+			value: { "gpt-4": { temperature: 0.2 } },
+			requestId: "req-params-2",
+		});
 		await settle();
 
 		const notice = fake.posted.at(-1) as ExtensionToWebviewMessage;
@@ -1194,11 +1199,10 @@ suite("extension/dashboard/panel", () => {
 			assert.strictEqual(answered.length, 2);
 			const [live, stale] = answered;
 			assert.strictEqual(live?.requestId, "params-1");
-			assert.strictEqual(live?.entryLabel, "Prod");
 			const row = live?.projection?.rows.find((candidate) => candidate.name === "temperature");
 			assert.ok(row !== undefined, "the entry parameter reaches the projection");
 			assert.strictEqual(row.value, 0.2);
-			assert.deepStrictEqual(row.source, { layer: "entry", key: "m1" });
+			assert.deepStrictEqual(row.source, { layer: "entry", key: "m1", entryLabel: "Prod" });
 			assert.strictEqual(stale?.requestId, "params-2");
 			assert.strictEqual(stale?.projection, undefined, "a de-resolved scope answers without inventing values");
 			assert.ok(

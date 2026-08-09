@@ -481,12 +481,7 @@ export class DashboardController implements vscode.Disposable {
 			this.postToPanel({
 				type: "modelParameters",
 				requestId: message.requestId,
-				...(answer !== undefined
-					? {
-							projection: answer.projection,
-							...(answer.entryLabel !== undefined ? { entryLabel: answer.entryLabel } : {}),
-						}
-					: {}),
+				...(answer !== undefined ? { projection: answer } : {}),
 				...(paramsGlobalKey !== undefined ? { globalRecordKey: paramsGlobalKey } : {}),
 				...(paramsChains.length > 0 ? { chains: paramsChains } : {}),
 			});

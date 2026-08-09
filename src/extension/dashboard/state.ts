@@ -440,18 +440,21 @@ function buildServers(
 	// render as rows: they sit in the setting, and a silently missing row
 	// would read as a removal. Only rejects with a usable, non-duplicate
 	// identity qualify - the remaining reject causes (no label or URL, a
-	// reserved label, a duplicate) have no honest row to draw and stay in
-	// Configuration diagnostics only.
+	// reserved label, a duplicate, a label another reject already drew) have
+	// no honest row to draw and stay in Configuration diagnostics only.
 	const declaredLabels = new Set(declared.map((view) => view.label));
+	const drawnRejectLabels = new Set<string>();
 	for (const report of entryReports) {
 		if (
 			report.accepted ||
 			report.label === undefined ||
 			report.baseUrl === undefined ||
-			declaredLabels.has(report.label)
+			declaredLabels.has(report.label) ||
+			drawnRejectLabels.has(report.label)
 		) {
 			continue;
 		}
+		drawnRejectLabels.add(report.label);
 		servers.push({
 			label: report.label,
 			baseUrl: report.baseUrl,
@@ -857,14 +860,15 @@ export interface ModelParametersQuery {
  * Answer one readModelParameters request: locate the model behind the scope
  * key and raw ID, resolve the configured merge through the provider's shared
  * flat table (the SAME cache requests read) when the query carries one, and
- * project it into the inspector's rows. Undefined when the key or model no
- * longer resolves, exactly like resolveDashboardModelCapabilities.
+ * project it into the inspector's rows (entry-layer refs carry the declared
+ * entry's label). Undefined when the key or model no longer resolves, exactly
+ * like resolveDashboardModelCapabilities.
  */
 export function resolveDashboardModelParameters(
 	query: ModelParametersQuery,
 	scopeKey: string,
 	rawId: string
-): { projection: EffectiveParametersProjection; entryLabel?: string | undefined } | undefined {
+): EffectiveParametersProjection | undefined {
 	const labeled = labeledSnapshots(query.snapshots).find(
 		(entry) => modelScopeKey(entry.snapshot.status.serverId) === scopeKey
 	);
@@ -886,11 +890,14 @@ export function resolveDashboardModelParameters(
 		query.resolution !== undefined
 			? query.resolution.resolveParameters(serverId, rawId, inputs)
 			: resolveModelParameters({ rawModelId: rawId, ...inputs });
-	const projection = projectResolvedParameters(resolved, {
-		maxOutputTokens: info.maxOutputTokens,
-		outputLimitDeclared: info.litellm.outputLimitSource !== "defaults",
-	});
-	return { projection, ...(entry !== undefined ? { entryLabel: entry.entryLabel } : {}) };
+	return projectResolvedParameters(
+		resolved,
+		{
+			maxOutputTokens: info.maxOutputTokens,
+			outputLimitDeclared: info.litellm.outputLimitSource !== "defaults",
+		},
+		entry?.entryLabel
+	);
 }
 
 /**
