@@ -111,10 +111,12 @@ const validMessageArbs: Readonly<Record<WebviewToExtensionMessage["type"], fc.Ar
 	setModelParameters: fc.record({
 		type: fc.constant("setModelParameters"),
 		value: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), { maxKeys: 3 }),
+		requestId,
 	}),
 	setModelCapabilities: fc.record({
 		type: fc.constant("setModelCapabilities"),
 		value: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), { maxKeys: 3 }),
+		requestId,
 	}),
 	refreshCatalog: fc.constant({ type: "refreshCatalog" }),
 	refreshUsage: fc.constant({ type: "refreshUsage" }),

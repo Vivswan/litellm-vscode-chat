@@ -1,10 +1,10 @@
 /**
  * The right-side slide-over the server forms open in: a scrim over the page,
  * a focus-trapped dialog panel, Esc and scrim-click to close. Closing is a
- * REQUEST: the section owning the form decides what it means (close, ask to
- * confirm discarding edits, or ignore while an intent is in flight) and
- * renders the confirm bar through the `confirming` props, so the keyboard
- * path, the scrim, the X, and the form's own Cancel all share one policy.
+ * REQUEST: the section owning the form decides what it means (close, or ask
+ * to confirm discarding edits) and renders the confirm bar through the
+ * `confirming` props, so the keyboard path, the scrim, the X, and the form's
+ * own Cancel all share one policy.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -20,7 +20,6 @@ export function SlideOver({
 	labelledBy,
 	fallbackFocusId,
 	confirming,
-	notice,
 	onRequestClose,
 	onKeepEditing,
 	onDiscard,
@@ -32,8 +31,6 @@ export function SlideOver({
 	fallbackFocusId: string;
 	/** Render the discard-confirm bar; Esc got a dirty form and the owner wants a decision. */
 	confirming: boolean;
-	/** An informational bar (e.g. "still adopting", possibly with an escape action), so a refused close request answers visibly instead of doing nothing. */
-	notice?: ComponentChildren | undefined;
 	onRequestClose: () => void;
 	onKeepEditing: () => void;
 	onDiscard: () => void;
@@ -117,11 +114,6 @@ export function SlideOver({
 						<button type="button" class="secondary" onClick={onKeepEditing}>
 							{l10n.t("Keep editing")}
 						</button>
-					</div>
-				) : null}
-				{notice !== undefined && notice !== null ? (
-					<div class="slide-notice" role="status">
-						{notice}
 					</div>
 				) : null}
 			</div>

@@ -338,7 +338,6 @@ export function CapsInspector({
 				</p>
 				<RecordChainFigure
 					chains={answered?.chains}
-					entryLabel={model.serverLabel}
 					onEditRecord={onEditRecord === undefined ? undefined : (key) => onEditRecord(key, false)}
 					onEditEntry={onEditEntry}
 				/>

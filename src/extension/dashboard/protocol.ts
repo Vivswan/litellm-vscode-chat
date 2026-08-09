@@ -1226,12 +1226,12 @@ export interface RecordChainLink {
  * One record map's matching chain for an inspected model, broadest to most
  * specific (the winner last): the inspectors' compact inheritance figure.
  * Computed extension-side from the same matchChain the resolvers run; the
- * webview holds no matcher logic.
+ * webview holds no matcher logic. An entry-layer chain carries the declared
+ * entry's label, so the figure and its edit jump never guess it.
  */
-export interface RecordChainView {
-	readonly layer: "global" | "entry";
-	readonly links: readonly RecordChainLink[];
-}
+export type RecordChainView =
+	| { readonly layer: "global"; readonly links: readonly RecordChainLink[] }
+	| { readonly layer: "entry"; readonly entryLabel: string; readonly links: readonly RecordChainLink[] };
 
 /** One flat-table cell: a resolved parameter with its provenance. */
 export interface ResolvedParamCell {
@@ -1365,13 +1365,12 @@ export type ExtensionToWebviewMessage =
 			 * flat resolution table - the same cache requests read - so the
 			 * inspector cannot drift from the wire. Absent `projection` means the
 			 * scope or model no longer resolves, exactly like modelCapabilities.
-			 * `entryLabel` names the declared entry whose per-entry record the
-			 * resolution used, when one matched.
+			 * Entry-layer source refs carry the declared entry's label themselves
+			 * (ParameterSourceRef), so no separate label field rides here.
 			 */
 			readonly type: "modelParameters";
 			readonly requestId: string;
 			readonly projection?: EffectiveParametersProjection | undefined;
-			readonly entryLabel?: string | undefined;
 			/** See modelCapabilities.globalRecordKey; the parameters-map twin. */
 			readonly globalRecordKey?: string | undefined;
 			/** See modelCapabilities.chains; the parameters-map twin. */
@@ -1489,6 +1488,8 @@ const ACKED_INTENT_TYPES: Readonly<Record<AckedIntentType, true>> = {
 	hideExternalServer: true,
 	unhideServer: true,
 	testServerDraft: true,
+	setModelParameters: true,
+	setModelCapabilities: true,
 };
 
 /** The failure notices a state push leaves standing, keyed like FailuresByIntent; see ACKED_INTENT_TYPES. */
@@ -1564,8 +1565,16 @@ export type WebviewToExtensionMessage =
 	| { readonly type: "resetSetting"; readonly setting: ResettableSettingId }
 	/** Open the user settings.json at "litellm-vscode-chat.<setting>"; only ids from REVEALABLE_SETTING_IDS cross. */
 	| { readonly type: "revealSetting"; readonly setting: RevealableSettingId }
-	| { readonly type: "setModelParameters"; readonly value: Record<string, Record<string, unknown>> }
-	| { readonly type: "setModelCapabilities"; readonly value: Record<string, Record<string, unknown>> }
+	| {
+			readonly type: "setModelParameters";
+			readonly value: Record<string, Record<string, unknown>>;
+			readonly requestId: string;
+	  }
+	| {
+			readonly type: "setModelCapabilities";
+			readonly value: Record<string, Record<string, unknown>>;
+			readonly requestId: string;
+	  }
 	| { readonly type: "setUsageStatusBar"; readonly value: UsageStatusBarModeSetting }
 	/** Values must be fractions in (0, 1]; the extension re-validates and refuses out-of-range entries. */
 	| { readonly type: "setUsageAlertThresholds"; readonly values: readonly number[] }

@@ -52,7 +52,10 @@ function mountInspector(options: {
 	const projection = projectEffectiveParameters({
 		rawModelId: inspected.rawId,
 		globalParameters: options.globalParameters ?? {},
-		entryParameters: options.entryParameters,
+		entry:
+			options.entryParameters === undefined
+				? undefined
+				: { label: options.entryLabel ?? "Prod", parameters: options.entryParameters },
 		maxOutputTokens: inspected.maxOutputTokens,
 		outputLimitDeclared: inspected.outputLimitDeclared,
 	});
@@ -64,7 +67,6 @@ function mountInspector(options: {
 					type: "modelParameters",
 					requestId: request.requestId,
 					projection,
-					...(options.entryLabel !== undefined ? { entryLabel: options.entryLabel } : {}),
 				}}
 				stateSeq={0}
 				onClose={onClose}

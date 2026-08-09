@@ -177,6 +177,9 @@ const scenarioArb: fc.Arbitrary<Scenario> = fc
 					rawModelId: spec.rawModelId,
 					globalParameters,
 					entryParameters,
+					// The projection takes the entry record paired with its label
+					// (entry-layer refs carry it); any fixed label satisfies that.
+					entry: entryParameters === undefined ? undefined : { label: "entry", parameters: entryParameters },
 					maxOutputTokens: spec.maxOutputTokens,
 					outputLimitDeclared: spec.outputLimitDeclared,
 				};

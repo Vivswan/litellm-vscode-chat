@@ -468,7 +468,11 @@ test("the capabilities editor renders as a second record editor and applies via 
 
 	resetPosted();
 	fireClick(buttonByText(section, "Apply"));
-	expect(postedMessages).toEqual([{ type: "setModelCapabilities", value: { "gpt-4*": { context_length: 200000 } } }]);
+	expect(postedMessages).toHaveLength(1);
+	const posted = postedMessages[0] as { type: string; value: unknown; requestId: unknown };
+	expect(posted.type).toBe("setModelCapabilities");
+	expect(posted.value).toEqual({ "gpt-4*": { context_length: 200000 } });
+	expect(typeof posted.requestId).toBe("string");
 });
 
 test("the catalog row states the snapshot's size and age, and Refresh posts refreshCatalog", () => {

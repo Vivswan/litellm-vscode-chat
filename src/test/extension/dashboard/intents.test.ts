@@ -74,7 +74,7 @@ suite("extension/dashboard/intents", () => {
 		test("setModelParameters writes the whole record", async () => {
 			const recorded = makeEnv();
 			const params = { "gpt-4": { temperature: 0.2 } };
-			await executeDashboardIntent({ type: "setModelParameters", value: params }, recorded.env);
+			await executeDashboardIntent({ type: "setModelParameters", value: params, requestId: "r-params" }, recorded.env);
 
 			assert.deepStrictEqual(recorded.updates, [["models.parameters", params]]);
 		});
@@ -86,6 +86,7 @@ suite("extension/dashboard/intents", () => {
 					{
 						type: "setModelParameters",
 						value: JSON.parse('{"__proto__": {}}') as Record<string, Record<string, unknown>>,
+						requestId: "r-params-bad",
 					},
 					recorded.env
 				)
@@ -101,6 +102,7 @@ suite("extension/dashboard/intents", () => {
 					{
 						type: "setModelCapabilities",
 						value: JSON.parse('{"__proto__": {}}') as Record<string, Record<string, unknown>>,
+						requestId: "r-caps-bad",
 					},
 					recorded.env
 				)

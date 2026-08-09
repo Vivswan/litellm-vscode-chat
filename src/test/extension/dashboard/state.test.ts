@@ -1355,7 +1355,10 @@ suite("extension/dashboard/state", () => {
 			const query = { snapshots, reader: makeReader({}), resolveEntryParameters: () => undefined };
 			const answer = resolveDashboardModelParameters(query, model.scopeKey, model.rawId);
 			assert.ok(answer !== undefined, "the pushed scope key resolves");
-			assert.strictEqual(answer.entryLabel, undefined, "no declared entry matched, so no label rides the answer");
+			assert.ok(
+				answer.rows.every((row) => row.source.layer === "global"),
+				"no declared entry matched, so no entry-layer refs ride the answer"
+			);
 			assert.strictEqual(
 				resolveDashboardModelParameters(query, modelScopeKey("no-such-server"), model.rawId),
 				undefined,
@@ -1394,14 +1397,12 @@ suite("extension/dashboard/state", () => {
 				return resolveDashboardModelParameters(query, model.scopeKey, model.rawId);
 			};
 			const resolving = answerFor("m1");
-			assert.strictEqual(resolving?.entryLabel, "Team");
-			const row = resolving?.projection.rows.find((candidate) => candidate.name === "temperature");
+			const row = resolving?.rows.find((candidate) => candidate.name === "temperature");
 			assert.strictEqual(row?.value, 0.2);
-			assert.deepStrictEqual(row?.source, { layer: "entry", key: "*" });
+			assert.deepStrictEqual(row?.source, { layer: "entry", key: "*", entryLabel: "Team" });
 			const other = answerFor("m2");
 			assert.ok(other !== undefined);
-			assert.strictEqual(other.entryLabel, undefined, "the sibling group carries no entry resolution");
-			assert.deepStrictEqual(other.projection.rows, [], "no entry parameters reach the sibling's models");
+			assert.deepStrictEqual(other.rows, [], "no entry parameters reach the sibling's models");
 			assert.notStrictEqual(modelByRaw("m1")?.scopeKey, modelByRaw("m2")?.scopeKey);
 		});
 
@@ -1972,7 +1973,7 @@ suite("extension/dashboard/state", () => {
 				{ type: "revealSetting", setting: "chat.timeout" },
 				{ type: "revealSetting", setting: "chat.promptCaching" },
 				{ type: "revealSetting", setting: "models.parameters" },
-				{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, stop: ["\n"] } } },
+				{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, stop: ["\n"] } }, requestId: "req-params" },
 				{
 					type: "saveServerSetting",
 					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),

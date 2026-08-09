@@ -42,7 +42,7 @@ function makeProjection(overrides: Partial<EffectiveParametersProjection> = {}):
 				name: "top_p",
 				value: 0.9,
 				sent: true,
-				source: { layer: "entry", key: "*" },
+				source: { layer: "entry", key: "*", entryLabel: "Prod" },
 				shadowed: [],
 			},
 		],
@@ -87,7 +87,7 @@ describe("the params inspector's configure-jump", () => {
 		const recordJumps: [string, boolean][] = [];
 		const entryJumps: string[] = [];
 		const root = mountAnswered(
-			{ projection: makeProjection(), entryLabel: "Prod", globalRecordKey: "gpt-5*" },
+			{ projection: makeProjection(), globalRecordKey: "gpt-5*" },
 			{ onEditRecord: (key, create) => recordJumps.push([key, create]), onEditEntry: (label) => entryJumps.push(label) }
 		);
 
@@ -124,7 +124,7 @@ describe("the params inspector's configure-jump", () => {
 	});
 
 	test("without the callback no configure button and no row affordances render", () => {
-		const root = mountAnswered({ projection: makeProjection(), entryLabel: "Prod" }, {});
+		const root = mountAnswered({ projection: makeProjection() }, {});
 		expect([...root.querySelectorAll("button")].some((b) => b.textContent?.includes("Configure parameters"))).toBe(
 			false
 		);
@@ -141,6 +141,7 @@ describe("the editors' external-edit landing", () => {
 			<ModelParametersEditor
 				scoped={makeScopedRecord({ "gpt-5*": { temperature: 0.3 }, "*": { top_p: 0.9 } })}
 				models={[]}
+				ack={undefined}
 				failure={undefined}
 				external={external}
 			/>

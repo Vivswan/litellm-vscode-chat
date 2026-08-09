@@ -584,6 +584,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				<SettingsSection
 					settings={state.settings}
 					models={state.models}
+					ack={ack}
 					failures={failures}
 					catalogResults={catalogResults}
 					now={now}

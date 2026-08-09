@@ -123,7 +123,7 @@ test("the toast stack caps at three, dropping the oldest first", () => {
 	expect(root.querySelectorAll(".toast").length).toBe(3);
 });
 
-test("a late adopt ack still raises its toast with no form open (the Close anyway escape relies on this)", () => {
+test("a late adopt ack still raises its toast with no form open (closing a form mid-adopt relies on this)", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: "after-close-anyway" });
