@@ -192,9 +192,13 @@ suite("provider/catalog/discovery", () => {
 			// thrown error's message is response-derived; the classification is
 			// what the issue-report buffer and prefill record instead.
 			const marker = "internal-gateway-host-MARKER upstream capacity exhausted";
+			let modelsAttempts = 0;
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => HttpResponse.text(marker, { status: 200 })),
-				http.get(MODELS_URL, () => HttpResponse.text(marker, { status: 200 }))
+				http.get(MODELS_URL, () => {
+					modelsAttempts += 1;
+					return HttpResponse.text(marker, { status: 200 });
+				})
 			);
 
 			const error = await fetchModels(request()).then(
@@ -202,8 +206,11 @@ suite("provider/catalog/discovery", () => {
 				(e: unknown) => e
 			);
 
+			assert.strictEqual(modelsAttempts, 1, "a 200 with an unparseable body must not be retried");
 			assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
-			assert.ok(error.message.startsWith("Failed to parse LiteLLM models response from"), error.message);
+			assert.ok(error.message.startsWith("The server replied, but not with a model list"), error.message);
+			assert.ok(error.message.includes(`Unparseable response from ${MODELS_URL}`), error.message);
+			assert.strictEqual(error.message.split("\n").length, 2, `headline plus one detail line: ${error.message}`);
 			assert.strictEqual(error.logClassification, "RequestError(http, unparseable models response body)");
 			// The display message localizes; under the English fallback its full
 			// English mirror (what the output channel renders) is identical.
@@ -217,9 +224,13 @@ suite("provider/catalog/discovery", () => {
 			// coerceJsonPayload; the two sites must stay indistinguishable on
 			// every rendering (classification, display, English mirror).
 			const body = '{"data": [MARKER-not-json';
+			let modelsAttempts = 0;
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => HttpResponse.text(body, { headers: { "Content-Type": "application/json" } })),
-				http.get(MODELS_URL, () => HttpResponse.text(body, { headers: { "Content-Type": "application/json" } }))
+				http.get(MODELS_URL, () => {
+					modelsAttempts += 1;
+					return HttpResponse.text(body, { headers: { "Content-Type": "application/json" } });
+				})
 			);
 
 			const error = await fetchModels(request()).then(
@@ -227,8 +238,11 @@ suite("provider/catalog/discovery", () => {
 				(e: unknown) => e
 			);
 
+			assert.strictEqual(modelsAttempts, 1, "a 200 with an unparseable body must not be retried");
 			assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
-			assert.ok(error.message.startsWith("Failed to parse LiteLLM models response from"), error.message);
+			assert.ok(error.message.startsWith("The server replied, but not with a model list"), error.message);
+			assert.ok(error.message.includes(`Unparseable response from ${MODELS_URL}`), error.message);
+			assert.strictEqual(error.message.split("\n").length, 2, `headline plus one detail line: ${error.message}`);
 			assert.strictEqual(error.logClassification, "RequestError(http, unparseable models response body)");
 			assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
 			assert.ok(!publicErrorText(error).includes("MARKER"), "the public rendering leaked the payload snippet");

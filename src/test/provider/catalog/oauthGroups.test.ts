@@ -439,7 +439,7 @@ suite("provider groups with OAuth", () => {
 
 		await assert.rejects(
 			provider.provideLanguageModelChatInformation(groupOptions(OAUTH_GROUP_CONFIGURATION, false), cancellation()),
-			/OAuth authentication failed: the token endpoint at http:\/\/idp\.test\/oauth2\/token rejected the client credentials/
+			/The identity provider refused to issue a token for this server[\s\S]*OAuth 401 at http:\/\/idp\.test\/oauth2\/token: invalid_client/
 		);
 		assert.strictEqual(tokenAttempts, 1, "a credential rejection must not be retried");
 		assert.strictEqual(serverHits, 0, "no request may reach the LiteLLM server without a token");
