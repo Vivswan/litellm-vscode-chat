@@ -229,6 +229,20 @@ suite("Docker server sync", () => {
 		throw new Error(`Timeout (${timeoutMs}ms) waiting for ${what}`);
 	}
 
+	/**
+	 * Every issue-report log line of this session, through the lossless test
+	 * tee: unlike getRecentLogs' small rolling window, absence in this list
+	 * means a line was never logged.
+	 */
+	async function sessionLogLines(): Promise<string[]> {
+		const batch = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", 0)) as {
+			lines: string[];
+			dropped: number;
+		};
+		assert.strictEqual(batch.dropped, 0, "the session log tee must not have evicted lines");
+		return batch.lines;
+	}
+
 	suiteSetup(async function () {
 		this.timeout(90000);
 		await ensureActivated();
@@ -418,8 +432,8 @@ suite("Docker server sync", () => {
 		assert.ok((await oauthStats()).issued > before.issued, "the follow-up chat performed a fresh exchange");
 	});
 
-	test("scenario 5d: the log buffer never carries any credential material", async () => {
-		const logs = (await vscode.commands.executeCommand("litellm._test.getRecentLogs")) as string[];
+	test("scenario 5d: the log lines never carry any credential material", async () => {
+		const logs = await sessionLogLines();
 		assert.ok(logs.length > 0, "the scenarios above must have produced classifications");
 		const secrets: ReadonlyArray<[string, string]> = [
 			[FAKE_OAUTH_CLIENT_SECRET, "the OAuth client secret"],
@@ -693,20 +707,18 @@ suite("Docker server sync", () => {
 		assert.strictEqual(status.declaredModelCount, 1, "the declared model rides the error status");
 
 		// Info-level logging: the model/info fallback line and the boundary
-		// classification both carry the expected marker. Polled rather than
-		// snapshotted: the log buffer is a small ring that one sweep over this
-		// many groups can overflow, and every sweep of this group re-emits
-		// both lines.
-		await waitUntil("the expected-failure classifications to appear in the log buffer", 30000, async () => {
-			const logs = (await vscode.commands.executeCommand("litellm._test.getRecentLogs")) as string[];
+		// classification both carry the expected marker. Polled: the sweep
+		// emits them asynchronously.
+		await waitUntil("the expected-failure classifications to appear in the logs", 30000, async () => {
+			const logs = await sessionLogLines();
 			return (
 				logs.some((line) => line.includes("(expected: modelInfo)")) &&
 				logs.some((line) => line.includes("Model discovery failed (expected: modelListing) for provider group"))
 			);
 		});
-		// Best effort, like scenario 5d: the ring buffer proves the error-level
-		// line is absent from the current window, not that it never existed.
-		const logs = (await vscode.commands.executeCommand("litellm._test.getRecentLogs")) as string[];
+		// The session tee is lossless, so absence here means the error-level
+		// line was never logged at all.
+		const logs = await sessionLogLines();
 		assert.ok(
 			logs.every((line) => !line.includes(`Failed to fetch models for provider group at ${NO_DISCOVERY_URL}`)),
 			"an expected terminal failure must never log at error level"

@@ -397,26 +397,19 @@ async function setUpTargetModel(
 	return expectDefined(models.find((m) => m.id === wantedId));
 }
 
-async function getRecentLogs(): Promise<string[]> {
-	const logs = (await vscode.commands.executeCommand("litellm._test.getRecentLogs")) as string[];
-	assert.ok(Array.isArray(logs), "litellm._test.getRecentLogs returns the buffer array");
-	return logs;
-}
-
 /**
- * The log lines the tests in this file produced, folded across tests: the
- * buffer rolls at 50 entries, so the root teardown below folds each test's
- * window into this accumulator (monkeyFuzz's seenLogLines pattern) before a
- * later test can rotate it out. The secrecy sweep asserts over it,
- * independent of suite order and, within each test's own sub-50-line
- * traffic, of the buffer cap.
+ * Every issue-report log line of this session, through the lossless test tee
+ * (litellm._test.getSessionLogs): unlike the production buffer's 50-entry
+ * rolling window, it cannot rotate a line out before the secrecy sweep reads
+ * it, and it carries every error snapshot's public rendering too.
  */
-const seenLogLines = new Set<string>();
-
-async function foldRecentLogs(): Promise<void> {
-	for (const line of await getRecentLogs()) {
-		seenLogLines.add(line);
-	}
+async function sessionLogLines(): Promise<string[]> {
+	const batch = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", 0)) as {
+		lines: string[];
+		dropped: number;
+	};
+	assert.strictEqual(batch.dropped, 0, "the session log tee must not have evicted lines");
+	return batch.lines;
 }
 
 function errorMappingSuite(title: string, directMode: boolean, serverUrl: string, serverKey: string): void {
@@ -525,7 +518,7 @@ function wrongMasterKeySuite(): void {
 		});
 
 		test("the log buffer carries the auth classification and no key material or body text", async () => {
-			const logs = await getRecentLogs();
+			const logs = await sessionLogLines();
 			// Pinned from observation: THE PINNED LITELLM STACK (v1.93 in its
 			// database flavor, backed by the compose postgres service) rejects an
 			// unknown master key with a proper HTTP 401 on both /v1/model/info
@@ -557,10 +550,9 @@ function wrongMasterKeySuite(): void {
 function bufferSecrecySuite(): void {
 	suite("Docker issue-report buffer secrecy", () => {
 		test("no response bodies or credential markers ever reached the buffer", async () => {
-			// One final fold catches the last test's window, then the sweep runs
-			// over every line any test in this file pushed through the buffer.
-			await foldRecentLogs();
-			const logs = [...seenLogLines];
+			// The sweep runs over every line any test in this file pushed through
+			// the issue-report stream, error snapshots included.
+			const logs = await sessionLogLines();
 			assert.ok(logs.length > 0, "the suites above must have produced log traffic");
 			assert.ok(
 				logs.some((line) => line.includes("RequestError(")),
@@ -583,9 +575,6 @@ if (!BASE_URL) {
 		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
 	});
 } else {
-	// Root-level fold: after every test in this file, the current rolling log
-	// window lands in seenLogLines before the next test can rotate it out.
-	teardown(foldRecentLogs);
 	transportSuite("Docker transport failures (proxy)", false, BASE_URL, API_KEY);
 	transportSuite("Docker transport failures (direct)", true, FAKE_URL, "fake-key");
 	errorMappingSuite("Docker error mapping and timeouts (proxy)", false, BASE_URL, API_KEY);
