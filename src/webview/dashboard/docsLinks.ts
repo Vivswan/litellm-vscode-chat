@@ -26,7 +26,7 @@ export const DOCS_LINK_MODEL_CAPABILITIES =
 export const DOCS_LINK_PARAMS_INACTIVE =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#per-server-model-parameters-are-inactive";
 export const DOCS_LINK_CHECK_BASE_URL =
-	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#litellm-api-error-404--answered-404---it-responded-but-does-not-serve-the-litellm-api";
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#the-server-did-not-recognize-this-request--answered-404---it-responded-but-does-not-serve-the-litellm-api";
 export const DOCS_LINK_PROXY_NOT_RUNNING =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#connection-error-unable-to-connect";
 export const DOCS_LINK_CONFIGURE_API_KEY =

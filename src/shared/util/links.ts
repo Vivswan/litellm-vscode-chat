@@ -27,7 +27,7 @@ const GITHUB_TROUBLESHOOTING_DOC = `${GITHUB_REPO_URL}/blob/main/docs/troublesho
 export const SETUP_HINT_DOCS_URLS: Record<SetupHintKind, string> = {
 	// The doubled hyphens are github-slugger's rendering of the heading's
 	// stripped "/" (leaving a doubled space) and its literal " - " separator.
-	"check-base-url": `${GITHUB_TROUBLESHOOTING_DOC}#litellm-api-error-404--answered-404---it-responded-but-does-not-serve-the-litellm-api`,
+	"check-base-url": `${GITHUB_TROUBLESHOOTING_DOC}#the-server-did-not-recognize-this-request--answered-404---it-responded-but-does-not-serve-the-litellm-api`,
 	"proxy-not-running": `${GITHUB_TROUBLESHOOTING_DOC}#connection-error-unable-to-connect`,
 	"configure-api-key": `${GITHUB_TROUBLESHOOTING_DOC}#authentication-failed`,
 };
