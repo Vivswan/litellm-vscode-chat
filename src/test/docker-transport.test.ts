@@ -403,6 +403,22 @@ async function getRecentLogs(): Promise<string[]> {
 	return logs;
 }
 
+/**
+ * The log lines the tests in this file produced, folded across tests: the
+ * buffer rolls at 50 entries, so the root teardown below folds each test's
+ * window into this accumulator (monkeyFuzz's seenLogLines pattern) before a
+ * later test can rotate it out. The secrecy sweep asserts over it,
+ * independent of suite order and, within each test's own sub-50-line
+ * traffic, of the buffer cap.
+ */
+const seenLogLines = new Set<string>();
+
+async function foldRecentLogs(): Promise<void> {
+	for (const line of await getRecentLogs()) {
+		seenLogLines.add(line);
+	}
+}
+
 function errorMappingSuite(title: string, directMode: boolean, serverUrl: string, serverKey: string): void {
 	suite(title, () => {
 		let model: vscode.LanguageModelChat;
@@ -539,14 +555,12 @@ function wrongMasterKeySuite(): void {
 }
 
 function bufferSecrecySuite(): void {
-	// Declared LAST on purpose: mocha tdd runs suites in declaration order, so
-	// this consolidation observes the buffer only AFTER the raw-503 HTML test,
-	// the %error sweeps, and the wrong-key scenario above have pushed real
-	// error traffic through it. (The buffer caps at 50 entries, so the suites
-	// closest to this one are the ones it reliably still sees.)
-	suite("Docker issue-report buffer secrecy (runs last)", () => {
+	suite("Docker issue-report buffer secrecy", () => {
 		test("no response bodies or credential markers ever reached the buffer", async () => {
-			const logs = await getRecentLogs();
+			// One final fold catches the last test's window, then the sweep runs
+			// over every line any test in this file pushed through the buffer.
+			await foldRecentLogs();
+			const logs = [...seenLogLines];
 			assert.ok(logs.length > 0, "the suites above must have produced log traffic");
 			assert.ok(
 				logs.some((line) => line.includes("RequestError(")),
@@ -569,6 +583,9 @@ if (!BASE_URL) {
 		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
 	});
 } else {
+	// Root-level fold: after every test in this file, the current rolling log
+	// window lands in seenLogLines before the next test can rotate it out.
+	teardown(foldRecentLogs);
 	transportSuite("Docker transport failures (proxy)", false, BASE_URL, API_KEY);
 	transportSuite("Docker transport failures (direct)", true, FAKE_URL, "fake-key");
 	errorMappingSuite("Docker error mapping and timeouts (proxy)", false, BASE_URL, API_KEY);
