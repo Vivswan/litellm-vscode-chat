@@ -563,18 +563,25 @@ const STYLES = `
 	/* The record editors' row grid. .rows owns the column tracks and each
 	   .row inside it subgrids onto them, so the value inputs, the flag
 	   checkboxes, and the Remove buttons line up across every row of a card
-	   regardless of per-row content (the standalone matcher header row keeps
-	   the same template on its own grid). Where subgrid is unsupported the
-	   .row template below applies per row - the pre-alignment layout. */
+	   regardless of per-row content (the standalone matcher header row reuses
+	   the template on its own grid, so its tracks resolve independently of
+	   the rows beneath it). Where subgrid is unsupported the .row template
+	   below applies per row - the pre-alignment layout.
+	   The input tracks carry no fixed floors (minmax(0, ...)): the flag and
+	   action columns size to their content, so any floor on the inputs can
+	   push the track sum past the card's content box - the settings column
+	   caps at 680px however wide the panel is - and the rows would overflow
+	   the card's right border. The inputs shrink instead; below 640px the
+	   media block stacks the rows before they get too cramped to use. */
 	.rows {
 		display: grid;
-		grid-template-columns: 220px minmax(200px, 1fr) max-content max-content;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) max-content max-content;
 		gap: 4px 8px;
 		margin: 4px 0 8px;
 	}
 	.row {
 		display: grid;
-		grid-template-columns: 220px minmax(200px, 1fr) auto auto;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
 		gap: 4px 8px;
 		align-items: center;
 		margin: 4px 0;
@@ -601,20 +608,15 @@ const STYLES = `
 		font-size: 0.9em;
 		color: var(--vscode-descriptionForeground);
 	}
-	/* Inside the slide-over form the row grid must shrink with the panel:
-	   fixed column floors overflow the form card and clip the value help
-	   glyph against the edge. The value column gets the larger share - it
-	   holds the longer content (catalog IDs, token counts). */
-	.form-card .row { grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.4fr) auto auto; }
-	.form-card .rows { grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.4fr) max-content max-content; }
-	/* The flag cell takes its own full line in the form card (see the
-	   directive-flag rules below), which would auto-place the row action after
-	   it, onto a lonely line; pin the action to the input line. Declared
-	   before the 500px media block so its grid-row: auto reset can win there. */
+	/* The slide-over form's rows share the base templates (the same shrinkable
+	   tracks fit the panel), but its flag cell takes its own full line (see
+	   the directive-flag rules below), which would auto-place the row action
+	   after it, onto a lonely line; pin the action to the input line. Declared
+	   before the 640px media block so its grid-row: auto reset can win there. */
 	.form-card .row > button { grid-row: 1; }
-	/* After every per-context .row template so it wins in each: rows inside
-	   .rows always follow their container's tracks. */
-	.rows > .row, .form-card .rows > .row { grid-column: 1 / -1; grid-template-columns: subgrid; margin: 0; }
+	/* Rows inside .rows always follow their container's tracks; the two-class
+	   selector out-specifies the standalone .row template, whatever the order. */
+	.rows > .row { grid-column: 1 / -1; grid-template-columns: subgrid; margin: 0; }
 	/* A capability row's non-blocking hint (unknown key) rides under the row
 	   like an error line, in the muted tone. */
 	.row .hint { grid-column: 1 / -1; font-size: 0.9em; margin: 0; }
@@ -1115,20 +1117,30 @@ const STYLES = `
 		table.models .col-price { display: none; }
 		table.models .model-name-text { max-width: 12em; }
 	}
-	@media (max-width: 500px) {
-		.field { grid-template-columns: 1fr; }
-		.field .hint, .field .error, .field .secret-where, .field .secret-remove { grid-column: 1; }
-		.field .hint { width: auto; max-width: none; }
-		.secret-where { flex-wrap: wrap; white-space: normal; }
+	/* The record editors' rows stack to one column before the shrinkable
+	   input tracks get too cramped to type in: the flag and action columns
+	   hold ~290px of the card (checkbox labels, the Remove button, gaps), and
+	   below a ~560px card the inputs' remainder drops under ~240px. The
+	   settings column is viewport minus the body's 48px padding until its
+	   680px cap, so that card width lands at a ~640px viewport. The slide-over
+	   panel (min(460px, 92vw)) could still grid at these viewports, but it is
+	   cramped for four columns even at its full width, so it shares the one
+	   breakpoint instead of carrying its own templates. */
+	@media (max-width: 640px) {
 		.rows { grid-template-columns: 1fr; }
 		.row { grid-template-columns: 1fr; }
 		.row input.key, .row input.value, .row button, .row .error { grid-column: 1; }
 		.row .cell.key, .row .cell.value { grid-column: 1; }
 		.row .directive-flag { grid-column: 1; }
-		/* The form-card templates and the row-action pin out-specify the plain
-		   resets above; restate them here or the slide-over never collapses. */
-		.form-card .rows, .form-card .row { grid-template-columns: 1fr; }
+		/* The row-action pin out-specifies the plain resets above; restate it
+		   here or the form's stacked rows keep the button on the first line. */
 		.form-card .row > button { grid-row: auto; }
+	}
+	@media (max-width: 500px) {
+		.field { grid-template-columns: 1fr; }
+		.field .hint, .field .error, .field .secret-where, .field .secret-remove { grid-column: 1; }
+		.field .hint { width: auto; max-width: none; }
+		.secret-where { flex-wrap: wrap; white-space: normal; }
 	}
 
 	/* === R4 server form (auth selector, headers, declared, budget) === */
@@ -1235,7 +1247,9 @@ const STYLES = `
 	.row .directive-flag { flex-wrap: wrap; justify-self: start; }
 	/* Inside the narrow form card the flag cell gets its own full line under
 	   the row instead of squeezing the third column; the row action's pin to
-	   the input line sits with the form-card templates above. */
+	   the input line sits with the row templates above. This out-specifies
+	   the 640px media resets, which is harmless only because 1 / -1 collapses
+	   to the one track in the stacked single-column grid. */
 	.form-card .row .directive-flag { grid-column: 1 / -1; }
 	.inherit-from select {
 		background: var(--vscode-dropdown-background);
