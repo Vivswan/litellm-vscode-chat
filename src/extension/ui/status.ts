@@ -28,20 +28,7 @@ type ConnectionState = (typeof CONNECTION_STATES)[number];
  */
 export type ConnectionStatus =
 	| { state: "not-configured"; lastChecked?: string | undefined }
-	| {
-			/**
-			 * `attention` on a transient loading state is carried evidence, not
-			 * presentation: the connection test overwrites a connecting state with
-			 * "loading", and the degraded-connecting warning must survive that
-			 * round trip. The field is engine-owned - updateStatusBar sets it from
-			 * the state being replaced and overrides whatever a caller passed -
-			 * and handleAggregatedStatus reads it back. Loading always renders as
-			 * the neutral spinner.
-			 */
-			state: "loading";
-			attention?: boolean | undefined;
-			lastChecked?: string | undefined;
-	  }
+	| { state: "loading"; lastChecked?: string | undefined }
 	| { state: "connecting"; attention: boolean; lastChecked?: string | undefined }
 	| {
 			state: "connected" | "degraded";
@@ -244,9 +231,6 @@ function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 		case "not-configured":
 			return { state: "not-configured", ...lastChecked };
 		case "loading":
-			// A carried attention flag is not restored: like the connecting rule
-			// below, the session boundary makes it stale, and the first empty
-			// report after a restored loading never counted as consecutive.
 			return { state: "loading", ...lastChecked };
 		case "connecting":
 			// A restored "connecting" is stale by definition (it survived a whole
@@ -427,6 +411,16 @@ export class StatusItem implements StatusItemLike {
 export class StatusBarManager {
 	private _connectionStatus: ConnectionStatus = { state: "not-configured" };
 	private readonly _statusBarItem: StatusItemLike;
+	/**
+	 * The attention verdict of the last connecting status this manager set,
+	 * held across a transient "loading" overwrite (the connection test) and
+	 * cleared by every other state. The next empty report reads it, so a
+	 * degraded connecting resumes degraded after the test instead of resetting
+	 * to the neutral spinner. Session state only: it is never persisted, and a
+	 * new session starts false (the first empty report after a restart never
+	 * counts as consecutive).
+	 */
+	private lastConnectingAttention = false;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -455,6 +449,7 @@ export class StatusBarManager {
 		const restored = restoreConnectionStatus(context.globalState.get<unknown>(LAST_CONNECTION_STATUS_KEY));
 		if (restored !== undefined) {
 			this._connectionStatus = restored;
+			this.lastConnectingAttention = restored.state === "connecting" && restored.attention;
 		}
 		// Rendering without an argument never persists, so nothing needs awaiting.
 		void this.updateStatusBar();
@@ -476,13 +471,14 @@ export class StatusBarManager {
 
 	async updateStatusBar(status?: ConnectionStatus): Promise<void> {
 		if (status) {
-			// A transient "loading" (the connection test) overwrites a connecting
-			// state; its needs-attention evidence rides along so the next empty
-			// report can read it back instead of resetting to the neutral spinner.
-			const next: ConnectionStatus =
-				status.state === "loading" && this.connectingAttention ? { ...status, attention: true } : status;
-			this._connectionStatus = next;
-			await this.context.globalState.update(LAST_CONNECTION_STATUS_KEY, next);
+			this.lastConnectingAttention =
+				status.state === "connecting"
+					? status.attention
+					: status.state === "loading"
+						? this.lastConnectingAttention
+						: false;
+			this._connectionStatus = status;
+			await this.context.globalState.update(LAST_CONNECTION_STATUS_KEY, status);
 		}
 
 		const current = this._connectionStatus;
@@ -579,14 +575,14 @@ export class StatusBarManager {
 			// empty before the per-group refreshes arrive.
 			if (this.hasConfiguredServers()) {
 				// Already connecting = a second consecutive empty report; see the
-				// connecting variant's attention flag for why that degrades. A
-				// loading state that carried the flag counts the same: the warning
-				// must survive the connection test's transient overwrite.
+				// connecting variant's attention flag for why that degrades.
+				// lastConnectingAttention carries the same verdict across the
+				// connection test's transient loading overwrite.
 				const previous = this._connectionStatus;
 				this.logger.log("No server statuses yet; configured servers have not reported");
 				void this.updateStatusBar({
 					state: "connecting",
-					attention: previous.state === "connecting" || (previous.state === "loading" && previous.attention === true),
+					attention: previous.state === "connecting" || this.lastConnectingAttention,
 					lastChecked: now,
 				});
 			} else {
