@@ -10,9 +10,14 @@ export const CHAT_COMPLETIONS_URL = `${TEST_BASE_URL}/v1/chat/completions`;
 /**
  * The shared msw server for all unit suites. Suites opt in with useMsw() and
  * register per-test handlers via mswServer.use(); handlers reset between
- * tests, and unhandled requests fail loudly.
+ * tests, and unhandled requests fail loudly. The one permanent baseline
+ * handler absorbs refreshes of panelIntegration's leftover host provider
+ * group (VS Code has no group-removal API), which the host may trigger
+ * during any later suite; a null body because discovery GETs retry (see
+ * emptyErrorResponse). Initial handlers survive resetHandlers(), and
+ * per-test use() handlers still take precedence.
  */
-export const mswServer = setupServer();
+export const mswServer = setupServer(http.all("http://localhost:49999/*", () => emptyErrorResponse(503)));
 
 let activeSuites = 0;
 

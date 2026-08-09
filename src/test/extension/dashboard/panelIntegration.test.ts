@@ -76,11 +76,8 @@ suite("extension/dashboard/panelIntegration", () => {
 		// no group-removal API); that pollution is bounded to this label's
 		// disposable user-data-dir, which is why these tests stay in the unit
 		// label instead of paying a whole extra host launch for isolation.
-		// LANDMINE for future msw-based suites in this label: that leftover
-		// group can make the host refresh our provider against its baseUrl at
-		// any later point, and msw's onUnhandledRequest:"error" would flag the
-		// stray request. Keep such suites' handlers tolerant of
-		// localhost:49999 or move them ahead of this file.
+		// Stray host-triggered refreshes of that leftover group are absorbed
+		// by the baseline localhost:49999 handler in mocks/handlers.ts.
 		for (const view of await declared()) {
 			await inject({ type: "removeServerSetting", label: view.label, requestId: `pi-teardown-${view.label}` });
 		}
