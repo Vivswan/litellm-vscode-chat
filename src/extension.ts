@@ -28,14 +28,13 @@ import {
 } from "./extension/servers/serverSync";
 import { createUsagePollerEnv, registerRefreshUsageCommand, UsagePoller } from "./extension/servers/usage";
 import {
+	createTestEntrySeams,
 	registerHelpAndFeedbackCommand,
 	registerOpenGroupsFileCommand,
 	registerReportIssueCommand,
 	registerSyncModelsCommand,
 	registerTestCommands,
 	registerTestConnectionCommand,
-	testEntryDeclaredOverride,
-	testEntryModelCapabilitiesOverride,
 } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
 import {
@@ -116,6 +115,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// after migration: there is no programmatic way to remove provider groups,
 	// so the host-fidelity suite drives models through the registry.
 	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
+	// The litellm._test.setEntry* seams for the registry path (no programmatic
+	// provider-group removal, so the host-fidelity and docker suites exercise
+	// entry records there). The seams exist only in non-production mode, and
+	// the composed resolvers below are the single entry-record read path for
+	// both the provider and the dashboard's capability inspector.
+	const testEntrySeams = testMode ? createTestEntrySeams() : undefined;
+	const getEntryModelCapabilities =
+		testEntrySeams === undefined
+			? readEntryModelCapabilities
+			: (label: string, baseUrl: string) =>
+					testEntrySeams.capabilities.get(label) ?? readEntryModelCapabilities(label, baseUrl);
+	const getEntryDeclaredModels =
+		testEntrySeams === undefined
+			? readEntryDeclaredModels
+			: (label: string, baseUrl: string) =>
+					testEntrySeams.declared.get(label) ?? readEntryDeclaredModels(label, baseUrl);
 	const isMigrated = () => isGroupMigrationComplete(context.globalState);
 	// The management UI mode is also the registry-liveness truth (see
 	// REGISTRY_SERVED_IN_MODE): the dashboard once the registry is migrated
@@ -156,15 +171,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		logger,
 		getServers: () => registry.getServersWithKeys(),
 		getEntryModelParameters: readEntryModelParameters,
-		// The test seams answer first (inert in production; see commands.ts),
-		// so the host-fidelity and docker suites can exercise entry-level
-		// capability records and declared models on the registry path without
-		// the servers-setting sync machinery.
-		getEntryModelCapabilities: (label, baseUrl) =>
-			testEntryModelCapabilitiesOverride(label) ?? readEntryModelCapabilities(label, baseUrl),
+		getEntryModelCapabilities,
 		getEntryHeaders: readEntryHeaders,
-		getEntryDeclaredModels: (label, baseUrl) =>
-			testEntryDeclaredOverride(label) ?? readEntryDeclaredModels(label, baseUrl),
+		getEntryDeclaredModels,
 		getExpectedFailures: readEntryExpectedFailures,
 		getCatalogLookup: () => catalogStore.lookup,
 		grouplessRegistryEnabled: () => REGISTRY_SERVED_IN_MODE[getManagementUiMode()],
@@ -315,7 +324,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		registry,
 		groupRemovals,
 		catalogStore,
-		usagePoller
+		usagePoller,
+		getEntryModelCapabilities
 	);
 	syncEngine.onDidSync = () => dashboard.refresh();
 	// The usage surfaces over the poller's store: the status bar item beside
@@ -395,7 +405,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Test-only commands; registered after the sync engine and the dashboard
 	// exist because the docker-serversync suite reads the engine's declared
 	// views through them and the monkey fuzzer injects dashboard messages.
-	registerTestCommands(context, registry, provider, issueReporter, syncEngine, dashboard);
+	if (testEntrySeams !== undefined) {
+		registerTestCommands(context, registry, provider, issueReporter, syncEngine, dashboard, testEntrySeams);
+	}
 	// The docker-resolution suite's deterministic catalog seeding (inert in
 	// production, like the commands above).
 	registerOpenRouterCatalogTestSeam(context, catalogStore);

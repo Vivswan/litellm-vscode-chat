@@ -416,7 +416,8 @@ export function registerTestCommands(
 	provider: ModelInfoProvider & StatusSnapshotProvider,
 	issueReporter: Pick<IssueReporter, "getRecentLogs">,
 	syncEngine: Pick<ServerSyncEngine, "getDeclared">,
-	dashboard: Pick<DashboardController, "injectMessageForTest">
+	dashboard: Pick<DashboardController, "injectMessageForTest">,
+	seams: TestEntrySeams
 ): void {
 	if (context.extensionMode === vscode.ExtensionMode.Production) {
 		return;
@@ -523,9 +524,9 @@ export function registerTestCommands(
 			"litellm._test.setEntryModelCapabilities",
 			(label: string, record: Record<string, Record<string, unknown>> | undefined) => {
 				if (record === undefined) {
-					testEntryCapabilities.delete(label);
+					seams.capabilities.delete(label);
 				} else {
-					testEntryCapabilities.set(label, record);
+					seams.capabilities.set(label, record);
 				}
 			}
 		),
@@ -535,32 +536,26 @@ export function registerTestCommands(
 			"litellm._test.setEntryDeclared",
 			(label: string, declared: readonly string[] | undefined) => {
 				if (declared === undefined) {
-					testEntryDeclared.delete(label);
+					seams.declared.delete(label);
 				} else {
-					testEntryDeclared.set(label, [...declared]);
+					seams.declared.set(label, [...declared]);
 				}
 			}
 		)
 	);
 }
 
-/** Test-only entry-capability records by entry label; written solely by litellm._test.setEntryModelCapabilities. */
-const testEntryCapabilities = new Map<string, Record<string, Record<string, unknown>>>();
-
-/** Test-only declared-model lists by entry label; written solely by litellm._test.setEntryDeclared. */
-const testEntryDeclared = new Map<string, readonly string[]>();
-
 /**
- * The test seam's read side, consulted by activate()'s
- * getEntryModelCapabilities wiring ahead of the servers setting. Inert in
- * production: the command that writes the map never registers there, so this
- * always answers undefined.
+ * The registry path's entry-level test seams: label-keyed capability records
+ * and declared-model lists, written by the litellm._test.setEntry* commands.
+ * activate() creates them in non-production mode only and composes them into
+ * the entry resolvers there, so production resolution never holds test state.
  */
-export function testEntryModelCapabilitiesOverride(label: string): Record<string, Record<string, unknown>> | undefined {
-	return testEntryCapabilities.get(label);
+export interface TestEntrySeams {
+	readonly capabilities: Map<string, Record<string, Record<string, unknown>>>;
+	readonly declared: Map<string, readonly string[]>;
 }
 
-/** The declared-models twin of testEntryModelCapabilitiesOverride; inert in production the same way. */
-export function testEntryDeclaredOverride(label: string): readonly string[] | undefined {
-	return testEntryDeclared.get(label);
+export function createTestEntrySeams(): TestEntrySeams {
+	return { capabilities: new Map(), declared: new Map() };
 }
