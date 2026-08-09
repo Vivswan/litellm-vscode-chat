@@ -87,8 +87,8 @@ export async function seedUsageBudgetKey(baseUrl: string, masterKey: string): Pr
 /**
  * seedUsageBudgetKey against the running compose stack, resolving the port
  * and master key exactly as compose does (shell env over .env over the stack
- * defaults). scripts/stack/compose.ts awaits it after a detached `up`;
- * scripts/stack/seed-usage.ts wraps it for synchronous callers.
+ * defaults). Both stack-starting paths await it: scripts/stack/compose.ts
+ * after a detached `up`, scripts/docker-test.ts after `up --wait`.
  */
 export async function seedStackUsageBudgetKey(): Promise<void> {
 	const envFile = readEnvFile();

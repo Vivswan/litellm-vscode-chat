@@ -37,14 +37,14 @@ async function main(): Promise<number> {
 	// teardown, so there is no stack left to seed by the time it returns.
 	// A seed failure warns instead of failing the start: the stack itself is
 	// up and serves everything except the usage fixture (the test
-	// orchestrator seeds via scripts/stack/seed-usage.ts and DOES fail hard).
+	// orchestrator awaits the same seeding and DOES fail hard).
 	if (args[0] === "up" && code === 0 && (args.includes("-d") || args.includes("--detach"))) {
 		try {
 			await seedStackUsageBudgetKey();
 		} catch (error) {
 			console.warn(
 				`[compose] usage/budget fixture seeding failed: ${error instanceof Error ? error.message : error}. ` +
-					"The stack is up without it; rerun: bun scripts/stack/seed-usage.ts"
+					"The stack is up without it; rerun: bun run docker:up"
 			);
 		}
 	}
