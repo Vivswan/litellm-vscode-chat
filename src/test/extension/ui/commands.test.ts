@@ -2,7 +2,13 @@ import * as assert from "node:assert";
 import { APIConnectionError, APIError, AuthenticationError } from "openai";
 import * as vscode from "vscode";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
-import { registerTestCommands, runConnectionTest, runModelSync, runReportIssue } from "../../../extension/ui/commands";
+import {
+	createTestEntrySeams,
+	registerTestCommands,
+	runConnectionTest,
+	runModelSync,
+	runReportIssue,
+} from "../../../extension/ui/commands";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
@@ -1067,7 +1073,8 @@ suite("extension/ui/commands", () => {
 				{ provideLanguageModelChatInformation: async () => [], getServerSnapshots: () => [] },
 				{ getRecentLogs: () => [] },
 				{ getDeclared: () => [] },
-				{ injectMessageForTest: async () => "ok" as const }
+				{ injectMessageForTest: async () => "ok" as const },
+				createTestEntrySeams()
 			);
 			assert.strictEqual(context.subscriptions.length, 0, "the production gate must register nothing");
 		});
