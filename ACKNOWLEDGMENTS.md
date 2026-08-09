@@ -41,6 +41,8 @@ commit that introduced this file.
 | [@emelylongpre1414](https://github.com/emelylongpre1414) | Diagnostics report that surfaced the issue-reporter double-encoding bug ([#189](https://github.com/Vivswan/litellm-vscode-chat/issues/189)) |
 | [@gavinvw](https://github.com/gavinvw) | Models not shown in the Language Models window ([#188](https://github.com/Vivswan/litellm-vscode-chat/issues/188)) |
 | [@i20dv](https://github.com/i20dv) | Diagnostics report that surfaced the issue-reporter double-encoding bug ([#191](https://github.com/Vivswan/litellm-vscode-chat/issues/191)) |
+| [@jiang-xiche](https://github.com/jiang-xiche) | Per-model capability overrides, declared models, and the fallback/force directives ([#228](https://github.com/Vivswan/litellm-vscode-chat/issues/228)) |
+| [@jiang-xiche](https://github.com/jiang-xiche) | Usage panel with budget alerts ([#232](https://github.com/Vivswan/litellm-vscode-chat/issues/232)) |
 | [@K0IN](https://github.com/K0IN) | Reasoning effort selection request ([#177](https://github.com/Vivswan/litellm-vscode-chat/issues/177)) |
 | [@kfkawalec](https://github.com/kfkawalec) | Pasted/attached images never reaching LiteLLM ([#73](https://github.com/Vivswan/litellm-vscode-chat/issues/73)) |
 | [@kushagra-patel-nykaa](https://github.com/kushagra-patel-nykaa) | Models missing on VS Code 1.120+, `isUserSelectable` placement ([#119](https://github.com/Vivswan/litellm-vscode-chat/issues/119)) |
