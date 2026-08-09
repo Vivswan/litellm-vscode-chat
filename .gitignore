@@ -2,6 +2,54 @@
 # BEGIN REPOSITORY LOCAL
 # Add repository-specific ignore patterns in this section only.
 
+# Agent configs: only the checked-in settings/hooks files are tracked
+.claude/*
+!.claude/settings.json
+.codex/*
+!.codex/hooks.json
+.worktrees/
+.impeccable/
+
+# IDEs and editors
+.idea/
+
+# tsc outDir (tests run from here; the published bundle lives in dist/)
+out
+
+# Packaged extension artifacts
+*.vsix
+
+# Generated at bundle time from runtime dependencies' license files
+ThirdPartyNotices.txt
+
+# Auto-generated VS Code type definitions
+/vscode.d.ts
+
+# npm lockfile (using Bun instead)
+package-lock.json
+
+.husky/_/
+
+# One-shot seed dropped by `bun run dev`, consumed on activation
+.dev-seed.json
+
+# Dedicated persistent profile for the dev launcher's Extension Development
+# Host; scripts/dev/dev.ts wipes it whenever the seed configuration changes
+.dev-profile/
+
+# Runtime-generated LiteLLM proxy config (scripts/stack/litellmConfig.ts); every
+# stack startup path regenerates it
+docker/.generated/
+
+# GitHub Copilot device-flow token seeded by `bun run copilot-login`; the
+# directory itself is tracked (via .gitkeep) so docker-compose always has
+# its mountpoint on a fresh checkout
+docker/.copilot-token/*
+!docker/.copilot-token/.gitkeep
+
+# Live log tees written by `bun run dev` (litellm, fake-openai, extension)
+/logs/
+
 # END REPOSITORY LOCAL
 
 # BEGIN REPO-PLATFORM MANAGED
