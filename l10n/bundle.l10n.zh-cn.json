@@ -282,7 +282,7 @@
 	"How often per-server spend and budget data refresh; 0 turns polling off.": "各服务器消费和预算数据的刷新频率; 0 表示关闭轮询。",
 	"How often spend and budget data refresh in the background; type 5m, 90s, or plain ms. 0 turns polling off - the dashboard and Refresh Usage Now still fetch on demand./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": "消费和预算数据在后台刷新的频率; 可输入 5m、90s 或纯毫秒数。0 表示关闭轮询 - 仪表板和「立即刷新用量」仍可按需获取。",
 	"IDs are exact; a declaration goes inert once discovery lists the ID.": "ID 为精确匹配; 一旦发现列出该 ID, 声明即不再起作用。",
-	"Inheritance: fix the _inherit_from row below": "继承: 请修正下方的 _inherit_from 行",
+	"Inheritance: edit the _inherit_from row below": "继承: 请编辑下方的 _inherit_from 行",
 	"Inherits": "继承",
 	"Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.": "以内联方式存于 servers 设置中, settings.json 已明文显示它; 不作修改直接保存会保留原值。",
 	"Input tokens": "输入 token 数",

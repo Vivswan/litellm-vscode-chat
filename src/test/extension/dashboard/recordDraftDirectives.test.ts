@@ -3,6 +3,7 @@ import type { PrefixGroup } from "../../../extension/dashboard/recordDraft";
 import {
 	capabilityGroupsFromJsonText,
 	directiveEligible,
+	directiveRowAbsorbed,
 	inheritFromChoice,
 	parseCapabilityGroups,
 	parseGroups,
@@ -130,6 +131,16 @@ suite("extension/dashboard/recordDraft inheritance directives", () => {
 			assert.deepStrictEqual(inheritFromChoice(group("g", [["_inherit_from", "{broken"]])), { kind: "unreadable" });
 		});
 
+		test("a list the comma-joined keys input cannot reproduce reads unreadable: the select must not rewrite it", () => {
+			for (const value of ['["base,blue"]', '[" padded"]', '[""]']) {
+				assert.deepStrictEqual(
+					inheritFromChoice(group("g", [["_inherit_from", value]])),
+					{ kind: "unreadable" },
+					value
+				);
+			}
+		});
+
 		test("every choice written round-trips back through inheritFromChoice", () => {
 			assert.deepStrictEqual(inheritFromChoice(setInheritFromChoice(base, "all")), { kind: "all" });
 			assert.deepStrictEqual(inheritFromChoice(setInheritFromChoice(base, "none")), { kind: "none" });
@@ -174,6 +185,81 @@ suite("extension/dashboard/recordDraft inheritance directives", () => {
 		assert.strictEqual(directiveEligible("_inheritable", "_inherit_from"), false, "directives never mark directives");
 		assert.strictEqual(directiveEligible("_inheritable", "_force"), false);
 		assert.strictEqual(directiveEligible("_inheritable", ""), false);
+	});
+
+	suite("directiveRowAbsorbed", () => {
+		const flags = ["_force", "_inheritable"] as const;
+
+		test("absorbs booleans, lists of eligible row keys, and round-trippable _inherit_from shapes", () => {
+			const boolTrue = group("g", [
+				["temperature", "0.5"],
+				["_force", "true"],
+			]);
+			assert.strictEqual(directiveRowAbsorbed(boolTrue, 1, flags), true);
+			const list = group("g", [
+				["temperature", "0.5"],
+				["_inheritable", '["temperature"]'],
+			]);
+			assert.strictEqual(directiveRowAbsorbed(list, 1, flags), true);
+			for (const value of ["true", "false", "[]", '["not-a-record-key-here"]']) {
+				const inheritFrom = group("g", [["_inherit_from", value]]);
+				assert.strictEqual(directiveRowAbsorbed(inheritFrom, 0, flags), true, `_inherit_from ${value}`);
+			}
+		});
+
+		test("keeps rows the controls cannot fully show: unreadable values, stranded entries, duplicates", () => {
+			const unreadable = group("g", [["_force", "42"]]);
+			assert.strictEqual(directiveRowAbsorbed(unreadable, 0, flags), false);
+			const stranded = group("g", [
+				["temperature", "0.5"],
+				["_force", '["ghost"]'],
+			]);
+			assert.strictEqual(directiveRowAbsorbed(stranded, 1, flags), false, "no row's checkbox can display ghost");
+			const unforceable = group("g", [
+				["model", '"other"'],
+				["_force", '["model"]'],
+			]);
+			assert.strictEqual(directiveRowAbsorbed(unforceable, 1, flags), false);
+			const duplicated = group("g", [
+				["_inherit_from", "true"],
+				["_inherit_from", "false"],
+			]);
+			assert.strictEqual(directiveRowAbsorbed(duplicated, 0, flags), false);
+			assert.strictEqual(directiveRowAbsorbed(duplicated, 1, flags), false);
+		});
+
+		test("keeps checkbox directives in a group with no eligible row: there is no box to carry the state", () => {
+			// A bare `_force: true` absorbed here would vanish entirely - and
+			// silently arm itself for the next added row.
+			for (const value of ["true", "false", "[]"]) {
+				const alone = group("g", [["_force", value]]);
+				assert.strictEqual(directiveRowAbsorbed(alone, 0, flags), false, `_force ${value}`);
+			}
+			const withDirectivesOnly = group("g", [
+				["_inherit_from", "false"],
+				["_inheritable", "true"],
+			]);
+			assert.strictEqual(directiveRowAbsorbed(withDirectivesOnly, 1, flags), false, "directives are not eligible rows");
+		});
+
+		test("keeps _inherit_from lists the control's comma-joined keys input cannot round-trip", () => {
+			for (const value of ['["base,blue"]', '[" padded"]', '[""]']) {
+				const lossy = group("g", [["_inherit_from", value]]);
+				assert.strictEqual(directiveRowAbsorbed(lossy, 0, flags), false, `_inherit_from ${value}`);
+			}
+		});
+
+		test("never absorbs plain rows or directives outside the caller's flag set", () => {
+			const plain = group("g", [["supports_vision", "true"]]);
+			assert.strictEqual(directiveRowAbsorbed(plain, 0, flags), false, "a boolean value is not a directive");
+			const fallback = group("g", [
+				["context_length", "128000"],
+				["_fallback", "true"],
+			]);
+			assert.strictEqual(directiveRowAbsorbed(fallback, 1, flags), false, "_fallback is not this editor's flag");
+			assert.strictEqual(directiveRowAbsorbed(fallback, 1, ["_fallback", "_inheritable"]), true);
+			assert.strictEqual(directiveRowAbsorbed(plain, 5, flags), false, "out of range");
+		});
 	});
 
 	suite("capabilityGroupsFromJsonText", () => {

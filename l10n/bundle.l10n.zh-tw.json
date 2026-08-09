@@ -282,7 +282,7 @@
 	"How often per-server spend and budget data refresh; 0 turns polling off.": "各伺服器花費與預算資料的重新整理頻率; 0 表示關閉輪詢。",
 	"How often spend and budget data refresh in the background; type 5m, 90s, or plain ms. 0 turns polling off - the dashboard and Refresh Usage Now still fetch on demand./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": "花費與預算資料在背景重新整理的頻率; 可輸入 5m、90s 或純毫秒數。0 表示關閉輪詢 - 儀表板與「立即重新整理用量」仍可隨需取得。",
 	"IDs are exact; a declaration goes inert once discovery lists the ID.": "ID 為精確比對; 一旦探索列出該 ID, 宣告即不再作用。",
-	"Inheritance: fix the _inherit_from row below": "繼承: 請修正下方的 _inherit_from 列",
+	"Inheritance: edit the _inherit_from row below": "繼承: 請編輯下方的 _inherit_from 列",
 	"Inherits": "繼承",
 	"Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.": "內嵌於 servers 設定中, settings.json 已可看到; 未修改就儲存會保留原值。",
 	"Input tokens": "輸入 token",
