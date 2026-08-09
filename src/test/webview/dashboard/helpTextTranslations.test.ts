@@ -9,19 +9,11 @@
  * guard passes with zero translated bundles and tightens as they land;
  * missing or untranslated keys are the parity suite's job
  * (src/test/l10n/bundleParity.test.ts), not this one's.
- *
- * The collector tolerates both helpText shapes so this suite is green on
- * either side of the lazy-catalog refactor: the pre-refactor module (HELP_X
- * string constants plus the SERVER_FIELD_HELP / SETTING_ROW_HELP records)
- * and the post-refactor one (zero-arg helpX() functions plus
- * serverFieldHelp(field) and settingRowHelp(id), fanned out explicitly over
- * their domains, since arity-taking helpers are invisible to generic
- * collection). SETTING_ROW_HELP_IDS is an ID list, not help text; arrays
- * are never collected from.
  */
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { ServerFormField } from "../../../extension/dashboard/serverForm";
 import { EMPTY_SERVER_FORM } from "../../../extension/dashboard/serverForm";
 import * as helpText from "../../../webview/dashboard/helpText";
 import { bannedTypography } from "../../util/l10n";
@@ -34,38 +26,26 @@ function addIfString(value: unknown, into: Set<string>): void {
 	}
 }
 
-/** Every English help string the module exports, whichever shape it currently has. */
+/**
+ * Every English help string the module exports: the zero-arg helpX()
+ * functions swept generically (a newly added helpX is collected
+ * automatically), plus the two arg-taking helpers fanned out over their
+ * whole domains, since arity-taking helpers are invisible to the sweep.
+ */
 function collectEnglishHelp(): Set<string> {
-	const mod: Record<string, unknown> = { ...helpText };
 	const english = new Set<string>();
-	for (const value of Object.values(mod)) {
-		if (typeof value === "string") {
-			english.add(value); // Pre-refactor HELP_X constants.
-			continue;
-		}
+	for (const value of Object.values({ ...helpText })) {
 		if (typeof value === "function" && value.length === 0) {
-			addIfString((value as () => unknown)(), english); // Post-refactor helpX().
-			continue;
-		}
-		if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-			// Pre-refactor SERVER_FIELD_HELP / SETTING_ROW_HELP records.
-			for (const nested of Object.values(value)) {
-				addIfString(nested, english);
-			}
+			addIfString((value as () => unknown)(), english);
 		}
 	}
-	// Post-refactor arg-taking helpers, fanned out over their whole domains.
-	const serverFieldHelp = mod.serverFieldHelp;
-	if (typeof serverFieldHelp === "function") {
-		for (const field of Object.keys(EMPTY_SERVER_FORM)) {
-			addIfString((serverFieldHelp as (field: string) => unknown)(field), english);
-		}
+	for (const field of Object.keys(EMPTY_SERVER_FORM) as ServerFormField[]) {
+		english.add(helpText.serverFieldHelp(field));
 	}
-	const settingRowHelp = mod.settingRowHelp;
-	const rowIds = mod.SETTING_ROW_HELP_IDS;
-	if (typeof settingRowHelp === "function" && Array.isArray(rowIds)) {
-		for (const id of rowIds) {
-			addIfString((settingRowHelp as (id: unknown) => unknown)(id), english);
+	for (const id of helpText.SETTING_ROW_HELP_IDS) {
+		const help = helpText.settingRowHelp(id);
+		if (help !== undefined) {
+			english.add(help);
 		}
 	}
 	return english;
@@ -73,10 +53,7 @@ function collectEnglishHelp(): Set<string> {
 
 test("every translated help string keeps the help-text contract", () => {
 	const english = collectEnglishHelp();
-	// 11 section/field-editor strings + one per server-form field + one per
-	// SETTING_ROW_HELP id, on both sides of the refactor. A drop below the
-	// floor means the export shape changed and the collector above went
-	// partially blind; teach it the new shape instead of lowering the floor.
+	// Floor: a helpX() given an arity would silently drop out of the sweep.
 	expect(english.size).toBeGreaterThanOrEqual(25);
 
 	const l10nDir = path.join(repoRoot, "l10n");
