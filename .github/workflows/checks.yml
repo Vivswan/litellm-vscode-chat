@@ -30,17 +30,20 @@ jobs:
   # times of main run 30593932251 (docker 41s + transport 62s against
   # serversync 15s + fuzz 5s + conversation 6s + host-fidelity 5s +
   # monkey 69s; the usage/budget smoke adds well under a second to shard
-  # one); the drift guard in src/test/stackDrift.test.ts pins each
-  # list to the orchestrator's known labels and the union to the full set.
-  # No `if:` on the shards: a skipped matrix job would count green in the
-  # aggregate (see the header note).
+  # one, and the two split-off group suites - the provider-group chat path
+  # on shard one, the capture-mode group-label round trip on shard two -
+  # run sub-second each; their cost is one extra extension-host boot per
+  # shard); the drift guard in src/test/stackDrift.test.ts
+  # pins each list to the orchestrator's known labels and the union to the
+  # full set. No `if:` on the shards: a skipped matrix job would count
+  # green in the aggregate (see the header note).
   docker-stack:
     strategy:
       fail-fast: false
       matrix:
         labels:
-          - 'docker,docker-usage,docker-transport,docker-resolution'
-          - 'docker-serversync,docker-fuzz,docker-conversation,host-fidelity,docker-monkey'
+          - 'docker,docker-usage,docker-transport,docker-resolution,docker-group-path'
+          - 'docker-serversync,docker-fuzz,docker-conversation,host-fidelity,host-fidelity-groups,docker-monkey'
     uses: ./.github/workflows/test-reusable.yml
     with:
       os: 'ubuntu-latest'

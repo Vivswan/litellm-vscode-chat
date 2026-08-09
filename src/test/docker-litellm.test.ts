@@ -1110,45 +1110,4 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(response.status, 413);
 		});
 	});
-
-	// --- Provider-group chat path -------------------------------------------
-	// Everything above drives the legacy registry transport. This suite pins
-	// the VS Code-managed provider-group path end to end against a proxy that
-	// REQUIRES the master key: group creation through the host command, model
-	// resolution through the per-group provider call, and a chat whose
-	// credentials ride the model's litellm metadata across the host round
-	// trip. The registry is cleared first, so a chat that loses the group
-	// credentials anywhere along that path fails here (as a 401 if the key is
-	// dropped from the request, or as a routing error if the metadata is
-	// stripped) instead of silently falling back. Deliberately LAST in the
-	// file: the created group cannot be removed programmatically and serves
-	// models for the rest of the host's lifetime.
-	suite("provider-group chat path", () => {
-		suiteSetup(async function () {
-			this.timeout(90000);
-			await clearServers();
-			await vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", {
-				name: "Docker Group Path",
-				vendor: "litellm",
-				baseUrl: BASE_URL,
-				apiKey: API_KEY,
-			});
-		});
-
-		test("a group model chats with the group's own credentials", async function () {
-			this.timeout(60000);
-			const models = await waitForHostModels(
-				60000,
-				(candidates) => candidates.some((m) => m.id === PLAYBACK_MODEL.alias),
-				`the provider group to expose ${PLAYBACK_MODEL.alias}`
-			);
-			const model = expectDefined(models.find((m) => m.id === PLAYBACK_MODEL.alias));
-			const response = await model.sendRequest(
-				[vscode.LanguageModelChatMessage.User("hi")],
-				{},
-				new vscode.CancellationTokenSource().token
-			);
-			assert.strictEqual(extractText(await collectStream(response)), FALLBACK_TEXT);
-		});
-	});
 });
