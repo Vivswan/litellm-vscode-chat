@@ -1970,7 +1970,11 @@ export function ServersSection({
 	// Usage is tracked per declared entry and keyed by its label (the usage
 	// store's documented join key back to the server rows), so only declared
 	// rows look it up; a URL spelling difference must not break the join.
-	const usageByLabel = new Map((usage?.servers ?? []).map((view) => [view.label, view]));
+	// Forbidden-usage cards carry no numbers, so they stay out of the join
+	// and their rows show an empty cell; the Usage tab renders their story.
+	const usageByLabel = new Map(
+		(usage?.servers ?? []).flatMap((view) => (view.kind === "usage" ? [[view.label, view] as const] : []))
+	);
 
 	return (
 		<section>
