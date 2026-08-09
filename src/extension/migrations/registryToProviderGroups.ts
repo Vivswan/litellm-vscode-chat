@@ -575,7 +575,7 @@ async function retryPendingSecretDeletions(
 
 async function removeMigratedServer(registry: ServerRegistry, server: ServerWithKey, logger: Logger): Promise<void> {
 	try {
-		await registry.removeServer(server.id);
+		await registry.removeServerUnguarded(server.id);
 	} catch (error) {
 		logger.error("Failed to remove a migrated server from the registry", error);
 	}
@@ -623,7 +623,7 @@ async function cleanUpOrphanedServers(
 	logger.log(`Removing ${orphans.length} orphaned registry server(s) left behind by the group migration`);
 	for (const orphan of orphans) {
 		try {
-			await registry.removeServer(orphan.id);
+			await registry.removeServerUnguarded(orphan.id);
 		} catch (error) {
 			await persistPendingSecretDeletions(globalState, [orphan.id]);
 			logger.error("Failed to remove an orphaned server from the registry", error);

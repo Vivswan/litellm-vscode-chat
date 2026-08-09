@@ -13,6 +13,7 @@ import {
 	type ManagementUiMode,
 	REGISTRY_SERVED_IN_MODE,
 	registerManageCommand,
+	registryMutationVerdict,
 } from "./extension/servers/serverManagement";
 import { ServerRegistry } from "./extension/servers/serverRegistry";
 import {
@@ -145,6 +146,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}
 		return registry.getServers().length === 0 ? "groupsWithRegistry" : "legacy";
 	};
+	// The registry-side enforcement of the same verdict the prompt flows show
+	// notices for: mutators refuse with typed errors while the migration seeds
+	// groups or after it retired the registry; the migrations and the
+	// litellm._test.* seams mutate through the unguarded methods.
+	registry.installMutationGuard(() => registryMutationVerdict(getManagementUiMode));
 	// Groups the user explicitly removed (the host command is add-only, so
 	// removal works by tombstoning): the provider consults the store on every
 	// group refresh, and tombstone changes fire the model-change event below.

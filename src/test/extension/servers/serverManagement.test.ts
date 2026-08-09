@@ -4,12 +4,16 @@ import { migrateServersToProviderGroups } from "../../../extension/migrations/re
 import {
 	canMutateRegistry,
 	EXTENSION_SETTINGS_FILTER,
-	ensureRegistryMutable,
 	type ManagementUiMode,
 	registerManageCommand,
+	registryMutationVerdict,
 	warnAboutOrphanedModelParameters,
 } from "../../../extension/servers/serverManagement";
-import { ServerRegistry } from "../../../extension/servers/serverRegistry";
+import {
+	MigrationInProgressError,
+	RegistryRetiredError,
+	ServerRegistry,
+} from "../../../extension/servers/serverRegistry";
 import { Logger } from "../../../shared/logger";
 import {
 	assertContains,
@@ -279,7 +283,12 @@ suite("extension/servers/serverManagement", () => {
 				error: (message: string) => logged.push(message),
 			});
 			const seeded = registry.getServers().map(({ id, label, baseUrl }) => ({ id, label, baseUrl }));
-			const handler = captureManageHandlers(registry, logger, plan.mode ?? "legacy").manageServers;
+			const planMode = plan.mode ?? "legacy";
+			const getUiMode = typeof planMode === "function" ? planMode : () => planMode;
+			// The same wiring as activation: the registry enforces the verdict at
+			// write time, and the flows map the typed refusals onto their notices.
+			registry.installMutationGuard(() => registryMutationVerdict(getUiMode));
+			const handler = captureManageHandlers(registry, logger, getUiMode).manageServers;
 
 			const result: WalkResult = {
 				registry,
@@ -575,6 +584,46 @@ suite("extension/servers/serverManagement", () => {
 			assert.strictEqual(await run.registry.getApiKey(server.id), "k");
 		});
 
+		test("a migration starting while the prompts are open aborts the write with the try-again notice", async () => {
+			const migrationStorage = makeExtensionStorage();
+			const migrationRegistry = new ServerRegistry(migrationStorage.memento, migrationStorage.secrets);
+			await migrationRegistry.addServer("Prod", "http://prod.test", "");
+			const logger = new Logger({ info: () => {}, error: () => {} });
+			let release: (() => void) | undefined;
+			const seeding = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			let migration: Promise<boolean> | undefined;
+
+			const run = await runServerWalk({
+				inputs: [
+					"Racing",
+					"http://localhost:4000",
+					() => {
+						// The migration takes its module-level lock while the key
+						// prompt is open; the registry's write-time guard must refuse
+						// the racing add with the try-again notice.
+						migration = migrateServersToProviderGroups(
+							migrationRegistry,
+							migrationStorage.memento,
+							migrationStorage.secrets,
+							logger,
+							fakeFingerprintSaltSession(),
+							() => seeding
+						);
+						return "sk-key";
+					},
+				],
+			});
+
+			assert.deepStrictEqual(run.registry.getServers(), [], "the racing add must be refused");
+			const notices = run.infoToasts.filter((toast) => toast.message.includes("migration is in progress"));
+			assert.strictEqual(notices.length, 1, "the try-again notice fires exactly once");
+
+			expectDefined(release)();
+			await expectDefined(migration);
+		});
+
 		test("a migration completing while the add prompts are open aborts the write with the dashboard notice", async () => {
 			let migrated = false;
 			const run = await runServerWalk({
@@ -583,8 +632,8 @@ suite("extension/servers/serverManagement", () => {
 					"Prod",
 					"http://localhost:4000",
 					() => {
-						// The migration lands while the key prompt is open; the re-check
-						// after the prompts must abort the orphan-to-be write.
+						// The migration lands while the key prompt is open; the registry's
+						// write-time guard must abort the orphan-to-be write.
 						migrated = true;
 						return "sk-key";
 					},
@@ -740,50 +789,63 @@ suite("extension/servers/serverManagement", () => {
 		});
 	});
 
-	suite("ensureRegistryMutable", () => {
-		test("refuses with a message while a migration is seeding and allows afterwards", async () => {
+	suite("registry mutation guard", () => {
+		test("the verdict reads 'migrating' while a migration is seeding, and guarded mutators refuse with typed errors", async () => {
 			const storage = makeExtensionStorage();
 			const registry = new ServerRegistry(storage.memento, storage.secrets);
 			await registry.addServer("Production", "http://prod.test", "");
 			const logger = new Logger({ info: () => {}, error: () => {} });
+
+			const getUiMode = (): ManagementUiMode => "legacy";
+			registry.installMutationGuard(() => registryMutationVerdict(getUiMode));
 
 			let release: (() => void) | undefined;
 			const seeding = new Promise<void>((resolve) => {
 				release = resolve;
 			});
 
-			const messages: string[] = [];
-			const origInfo = vscode.window.showInformationMessage;
-			(vscode.window as Record<string, unknown>).showInformationMessage = async (message: string) => {
-				messages.push(message);
-				return undefined;
-			};
-			try {
-				assert.strictEqual(ensureRegistryMutable(), true, "mutations are allowed while no migration runs");
+			assert.strictEqual(registryMutationVerdict(getUiMode), "ok", "mutations are allowed while no migration runs");
 
-				const migration = migrateServersToProviderGroups(
-					registry,
-					storage.memento,
-					storage.secrets,
-					logger,
-					fakeFingerprintSaltSession(),
-					() => seeding
-				);
-				// A macrotask lets the migration reach the blocked host command.
-				await new Promise((resolve) => setTimeout(resolve, 0));
+			const migration = migrateServersToProviderGroups(
+				registry,
+				storage.memento,
+				storage.secrets,
+				logger,
+				fakeFingerprintSaltSession(),
+				() => seeding
+			);
+			// A macrotask lets the migration reach the blocked host command.
+			await new Promise((resolve) => setTimeout(resolve, 0));
 
-				assert.strictEqual(ensureRegistryMutable(), false, "mutations must be refused while seeding runs");
-				assert.strictEqual(messages.length, 1);
-				assert.ok(expectDefined(messages[0]).includes("migration is in progress"), expectDefined(messages[0]));
+			assert.strictEqual(registryMutationVerdict(getUiMode), "migrating");
+			// The write-time enforcement: the mutators themselves refuse, so no
+			// prompt-flow interleaving can slip a write past the running
+			// migration. The migration's own removals go through the unguarded
+			// path and stay unaffected (the completed run below proves it).
+			await assert.rejects(registry.addServer("Racing", "http://racing.test", ""), MigrationInProgressError);
+			await assert.rejects(registry.updateServer("id", "L", "http://x.test", undefined), MigrationInProgressError);
+			await assert.rejects(registry.removeServer("id"), MigrationInProgressError);
 
-				expectDefined(release)();
-				await migration;
+			expectDefined(release)();
+			await migration;
 
-				assert.strictEqual(ensureRegistryMutable(), true, "mutations are allowed again after the migration");
-				assert.strictEqual(messages.length, 1, "no message may be shown when mutating is safe");
-			} finally {
-				(vscode.window as Record<string, unknown>).showInformationMessage = origInfo;
-			}
+			assert.strictEqual(registryMutationVerdict(getUiMode), "ok", "mutations are allowed again after the migration");
+			assert.strictEqual(registry.getServers().length, 0, "the migration's own removals bypassed the guard");
+		});
+
+		test("a retired registry refuses guarded mutations with RegistryRetiredError", async () => {
+			const storage = makeExtensionStorage();
+			const registry = new ServerRegistry(storage.memento, storage.secrets);
+			registry.installMutationGuard(() => registryMutationVerdict(() => "groupsOnly"));
+
+			await assert.rejects(registry.addServer("New", "http://new.test", ""), RegistryRetiredError);
+			assert.strictEqual(registry.getServers().length, 0);
+
+			// The machinery path stays open: post-retirement cleanup and the
+			// legacy import still mutate through the unguarded methods.
+			const added = await registry.addServerUnguarded("Imported", "http://legacy.test", "");
+			await registry.removeServerUnguarded(added.id);
+			assert.strictEqual(registry.getServers().length, 0);
 		});
 	});
 
