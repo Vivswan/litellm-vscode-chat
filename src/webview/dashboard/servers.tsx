@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type {
 	DashboardIntentType,
 	DashboardServer,
+	DashboardUsage,
 	ExpectedFailureCategory,
 	HiddenGroup,
 	SecretFieldId,
 	SecretLocation,
 	SetupHintKind,
 	TransportErrorClassification,
+	UsageServerView,
 } from "../../extension/dashboard/protocol";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
@@ -72,6 +74,7 @@ import type { CatalogSearchResponse } from "./recordEditors";
 import { CapabilityGroupsFields, ParamGroupsFields } from "./recordEditors";
 import { SlideOver } from "./slideOver";
 import { relativeTime } from "./time";
+import { barPresentation, formatPercent, formatUsd } from "./usage";
 import { newRequestId, postMessage } from "./vscodeApi";
 
 /** The entry-only-fields-inactive notice classifications; one merged banner covers all three. */
@@ -1546,8 +1549,30 @@ function AdoptForm({
 	);
 }
 
+/**
+ * The row's spend-at-a-glance, from the same pushed usage snapshot the Usage
+ * tab renders: the spend percentage with the Usage tab's severity tone when a
+ * budget exists, the plain spend when none does, and nothing at all for a
+ * server without usage data (an empty cell, not an "unknown" marker).
+ */
+function UsageCell({ usage, thresholds }: { usage: UsageServerView | undefined; thresholds: readonly number[] }) {
+	if (usage?.spend === undefined) {
+		return null;
+	}
+	if (usage.spentFraction !== undefined) {
+		return (
+			<span class={`usage-cell tone-${barPresentation(usage.spentFraction, thresholds).tone}`}>
+				{formatPercent(usage.spentFraction)}
+			</span>
+		);
+	}
+	return <span class="usage-cell">{formatUsd(usage.spend)}</span>;
+}
+
 function ServerRow({
 	server,
+	usage,
+	usageThresholds,
 	now,
 	armed,
 	onEdit,
@@ -1556,6 +1581,10 @@ function ServerRow({
 	onShowModels,
 }: {
 	server: DashboardServer;
+	/** The server's usage snapshot entry, when its proxy serves usage data. */
+	usage: UsageServerView | undefined;
+	/** The usage snapshot's alert thresholds; the cell's severity tone reads them. */
+	usageThresholds: readonly number[];
 	now: number;
 	armed: boolean;
 	onEdit: () => void;
@@ -1591,6 +1620,9 @@ function ServerRow({
 				) : (
 					server.modelCount
 				)}
+			</td>
+			<td class="num" data-label={l10n.t("Usage")}>
+				<UsageCell usage={usage} thresholds={usageThresholds} />
 			</td>
 			<td>
 				{/* The credential kind is the information, so it is the visible
@@ -1756,6 +1788,7 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 export function ServersSection({
 	servers,
 	hidden = [],
+	usage,
 	now,
 	ack,
 	failures,
@@ -1769,6 +1802,8 @@ export function ServersSection({
 	servers: readonly DashboardServer[];
 	/** Groups hidden by an explicit removal; rendered as the collapsed hidden-groups line. */
 	hidden?: readonly HiddenGroup[];
+	/** The pushed usage snapshot (the Usage tab's source); the rows' Usage cells read it. */
+	usage?: DashboardUsage | undefined;
 	/** The shared clock tick (one useNow in App), so a hidden panel does not run its own interval. */
 	now: number;
 	ack: IntentAck | undefined;
@@ -1931,6 +1966,11 @@ export function ServersSection({
 	const declaredLabels = servers
 		.filter((server) => server.origin === "declared" || server.origin === "misconfigured")
 		.map((server) => server.label);
+
+	// Usage is tracked per declared entry and keyed by its label (the usage
+	// store's documented join key back to the server rows), so only declared
+	// rows look it up; a URL spelling difference must not break the join.
+	const usageByLabel = new Map((usage?.servers ?? []).map((view) => [view.label, view]));
 
 	return (
 		<section>
@@ -2123,6 +2163,7 @@ export function ServersSection({
 								<th>{l10n.t("Base URL")}</th>
 								<th>{l10n.t("Status")}</th>
 								<th class="num">{l10n.t("Models")}</th>
+								<th class="num">{l10n.t("Usage")}</th>
 								<th>{/* badges */}</th>
 								<th>{/* actions */}</th>
 							</tr>
@@ -2138,6 +2179,8 @@ export function ServersSection({
 								<ServerRow
 									key={`${server.origin}:${server.adoptHandle ?? server.label}`}
 									server={server}
+									usage={server.origin === "declared" ? usageByLabel.get(server.label) : undefined}
+									usageThresholds={usage?.thresholds ?? []}
 									now={now}
 									armed={armedRemove === server.label}
 									onEdit={() => {

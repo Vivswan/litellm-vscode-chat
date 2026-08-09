@@ -200,6 +200,10 @@ const STYLES = `
 		text-decoration: underline dotted;
 		text-underline-offset: 2px;
 	}
+	/* A server row's spend-at-a-glance: the Usage tab's numbers and severity
+	   tokens (its warn is editorWarning, not the pill yellow), table-sized. */
+	table.servers .usage-cell { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+	table.servers .usage-cell.tone-warn { color: var(--vscode-editorWarning-foreground); }
 	th, td {
 		text-align: left;
 		padding: 3px 12px 3px 0;

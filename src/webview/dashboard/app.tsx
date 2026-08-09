@@ -554,6 +554,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				<ServersSection
 					servers={state.servers}
 					hidden={state.hiddenGroups}
+					usage={state.usage}
 					now={now}
 					ack={ack}
 					failures={failures}
