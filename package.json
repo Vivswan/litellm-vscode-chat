@@ -4,7 +4,7 @@
 	"description": "%litellm.description%",
 	"version": "0.4.4",
 	"publisher": "vivswan",
-	"license": "SEE LICENSE IN LICENSE",
+	"license": "SEE LICENSE IN LICENSE.md",
 	"icon": "assets/logo.png",
 	"galleryBanner": {
 		"color": "#100f11",
