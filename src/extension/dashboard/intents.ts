@@ -264,40 +264,36 @@ export function validateSaveServerSetting(
 			return `modelParameters: ${problem}`;
 		}
 	}
-	if (server.modelCapabilities !== undefined) {
-		// Same record-of-records shape, same reserved-key rules; capability
-		// vocabulary and value typing stay with the resolver's parse, which
-		// diagnoses rather than refuses (the setting is lenient by design).
-		const problem = validateModelParametersRecord(server.modelCapabilities);
-		if (problem !== undefined) {
-			return `modelCapabilities: ${problem}`;
+	// Same record-of-records shape, same reserved-key rules; capability
+	// vocabulary and value typing stay with the resolver's parse, which
+	// diagnoses rather than refuses (the setting is lenient by design).
+	const capabilitiesProblem = validateModelParametersRecord(server.modelCapabilities);
+	if (capabilitiesProblem !== undefined) {
+		return `modelCapabilities: ${capabilitiesProblem}`;
+	}
+	// Mirrors the form's header-row rules (recordDraft's parse) and the
+	// request path's normalizeCustomHeaders acceptance: names and the value
+	// charset are refused here so a save can never "succeed" on a header the
+	// wire would drop. Header NAMES are structural configuration and may be
+	// echoed; values never are.
+	const seenLower = new Set<string>();
+	for (const [name, value] of Object.entries(server.headers)) {
+		if (isUnsafeRecordKey(name)) {
+			return `headers: "${name}" is a reserved name and cannot be used`;
+		}
+		if (!isValidHeaderName(name)) {
+			return `headers: "${name}" is not a valid HTTP header name`;
+		}
+		const lower = name.toLowerCase();
+		if (seenLower.has(lower)) {
+			return `headers: "${name}" repeats an earlier header name (names are case-insensitive)`;
+		}
+		seenLower.add(lower);
+		if (!isValidHeaderValue(String(value))) {
+			return `headers: the value of "${name}" cannot be sent as an HTTP header`;
 		}
 	}
-	if (server.headers !== undefined) {
-		// Mirrors the form's header-row rules (recordDraft's parse) and the
-		// request path's normalizeCustomHeaders acceptance: names and the value
-		// charset are refused here so a save can never "succeed" on a header the
-		// wire would drop. Header NAMES are structural configuration and may be
-		// echoed; values never are.
-		const seenLower = new Set<string>();
-		for (const [name, value] of Object.entries(server.headers)) {
-			if (isUnsafeRecordKey(name)) {
-				return `headers: "${name}" is a reserved name and cannot be used`;
-			}
-			if (!isValidHeaderName(name)) {
-				return `headers: "${name}" is not a valid HTTP header name`;
-			}
-			const lower = name.toLowerCase();
-			if (seenLower.has(lower)) {
-				return `headers: "${name}" repeats an earlier header name (names are case-insensitive)`;
-			}
-			seenLower.add(lower);
-			if (!isValidHeaderValue(String(value))) {
-				return `headers: the value of "${name}" cannot be sent as an HTTP header`;
-			}
-		}
-	}
-	if (server.budget !== undefined && server.budget !== null) {
+	if (server.budget !== null) {
 		if (!Number.isFinite(server.budget) || server.budget <= 0) {
 			return "budget: must be a number greater than 0";
 		}

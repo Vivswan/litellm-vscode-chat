@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { ensureActivated } from "../../hostApiHelpers";
+import { serverPayload } from "./recordedEnv";
 
 /**
  * Integration over the REAL dashboard wiring: unlike panel.test.ts (fake env
@@ -128,7 +129,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		this.timeout(20000);
 		const outcome = await inject({
 			type: "saveServerSetting",
-			server: { label: "PanelIT", baseUrl: "http://localhost:49999" },
+			server: serverPayload({ label: "PanelIT", baseUrl: "http://localhost:49999" }),
 			secrets: {
 				apiKey: { action: "set", location: "secure", value: "sk-panel-integration-secret" },
 				oauthClientSecret: noTouch,
@@ -154,7 +155,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		this.timeout(30000);
 		await inject({
 			type: "saveServerSetting",
-			server: { label: "PanelIT", baseUrl: "http://localhost:49999" },
+			server: serverPayload({ label: "PanelIT", baseUrl: "http://localhost:49999" }),
 			secrets: {
 				apiKey: { action: "set", location: "secure", value: "sk-carry-me" },
 				oauthClientSecret: noTouch,
@@ -164,7 +165,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		});
 		const renamed = await inject({
 			type: "saveServerSetting",
-			server: { label: "PanelIT-Renamed", baseUrl: "http://localhost:49999" },
+			server: serverPayload({ label: "PanelIT-Renamed", baseUrl: "http://localhost:49999" }),
 			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
 			replaceLabel: "PanelIT",
 			requestId: "pi-rename-1",
@@ -197,12 +198,12 @@ suite("extension/dashboard/panelIntegration", () => {
 		const capabilities = { "my-model": { context_length: 128000, supports_vision: true } };
 		const saved = await inject({
 			type: "saveServerSetting",
-			server: {
+			server: serverPayload({
 				label: "PanelIT-Caps",
 				baseUrl: "http://localhost:49999",
 				modelCapabilities: capabilities,
 				expectedFailures: ["modelListing"],
-			},
+			}),
 			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
 			requestId: "pi-caps-1",
 		});
@@ -223,12 +224,12 @@ suite("extension/dashboard/panelIntegration", () => {
 		// the whole intent -> schema -> saveServer chain, not silently vanish.
 		const edited = await inject({
 			type: "saveServerSetting",
-			server: {
+			server: serverPayload({
 				label: "PanelIT-Caps",
 				baseUrl: "http://localhost:49999",
 				modelCapabilities: capabilities,
 				expectedFailures: ["modelListing", "modelInfo"],
-			},
+			}),
 			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
 			replaceLabel: "PanelIT-Caps",
 			requestId: "pi-caps-2",
@@ -260,7 +261,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		const before = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		const outcome = await inject({
 			type: "testServerDraft",
-			server: { label: "PanelIT-Probe", baseUrl: "http://127.0.0.1:1" },
+			server: serverPayload({ label: "PanelIT-Probe", baseUrl: "http://127.0.0.1:1" }),
 			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
 			requestId: "pi-test-1",
 		});
