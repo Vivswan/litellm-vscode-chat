@@ -465,7 +465,9 @@ export function registerTestCommands(
 			async (label: string, baseUrl: string, apiKey: string) => {
 				let server: ServerConfig | undefined;
 				const modelIds = await mutateAndRefresh(async () => {
-					server = await registry.addServer(label, baseUrl, apiKey || "");
+					// Unguarded: the suites must mutate deterministically even while a
+					// background migration pass holds the guard's "migrating" verdict.
+					server = await registry.addServerUnguarded(label, baseUrl, apiKey || "");
 				});
 				return { server, modelIds };
 			}
@@ -473,7 +475,7 @@ export function registerTestCommands(
 		vscode.commands.registerCommand("litellm._test.clearServers", async () => {
 			return mutateAndRefresh(async () => {
 				for (const s of registry.getServers()) {
-					await registry.removeServer(s.id);
+					await registry.removeServerUnguarded(s.id);
 				}
 			});
 		}),
