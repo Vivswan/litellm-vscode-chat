@@ -55,6 +55,7 @@ export type {
 	SecretLocation,
 } from "../../shared/serverEntry";
 export { EXPECTED_FAILURE_CATEGORIES, NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+export { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 export type { HeaderScalar } from "../../shared/util/headers";
 export { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 export { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
@@ -72,6 +73,7 @@ import type {
 	SecretFieldId,
 	SecretLocation,
 } from "../../shared/serverEntry";
+import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 import type { HeaderScalar } from "../../shared/util/headers";
 
 /** A per-entry modelParameters record: model-ID prefix to request parameters. Non-secret user configuration. */
@@ -415,9 +417,9 @@ function noticeText(notice: DeclaredServerNotice): string {
  * serverOutcomeText decomposed, for surfaces that render the pieces
  * separately (the Diagnostics tab's outcome grid): the status verdict, the
  * model-count clause an "ok" line carries, the error the row carries, and the
- * row's warning notices. The one-line form composes exactly these parts
- * (protocol.test.ts pins the equality), so a grid cell and the copied line
- * cannot drift apart in wording.
+ * row's warning notices. The one-line form composes exactly these parts,
+ * flattening a two-part error's newline to " - " (protocol.test.ts pins the
+ * equality), so a grid cell and the copied line cannot drift apart in wording.
  */
 export interface ServerOutcomeParts {
 	/** The verdict as a Status cell shows it. */
@@ -448,9 +450,14 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 		case "error": {
 			if (server.expected === true) {
 				// Truthful error, expected presentation: the annotation stays
-				// English (it lands in issue reports), and a row still serving
-				// declared models reads as OK-with-note rather than a failure.
-				const error = `${server.error} (expected)`;
+				// English (it lands in issue reports) and rides the headline
+				// line, so a two-part error shows its expected marker in the
+				// grid's prominent line rather than trailing the dimmed detail.
+				// A row still serving declared models reads as OK-with-note
+				// rather than a failure.
+				const detail = statusErrorDetail(server.error);
+				const headline = `${statusErrorHeadline(server.error)} (expected)`;
+				const error = detail === undefined ? headline : `${headline}\n${detail}`;
 				const declared = server.declaredModelCount ?? 0;
 				if (declared > 0) {
 					const models = declared === 1 ? "1 declared model" : `${declared} declared models`;
@@ -475,7 +482,15 @@ export function serverOutcomeText(server: DashboardServer): string {
 	// "OK (2 models) - <sync error>" vs "Error: <error>": the error joins an
 	// OK line as an aside and an Error line as its object.
 	const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
-	const error = parts.error === undefined ? "" : parts.status === "OK" ? ` - ${parts.error}` : `: ${parts.error}`;
+	// A two-part error (headline "\n" detail) flattens to one physical line
+	// here: this is the copy-paste issue-report form, and a line break would
+	// split one server's outcome across lines.
+	const flatError = parts.error
+		?.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+		.join(" - ");
+	const error = flatError === undefined ? "" : parts.status === "OK" ? ` - ${flatError}` : `: ${flatError}`;
 	// Notices ride alongside whatever the state line says: a noticed row is
 	// usually healthy ("ok"), which is exactly why it needs calling out.
 	const notice = parts.notice.map((text) => ` - ${text}`).join("");
@@ -954,10 +969,27 @@ export interface CatalogStatusView {
 }
 
 /**
+ * One usage endpoint's standing as the card renders it, mirrored from the
+ * usage store's classification (closed enums and status numbers only - usage
+ * response bodies embed hashed key material, so nothing body-derived may ever
+ * ride here). "unavailable" is permanent until an explicit refresh re-probes;
+ * "error" retries on the next poll.
+ */
+export type UsageEndpointStandingView =
+	| { readonly kind: "unknown" }
+	| { readonly kind: "ok" }
+	| { readonly kind: "unavailable"; readonly reason: "unsupported" | "forbidden"; readonly status?: number | undefined }
+	| {
+			readonly kind: "error";
+			readonly classification?: "http" | "network" | "timeout" | undefined;
+			readonly status?: number | undefined;
+	  };
+
+/**
  * One server's usage facts as the Usage tab renders them: numbers, epoch
- * timestamps, and user-configured identity only (the spend client already
- * narrowed everything response-derived away). Servers whose proxy serves no
- * usage endpoints never appear here at all.
+ * timestamps, user-configured identity, and closed endpoint-standing enums
+ * only (the spend client already narrowed everything response-derived away).
+ * Servers whose proxy serves no usage endpoints never appear here at all.
  */
 export interface UsageServerView {
 	readonly label: string;
@@ -968,6 +1000,10 @@ export interface UsageServerView {
 	 * data still renders, labeled with its age.
 	 */
 	readonly fresh: boolean;
+	/** The /key/info standing: why spend numbers are missing or not updating. */
+	readonly keyInfo: UsageEndpointStandingView;
+	/** The /user/daily/activity standing: why request statistics are missing. */
+	readonly dailyActivity: UsageEndpointStandingView;
 	/** Epoch ms of the last successful fetch; the "last updated" label. */
 	readonly lastUpdatedAt?: number | undefined;
 	/** The key's server-side spend in USD, when /key/info reports one. */
@@ -1002,6 +1038,8 @@ export interface DashboardUsage {
 	readonly thresholds: readonly number[];
 	/** The effective poll interval; 0 = background polling off. */
 	readonly pollIntervalMs: number;
+	/** The effective discovery.timeout (the usage requests' whole-call bound); the timeout detail line prints it. */
+	readonly discoveryTimeoutMs: number;
 	/** Whether a usage refresh pass is in flight (one serialized engine); disables Refresh now. */
 	readonly refreshing: boolean;
 	/** When this snapshot was computed (epoch ms); ages render against it. */

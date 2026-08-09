@@ -43,6 +43,7 @@ import {
 	DOCS_LINK_RESOLVED_MODELS,
 	DOCS_LINK_SETTINGS_MIGRATION,
 } from "./docsLinks";
+import { FailureText } from "./failureText";
 import type { FeedbackUrl } from "./feedbackLinks";
 import { FEEDBACK_LINK_FEATURE_REQUEST, FEEDBACK_LINK_RATE, FEEDBACK_LINK_REPOSITORY } from "./feedbackLinks";
 import { DocsLink } from "./help";
@@ -224,7 +225,9 @@ function OutcomeGrid({ servers, now }: { servers: readonly DashboardServer[]; no
 									key={`${index}-${note.kind}`}
 									class={index < notes.length - 1 ? `diag-note ${note.kind} no-rule` : `diag-note ${note.kind}`}
 								>
-									<td colSpan={5}>{note.text}</td>
+									<td colSpan={5}>
+										<FailureText message={note.text} />
+									</td>
 								</tr>
 							))}
 						</Fragment>

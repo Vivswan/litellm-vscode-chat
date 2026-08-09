@@ -18,7 +18,12 @@ import { CMD } from "../../shared/config/commandIds";
 import { searchCatalogModels } from "../../shared/config/openRouterCatalog";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { getUsageAlertThresholds, getUsagePollIntervalMs, SERVERS_SETTING_KEY } from "../../shared/config/settings";
+import {
+	getDiscoveryTimeout,
+	getUsageAlertThresholds,
+	getUsagePollIntervalMs,
+	SERVERS_SETTING_KEY,
+} from "../../shared/config/settings";
 import { PARKED_GLOBAL_HEADERS_KEY } from "../../shared/config/storageKeys";
 import type { Logger } from "../../shared/logger";
 import type { SecretFieldId, SecretLocation } from "../../shared/serverEntry";
@@ -40,7 +45,7 @@ import {
 	updateServerSecret,
 } from "../servers/serverSync";
 import type { UsagePoller } from "../servers/usage";
-import { isUsageFresh } from "../servers/usage";
+import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
 import { buildDashboardHtml } from "./html";
@@ -761,18 +766,25 @@ export function registerDashboardCommand(
 				states: usagePoller.store.getStates(),
 				thresholds: getUsageAlertThresholds(),
 				pollIntervalMs: getUsagePollIntervalMs(),
+				discoveryTimeoutMs: getDiscoveryTimeout(),
 				refreshing: usagePoller.isRefreshing(),
 				now: Date.now(),
 				isFresh: isUsageFresh,
 			}),
 		getParkedGlobalHeaders: () => context.globalState.get<unknown>(PARKED_GLOBAL_HEADERS_KEY),
 		// Fire-and-forget kicks; both push state when they settle so the row
-		// status / Refresh-now button reflect the outcome without a toast.
+		// status / Refresh-now button reflect the outcome. The catalog row stays
+		// toast-free; an explicit usage refresh in which NO server returned data
+		// acknowledges itself with one warning toast (partial failures render on
+		// the cards instead).
 		refreshCatalogNow: () => {
 			void catalog.refreshNow().finally(() => controller.refresh());
 		},
 		refreshUsageNow: () => {
-			void usagePoller.refreshNow().finally(() => controller.refresh());
+			void usagePoller
+				.refreshNow()
+				.then(notifyUsageRefreshFailure)
+				.finally(() => controller.refresh());
 		},
 		getResolutionTable: () => provider.resolutionTable,
 		searchCatalog: (query) => searchCatalogModels(catalog.snapshot(), query),

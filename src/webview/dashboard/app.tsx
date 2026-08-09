@@ -19,6 +19,7 @@ import type { ModelCapabilitiesResponse } from "./capsInspector";
 import { CapsInspector } from "./capsInspector";
 import type { ResolvedModelsResponse } from "./diagnostics";
 import { DiagnosticsSection } from "./diagnostics";
+import { FailureText } from "./failureText";
 import { IconBug, IconClose } from "./icons";
 import { ModelsSection } from "./models";
 import type { ModelParametersResponse } from "./paramsInspector";
@@ -516,8 +517,16 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		setServerEditRequest((current) => ({ seq: (current?.seq ?? 0) + 1, label }));
 	};
 
+	// The single-shot setting writes share one failure surface: every one of
+	// these rows (numbers, booleans, resets, command kicks, and the usage
+	// alert-thresholds editor) commits on its own without a draft to reopen,
+	// so the last failed write reports here.
 	const scalarFailure =
-		failures.setNumberSetting ?? failures.setBooleanSetting ?? failures.resetSetting ?? failures.executeCommand;
+		failures.setNumberSetting ??
+		failures.setBooleanSetting ??
+		failures.resetSetting ??
+		failures.setUsageAlertThresholds ??
+		failures.executeCommand;
 	return (
 		<main>
 			<div class="page-head">
@@ -533,7 +542,12 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			<p class="hint">{l10n.t("Servers, models, and settings in one place; edits land in your VS Code settings.")}</p>
 			<StatusHero state={state} now={now} />
 			{scalarFailure !== undefined ? (
-				<p class="error">{l10n.t("The last change did not apply: {0}", scalarFailure.message)}</p>
+				<p class="error">
+					<FailureText
+						message={scalarFailure.message}
+						frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
+					/>
+				</p>
 			) : null}
 			<SectionTabs active={section} onSelect={setSection} />
 			<SectionPanel section="overview" active={section}>

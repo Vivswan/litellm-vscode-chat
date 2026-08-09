@@ -2258,6 +2258,22 @@ suite("extension/dashboard/state", () => {
 			assert.notStrictEqual(validateNumberSetting("usage.pollInterval", null), undefined);
 		});
 
+		test("number-setting refusals are two-part: a headline, then a detail line naming the setting id", () => {
+			// The banner is page-global and names no field, so the detail line
+			// must carry the setting id; the headline carries the unit-aware
+			// minimum instead of jargon.
+			const below = validateNumberSetting("chat.timeout", 999);
+			assert.ok(below !== undefined, "a below-minimum value is refused");
+			const [belowHeadline, belowDetail] = below.split("\n");
+			assert.ok(belowHeadline?.includes("1000 ms"), below);
+			assert.ok(!belowHeadline?.includes("chat.timeout"), "the headline stays jargon-free");
+			assert.ok(belowDetail?.includes("chat.timeout"), below);
+
+			const nulled = validateNumberSetting("chat.timeout", null);
+			assert.ok(nulled !== undefined, "null is refused for a non-nullable setting");
+			assert.ok(nulled.split("\n")[1]?.includes("chat.timeout"), nulled);
+		});
+
 		test("validateModelParametersRecord refuses prototype-polluting keys at both levels", () => {
 			assert.strictEqual(validateModelParametersRecord({ "gpt-4": { temperature: 0.2 } }), undefined);
 			assert.notStrictEqual(
