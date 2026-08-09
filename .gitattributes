@@ -7,6 +7,9 @@ CLAUDE.md -text
 .github/copilot-instructions.md -text
 .github/agents.md -text
 
+# Render the extensionless LICENSE as Markdown on GitHub.
+LICENSE linguist-language=Markdown
+
 # Keep binary assets byte-for-byte unchanged.
 *.ico binary
 *.jpg binary
