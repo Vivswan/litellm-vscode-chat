@@ -16,19 +16,71 @@ import {
 	showActionableMessage,
 	testConnectionAction,
 } from "../ui/notifier";
-import type { ServerRegistry } from "./serverRegistry";
+import {
+	MigrationInProgressError,
+	type RegistryMutationVerdict,
+	RegistryRetiredError,
+	type ServerRegistry,
+} from "./serverRegistry";
 
 /**
- * Registry mutations racing the provider-group migration would be stranded or
- * silently reverted by its cleanup, so the add/edit/remove flows refuse while
- * a migration is seeding groups. Returns true when mutating is safe.
+ * What the registry's mutation guard reports right now. "migrating" while the
+ * provider-group migration is seeding groups: a racing edit would be marked
+ * skipped for manual review and a racing add would wait a whole activation
+ * for its group, so writes are refused with a try-again notice instead.
+ * "retired" once the migration emptied the registry (only "groupsOnly" means
+ * that; see REGISTRY_SERVED_IN_MODE): a write would edit configuration
+ * nothing serves anymore. Activation installs this as the registry's guard,
+ * so every mutator enforces it at write time; the flows below also consult it
+ * before prompting, as a courtesy, so the user does not type into a flow
+ * whose write will be refused.
  */
-export function ensureRegistryMutable(): boolean {
-	if (!isGroupMigrationRunning()) {
+export function registryMutationVerdict(getUiMode: () => ManagementUiMode): RegistryMutationVerdict {
+	if (isGroupMigrationRunning()) {
+		return "migrating";
+	}
+	return REGISTRY_SERVED_IN_MODE[getUiMode()] ? "ok" : "retired";
+}
+
+function showMutationRefusedNotice(verdict: "migrating" | "retired"): void {
+	if (verdict === "migrating") {
+		void vscode.window.showInformationMessage(vscode.l10n.t("Server migration is in progress, try again in a moment."));
+		return;
+	}
+	void vscode.window.showInformationMessage(
+		vscode.l10n.t(
+			'LiteLLM servers are now managed in the LiteLLM dashboard. Re-run "{0}" to open it.',
+			manageCommandTitle()
+		)
+	);
+}
+
+/** The flows' pre-prompt courtesy check; the notice matches what the write-time refusal would show. */
+export function canMutateRegistry(getUiMode: () => ManagementUiMode): boolean {
+	const verdict = registryMutationVerdict(getUiMode);
+	if (verdict === "ok") {
 		return true;
 	}
-	void vscode.window.showInformationMessage(vscode.l10n.t("Server migration is in progress, try again in a moment."));
+	showMutationRefusedNotice(verdict);
 	return false;
+}
+
+/** Run one guarded registry write, mapping a typed refusal onto its notice. Resolves false when refused. */
+async function runRegistryMutation(mutate: () => Promise<void>): Promise<boolean> {
+	try {
+		await mutate();
+		return true;
+	} catch (error) {
+		if (error instanceof MigrationInProgressError) {
+			showMutationRefusedNotice("migrating");
+			return false;
+		}
+		if (error instanceof RegistryRetiredError) {
+			showMutationRefusedNotice("retired");
+			return false;
+		}
+		throw error;
+	}
 }
 
 /**
@@ -43,28 +95,6 @@ export const REGISTRY_SERVED_IN_MODE: Record<ManagementUiMode, boolean> = {
 	groupsWithRegistry: true,
 	groupsOnly: false,
 };
-
-/**
- * Full mutation guard: the migration lock, plus a UI-mode read at the moment
- * of mutation. Re-reading the mode here closes the window between a migration
- * finishing and a prompt flow's write: a server added into an
- * already-migrated registry would only be cleaned up as an orphan.
- */
-export function canMutateRegistry(getUiMode: () => ManagementUiMode): boolean {
-	if (!ensureRegistryMutable()) {
-		return false;
-	}
-	if (!REGISTRY_SERVED_IN_MODE[getUiMode()]) {
-		void vscode.window.showInformationMessage(
-			vscode.l10n.t(
-				'LiteLLM servers are now managed in the LiteLLM dashboard. Re-run "{0}" to open it.',
-				manageCommandTitle()
-			)
-		);
-		return false;
-	}
-	return true;
-}
 
 /**
  * The three input prompts return their value already trimmed (undefined on
@@ -196,11 +226,12 @@ async function addServerFlow(
 		return false;
 	}
 
-	// A migration may have started while the input boxes were open.
-	if (!canMutateRegistry(getUiMode)) {
+	const added = await runRegistryMutation(async () => {
+		await registry.addServer(label, baseUrl, apiKey);
+	});
+	if (!added) {
 		return false;
 	}
-	await registry.addServer(label, baseUrl, apiKey);
 	logger.log(`Added server "${label}" at ${baseUrl}`);
 
 	void showActionableMessage("info", vscode.l10n.t('Server "{0}" added!', label), [
@@ -261,11 +292,9 @@ async function manageServerFlow(
 		}
 
 		const oldLabel = server.label;
-		// A migration may have started while the input boxes were open.
-		if (!canMutateRegistry(getUiMode)) {
+		if (!(await runRegistryMutation(() => registry.updateServer(serverId, label, baseUrl, apiKey)))) {
 			return;
 		}
-		await registry.updateServer(serverId, label, baseUrl, apiKey);
 		logger.log(`Updated server "${label}"`);
 
 		void showActionableMessage("info", vscode.l10n.t('Server "{0}" updated!', label), [
@@ -289,11 +318,9 @@ async function manageServerFlow(
 			removeButton
 		);
 		if (confirm === removeButton) {
-			// A migration may have started while the confirmation dialog was open.
-			if (!canMutateRegistry(getUiMode)) {
+			if (!(await runRegistryMutation(() => registry.removeServer(serverId)))) {
 				return;
 			}
-			await registry.removeServer(serverId);
 			logger.log(`Removed server "${server.label}"`);
 			void vscode.window.showInformationMessage(vscode.l10n.t('Server "{0}" removed.', server.label));
 		}

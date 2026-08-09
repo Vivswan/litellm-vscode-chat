@@ -58,6 +58,27 @@ function parsePersistedRegistry(raw: unknown): PersistedRegistry {
 	return { version: 0, servers: [] };
 }
 
+/** What the installed mutation guard reports at a mutator's entry; anything but "ok" refuses with a typed error. */
+export type RegistryMutationVerdict = "ok" | "migrating" | "retired";
+
+/** A registry mutation refused because the provider-group migration is seeding groups right now. */
+export class MigrationInProgressError extends Error {
+	constructor() {
+		// English by policy: thrown errors can land in the output channel and
+		// the public issue-report buffer.
+		super("registry mutation refused: the provider-group migration is running");
+		this.name = "MigrationInProgressError";
+	}
+}
+
+/** A registry mutation refused because the migration retired the registry (provider groups serve instead). */
+export class RegistryRetiredError extends Error {
+	constructor() {
+		super("registry mutation refused: the registry was migrated to provider groups");
+		this.name = "RegistryRetiredError";
+	}
+}
+
 export class ServerRegistry {
 	// VS Code merges all of an extension's globalState keys into one blob and
 	// broadcasts changes back to each extension host, so a naive read-modify-write
@@ -78,6 +99,29 @@ export class ServerRegistry {
 		const stored = parsePersistedRegistry(this.globalState.get<unknown>(SERVER_REGISTRY_KEY));
 		this.servers = [...stored.servers];
 		this.version = stored.version;
+	}
+
+	/**
+	 * Consulted synchronously at every public mutator's entry; anything but
+	 * "ok" refuses with the matching typed error. Defaults to "ok" so the
+	 * registry stands alone; activation installs the real verdict (the
+	 * migration lock plus the UI-mode retirement read, see
+	 * registryMutationVerdict in serverManagement.ts).
+	 */
+	private mutationGuard: () => RegistryMutationVerdict = () => "ok";
+
+	installMutationGuard(guard: () => RegistryMutationVerdict): void {
+		this.mutationGuard = guard;
+	}
+
+	private assertMutable(): void {
+		const verdict = this.mutationGuard();
+		if (verdict === "migrating") {
+			throw new MigrationInProgressError();
+		}
+		if (verdict === "retired") {
+			throw new RegistryRetiredError();
+		}
 	}
 
 	private syncFromStorage(): void {
@@ -117,6 +161,19 @@ export class ServerRegistry {
 	}
 
 	async addServer(label: string, baseUrl: string, apiKey: string): Promise<ServerConfig> {
+		this.assertMutable();
+		return this.addServerUnguarded(label, baseUrl, apiKey);
+	}
+
+	/**
+	 * The machinery's path around the mutation guard, paired with
+	 * removeServerUnguarded below: the migrations mutate while their own lock
+	 * reports "migrating" (and the legacy import may run after retirement),
+	 * and the non-production litellm._test.* seams must stay deterministic
+	 * against a migration pass running concurrently. Every user flow goes
+	 * through the guarded methods.
+	 */
+	async addServerUnguarded(label: string, baseUrl: string, apiKey: string): Promise<ServerConfig> {
 		this.syncFromStorage();
 		const existingIds = new Set(this.servers.map((s) => s.id));
 		let id = generateId();
@@ -147,6 +204,7 @@ export class ServerRegistry {
 	}
 
 	async updateServer(id: string, label: string, baseUrl: string, apiKey: string | undefined): Promise<void> {
+		this.assertMutable();
 		this.syncFromStorage();
 		const previous = this.servers.find((s) => s.id === id);
 		if (previous === undefined) {
@@ -186,6 +244,12 @@ export class ServerRegistry {
 	}
 
 	async removeServer(id: string): Promise<void> {
+		this.assertMutable();
+		await this.removeServerUnguarded(id);
+	}
+
+	/** See addServerUnguarded. */
+	async removeServerUnguarded(id: string): Promise<void> {
 		this.syncFromStorage();
 		const previous = this.servers;
 		this.servers = this.servers.filter((s) => s.id !== id);
