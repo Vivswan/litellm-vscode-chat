@@ -30,7 +30,7 @@ import type {
 	SecretFieldId,
 	TransportErrorClassification,
 } from "./protocol";
-import { NUMBER_SETTING_SPECS, NUMBER_SETTING_UNITS, SECRET_FIELD_IDS } from "./protocol";
+import { NUMBER_SETTING_SPECS, SECRET_FIELD_IDS, unitBehavior } from "./protocol";
 import { applySaveServerSetting } from "./saveServer";
 import { isUsableHttpUrl } from "./serverForm";
 import type { DraftConnection } from "./testDraftConnection";
@@ -165,7 +165,7 @@ export function validateNumberSetting(setting: NumberSettingId, value: number | 
 		)}`;
 	}
 	if (value < spec.minimum) {
-		const minimum = NUMBER_SETTING_UNITS[setting] === "ms" ? `${spec.minimum} ms` : String(spec.minimum);
+		const minimum = unitBehavior(setting).minimumText(spec.minimum);
 		return `${vscode.l10n.t("Enter a number that is at least {0}.", minimum)}\n${vscode.l10n.t(
 			"setting {0}, minimum {1}",
 			setting,
