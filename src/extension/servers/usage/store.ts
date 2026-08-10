@@ -30,9 +30,11 @@ export type UsageFailureClassification = "http" | "network" | "timeout";
  * One endpoint's standing on one server. "unknown" means never probed (or
  * awaiting a re-probe after a config change), "unavailable" is a permanent
  * classification scheduled polls never retry (only an explicit refresh or a
- * server config change re-probes it), and "error" is a transient failure the
- * next poll retries. `status` is the HTTP status code behind the standing
- * when one exists; both extras are classification data, never response text.
+ * server config change re-probes it), and "error" is a transient failure
+ * scheduled polls keep retrying (the poller spaces consecutive failures out
+ * with exponential backoff). `status` is the HTTP status code behind the
+ * standing when one exists; both extras are classification data, never
+ * response text.
  */
 export type UsageEndpointState =
 	| { readonly kind: "unknown" }

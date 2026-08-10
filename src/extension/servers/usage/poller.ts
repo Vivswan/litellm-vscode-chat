@@ -11,7 +11,12 @@
  * classified permanently unavailable are skipped on scheduled polls -
  * availability is re-probed only on an explicit refresh (refreshNow) or a
  * servers-setting change - so a DB-less proxy is asked at most once per
- * configuration, never hammered.
+ * configuration, never hammered. Transiently failing endpoints retry
+ * normally after one failure, then back off exponentially on consecutive
+ * failures (2x, 4x, 8x, 16x the interval), so an address that never answers
+ * stops burning a full discovery timeout every poll while a proxy back from
+ * an outage still resumes on its own; a success, an explicit refresh, or a
+ * servers-setting change resets the backoff.
  *
  * Log discipline: one info-level English classification per endpoint state
  * transition (labels, endpoint ids, reasons, error names - never
@@ -43,6 +48,24 @@ const INITIAL_REFRESH_DELAY_MS = 5_000;
  * usage promptly.
  */
 const SERVERS_CHANGE_REFRESH_DELAY_MS = 2_000;
+
+/** Caps the error backoff at 2^4 = 16x the poll interval (80 minutes at the default 5-minute cadence). */
+const BACKOFF_MAX_EXPONENT = 4;
+
+/**
+ * The scheduled-attempt spacing after `failures` consecutive transient
+ * failures, as a multiple of the poll interval: 1 after a single failure (one
+ * bad poll still retries at the normal cadence), then doubling to the cap.
+ */
+function backoffMultiplierOf(failures: number): number {
+	return failures <= 1 ? 1 : 2 ** Math.min(failures - 1, BACKOFF_MAX_EXPONENT);
+}
+
+/** One endpoint's consecutive transient-failure streak: how many, and when the last attempt was made. */
+interface EndpointFailureStreak {
+	readonly failures: number;
+	readonly lastAttemptAt: number;
+}
 
 /** The spend client's fetch surface, as the poller consumes it; UsageClient satisfies it. */
 export interface UsageFetchClient {
@@ -167,6 +190,14 @@ export class UsagePoller {
 		| undefined;
 	/** A pending availability re-probe (servers changed) the next scheduled pass consumes. */
 	private probePending = false;
+	/**
+	 * Consecutive error-kind failure streaks per server label and endpoint,
+	 * driving the exponential backoff on scheduled polls. Poller-internal
+	 * scheduling state, deliberately NOT in the store: the streak count is not
+	 * something any UI surface renders, and keeping it here means no carried
+	 * store state can ever replay a stale backoff after a reset.
+	 */
+	private readonly errorStreaks = new Map<string, Map<UsageEndpointId, EndpointFailureStreak>>();
 	private disposed = false;
 
 	constructor(private readonly env: UsagePollerEnv) {
@@ -218,7 +249,7 @@ export class UsagePoller {
 	 */
 	applyServersChange(): void {
 		const { entries } = parseServersSetting(this.env.readServersSetting());
-		this.store.prune(new Set(entries.map((entry) => entry.label)));
+		this.prune(new Set(entries.map((entry) => entry.label)));
 		this.probePending = true;
 		if (this.env.pollIntervalMs() > 0) {
 			this.schedule(SERVERS_CHANGE_REFRESH_DELAY_MS);
@@ -329,7 +360,7 @@ export class UsagePoller {
 
 	private async runPass(force: boolean): Promise<UsageRefreshOutcome | undefined> {
 		const { entries } = parseServersSetting(this.env.readServersSetting());
-		this.store.prune(new Set(entries.map((entry) => entry.label)));
+		this.prune(new Set(entries.map((entry) => entry.label)));
 		const thresholds = this.env.alertThresholds();
 		const servers: UsageServerRefreshOutcome[] = [];
 		for (const entry of entries) {
@@ -369,6 +400,12 @@ export class UsagePoller {
 		// A re-pointed entry is a different server: carried standings and data
 		// would describe the old host, so both reset with the URL.
 		const sameServer = previous !== undefined && normalizeBaseUrl(previous.baseUrl) === normalizeBaseUrl(entry.baseUrl);
+		// A forced pass (explicit refresh, servers change) attempts immediately
+		// and restarts the failure count; a re-pointed entry's streaks describe
+		// the old host.
+		if (force || !sameServer) {
+			this.errorStreaks.delete(entry.label);
+		}
 		const carried: UsageEndpointStates = !force && sameServer ? previous.endpoints : UNPROBED_ENDPOINTS;
 		const endpoints: Record<UsageEndpointId, UsageEndpointState> = { ...carried };
 		// Log-transition baseline: the server's real previous standings, NOT the
@@ -400,11 +437,12 @@ export class UsagePoller {
 		if (stored !== undefined) {
 			const connection = usageConnectionFor(entry, stored);
 
-			if (endpoints.keyInfo.kind !== "unavailable") {
+			if (this.shouldAttempt(entry.label, "keyInfo", endpoints.keyInfo)) {
 				try {
 					key = await this.env.client.fetchKeyInfo(connection, this.abort.signal);
 					endpoints.keyInfo = { kind: "ok" };
 					succeededAny = true;
+					this.clearStreak(entry.label, "keyInfo");
 					lastUpdatedAt = this.clock.now();
 					// The spend numbers' own age: only a /key/info success advances
 					// it, so an activity success can never relabel old spend fresh.
@@ -412,6 +450,7 @@ export class UsagePoller {
 				} catch (error) {
 					recordFailure("keyInfo", error);
 					endpoints.keyInfo = this.classifyFailure(entry.label, "keyInfo", logBaseline.keyInfo, error);
+					this.trackFailure(entry.label, "keyInfo", endpoints.keyInfo);
 					if (endpoints.keyInfo.kind === "unavailable") {
 						key = undefined;
 					}
@@ -421,7 +460,7 @@ export class UsagePoller {
 			if (this.disposed) {
 				return undefined;
 			}
-			if (endpoints.dailyActivity.kind !== "unavailable") {
+			if (this.shouldAttempt(entry.label, "dailyActivity", endpoints.dailyActivity)) {
 				try {
 					daily = await this.env.client.fetchDailyActivity(
 						connection,
@@ -430,6 +469,7 @@ export class UsagePoller {
 					);
 					endpoints.dailyActivity = { kind: "ok" };
 					succeededAny = true;
+					this.clearStreak(entry.label, "dailyActivity");
 					lastUpdatedAt = this.clock.now();
 				} catch (error) {
 					recordFailure("dailyActivity", error);
@@ -439,6 +479,7 @@ export class UsagePoller {
 						logBaseline.dailyActivity,
 						error
 					);
+					this.trackFailure(entry.label, "dailyActivity", endpoints.dailyActivity);
 					if (endpoints.dailyActivity.kind === "unavailable") {
 						daily = undefined;
 					}
@@ -459,15 +500,17 @@ export class UsagePoller {
 				// this key; the same DB serves both endpoints anyway.
 				user = undefined;
 			}
-			if (key?.hasUser === true && endpoints.userInfo.kind !== "unavailable") {
+			if (key?.hasUser === true && this.shouldAttempt(entry.label, "userInfo", endpoints.userInfo)) {
 				try {
 					user = await this.env.client.fetchUserInfo(connection, this.abort.signal);
 					endpoints.userInfo = { kind: "ok" };
 					succeededAny = true;
+					this.clearStreak(entry.label, "userInfo");
 					lastUpdatedAt = this.clock.now();
 				} catch (error) {
 					recordFailure("userInfo", error);
 					endpoints.userInfo = this.classifyFailure(entry.label, "userInfo", logBaseline.userInfo, error);
+					this.trackFailure(entry.label, "userInfo", endpoints.userInfo);
 					if (endpoints.userInfo.kind === "unavailable") {
 						user = undefined;
 					}
@@ -545,6 +588,96 @@ export class UsagePoller {
 			...(status !== undefined ? { status } : {}),
 			...(reason !== undefined ? { reason } : {}),
 		};
+	}
+
+	/** Drop servers no longer declared from the store AND the backoff bookkeeping. */
+	private prune(keepLabels: ReadonlySet<string>): void {
+		this.store.prune(keepLabels);
+		for (const label of [...this.errorStreaks.keys()]) {
+			if (!keepLabels.has(label)) {
+				this.errorStreaks.delete(label);
+			}
+		}
+	}
+
+	/**
+	 * Whether a scheduled pass attempts this endpoint: never while it stands
+	 * permanently unavailable, and not while an error streak's backoff window
+	 * is still open - `interval * 2^min(failures - 1, cap)` since the last
+	 * attempt, so one failure retries at the normal cadence and a dead address
+	 * settles at 16x. Forced passes never reach the streak check (refreshServer
+	 * resets the streaks first), and a clock that jumped backwards fails open.
+	 */
+	private shouldAttempt(label: string, endpoint: UsageEndpointId, state: UsageEndpointState): boolean {
+		if (state.kind === "unavailable") {
+			return false;
+		}
+		if (state.kind !== "error") {
+			return true;
+		}
+		const streak = this.errorStreaks.get(label)?.get(endpoint);
+		if (streak === undefined) {
+			return true;
+		}
+		const multiplier = backoffMultiplierOf(streak.failures);
+		const intervalMs = this.env.pollIntervalMs();
+		if (multiplier <= 1 || intervalMs <= 0) {
+			return true;
+		}
+		const elapsedMs = this.clock.now() - streak.lastAttemptAt;
+		return elapsedMs < 0 || elapsedMs >= intervalMs * multiplier;
+	}
+
+	/**
+	 * Record a failed endpoint attempt's effect on its backoff streak, logging
+	 * exactly one line per multiplier escalation (2x, 4x, 8x, 16x - four lines,
+	 * then silence; skipped attempts never log). An unavailable verdict ends
+	 * the streak: those endpoints are sticky-skipped, not backed off.
+	 */
+	private trackFailure(label: string, endpoint: UsageEndpointId, state: UsageEndpointState): void {
+		if (this.disposed) {
+			// An aborted attempt proves nothing (classifyFailure returned the
+			// carried standing); it must not lengthen the backoff.
+			return;
+		}
+		if (state.kind !== "error") {
+			this.errorStreaks.get(label)?.delete(endpoint);
+			return;
+		}
+		let streaks = this.errorStreaks.get(label);
+		if (streaks === undefined) {
+			streaks = new Map();
+			this.errorStreaks.set(label, streaks);
+		}
+		const failures = (streaks.get(endpoint)?.failures ?? 0) + 1;
+		streaks.set(endpoint, { failures, lastAttemptAt: this.clock.now() });
+		const multiplier = backoffMultiplierOf(failures);
+		if (multiplier > backoffMultiplierOf(failures - 1)) {
+			this.env.log("Usage endpoint failing repeatedly; scheduled attempts backing off", {
+				label,
+				endpoint,
+				multiplier,
+			});
+		}
+	}
+
+	/** A success ends the endpoint's streak; leaving an engaged backoff logs one recovery line. */
+	private clearStreak(label: string, endpoint: UsageEndpointId): void {
+		if (this.disposed) {
+			// A success racing disposal proves nothing the pass can keep (its
+			// results are discarded before the store write), and a cancellation
+			// path must not log.
+			return;
+		}
+		const streaks = this.errorStreaks.get(label);
+		const streak = streaks?.get(endpoint);
+		if (streaks === undefined || streak === undefined) {
+			return;
+		}
+		streaks.delete(endpoint);
+		if (backoffMultiplierOf(streak.failures) > 1) {
+			this.env.log("Usage endpoint recovered; backoff cleared", { label, endpoint });
+		}
 	}
 
 	/**

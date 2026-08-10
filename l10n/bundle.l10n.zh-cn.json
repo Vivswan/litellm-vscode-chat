@@ -667,7 +667,7 @@
 	"Spend against budget per server, read from the server's own /key/info. Only servers whose LiteLLM tracks spend (a database-backed proxy) appear here.": "每个服务器的消费与预算对比, 读取自服务器自身的 /key/info。只有其 LiteLLM 会跟踪消费的服务器 (带数据库的代理) 才会显示在这里。",
 	"Spend against the effective budget for {0}": "{0} 的消费与生效预算对比",
 	"Spend hasn't loaded for this server yet.": "此服务器的消费数据尚未加载。",
-	"Spend hasn't loaded yet - the last check failed; it retries on the next poll.": "消费数据尚未加载 - 上次检查失败; 将在下次轮询时重试。",
+	"Spend hasn't loaded yet - the last check failed; it retries automatically with increasing delay.": "消费数据尚未加载 - 上次检查失败; 将自动重试, 且持续失败时重试间隔会逐渐加长。",
 	"Spend hasn't loaded yet - the last check failed; use Refresh now to try again.": "消费数据尚未加载 - 上次检查失败; 请使用「立即刷新」重试。",
 	"Spend is the key's server-side total, e.g. rotating an entry's key switches its numbers to the new key's spend.": "消费是密钥在服务器端的总额, 例如轮换条目的密钥后, 其数字会切换为新密钥的消费。",
 	"Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.": "消费跟踪需要带数据库的 LiteLLM 服务器 (/key/info 端点); 没有数据库的服务器不会显示在这里。",

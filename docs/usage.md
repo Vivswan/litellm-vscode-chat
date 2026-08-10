@@ -74,6 +74,8 @@ Edge cases worth knowing:
 
 `usage.pollInterval` (milliseconds, default `300000` - 5 minutes) drives a background poller, so alerts and the status bar work with the dashboard closed. Negative values clamp to `0`; a nonzero value below `30000` (30 seconds) clamps up to it, so the fastest cadence is one fetch per server every 30 seconds.
 
+A single failed fetch retries at the next poll as usual, but an endpoint that keeps failing - a server that stopped answering, or an address that was never a LiteLLM proxy - is retried less and less often, doubling the wait up to 16x the poll interval. The first success returns it to the normal cadence on its own, and "LiteLLM: Refresh Usage Now" or editing the server's entry retries immediately.
+
 `0` turns background polling off entirely:
 
 - No background requests are made and no alerts fire.

@@ -110,9 +110,11 @@ interface Harness {
 	client: FakeClient;
 	events: UsageChangeEvent[];
 	logs: string[];
+	logEntries: { message: string; data?: unknown }[];
 	setServers(servers: unknown): void;
 	setIntervalMs(ms: number): void;
 	setThresholds(thresholds: readonly number[]): void;
+	advanceClock(ms: number): void;
 }
 
 function makeHarness(
@@ -121,18 +123,21 @@ function makeHarness(
 	const timer = new FakeTimer();
 	const client = new FakeClient();
 	const logs: string[] = [];
+	const logEntries: { message: string; data?: unknown }[] = [];
 	let servers: unknown = options.servers ?? [{ label: "alpha", baseUrl: "http://one.test", apiKey: "sk-1" }];
 	let intervalMs = options.intervalMs ?? 300_000;
 	let thresholds: readonly number[] = [0.8, 0.95];
-	const clock: Clock = { now: () => 1_750_000_000_000 };
+	let nowMs = 1_750_000_000_000;
+	const clock: Clock = { now: () => nowMs };
 	const env: UsagePollerEnv = {
 		readServersSetting: () => servers,
 		readSecrets: options.readSecrets ?? (() => Promise.resolve({})),
 		client,
 		pollIntervalMs: () => intervalMs,
 		alertThresholds: () => thresholds,
-		log: (message) => {
+		log: (message, data) => {
 			logs.push(message);
+			logEntries.push(data !== undefined ? { message, data } : { message });
 		},
 		timer,
 		clock,
@@ -146,6 +151,7 @@ function makeHarness(
 		client,
 		events,
 		logs,
+		logEntries,
 		setServers: (next) => {
 			servers = next;
 		},
@@ -155,12 +161,22 @@ function makeHarness(
 		setThresholds: (next) => {
 			thresholds = next;
 		},
+		advanceClock: (ms) => {
+			nowMs += ms;
+		},
 	};
 }
 
 /** Let the in-flight pass and its follow-ups settle (fake client promises resolve in microtasks). */
 function settle(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** One scheduled poll `ms` later: advance the fake clock, fire the pending tick, let the pass settle. */
+async function tick(h: Harness, ms: number): Promise<void> {
+	h.advanceClock(ms);
+	h.timer.firePending();
+	await settle();
 }
 
 /** The tracked state for a label, asserted present. */
@@ -679,5 +695,280 @@ suite("extension/servers/usage poller", () => {
 		h.client.dailyResult = unavailableError(400);
 		await h.poller.refreshNow();
 		assert.strictEqual(availabilityOf(h, "alpha"), "unavailable");
+	});
+
+	test("consecutive statusless failures back off scheduled attempts, doubling to a 16x cap", async () => {
+		// The dead-address shape: timeouts with no HTTP status classify as
+		// error-kind, and before the backoff they re-burned the full discovery
+		// timeout on every poll forever.
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.client.dailyResult = new RequestError("timed out", "timeout");
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 1);
+
+		// One failure = normal retry on the next poll.
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2);
+
+		// Two failures = 2x spacing: the next tick skips, the one after attempts.
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2, "one interval into a 2x backoff, the attempt is skipped");
+		assert.strictEqual(h.timer.pending().length, 1, "the cadence itself keeps ticking through a skip");
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+
+		// Three failures = 4x spacing.
+		await tick(h, 3 * interval);
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 4);
+
+		// Four failures = 8x, five = 16x.
+		await tick(h, 8 * interval);
+		assert.strictEqual(h.client.calls.keyInfo, 5);
+		await tick(h, 15 * interval);
+		assert.strictEqual(h.client.calls.keyInfo, 5, "the 16x window is still open");
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 6);
+
+		// The cap holds: the sixth failure does not widen the window past 16x.
+		await tick(h, 15 * interval);
+		assert.strictEqual(h.client.calls.keyInfo, 6);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 7);
+
+		// Transitions only: one escalation line per multiplier per endpoint
+		// (2x, 4x, 8x, 16x for keyInfo and dailyActivity) plus the two initial
+		// error transitions - and NOTHING else, so a skipped attempt provably
+		// logs nothing at all.
+		const escalations = h.logEntries.filter((entry) => entry.message.includes("backing off"));
+		assert.deepStrictEqual(
+			escalations
+				.filter((entry) => (entry.data as { endpoint?: string }).endpoint === "keyInfo")
+				.map((entry) => (entry.data as { multiplier?: number }).multiplier),
+			[2, 4, 8, 16]
+		);
+		assert.strictEqual(escalations.length, 8);
+		assert.strictEqual(h.logs.filter((line) => line.includes("retrying on the next poll")).length, 2);
+		assert.strictEqual(h.logs.length, 10, "no other line may appear: skips are silent");
+	});
+
+	test("backoff is per endpoint: a healthy endpoint keeps the full cadence beside a backed-off one", async () => {
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2);
+		assert.strictEqual(h.client.calls.dailyActivity, 2);
+
+		// keyInfo sits out its 2x window; dailyActivity polls anyway.
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2);
+		assert.strictEqual(h.client.calls.dailyActivity, 3);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+		assert.strictEqual(h.client.calls.dailyActivity, 4);
+	});
+
+	test("a success resets the backoff: the next failure is a fresh streak with a normal first retry", async () => {
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = unavailableError(500);
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		await tick(h, interval);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2, "the 5xx streak backs off like any error-kind failure");
+
+		h.client.keyInfoResult = KEY_OK;
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 3, "the reopened window attempts and succeeds");
+		assert.strictEqual(h.logs.filter((line) => line.includes("recovered; backoff cleared")).length, 1);
+
+		// A fresh failure starts over: attempt, then a normal next-poll retry.
+		h.client.keyInfoResult = unavailableError(500);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 4);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 5, "one failure after a success retries at the normal cadence");
+	});
+
+	test("refreshNow resets the backoff and attempts immediately", async () => {
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.client.dailyResult = new RequestError("timed out", "timeout");
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		await tick(h, interval);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2, "the streak is in its 2x window");
+
+		// The manual command must not wait out the window - and it restarts the count.
+		await h.poller.refreshNow();
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 4, "after the reset, one failure means a normal next-poll retry");
+	});
+
+	test("a servers-setting change resets the backoff and re-attempts promptly", async () => {
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.client.dailyResult = new RequestError("timed out", "timeout");
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		await tick(h, interval);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2, "the streak is in its 2x window");
+
+		// An entry edit re-probes without waiting: the prompt forced pass attempts.
+		h.poller.applyServersChange();
+		h.timer.firePending();
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+
+		// The forced pass attempting proves nothing about the reset (a forced
+		// pass always attempts); the NEXT scheduled poll does: a surviving
+		// streak (now 3 failures deep) would sit in a 4x window and skip it.
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 4, "the change restarted the count: one failure, normal retry");
+	});
+
+	test("an unavailable verdict ends the streak and stays sticky: no backoff re-probes it", async () => {
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2);
+
+		// The server starts answering 404: the reopened attempt classifies the
+		// endpoint permanently unavailable, which outranks any backoff window.
+		h.client.keyInfoResult = unavailableError(404);
+		await tick(h, 2 * interval);
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+		assert.deepStrictEqual(stateOf(h, "alpha").endpoints.keyInfo, {
+			kind: "unavailable",
+			reason: "unsupported",
+			status: 404,
+		});
+
+		// However much time passes, scheduled polls never re-probe it...
+		await tick(h, 32 * interval);
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+
+		// ...and an explicit refresh still does.
+		h.client.keyInfoResult = KEY_OK;
+		await h.poller.refreshNow();
+		assert.strictEqual(h.client.calls.keyInfo, 4);
+		assert.deepStrictEqual(stateOf(h, "alpha").endpoints.keyInfo, { kind: "ok" });
+	});
+
+	test("a clock that jumped backwards fails open: the backed-off attempt goes out", async () => {
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2, "the streak is in its 2x window");
+
+		// A system clock adjustment must not wedge the endpoint until the new
+		// time catches the old timestamps up.
+		await tick(h, -10 * interval);
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+	});
+
+	test("the backoff window follows a mid-streak interval edit: shrinking the interval shrinks the wait", async () => {
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		await tick(h, interval);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2, "one interval into the 2x window is a skip");
+
+		// Halving the interval halves the window: the same one-interval-old
+		// attempt now sits exactly at 2 x the new interval.
+		h.setIntervalMs(interval / 2);
+		h.poller.applyConfiguration();
+		h.timer.firePending();
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+	});
+
+	test("a silently re-pointed entry starts a fresh streak: the old host's backoff does not carry", async () => {
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.client.dailyResult = new RequestError("timed out", "timeout");
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		await tick(h, interval);
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2, "the streak is in its 2x window");
+
+		// The setting changes under a scheduled pass (no applyServersChange, so
+		// no forced probe): the different base URL alone must reset the streak.
+		h.setServers([{ label: "alpha", baseUrl: "http://two.test", apiKey: "sk-1" }]);
+		h.timer.firePending();
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 3);
+
+		// The re-point pass itself always attempts (its carried standing is
+		// unprobed); only the NEXT poll proves the reset - an inherited streak,
+		// now 3 failures deep, would sit in a 4x window and skip it.
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 4, "the new host starts its own count: one failure, normal retry");
+	});
+
+	test("a success racing disposal never logs a recovery: cancellation stays silent", async () => {
+		const interval = 100_000;
+		const h = makeHarness({ intervalMs: interval });
+		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		await tick(h, interval);
+		assert.strictEqual(h.client.calls.keyInfo, 2, "the streak has engaged its backoff");
+
+		// The next attempt succeeds, but only after dispose() lands mid-flight.
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		h.client.fetchKeyInfo = async () => {
+			await gate;
+			return KEY_OK;
+		};
+		h.advanceClock(2 * interval);
+		h.timer.firePending();
+		await settle();
+		h.poller.dispose();
+		release();
+		await settle();
+
+		assert.strictEqual(
+			h.logs.filter((line) => line.includes("recovered")).length,
+			0,
+			"a discarded pass must not log a recovery"
+		);
 	});
 });

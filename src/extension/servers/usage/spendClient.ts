@@ -176,7 +176,8 @@ export function activityWindow(nowMs: number, days: number): ActivityWindow {
  * the thrown error: "unsupported" is the DB-less proxy answering 400/404 (or
  * a route the version lacks: 405/501), "forbidden" is a key the proxy will
  * not let read usage (401/403). Transient failures (network, timeout, 5xx)
- * return undefined: the next poll retries them, availability unchanged.
+ * return undefined: scheduled polls keep retrying them (backing off after
+ * consecutive failures), availability unchanged.
  */
 export type UsageUnavailableReason = "unsupported" | "forbidden";
 

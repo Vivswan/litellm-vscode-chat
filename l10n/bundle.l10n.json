@@ -702,7 +702,7 @@
 	"Spend against budget per server, read from the server's own /key/info. Only servers whose LiteLLM tracks spend (a database-backed proxy) appear here.": "Spend against budget per server, read from the server's own /key/info. Only servers whose LiteLLM tracks spend (a database-backed proxy) appear here.",
 	"Spend against the effective budget for {0}": "Spend against the effective budget for {0}",
 	"Spend hasn't loaded for this server yet.": "Spend hasn't loaded for this server yet.",
-	"Spend hasn't loaded yet - the last check failed; it retries on the next poll.": "Spend hasn't loaded yet - the last check failed; it retries on the next poll.",
+	"Spend hasn't loaded yet - the last check failed; it retries automatically with increasing delay.": "Spend hasn't loaded yet - the last check failed; it retries automatically with increasing delay.",
 	"Spend hasn't loaded yet - the last check failed; use Refresh now to try again.": "Spend hasn't loaded yet - the last check failed; use Refresh now to try again.",
 	"Spend is the key's server-side total, e.g. rotating an entry's key switches its numbers to the new key's spend.": "Spend is the key's server-side total, e.g. rotating an entry's key switches its numbers to the new key's spend.",
 	"Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.": "Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.",

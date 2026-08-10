@@ -1022,7 +1022,8 @@ export interface CatalogStatusView {
  * usage store's classification (closed enums and status numbers only - usage
  * response bodies embed hashed key material, so nothing body-derived may ever
  * ride here). "unavailable" is permanent until an explicit refresh re-probes;
- * "error" retries on the next poll.
+ * "error" keeps retrying on scheduled polls (the poller spaces consecutive
+ * failures out with exponential backoff).
  */
 export type UsageEndpointStandingView =
 	| { readonly kind: "unknown" }

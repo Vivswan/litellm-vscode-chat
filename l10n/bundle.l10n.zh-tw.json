@@ -667,7 +667,7 @@
 	"Spend against budget per server, read from the server's own /key/info. Only servers whose LiteLLM tracks spend (a database-backed proxy) appear here.": "各伺服器的花費與預算對比, 讀取自伺服器自身的 /key/info。只有其 LiteLLM 會追蹤花費的伺服器 (具資料庫的 Proxy) 才會顯示在這裡。",
 	"Spend against the effective budget for {0}": "{0} 的花費與生效預算對比",
 	"Spend hasn't loaded for this server yet.": "此伺服器的花費資料尚未載入。",
-	"Spend hasn't loaded yet - the last check failed; it retries on the next poll.": "花費資料尚未載入 - 上次檢查失敗; 將在下次輪詢時重試。",
+	"Spend hasn't loaded yet - the last check failed; it retries automatically with increasing delay.": "花費資料尚未載入 - 上次檢查失敗; 將自動重試, 且持續失敗時重試間隔會逐漸加長。",
 	"Spend hasn't loaded yet - the last check failed; use Refresh now to try again.": "花費資料尚未載入 - 上次檢查失敗; 請使用「立即重新整理」重試。",
 	"Spend is the key's server-side total, e.g. rotating an entry's key switches its numbers to the new key's spend.": "花費是金鑰在伺服器端的總額, 例如更換項目的金鑰後, 其數字會切換為新金鑰的花費。",
 	"Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.": "花費追蹤需要具資料庫的 LiteLLM 伺服器 (/key/info 端點); 沒有資料庫的伺服器不會顯示在這裡。",

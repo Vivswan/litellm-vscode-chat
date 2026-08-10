@@ -148,7 +148,9 @@ describe("UsageSection", () => {
 			<UsageSection usage={neverLoaded({ kind: "error", classification: "network" })} serverCount={1} now={NOW} />
 		);
 		expect(textOf(transient, ".usage-card-head .hint")).toBe("Spend hasn't loaded for this server yet.");
-		expect(textOf(transient, ".usage-spend")).toContain("the last check failed; it retries on the next poll");
+		expect(textOf(transient, ".usage-spend")).toContain(
+			"the last check failed; it retries automatically with increasing delay"
+		);
 		expect(textOf(transient, ".usage-detail")).toContain("LiteLLM /key/info: network error on the last attempt");
 		cleanup();
 		const forbidden = mount(

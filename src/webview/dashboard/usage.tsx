@@ -110,7 +110,7 @@ function spendUnknownText(server: UsageServerView, pollingOff: boolean): string 
 		case "error":
 			return pollingOff
 				? l10n.t("Spend hasn't loaded yet - the last check failed; use Refresh now to try again.")
-				: l10n.t("Spend hasn't loaded yet - the last check failed; it retries on the next poll.");
+				: l10n.t("Spend hasn't loaded yet - the last check failed; it retries automatically with increasing delay.");
 	}
 }
 
@@ -131,7 +131,7 @@ function forbiddenLine(path: string, status: number | undefined): string {
  */
 function keyInfoDetail(server: UsageServerView, pollingOff: boolean, discoveryTimeoutMs: number): string | undefined {
 	const standing = server.keyInfo;
-	const retry = pollingOff ? "use Refresh now to retry" : "retries on the next poll";
+	const retry = pollingOff ? "use Refresh now to retry" : "retries with increasing delay";
 	switch (standing.kind) {
 		case "ok":
 			return server.spend === undefined ? "LiteLLM /key/info: OK, no spend field" : undefined;
@@ -291,7 +291,7 @@ function UsageCard({
 }: {
 	server: UsageServerView;
 	thresholds: readonly number[];
-	/** Whether background polling is off (usage.pollInterval 0); retry hints name Refresh now instead of the next poll. */
+	/** Whether background polling is off (usage.pollInterval 0); retry hints name Refresh now instead of the automatic retry. */
 	pollingOff: boolean;
 	/** The effective discovery.timeout; the timeout detail line prints it. */
 	discoveryTimeoutMs: number;
