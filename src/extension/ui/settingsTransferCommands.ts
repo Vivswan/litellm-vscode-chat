@@ -29,7 +29,12 @@ import { createSettingsAccess } from "../settingsAccess";
 import { parseEnvelope } from "../settingsTransfer/envelope";
 import { buildSettingsExport } from "../settingsTransfer/exportBuild";
 import type { CollisionDecision } from "../settingsTransfer/importPlan";
-import { planSettingsImport, resolveImportPlan, suggestRenamedLabel } from "../settingsTransfer/importPlan";
+import {
+	connectionChangedLabels,
+	planSettingsImport,
+	resolveImportPlan,
+	suggestRenamedLabel,
+} from "../settingsTransfer/importPlan";
 import type { PreImportSnapshot, SnapshotEntry } from "../settingsTransfer/snapshot";
 import { buildPreImportSnapshot, planSnapshotRestore } from "../settingsTransfer/snapshot";
 import type { MessageAction } from "./notifier";
@@ -52,7 +57,7 @@ export interface ImportPreviewSummary {
 	readonly serverCount: number;
 	/** Incoming labels already present in the current setting. */
 	readonly collisionCount: number;
-	/** Collisions whose overwrite changes connection fields, needing a window reload to reconnect. */
+	/** Collisions whose overwrite changes connection fields, which the synced group cannot pick up in place. */
 	readonly connectionChangedCount: number;
 	/** Inline secret values that will move into VS Code secret storage. */
 	readonly secretFieldCount: number;
@@ -78,6 +83,8 @@ export interface SettingsTransferPrompts {
 	resolveCollision(label: string, connectionChanged: boolean): Promise<"overwrite" | "skip" | "rename" | undefined>;
 	/** The rename input box; validate returns a localized error or undefined; undefined result aborts the import. */
 	askRenamedLabel(suggested: string, validate: (candidate: string) => string | undefined): Promise<string | undefined>;
+	/** The undo confirmation modal, stating the snapshot time; false on dismissal (silent abort). */
+	confirmUndo(snapshotAt: string): Promise<boolean>;
 	/** Toasts; every user-facing outcome goes through here so tests can record it. */
 	notify(kind: "info" | "warning" | "error", message: string, actions?: readonly MessageAction[]): Promise<void>;
 }
@@ -134,9 +141,11 @@ function renderImportPreview(summary: ImportPreviewSummary): string {
 	if (summary.connectionChangedCount > 0) {
 		lines.push(
 			summary.connectionChangedCount === 1
-				? vscode.l10n.t("1 server will need a window reload to reconnect if overwritten.")
+				? vscode.l10n.t(
+						"Overwriting 1 server changes its connection settings; its dashboard row will show the steps to reconnect."
+					)
 				: vscode.l10n.t(
-						"{0} servers will need a window reload to reconnect if overwritten.",
+						"Overwriting {0} servers changes their connection settings; their dashboard rows will show the steps to reconnect.",
 						summary.connectionChangedCount
 					)
 		);
@@ -144,8 +153,11 @@ function renderImportPreview(summary: ImportPreviewSummary): string {
 	if (summary.secretFieldCount > 0) {
 		lines.push(
 			summary.secretFieldCount === 1
-				? vscode.l10n.t("1 secret value will move into VS Code secret storage.")
-				: vscode.l10n.t("{0} secret values will move into VS Code secret storage.", summary.secretFieldCount)
+				? vscode.l10n.t("The file carries 1 secret value; imported secrets are stored in VS Code secret storage.")
+				: vscode.l10n.t(
+						"The file carries {0} secret values; imported secrets are stored in VS Code secret storage.",
+						summary.secretFieldCount
+					)
 		);
 	}
 	if (summary.skippedKeyCount > 0) {
@@ -216,7 +228,9 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 				{
 					modal: true,
 					detail: connectionChanged
-						? vscode.l10n.t("Overwriting changes its connection settings; the window will need a reload to reconnect.")
+						? vscode.l10n.t(
+								"Overwriting replaces the entry and its stored secrets, and changes its connection settings; the server's dashboard row will show the steps to reconnect."
+							)
 						: vscode.l10n.t("Overwriting replaces the entry and its stored secrets."),
 				},
 				overwrite,
@@ -232,6 +246,25 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 				value: suggested,
 				validateInput: (candidate) => validate(candidate) ?? null,
 			}),
+		confirmUndo: async (snapshotAt) => {
+			const undo = vscode.l10n.t("Undo Import");
+			// The recorded ISO instant, shown in the user's locale; an
+			// unparseable timestamp shows as recorded rather than "Invalid Date".
+			const recorded = new Date(snapshotAt);
+			const when = Number.isNaN(recorded.getTime()) ? snapshotAt : recorded.toLocaleString();
+			const choice = await vscode.window.showWarningMessage(
+				vscode.l10n.t("Undo the last settings import?"),
+				{
+					modal: true,
+					detail: vscode.l10n.t(
+						"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.",
+						when
+					),
+				},
+				undo
+			);
+			return choice === undo;
+		},
 		notify: (kind, message, actions = []) => showActionableMessage(kind, message, [...actions]),
 	};
 }
@@ -387,15 +420,16 @@ function parseFailureMessage(reason: "not-json" | "not-an-export" | "newer-versi
  * secret writes and stale-blob clears per label first, the single servers
  * array write LAST; on failure every recorded secret value is restored, and
  * a restore failure escalates. `settingsLanded` says whether the non-servers
- * writes before this unit committed, so the failure notice can say so.
- * Returns whether the unit landed.
+ * writes before this unit committed, so the failure notice can say so - and
+ * a clean rollback with no landed settings changed nothing at all, so it
+ * offers no Undo (the caller then puts the previous snapshot back).
  */
 async function applyServersUnit(
 	env: SettingsTransferEnv,
 	serversValue: readonly unknown[],
 	secretWrites: readonly { readonly label: string; readonly secrets: StoredServerSecrets }[],
 	settingsLanded: boolean
-): Promise<boolean> {
+): Promise<"landed" | "rolled-back" | "rollback-failed"> {
 	const overwritten: { label: string; field: SecretFieldId; previous: string | undefined }[] = [];
 	try {
 		for (const write of secretWrites) {
@@ -416,7 +450,7 @@ async function applyServersUnit(
 			}
 		}
 		await env.settings.writeGlobal(SERVERS_SETTING_KEY, serversValue);
-		return true;
+		return "landed";
 	} catch (error) {
 		let restoreFailed = false;
 		for (const { label, field, previous } of [...overwritten].reverse()) {
@@ -437,7 +471,7 @@ async function applyServersUnit(
 				)}`,
 				[undoImportAction(env)]
 			);
-			return false;
+			return "rollback-failed";
 		}
 		env.log("Settings import: the servers write failed; secret changes were rolled back", {
 			error: errorClass(error),
@@ -451,9 +485,10 @@ async function applyServersUnit(
 			settingsLanded
 				? `${message} ${vscode.l10n.t("Other settings from the file were already written; Undo Import restores the pre-import state.")}`
 				: message,
-			[undoImportAction(env)]
+			// With nothing landed there is nothing this run left to undo.
+			settingsLanded ? [undoImportAction(env)] : []
 		);
-		return false;
+		return "rolled-back";
 	}
 }
 
@@ -602,7 +637,25 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		// recovery path from the PREVIOUS import, in a run the user
 		// experienced as a no-op. It also gets no Undo action below.
 		const writesNothing = application.settingsWrites.length === 0 && application.serversValue === undefined;
+		// The slot as it was before this run: a run that ends up landing
+		// NOTHING (every write failed, or the servers unit rolled back clean
+		// with no settings landed) puts it back for the same reason.
+		let previousSlot: string | undefined;
+		const restorePreviousSlot = async () => {
+			try {
+				if (previousSlot === undefined) {
+					await env.clearSnapshotSlot();
+				} else {
+					await env.writeSnapshotSlot(previousSlot);
+				}
+			} catch (error) {
+				env.log("Restoring the previous undo snapshot after a landed-nothing import failed", {
+					error: errorClass(error),
+				});
+			}
+		};
 		if (!writesNothing) {
+			previousSlot = await env.readSnapshotSlot();
 			// Snapshot FIRST: the whole pre-import state (key-absent recorded as
 			// absent, touched labels' previous blobs) into the one SecretStorage
 			// slot. A failed snapshot write means nothing is applied.
@@ -638,19 +691,36 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		if (failedKeys.length > 0) {
 			env.log("Settings import: some setting writes failed", { keys: failedKeys });
 		}
+		const writtenSettings = application.settingsWrites.length - failedKeys.length;
 
 		if (application.serversValue !== undefined) {
-			const landed = await applyServersUnit(
+			const outcome = await applyServersUnit(
 				env,
 				application.serversValue,
 				application.secretWrites,
-				application.settingsWrites.length > failedKeys.length
+				writtenSettings > 0
 			);
-			if (!landed) {
+			if (outcome !== "landed") {
+				// A clean rollback with no landed settings changed nothing: the
+				// fresh snapshot guards a state identical to the previous one, so
+				// the previous import's recovery path comes back. A failed
+				// rollback left secrets changed - the fresh snapshot stays, and
+				// the unit's notification already offered Undo.
+				if (outcome === "rolled-back" && writtenSettings === 0) {
+					await restorePreviousSlot();
+				}
 				return;
 			}
 		}
 		env.requestServerSync();
+
+		// Nothing survived (no servers in the file, every settings write
+		// failed): same as a no-op run, the previous snapshot comes back and
+		// there is nothing to undo.
+		const landedAnything = writtenSettings > 0 || application.serversValue !== undefined;
+		if (!writesNothing && !landedAnything) {
+			await restorePreviousSlot();
+		}
 
 		const writtenKeys = application.settingsWrites.map((write) => write.key).filter((key) => !failedKeys.includes(key));
 		if (application.serversValue !== undefined) {
@@ -662,7 +732,6 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		});
 
 		const { counts } = application;
-		const writtenSettings = application.settingsWrites.length - failedKeys.length;
 		const parts: string[] = [];
 		if (writtenSettings > 0) {
 			parts.push(
@@ -722,11 +791,11 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			skipped: counts.skipped,
 			secretWrites: application.secretWrites.length,
 		});
-		// No snapshot was taken for a run that wrote nothing, so it has no undo.
+		// No snapshot guards a run that wrote nothing (or landed nothing), so it has no undo.
 		await env.prompts.notify(
 			failedKeys.length > 0 ? "warning" : "info",
 			notes.join(" "),
-			writesNothing ? [] : [undoImportAction(env)]
+			writesNothing || !landedAnything ? [] : [undoImportAction(env)]
 		);
 	} catch (error) {
 		env.log("Settings import failed", { error: errorClass(error) });
@@ -766,9 +835,26 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 		}
 		settings[key] = entry.present ? { present: true, value: entry.value } : { present: false };
 	}
+	// The builder records EVERY vocabulary key (present or absent); a partial
+	// record is corruption, and restoring it would silently leave the missing
+	// keys at their import-written values.
+	for (const key of ALL_SETTING_KEYS) {
+		if (!Object.hasOwn(settings, key)) {
+			return undefined;
+		}
+	}
 	const blobs: Record<string, SnapshotEntry<StoredServerSecrets>> = {};
 	for (const [label, entry] of Object.entries(parsed.blobs)) {
-		if (isUnsafeRecordKey(label) || !isRecord(entry) || typeof entry.present !== "boolean") {
+		// Real labels are always trimmed, non-empty, and non-reserved
+		// (rawDeclaredLabels' rule); anything else would write a SecretStorage
+		// key no server entry can ever read.
+		if (
+			label.length === 0 ||
+			label.trim() !== label ||
+			isUnsafeRecordKey(label) ||
+			!isRecord(entry) ||
+			typeof entry.present !== "boolean"
+		) {
 			return undefined;
 		}
 		if (!entry.present) {
@@ -802,6 +888,21 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 	return { settings, blobs, at: parsed.at };
 }
 
+/** The kept-snapshot warning both partial-undo paths show; the retry finishes the job. */
+async function notifyKeptSnapshot(env: SettingsTransferEnv, failures: number): Promise<void> {
+	await env.prompts.notify(
+		"warning",
+		failures === 1
+			? vscode.l10n.t(
+					"LiteLLM: The undo could not restore everything (1 step failed); the snapshot was kept, so you can run Undo Last Settings Import again."
+				)
+			: vscode.l10n.t(
+					"LiteLLM: The undo could not restore everything ({0} steps failed); the snapshot was kept, so you can run Undo Last Settings Import again.",
+					failures
+				)
+	);
+}
+
 /** LiteLLM: Undo Last Settings Import - the wholesale pre-import snapshot restore. */
 export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<void> {
 	try {
@@ -823,25 +924,41 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			return;
 		}
 		const restore = planSnapshotRestore(snapshot);
+		if (!(await env.prompts.confirmUndo(snapshot.at))) {
+			return;
+		}
+		// What the restore reconnects, computed BEFORE anything changes: the
+		// pre-undo state against the snapshot's, each side over its own blobs
+		// (a label the import never touched keeps its current blob on both
+		// sides). The host group API is add-only, so a reverted connection
+		// change cannot be reconciled by the trailing sync - the affected row
+		// shows the recreate steps, and the summary says so up front.
+		const currentServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
+		const serversEntry = snapshot.settings[SERVERS_SETTING_KEY];
+		const targetServersRaw = serversEntry?.present === true ? serversEntry.value : undefined;
+		const currentBlobs: Record<string, StoredServerSecrets> = {};
+		for (const label of new Set([...rawDeclaredLabels(currentServersRaw), ...rawDeclaredLabels(targetServersRaw)])) {
+			currentBlobs[label] = await env.readServerSecrets(label);
+		}
+		const targetBlobs: Record<string, StoredServerSecrets> = { ...currentBlobs };
+		for (const [label, entry] of Object.entries(snapshot.blobs)) {
+			targetBlobs[label] = entry.present ? entry.value : {};
+		}
+		const reconnectCount = connectionChangedLabels(
+			currentServersRaw,
+			currentBlobs,
+			targetServersRaw,
+			targetBlobs
+		).length;
+
 		let failures = 0;
-		// planSnapshotRestore's documented restore order (settings, then blobs).
-		// The settings write wakes the sync engine before the blobs are back, so
-		// a pass can briefly resolve restored entries against import-written
-		// secrets; the closing requestServerSync re-resolves them.
-		for (const write of restore.settingWrites) {
-			try {
-				await env.settings.writeGlobal(write.key, write.value);
-			} catch {
-				failures += 1;
-			}
-		}
-		for (const key of restore.settingRemovals) {
-			try {
-				await env.settings.writeGlobal(key, undefined);
-			} catch {
-				failures += 1;
-			}
-		}
+		// Restore order mirrors the import's adopt ordering, for the same
+		// reason: SecretStorage writes never wake the sync engine, the servers
+		// settings write does. With the blobs restored first, the engine wakes
+		// (via the config-change listener) to a fully consistent pre-import
+		// state instead of restored entries over import-written secrets. The
+		// closing requestServerSync covers a settings write that fires no
+		// config event (an unchanged value) and blob-only restores.
 		for (const write of restore.blobWrites) {
 			try {
 				// Field by field, absent fields cleared, so the blob is restored WHOLE.
@@ -859,22 +976,35 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 				failures += 1;
 			}
 		}
+		if (failures > 0) {
+			// Stop before the settings phase: writing the servers setting now
+			// would wake the sync engine against partially restored credentials,
+			// and nothing has woken it so far (blob writes fire no config event).
+			// The slot is kept, so a retry finishes the job.
+			env.log("Undo import: some blob restores failed; the settings phase was not started", { failures });
+			await notifyKeptSnapshot(env, failures);
+			return;
+		}
+		for (const write of restore.settingWrites) {
+			try {
+				await env.settings.writeGlobal(write.key, write.value);
+			} catch {
+				failures += 1;
+			}
+		}
+		for (const key of restore.settingRemovals) {
+			try {
+				await env.settings.writeGlobal(key, undefined);
+			} catch {
+				failures += 1;
+			}
+		}
 		env.requestServerSync();
 		if (failures > 0) {
 			// The slot is kept: what failed this time may succeed on a retry,
 			// and clearing it would strand the un-restored remainder.
 			env.log("Undo import: some restore steps failed; the snapshot was kept", { failures });
-			await env.prompts.notify(
-				"warning",
-				failures === 1
-					? vscode.l10n.t(
-							"LiteLLM: The undo could not restore everything (1 step failed); the snapshot was kept, so you can run Undo Last Settings Import again."
-						)
-					: vscode.l10n.t(
-							"LiteLLM: The undo could not restore everything ({0} steps failed); the snapshot was kept, so you can run Undo Last Settings Import again.",
-							failures
-						)
-			);
+			await notifyKeptSnapshot(env, failures);
 			return;
 		}
 		await env.clearSnapshotSlot();
@@ -883,8 +1013,22 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			removals: restore.settingRemovals.length,
 			blobs: restore.blobWrites.length,
 			blobRemovals: restore.blobRemovals.length,
+			reconnects: reconnectCount,
 		});
-		await env.prompts.notify("info", vscode.l10n.t("LiteLLM: Restored settings to their pre-import state."));
+		const summary = [vscode.l10n.t("LiteLLM: Restored settings to their pre-import state.")];
+		if (reconnectCount > 0) {
+			summary.push(
+				reconnectCount === 1
+					? vscode.l10n.t(
+							"The undo changed 1 server's connection settings; its dashboard row will show the steps to reconnect."
+						)
+					: vscode.l10n.t(
+							"The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.",
+							reconnectCount
+						)
+			);
+		}
+		await env.prompts.notify("info", summary.join(" "));
 	} catch (error) {
 		env.log("Undo import failed", { error: errorClass(error) });
 		await env.prompts.notify("error", vscode.l10n.t("LiteLLM: The undo failed; the snapshot was kept."));

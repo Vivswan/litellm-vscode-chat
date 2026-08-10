@@ -12,7 +12,7 @@ Three concepts carry everything else:
 - **Provider group** - what VS Code itself holds for each server (in `<profile>/User/chatLanguageModels.json`, the "models file"). The extension syncs entries to groups automatically, on activation and on every settings change.
 - **Identity** - an entry's `label` plus `baseUrl`. The group is named after the label, which is why renames and removals have the lifecycle quirks described [below](#lifecycle-renames-removals-hidden-groups).
 
-The `servers` setting is machine-scoped: it lives in your user settings only, a workspace cannot override it (a cloned repository can never re-point your servers at another host), and Settings Sync does not carry it - servers and credentials stay on the machine where you entered them.
+The `servers` setting is machine-scoped: it lives in your user settings only, a workspace cannot override it (a cloned repository can never re-point your servers at another host), and Settings Sync does not carry it - servers and credentials stay on the machine where you entered them. To move them to another machine, use ["LiteLLM: Export Settings..."](settings.md#export-and-import), which can carry secret-storage values too.
 
 Entries from older versions (flat `apiKey`, `oauth*`, `virtualKey*`, `modelParameters`, ... fields) are restructured automatically by a one-time migration. Secrets already in secret storage are untouched - the restructure changes only settings text, and nothing needs re-entering.
 

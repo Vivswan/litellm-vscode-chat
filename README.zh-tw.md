@@ -20,6 +20,7 @@
 - 廣泛的模型選項傳遞 (`response_format`、`reasoning_effort`、`seed` 等)
 - 各模型能力覆寫與宣告的模型: 修正閘道回報的內容, 或註冊它根本列不出的模型, 缺口由 OpenRouter 目錄自動填補 ([詳細資料](docs/zh-tw/model-capabilities.md))
 - 管理伺服器、模型與設定的儀表板面板, 背後是純 VS Code 設定
+- 設定匯出與匯入: 把伺服器、模型記錄以及 (明確選擇時) 儲存的祕密搬到另一台機器, 並支援一條命令復原 ([詳情](docs/zh-tw/settings.md#匯出與匯入))
 - 可自架或使用雲端部署
 
 ## 需求

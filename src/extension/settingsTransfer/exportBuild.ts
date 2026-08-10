@@ -5,8 +5,9 @@
  * labeled entry's SecretStorage blob is materialized inline (secretSurgery),
  * excluded means inline secret values are stripped and discarded, with no
  * placeholders left behind - and shapes the sanitizer does not recognize (a
- * non-array servers value, non-record array elements) are omitted from a
- * no-secrets export outright rather than trusted.
+ * non-array servers value, non-record array elements, entries whose auth
+ * shape the strip cannot certify secret-free) are omitted from a no-secrets
+ * export outright rather than trusted.
  *
  * No direct vscode usage; the one impurity is the serverSync setting
  * parser's label rule (see importPlan.ts's module comment). The host command
@@ -46,9 +47,11 @@ export interface SettingsExportResult {
 	readonly unmaterializedSecretCount: number;
 	/**
 	 * Server shapes a no-secrets export omitted because they cannot be
-	 * sanitized: a non-array servers value counts once, and each non-record
-	 * array element counts once. Always 0 when includeSecrets is true (those
-	 * shapes ride verbatim); reported so the omission is never silent.
+	 * sanitized: a non-array servers value counts once, each non-record
+	 * array element counts once, and each entry whose auth shape the strip
+	 * cannot certify secret-free counts once. Always 0 when includeSecrets is
+	 * true (those shapes ride verbatim); reported so the omission is never
+	 * silent.
 	 */
 	readonly omittedUnsanitizableCount: number;
 }
@@ -107,8 +110,16 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 			if (!env.includeSecrets) {
 				// Every object entry is stripped, labeled or not: an unlabeled
 				// entry can still carry inline secret text, and an export the user
-				// asked to keep secret-free must never leak it.
-				exported.push(stripEntrySecrets(rawEntry).entry);
+				// asked to keep secret-free must never leak it. An entry whose auth
+				// shape the surgery cannot certify secret-free (a non-record auth
+				// container, a container occupant at a secret position) is omitted
+				// whole, same as the other unsanitizable shapes.
+				const stripped = stripEntrySecrets(rawEntry);
+				if (stripped.unsanitizable) {
+					omittedUnsanitizableCount += 1;
+					continue;
+				}
+				exported.push(stripped.entry);
 				continue;
 			}
 			const label = declaredEntryLabel(rawEntry);

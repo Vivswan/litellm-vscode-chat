@@ -141,6 +141,32 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.ok(!JSON.stringify(withoutSecrets.envelope).includes("sk-corrupt"));
 	});
 
+	test("an entry whose auth shape cannot be certified secret-free is omitted from a no-secrets export", async () => {
+		const servers = [
+			{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-a" } },
+			// A malformed auth container the strip cannot walk; the secret inside
+			// it must not ride out of an exclude-secrets export.
+			{ label: "B", baseUrl: "http://b.test", auth: [{ apiKey: "sk-hidden" }] },
+		];
+		const withoutSecrets = await buildSettingsExport(
+			env({ readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }) })
+		);
+		assert.deepStrictEqual(withoutSecrets.envelope.settings[SERVERS_SETTING_KEY], [
+			{ label: "A", baseUrl: "http://a.test" },
+		]);
+		assert.strictEqual(withoutSecrets.serverCount, 1);
+		assert.strictEqual(withoutSecrets.omittedUnsanitizableCount, 1, "the omitted entry is reported, not silent");
+		assert.ok(!JSON.stringify(withoutSecrets.envelope).includes("sk-hidden"));
+
+		// The same entry rides verbatim into a with-secrets export.
+		const withSecrets = await buildSettingsExport(
+			env({ includeSecrets: true, readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }) })
+		);
+		assert.strictEqual(withSecrets.serverCount, 2);
+		assert.strictEqual(withSecrets.omittedUnsanitizableCount, 0);
+		assert.ok(JSON.stringify(withSecrets.envelope).includes("sk-hidden"));
+	});
+
 	test("the walk covers exactly ALL_SETTING_KEYS", async () => {
 		const seen: string[] = [];
 		await buildSettingsExport(

@@ -142,10 +142,12 @@ suite("extension/settingsTransfer property: secret surgery", () => {
 					}
 					const stripped = stripEntrySecrets(raw);
 					// The stripped entry never carries an inline secret value, and a
-					// second strip finds nothing (idempotence).
+					// second strip finds nothing (idempotence) - the certification
+					// verdict included.
 					const again = stripEntrySecrets(stripped.entry);
 					assert.deepStrictEqual(again.secrets, {});
 					assert.deepStrictEqual(again.entry, stripped.entry);
+					assert.strictEqual(again.unsanitizable, stripped.unsanitizable);
 
 					// Stripping never degrades an entry. An accepted entry stays
 					// accepted with identical diagnostics. A rejected entry either
@@ -454,10 +456,13 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 	 * independently of resolveImportPlan and serverSettingReports: per label,
 	 * the parser's claimant (first element with a usable label AND baseUrl)
 	 * lands, or the first labeled element when nothing claims; collisions
-	 * follow the decisions; invalid rename targets and shadowed siblings
-	 * drop. Landing labels carry their source index so the assertions can pin
-	 * WHICH element landed, not just how many. Shares no code with the
-	 * implementation, so the two cannot drift together.
+	 * follow the decisions; invalid rename targets, shadowed siblings, and
+	 * entries whose auth the surgery cannot certify secret-free drop. Landing
+	 * labels carry their source index so the assertions can pin WHICH element
+	 * landed, not just how many. Shares no resolution code with the
+	 * implementation (stripEntrySecrets stands in for the certification rule
+	 * only; the surgery property pins it separately), so the two cannot drift
+	 * together.
 	 */
 	function expectedOutcomes(
 		incoming: readonly unknown[],
@@ -470,11 +475,12 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 	} {
 		const hasUsableBaseUrl = (element: unknown): boolean =>
 			isRecord(element) && typeof element.baseUrl === "string" && element.baseUrl.trim().length > 0;
+		const unplaceable = (element: unknown): boolean => isRecord(element) && stripEntrySecrets(element).unsanitizable;
 		const representative = new Map<string, number>();
 		const fallback = new Map<string, number>();
 		incoming.forEach((element, index) => {
 			const label = rawLabelOf(element);
-			if (label === undefined) {
+			if (label === undefined || unplaceable(element)) {
 				return;
 			}
 			if (hasUsableBaseUrl(element) && !representative.has(label)) {
@@ -496,7 +502,7 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 		let skipped = 0;
 		incoming.forEach((element, index) => {
 			const label = rawLabelOf(element);
-			if (label === undefined || representative.get(label) !== index || landed.has(label)) {
+			if (label === undefined || unplaceable(element) || representative.get(label) !== index || landed.has(label)) {
 				skipped += 1;
 				return;
 			}

@@ -66,9 +66,12 @@ export interface IncomingServer {
 	/** The entry's verdict, from the same serverSettingReports pass the dashboard diagnostics run. */
 	readonly report: ServerEntryReport;
 	/**
-	 * True when the entry cannot import at all: no usable label, or a reserved
-	 * one (no SecretStorage key is possible for either). Skipped entries count
-	 * into the summary and never reach the collision or apply steps.
+	 * True when the entry cannot import at all: no usable label, a reserved
+	 * one (no SecretStorage key is possible for either), or an auth shape the
+	 * secret surgery cannot certify - landing that entry would write text the
+	 * strip presumes to be a credential into the settings file, breaking the
+	 * secrets-go-to-secure-storage promise. Skipped entries count into the
+	 * summary and never reach the collision or apply steps.
 	 */
 	readonly skipped: boolean;
 }
@@ -144,6 +147,34 @@ function connectionFingerprint(entry: DeclaredServer | undefined, stored: Stored
 }
 
 /**
+ * The labels whose connection-level material differs between two raw servers
+ * values, each side resolved against its own pre-fetched blobs (a label
+ * absent from a side's map reads as no stored blob). The undo flow feeds it
+ * the pre-undo state against the snapshot's to say up front which entries
+ * the restore reconnects - the same one-side-unparseable convention as the
+ * import collisions: one parsed side against an unparseable one flags,
+ * two unparseable sides do not.
+ */
+export function connectionChangedLabels(
+	fromRaw: unknown,
+	fromBlobs: Readonly<Record<string, StoredServerSecrets>>,
+	toRaw: unknown,
+	toBlobs: Readonly<Record<string, StoredServerSecrets>>
+): string[] {
+	const blobOf = (blobs: Readonly<Record<string, StoredServerSecrets>>, label: string): StoredServerSecrets =>
+		Object.hasOwn(blobs, label) ? (blobs[label] ?? {}) : {};
+	const changed: string[] = [];
+	for (const label of new Set([...rawDeclaredLabels(fromRaw), ...rawDeclaredLabels(toRaw)])) {
+		const from = connectionFingerprint(acceptedEntry(fromRaw, label)?.entry, blobOf(fromBlobs, label));
+		const to = connectionFingerprint(acceptedEntry(toRaw, label)?.entry, blobOf(toBlobs, label));
+		if (!(from === undefined && to === undefined) && from !== to) {
+			changed.push(label);
+		}
+	}
+	return changed;
+}
+
+/**
  * One raw-array index per incoming label: the entry that would take effect
  * for that label if the array were written, mirroring the parser's claim
  * rule (acceptEntries: the first element with a usable label AND baseUrl
@@ -200,6 +231,21 @@ export function planSettingsImport(
 			const reports = serverSettingReports(value);
 			value.forEach((raw: unknown, index) => {
 				const report = reports[index] ?? { index, problems: [], accepted: false };
+				// An uncertifiable auth shape must not land in the settings file
+				// (its text is presumed to be a credential); the entry skips with
+				// the reason beside the parser's own problem lines.
+				if (isRecord(raw) && stripEntrySecrets(raw).unsanitizable) {
+					incomingServers.push({
+						raw,
+						report: {
+							...report,
+							accepted: false,
+							problems: [...report.problems, "carries auth text the import cannot move into secret storage"],
+						},
+						skipped: true,
+					});
+					return;
+				}
 				incomingServers.push({ raw, report, skipped: report.label === undefined });
 			});
 			continue;
@@ -212,7 +258,11 @@ export function planSettingsImport(
 	}
 
 	const currentLabels = rawDeclaredLabels(currentServersRaw);
-	const incomingArray = incomingServers.map((incoming) => incoming.raw);
+	// Skipped entries stay out of the fingerprint parse: a skipped (say,
+	// uncertifiable) first element under a label would otherwise shadow the
+	// valid same-label element resolution actually lands, misreading its
+	// connection fingerprint.
+	const incomingArray = incomingServers.filter((incoming) => !incoming.skipped).map((incoming) => incoming.raw);
 	const representatives = representativeIndices(incomingServers);
 	let secretFieldCount = 0;
 	for (const index of representatives.values()) {

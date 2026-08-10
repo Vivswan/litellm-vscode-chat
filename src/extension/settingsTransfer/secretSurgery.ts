@@ -65,6 +65,18 @@ export interface StrippedEntry {
 	 * earlier one's in the blob.
 	 */
 	readonly secrets: StoredServerSecrets;
+	/**
+	 * True when the stripped entry's auth subtree still carries text (or a
+	 * container that could hold text) anywhere but the grammar's known
+	 * non-secret text positions (`oauth.tokenUrl`, `oauth.clientId`,
+	 * `oauth.scopes`, a virtualKey's `header`). The `auth` object exists to
+	 * hold credentials, so leftover text at an unknown or malformed position
+	 * (`auth: [{ apiKey: "..." }]`, `auth: { token: "..." }`) is presumed to
+	 * be one, and a no-secrets export must omit the entry rather than trust
+	 * it. Textless scalars (null, numbers, booleans, whitespace strings) are
+	 * mere misconfiguration and stay sanitizable.
+	 */
+	readonly unsanitizable: boolean;
 }
 
 /** Move one position's usable value into the blob; non-string and non-usable occupants stay put. */
@@ -83,13 +95,56 @@ function takeSecret(
 	return true;
 }
 
+/** A leftover that cannot carry secret text: absent, null, number, boolean, or a textless string. */
+function textless(value: unknown): boolean {
+	return (
+		value === undefined ||
+		value === null ||
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		(typeof value === "string" && value.trim().length === 0)
+	);
+}
+
+/**
+ * Certify one already-stripped auth container against a key whitelist:
+ * `text` keys may hold strings (the grammar's non-secret text positions),
+ * `walk` keys recurse, and every other occupant - stripped secret positions
+ * and unknown keys alike - must be textless. Anything else could be a
+ * credential the strip did not reach.
+ */
+function certifyContainer(
+	value: unknown,
+	text: readonly string[],
+	walk: Readonly<Record<string, (value: unknown) => boolean>>
+): boolean {
+	if (!isRecord(value)) {
+		return textless(value);
+	}
+	return Object.entries(value).every(([key, occupant]) => {
+		if (text.includes(key)) {
+			return typeof occupant === "string" || textless(occupant);
+		}
+		const into = walk[key];
+		return into !== undefined ? into(occupant) : textless(occupant);
+	});
+}
+
+/** Whether a STRIPPED entry's auth subtree is certifiably free of secret text; see StrippedEntry.unsanitizable. */
+function certifyStrippedAuth(auth: unknown): boolean {
+	const virtualKey = (value: unknown) => certifyContainer(value, ["header"], {});
+	const oauth = (value: unknown) => certifyContainer(value, ["tokenUrl", "clientId", "scopes"], { virtualKey });
+	return certifyContainer(auth, [], { oauth, virtualKey });
+}
+
 /** Remove the entry's inline secret values; see StrippedEntry. */
 export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): StrippedEntry {
 	const entry = cloneJson(rawEntry) as Record<string, unknown>;
 	const secrets: MutableSecrets = {};
 	const auth = entry.auth;
+	let removed = false;
 	if (isRecord(auth)) {
-		let removed = takeSecret(auth, "apiKey", "apiKey", secrets);
+		removed = takeSecret(auth, "apiKey", "apiKey", secrets);
 		const oauth = auth.oauth;
 		if (isRecord(oauth)) {
 			removed = takeSecret(oauth, "apiKey", "apiKey", secrets) || removed;
@@ -109,7 +164,7 @@ export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): 
 			delete entry.auth;
 		}
 	}
-	return { entry, secrets };
+	return { entry, secrets, unsanitizable: !certifyStrippedAuth(entry.auth) };
 }
 
 /** materializeEntrySecrets' outcome: the entry with blob values inlined where legal. */

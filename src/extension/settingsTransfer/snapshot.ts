@@ -67,7 +67,12 @@ export async function buildPreImportSnapshot(
 	return { settings, blobs, at: new Date().toISOString() };
 }
 
-/** The write and remove lists the undo command applies, in restore order (settings, then blobs). */
+/**
+ * The write and remove lists the undo command applies. The flow restores
+ * blobs before settings (the import's adopt ordering, mirrored): the servers
+ * settings write is what wakes the sync engine, so the blobs must already
+ * hold their pre-import values when it lands.
+ */
 export interface SnapshotRestore {
 	/** Keys to write back to the user scope with their recorded values. */
 	readonly settingWrites: readonly { readonly key: string; readonly value: unknown }[];

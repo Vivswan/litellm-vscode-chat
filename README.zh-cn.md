@@ -20,6 +20,7 @@
 - 广泛的模型选项透传 (`response_format`、`reasoning_effort`、`seed` 等)
 - 每模型能力覆盖与声明的模型: 纠正网关报告的内容, 或注册它根本列不出的模型, 空缺由 OpenRouter 目录自动填补 ([详情](docs/zh-cn/model-capabilities.md))
 - 用于管理服务器、模型和设置的仪表板面板, 背后是普通的 VS Code 设置
+- 设置导出与导入: 把服务器、模型记录以及 (明确选择时) 存储的密钥搬到另一台机器, 并支持一条命令撤销 ([详情](docs/zh-cn/settings.md#导出与导入))
 - 支持自托管或云端部署
 
 ## 要求

@@ -72,9 +72,13 @@ suite("extension/settingsTransfer/secretSurgery", () => {
 		test("non-usable strings and non-string junk stay put", () => {
 			for (const junk of ["", "   ", 42, null, true, ["sk"], { nested: "sk" }]) {
 				const raw = entryWith({ apiKey: junk });
-				const { entry, secrets } = stripEntrySecrets(raw);
+				const { entry, secrets, unsanitizable } = stripEntrySecrets(raw);
 				assert.deepStrictEqual(entry, raw, `apiKey=${JSON.stringify(junk)} is not a secret value`);
 				assert.deepStrictEqual(secrets, {});
+				// A container occupant could hold secret text the walk does not
+				// reach; textless scalars cannot.
+				const container = Array.isArray(junk) || (typeof junk === "object" && junk !== null);
+				assert.strictEqual(unsanitizable, container, `apiKey=${JSON.stringify(junk)}`);
 			}
 		});
 
@@ -115,6 +119,46 @@ suite("extension/settingsTransfer/secretSurgery", () => {
 				const { entry, secrets } = stripEntrySecrets(raw);
 				assert.deepStrictEqual(entry, raw);
 				assert.deepStrictEqual(secrets, {});
+			}
+		});
+
+		test("shapes that could hide secret text flag unsanitizable; textless ones do not", () => {
+			// Text (or a text-capable container) anywhere but the grammar's known
+			// non-secret positions: the malformed shape could BE (or contain) the
+			// secret, so a no-secrets export must not trust it.
+			for (const raw of [
+				entryWith("sk-in-a-bare-auth-string"),
+				entryWith([{ apiKey: "sk-in-an-array" }]),
+				entryWith({ oauth: [{ clientSecret: "cs-in-an-array" }] }),
+				entryWith({ oauth: "cs-as-string" }),
+				entryWith({ virtualKey: ["vk-in-an-array"] }),
+				entryWith({ oauth: { tokenUrl: "http://idp.test", virtualKey: ["vk"] } }),
+				entryWith({ apiKey: ["sk"] }),
+				entryWith({ apiKey: { nested: "sk" } }),
+				// Text at unknown auth keys: the parser rejects these shapes, but
+				// the text is presumed to be the credential the typo misplaced.
+				entryWith({ token: "sk-at-an-unknown-key" }),
+				entryWith({ oauth: { tokenUrl: "http://idp.test", clientId: "c", audience: "sk-ish" } }),
+				entryWith({ virtualKey: { header: "x-key", name: "sk-ish" } }),
+				// A container at a known text position could hold text too.
+				entryWith({ oauth: { tokenUrl: ["sk"], clientId: "c" } }),
+			]) {
+				assert.strictEqual(stripEntrySecrets(raw).unsanitizable, true, JSON.stringify(raw.auth));
+			}
+			// Textless misconfiguration and well-formed shapes are sanitizable.
+			for (const raw of [
+				entryWith(undefined),
+				entryWith(null),
+				entryWith(42),
+				entryWith(true),
+				entryWith("   "),
+				entryWith({ apiKey: "sk-1" }),
+				entryWith({ oauth: { tokenUrl: "http://idp.test", clientId: "c", clientSecret: "cs" } }),
+				entryWith({ virtualKey: { header: "x", value: "vk" } }),
+				entryWith({ apiKey: null, oauth: null, virtualKey: 42 }),
+				entryWith({ apiKey: "sk-1", bogus: 1 }),
+			]) {
+				assert.strictEqual(stripEntrySecrets(raw).unsanitizable, false, JSON.stringify(raw.auth));
 			}
 		});
 

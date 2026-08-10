@@ -128,5 +128,8 @@ LiteLLM 狀態列項目 (右下角) 一眼呈現連線狀態 - 勾號 (`$(check)
 | LiteLLM: Set Server Secret | 把伺服器的 API 金鑰、OAuth 用戶端密碼或虛擬金鑰存入[祕密儲存體](servers.md#祕密與祕密儲存體) |
 | LiteLLM: Refresh Usage Now | 立即擷取支出與預算資料, 不受輪詢間隔約束 |
 | LiteLLM: Refresh OpenRouter Catalog | 隨選重新整理能力目錄 ([模型](models.md#能力)) |
+| LiteLLM: Export Settings... | 把延伸模組的設定儲存為 JSON 檔案, 明確選擇包含還是不含儲存的祕密 |
+| LiteLLM: Import Settings... | 合併之前匯出的設定檔案, 每個衝突的伺服器都會詢問 |
+| LiteLLM: Undo Last Settings Import | 把設定與祕密還原到上次匯入前的狀態 |
 | LiteLLM: Report Issue | 開啟預先填好的 GitHub Issue; 見[它收集什麼](troubleshooting.md#回報問題) |
 | LiteLLM: Help & Feedback | 文件、bug 回報與功能請求的捷徑 |

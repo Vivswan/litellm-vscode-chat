@@ -13,7 +13,7 @@ import {
 	runImportSettingsFlow,
 	runUndoLastImportFlow,
 } from "../../../extension/ui/settingsTransferCommands";
-import { SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
+import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
 import { expectDefined } from "../../testUtils";
 
@@ -29,6 +29,8 @@ interface FakeNotification {
 interface PromptAnswers {
 	confirmSecrets: "include" | "exclude" | undefined;
 	confirmImport: boolean | ((summary: ImportPreviewSummary) => boolean);
+	/** The undo confirmation modal's answer; defaults to confirmed. */
+	confirmUndo: boolean;
 	/** Per-label collision answers; a label absent here answers undefined (dismissal). */
 	collisions: Record<string, "overwrite" | "skip" | "rename" | undefined>;
 	/** The rename box's answer; a function may inspect the suggestion and validator. */
@@ -68,6 +70,8 @@ interface FakeWorld {
 	summaries: ImportPreviewSummary[];
 	collisionPrompts: { label: string; connectionChanged: boolean }[];
 	renamePrompts: { suggested: string; validate: (candidate: string) => string | undefined }[];
+	/** The snapshot timestamps the undo confirmation modal was shown. */
+	undoConfirmations: string[];
 	confirmSecretsCalls: number;
 	saveDialogDefaults: vscode.Uri[];
 	revealed: string[];
@@ -158,6 +162,10 @@ function makeWorld(
 				? world.answers.rename(suggested, validate)
 				: world.answers.rename;
 		},
+		confirmUndo: async (snapshotAt) => {
+			world.undoConfirmations.push(snapshotAt);
+			return world.answers.confirmUndo;
+		},
 		notify: async (kind, message, actions = []) => {
 			world.notifications.push({
 				kind,
@@ -170,7 +178,7 @@ function makeWorld(
 		},
 	};
 	Object.assign(world, {
-		answers: { confirmSecrets: undefined, confirmImport: true, collisions: {}, rename: undefined },
+		answers: { confirmSecrets: undefined, confirmImport: true, confirmUndo: true, collisions: {}, rename: undefined },
 		settings,
 		workspaceValues,
 		failWrites,
@@ -189,6 +197,7 @@ function makeWorld(
 		summaries: [],
 		collisionPrompts: [],
 		renamePrompts: [],
+		undoConfirmations: [],
 		confirmSecretsCalls: 0,
 		saveDialogDefaults: [],
 		revealed: [],
@@ -745,6 +754,34 @@ suite("settingsTransferCommands import flow", () => {
 		assert.deepStrictEqual(world.ops, []);
 	});
 
+	test("an import whose every write fails restores the previous snapshot and offers no undo", async () => {
+		const world = makeWorld();
+		world.snapshotSlot = "PREVIOUS-SNAPSHOT";
+		stageEnvelope(world, { "chat.timeout": 1 });
+		world.failWrites.add("chat.timeout");
+		await runImportSettingsFlow(world.env);
+		assert.strictEqual(world.snapshotSlot, "PREVIOUS-SNAPSHOT", "a landed-nothing run must put the slot back");
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "warning");
+		assert.match(note.message, /could not be written/);
+		assert.deepStrictEqual(note.actions, [], "a run that landed nothing has nothing to undo");
+	});
+
+	test("a cleanly rolled-back servers unit with no landed settings restores the previous snapshot", async () => {
+		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] }, { a: { apiKey: "OLD-KEY" } });
+		world.snapshotSlot = "PREVIOUS-SNAPSHOT";
+		stageEnvelope(world, { servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }] });
+		world.answers.collisions = { a: "overwrite" };
+		world.failWrites.add(SERVERS_SETTING_KEY);
+		await runImportSettingsFlow(world.env);
+		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "OLD-KEY" });
+		assert.strictEqual(world.snapshotSlot, "PREVIOUS-SNAPSHOT", "nothing changed, so the previous slot comes back");
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "error");
+		assert.match(note.message, /rolled back/);
+		assert.deepStrictEqual(note.actions, [], "nothing changed, so there is nothing to undo");
+	});
+
 	test("a UTF-8 BOM does not stop a valid export from importing", async () => {
 		const world = makeWorld();
 		stageImportFile(
@@ -797,21 +834,36 @@ suite("settingsTransferCommands undo flow", () => {
 	});
 
 	test("a structurally corrupt slot restores nothing", async () => {
+		// The builder records EVERY vocabulary key; the blob-corruption cases
+		// carry that full cover so their specific guards (not the partial-cover
+		// one) are what rejects them.
+		const fullCover = () => Object.fromEntries(ALL_SETTING_KEYS.map((key) => [key, { present: false }]));
 		const corruptSlots = [
 			// a settings key outside the setting vocabulary.
-			JSON.stringify({ settings: { "not.a.setting": { present: true, value: 1 } }, blobs: {}, at: "t" }),
+			JSON.stringify({
+				settings: { ...fullCover(), "not.a.setting": { present: true, value: 1 } },
+				blobs: {},
+				at: "t",
+			}),
 			// present without a value: would restore as a removal of a set key.
 			JSON.stringify({ settings: { "chat.timeout": { present: true } }, blobs: {}, at: "t" }),
 			// absent WITH a value: the flag cannot be trusted; "absent" deletes.
 			JSON.stringify({ settings: { "chat.timeout": { present: false, value: 1 } }, blobs: {}, at: "t" }),
+			// a partial settings record: the builder always writes the whole
+			// vocabulary, and restoring a subset would leave the rest imported.
+			JSON.stringify({ settings: {}, blobs: {}, at: "t" }),
 			// an absent blob record carrying a value.
-			JSON.stringify({ settings: {}, blobs: { a: { present: false, value: { apiKey: "x" } } }, at: "t" }),
+			JSON.stringify({ settings: fullCover(), blobs: { a: { present: false, value: { apiKey: "x" } } }, at: "t" }),
 			// a blob field outside the secret vocabulary.
-			JSON.stringify({ settings: {}, blobs: { a: { present: true, value: { bogus: "x" } } }, at: "t" }),
+			JSON.stringify({ settings: fullCover(), blobs: { a: { present: true, value: { bogus: "x" } } }, at: "t" }),
 			// a non-string blob value.
-			JSON.stringify({ settings: {}, blobs: { a: { present: true, value: { apiKey: 5 } } }, at: "t" }),
+			JSON.stringify({ settings: fullCover(), blobs: { a: { present: true, value: { apiKey: 5 } } }, at: "t" }),
 			// a present-but-empty blob (the builder records those as absent).
-			JSON.stringify({ settings: {}, blobs: { a: { present: true, value: {} } }, at: "t" }),
+			JSON.stringify({ settings: fullCover(), blobs: { a: { present: true, value: {} } }, at: "t" }),
+			// labels a real entry can never carry (untrimmed, empty): restoring
+			// one would write a SecretStorage key no server entry can read.
+			JSON.stringify({ settings: fullCover(), blobs: { " a": { present: true, value: { apiKey: "x" } } }, at: "t" }),
+			JSON.stringify({ settings: fullCover(), blobs: { "": { present: false } }, at: "t" }),
 		];
 		for (const slot of corruptSlots) {
 			const world = makeWorld({ "chat.timeout": 5 }, { a: { apiKey: "KEPT" } });
@@ -853,6 +905,121 @@ suite("settingsTransferCommands undo flow", () => {
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "info");
 		assert.match(note.message, /pre-import state/);
+	});
+
+	test("undo restores blobs before settings, mirroring the import's adopt ordering", async () => {
+		// The servers settings write is what wakes the sync engine; the blobs
+		// must already hold their pre-import values when it lands.
+		const world = makeWorld(
+			{ "chat.timeout": 9999, servers: [{ label: "a", baseUrl: "http://old:4000" }] },
+			{ a: { apiKey: "PRE-KEY" } }
+		);
+		stageEnvelope(world, {
+			"chat.timeout": 1,
+			servers: [
+				{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } },
+				{ label: "added", baseUrl: "http://added:4000", auth: { apiKey: "ADDED-KEY" } },
+			],
+		});
+		world.answers.collisions = { a: "overwrite" };
+		await runImportSettingsFlow(world.env);
+		world.ops = [];
+
+		await runUndoLastImportFlow(world.env);
+		const secretOps = world.ops.filter((op) => op.startsWith("secret-"));
+		const settingOps = world.ops.filter((op) => op.startsWith("settings:"));
+		assert.ok(secretOps.length > 0, "the undo must restore blobs");
+		assert.ok(settingOps.includes(`settings:${SERVERS_SETTING_KEY}`));
+		const firstSetting = world.ops.findIndex((op) => op.startsWith("settings:"));
+		const lastSecret = world.ops.length - 1 - [...world.ops].reverse().findIndex((op) => op.startsWith("secret-"));
+		assert.ok(lastSecret < firstSetting, "every blob restore must precede every settings write");
+	});
+
+	test("a failed blob restore stops the undo before the settings phase", async () => {
+		// Writing the servers setting over partially restored credentials would
+		// wake the sync engine against a mismatched state; the settings phase
+		// must not start, and the kept slot lets a retry finish the job.
+		const world = makeWorld(
+			{ "chat.timeout": 9999, servers: [{ label: "a", baseUrl: "http://old:4000" }] },
+			{ a: { apiKey: "PRE-KEY" } }
+		);
+		stageEnvelope(world, {
+			"chat.timeout": 1,
+			servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+		});
+		world.answers.collisions = { a: "overwrite" };
+		await runImportSettingsFlow(world.env);
+		world.notifications = [];
+		world.ops = [];
+		const syncRequestsAfterImport = world.syncRequests;
+
+		world.failSecretStoreKeys.add(serverSecretsKey("a"));
+		await runUndoLastImportFlow(world.env);
+		assert.ok(!world.ops.some((op) => op.startsWith("settings:")), "no settings write may follow a blob failure");
+		assert.strictEqual(world.settings.get("chat.timeout"), 1, "the imported settings stay until the retry");
+		assert.notStrictEqual(world.snapshotSlot, undefined, "the slot is kept for the retry");
+		assert.strictEqual(world.syncRequests, syncRequestsAfterImport, "nothing woke the engine, so nothing re-syncs");
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "warning");
+		assert.match(note.message, /snapshot was kept/);
+
+		// The retry succeeds once the blob write can land again.
+		world.failSecretStoreKeys.clear();
+		world.notifications = [];
+		await runUndoLastImportFlow(world.env);
+		assert.strictEqual(world.settings.get("chat.timeout"), 9999);
+		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "PRE-KEY" });
+		assert.strictEqual(world.snapshotSlot, undefined);
+	});
+
+	test("undo asks for confirmation with the snapshot time; declining restores nothing", async () => {
+		const world = makeWorld({ "chat.timeout": 9999 });
+		stageEnvelope(world, { "chat.timeout": 1 });
+		await runImportSettingsFlow(world.env);
+		world.notifications = [];
+		world.ops = [];
+
+		world.answers.confirmUndo = false;
+		await runUndoLastImportFlow(world.env);
+		assert.strictEqual(world.undoConfirmations.length, 1);
+		const shownAt = expectDefined(world.undoConfirmations[0]);
+		assert.ok(!Number.isNaN(new Date(shownAt).getTime()), "the modal receives the snapshot's recorded instant");
+		assert.deepStrictEqual(world.ops, [], "a declined confirmation restores nothing");
+		assert.deepStrictEqual(world.notifications, [], "a declined confirmation aborts silently");
+		assert.strictEqual(world.settings.get("chat.timeout"), 1);
+		assert.notStrictEqual(world.snapshotSlot, undefined, "the slot stays for a later undo");
+
+		world.answers.confirmUndo = true;
+		await runUndoLastImportFlow(world.env);
+		assert.strictEqual(world.settings.get("chat.timeout"), 9999);
+		assert.strictEqual(world.snapshotSlot, undefined);
+	});
+
+	test("undoing a connection-changing overwrite says the row will show the reconnect steps", async () => {
+		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] }, { a: { apiKey: "PRE-KEY" } });
+		stageEnvelope(world, {
+			servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+		});
+		world.answers.collisions = { a: "overwrite" };
+		await runImportSettingsFlow(world.env);
+		world.notifications = [];
+
+		await runUndoLastImportFlow(world.env);
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "info");
+		assert.match(note.message, /pre-import state/);
+		assert.match(note.message, /steps to reconnect/);
+	});
+
+	test("undoing a settings-only import carries no reconnect note", async () => {
+		const world = makeWorld({ "chat.timeout": 9999 });
+		stageEnvelope(world, { "chat.timeout": 1 });
+		await runImportSettingsFlow(world.env);
+		world.notifications = [];
+		await runUndoLastImportFlow(world.env);
+		const note = onlyNotification(world);
+		assert.match(note.message, /pre-import state/);
+		assert.ok(!note.message.includes("reconnect"), "nothing reconnects, so nothing is said");
 	});
 
 	test("undo restores the whole blob, clearing fields the import added", async () => {
@@ -904,6 +1071,7 @@ suite("settingsTransferCommands secret hygiene", () => {
 			summaries: world.summaries,
 			collisionPrompts: world.collisionPrompts,
 			renameSuggestions: world.renamePrompts.map((prompt) => prompt.suggested),
+			undoConfirmations: world.undoConfirmations,
 		});
 	}
 
@@ -923,11 +1091,19 @@ suite("settingsTransferCommands secret hygiene", () => {
 			servers: [
 				{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: SENTINEL } },
 				{ label: "b", baseUrl: "http://b:4000", auth: { apiKey: SENTINEL } },
+				// An uncertifiable auth shape: the entry skips whole, so its text
+				// never lands in the settings file.
+				{ label: "m", baseUrl: "http://m:4000", auth: [{ apiKey: SENTINEL }] },
 			],
 		});
 		world.answers.collisions = { a: "rename" };
 		world.answers.rename = (suggested) => suggested;
 		await runImportSettingsFlow(world.env);
+		assert.ok(
+			!JSON.stringify(Object.fromEntries(world.settings)).includes(SENTINEL),
+			"imported secrets belong in secret storage, never the settings map"
+		);
+		assert.match(expectDefined(world.notifications[0]).message, /1 server skipped/);
 		await runUndoLastImportFlow(world.env);
 		assert.ok(!visibleSurfaces(world).includes(SENTINEL));
 	});

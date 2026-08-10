@@ -20,6 +20,7 @@ Use 100+ LLMs in VS Code with GitHub Copilot Chat powered by [LiteLLM](https://d
 - Broad model options pass-through (`response_format`, `reasoning_effort`, `seed`, and more)
 - Per-model capability overrides and declared models: correct what a gateway reports, or register models it cannot list at all, with gaps auto-filled from the OpenRouter catalog ([details](docs/model-capabilities.md))
 - A dashboard panel for servers, models, and settings, with plain VS Code settings behind it
+- Settings export and import: move servers, model records, and (on explicit choice) stored secrets to another machine, with a one-command undo ([details](docs/settings.md#export-and-import))
 - Self-hosted or cloud-based deployment options
 
 ## Requirements

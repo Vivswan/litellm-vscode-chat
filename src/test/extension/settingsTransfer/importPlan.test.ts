@@ -141,6 +141,40 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.strictEqual(broken.report.accepted, false);
 		});
 
+		test("an entry whose auth cannot be certified secret-free is skipped with the reason", () => {
+			// Landing it would write the presumed credential into the settings
+			// file, breaking the secrets-go-to-secure-storage promise.
+			const incoming = [server("A"), server("Malformed", { auth: [{ apiKey: "sk-hidden" }] })];
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
+			assert.deepStrictEqual(
+				plan.incomingServers.map((entry) => entry.skipped),
+				[false, true]
+			);
+			const malformed = plan.incomingServers[1];
+			assert.ok(malformed !== undefined);
+			assert.strictEqual(malformed.report.accepted, false);
+			assert.ok(malformed.report.problems.some((problem) => problem.includes("secret storage")));
+			// Skipped whole: no collision, no landing, no secret write.
+			const application = resolveImportPlan(plan, {});
+			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 1 });
+			assert.ok(!JSON.stringify(application.serversValue).includes("sk-hidden"));
+			assert.deepStrictEqual(
+				application.secretWrites.map((write) => write.label),
+				["A"]
+			);
+		});
+
+		test("a skipped uncertifiable entry does not shadow a valid same-label entry's fingerprint", () => {
+			// The skipped element stays out of the fingerprint parse; the valid
+			// element resolution lands is the one the collision compares.
+			const incoming = [server("A", { auth: [{ apiKey: "sk-hidden" }] }), server("A")];
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, [server("A")]);
+			assert.deepStrictEqual(plan.collisions, [{ label: "A", connectionChanged: false }]);
+			const application = resolveImportPlan(plan, { A: { action: "overwrite" } });
+			assert.deepStrictEqual(application.counts, { imported: 0, overwritten: 1, renamed: 0, skipped: 1 });
+			assert.deepStrictEqual(application.serversValue, [server("A")]);
+		});
+
 		test("collisions are the importable labels already declared, deduplicated, in file order", () => {
 			const current = [server("A"), server("B"), { label: "C ", baseUrl: "" }];
 			const incoming = [server("C"), server("New"), server("A"), server("A", { budget: 5 })];

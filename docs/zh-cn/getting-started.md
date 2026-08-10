@@ -128,5 +128,8 @@ LiteLLM 状态栏项 (右下角) 一眼展示连接状态 - 对勾 (`$(check) Li
 | LiteLLM: Set Server Secret | 把服务器的 API 密钥、OAuth 客户端密钥或虚拟密钥存入[密钥存储](servers.md#密钥与密钥存储) |
 | LiteLLM: Refresh Usage Now | 立即获取支出和预算数据, 不受轮询间隔约束 |
 | LiteLLM: Refresh OpenRouter Catalog | 按需刷新能力目录 ([模型](models.md#能力)) |
+| LiteLLM: Export Settings... | 把扩展的设置保存为 JSON 文件, 明确选择包含还是不含存储的密钥 |
+| LiteLLM: Import Settings... | 合并之前导出的设置文件, 每个冲突的服务器都会询问 |
+| LiteLLM: Undo Last Settings Import | 把设置和密钥恢复到上次导入前的状态 |
 | LiteLLM: Report Issue | 打开预填好的 GitHub Issue; 见[它收集什么](troubleshooting.md#报告问题) |
 | LiteLLM: Help & Feedback | 文档、Bug 报告和功能请求的快捷入口 |

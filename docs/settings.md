@@ -18,6 +18,24 @@ Two equivalent ways to edit everything:
 | Migration | Settings from older versions are renamed and restructured automatically on upgrade; see the [rename table](#renamed-and-removed-settings). Nothing needs re-entering. When a new-name setting already holds a value (say, Settings Sync delivered it from an upgraded machine first), the migration keeps it and just drops the old key - with one caveat for server-URL-scoped keys ([scope notes](#renamed-and-removed-settings)). |
 | Unknown keys | A `litellm-vscode-chat.*` key the extension does not declare (a typo, say `chat.timout`) is ignored, and VS Code's settings editor marks it as an unknown setting in settings.json. The same goes for old names once [renamed](#renamed-and-removed-settings). |
 
+## Export and import
+
+Settings Sync deliberately skips the parts that matter most here - `servers` is machine-scoped and secret-storage values never sync - so moving a setup to another machine has its own pair of commands. The dashboard's Settings tab carries them as the **Import & Export** buttons; command or button, the flow is the same.
+
+- **"LiteLLM: Export Settings..."** writes every `litellm-vscode-chat.*` setting you have configured in user settings to a JSON file (default `~/litellm-settings.json`). A modal asks about secrets first: **Include Secrets** copies secret-storage values into their server entries so the file is complete - and carries those credentials in plaintext, so store and share it carefully - while **Exclude Secrets** strips every secret value, inline ones included, so the file carries no credentials (custom [header](servers.md#custom-headers) values are plain settings, not secrets, and stay; credentials are re-entered after importing).
+- **"LiteLLM: Import Settings..."** merges such a file back. Nothing is written until you confirm a preview (which settings will be written, how many servers collide, how many secret values the file carries), and each server label that already exists asks what to do: **Overwrite** replaces the entry and its stored secrets in place - when that changes connection settings (base URL, credentials), the already-synced provider group cannot pick them up, so the server's dashboard row shows the reconnect steps ([lifecycle](servers.md#lifecycle-renames-removals-hidden-groups)), and the preview flags such overwrites up front - **Skip** leaves yours, **Import Renamed** adds the incoming entry under a new label. Non-colliding servers are appended, other settings are written whole, and secret values in the file go into VS Code secret storage, never your settings file. Dismissing any prompt aborts the whole import with nothing written.
+- **"LiteLLM: Undo Last Settings Import"** restores settings and stored secrets to their pre-import state - wholesale, so edits made after the import to the affected keys are rolled back too; a confirmation stating when the snapshot was taken comes first. One slot: each import replaces it, and the import's own notification carries an **Undo Import** button that runs the same command.
+
+The file is a versioned envelope (setting keys inside it drop the `litellm-vscode-chat.` prefix), so a file from a newer extension version is refused with an update hint rather than half-imported:
+
+```jsonc
+{
+  "litellm-vscode-chat": 1,          // the format version and file discriminant
+  "exportedBy": "0.4.5",             // informational only
+  "settings": { "servers": [ /* ... */ ] }
+}
+```
+
 ## Reference
 
 | Setting | Default | Behavior |
