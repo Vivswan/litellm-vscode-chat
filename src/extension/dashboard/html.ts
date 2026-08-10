@@ -47,7 +47,11 @@ const STYLES = `
 		margin: 0;
 		padding: 0 24px 48px;
 	}
-	main { max-width: 960px; margin: 0 auto; }
+	/* The content column runs fluid up to a generous cap so wide windows give
+	   the tables room (the models table's capabilities column and action links
+	   are the width driver); prose surfaces re-cap themselves below where full
+	   measure would hurt (settings rows, usage cards, banners, notices). */
+	main { max-width: 1560px; margin: 0 auto; }
 	h1 { font-size: 1.35em; font-weight: 600; margin: 24px 0 4px; }
 	/* Section h2s under the tab bar stay for structure (headings anchor the
 	   help glyphs and assistive navigation) but carry no rule of their own:
@@ -217,9 +221,10 @@ const STYLES = `
 	   entry point) sits where every row's Edit sits, and is the last thing a
 	   narrow viewport's horizontal scroll loses instead of the first. */
 	td.actions { white-space: nowrap; }
-	/* The models table's column budget: the default table must fit the 960px
-	   main column with no horizontal scroll (scroll stays only as a fallback
-	   for extreme content). Right padding tighter than the generic 12px, none
+	/* The models table's column budget: the default table must fit a ~960px
+	   content column with no horizontal scroll (scroll stays only as a fallback
+	   for extreme content); wider viewports relax the two ellipsis caps in the
+	   min-width block below. Right padding tighter than the generic 12px, none
 	   at all on the trailing action column, and an ellipsis cap on the two
 	   free-text columns; the capabilities tip carries the full list, and a
 	   trimmed name stays whole in the DOM and the inspector's heading. The
@@ -443,7 +448,14 @@ const STYLES = `
 	   and the record editors; the modified accent bar and the hover band hang
 	   into a small gutter left of that edge (the body's 24px padding absorbs
 	   the overhang), so marking a row never shifts its text. */
-	.settings-groups { max-width: 680px; }
+	/* The settings column: wide enough for the record matcher tables and their
+	   chips to breathe while each row's edit pencil stays within eye reach,
+	   with each scalar row re-capped below so labels, descriptions, and
+	   inputs keep a readable measure. */
+	.settings-groups { max-width: 960px; }
+	/* Prose inside the wide column (the record editors' descriptions) stays at
+	   a readable measure instead of running the full table width. */
+	.settings-groups p.hint { max-width: 72ch; }
 	.settings-group { margin: 16px 0 0; }
 	.settings-group-title {
 		font-size: 0.8em;
@@ -455,6 +467,7 @@ const STYLES = `
 	}
 	.setting-row {
 		position: relative;
+		max-width: 680px;
 		margin-left: -10px;
 		padding: 6px 12px 8px 10px;
 		border-radius: 2px;
@@ -675,7 +688,9 @@ const STYLES = `
 	/* Another scope's record, rendered with the same row grid but inert. */
 	.other-scope { margin: 12px 0 0; }
 	.other-scope > .hint { margin: 0 0 2px; }
-	/* The Edit-as-JSON side door: one textarea in place of the rows. */
+	/* The Edit-as-JSON side door: one textarea in place of the rows, capped so
+	   the JSON keeps a code-like measure inside the wide settings column. */
+	.record-json { max-width: 880px; }
 	.record-json textarea {
 		width: 100%;
 		box-sizing: border-box;
@@ -1073,11 +1088,20 @@ const STYLES = `
 
 	/* Narrow panels drop columns instead of demanding a horizontal scroll
 	   toward off-screen actions. Media queries, not element observation: the
-	   webview panel IS the viewport (the 960px main column only ever shrinks
+	   webview panel IS the viewport (the fluid main column only ever shrinks
 	   with it), and the happy-dom suite could not measure widths anyway. Each
 	   breakpoint is the width where the remaining column set stops fitting
 	   the main column (viewport minus the body's 48px padding), from the
-	   budget above: full set ~945px, then ~670, ~480, ~350. */
+	   ~960px budget above: full set ~945px, then ~670, ~480, ~350. */
+	/* Wide viewports hand the freed space to the two ellipsis-capped columns
+	   first: the capabilities list uncramps before anything else spreads. */
+	@media (min-width: 1240px) {
+		.model-name-text { max-width: 24em; }
+		.caps-text { max-width: 20em; }
+	}
+	@media (min-width: 1560px) {
+		.caps-text { max-width: 28em; }
+	}
 	@media (max-width: 1000px) {
 		/* The most derivable columns go first: family is an ID prefix and the
 		   token limits are capability detail, while pricing and capabilities
@@ -1165,7 +1189,9 @@ const STYLES = `
 	#server-budget { max-width: 9em; }
 
 	/* === R4 usage, diagnostics, records === */
-	.usage-cards { display: flex; flex-direction: column; gap: 12px; margin: 8px 0 16px; }
+	/* Usage cards cap narrower than the tables: a spend bar spanning the full
+	   wide column reads as a wall, and the numbers scan better at card width. */
+	.usage-cards { display: flex; flex-direction: column; gap: 12px; margin: 8px 0 16px; max-width: 880px; }
 	.usage-card {
 		border: 1px solid var(--vscode-widget-border, transparent);
 		background: var(--vscode-editorWidget-background);
