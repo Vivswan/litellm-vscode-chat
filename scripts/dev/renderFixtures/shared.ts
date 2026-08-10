@@ -331,12 +331,14 @@ export function baseState(overrides: Partial<DashboardState> = {}): DashboardSta
 				value: {
 					"*": { temperature: 0.7, top_p: 0.9, _inheritable: true },
 					"gpt-5*": { temperature: 0.3, _inheritable: true, _inherit_from: false, _force: ["temperature"] },
+					"/deepseek.*/i": { reasoning_effort: "high" },
 					"claude-sonnet-4": { temperature: 1 },
 				},
 				otherScopes: [],
 				effective: {
 					"*": { temperature: 0.7, top_p: 0.9, _inheritable: true },
 					"gpt-5*": { temperature: 0.3, _inheritable: true, _inherit_from: false, _force: ["temperature"] },
+					"/deepseek.*/i": { reasoning_effort: "high" },
 					"claude-sonnet-4": { temperature: 1 },
 				},
 			},

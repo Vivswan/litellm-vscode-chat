@@ -1296,11 +1296,12 @@ const STYLES = `
 	}
 	/* One row per matcher, cascade-ordered. No .table-scroll wrapper: the
 	   chips wrap instead, and a scrollport would clip the chip popovers. */
-	table.record-table { margin: 8px 0; }
+	table.record-table { margin: 8px 0; width: 100%; }
 	.record-table th, .record-table td { vertical-align: top; padding-top: 5px; padding-bottom: 5px; }
-	/* The key needs a floor: without one, the fields column's width squeezes
-	   the matcher into letter-per-line wrapping. */
-	.record-table .matcher-cell { min-width: 8em; }
+	/* The key gets its natural width up to a cap: the fields column claims
+	   only the slack majority, so a matcher like /deepseek.*[/]i stays on one
+	   line while space remains; overflow-wrap still bounds pathological keys. */
+	.record-table .matcher-cell { min-width: 8em; max-width: 26em; }
 	.record-table .matcher-key {
 		font-family: var(--vscode-editor-font-family, monospace);
 		overflow-wrap: anywhere;
@@ -1309,8 +1310,9 @@ const STYLES = `
 	.record-table .matcher-cell .error { display: block; font-size: 0.9em; margin: 2px 0 0; }
 	.record-table .inherit-cell { color: var(--vscode-descriptionForeground); }
 	.record-table .inherit-cell code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
-	/* The fields column takes whatever width the fixed columns leave. */
-	.record-table .col-fields, .record-table .fields-cell { width: 100%; }
+	/* The fields column takes most of the slack without starving the matcher
+	   column of its content width. */
+	.record-table .col-fields, .record-table .fields-cell { width: 60%; }
 	.record-table .edit-cell { white-space: nowrap; }
 	.chip-list { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; max-width: 100%; }
 	/* The anchor wraps a chip and its popover, so outside-press detection and
