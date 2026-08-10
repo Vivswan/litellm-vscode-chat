@@ -349,6 +349,7 @@ function InheritFromControl({
 	if (choice.kind === "unreadable") {
 		return (
 			<span class="inherit-from">
+				<span class="editor-label">{l10n.t("Inherits")}</span>
 				<span class="hint">{l10n.t("Inheritance: edit the _inherit_from row below")}</span>
 			</span>
 		);
@@ -371,47 +372,49 @@ function InheritFromControl({
 	};
 	return (
 		<span class="inherit-from">
-			<label class="hint" for={id}>
-				{l10n.t("Inherits")}
-			</label>
-			<Help text={helpInheritFromControl()} />
-			<select
-				id={id}
-				disabled={disabled}
-				value={shownKind}
-				onChange={(event) => {
-					const kind = event.currentTarget.value;
-					if (kind === "default" || kind === "all" || kind === "none") {
-						setKeysPending(false);
-						setPendingText("");
-						onChange(setInheritFromChoice(group, kind));
-					} else {
-						// Enter keys mode without writing; see the comment above.
-						setKeysPending(true);
-						setPendingText(choice.kind === "keys" ? choice.keysText : "");
-						if (choice.kind !== "keys" && choice.kind !== "default") {
-							onChange(setInheritFromChoice(group, "default"));
-						}
-					}
-				}}
-			>
-				<option value="default">{l10n.t("inheritable fields (default)")}</option>
-				<option value="all">{l10n.t("everything that reaches it")}</option>
-				<option value="none">{l10n.t("nothing - barrier")}</option>
-				<option value="keys">{l10n.t("only listed records")}</option>
-			</select>
-			{shownKind === "keys" ? (
-				<input
-					type="text"
-					class="inherit-keys"
-					aria-label={l10n.t("Record keys to inherit from, comma-separated")}
-					placeholder={l10n.t("e.g. gpt-5*, *")}
-					value={keysText}
+			<span class="editor-label">
+				<label for={id}>{l10n.t("Inherits")}</label>
+				<Help text={helpInheritFromControl()} />
+			</span>
+			<span class="inherit-controls">
+				<select
+					id={id}
 					disabled={disabled}
-					onInput={(event) => writeKeys(event.currentTarget.value)}
-				/>
-			) : null}
-			{hint !== undefined ? <span class="hint">{hint}</span> : null}
+					value={shownKind}
+					onChange={(event) => {
+						const kind = event.currentTarget.value;
+						if (kind === "default" || kind === "all" || kind === "none") {
+							setKeysPending(false);
+							setPendingText("");
+							onChange(setInheritFromChoice(group, kind));
+						} else {
+							// Enter keys mode without writing; see the comment above.
+							setKeysPending(true);
+							setPendingText(choice.kind === "keys" ? choice.keysText : "");
+							if (choice.kind !== "keys" && choice.kind !== "default") {
+								onChange(setInheritFromChoice(group, "default"));
+							}
+						}
+					}}
+				>
+					<option value="default">{l10n.t("inheritable fields (default)")}</option>
+					<option value="all">{l10n.t("everything that reaches it")}</option>
+					<option value="none">{l10n.t("nothing - barrier")}</option>
+					<option value="keys">{l10n.t("only listed records")}</option>
+				</select>
+				{shownKind === "keys" ? (
+					<input
+						type="text"
+						class="inherit-keys"
+						aria-label={l10n.t("Record keys to inherit from, comma-separated")}
+						placeholder={l10n.t("e.g. gpt-5*, *")}
+						value={keysText}
+						disabled={disabled}
+						onInput={(event) => writeKeys(event.currentTarget.value)}
+					/>
+				) : null}
+				{hint !== undefined ? <span class="hint">{hint}</span> : null}
+			</span>
 		</span>
 	);
 }
@@ -612,36 +615,38 @@ function ParamGroupsFields({
 					(group.params[index]?.key.trim() === INHERIT_FROM_DIRECTIVE ||
 						hints?.[groupIndex]?.params[index] === undefined);
 				const inheritFromIndex = group.params.findIndex((param) => param.key.trim() === INHERIT_FROM_DIRECTIVE);
+				// The grid's column heads label rendered rows; an empty group keeps
+				// just the add action instead of heads over nothing.
+				const anyRowVisible = group.params.some((_, index) => !rowAbsorbed(index));
 				// Rows are positional while being edited; the index is the identity.
 				return (
 					<div class="group" key={groupIndex}>
-						<div class="row">
-							<span class="cell key">
+						<div class="editor-section">
+							<span class="editor-label">
+								{l10n.t("Matcher")}
+								<Help text={prefixHelp} />
+							</span>
+							<div class="matcher-line">
 								<SuggestInput
 									value={group.prefix}
 									suggestions={prefixSuggestions ?? []}
 									inputClass="key"
 									invalid={problems[groupIndex]?.prefix !== undefined}
 									placeholder={prefixPlaceholder}
+									ariaLabel={l10n.t("Matcher")}
 									disabled={inert}
 									onValue={(next) => patchGroup(groupIndex, { prefix: next })}
 									onEnter={onEnter}
 								/>
-								<Help text={prefixHelp} />
-							</span>
-							<button
-								type="button"
-								class="quiet"
-								disabled={disabled}
-								onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
-							>
-								<IconTrash /> {l10n.t("Remove matcher")}
-							</button>
+							</div>
+							{group.prefix.trim().length > 0 ? (
+								<span class="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
+							) : null}
 							{problems[groupIndex]?.prefix !== undefined ? (
 								<span class="error">{problems[groupIndex]?.prefix}</span>
 							) : null}
 						</div>
-						<div class="inherit-line">
+						<div class="editor-section">
 							<InheritFromControl
 								group={group}
 								disabled={disabled === true}
@@ -653,128 +658,146 @@ function ParamGroupsFields({
 								onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
 							/>
 						</div>
-						<div class="rows">
-							{group.params.map((param, paramIndex) =>
-								rowAbsorbed(paramIndex) ? null : (
-									<div class="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
-										<span class="cell key">
-											<SuggestInput
-												value={param.key}
-												suggestions={paramNameSuggestions ?? []}
-												inputClass="key"
-												invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
-												placeholder={l10n.t("Parameter, e.g. temperature")}
-												disabled={inert}
-												onValue={(next) =>
-													patchGroup(groupIndex, {
-														params: group.params.map((p, i) => (i === paramIndex ? { ...p, key: next } : p)),
-													})
-												}
-												onEnter={onEnter}
-											/>
+						<div class="editor-section">
+							<span class="editor-label">{l10n.t("Fields")}</span>
+							<div class="rows">
+								{anyRowVisible ? (
+									<div class="rows-head">
+										<span class="col-head">
+											{l10n.t("Parameter")}
 											<Help text={helpModelParameterName()} />
 										</span>
-										<span class="cell value">
-											<input
-												type="text"
-												class={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
-												aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
-												placeholder={l10n.t("JSON value, e.g. 0.2")}
-												value={param.valueText}
-												disabled={inert}
-												onInput={(event) =>
-													patchGroup(groupIndex, {
-														params: group.params.map((p, i) =>
-															i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
-														),
-													})
-												}
-												onKeyDown={onKeyDown}
-											/>
+										<span class="col-head">
+											{l10n.t("Value")}
 											<Help text={helpModelParameterValue()} />
 										</span>
-										{/* The per-row force/inheritable marks in their own fixed grid
-									    column, before the row action, so the boxes align down the
-									    card. Directive rows (_force, _inheritable, ...) carry no
-									    flag checkboxes - a directive cannot be forced or inherited
-									    - and unnamed rows have no key to mark yet; unforceable keys
-									    keep the box visible but disabled, with the help naming
-									    why. */}
-										{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
-											<span class="cell directive-flag">
-												<label>
-													<input
-														type="checkbox"
-														aria-label={l10n.t('Force "{0}"', param.key.trim())}
-														checked={forcedFields.has(param.key.trim())}
-														disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key.trim())}
-														onChange={(event) =>
-															onChange(
-																groups.map((g, i) =>
-																	i === groupIndex
-																		? toggleDirectiveField(
-																				g,
-																				FORCE_DIRECTIVE,
-																				param.key.trim(),
-																				event.currentTarget.checked
-																			)
-																		: g
-																)
-															)
-														}
-													/>
-													{l10n.t({
-														message: "force",
-														comment: [
-															"Checkbox label on a parameter row; marks the value as forced over runtime options.",
-														],
-													})}
-												</label>
-												<Help
-													text={
-														directiveEligible(FORCE_DIRECTIVE, param.key.trim())
-															? helpForceFlag()
-															: helpForceFlagDisabled()
-													}
-												/>
-												<InheritableFlag
-													group={group}
-													groupIndex={groupIndex}
-													groups={groups}
-													fieldKey={param.key.trim()}
+									</div>
+								) : null}
+								{group.params.map((param, paramIndex) =>
+									rowAbsorbed(paramIndex) ? null : (
+										<div class="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
+											<span class="cell key">
+												<SuggestInput
+													value={param.key}
+													suggestions={paramNameSuggestions ?? []}
+													inputClass="key"
+													invalid={problems[groupIndex]?.params[paramIndex]?.field === "name"}
+													placeholder={l10n.t("Parameter, e.g. temperature")}
+													ariaLabel={l10n.t("Parameter")}
 													disabled={inert}
-													onChange={onChange}
+													onValue={(next) =>
+														patchGroup(groupIndex, {
+															params: group.params.map((p, i) => (i === paramIndex ? { ...p, key: next } : p)),
+														})
+													}
+													onEnter={onEnter}
 												/>
 											</span>
-										)}
-										<button
-											type="button"
-											class="quiet"
-											disabled={disabled}
-											onClick={() =>
-												patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
-											}
-										>
-											<IconTrash /> {l10n.t("Remove")}
-										</button>
-										{problems[groupIndex]?.params[paramIndex] !== undefined ? (
-											<span class="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
-										) : null}
-										{hints?.[groupIndex]?.params[paramIndex] !== undefined ? (
-											<span class="hint">{hints[groupIndex]?.params[paramIndex]}</span>
-										) : null}
-									</div>
-								)
-							)}
+											<span class="cell value">
+												<input
+													type="text"
+													class={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
+													aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
+													aria-label={l10n.t("Value")}
+													placeholder={l10n.t("JSON value, e.g. 0.2")}
+													value={param.valueText}
+													disabled={inert}
+													onInput={(event) =>
+														patchGroup(groupIndex, {
+															params: group.params.map((p, i) =>
+																i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
+															),
+														})
+													}
+													onKeyDown={onKeyDown}
+												/>
+											</span>
+											{/* The per-row force/inheritable marks in their own fixed grid
+										    column, before the row action, so the boxes align down the
+										    card. Directive rows (_force, _inheritable, ...) carry no
+										    flag checkboxes - a directive cannot be forced or inherited
+										    - and unnamed rows have no key to mark yet; unforceable keys
+										    keep the box visible but disabled, with the help naming
+										    why. */}
+											{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
+												<span class="cell directive-flag">
+													<label>
+														<input
+															type="checkbox"
+															aria-label={l10n.t('Force "{0}"', param.key.trim())}
+															checked={forcedFields.has(param.key.trim())}
+															disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key.trim())}
+															onChange={(event) =>
+																onChange(
+																	groups.map((g, i) =>
+																		i === groupIndex
+																			? toggleDirectiveField(
+																					g,
+																					FORCE_DIRECTIVE,
+																					param.key.trim(),
+																					event.currentTarget.checked
+																				)
+																			: g
+																	)
+																)
+															}
+														/>
+														{l10n.t({
+															message: "force",
+															comment: [
+																"Checkbox label on a parameter row; marks the value as forced over runtime options.",
+															],
+														})}
+													</label>
+													<Help
+														text={
+															directiveEligible(FORCE_DIRECTIVE, param.key.trim())
+																? helpForceFlag()
+																: helpForceFlagDisabled()
+														}
+													/>
+													<InheritableFlag
+														group={group}
+														groupIndex={groupIndex}
+														groups={groups}
+														fieldKey={param.key.trim()}
+														disabled={inert}
+														onChange={onChange}
+													/>
+												</span>
+											)}
+											<button
+												type="button"
+												class="quiet"
+												aria-label={
+													param.key.trim().length > 0 ? l10n.t('Remove "{0}"', param.key.trim()) : l10n.t("Remove")
+												}
+												disabled={disabled}
+												onClick={() =>
+													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
+												}
+											>
+												<IconTrash />
+											</button>
+											{problems[groupIndex]?.params[paramIndex] !== undefined ? (
+												<span class="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
+											) : null}
+											{hints?.[groupIndex]?.params[paramIndex] !== undefined ? (
+												<span class="hint">{hints[groupIndex]?.params[paramIndex]}</span>
+											) : null}
+										</div>
+									)
+								)}
+							</div>
+							<button
+								type="button"
+								class="secondary"
+								disabled={disabled}
+								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
+							>
+								<IconAdd /> {l10n.t("Add parameter")}
+							</button>
 						</div>
-						<button
-							type="button"
-							class="secondary"
-							disabled={disabled}
-							onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
-						>
-							<IconAdd /> {l10n.t("Add parameter")}
-						</button>
 					</div>
 				);
 			})}
@@ -807,6 +830,7 @@ function SuggestInput({
 	inputClass,
 	invalid,
 	placeholder,
+	ariaLabel,
 	disabled,
 	onValue,
 	onEnter,
@@ -817,6 +841,8 @@ function SuggestInput({
 	inputClass: string;
 	invalid: boolean;
 	placeholder?: string | undefined;
+	/** The input's accessible name where the visible label is a column head, not a wired <label>. */
+	ariaLabel?: string | undefined;
 	disabled?: boolean | undefined;
 	onValue: (next: string) => void;
 	/** Enter with no highlighted suggestion; the editors apply the draft when it parses clean. */
@@ -899,6 +925,7 @@ function SuggestInput({
 					type="text"
 					class={invalid ? `${inputClass} invalid` : inputClass}
 					aria-invalid={invalid}
+					aria-label={ariaLabel}
 					placeholder={placeholder}
 					value={value}
 					disabled={disabled}
@@ -915,6 +942,7 @@ function SuggestInput({
 				class={invalid ? `${inputClass} invalid` : inputClass}
 				role="combobox"
 				aria-invalid={invalid}
+				aria-label={ariaLabel}
 				aria-expanded={expanded}
 				aria-controls={listId}
 				aria-autocomplete="list"
@@ -1071,6 +1099,7 @@ export function CatalogPicker({
 				aria-controls={listId}
 				aria-autocomplete="list"
 				aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
+				aria-label={l10n.t("Value")}
 				placeholder={l10n.t("OpenRouter ID, e.g. openai/gpt-4o")}
 				value={value}
 				disabled={disabled}
@@ -1174,36 +1203,38 @@ function CapabilityGroupsFields({
 					(group.params[index]?.key.trim() === INHERIT_FROM_DIRECTIVE ||
 						issues[groupIndex]?.rows[index]?.hint === undefined);
 				const inheritFromIndex = group.params.findIndex((param) => param.key.trim() === INHERIT_FROM_DIRECTIVE);
+				// The grid's column heads label rendered rows; an empty group keeps
+				// just the add action instead of heads over nothing.
+				const anyRowVisible = group.params.some((_, index) => !rowAbsorbed(index));
 				// Rows are positional while being edited; the index is the identity.
 				return (
 					<div class="group" key={groupIndex}>
-						<div class="row">
-							<span class="cell key">
+						<div class="editor-section">
+							<span class="editor-label">
+								{l10n.t("Matcher")}
+								<Help text={helpCapabilityPrefix()} />
+							</span>
+							<div class="matcher-line">
 								<SuggestInput
 									value={group.prefix}
 									suggestions={prefixSuggestions ?? []}
 									inputClass="key"
 									invalid={issues[groupIndex]?.prefix !== undefined}
 									placeholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
+									ariaLabel={l10n.t("Matcher")}
 									disabled={inert}
 									onValue={(next) => patchGroup(groupIndex, { prefix: next })}
 									onEnter={onEnter}
 								/>
-								<Help text={helpCapabilityPrefix()} />
-							</span>
-							<button
-								type="button"
-								class="quiet"
-								disabled={inert}
-								onClick={() => onChange(groups.filter((_, i) => i !== groupIndex))}
-							>
-								<IconTrash /> {l10n.t("Remove matcher")}
-							</button>
+							</div>
+							{group.prefix.trim().length > 0 ? (
+								<span class="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
+							) : null}
 							{issues[groupIndex]?.prefix !== undefined ? (
 								<span class="error">{issues[groupIndex]?.prefix}</span>
 							) : null}
 						</div>
-						<div class="inherit-line">
+						<div class="editor-section">
 							<InheritFromControl
 								group={group}
 								disabled={disabled === true}
@@ -1215,140 +1246,158 @@ function CapabilityGroupsFields({
 								onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
 							/>
 						</div>
-						<div class="rows">
-							{group.params.map((param, paramIndex) => {
-								if (rowAbsorbed(paramIndex)) {
-									return null;
-								}
-								const issue = issues[groupIndex]?.rows[paramIndex];
-								const key = param.key.trim();
-								const kind = capabilityValueKind(key);
-								const patchRow = (patch: Partial<{ key: string; valueText: string }>) =>
-									patchGroup(groupIndex, {
-										params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
-									});
-								return (
-									<div class="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
-										<span class="cell key">
-											<SuggestInput
-												value={param.key}
-												suggestions={CAPABILITY_KEY_SUGGESTIONS}
-												inputClass="key"
-												invalid={issue?.problem?.field === "name"}
-												placeholder={l10n.t("Capability, e.g. context_length")}
-												disabled={inert}
-												onValue={(nextKey) => {
-													// A row just switched onto a support flag means "turn it
-													// on"; seeding true keeps the checkbox and the parse in
-													// agreement without an extra click.
-													const seedsTrue =
-														capabilityValueKind(nextKey.trim()) === "boolean" && param.valueText.trim().length === 0;
-													patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
-												}}
-												onEnter={onEnter}
-											/>
+						<div class="editor-section">
+							<span class="editor-label">{l10n.t("Fields")}</span>
+							<div class="rows">
+								{anyRowVisible ? (
+									<div class="rows-head">
+										<span class="col-head">
+											{l10n.t("Capability")}
 											<Help text={helpCapabilityName()} />
 										</span>
-										{kind === "boolean" ? (
-											<label class="cell value capability-flag">
-												<input
-													type="checkbox"
-													checked={param.valueText.trim() === "true"}
+										<span class="col-head">
+											{l10n.t("Value")}
+											<Help text={helpCapabilityValue()} />
+										</span>
+									</div>
+								) : null}
+								{group.params.map((param, paramIndex) => {
+									if (rowAbsorbed(paramIndex)) {
+										return null;
+									}
+									const issue = issues[groupIndex]?.rows[paramIndex];
+									const key = param.key.trim();
+									const kind = capabilityValueKind(key);
+									const patchRow = (patch: Partial<{ key: string; valueText: string }>) =>
+										patchGroup(groupIndex, {
+											params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
+										});
+									return (
+										<div class="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
+											<span class="cell key">
+												<SuggestInput
+													value={param.key}
+													suggestions={CAPABILITY_KEY_SUGGESTIONS}
+													inputClass="key"
+													invalid={issue?.problem?.field === "name"}
+													placeholder={l10n.t("Capability, e.g. context_length")}
+													ariaLabel={l10n.t("Capability")}
 													disabled={inert}
-													onChange={(event) => patchRow({ valueText: event.currentTarget.checked ? "true" : "false" })}
+													onValue={(nextKey) => {
+														// A row just switched onto a support flag means "turn it
+														// on"; seeding true keeps the checkbox and the parse in
+														// agreement without an extra click.
+														const seedsTrue =
+															capabilityValueKind(nextKey.trim()) === "boolean" && param.valueText.trim().length === 0;
+														patchRow({ key: nextKey, ...(seedsTrue ? { valueText: "true" } : {}) });
+													}}
+													onEnter={onEnter}
 												/>
-												{l10n.t("supported")}
-											</label>
-										) : kind === "catalog-id" ? (
-											<CatalogPicker
-												value={param.valueText}
-												disabled={inert}
-												invalid={issue?.problem?.field === "value"}
-												results={catalogResults}
-												onValue={(next) => patchRow({ valueText: next })}
-											/>
-										) : (
-											<span class="cell value">
-												<input
-													type={kind === "number" ? "number" : "text"}
-													min={kind === "number" ? 1 : undefined}
-													class={`value${issue?.problem?.field === "value" ? " invalid" : ""}`}
-													aria-invalid={issue?.problem?.field === "value"}
-													placeholder={kind === "number" ? l10n.t("Tokens, e.g. 128000") : l10n.t("JSON value")}
+											</span>
+											{kind === "boolean" ? (
+												<label class="cell value capability-flag">
+													<input
+														type="checkbox"
+														checked={param.valueText.trim() === "true"}
+														disabled={inert}
+														onChange={(event) =>
+															patchRow({ valueText: event.currentTarget.checked ? "true" : "false" })
+														}
+													/>
+													{l10n.t("supported")}
+												</label>
+											) : kind === "catalog-id" ? (
+												<CatalogPicker
 													value={param.valueText}
 													disabled={inert}
-													onInput={(event) => patchRow({ valueText: event.currentTarget.value })}
-													onKeyDown={onKeyDown}
+													invalid={issue?.problem?.field === "value"}
+													results={catalogResults}
+													onValue={(next) => patchRow({ valueText: next })}
 												/>
-												<Help text={helpCapabilityValue()} />
-											</span>
-										)}
-										{/* The per-row fallback/inheritable marks in the shared fixed
-									    flag column, before the row action like the parameter
-									    editor's force mark; only the closed vocabulary's fields
-									    carry a fallback box (directives and unknown keys have no
-									    server value to fall under). */}
-										{Object.hasOwn(CAPABILITY_FIELDS, key) || (key.length > 0 && !key.startsWith("_")) ? (
-											<span class="cell directive-flag">
-												{Object.hasOwn(CAPABILITY_FIELDS, key) ? (
-													<>
-														<label>
-															<input
-																type="checkbox"
-																aria-label={l10n.t('Fall back for "{0}"', key)}
-																checked={fallbackFields.has(key)}
-																disabled={inert}
-																onChange={(event) =>
-																	patchGroup(
-																		groupIndex,
-																		toggleDirectiveField(group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
-																	)
-																}
-															/>
-															{l10n.t({
-																message: "fallback",
-																comment: [
-																	"Checkbox label on a capability row; applies the value only where the server reports none.",
-																],
-															})}
-														</label>
-														<Help text={helpFallbackFlag()} />
-													</>
-												) : null}
-												<InheritableFlag
-													group={group}
-													groupIndex={groupIndex}
-													groups={groups}
-													fieldKey={key}
-													disabled={inert}
-													onChange={onChange}
-												/>
-											</span>
-										) : null}
-										<button
-											type="button"
-											class="quiet"
-											disabled={inert}
-											onClick={() =>
-												patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
-											}
-										>
-											<IconTrash /> {l10n.t("Remove")}
-										</button>
-										{issue?.problem !== undefined ? <span class="error">{issue.problem.message}</span> : null}
-										{issue?.hint !== undefined ? <span class="hint">{issue.hint}</span> : null}
-									</div>
-								);
-							})}
+											) : (
+												<span class="cell value">
+													<input
+														type={kind === "number" ? "number" : "text"}
+														min={kind === "number" ? 1 : undefined}
+														class={`value${issue?.problem?.field === "value" ? " invalid" : ""}`}
+														aria-invalid={issue?.problem?.field === "value"}
+														aria-label={l10n.t("Value")}
+														placeholder={kind === "number" ? l10n.t("Tokens, e.g. 128000") : l10n.t("JSON value")}
+														value={param.valueText}
+														disabled={inert}
+														onInput={(event) => patchRow({ valueText: event.currentTarget.value })}
+														onKeyDown={onKeyDown}
+													/>
+												</span>
+											)}
+											{/* The per-row fallback/inheritable marks in the shared fixed
+										    flag column, before the row action like the parameter
+										    editor's force mark; only the closed vocabulary's fields
+										    carry a fallback box (directives and unknown keys have no
+										    server value to fall under). */}
+											{Object.hasOwn(CAPABILITY_FIELDS, key) || (key.length > 0 && !key.startsWith("_")) ? (
+												<span class="cell directive-flag">
+													{Object.hasOwn(CAPABILITY_FIELDS, key) ? (
+														<>
+															<label>
+																<input
+																	type="checkbox"
+																	aria-label={l10n.t('Fall back for "{0}"', key)}
+																	checked={fallbackFields.has(key)}
+																	disabled={inert}
+																	onChange={(event) =>
+																		patchGroup(
+																			groupIndex,
+																			toggleDirectiveField(group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
+																		)
+																	}
+																/>
+																{l10n.t({
+																	message: "fallback",
+																	comment: [
+																		"Checkbox label on a capability row; applies the value only where the server reports none.",
+																	],
+																})}
+															</label>
+															<Help text={helpFallbackFlag()} />
+														</>
+													) : null}
+													<InheritableFlag
+														group={group}
+														groupIndex={groupIndex}
+														groups={groups}
+														fieldKey={key}
+														disabled={inert}
+														onChange={onChange}
+													/>
+												</span>
+											) : null}
+											<button
+												type="button"
+												class="quiet"
+												aria-label={key.length > 0 ? l10n.t('Remove "{0}"', key) : l10n.t("Remove")}
+												disabled={inert}
+												onClick={() =>
+													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
+												}
+											>
+												<IconTrash />
+											</button>
+											{issue?.problem !== undefined ? <span class="error">{issue.problem.message}</span> : null}
+											{issue?.hint !== undefined ? <span class="hint">{issue.hint}</span> : null}
+										</div>
+									);
+								})}
+							</div>
+							<button
+								type="button"
+								class="secondary"
+								disabled={inert}
+								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
+							>
+								<IconAdd /> {l10n.t("Add capability")}
+							</button>
 						</div>
-						<button
-							type="button"
-							class="secondary"
-							disabled={inert}
-							onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
-						>
-							<IconAdd /> {l10n.t("Add capability")}
-						</button>
 					</div>
 				);
 			})}
@@ -1726,6 +1775,7 @@ function FieldChipPopover({
 	const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
 	return (
 		<PopoverShell label={l10n.t('Edit field "{0}"', key)} align={align} onClose={onClose}>
+			<span class="popover-label">{l10n.t("Value")}</span>
 			{valueKind === "boolean" ? (
 				<label class="capability-flag">
 					<input
@@ -1908,6 +1958,7 @@ function AddFieldPopover({
 	};
 	return (
 		<PopoverShell label={l10n.t("Add field")} align={align} onClose={onClose}>
+			<span class="popover-label">{kind === "params" ? l10n.t("Parameter") : l10n.t("Capability")}</span>
 			<SuggestInput
 				value={key}
 				suggestions={keySuggestions}
@@ -1916,10 +1967,12 @@ function AddFieldPopover({
 				placeholder={
 					kind === "params" ? l10n.t("Parameter, e.g. temperature") : l10n.t("Capability, e.g. context_length")
 				}
+				ariaLabel={kind === "params" ? l10n.t("Parameter") : l10n.t("Capability")}
 				disabled={disabled}
 				onValue={setKeyAndSeed}
 				onEnter={commit}
 			/>
+			<span class="popover-label">{l10n.t("Value")}</span>
 			{valueKind === "boolean" ? (
 				<label class="capability-flag">
 					<input
@@ -2370,6 +2423,7 @@ export function RecordMatcherEditorOverlay({
 			labelledBy={titleId}
 			fallbackFocusId={fallbackFocusId}
 			confirming={false}
+			panelClass="wide"
 			onRequestClose={onClose}
 			onKeepEditing={onClose}
 			onDiscard={onClose}
@@ -2401,9 +2455,12 @@ export function RecordMatcherEditorOverlay({
 						onEnter={onEnter}
 					/>
 				)}
-				<div class="toolbar">
-					<button type="button" class="secondary" onClick={onClose}>
+				<div class="toolbar editor-footer">
+					<button type="button" onClick={onClose}>
 						{l10n.t("Done")}
+					</button>
+					<button type="button" class="quiet state-error" disabled={disabled} onClick={onRemove}>
+						<IconTrash /> {l10n.t("Remove matcher")}
 					</button>
 				</div>
 			</div>

@@ -1003,8 +1003,8 @@ test("removing an overlay row voids the focus hold instead of pinning the row th
 	void act(() => {
 		topPValue.dispatchEvent(new Event("focusin", { bubbles: true }));
 	});
-	const removeButtons = Array.from(editor().querySelectorAll(".rows button")).filter(
-		(b) => (b.textContent ?? "").trim() === "Remove"
+	const removeButtons = Array.from(editor().querySelectorAll(".rows button")).filter((b) =>
+		(b.getAttribute("aria-label") ?? "").startsWith("Remove")
 	);
 	fireClick(removeButtons.at(-1) as HTMLButtonElement);
 	expect(rowKeys()).toEqual(["temperature"]);
@@ -1468,7 +1468,9 @@ test("the global editor's matcher copy points server records at entries (the ent
 		throw new Error("no prefix input rendered");
 	}
 	expect(prefixInput.placeholder).toBe("Model ID or matcher, e.g. gpt-4 or gpt-4*");
-	const glyph = prefixInput.closest(".cell")?.querySelector("button.help");
+	// The matcher help rides the MATCHER section label since the overlay
+	// redesign (labels above inputs), not the input's own cell.
+	const glyph = prefixInput.closest(".editor-section")?.querySelector("button.help");
 	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
 	expect(tip?.textContent).toBe(helpModelParameterPrefix());
 });

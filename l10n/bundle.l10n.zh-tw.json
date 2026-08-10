@@ -514,6 +514,7 @@
 	"Reload the window (Ctrl+Shift+P, \"Developer: Reload Window\") or restart VS Code.": "重新載入視窗 (Ctrl+Shift+P, 「Developer: Reload Window」) 或重新啟動 VS Code。",
 	"Reload the window, then run Sync Models Now - or save the entry under a new label instead.": "重新載入視窗, 然後執行「立即同步模型」- 或改用新標籤儲存該項目。",
 	"Remove": "移除",
+	"Remove \"{0}\"": "移除「{0}」",
 	"Remove field": "移除欄位",
 	"Remove matcher": "移除比對鍵",
 	"Remove server \"{0}\" ({1})?": "要移除伺服器「{0}」({1}) 嗎?",

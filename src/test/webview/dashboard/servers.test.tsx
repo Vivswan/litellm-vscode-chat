@@ -172,7 +172,9 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	// while the global editor's help routes server records to entries
 	// (pinned in recordEditors.test.tsx). One shared overlay, two registers.
 	expect(prefixInput.placeholder).toBe("Model ID or matcher, e.g. gpt-4 or gpt-4*");
-	const glyph = prefixInput.closest(".cell")?.querySelector("button.help");
+	// The matcher help rides the MATCHER section label since the overlay
+	// redesign (labels above inputs), not the input's own cell.
+	const glyph = prefixInput.closest(".editor-section")?.querySelector("button.help");
 	const tip = document.getElementById(glyph?.getAttribute("aria-describedby") ?? "");
 	expect(tip?.textContent).toBe(helpEntryModelParameterPrefix());
 

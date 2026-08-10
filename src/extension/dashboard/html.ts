@@ -1137,11 +1137,10 @@ const STYLES = `
 		table.models .col-price { display: none; }
 		table.models .model-name-text { max-width: 12em; }
 	}
-	/* The record editors' rows always stack to one column inside slide-over
-	   panels - the only place they render since the table redesign. The panel
-	   is min(460px, 92vw) whatever the viewport, so a viewport-keyed media
-	   query would grid the rows into a ~90px matcher input at desktop widths;
-	   full-width stacked inputs read better in the panel at every size. */
+	/* Row grids inside the standard 460px slide-over stack to one column: at
+	   that panel width a real grid would squeeze the inputs into ~90px tracks.
+	   This serves the server form's header rows; the matcher editor overlay
+	   ships its own wider panel and re-grids the rows in its block below. */
 	.slide-over .rows { grid-template-columns: 1fr; }
 	.slide-over .row { grid-template-columns: 1fr; }
 	.slide-over .row input.key, .slide-over .row input.value, .slide-over .row button, .slide-over .row .error {
@@ -1255,9 +1254,6 @@ const STYLES = `
 		white-space: nowrap;
 	}
 	.inherit-from { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-	/* The group-level inheritance control on its own line under the matcher
-	   row, so the header keeps its rhythm at any panel width. */
-	.inherit-line { margin: 0 0 4px; }
 	/* Two marks (force/fallback + inheritable) share the row's one flag cell;
 	   wrapping beats overflowing the slide-over's edge. */
 	.row .directive-flag { flex-wrap: wrap; justify-self: start; }
@@ -1415,6 +1411,16 @@ const STYLES = `
 	.chip-popover-flags label { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
 	.chip-popover-actions { display: flex; gap: 8px; align-items: center; }
 	.chip-popover .error, .chip-popover .hint { margin: 0; font-size: 0.9em; }
+	/* The popover's small control labels ("Value"; "Parameter"/"Capability"
+	   in the add popover), so a bare input never floats unlabeled. The
+	   negative margin tightens each label onto its own input against the
+	   popover's uniform 6px column gap. */
+	.chip-popover .popover-label {
+		font-size: 0.85em;
+		font-weight: 600;
+		color: var(--vscode-descriptionForeground);
+		margin-bottom: -2px;
+	}
 	/* The matcher editor overlay's panel content: the panel is the surface,
 	   so the group sheds its card chrome inside any slide-over. */
 	.matcher-editor h3 { margin: 4px 24px 12px 0; }
@@ -1425,6 +1431,100 @@ const STYLES = `
 	   heavier shadow separates the layers so the revealed strip's clipped
 	   text reads as background, not noise. */
 	.slide-over .slide-over { width: min(420px, 86vw); box-shadow: -12px 0 24px rgba(0, 0, 0, 0.5); }
+
+	/* === The matcher editor overlay (MATCHER / INHERITS / FIELDS) === */
+	/* The overlay's own panel width: wide enough that each field renders as
+	   one grid line (key and value side by side, flags and remove at the
+	   right edge). It exceeds the 460px server form beneath when nested, so
+	   the nested variant drops 40px from the top: the form's own header strip
+	   stays visible (dimmed under the overlay's scrim) as the parent-context
+	   cue that the form is still there. */
+	.slide-over.wide, .slide-over .slide-over.wide { width: min(680px, 94vw); }
+	.slide-over .slide-over.wide { top: 40px; }
+	/* Small section labels, the settings group-title recipe: one labeling
+	   system across the page. */
+	.editor-label {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 0.8em;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--vscode-descriptionForeground);
+		margin: 0 0 4px;
+	}
+	.editor-label label { cursor: default; }
+	.matcher-editor .editor-section { margin: 0 0 18px; }
+	.matcher-editor .matcher-line { display: flex; }
+	.matcher-editor .matcher-line .suggest-input { flex: 1; }
+	/* The live reading of the matcher grammar (exact ID, prefix match, ...),
+	   the record table's annotation under the input it describes. */
+	.matcher-editor .matcher-kind { display: block; margin-top: 3px; font-size: 0.85em; color: var(--vscode-descriptionForeground); }
+	.matcher-editor .editor-section > .error { display: block; margin: 3px 0 0; font-size: 0.9em; }
+	/* The Inherits section: label above, the select and keys input on one line. */
+	.matcher-editor .inherit-from { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+	.inherit-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+	/* The field rows as one grid line each: key, value, flags, remove. The
+	   input tracks flex (minmax(0, ...)), the flag and action columns hug
+	   their content at the right edge; the column heads label the two input
+	   tracks so key-vs-value is legible before any placeholder renders. */
+	.matcher-editor .rows {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) max-content max-content;
+		gap: 6px 8px;
+		margin: 2px 0 8px;
+	}
+	.matcher-editor .row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) max-content max-content; }
+	.matcher-editor .rows > .row { grid-template-columns: subgrid; grid-column: 1 / -1; margin: 0; }
+	/* The column heads' wrapper dissolves into the grid at full width (each
+	   head lands in its input's track) and regroups as one legend line when
+	   the rows stack, so the key/value help never disappears. */
+	.matcher-editor .rows-head { display: contents; }
+	.matcher-editor .col-head {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 0.85em;
+		font-weight: 600;
+		color: var(--vscode-descriptionForeground);
+	}
+	.matcher-editor .row .cell.key { grid-column: 1; }
+	.matcher-editor .row .cell.value { grid-column: 2; }
+	.matcher-editor .row .directive-flag { grid-column: 3; grid-row: 1; flex-wrap: nowrap; justify-self: end; align-self: center; }
+	.matcher-editor .row > button { grid-column: 4; grid-row: 1; justify-self: end; }
+	.matcher-editor .row .error, .matcher-editor .row .hint { grid-column: 1 / -1; }
+	/* Below the width where two input tracks stay usable, rows stack back to
+	   the panel-column layout and the column heads regroup into one legend
+	   line (the help glyphs must survive the stacking). */
+	@media (max-width: 700px) {
+		.matcher-editor .rows, .matcher-editor .row { grid-template-columns: 1fr; }
+		.matcher-editor .rows > .row { grid-template-columns: 1fr; }
+		.matcher-editor .rows-head { display: flex; gap: 16px; align-items: center; grid-column: 1; }
+		.matcher-editor .row .cell.key,
+		.matcher-editor .row .cell.value,
+		.matcher-editor .row .directive-flag,
+		.matcher-editor .row > button,
+		.matcher-editor .row .error,
+		.matcher-editor .row .hint {
+			grid-column: 1;
+			grid-row: auto;
+			justify-self: start;
+		}
+	}
+	/* The overlay footer pins like the form's Save row: Done leads on the
+	   left, Remove matcher sits apart on the right as the quiet destructive
+	   action, away from the matcher input it used to crowd. */
+	.matcher-editor .editor-footer {
+		position: sticky;
+		bottom: -20px;
+		z-index: 2;
+		justify-content: space-between;
+		margin: 16px -20px -20px;
+		padding: 12px 20px;
+		background: var(--vscode-editor-background, var(--vscode-panel-background));
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+	}
 `;
 
 export function buildDashboardHtml(options: DashboardHtmlOptions): string {

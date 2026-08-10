@@ -280,12 +280,16 @@ test("the model-parameters editor explains prefix, parameter name, and JSON valu
 		throw new Error("no pencil for the gpt-4 record");
 	}
 	fireClick(pencil as HTMLButtonElement);
-	const prefixCell = section.querySelector("input.key[placeholder^='Model ID or matcher']")?.closest(".cell") ?? null;
-	helpIn(prefixCell, helpModelParameterPrefix());
-	const nameCell = section.querySelector("input.key[placeholder^='Parameter']")?.closest(".cell") ?? null;
-	helpIn(nameCell, helpModelParameterName());
-	const valueCell = section.querySelector("input.value[placeholder^='JSON value']")?.closest(".cell") ?? null;
-	helpIn(valueCell, helpModelParameterValue());
+	// Since the overlay redesign the matcher help rides the MATCHER section
+	// label, and the key/value help moved onto the FIELDS grid's column heads
+	// (one glyph per column, not one per row).
+	const matcherSection =
+		section.querySelector("input.key[placeholder^='Model ID or matcher']")?.closest(".editor-section") ?? null;
+	helpIn(matcherSection, helpModelParameterPrefix());
+	const colHeads = Array.from(section.querySelectorAll(".matcher-editor .col-head"));
+	expect(colHeads.length).toBe(2);
+	helpIn(colHeads[0] ?? null, helpModelParameterName());
+	helpIn(colHeads[1] ?? null, helpModelParameterValue());
 });
 
 test("settings rows show help only where the one-line description is not enough", () => {

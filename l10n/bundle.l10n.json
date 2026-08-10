@@ -549,6 +549,7 @@
 	"Reload the window (Ctrl+Shift+P, \"Developer: Reload Window\") or restart VS Code.": "Reload the window (Ctrl+Shift+P, \"Developer: Reload Window\") or restart VS Code.",
 	"Reload the window, then run Sync Models Now - or save the entry under a new label instead.": "Reload the window, then run Sync Models Now - or save the entry under a new label instead.",
 	"Remove": "Remove",
+	"Remove \"{0}\"": "Remove \"{0}\"",
 	"Remove field": "Remove field",
 	"Remove matcher": "Remove matcher",
 	"Remove server \"{0}\" ({1})?": "Remove server \"{0}\" ({1})?",

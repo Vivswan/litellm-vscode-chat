@@ -20,6 +20,7 @@ export function SlideOver({
 	labelledBy,
 	fallbackFocusId,
 	confirming,
+	panelClass,
 	onRequestClose,
 	onKeepEditing,
 	onDiscard,
@@ -31,6 +32,8 @@ export function SlideOver({
 	fallbackFocusId: string;
 	/** Render the discard-confirm bar; Esc got a dirty form and the owner wants a decision. */
 	confirming: boolean;
+	/** Extra class on the panel element (the matcher editor's "wide" sizing variant). */
+	panelClass?: string | undefined;
 	onRequestClose: () => void;
 	onKeepEditing: () => void;
 	onDiscard: () => void;
@@ -100,7 +103,7 @@ export function SlideOver({
 			    order and out of the accessibility tree. */}
 			<button type="button" class="scrim" tabIndex={-1} aria-hidden="true" onClick={onRequestClose} />
 			<div
-				class="slide-over"
+				class={panelClass === undefined ? "slide-over" : `slide-over ${panelClass}`}
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby={labelledBy}
