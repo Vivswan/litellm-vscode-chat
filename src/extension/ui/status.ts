@@ -6,7 +6,7 @@ import { SETUP_HINT_KINDS, TRANSPORT_ERROR_KINDS } from "../../shared/errorClass
 import type { Logger, LogSafeErrorText } from "../../shared/logger";
 import { markLogSafe } from "../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
-import { isErrorServerStatus } from "../../shared/servers";
+import { isErrorServerStatus, isHiddenGroupServerStatus } from "../../shared/servers";
 
 /** Every connection state, the single source for the union type and the persisted-status schema. */
 const CONNECTION_STATES = ["not-configured", "connecting", "loading", "connected", "degraded", "error"] as const;
@@ -85,6 +85,75 @@ export function statusTotalModels(status: ConnectionStatus): number | undefined 
 }
 
 /**
+ * Whether an error status is the synthetic zero-model verdict rather than a
+ * transport failure: no server failed unexpectedly, so "Connection failed"
+ * would misdescribe it. Derived from the carried server statuses (which
+ * survive persistence), never from the message text, so restored verdicts
+ * classify the same as fresh ones; an error that lost its statuses keeps the
+ * plain connection-failure rendering.
+ */
+export function isZeroModelVerdict(status: ConnectionStatus): boolean {
+	if (status.state !== "error") {
+		return false;
+	}
+	const serverStatuses = status.serverStatuses ?? [];
+	return (
+		serverStatuses.length > 0 &&
+		serverStatuses.every((server) => !isErrorServerStatus(server) || server.expected === true)
+	);
+}
+
+/**
+ * The zero-model verdict's two renderings, shared by the status tooltip and
+ * the notifier toast so the surfaces cannot disagree: a localized display
+ * message that names the real cause (hidden groups get the count and the
+ * recovery; servers that answered with an empty listing get that fact instead
+ * of a connection-failure implication), and the English log rendering (a
+ * classification, never response-derived text) for the issue-report buffer.
+ */
+export function zeroModelStatusTexts(serverStatuses: readonly ServerStatus[]): {
+	display: string;
+	logSafe: LogSafeErrorText;
+	hiddenCount: number;
+} {
+	const hiddenCount = serverStatuses.filter(isHiddenGroupServerStatus).length;
+	const answeredCount = serverStatuses.filter(
+		(status) => status.state === "ok" && status.hiddenByRemoval !== true
+	).length;
+	const sentences: string[] = [];
+	if (hiddenCount > 0) {
+		sentences.push(
+			hiddenCount === 1
+				? vscode.l10n.t(
+						"1 server is hidden by an explicit removal and serves no models. Restore it from the dashboard's server list."
+					)
+				: vscode.l10n.t(
+						"{0} servers are hidden by an explicit removal and serve no models. Restore them from the dashboard's server list.",
+						hiddenCount
+					)
+		);
+		if (answeredCount > 0) {
+			sentences.push(vscode.l10n.t("The remaining servers answered but listed no models."));
+		}
+	} else {
+		sentences.push(
+			answeredCount === 1
+				? vscode.l10n.t("The server answered but listed no models.")
+				: vscode.l10n.t("Your servers answered but listed no models.")
+		);
+	}
+	const hiddenDetail =
+		hiddenCount > 0
+			? `${hiddenCount} hidden by user removal${answeredCount > 0 ? `; ${answeredCount} answered with an empty listing` : ""}`
+			: "answered with an empty listing";
+	return {
+		display: sentences.join(" "),
+		logSafe: markLogSafe(`Servers returned 0 models (${hiddenDetail})`),
+		hiddenCount,
+	};
+}
+
+/**
  * A persisted error classification, shared by the per-server element schema
  * and the top-level status schema. Every field is validated against the
  * shared const arrays (an integer status, known enum ids). Junk drops the
@@ -131,6 +200,7 @@ const persistedServerStatusSchema = z.discriminatedUnion("state", [
 		label: z.string(),
 		baseUrl: z.string(),
 		modelCount: z.number(),
+		hiddenByRemoval: z.boolean().optional().catch(undefined),
 		serverId: z.string().optional().catch(undefined),
 		lastChecked: z.string().optional().catch(undefined),
 		hasApiKey: z.boolean().optional().catch(undefined),
@@ -169,7 +239,12 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 		...(element.hasApiKey !== undefined ? { hasApiKey: element.hasApiKey } : {}),
 	};
 	return element.state === "ok"
-		? { ...common, state: "ok", modelCount: element.modelCount }
+		? {
+				...common,
+				state: "ok",
+				modelCount: element.modelCount,
+				...(element.hiddenByRemoval !== undefined ? { hiddenByRemoval: element.hiddenByRemoval } : {}),
+			}
 		: {
 				...common,
 				state: "error",
@@ -557,7 +632,12 @@ export class StatusBarManager {
 			case "error":
 				this._statusBarItem.render({
 					text: vscode.l10n.t("$(error) LiteLLM"),
-					tooltip: vscode.l10n.t("Connection failed\n{0}\nClick for details", current.error),
+					// The synthetic zero-model verdict is not a connection failure:
+					// every server answered (or failed only expectedly), so the
+					// tooltip's first line must not blame the connection.
+					tooltip: isZeroModelVerdict(current)
+						? vscode.l10n.t("No models available\n{0}\nClick for details", current.error)
+						: vscode.l10n.t("Connection failed\n{0}\nClick for details", current.error),
 					severity: "error",
 				});
 				break;
@@ -641,13 +721,14 @@ export class StatusBarManager {
 				void this.updateStatusBar({ state: "connecting", attention: true, lastChecked: now });
 				return;
 			}
-			this.logger.log("Warning: All servers returned 0 models");
+			const texts = zeroModelStatusTexts(serverStatuses);
+			this.logger.log(`Warning: ${texts.logSafe}`);
 			void this.updateStatusBar({
 				state: "error",
 				// Display localizes; the log-safe rendering stays English by policy.
 				// No classification: this verdict is synthetic, not a transport failure.
-				error: vscode.l10n.t("Servers returned 0 models"),
-				logSafeError: markLogSafe("Servers returned 0 models"),
+				error: texts.display,
+				logSafeError: texts.logSafe,
 				serverStatuses,
 				totalModels: 0,
 				lastChecked: now,

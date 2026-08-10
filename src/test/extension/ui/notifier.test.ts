@@ -188,6 +188,19 @@ suite("extension/ui/notifier", () => {
 		assert.strictEqual(expectDefined(toasts[0]).kind, "error");
 	});
 
+	/** A group serving zero models because the user explicitly removed (hid) it. */
+	function hiddenGroupStatus(serverId = "srv1"): ServerStatus {
+		return {
+			serverId,
+			label: "Default",
+			baseUrl: "http://litellm.test",
+			state: "ok",
+			modelCount: 0,
+			hiddenByRemoval: true,
+			lastChecked: new Date().toISOString(),
+		};
+	}
+
 	test("zero models with reachable servers warns with recovery actions", () => {
 		const notifier = new Notifier(() => false);
 		notifier.handleAggregatedStatus(noModels());
@@ -195,6 +208,49 @@ suite("extension/ui/notifier", () => {
 		const toast = expectDefined(toasts[0]);
 		assert.strictEqual(toast.kind, "warning");
 		assert.ok(toast.message.includes("no models"));
+		assert.deepStrictEqual(toast.buttons, ["Check Server", "Reconfigure", "Report Issue"]);
+	});
+
+	test("zero models explained by a hidden group names the removal and opens the dashboard, never blames the proxy", () => {
+		// The five-blank-issues state: the only group is hidden by an explicit
+		// removal; "Check your LiteLLM proxy configuration" was actively wrong.
+		const notifier = new Notifier(() => true);
+		notifier.handleAggregatedStatus({ serverStatuses: [hiddenGroupStatus()], totalModels: 0, silent: true });
+		assert.strictEqual(toasts.length, 1);
+		const toast = expectDefined(toasts[0]);
+		assert.strictEqual(toast.kind, "warning");
+		assert.ok(toast.message.includes("hidden by an explicit removal"), toast.message);
+		assert.ok(toast.message.includes("Restore it from the dashboard's server list"), toast.message);
+		assert.ok(!toast.message.includes("proxy"), toast.message);
+		assert.deepStrictEqual(toast.buttons, ["Open Dashboard", "Report Issue"]);
+	});
+
+	test("a hidden group beside an answering-empty server names both causes in one toast", () => {
+		const notifier = new Notifier(() => true);
+		notifier.handleAggregatedStatus({
+			serverStatuses: [hiddenGroupStatus("srv-hidden"), okStatus(0)],
+			totalModels: 0,
+			silent: true,
+		});
+		assert.strictEqual(toasts.length, 1);
+		const toast = expectDefined(toasts[0]);
+		assert.ok(toast.message.includes("hidden by an explicit removal"), toast.message);
+		assert.ok(toast.message.includes("answered but listed no models"), toast.message);
+	});
+
+	test("a hidden group beside an unexpected failure keeps the plain no-models warning", () => {
+		// A genuine failure is in the mix: restore advice must not paper over it,
+		// so the toast keeps the wording that points at checking the servers.
+		const notifier = new Notifier(() => true);
+		notifier.handleAggregatedStatus({
+			serverStatuses: [hiddenGroupStatus("srv-hidden"), errorStatus("ECONNREFUSED")],
+			totalModels: 0,
+			silent: true,
+		});
+		assert.strictEqual(toasts.length, 1);
+		const toast = expectDefined(toasts[0]);
+		assert.ok(toast.message.includes("returned no models"), toast.message);
+		assert.ok(!toast.message.includes("hidden"), toast.message);
 		assert.deepStrictEqual(toast.buttons, ["Check Server", "Reconfigure", "Report Issue"]);
 	});
 

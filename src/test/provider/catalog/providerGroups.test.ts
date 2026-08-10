@@ -534,6 +534,11 @@ suite("provider groups", () => {
 		const serverStatus = expectDefined(expectDefined(statuses[0]).serverStatuses[0]);
 		assert.strictEqual(serverStatus.state, "ok", "a suppressed group is not an error");
 		assert.strictEqual(serverStatus.state === "ok" && serverStatus.modelCount, 0);
+		assert.strictEqual(
+			serverStatus.state === "ok" && serverStatus.hiddenByRemoval,
+			true,
+			"the status carries the cause so the presentation layers can name the removal"
+		);
 
 		// Unhidden (the predicate answers false again): the next re-resolution
 		// serves the models like any healthy group.
@@ -544,6 +549,11 @@ suite("provider groups", () => {
 		);
 		assert.strictEqual(restored.length, 1, "the unhidden group serves again");
 		assert.ok(fetches > 0, "the unhidden refresh reaches the network");
+		const restoredStatus = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
+		assert.ok(
+			restoredStatus.state === "ok" && restoredStatus.hiddenByRemoval !== true,
+			"an unhidden group's status must not keep the flag"
+		);
 	});
 
 	test("an unlabeled group is judged by its URL-host status label", async () => {

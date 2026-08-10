@@ -17,6 +17,7 @@ function makeInput(overrides: Partial<ConfigDiagnosticsInput> = {}): ConfigDiagn
 		hasExternalGroups: false,
 		entryReports: [],
 		declared: [],
+		hiddenGroups: [],
 		...overrides,
 	};
 }
@@ -136,5 +137,22 @@ suite("extension/dashboard/configDiagnostics", () => {
 
 		const notAnArray = buildConfigDiagnostics(makeInput({ reader: makeReader({ "usage.alertThresholds": "0.8" }) }));
 		assert.deepStrictEqual(notAnArray, [], "a non-array falls back to the default without a drop report");
+	});
+
+	test("hidden groups surface as one diagnostic carrying their labels; none stays silent", () => {
+		// The Diagnostics tab must not be silent about groups an explicit removal
+		// hid: a hidden-only setup otherwise reads as healthy with zero models
+		// and no visible cause.
+		const diagnostics = buildConfigDiagnostics(
+			makeInput({
+				hiddenGroups: [
+					{ label: "Prod", baseUrl: "http://prod.test" },
+					{ label: "Staging", baseUrl: "http://staging.test" },
+				],
+			})
+		);
+		assert.deepStrictEqual(diagnostics, [{ kind: "hidden-groups", labels: ["Prod", "Staging"] }]);
+
+		assert.deepStrictEqual(buildConfigDiagnostics(makeInput({ hiddenGroups: [] })), []);
 	});
 });

@@ -76,6 +76,7 @@ import {
 	mostSpecificGlobalRecordKey,
 	resolveDashboardModelCapabilities,
 	resolveDashboardModelParameters,
+	visibleHiddenGroups,
 } from "./state";
 import { createDraftConnectionProbe } from "./testDraftConnection";
 import { buildUsageView } from "./usageView";
@@ -357,6 +358,9 @@ export class DashboardController implements vscode.Disposable {
 		// exist (the R3 ruling); externality here is the same join the servers
 		// table renders from.
 		const hasExternalGroups = joinDeclared(labeledSnapshots(snapshots), declared).unmatched.size > 0;
+		const removedGroups = this.env.getRemovedGroups();
+		const wasGroupObserved = (label: string, baseUrl: string) =>
+			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
 		this.postToPanel({
 			type: "state",
 			state: buildDashboardState({
@@ -365,9 +369,9 @@ export class DashboardController implements vscode.Disposable {
 				declared,
 				entryReports,
 				legacyServers: this.env.getLegacyServers(),
-				removedGroups: this.env.getRemovedGroups(),
+				removedGroups,
 				isGroupSnapshot: (serverId) => this.env.serverResolution.isGroupSnapshot(serverId),
-				wasGroupObserved: (label, baseUrl) => this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl)),
+				wasGroupObserved,
 				catalog: this.env.getCatalogStatus(),
 				usage: this.env.getUsage(),
 				diagnostics: buildConfigDiagnostics({
@@ -376,6 +380,8 @@ export class DashboardController implements vscode.Disposable {
 					hasExternalGroups,
 					entryReports,
 					declared,
+					// The same list the servers section's hidden-groups line renders.
+					hiddenGroups: visibleHiddenGroups(removedGroups, wasGroupObserved),
 				}),
 			}),
 		});

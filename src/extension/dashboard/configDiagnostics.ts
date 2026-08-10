@@ -24,7 +24,7 @@ import {
 	NEW_MODEL_PARAMETERS_ID,
 } from "../migrations/settingsRedesign/legacyIds";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
-import type { ConfigDiagnosticView } from "./protocol";
+import type { ConfigDiagnosticView, HiddenGroup } from "./protocol";
 import type { SettingsReader } from "./state";
 
 export interface ConfigDiagnosticsInput {
@@ -38,6 +38,8 @@ export interface ConfigDiagnosticsInput {
 	readonly entryReports: readonly ServerEntryReport[];
 	/** The declared entries' own records, for the entry-layer record lints. */
 	readonly declared: readonly Pick<DeclaredServerView, "label" | "modelParameters" | "modelCapabilities">[];
+	/** The groups hidden by an explicit removal, as the state builder renders them (visibleHiddenGroups). */
+	readonly hiddenGroups: readonly HiddenGroup[];
 }
 
 function recordDiagnostics(
@@ -116,6 +118,14 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 			continue;
 		}
 		diagnostics.push({ kind: "legacy", hint: hint.kind, oldKey: hint.oldKey, detail: hint.detail });
+	}
+
+	// Groups hidden by an explicit removal serve no models; the Diagnostics
+	// tab must say so (a hidden-only setup otherwise reads as a healthy
+	// configuration with zero models and no visible cause). Labels are the
+	// same ones the hidden-groups line renders.
+	if (input.hiddenGroups.length > 0) {
+		diagnostics.push({ kind: "hidden-groups", labels: input.hiddenGroups.map((group) => group.label) });
 	}
 
 	// Out-of-range usage.alertThresholds values are dropped, not clamped

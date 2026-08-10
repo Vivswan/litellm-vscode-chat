@@ -5,7 +5,7 @@ import { publicErrorStack, publicErrorText } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerConfig, ServerStatus } from "../../shared/servers";
-import { isErrorServerStatus } from "../../shared/servers";
+import { isErrorServerStatus, isHiddenGroupServerStatus } from "../../shared/servers";
 import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { DashboardController } from "../dashboard/panel";
@@ -27,6 +27,7 @@ import {
 } from "./notifier";
 import { detectSetupProblem, showSetupProblemGate } from "./setupGate";
 import type { ConnectionStatus } from "./status";
+import { isZeroModelVerdict, statusServerStatuses } from "./status";
 
 const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO_URL}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
 
@@ -56,6 +57,26 @@ interface HostRefreshableProvider {
 }
 
 interface ConnectionTestableProvider extends ModelInfoProvider, HostRefreshableProvider {}
+
+/**
+ * The toast for the synthetic zero-model verdict, shared by the connection
+ * test and the model sync: the verdict text already names the cause and the
+ * recovery (see zeroModelStatusTexts), so the "Connection failed"/"sync
+ * failed" framing must not wrap it, and a hidden group earns the Open
+ * Dashboard label on the reconfigure action - the restore lives in the
+ * dashboard's server list.
+ */
+function showZeroModelOutcomeToast(
+	status: Extract<ConnectionStatus, { state: "error" }>,
+	outputChannel: vscode.OutputChannel
+): void {
+	const hidden = statusServerStatuses(status).some(isHiddenGroupServerStatus);
+	void showActionableMessage("error", vscode.l10n.t("LiteLLM: {0}", status.error), [
+		viewOutputAction(outputChannel),
+		hidden ? reconfigureAction(vscode.l10n.t("Open Dashboard")) : reconfigureAction(),
+		reportIssueAction(),
+	]);
+}
 
 interface StatusBarLike {
 	readonly connectionStatus: ConnectionStatus;
@@ -143,6 +164,13 @@ export async function runConnectionTest(
 				break;
 			}
 			case "error":
+				if (isZeroModelVerdict(status)) {
+					// Every server answered (or failed only expectedly): not a
+					// connection failure, so the toast carries the verdict as-is.
+					logger.log(`Connection test finished with 0 models: ${status.logSafeError}`);
+					showZeroModelOutcomeToast(status, outputChannel);
+					break;
+				}
 				// The toast carries the transport headline verbatim (it already
 				// says what to do); a classified failure only adds the docs action.
 				void showActionableMessage(
@@ -256,6 +284,13 @@ export async function runModelSync(
 				break;
 			}
 			case "error":
+				if (isZeroModelVerdict(status)) {
+					// Not a failed sync: the servers answered. logSafeError carries
+					// the English classification for the issue-report buffer.
+					logger.log(`Model sync finished with 0 models: ${status.logSafeError}`);
+					showZeroModelOutcomeToast(status, outputChannel);
+					break;
+				}
 				// logSafeError, never error: this line lands in the issue-report buffer.
 				logger.log(`Model sync failed: ${status.logSafeError}`);
 				// Same headline-only classification treatment as the connection

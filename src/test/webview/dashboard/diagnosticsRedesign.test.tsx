@@ -140,6 +140,8 @@ describe("Configuration diagnostics", () => {
 			{ kind: "legacy", hint: "inert-url-scoped-key", oldKey: "https://gw/gpt-4", detail: "models.parameters" },
 			{ kind: "legacy", hint: "parked-global-headers", oldKey: "headers", detail: "x-env, x-trace" },
 			{ kind: "thresholds", dropped: 2 },
+			{ kind: "hidden-groups", labels: ["prod-hidden"] },
+			{ kind: "hidden-groups", labels: ["prod-hidden", "staging-hidden"] },
 		];
 		const root = mount(
 			<DiagnosticsSection
@@ -155,7 +157,7 @@ describe("Configuration diagnostics", () => {
 			/>
 		);
 		const items = Array.from(root.querySelectorAll(".config-diagnostics li")).map((li) => li.textContent ?? "");
-		expect(items).toHaveLength(5);
+		expect(items).toHaveLength(7);
 		expect(items[0]).toContain('"gpt*5"');
 		expect(items[1]).toContain('"prod"');
 		expect(items[1]).toContain("misconfigured");
@@ -163,6 +165,10 @@ describe("Configuration diagnostics", () => {
 		expect(items[3]).toContain("x-env, x-trace");
 		expect(items[3]).toContain("adopt");
 		expect(items[4]).toContain("2");
+		expect(items[5]).toContain('"prod-hidden"');
+		expect(items[5]).toContain("hidden by an explicit removal");
+		expect(items[6]).toContain("2 groups are hidden");
+		expect(items[6]).toContain("prod-hidden, staging-hidden");
 	});
 });
 

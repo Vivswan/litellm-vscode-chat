@@ -29,6 +29,14 @@ interface ServerStatusCommon {
 interface ServerStatusOk extends ServerStatusCommon {
 	state: "ok";
 	modelCount: number;
+	/**
+	 * True when the group serves zero models because the user explicitly
+	 * removed (hid) it, not because the server listed none: suppression never
+	 * touches the network, so the outcome stays "ok" and this flag carries the
+	 * cause. Presentation layers (status bar, notifier, the issue-report gate)
+	 * read it to name the recovery instead of blaming the server.
+	 */
+	hiddenByRemoval?: boolean | undefined;
 	error?: undefined;
 }
 
@@ -74,6 +82,11 @@ export type ServerStatus = ServerStatusOk | ServerStatusError;
 
 export function isErrorServerStatus(status: ServerStatus): status is ServerStatusError {
 	return status.state === "error";
+}
+
+/** True for a healthy status whose zero models are explained by an explicit user removal (a hidden group). */
+export function isHiddenGroupServerStatus(status: ServerStatus): boolean {
+	return status.state === "ok" && status.hiddenByRemoval === true;
 }
 
 export interface AggregatedStatus {

@@ -286,7 +286,7 @@ type ServerStatusOverrides = Partial<
 	Pick<ServerStatus, "serverId" | "label" | "baseUrl" | "lastChecked" | "hasApiKey">
 > &
 	(
-		| { state?: "ok"; modelCount?: number }
+		| { state?: "ok"; modelCount?: number; hiddenByRemoval?: boolean }
 		| {
 				state: "error";
 				error: string;
@@ -319,7 +319,12 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 				...(overrides.expected !== undefined ? { expected: overrides.expected } : {}),
 				...(overrides.declaredModelCount !== undefined ? { declaredModelCount: overrides.declaredModelCount } : {}),
 			}
-		: { ...common, state: "ok", modelCount: overrides.modelCount ?? 4 };
+		: {
+				...common,
+				state: "ok",
+				modelCount: overrides.modelCount ?? 4,
+				...(overrides.hiddenByRemoval !== undefined ? { hiddenByRemoval: overrides.hiddenByRemoval } : {}),
+			};
 }
 
 export interface FakeExtensionStorage {

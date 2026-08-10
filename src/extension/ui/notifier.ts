@@ -9,6 +9,7 @@ import { GITHUB_DOCS_URL, SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER } from "../../shared/util/timer";
+import { zeroModelStatusTexts } from "./status";
 
 // The headline extraction lives in shared/util/errorText so the dashboard
 // webview splits messages the same way; re-exported here for the host-side
@@ -322,6 +323,27 @@ export class Notifier implements vscode.Disposable {
 						"LiteLLM: Discovery is declared unavailable and no models are declared. Add IDs to the entry's discovery.declared list."
 					),
 					actions: [reconfigureAction(), reportIssueAction()],
+				};
+			}
+			// Hidden groups explain the zero models: the toast names the real
+			// cause and the recovery instead of blaming the proxy configuration;
+			// the wording is shared with the status tooltip so the two surfaces
+			// cannot disagree. Only while nothing failed unexpectedly - a genuine
+			// failure in the mix must not be papered over with restore advice, so
+			// that mix keeps the plain no-models warning below.
+			const zeroTexts = zeroModelStatusTexts(status.serverStatuses);
+			if (zeroTexts.hiddenCount > 0 && unexpectedFailures.length === 0) {
+				return {
+					tag: "no-models",
+					// Distinct from "no-models" ON PURPOSE, mirroring the all-failed
+					// signature's hint rule: a cause change is new information, so a
+					// generic zero-model state that becomes hidden-explained re-fires
+					// with the corrective wording. The count stays out of the key -
+					// hiding a second group is the same cause, not a new one.
+					signature: "no-models-hidden",
+					kind: "warning",
+					message: vscode.l10n.t("LiteLLM: {0}", zeroTexts.display),
+					actions: [reconfigureAction(vscode.l10n.t("Open Dashboard")), reportIssueAction()],
 				};
 			}
 			return {

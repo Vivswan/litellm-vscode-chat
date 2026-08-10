@@ -37,6 +37,71 @@ suite("extension/ui/setupGate", () => {
 		assert.strictEqual(detectSetupProblem(errorStatus({ classification: { kind: "http", status: 500 } })), undefined);
 	});
 
+	test("the zero-model verdict explained by a hidden group is the hidden-groups problem", () => {
+		// The five-blank-issues state: the only group is tombstone-suppressed, the
+		// rollup built the synthetic zero-model verdict, and Report Issue must
+		// route through the gate instead of opening a blank issue.
+		const status = errorStatus({
+			totalModels: 0,
+			serverStatuses: [makeServerStatus({ modelCount: 0, hiddenByRemoval: true })],
+		});
+		assert.strictEqual(detectSetupProblem(status), "hidden-groups");
+	});
+
+	test("a zero-model verdict from servers that answered empty is not a setup problem", () => {
+		// The server genuinely listed no models: that may be a real bug (or a
+		// proxy configuration question), so it goes straight to GitHub like any
+		// unclassified error.
+		const status = errorStatus({
+			totalModels: 0,
+			serverStatuses: [makeServerStatus({ modelCount: 0 })],
+		});
+		assert.strictEqual(detectSetupProblem(status), undefined);
+	});
+
+	test("a hidden group beside an answering-empty server does not gate: the removal only partly explains it", () => {
+		// The answering-empty server may be a real bug; the gate must not stand
+		// between it and GitHub just because a hidden group also exists.
+		const status = errorStatus({
+			totalModels: 0,
+			serverStatuses: [
+				makeServerStatus({ modelCount: 0, hiddenByRemoval: true }),
+				makeServerStatus({ serverId: "srv2", modelCount: 0 }),
+			],
+		});
+		assert.strictEqual(detectSetupProblem(status), undefined);
+	});
+
+	test("a hidden group beside an expected failure still gates: both outcomes are user-declared", () => {
+		const status = errorStatus({
+			totalModels: 0,
+			serverStatuses: [
+				makeServerStatus({ modelCount: 0, hiddenByRemoval: true }),
+				makeServerStatus({ serverId: "srv2", state: "error", error: "discovery down", expected: true }),
+			],
+		});
+		assert.strictEqual(detectSetupProblem(status), "hidden-groups");
+	});
+
+	test("a hidden group beside served models never gates", () => {
+		// Models are being served, so zero-models cannot be the complaint; the
+		// hidden group is irrelevant to whatever error carried this status.
+		const status = errorStatus({
+			totalModels: 3,
+			serverStatuses: [makeServerStatus({ modelCount: 0, hiddenByRemoval: true }), makeServerStatus({ modelCount: 3 })],
+		});
+		assert.strictEqual(detectSetupProblem(status), undefined);
+	});
+
+	test("a setup hint wins over the hidden-group explanation", () => {
+		const status = errorStatus({
+			totalModels: 0,
+			classification: { kind: "connection", setupHint: "proxy-not-running" },
+			serverStatuses: [makeServerStatus({ modelCount: 0, hiddenByRemoval: true })],
+		});
+		assert.strictEqual(detectSetupProblem(status), "proxy-not-running");
+	});
+
 	test("healthy and transient states are never setup problems", () => {
 		const statuses: ConnectionStatus[] = [
 			{ state: "connected", totalModels: 3, serverStatuses: [makeServerStatus({ modelCount: 3 })] },
@@ -62,6 +127,10 @@ suite("extension/ui/setupGate", () => {
 				substring: "No server is configured yet",
 				labels: ["Configure Now", "Report Anyway"],
 			},
+			"hidden-groups": {
+				substring: "hidden by an explicit removal",
+				labels: ["Open Dashboard", "Report Anyway"],
+			},
 			"proxy-not-running": {
 				substring: "nothing is answering at the configured address",
 				labels: ["Troubleshooting Docs", "Test Connection", "Report Anyway"],
@@ -82,7 +151,7 @@ suite("extension/ui/setupGate", () => {
 			return Promise.resolve(undefined); // dismissed: no action runs
 		};
 		try {
-			for (const problem of [...SETUP_HINT_KINDS, "not-configured"] as SetupProblem[]) {
+			for (const problem of [...SETUP_HINT_KINDS, "not-configured", "hidden-groups"] as SetupProblem[]) {
 				shown.length = 0;
 				await showSetupProblemGate(problem, () => {
 					throw new Error("dismissal must not report");

@@ -351,6 +351,20 @@ function diagnosticPresentation(diagnostic: ConfigDiagnosticView): { text: strin
 						? l10n.t("1 usage.alertThresholds value is outside (0, 1] and was dropped.")
 						: l10n.t("{0} usage.alertThresholds values are outside (0, 1] and were dropped.", diagnostic.dropped),
 			};
+		case "hidden-groups":
+			return {
+				text:
+					diagnostic.labels.length === 1
+						? l10n.t(
+								'"{0}" is hidden by an explicit removal and serves no models. Unhide it from the hidden-groups line under Servers & Models.',
+								diagnostic.labels[0] ?? ""
+							)
+						: l10n.t(
+								"{0} groups are hidden by an explicit removal and serve no models ({1}). Unhide them from the hidden-groups line under Servers & Models.",
+								diagnostic.labels.length,
+								diagnostic.labels.join(", ")
+							),
+			};
 	}
 }
 

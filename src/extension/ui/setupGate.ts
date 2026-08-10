@@ -15,6 +15,7 @@
 
 import * as vscode from "vscode";
 import type { SetupHintKind } from "../../shared/errorClassification";
+import { isHiddenGroupServerStatus } from "../../shared/servers";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import {
 	configureNowLabel,
@@ -26,27 +27,48 @@ import {
 } from "./notifier";
 import type { ConnectionStatus } from "./status";
 
-/** The hint ids are the setup verdicts; not-configured is the one non-transport case. */
-export type SetupProblem = SetupHintKind | "not-configured";
+/**
+ * The hint ids are the setup verdicts; not-configured and hidden-groups (the
+ * zero-model verdict explained by explicit removals) are the two
+ * non-transport cases.
+ */
+export type SetupProblem = SetupHintKind | "not-configured" | "hidden-groups";
 
 /**
  * The gate's verdict, read from the CURRENT connection status only - never
  * from the issue reporter's historical latestError, which is never cleared:
  * a healthy user must not be gated by an old failure. An error status
  * without a setup hint is treated as a real bug and goes straight to GitHub,
- * exactly like every healthy state. One staleness window remains by design:
- * at cold start the status is last session's restored verdict until the
- * first refresh reports, so a since-fixed setup problem can gate once more -
- * it self-corrects on that refresh, costs one click, and the diagnostics
- * snapshot reports the same state, so the gate and the report never
- * disagree.
+ * exactly like every healthy state - except the synthetic zero-model verdict
+ * WHOLLY explained by hidden groups (every carried status is a hidden group
+ * or an expected failure): that state is user-chosen configuration (the
+ * groups answer empty because the user removed them), so the gate offers the
+ * restore instead of a blank issue. A zero-model verdict a hidden group only
+ * partly explains never gates: the server that answered with an empty
+ * listing may be a real bug. One staleness window remains by design: at cold
+ * start the status is last session's restored verdict until the first
+ * refresh reports (and a status persisted by a pre-flag version restores
+ * without hiddenByRemoval, so the hidden state can go ungated once), so a
+ * since-fixed setup problem can gate once more - it self-corrects on that
+ * refresh, costs one click, and the diagnostics snapshot reports the same
+ * state, so the gate and the report never disagree.
  */
 export function detectSetupProblem(status: ConnectionStatus): SetupProblem | undefined {
 	switch (status.state) {
 		case "not-configured":
 			return "not-configured";
-		case "error":
-			return status.classification?.setupHint;
+		case "error": {
+			if (status.classification?.setupHint !== undefined) {
+				return status.classification.setupHint;
+			}
+			const serverStatuses = status.serverStatuses ?? [];
+			const whollyExplainedByHidden =
+				serverStatuses.some(isHiddenGroupServerStatus) &&
+				serverStatuses.every(
+					(server) => isHiddenGroupServerStatus(server) || (server.state === "error" && server.expected === true)
+				);
+			return (status.totalModels ?? 0) === 0 && whollyExplainedByHidden ? "hidden-groups" : undefined;
+		}
 		default:
 			return undefined;
 	}
@@ -57,6 +79,10 @@ function gateMessage(problem: SetupProblem): string {
 		case "not-configured":
 			return vscode.l10n.t(
 				"LiteLLM: No server is configured yet - the issue reporter is for bugs, and setup help is faster in the dashboard."
+			);
+		case "hidden-groups":
+			return vscode.l10n.t(
+				"LiteLLM: This looks like a setup state, not a bug (a server hidden by an explicit removal answers with no models). Restoring it from the dashboard's server list is faster than a GitHub issue."
 			);
 		case "proxy-not-running":
 			return vscode.l10n.t(
@@ -98,6 +124,11 @@ export async function showSetupProblemGate(problem: SetupProblem, reportAnyway: 
 	const actions =
 		problem === "not-configured"
 			? [reconfigureAction(configureNowLabel()), reportAnywayAction]
-			: [troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[problem]), testConnectionAction(), reportAnywayAction];
+			: problem === "hidden-groups"
+				? // The dashboard's Servers & Models view carries the hidden-groups
+					// line with the Unhide action; there is no docs section or
+					// connection test that fixes a deliberate removal.
+					[reconfigureAction(vscode.l10n.t("Open Dashboard")), reportAnywayAction]
+				: [troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[problem]), testConnectionAction(), reportAnywayAction];
 	await showActionableMessage("warning", gateMessage(problem), actions);
 }

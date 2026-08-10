@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { classifyOverall } from "../../../extension/dashboard/protocol";
+import { detectSetupProblem } from "../../../extension/ui/setupGate";
 import type { StatusItemLike, StatusItemView } from "../../../extension/ui/status";
 import { StatusBarManager } from "../../../extension/ui/status";
 import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
@@ -242,6 +243,175 @@ suite("extension/ui/status", () => {
 		const zeroModels = manager.connectionStatus;
 		assert.ok(zeroModels.state === "error");
 		assert.ok(!("classification" in zeroModels), "the synthetic zero-models verdict is not a transport failure");
+	});
+
+	suite("the zero-model verdict names its cause", () => {
+		const hiddenGroup = (serverId = "srv1"): ServerStatus => ({
+			serverId,
+			label: "Prod",
+			baseUrl: "http://prod.test",
+			state: "ok",
+			modelCount: 0,
+			hiddenByRemoval: true,
+			lastChecked: new Date().toISOString(),
+		});
+		const answeredEmpty = (serverId = "srv2"): ServerStatus => ({
+			serverId,
+			label: "Backup",
+			baseUrl: "http://backup.test",
+			state: "ok",
+			modelCount: 0,
+			lastChecked: new Date().toISOString(),
+		});
+
+		test("a hidden group explains the zero models: the verdict names the count and the recovery, never the proxy", async () => {
+			// The five-blank-issues state: the only working server's group was
+			// hidden by an explicit removal, and every surface used to blame the
+			// server ("Connection failed").
+			const bufferLines: string[] = [];
+			const item = new RecordingItem();
+			const manager = createManager(
+				undefined,
+				() => true,
+				{ appendLog: (line) => bufferLines.push(line), recordError: () => {} },
+				item
+			);
+
+			manager.handleAggregatedStatus({ serverStatuses: [hiddenGroup()], totalModels: 0, silent: true });
+			await new Promise((resolve) => setImmediate(resolve));
+
+			const status = manager.connectionStatus;
+			assert.ok(status.state === "error");
+			assert.ok(status.error.includes("1 server is hidden by an explicit removal"), status.error);
+			assert.ok(status.error.includes("Restore it from the dashboard's server list"), status.error);
+			assert.strictEqual(status.logSafeError, "Servers returned 0 models (1 hidden by user removal)");
+			assert.ok(!item.last.tooltip.includes("Connection failed"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("No models available"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("hidden by an explicit removal"), item.last.tooltip);
+			// The log line is the English classification, never the localized display.
+			assert.ok(
+				bufferLines.some((line) => line.includes("Servers returned 0 models (1 hidden by user removal)")),
+				bufferLines.join(" | ")
+			);
+		});
+
+		test("a hidden group beside an answering-empty server names both causes", () => {
+			const manager = createManager(undefined, () => true);
+			manager.handleAggregatedStatus({
+				serverStatuses: [hiddenGroup(), answeredEmpty()],
+				totalModels: 0,
+				silent: true,
+			});
+			const status = manager.connectionStatus;
+			assert.ok(status.state === "error");
+			assert.ok(status.error.includes("1 server is hidden by an explicit removal"), status.error);
+			assert.ok(status.error.includes("The remaining servers answered but listed no models"), status.error);
+			assert.strictEqual(
+				status.logSafeError,
+				"Servers returned 0 models (1 hidden by user removal; 1 answered with an empty listing)"
+			);
+		});
+
+		test("a server that answered with an empty listing is said to have answered, never to have failed", async () => {
+			const item = new RecordingItem();
+			const manager = createManager(undefined, () => true, undefined, item);
+			manager.handleAggregatedStatus({ serverStatuses: [answeredEmpty()], totalModels: 0, silent: true });
+			await new Promise((resolve) => setImmediate(resolve));
+
+			const status = manager.connectionStatus;
+			assert.ok(status.state === "error");
+			assert.strictEqual(status.error, "The server answered but listed no models.");
+			assert.strictEqual(status.logSafeError, "Servers returned 0 models (answered with an empty listing)");
+			assert.ok(!item.last.tooltip.includes("Connection failed"), item.last.tooltip);
+		});
+
+		test("several answering-empty servers get the plural wording", () => {
+			const manager = createManager(undefined, () => true);
+			manager.handleAggregatedStatus({
+				serverStatuses: [answeredEmpty("srv1"), answeredEmpty("srv2")],
+				totalModels: 0,
+				silent: true,
+			});
+			const status = manager.connectionStatus;
+			assert.ok(status.state === "error");
+			assert.strictEqual(status.error, "Your servers answered but listed no models.");
+		});
+
+		test("a genuine all-failed report keeps the connection-failure wording", async () => {
+			const item = new RecordingItem();
+			const manager = createManager(undefined, () => true, undefined, item);
+			manager.handleAggregatedStatus({
+				serverStatuses: [
+					{
+						serverId: "srv1",
+						label: "Down",
+						baseUrl: "http://down.test",
+						state: "error",
+						error: "ECONNREFUSED",
+						logSafeError: markLogSafe("RequestError(connection)"),
+						lastChecked: new Date().toISOString(),
+					},
+				],
+				totalModels: 0,
+				silent: true,
+			});
+			await new Promise((resolve) => setImmediate(resolve));
+
+			assert.ok(item.last.tooltip.includes("Connection failed"), item.last.tooltip);
+			assert.ok(!item.last.tooltip.includes("No models available"), item.last.tooltip);
+		});
+
+		test("hiddenByRemoval survives the persisted round trip; junk drops the field, never the element", () => {
+			const manager = createManager({
+				state: "error",
+				error: "1 server is hidden by an explicit removal and serves no models.",
+				logSafeError: "Servers returned 0 models (1 hidden by user removal)",
+				totalModels: 0,
+				serverStatuses: [
+					{ label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 0, hiddenByRemoval: true },
+					{ label: "Junky", baseUrl: "http://junk.test", state: "ok", modelCount: 0, hiddenByRemoval: "yes" },
+				],
+			});
+			const status = manager.connectionStatus;
+			assert.ok(status.state === "error");
+			const [hidden, junky] = status.serverStatuses ?? [];
+			assert.ok(hidden?.state === "ok");
+			assert.strictEqual(hidden.hiddenByRemoval, true);
+			assert.ok(junky?.state === "ok", "junk optional fields never drop the element");
+			assert.ok(!("hiddenByRemoval" in junky) || junky.hiddenByRemoval === undefined);
+		});
+
+		test("a restored zero-model verdict with a hidden group still gates the issue reporter", () => {
+			// Cold start: the persisted verdict must gate exactly like the fresh
+			// one, or the first Report Issue after a restart recreates the blank
+			// issue this fix exists to prevent.
+			const manager = createManager({
+				state: "error",
+				error: "1 server is hidden by an explicit removal and serves no models.",
+				logSafeError: "Servers returned 0 models (1 hidden by user removal)",
+				totalModels: 0,
+				serverStatuses: [
+					{ label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 0, hiddenByRemoval: true },
+				],
+			});
+			assert.strictEqual(detectSetupProblem(manager.connectionStatus), "hidden-groups");
+		});
+
+		test("a restored error that lost its server statuses keeps the connection-failure rendering", async () => {
+			// isZeroModelVerdict fails closed on an empty status list: without the
+			// statuses there is no proof the servers answered, so the tooltip keeps
+			// blaming the connection like it always did.
+			const item = new RecordingItem();
+			const manager = createManager(
+				{ state: "error", error: "boom", logSafeError: "RequestError(connection)" },
+				() => true,
+				undefined,
+				item
+			);
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.ok(manager.connectionStatus.state === "error");
+			assert.ok(item.last.tooltip.includes("Connection failed"), item.last.tooltip);
+		});
 	});
 
 	suite("the empty status window", () => {

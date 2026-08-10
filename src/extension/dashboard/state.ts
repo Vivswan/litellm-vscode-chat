@@ -700,6 +700,24 @@ export interface DashboardStateInputs {
 	readonly diagnostics?: readonly ConfigDiagnosticView[];
 }
 
+/**
+ * The hidden-groups view both the servers section and Configuration
+ * diagnostics render: the tombstones themselves (never live snapshots - an
+ * unhide must stay offered after the suppressed group's snapshot ages out of
+ * the status window mid-session), gated by the session-sticky observation set
+ * so a tombstone whose group the host no longer holds is not offered as an
+ * unhidable ghost.
+ */
+export function visibleHiddenGroups(
+	removedGroups: RemovedGroupsView,
+	wasGroupObserved: (label: string, baseUrl: string) => boolean
+): HiddenGroup[] {
+	return removedGroups.tombstones
+		.filter((identity) => wasGroupObserved(identity.label, identity.baseUrl))
+		.map((identity) => ({ label: identity.label, baseUrl: identity.baseUrl }))
+		.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
+}
+
 export function buildDashboardState(inputs: DashboardStateInputs): DashboardState {
 	const {
 		snapshots,
@@ -716,16 +734,9 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	} = inputs;
 	const labeled = labeledSnapshots(snapshots);
 	const { servers, snapshotLabels } = buildServers(labeled, declared, entryReports, removedGroups, isGroupSnapshot);
-	// The hidden-groups line renders from the tombstones themselves, not from
-	// live snapshots: an unhide must stay offered even after the suppressed
-	// group's snapshot ages out of the status window mid-session. The
-	// session-sticky observation gate handles the other direction - a group
-	// deleted from the models file before this session started never reports,
-	// so its tombstone would otherwise linger as an unhidable ghost.
-	const hiddenGroups: HiddenGroup[] = removedGroups.tombstones
-		.filter((identity) => wasGroupObserved(identity.label, identity.baseUrl))
-		.map((identity) => ({ label: identity.label, baseUrl: identity.baseUrl }))
-		.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
+	// See visibleHiddenGroups for why the line renders from the tombstones
+	// themselves rather than from live snapshots.
+	const hiddenGroups = visibleHiddenGroups(removedGroups, wasGroupObserved);
 	return {
 		servers,
 		hiddenGroups,

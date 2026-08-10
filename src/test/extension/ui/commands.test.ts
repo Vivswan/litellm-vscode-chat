@@ -192,6 +192,37 @@ suite("extension/ui/commands", () => {
 			assert.strictEqual(statusBar.connectionStatus.state, "connected", "the pre-test status must be restored");
 		});
 
+		test("the zero-model verdict is not framed as a connection failure; a hidden group earns Open Dashboard", async () => {
+			// The five-blank-issues state, reached from Test Connection: the
+			// verdict text already names the removal and the recovery, so the
+			// "Connection failed - " framing must not wrap it.
+			const lines: string[] = [];
+			const bufferLogger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
+			const statusBar = makeStatusBar({
+				state: "error",
+				error:
+					"1 server is hidden by an explicit removal and serves no models. Restore it from the dashboard's server list.",
+				logSafeError: markLogSafe("Servers returned 0 models (1 hidden by user removal)"),
+				totalModels: 0,
+				serverStatuses: [makeServerStatus({ modelCount: 0, hiddenByRemoval: true })],
+			});
+			const provider = {
+				provideLanguageModelChatInformation: async () => [],
+				refreshViaHost: async () => {},
+			};
+
+			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, bufferLogger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.ok(!toast.message.includes("Connection failed"), toast.message);
+			assert.ok(toast.message.includes("hidden by an explicit removal"), toast.message);
+			assert.deepStrictEqual(toast.buttons, ["View Output", "Open Dashboard", "Report Issue"]);
+			assert.ok(
+				lines.some((line) => line.includes("Connection test finished with 0 models")),
+				`Expected the finished-not-failed log line. Lines: ${lines.join(" | ")}`
+			);
+		});
+
 		test("asks the host to re-resolve provider groups for a real round trip", async () => {
 			const statusBar = makeStatusBar({
 				state: "connected",
@@ -466,6 +497,33 @@ suite("extension/ui/commands", () => {
 	});
 
 	suite("runModelSync", () => {
+		test("the zero-model verdict is not framed as a failed sync; answered-empty keeps the plain Reconfigure", async () => {
+			const lines: string[] = [];
+			const bufferLogger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
+			const statusBar = makeStatusBar({
+				state: "error",
+				error: "The server answered but listed no models.",
+				logSafeError: markLogSafe("Servers returned 0 models (answered with an empty listing)"),
+				totalModels: 0,
+				serverStatuses: [makeServerStatus({ modelCount: 0 })],
+			});
+			const provider = { refreshViaHost: async () => {} };
+
+			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, bufferLogger));
+
+			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.message, "LiteLLM: The server answered but listed no models.");
+			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Report Issue"]);
+			assert.ok(
+				lines.some((line) => line.includes("Model sync finished with 0 models")),
+				`Expected the finished-not-failed log line. Lines: ${lines.join(" | ")}`
+			);
+			assert.ok(
+				lines.every((line) => !line.includes("Model sync failed")),
+				`The buffer must not misdescribe the sync as failed. Lines: ${lines.join(" | ")}`
+			);
+		});
+
 		test("the Sync Models Now command is contributed and registered", async () => {
 			const commands = await vscode.commands.getCommands(true);
 			assert.ok(commands.includes("litellm.syncModels"), "litellm.syncModels must be registered on activation");

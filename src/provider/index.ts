@@ -664,7 +664,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 		// A group the user explicitly removed answers empty and never touches
 		// the network or the cache. Its status still reports (as healthy with
-		// zero models) so the status window ages it like any live group and the
+		// zero models, flagged hiddenByRemoval so the presentation layers name
+		// the cause) so the status window ages it like any live group and the
 		// dashboard's hidden-groups view sees a coherent snapshot. Unhiding
 		// fires the change event; the host's re-resolution then lands back here
 		// with the predicate answering false.
@@ -672,7 +673,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			this.log("Provider group is hidden by an explicit user removal; serving no models", {
 				baseUrl: server.baseUrl,
 			});
-			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: 0 }, [], []);
+			this.reportGroupStatus(
+				server,
+				groupServer,
+				silent,
+				{ state: "ok", modelCount: 0, hiddenByRemoval: true },
+				[],
+				[]
+			);
 			return [];
 		}
 
@@ -855,7 +863,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		groupServer: GroupServer,
 		silent: boolean,
 		outcome:
-			| { state: "ok"; modelCount: number }
+			| {
+					state: "ok";
+					modelCount: number;
+					/** See ServerStatusOk: zero models because the user hid the group, never a server outcome. */
+					hiddenByRemoval?: boolean;
+			  }
 			| {
 					state: "error";
 					error: string;

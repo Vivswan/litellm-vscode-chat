@@ -1160,6 +1160,16 @@ export type ConfigDiagnosticView =
 			/** usage.alertThresholds entries outside (0, 1], dropped by normalization. */
 			readonly kind: "thresholds";
 			readonly dropped: number;
+	  }
+	| {
+			/**
+			 * Provider groups hidden by an explicit user removal: each answers
+			 * with no models until unhidden from the Servers & Models view's
+			 * hidden-groups line. Labels only (the same labels the hidden-groups
+			 * line renders), never URLs beyond what that line already shows.
+			 */
+			readonly kind: "hidden-groups";
+			readonly labels: readonly string[];
 	  };
 
 /**
