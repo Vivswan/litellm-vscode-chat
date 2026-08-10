@@ -46,6 +46,7 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.strictEqual(result.serverCount, 0);
 		assert.strictEqual(result.secretFieldCount, 0);
 		assert.strictEqual(result.unmaterializedSecretCount, 0);
+		assert.strictEqual(result.omittedUnsanitizableCount, 0);
 	});
 
 	test("an entirely unset configuration exports an empty settings record", async () => {
@@ -79,6 +80,7 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.strictEqual(secretReads, 0, "an exclude-secrets export must never consult SecretStorage");
 		assert.strictEqual(result.serverCount, 2);
 		assert.strictEqual(result.secretFieldCount, 0);
+		assert.strictEqual(result.omittedUnsanitizableCount, 1, "the dropped non-record element is reported, not silent");
 		const rendered = JSON.stringify(result.envelope);
 		for (const sentinel of ["sk-inline", "sk-unlabeled", "sk-nested"]) {
 			assert.ok(!rendered.includes(sentinel), `${sentinel} leaked into a no-secrets export`);
@@ -128,12 +130,14 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.strictEqual(withSecrets.envelope.settings[SERVERS_SETTING_KEY], corrupted);
 		assert.strictEqual(withSecrets.serverCount, 0);
 		assert.strictEqual(withSecrets.settingCount, 1);
+		assert.strictEqual(withSecrets.omittedUnsanitizableCount, 0);
 
 		const withoutSecrets = await buildSettingsExport(
 			env({ readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: corrupted }) })
 		);
 		assert.ok(!(SERVERS_SETTING_KEY in withoutSecrets.envelope.settings));
 		assert.strictEqual(withoutSecrets.settingCount, 0);
+		assert.strictEqual(withoutSecrets.omittedUnsanitizableCount, 1);
 		assert.ok(!JSON.stringify(withoutSecrets.envelope).includes("sk-corrupt"));
 	});
 

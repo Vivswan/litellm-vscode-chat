@@ -4,13 +4,12 @@
  * (key-absent recorded as absent) and the previous SecretStorage blob of
  * every label the import will touch are recorded, and undo is a wholesale
  * restore of that record. One slot, replaced per import, cleared on undo.
- * Persistence is the host's concern, with one caveat it must honor: the
- * recorded `servers` value can carry inline secret text (inline storage is
- * legal in that setting), so the settings half is secret-capable too - it
- * may only land somewhere already acceptable for settings.json plaintext,
- * or ride with the blobs under the SecretStorage backup key; the blobs half
- * is always secrets and never touches a plaintext file. The storage keys
- * belong in shared/config/storageKeys.ts when the flows land. These
+ * Persistence is the host's concern, with the rule settled: the recorded
+ * `servers` value can carry inline secret text (inline storage is legal in
+ * that setting), so the WHOLE snapshot - settings half included - is
+ * secret-capable and persists only under the SecretStorage backup key,
+ * never in a plaintext file (globalStorage included). The storage key
+ * belongs in shared/config/storageKeys.ts when the flows land. These
  * builders only shape what is stored and what a restore writes.
  *
  * Pure and vscode-free, like envelope.ts and secretSurgery.ts.
@@ -23,7 +22,8 @@ import type { StoredServerSecrets } from "../servers/serverSync/secrets";
 /**
  * One recorded pre-import value: present with the exact value, or recorded
  * absent (a restore then removes the key or deletes the blob). JSON-safe by
- * construction, so the settings part can persist as a plain file.
+ * construction, so the whole snapshot serializes for the SecretStorage
+ * backup key.
  */
 export type SnapshotEntry<V> = { readonly present: true; readonly value: V } | { readonly present: false };
 

@@ -2,7 +2,11 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
-import { parseServersSetting, serverSettingReports } from "../../../extension/servers/serverSync/setting";
+import {
+	acceptedEntry,
+	parseServersSetting,
+	serverSettingReports,
+} from "../../../extension/servers/serverSync/setting";
 import { parseEnvelope } from "../../../extension/settingsTransfer/envelope";
 import { buildSettingsExport } from "../../../extension/settingsTransfer/exportBuild";
 import type { CollisionDecision, CollisionDecisions } from "../../../extension/settingsTransfer/importPlan";
@@ -225,6 +229,7 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 					assert.ok(parsed.ok);
 					assert.deepStrictEqual(parsed.unknownKeys, []);
 					assert.strictEqual(parsed.exportedBy, "9.9.9");
+					assert.strictEqual(exported.omittedUnsanitizableCount, 0, "record-only arrays never omit anything");
 
 					const plan = planSettingsImport(parsed.settings, undefined);
 					assert.deepStrictEqual(plan.skippedKeys, [], "an export of valid values never trips the type gate");
@@ -322,6 +327,52 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 					}
 				}
 			),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
+	test("a with-secrets self-import's collision flags agree with the engine's own args rendering", async () => {
+		await fc.assert(
+			fc.asyncProperty(validServersArb, blobsByLabelArb, async (servers, blobs) => {
+				if (servers.length === 0) {
+					return;
+				}
+				const exported = await buildSettingsExport({
+					readGlobalSetting: (key) => (key === SERVERS_SETTING_KEY ? servers : undefined),
+					readServerSecrets: (label) => Promise.resolve(blobs[label] ?? {}),
+					extensionVersion: "9.9.9",
+					includeSecrets: true,
+				});
+				const parsed = parseEnvelope(JSON.stringify(exported.envelope));
+				assert.ok(parsed.ok);
+				const incomingRaw = parsed.settings[SERVERS_SETTING_KEY];
+				assert.ok(Array.isArray(incomingRaw));
+				const incomingArray: readonly unknown[] = incomingRaw;
+				const plan = planSettingsImport(parsed.settings, servers, blobs);
+				assert.strictEqual(plan.collisions.length, servers.length, "every label self-collides");
+				for (const collision of plan.collisions) {
+					const currentEntry = acceptedEntry(servers, collision.label)?.entry;
+					const incomingEntry = acceptedEntry(incomingArray, collision.label)?.entry;
+					assert.ok(currentEntry !== undefined && incomingEntry !== undefined);
+					// The flag's ground truth: would the group args the engine
+					// builds actually change? The current side resolves against
+					// the label's blob; the incoming side's inline values become
+					// its blob at apply time, leaving its args as they parse.
+					const argsChange =
+						JSON.stringify(buildGroupArgs(incomingEntry, {})) !==
+						JSON.stringify(buildGroupArgs(currentEntry, blobs[collision.label] ?? {}));
+					assert.strictEqual(collision.connectionChanged, argsChange, collision.label);
+				}
+				// The headline no-false-positive case: when every stored field
+				// found an inline home, a self-import changes nothing and no
+				// collision may flag.
+				if (exported.unmaterializedSecretCount === 0) {
+					assert.deepStrictEqual(
+						plan.collisions.filter((collision) => collision.connectionChanged),
+						[]
+					);
+				}
+			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
 	});

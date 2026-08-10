@@ -44,6 +44,13 @@ export interface SettingsExportResult {
 	readonly secretFieldCount: number;
 	/** Blob secret fields with no legal inline position in their entry; reported in the success note when nonzero. */
 	readonly unmaterializedSecretCount: number;
+	/**
+	 * Server shapes a no-secrets export omitted because they cannot be
+	 * sanitized: a non-array servers value counts once, and each non-record
+	 * array element counts once. Always 0 when includeSecrets is true (those
+	 * shapes ride verbatim); reported so the omission is never silent.
+	 */
+	readonly omittedUnsanitizableCount: number;
 }
 
 /** The label the sync side would keep for one raw entry (rawDeclaredLabels' rule, per element), or undefined. */
@@ -59,6 +66,7 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 	let serverCount = 0;
 	let secretFieldCount = 0;
 	let unmaterializedSecretCount = 0;
+	let omittedUnsanitizableCount = 0;
 
 	for (const key of ALL_SETTING_KEYS) {
 		const value = env.readGlobalSetting(key);
@@ -77,6 +85,8 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 			if (env.includeSecrets) {
 				settings[key] = value;
 				settingCount += 1;
+			} else {
+				omittedUnsanitizableCount += 1;
 			}
 			continue;
 		}
@@ -89,6 +99,8 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 				// export drops them instead of trusting their contents.
 				if (env.includeSecrets) {
 					exported.push(rawEntry);
+				} else {
+					omittedUnsanitizableCount += 1;
 				}
 				continue;
 			}
@@ -123,5 +135,6 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 		serverCount,
 		secretFieldCount,
 		unmaterializedSecretCount,
+		omittedUnsanitizableCount,
 	};
 }

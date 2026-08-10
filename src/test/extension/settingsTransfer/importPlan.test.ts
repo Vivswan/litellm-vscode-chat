@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
+import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import type {
 	CollisionDecision,
@@ -27,8 +28,11 @@ function server(label: string, extra: Record<string, unknown> = {}): Record<stri
 
 suite("extension/settingsTransfer/importPlan", () => {
 	test("the frozen signatures and result shapes", () => {
-		const plan: (envelopeSettings: Readonly<Record<string, unknown>>, currentServersRaw: unknown) => ImportPlan =
-			planSettingsImport;
+		const plan: (
+			envelopeSettings: Readonly<Record<string, unknown>>,
+			currentServersRaw: unknown,
+			storedSecrets?: Readonly<Record<string, StoredServerSecrets>>
+		) => ImportPlan = planSettingsImport;
 		const resolve: (plan: ImportPlan, decisions: CollisionDecisions) => ImportApplication = resolveImportPlan;
 		const suggest: (label: string, takenLabels: ReadonlySet<string>) => string = suggestRenamedLabel;
 		assert.strictEqual(typeof plan, "function");
@@ -221,6 +225,59 @@ suite("extension/settingsTransfer/importPlan", () => {
 				planSettingsImport({ [SERVERS_SETTING_KEY]: [misconfigured] }, [misconfigured]).collisions,
 				[{ label: "A", connectionChanged: false }]
 			);
+		});
+
+		test("storedSecrets stops the over-report when a secret merely moves between inline and SecretStorage", () => {
+			const current = [server("A")];
+			const incoming = [server("A", { auth: { apiKey: "sk-1" } })];
+			// Inline-only comparison (no blobs supplied) cannot tell and flags.
+			assert.deepStrictEqual(planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, current).collisions, [
+				{ label: "A", connectionChanged: true },
+			]);
+			// With the label's blob supplied, the effective material is equal.
+			assert.deepStrictEqual(
+				planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, current, { A: { apiKey: "sk-1" } }).collisions,
+				[{ label: "A", connectionChanged: false }]
+			);
+		});
+
+		test("storedSecrets keeps the true positives true", () => {
+			const current = [server("A")];
+			// A different stored value still flags.
+			assert.deepStrictEqual(
+				planSettingsImport({ [SERVERS_SETTING_KEY]: [server("A", { auth: { apiKey: "sk-2" } })] }, current, {
+					A: { apiKey: "sk-1" },
+				}).collisions,
+				[{ label: "A", connectionChanged: true }]
+			);
+			// A secret-less incoming entry against a stored secret still flags:
+			// the overwrite clears the label's blob.
+			assert.deepStrictEqual(
+				planSettingsImport({ [SERVERS_SETTING_KEY]: [server("A")] }, current, { A: { apiKey: "sk-1" } }).collisions,
+				[{ label: "A", connectionChanged: true }]
+			);
+			// The current side's inline value wins over the supplied blob,
+			// mirroring buildGroupArgs.
+			assert.deepStrictEqual(
+				planSettingsImport(
+					{ [SERVERS_SETTING_KEY]: [server("A", { auth: { apiKey: "sk-inline" } })] },
+					[server("A", { auth: { apiKey: "sk-inline" } })],
+					{ A: { apiKey: "sk-other" } }
+				).collisions,
+				[{ label: "A", connectionChanged: false }]
+			);
+		});
+
+		test("storedSecrets under an Object.prototype member name resolves via hasOwn, never the prototype", () => {
+			// The blob record INHERITS a "toString" entry carrying a secret: a
+			// plain index read would find it and wrongly flag the collision;
+			// hasOwn sees no own blob for the label and compares clean sides.
+			const entry = server("toString");
+			const inherited = Object.create({ toString: { apiKey: "sk-ghost" } }) as Readonly<
+				Record<string, StoredServerSecrets>
+			>;
+			const collisions = planSettingsImport({ [SERVERS_SETTING_KEY]: [entry] }, [entry], inherited).collisions;
+			assert.deepStrictEqual(collisions, [{ label: "toString", connectionChanged: false }]);
 		});
 
 		test("secretFieldCount counts inline secret values across importable entries only", () => {

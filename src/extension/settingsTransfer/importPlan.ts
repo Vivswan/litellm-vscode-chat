@@ -78,8 +78,12 @@ export interface ServerCollision {
 	readonly label: string;
 	/**
 	 * True when the incoming entry changes connection-level fields (baseUrl or
-	 * auth shape) against the current entry, so an overwrite follows the sync
-	 * engine's group-update-unavailable path; the preview says so upfront.
+	 * auth material) against the current entry, so an overwrite follows the
+	 * sync engine's group-update-unavailable path; the preview says so upfront.
+	 * With planSettingsImport's storedSecrets provided, the current side
+	 * compares by EFFECTIVE secret material (inline winning over the label's
+	 * blob, exactly as buildGroupArgs resolves), so a secret merely moving
+	 * between inline and SecretStorage with the same value does not flag.
 	 */
 	readonly connectionChanged: boolean;
 }
@@ -116,19 +120,22 @@ function passesTypeGate(key: string, value: unknown): boolean {
 
 /**
  * One parsed entry's connection-level material: the field set buildGroupArgs
- * emits, with only inline secret values resolved (SecretStorage is never
- * consulted here - pure code). name, vendor, and label are omitted because a
- * collision's two sides share the label; what remains is baseUrl plus the
- * flat credential fields, in the descriptor order the fingerprint freezes.
- * importPlan.test.ts pins this rendering against buildGroupArgs itself.
+ * emits, with the entry's inline secret values winning over the supplied
+ * blob (the engine's own precedence). name, vendor, and label are omitted
+ * because a collision's two sides share the label; what remains is baseUrl
+ * plus the flat credential fields, in the descriptor order the fingerprint
+ * freezes. importPlan.test.ts pins this rendering against buildGroupArgs
+ * itself.
  */
-function connectionFingerprint(entry: DeclaredServer | undefined): string | undefined {
+function connectionFingerprint(entry: DeclaredServer | undefined, stored: StoredServerSecrets): string | undefined {
 	if (entry === undefined) {
 		return undefined;
 	}
 	const fields: Record<string, string> = { baseUrl: entry.baseUrl };
 	for (const field of OPTIONAL_ENTRY_FIELDS) {
-		const value = entry[field.id];
+		// The parsed entry's secret fields ARE its inline values, so this is
+		// exactly buildGroupArgs's inline-over-stored resolution.
+		const value = field.secret ? (entry[field.id] ?? stored[field.id]) : entry[field.id];
 		if (value !== undefined) {
 			fields[field.id] = value;
 		}
@@ -162,10 +169,19 @@ function representativeIndices(incomingServers: readonly IncomingServer[]): Read
 	return new Map([...fallbacks].map(([label, index]) => [label, claimants.get(label) ?? index]));
 }
 
-/** Reduce the parsed envelope's settings plus the current raw servers value to an ImportPlan. */
+/**
+ * Reduce the parsed envelope's settings plus the current raw servers value
+ * to an ImportPlan. `storedSecrets` is the host's pre-fetched SecretStorage
+ * blobs by label (colliding labels suffice); when provided, each collision's
+ * connectionChanged compares the current side's effective secret material
+ * instead of inline text alone. Absent, resolution is inline-only. Pure and
+ * synchronous either way; the incoming side never has a blob (its inline
+ * values become its blob at apply time, which leaves the group args as-is).
+ */
 export function planSettingsImport(
 	envelopeSettings: Readonly<Record<string, unknown>>,
-	currentServersRaw: unknown
+	currentServersRaw: unknown,
+	storedSecrets?: Readonly<Record<string, StoredServerSecrets>>
 ): ImportPlan {
 	const settingsWrites: SettingWrite[] = [];
 	const skippedKeys: SkippedKey[] = [];
@@ -216,8 +232,11 @@ export function planSettingsImport(
 			continue;
 		}
 		collided.add(label);
-		const current = connectionFingerprint(acceptedEntry(currentServersRaw, label)?.entry);
-		const imported = connectionFingerprint(acceptedEntry(incomingArray, label)?.entry);
+		// hasOwn: labels like "toString" must not read Object.prototype.
+		const currentBlob =
+			storedSecrets !== undefined && Object.hasOwn(storedSecrets, label) ? storedSecrets[label] : undefined;
+		const current = connectionFingerprint(acceptedEntry(currentServersRaw, label)?.entry, currentBlob ?? {});
+		const imported = connectionFingerprint(acceptedEntry(incomingArray, label)?.entry, {});
 		// A side neither parses is a side whose connection material is unknowable:
 		// one parsed side against an unparseable one flags (the overwrite turns a
 		// dead entry live or vice versa); two unparseable sides have no group to
