@@ -47,7 +47,7 @@ import {
 	showActionableMessage,
 } from "./extension/ui/notifier";
 import { registerOpenSettingKeyCommand } from "./extension/ui/openSettingKey";
-import { registerSettingsTransferCommands } from "./extension/ui/settingsTransferCommands";
+import { createSettingsTransferEnv, registerSettingsTransferCommands } from "./extension/ui/settingsTransferCommands";
 import { StatusBarManager, StatusItem } from "./extension/ui/status";
 import { UsageAlerts } from "./extension/ui/usageAlerts";
 import { UsageStatusBar } from "./extension/ui/usageStatusItem";
@@ -320,9 +320,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// A palette-stored secret can fix a key the proxy had rejected, so the
 	// usage poller re-probes availability when one changes.
 	registerSetServerSecretCommand(context, syncEngine, logger, () => usagePoller.applyServersChange());
-	// The settings export/import commands; a registration skeleton until the
-	// flows land (see ui/settingsTransferCommands.ts).
-	registerSettingsTransferCommands(context);
+	// The settings export/import commands (see ui/settingsTransferCommands.ts).
+	registerSettingsTransferCommands(context, createSettingsTransferEnv(context, syncEngine, logger));
 	// Refresh Usage Now: the poller's explicit refresh, availability re-probed,
 	// working whether or not polling is on. The first scheduled pass runs off
 	// the activation path.

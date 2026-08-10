@@ -154,6 +154,17 @@ export function serverSecretsKey(label: string): string {
 }
 
 /**
+ * SecretStorage: the pre-import snapshot behind "Undo Last Settings Import",
+ * one JSON blob (PreImportSnapshot) holding every litellm-vscode-chat.*
+ * user-scope value plus the touched labels' previous secret blobs. The
+ * settings half can carry inline secret text (inline storage is legal in the
+ * servers setting), so the WHOLE snapshot lives under this one key - never a
+ * plaintext file, never globalState. One slot: each import overwrites it,
+ * undo clears it. Owned by src/extension/ui/settingsTransferCommands.ts.
+ */
+export const PRE_IMPORT_SNAPSHOT_SECRET = "litellm.preImportSnapshot";
+
+/**
  * SecretStorage: the per-install fingerprint salt, 32 random bytes as hex,
  * generated on the first activation that finds none. Owned by
  * src/extension/fingerprintSalt.ts, which is also where the lifecycle rules
