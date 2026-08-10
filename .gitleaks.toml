@@ -30,3 +30,14 @@ paths = ['''(^|/)(bun\.lock|bun\.lockb)$''']
 description = "historical test-fixture correlation id"
 regexTarget = "secret"
 regexes = ['''^test-correlation-id-12345$''']
+
+# Historical docs curl examples (commits 284cfb6c, 83dd7bb2) used the
+# literal placeholder "sk-your-key", tripping curl-auth-header; HEAD now
+# uses $YOUR_LITELLM_KEY, which the rule ignores. Matched against the
+# exact extracted secret, so a real key in a curl example still flags.
+# Do not add a paths criterion here: gitleaks ORs allowlist criteria, so
+# paths would excuse ANY secret under those paths, not narrow this one.
+[[allowlists]]
+description = "historical docs placeholder key in curl examples"
+regexTarget = "secret"
+regexes = ['''^sk-your-key$''']
