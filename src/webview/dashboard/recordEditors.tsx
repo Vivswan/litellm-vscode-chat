@@ -673,8 +673,13 @@ function ParamGroupsFields({
 										</span>
 									</div>
 								) : null}
-								{group.params.map((param, paramIndex) =>
-									rowAbsorbed(paramIndex) ? null : (
+								{group.params.map((param, paramIndex) => {
+									if (rowAbsorbed(paramIndex)) {
+										return null;
+									}
+									const removeLabel =
+										param.key.trim().length > 0 ? l10n.t('Remove "{0}"', param.key.trim()) : l10n.t("Remove");
+									return (
 										<div class="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
 											<span class="cell key">
 												<SuggestInput
@@ -769,9 +774,8 @@ function ParamGroupsFields({
 											<button
 												type="button"
 												class="quiet"
-												aria-label={
-													param.key.trim().length > 0 ? l10n.t('Remove "{0}"', param.key.trim()) : l10n.t("Remove")
-												}
+												aria-label={removeLabel}
+												title={removeLabel}
 												disabled={disabled}
 												onClick={() =>
 													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
@@ -786,8 +790,8 @@ function ParamGroupsFields({
 												<span class="hint">{hints[groupIndex]?.params[paramIndex]}</span>
 											) : null}
 										</div>
-									)
-								)}
+									);
+								})}
 							</div>
 							<button
 								type="button"
@@ -1268,6 +1272,7 @@ function CapabilityGroupsFields({
 									const issue = issues[groupIndex]?.rows[paramIndex];
 									const key = param.key.trim();
 									const kind = capabilityValueKind(key);
+									const removeLabel = key.length > 0 ? l10n.t('Remove "{0}"', key) : l10n.t("Remove");
 									const patchRow = (patch: Partial<{ key: string; valueText: string }>) =>
 										patchGroup(groupIndex, {
 											params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
@@ -1375,7 +1380,8 @@ function CapabilityGroupsFields({
 											<button
 												type="button"
 												class="quiet"
-												aria-label={key.length > 0 ? l10n.t('Remove "{0}"', key) : l10n.t("Remove")}
+												aria-label={removeLabel}
+												title={removeLabel}
 												disabled={inert}
 												onClick={() =>
 													patchGroup(groupIndex, { params: group.params.filter((_, i) => i !== paramIndex) })
@@ -2410,11 +2416,11 @@ export function RecordMatcherEditorOverlay({
 	onEnter?: (() => void) | undefined;
 }) {
 	const titleId = useId();
+	// The editors render exactly one group and every change carries it; group
+	// removal goes through the footer's onRemove, never an emptied list.
 	const onGroupsChange = (next: PrefixGroup[]) => {
 		const first = next[0];
-		if (first === undefined) {
-			onRemove();
-		} else {
+		if (first !== undefined) {
 			onChange(first);
 		}
 	};

@@ -67,6 +67,9 @@ const STYLES = `
 	h3 { font-size: 1em; font-weight: 600; margin: 24px 0 8px; }
 	section { margin-top: 32px; }
 	p.hint, span.hint { color: var(--vscode-descriptionForeground); margin: 4px 0 8px; }
+	/* Hint paragraphs keep a readable measure everywhere: the fluid main
+	   column would otherwise run section descriptions to ~190 characters. */
+	p.hint { max-width: 72ch; }
 	p { margin: 4px 0 8px; }
 
 	/* Status hero: the at-a-glance layer the status bar click promises. */
@@ -453,9 +456,6 @@ const STYLES = `
 	   with each scalar row re-capped below so labels, descriptions, and
 	   inputs keep a readable measure. */
 	.settings-groups { max-width: 960px; }
-	/* Prose inside the wide column (the record editors' descriptions) stays at
-	   a readable measure instead of running the full table width. */
-	.settings-groups p.hint { max-width: 72ch; }
 	.settings-group { margin: 16px 0 0; }
 	.settings-group-title {
 		font-size: 0.8em;
@@ -1511,6 +1511,9 @@ const STYLES = `
 			grid-row: auto;
 			justify-self: start;
 		}
+		/* The one-line grid pins the flags nowrap; the stacked column must let
+		   them wrap again so a long translation cannot overflow the panel. */
+		.matcher-editor .row .directive-flag { flex-wrap: wrap; }
 	}
 	/* The overlay footer pins like the form's Save row: Done leads on the
 	   left, Remove matcher sits apart on the right as the quiet destructive

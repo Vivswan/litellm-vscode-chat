@@ -784,6 +784,29 @@ test("the pencil opens the full editor; Remove matcher inside it drops the group
 	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "*": { top_p: 0.9 } } }]);
 });
 
+test("the overlay opens in the wide slide-over panel variant", () => {
+	// The 680px sizing hangs off the panel's `wide` class; dropping it would
+	// silently cram the one-line field grid into the 460px form width.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const editor = openEditorFor(section(), "gpt-4");
+	expect(editor.closest(".slide-over")?.classList.contains("wide")).toBe(true);
+});
+
+test("a group whose rows are all absorbed renders no field column heads", () => {
+	// The Inherits select fully represents the lone `_inherit_from` row, so
+	// the FIELDS grid is empty: heads over nothing would label a void.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { _inherit_from: false } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const editor = openEditorFor(section(), "gpt-4");
+	expect(editor.querySelectorAll(".col-head").length).toBe(0);
+	expect(buttonByText(editor, "Add parameter")).not.toBeNull();
+});
+
 test("Add model matcher opens the overlay on a fresh group; closing it pristine sweeps the empty row", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "*": { top_p: 0.9 } }) })));
