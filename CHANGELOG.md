@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.6](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.5...v0.4.6) (2026-08-10)
+
+
+### Features
+
+* add settings export, import, and undo ([2f7208a](https://github.com/Vivswan/litellm-vscode-chat/commit/2f7208a3bce0393671c1833df86f2deda265f24f))
+
+
+### Bug Fixes
+
+* allowlist the historical sk-your-key docs placeholder for gitleaks ([7da14f1](https://github.com/Vivswan/litellm-vscode-chat/commit/7da14f1da4e41e7f718f3b0fe2aee377d24634bb))
+* back off usage polling against endpoints that never answer ([be38895](https://github.com/Vivswan/litellm-vscode-chat/commit/be38895efa7b075691d103b7fb61d630476cd397))
+* hint before filing a repeat issue report ([6425152](https://github.com/Vivswan/litellm-vscode-chat/commit/64251528ea5d6a996737f8486d2da375549fa579))
+* name hidden provider groups in status, diagnostics, and the issue-report gate ([#246](https://github.com/Vivswan/litellm-vscode-chat/issues/246), thanks [@leovela69](https://github.com/leovela69)) ([3a68f50](https://github.com/Vivswan/litellm-vscode-chat/commit/3a68f5092a9b1bf7c3af38fa93fe6e33aceeb9fb))
+
 ## [0.4.5](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.4...v0.4.5) (2026-08-10)
 
 
