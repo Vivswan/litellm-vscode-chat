@@ -128,5 +128,8 @@ Everything the extension can do on demand is a Command Palette command (`Ctrl+Sh
 | LiteLLM: Set Server Secret | Stores a server's API key, OAuth client secret, or virtual key in [secret storage](servers.md#secrets-and-secret-storage) |
 | LiteLLM: Refresh Usage Now | Fetches spend and budget data immediately, regardless of the polling interval |
 | LiteLLM: Refresh OpenRouter Catalog | Refreshes the capability catalog on demand ([Models](models.md#capabilities)) |
+| LiteLLM: Export Settings... | Saves the extension's settings to a JSON file, with an explicit choice to include or exclude stored secrets |
+| LiteLLM: Import Settings... | Merges a previously exported settings file, with a prompt per colliding server |
+| LiteLLM: Undo Last Settings Import | Restores settings and secrets to their state before the last import |
 | LiteLLM: Report Issue | Opens a prefilled GitHub issue; see [what it collects](troubleshooting.md#reporting-an-issue) |
 | LiteLLM: Help & Feedback | Shortcuts to the documentation, bug reports, and feature requests |

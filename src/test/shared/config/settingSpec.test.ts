@@ -3,10 +3,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_MAX_TOKENS_CAP } from "../../../provider/transport/request";
 import {
+	ALL_SETTING_KEYS,
 	BOOLEAN_SETTING_SPECS,
 	CONFIG_SECTION,
 	MIN_TIMEOUT_MS,
 	NUMBER_SETTING_SPECS,
+	STRUCTURED_SETTING_KEYS,
 } from "../../../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
@@ -182,6 +184,24 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 			assert.strictEqual(quoted, String(spec.default), `${id} description quotes a stale default: "${description}"`);
 		}
 		assert.ok(checked >= 3, "the timeout and cache TTL descriptions all state their defaults");
+	});
+
+	test("ALL_SETTING_KEYS names exactly the contributed configuration properties", () => {
+		// The export/import surface walks ALL_SETTING_KEYS, so a setting
+		// contributed without joining the vocabulary (or vice versa) would
+		// silently escape export coverage; this pin makes the drift a CI failure.
+		const contributed = Object.keys(allProperties()).map((key) => key.slice(`${CONFIG_SECTION}.`.length));
+		assert.deepStrictEqual([...ALL_SETTING_KEYS].sort(), contributed.sort());
+	});
+
+	test("the structured keys and the scalar specs partition the vocabulary", () => {
+		// A structured key gaining a scalar spec (or a key listed twice) would
+		// double-count in ALL_SETTING_KEYS and double-write on import.
+		assert.strictEqual(new Set(ALL_SETTING_KEYS).size, ALL_SETTING_KEYS.length, "ALL_SETTING_KEYS holds duplicates");
+		for (const key of STRUCTURED_SETTING_KEYS) {
+			assert.ok(!Object.hasOwn(NUMBER_SETTING_SPECS, key), `${key} is structured and number-spec'd`);
+			assert.ok(!Object.hasOwn(BOOLEAN_SETTING_SPECS, key), `${key} is structured and boolean-spec'd`);
+		}
 	});
 
 	test("the usage settings are contributed with the readers' defaults and vocabulary", () => {

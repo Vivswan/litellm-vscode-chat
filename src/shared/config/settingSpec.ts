@@ -64,3 +64,29 @@ export const BOOLEAN_SETTING_SPECS = {
 } as const satisfies Record<string, BooleanSettingValueSpec>;
 
 export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
+
+/**
+ * The settings under the config section with no scalar spec: the object and
+ * array settings plus the enum-string usage.statusBar. Their value grammars
+ * live with their readers; this list only names the keys.
+ */
+export const STRUCTURED_SETTING_KEYS = [
+	SERVERS_SETTING_KEY,
+	MODEL_PARAMETERS_SETTING_KEY,
+	MODEL_CAPABILITIES_SETTING_KEY,
+	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
+	USAGE_STATUS_BAR_SETTING_KEY,
+] as const;
+
+/**
+ * Every litellm-vscode-chat.* setting key: the structured settings plus the
+ * scalar-spec'd number and boolean settings. settingSpec.test.ts pins this
+ * list against package.json's contributed configuration properties, so a
+ * future setting cannot silently escape the surfaces that walk the whole
+ * vocabulary (the settings export walks exactly this list).
+ */
+export const ALL_SETTING_KEYS: readonly string[] = [
+	...STRUCTURED_SETTING_KEYS,
+	...Object.keys(NUMBER_SETTING_SPECS),
+	...Object.keys(BOOLEAN_SETTING_SPECS),
+];

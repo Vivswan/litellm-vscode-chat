@@ -25,6 +25,9 @@ export const CMD = {
 	reportIssue: "litellm.reportIssue",
 	refreshUsage: "litellm.refreshUsage",
 	refreshOpenRouterCatalog: "litellm.refreshOpenRouterCatalog",
+	exportSettings: "litellm.exportSettings",
+	importSettings: "litellm.importSettings",
+	undoLastImport: "litellm.undoLastImport",
 } as const;
 
 /**

@@ -34,6 +34,8 @@ import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
+import type { SettingsInspection } from "../settingsAccess";
+import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
 import { adoptSourceHandle, modelScopeKey } from "./adoptHandle";
 import type {
 	BooleanSettingId,
@@ -55,10 +57,10 @@ import type {
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, NUMBER_SETTING_SPECS } from "./protocol";
 
 /**
- * The removal bookkeeping the state builder folds in, as plain values (this
- * module stays vscode-free): the identities the user explicitly removed
- * (tombstones; base URLs normalized) and the recorded origins of orphaned
- * groups. panel.ts reads both from the GroupRemovalStore.
+ * The removal bookkeeping the state builder folds in, as plain values (the
+ * builders take no live vscode objects): the identities the user explicitly
+ * removed (tombstones; base URLs normalized) and the recorded origins of
+ * orphaned groups. panel.ts reads both from the GroupRemovalStore.
  */
 export interface RemovedGroupsView {
 	readonly tombstones: readonly { readonly label: string; readonly baseUrl: string }[];
@@ -71,13 +73,8 @@ export interface RemovedGroupsView {
 
 const NO_REMOVED_GROUPS: RemovedGroupsView = { tombstones: [], origins: [] };
 
-/** The per-scope values configuration inspection reports; a seam over WorkspaceConfiguration.inspect. */
-export interface SettingsInspection {
-	readonly defaultValue?: unknown;
-	readonly globalValue?: unknown;
-	readonly workspaceValue?: unknown;
-	readonly workspaceFolderValue?: unknown;
-}
+/** The per-scope settings-inspection seam; re-exported so this module's consumers keep one import site. */
+export type { SettingsInspection } from "../settingsAccess";
 
 /** Read access to the litellm-vscode-chat configuration section; a seam over WorkspaceConfiguration. */
 export interface SettingsReader {
@@ -562,27 +559,6 @@ function readBooleanDefault(reader: SettingsReader, id: BooleanSettingId): boole
 	return typeof fallback === "boolean" ? fallback : false;
 }
 
-/**
- * The highest-precedence scope that explicitly configures a key, or null when
- * only the default applies. Precedence follows VS Code's own merge order
- * (workspaceFolder over workspace over global). This is what "modified" means
- * in the dashboard form, and the scope a reset removes first: repeated resets
- * walk down the scopes until nothing is configured, like resetting the setting
- * in each of the native Settings editor's scope tabs in turn.
- */
-export function resolveConfiguredScope(inspection: SettingsInspection | undefined): SettingScope | null {
-	if (inspection?.workspaceFolderValue !== undefined) {
-		return "workspaceFolder";
-	}
-	if (inspection?.workspaceValue !== undefined) {
-		return "workspace";
-	}
-	if (inspection?.globalValue !== undefined) {
-		return "global";
-	}
-	return null;
-}
-
 const ALL_SCOPES: readonly SettingScope[] = ["global", "workspace", "workspaceFolder"];
 
 /**
@@ -767,20 +743,6 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 		diagnostics,
 		legacyServerCount: countUnlistedLegacyServers(servers, legacyServers),
 	};
-}
-
-/**
- * Where a settings write should land: the workspace when it already holds a
- * value, the user scope otherwise. WorkspaceFolder values are deliberately
- * never written to: the dashboard's configuration access is resource-less,
- * and a WorkspaceFolder update without a resource throws in multi-root
- * workspaces. A folder-scope record still shows up read-only in the scoped
- * settings view.
- */
-export function resolveUpdateScope(
-	inspection: Pick<SettingsInspection, "workspaceValue"> | undefined
-): "global" | "workspace" {
-	return inspection?.workspaceValue !== undefined ? "workspace" : "global";
 }
 
 /** A per-entry modelCapabilities record as the request-scope resolution hands it over. */

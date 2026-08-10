@@ -31,10 +31,8 @@ import {
 	EMPTY_CATALOG_STATUS,
 	mostSpecificGlobalRecordKey,
 	readDashboardSettings,
-	resolveConfiguredScope,
 	resolveDashboardModelCapabilities,
 	resolveDashboardModelParameters,
-	resolveUpdateScope,
 } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
@@ -1929,36 +1927,6 @@ suite("extension/dashboard/state", () => {
 			);
 			assert.deepStrictEqual(settings.modelParameters.effective, { "gpt-4": { temperature: 0.2 } });
 			assert.strictEqual(settings.modelParameters.editScope, "workspace");
-		});
-	});
-
-	suite("resolveUpdateScope", () => {
-		test("workspace when the workspace holds a value, user scope otherwise", () => {
-			assert.strictEqual(resolveUpdateScope({ workspaceValue: 2 }), "workspace");
-			assert.strictEqual(resolveUpdateScope({}), "global");
-			assert.strictEqual(resolveUpdateScope(undefined), "global");
-		});
-
-		test("never returns workspaceFolder: resource-less folder updates would throw", () => {
-			const inspection: SettingsInspection = { workspaceFolderValue: 1 };
-			assert.strictEqual(resolveUpdateScope(inspection), "global");
-		});
-	});
-
-	suite("resolveConfiguredScope", () => {
-		test("the highest-precedence configured scope wins; unconfigured keys resolve to null", () => {
-			assert.strictEqual(
-				resolveConfiguredScope({ globalValue: 1, workspaceValue: 2, workspaceFolderValue: 3 }),
-				"workspaceFolder"
-			);
-			assert.strictEqual(resolveConfiguredScope({ globalValue: 1, workspaceValue: 2 }), "workspace");
-			assert.strictEqual(resolveConfiguredScope({ globalValue: 1 }), "global");
-			assert.strictEqual(resolveConfiguredScope({ defaultValue: 300000 }), null);
-			assert.strictEqual(resolveConfiguredScope(undefined), null);
-		});
-
-		test("a folder value alone is the reset target even though writes never land there", () => {
-			assert.strictEqual(resolveConfiguredScope({ workspaceFolderValue: 1 }), "workspaceFolder");
 		});
 	});
 

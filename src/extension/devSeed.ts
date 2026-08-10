@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -11,6 +10,7 @@ import { DEV_SEED_FILENAME, type DevSeed, type DevSeedEntry, type DevSeedModels 
 import type { Logger } from "../shared/logger";
 import { isRecord } from "../shared/util/json";
 import { updateServerSecret } from "./servers/serverSync";
+import { createSettingsAccess } from "./settingsAccess";
 
 /**
  * One-shot development seeding for `bun run dev`: the launcher script
@@ -132,29 +132,23 @@ const RECORD_SETTING_KEYS: Record<DevSeedRecordKind, string> = {
 };
 
 export function createDevSeedEnv(secrets: vscode.SecretStorage): DevSeedEnv {
+	const settings = createSettingsAccess();
 	return {
 		// The effective value, matching what the sync engine reads. The setting is
-		// machine-scoped, so no workspace value can enter the merge; what .get()
-		// adds over a global-scope inspect is the declared default ([]) and
-		// correct machine-scope resolution in remote windows. upsertSeedEntry
-		// replaces by label, so writing the merged array back to the global scope
-		// is safe.
-		readServersSetting: () => vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
-		writeServersSetting: (value) =>
-			vscode.workspace
-				.getConfiguration(CONFIG_SECTION)
-				.update(SERVERS_SETTING_KEY, value, vscode.ConfigurationTarget.Global),
+		// machine-scoped, so no workspace value can enter the merge; what an
+		// effective read adds over a global-scope read is the declared default
+		// ([]) and correct machine-scope resolution in remote windows.
+		// upsertSeedEntry replaces by label, so writing the merged array back to
+		// the global scope is safe.
+		readServersSetting: () => settings.readEffective(SERVERS_SETTING_KEY),
+		writeServersSetting: (value) => settings.writeGlobal(SERVERS_SETTING_KEY, value),
 		clearApiKey: (label) => updateServerSecret(secrets, label, "apiKey", undefined),
 		// The GLOBAL value, not the effective one: unlike servers, the record
 		// settings are window-scoped, and the seed merges what it reads back
 		// into the global scope - an effective read could copy a workspace
 		// value into user settings.
-		readModelRecords: (kind) =>
-			vscode.workspace.getConfiguration(CONFIG_SECTION).inspect(RECORD_SETTING_KEYS[kind])?.globalValue,
-		writeModelRecords: (kind, value) =>
-			vscode.workspace
-				.getConfiguration(CONFIG_SECTION)
-				.update(RECORD_SETTING_KEYS[kind], value, vscode.ConfigurationTarget.Global),
+		readModelRecords: (kind) => settings.readGlobal(RECORD_SETTING_KEYS[kind]),
+		writeModelRecords: (kind, value) => settings.writeGlobal(RECORD_SETTING_KEYS[kind], value),
 	};
 }
 

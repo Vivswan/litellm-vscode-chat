@@ -46,6 +46,7 @@ import {
 } from "../servers/serverSync";
 import type { UsagePoller } from "../servers/usage";
 import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
+import { createSettingsAccess } from "../settingsAccess";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
 import { buildDashboardHtml } from "./html";
@@ -73,10 +74,8 @@ import {
 	joinDeclared,
 	labeledSnapshots,
 	mostSpecificGlobalRecordKey,
-	resolveConfiguredScope,
 	resolveDashboardModelCapabilities,
 	resolveDashboardModelParameters,
-	resolveUpdateScope,
 } from "./state";
 import { createDraftConnectionProbe } from "./testDraftConnection";
 import { buildUsageView } from "./usageView";
@@ -588,23 +587,6 @@ export class DashboardController implements vscode.Disposable {
 	}
 }
 
-// Scalar writes never land in the folder scope (resolveUpdateScope): the
-// dashboard's configuration access is resource-less, and a WorkspaceFolder
-// update without a resource throws in multi-root workspaces. Resets differ:
-// they must remove the highest-precedence configured value, folder scope
-// included, or a reset would delete a hidden lower-scope value while the
-// displayed one survives - so the reset map carries all three targets and a
-// failing folder-scope removal surfaces as the intent's failure notice.
-const TARGET_BY_SCOPE = {
-	global: vscode.ConfigurationTarget.Global,
-	workspace: vscode.ConfigurationTarget.Workspace,
-} as const;
-
-const RESET_TARGET_BY_SCOPE = {
-	...TARGET_BY_SCOPE,
-	workspaceFolder: vscode.ConfigurationTarget.WorkspaceFolder,
-} as const;
-
 function createNonce(): string {
 	return randomBytes(16).toString("hex");
 }
@@ -744,6 +726,7 @@ export function registerDashboardCommand(
 		},
 		getResolutionTable: () => provider.resolutionTable,
 	};
+	const settingsAccess = createSettingsAccess();
 	const controller = new DashboardController({
 		createPanel: () => createRealPanel(context.extensionUri),
 		// Declared models never enter the status window (they are config-rebuilt
@@ -799,33 +782,16 @@ export function registerDashboardCommand(
 				.finally(() => controller.refresh());
 		},
 		searchCatalog: (query) => searchCatalogModels(catalog.snapshot(), query),
-		settingsReader: () => {
-			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-			return {
-				get: (key) => config.get<unknown>(key),
-				inspect: (key) => config.inspect(key),
-			};
-		},
-		updateSetting: async (key, value) => {
-			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-			const scope = resolveUpdateScope(config.inspect(key));
-			await config.update(key, value, TARGET_BY_SCOPE[scope]);
-		},
-		removeSetting: async (key) => {
-			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-			const scope = resolveConfiguredScope(config.inspect(key)) ?? "global";
-			await config.update(key, undefined, RESET_TARGET_BY_SCOPE[scope]);
-		},
+		// One snapshot per reader: a dashboard build makes many reads and must
+		// not mix configuration versions mid-build.
+		settingsReader: () => settingsAccess.snapshotReader(),
+		updateSetting: (key, value) => settingsAccess.updateAuto(key, value),
+		removeSetting: (key) => settingsAccess.removeConfigured(key),
 		// The servers setting is machine-scoped: workspaces cannot re-point a
 		// label at another host to harvest its stored secrets, and reads and
 		// writes always target the user-scope value.
-		readServersSetting: () => {
-			return vscode.workspace.getConfiguration(CONFIG_SECTION).inspect(SERVERS_SETTING_KEY)?.globalValue;
-		},
-		writeServersSetting: async (value) => {
-			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-			await config.update(SERVERS_SETTING_KEY, value, vscode.ConfigurationTarget.Global);
-		},
+		readServersSetting: () => settingsAccess.readGlobal(SERVERS_SETTING_KEY),
+		writeServersSetting: (value) => settingsAccess.writeGlobal(SERVERS_SETTING_KEY, value),
 		storeServerSecret: (label, field, value) => updateServerSecret(context.secrets, label, field, value),
 		readServerSecrets: (label) => readServerSecrets(context.secrets, label),
 		copyServerSecrets: (fromLabel, toLabel) => copyServerSecrets(context.secrets, fromLabel, toLabel),
