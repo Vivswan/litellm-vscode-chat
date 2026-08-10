@@ -29,7 +29,7 @@ import {
 import type { FailuresByIntent, IntentAck } from "./app";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
-import { helpCatalogRow, helpSettingsSection, settingRowHelp } from "./helpText";
+import { helpCatalogRow, helpImportExportGroup, helpSettingsSection, settingRowHelp } from "./helpText";
 import { IconBraces } from "./icons";
 import type { CatalogSearchResponse, ExternalRecordEdit } from "./recordEditors";
 import {
@@ -837,7 +837,14 @@ export function SettingsSection({
 	const capsVisible =
 		needle.length === 0 || recordEditorMatches(needle, modelCapabilitiesTitle(), settings.modelCapabilities);
 	const anyScalarVisible = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].some(isVisible);
-	const nothingMatches = !anyScalarVisible && !paramsVisible && !capsVisible;
+	// The Import & Export group filters like a scalar row: its title and button
+	// labels stand in for the label, its hint line for the description.
+	const importExportVisible =
+		needle.length === 0 ||
+		[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings"), helpImportExportGroup()].some(
+			(text) => text.toLowerCase().includes(needle)
+		);
+	const nothingMatches = !anyScalarVisible && !paramsVisible && !capsVisible && !importExportVisible;
 	const booleanExtras: Partial<Record<BooleanSettingId, ComponentChildren>> = {
 		"models.openRouterCatalog": (
 			<CatalogRow
@@ -948,6 +955,38 @@ export function SettingsSection({
 						isVisible={isVisible}
 					/>
 				) : null}
+				{/* The trailing Import & Export group: no settings rows, just two
+				    actions invoking the export/import commands over the same
+				    executeCommand post the header's Report a bug uses. Rendered
+				    after every other group so file transfer never sits between
+				    rows. */}
+				<SettingGroup
+					title={() => l10n.t("Import & Export")}
+					hint={helpImportExportGroup}
+					numbers={[]}
+					booleans={[]}
+					settings={settings}
+					isVisible={isVisible}
+					tailVisible={importExportVisible}
+					tail={
+						<div class="toolbar">
+							<button
+								type="button"
+								class="secondary"
+								onClick={() => postMessage({ type: "executeCommand", command: "exportSettings" })}
+							>
+								{l10n.t("Export settings")}
+							</button>
+							<button
+								type="button"
+								class="secondary"
+								onClick={() => postMessage({ type: "executeCommand", command: "importSettings" })}
+							>
+								{l10n.t("Import settings")}
+							</button>
+						</div>
+					}
+				/>
 			</div>
 		</section>
 	);

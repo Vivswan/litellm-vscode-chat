@@ -88,6 +88,12 @@ test("secure-side values never render, even against a poisoned state carrying fo
 	pushToWebview(poisonedStatePush(SENTINEL));
 	expectNowhere(SENTINEL);
 
+	// The Settings tab stays mounted while hidden, so this sweep provably
+	// covers its Import & Export group (buttons and help line) too.
+	expect(
+		Array.from(root.querySelectorAll(".settings-group-title")).some((title) => title.textContent === "Import & Export")
+	).toBe(true);
+
 	// Nor may any other message type surface them.
 	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: "x", message: "ok" });
 	expectNowhere(SENTINEL);

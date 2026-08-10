@@ -1,12 +1,12 @@
 /**
- * Every help string the dashboard's "?" affordances show, in one place. Each
- * export is a zero-argument function returning one l10n.t literal with no
- * interpolation - lazy so the strings resolve after the webview's l10n
- * bootstrap, and provably static so the secret sweeps can trust that help
- * text never carries server data; a single read-through still reviews all of
- * it. The claims here are sourced from the setting descriptions and the
- * transport/auth modules; when behavior changes there, this file is the one
- * to update.
+ * Every help string the dashboard's "?" affordances and inline hint lines
+ * show, in one place. Each export is a zero-argument function returning one
+ * l10n.t literal with no interpolation - lazy so the strings resolve after the
+ * webview's l10n bootstrap, and provably static so the secret sweeps can trust
+ * that help text never carries server data; a single read-through still
+ * reviews all of it. The claims here are sourced from the setting descriptions
+ * and the transport/auth modules; when behavior changes there, this file is
+ * the one to update.
  *
  * Style: one or two short sentences, leading with an example where one helps.
  * Say what the field is for and the one thing that would surprise; the
@@ -44,6 +44,12 @@ export function helpParamsInspector(): string {
 export function helpSettingsSection(): string {
 	return l10n.t(
 		"The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through."
+	);
+}
+
+export function helpImportExportGroup(): string {
+	return l10n.t(
+		"Move your setup to another machine: Export writes your settings to a JSON file, and Import merges such a file back. Export includes secrets only if you ask it to."
 	);
 }
 

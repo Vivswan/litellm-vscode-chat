@@ -143,6 +143,8 @@ const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readon
 	openSettings: { command: "workbench.action.openSettings", args: [EXTENSION_SETTINGS_FILTER] },
 	reportIssue: { command: CMD.reportIssue, args: [] },
 	openOutput: { command: INTERNAL_CMD.openOutput, args: [] },
+	exportSettings: { command: CMD.exportSettings, args: [] },
+	importSettings: { command: CMD.importSettings, args: [] },
 };
 
 /**

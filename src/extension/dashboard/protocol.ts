@@ -1511,6 +1511,8 @@ export const DASHBOARD_COMMAND_IDS = [
 	"openSettings",
 	"reportIssue",
 	"openOutput",
+	"exportSettings",
+	"importSettings",
 ] as const;
 
 export type DashboardCommandId = (typeof DASHBOARD_COMMAND_IDS)[number];

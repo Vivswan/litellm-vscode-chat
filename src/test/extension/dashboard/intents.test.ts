@@ -6,6 +6,7 @@ import {
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "../../../extension/dashboard/intents";
+import { DASHBOARD_COMMAND_IDS } from "../../../extension/dashboard/protocol";
 import type { ServerFormDraft } from "../../../extension/dashboard/serverForm";
 import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../extension/dashboard/serverForm";
 import { KEEP_ALL, makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
@@ -134,7 +135,14 @@ suite("extension/dashboard/intents", () => {
 				{ type: "executeCommand", command: "openSettings" },
 				{ type: "executeCommand", command: "reportIssue" },
 				{ type: "executeCommand", command: "openOutput" },
+				{ type: "executeCommand", command: "exportSettings" },
+				{ type: "executeCommand", command: "importSettings" },
 			];
+			// Completeness guard: a new dashboard command id must join this table.
+			assert.deepStrictEqual(
+				intents.map((intent) => (intent.type === "executeCommand" ? intent.command : undefined)),
+				[...DASHBOARD_COMMAND_IDS]
+			);
 			for (const intent of intents) {
 				await executeDashboardIntent(intent, recorded.env);
 			}
@@ -146,6 +154,8 @@ suite("extension/dashboard/intents", () => {
 				["workbench.action.openSettings", "@ext:vivswan.litellm-vscode-chat"],
 				["litellm.reportIssue"],
 				["litellm.openOutput"],
+				["litellm.exportSettings"],
+				["litellm.importSettings"],
 			]);
 		});
 	});

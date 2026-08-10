@@ -709,3 +709,58 @@ test("the status-bar mode select posts setUsageStatusBar on change", () => {
 	});
 	expect(postedMessages).toEqual([{ type: "setUsageStatusBar", value: "alerts-only" }]);
 });
+
+/** The Import & Export group, addressed as the last settings group (its pinned position). */
+function importExportGroup(root: ParentNode): HTMLElement {
+	const group = Array.from(root.querySelectorAll(".settings-group")).pop();
+	if (!(group instanceof HTMLElement)) {
+		throw new Error("no settings groups rendered");
+	}
+	return group;
+}
+
+test("the Import & Export group renders last with its hint, and each button posts exactly its command", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const group = importExportGroup(root);
+	expect(group.querySelector(".settings-group-title")?.textContent).toBe("Import & Export");
+	expect(group.querySelector("p.hint")?.textContent).toContain("Export writes your settings to a JSON file");
+
+	const exportButton = buttonByText(group, "Export settings");
+	const importButton = buttonByText(group, "Import settings");
+	for (const button of [exportButton, importButton]) {
+		expect(button.getAttribute("type")).toBe("button");
+		expect(button.classList.contains("secondary")).toBe(true);
+	}
+
+	fireClick(exportButton);
+	expect(postedMessages).toEqual([{ type: "executeCommand", command: "exportSettings" }]);
+	resetPosted();
+	fireClick(importButton);
+	expect(postedMessages).toEqual([{ type: "executeCommand", command: "importSettings" }]);
+});
+
+test("the Import & Export group follows the filter: kept by its own words, hidden on a miss, counted by no-match", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+	const group = importExportGroup(root);
+	expect(group.hidden).toBe(false);
+
+	// Its title and button labels match like a scalar row's label would - and
+	// exclusively: no scalar label or description mentions "export", so every
+	// scalar row hides while the group stays.
+	fireInput(filter, "export");
+	expect(group.hidden).toBe(false);
+	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(true);
+	expect(root.textContent).not.toContain("No settings match the filter.");
+
+	// A scalar-only needle hides the group whole (hidden, never unmounted).
+	fireInput(filter, "timeout");
+	expect(group.hidden).toBe(true);
+
+	// A pure miss counts the group out of the no-match verdict too.
+	fireInput(filter, "no such setting");
+	expect(root.textContent).toContain("No settings match the filter.");
+
+	fireInput(filter, "");
+	expect(group.hidden).toBe(false);
+});
