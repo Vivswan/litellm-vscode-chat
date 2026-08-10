@@ -14,6 +14,7 @@ import type { ServerSyncEngine } from "../servers/serverSync";
 import { updateServerSecret } from "../servers/serverSync";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import type { IssueReporter } from "./issueReporter";
+import { readLastIssueReport, rememberIssueReport, reportFingerprint } from "./issueReporter";
 import {
 	commandErrorActions,
 	configureNowLabel,
@@ -310,27 +311,114 @@ export function registerSyncModelsCommand(
  * offer of the faster fix, and only Report Anyway opens the issue (with the
  * snapshot built up front, so the report shows what the gate judged).
  *
- * The gate dialog is deliberately NOT awaited: the dashboard's
- * executeCommand intent awaits this command inside its serialized message
- * chain, so an unanswered toast would freeze every subsequent dashboard
- * message. The returned promise settles once the issue is open (ungated
- * path) or the gate is on screen (gated path).
+ * The pass-through-to-GitHub path additionally remembers each opened report's
+ * diagnostic fingerprint (globalState, LAST_ISSUE_REPORT_KEY) and, when the
+ * next attempt fingerprints the same within the recency window, interposes a
+ * modal repeat-report hint: point at the existing issues, report anyway, or
+ * dismiss to abort. A changed fingerprint - the diagnostics describe a new
+ * state - proceeds without the hint. The setup gate keeps precedence: a
+ * setup problem keeps showing its own guidance, never the repeat hint.
+ *
+ * Neither dialog is awaited: the dashboard's executeCommand intent awaits
+ * this command inside its serialized message chain, so an unanswered dialog
+ * would freeze every subsequent dashboard message. The returned promise
+ * settles once the issue is open (unprompted path) or a dialog is on screen.
  */
 export async function runReportIssue(
 	registry: ServerRegistry,
 	getConnectionStatus: () => ConnectionStatus,
 	extVersion: string,
 	vscodeVersion: string,
-	issueReporter: IssueReporter
+	issueReporter: IssueReporter,
+	globalState: vscode.Memento
 ): Promise<void> {
 	const connectionStatus = getConnectionStatus();
 	const snapshot = await buildDiagnosticsSnapshot(registry, connectionStatus, extVersion, vscodeVersion, issueReporter);
-	const problem = detectSetupProblem(connectionStatus);
-	if (problem === undefined) {
+	const fingerprint = reportFingerprint(snapshot);
+	const openIssue = async () => {
 		await issueReporter.openIssue(snapshot);
+		try {
+			await rememberIssueReport(globalState, { fingerprint, openedAt: Date.now() });
+		} catch {
+			// The ledger is advisory: the issue is already open, and a failed
+			// write only loses the next repeat hint - never report it as a
+			// failure of the report itself.
+		}
+	};
+	const problem = detectSetupProblem(connectionStatus);
+	if (problem !== undefined) {
+		void showSetupProblemGate(problem, openIssue);
 		return;
 	}
-	void showSetupProblemGate(problem, () => issueReporter.openIssue(snapshot));
+	const last = readLastIssueReport(globalState);
+	if (last !== undefined && last.fingerprint === fingerprint) {
+		const elapsed = Date.now() - last.openedAt;
+		// Negative elapsed (a clock rollback or corrupt timestamp) counts as
+		// expired: fail open toward reporting rather than prompting forever.
+		if (elapsed >= 0 && elapsed <= REPEAT_REPORT_WINDOW_MS) {
+			void showRepeatReportHint(elapsed, openIssue);
+			return;
+		}
+	}
+	await openIssue();
+}
+
+/** How long an opened report's fingerprint keeps triggering the repeat hint. */
+const REPEAT_REPORT_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+/** The repo's open issues carrying the reporter template's label ("bug", see createIssueUrl). */
+const GITHUB_OPEN_BUG_ISSUES_URL = `${GITHUB_REPO_URL}/issues?q=${encodeURIComponent("is:issue is:open label:bug")}`;
+
+/** "{0} hours ago" for the repeat hint; coarse buckets are enough for a 72-hour window. */
+function relativeTimeText(elapsedMs: number): string {
+	const hours = Math.floor(elapsedMs / (60 * 60 * 1000));
+	if (hours < 1) {
+		return vscode.l10n.t("less than an hour ago");
+	}
+	if (hours < 24) {
+		return hours === 1 ? vscode.l10n.t("1 hour ago") : vscode.l10n.t("{0} hours ago", hours);
+	}
+	const days = Math.floor(hours / 24);
+	return days === 1 ? vscode.l10n.t("1 day ago") : vscode.l10n.t("{0} days ago", days);
+}
+
+/**
+ * The repeat-report hint: a modal information prompt, because the user is one
+ * click from filing a public duplicate. Dismissal aborts silently; Open
+ * Existing Issues points at the open bug reports instead; Report Anyway
+ * proceeds exactly as an unprompted report and refreshes the stored
+ * fingerprint. Callers void the returned promise (see runReportIssue), so a
+ * failing report must surface here rather than die as an unhandled rejection.
+ */
+async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promise<void>): Promise<void> {
+	const openExisting = vscode.l10n.t("Open Existing Issues");
+	const reportAnywayLabel = vscode.l10n.t("Report Anyway");
+	const choice = await vscode.window.showInformationMessage(
+		vscode.l10n.t(
+			"LiteLLM: You opened an issue report that looks the same as one from {0}. Adding details to the existing issue helps more than a new report.",
+			relativeTimeText(elapsedMs)
+		),
+		{ modal: true },
+		openExisting,
+		reportAnywayLabel
+	);
+	if (choice === openExisting) {
+		try {
+			await openUrl(GITHUB_OPEN_BUG_ISSUES_URL);
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			void vscode.window.showErrorMessage(vscode.l10n.t("LiteLLM: Could not open the issues list - {0}", detail));
+		}
+		return;
+	}
+	if (choice === reportAnywayLabel) {
+		try {
+			await reportAnyway();
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			void vscode.window.showErrorMessage(vscode.l10n.t("LiteLLM: Could not open the issue report - {0}", detail));
+		}
+	}
 }
 
 export function registerReportIssueCommand(
@@ -343,7 +431,7 @@ export function registerReportIssueCommand(
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.reportIssue, () =>
-			runReportIssue(registry, getConnectionStatus, extVersion, vscodeVersion, issueReporter)
+			runReportIssue(registry, getConnectionStatus, extVersion, vscodeVersion, issueReporter, context.globalState)
 		)
 	);
 }

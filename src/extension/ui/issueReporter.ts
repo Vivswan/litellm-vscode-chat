@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { LAST_ISSUE_REPORT_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import { publicErrorStack, publicErrorText } from "../../shared/logger";
@@ -36,6 +37,55 @@ function apiKeyConfiguredText(snapshot: DiagnosticsSnapshot): string {
 		return "Unknown (managed by VS Code)";
 	}
 	return snapshot.apiKeyConfigured ? "yes" : "no";
+}
+
+/** The repeat-report hint's ledger entry: what runReportIssue persists when a report is opened. */
+export interface LastIssueReport {
+	fingerprint: string;
+	/** Epoch milliseconds. */
+	openedAt: number;
+}
+
+/**
+ * The diagnostic signature the repeat-report hint compares: the snapshot's
+ * enum, count, and flag fields plus the latest error's classification (enum
+ * ids and a status number, the same fields ErrorContext deems safe).
+ * Deliberately NEVER the error message, stack, source, or log lines - the
+ * source strings interpolate server labels and base URLs, and the rest is
+ * response-derived - because this string lands in globalState. Two reports
+ * fingerprint alike exactly when the diagnostics they would carry describe
+ * the same state.
+ */
+export function reportFingerprint(snapshot: DiagnosticsSnapshot): string {
+	const classification = snapshot.latestError?.classification;
+	return [
+		"v1",
+		snapshot.extensionVersion,
+		snapshot.connectionState,
+		snapshot.modelCount ?? "-",
+		String(snapshot.apiKeyConfigured),
+		String(snapshot.baseUrlConfigured),
+		classification?.kind ?? "-",
+		classification?.status ?? "-",
+		classification?.setupHint ?? "-",
+	].join("|");
+}
+
+/** The persisted ledger, or undefined when absent or junk (globalState is untrusted on read). */
+export function readLastIssueReport(state: vscode.Memento): LastIssueReport | undefined {
+	const raw = state.get<unknown>(LAST_ISSUE_REPORT_KEY);
+	if (typeof raw !== "object" || raw === null) {
+		return undefined;
+	}
+	const { fingerprint, openedAt } = raw as Record<string, unknown>;
+	if (typeof fingerprint !== "string" || typeof openedAt !== "number" || !Number.isFinite(openedAt)) {
+		return undefined;
+	}
+	return { fingerprint, openedAt };
+}
+
+export async function rememberIssueReport(state: vscode.Memento, report: LastIssueReport): Promise<void> {
+	await state.update(LAST_ISSUE_REPORT_KEY, report);
 }
 
 /**

@@ -2,9 +2,15 @@ import * as assert from "node:assert";
 import { APIError } from "openai";
 import * as vscode from "vscode";
 import type { DiagnosticsSnapshot } from "../../../extension/ui/issueReporter";
-import { IssueReporter, redactSecrets } from "../../../extension/ui/issueReporter";
+import {
+	IssueReporter,
+	readLastIssueReport,
+	redactSecrets,
+	rememberIssueReport,
+	reportFingerprint,
+} from "../../../extension/ui/issueReporter";
 import { mapSdkError, RequestError } from "../../../provider/transport/errorMapping";
-import { assertContains, assertOmits, assertStartsWith, expectDefined } from "../../testUtils";
+import { assertContains, assertOmits, assertStartsWith, expectDefined, makeExtensionStorage } from "../../testUtils";
 
 suite("IssueReporter", () => {
 	const MAX_SAFE_URL_LENGTH = 8000;
@@ -591,5 +597,78 @@ suite("IssueReporter", () => {
 		// and redact it anyway. That is the accepted trade-off: never weaken the
 		// patterns to preserve prose.
 		assert.equal(redactSecrets("access_token endpoint failed"), "access_token [REDACTED] failed");
+	});
+
+	// The repeat-report hint's fingerprint and globalState ledger: the
+	// fingerprint is the diagnostic signature only - enum ids, counts, and
+	// flags - so nothing response-derived can reach globalState through it.
+	suite("repeat-report fingerprint and ledger", () => {
+		test("the fingerprint is composed exactly from the diagnostic signature", () => {
+			const snapshot = makeSnapshot({
+				latestError: {
+					source: "discovery",
+					message: "LiteLLM API error: 502\n<html>resp-body-MARKER</html>",
+					stack: "Error: stack-MARKER\n  at somewhere",
+					timestamp: "2026-01-01T00:00:00.000Z",
+					classification: { kind: "http", status: 502 },
+				},
+				recentLogs: ["log-line-MARKER", "another log-line-MARKER"],
+			});
+			// Exact equality pins the composition: any new field joining the
+			// fingerprint must be reviewed here for content hygiene.
+			assert.strictEqual(reportFingerprint(snapshot), "v1|0.2.3|connected|5|true|true|http|502|-");
+		});
+
+		test("the fingerprint never carries log lines, error text, stacks, sources, or timestamps", () => {
+			const snapshot = makeSnapshot({
+				latestError: {
+					// Real sources interpolate server labels and base URLs
+					// (logError callers), so the source must stay out too.
+					source: 'Failed to fetch models from server "corp-label-MARKER"',
+					message: "boom resp-body-MARKER",
+					stack: "stack-MARKER",
+					timestamp: "2026-01-01T00:00:00.000Z",
+					classification: { kind: "http", status: 401, setupHint: "configure-api-key" },
+				},
+				recentLogs: ["log-line-MARKER"],
+			});
+			const fingerprint = reportFingerprint(snapshot);
+			assert.ok(!fingerprint.includes("MARKER"), fingerprint);
+			assert.ok(!fingerprint.includes("2026-01-01"), "a timestamp would make every report unique");
+		});
+
+		test("a changed classification or count changes the fingerprint; changed logs do not", () => {
+			const base = makeSnapshot({ recentLogs: ["one"] });
+			assert.strictEqual(reportFingerprint(base), reportFingerprint(makeSnapshot({ recentLogs: ["two", "three"] })));
+			assert.notStrictEqual(reportFingerprint(base), reportFingerprint(makeSnapshot({ modelCount: 6 })));
+			assert.notStrictEqual(reportFingerprint(base), reportFingerprint(makeSnapshot({ connectionState: "error" })));
+			assert.notStrictEqual(
+				reportFingerprint(base),
+				reportFingerprint(
+					makeSnapshot({
+						latestError: {
+							source: "discovery",
+							message: "x",
+							timestamp: "t",
+							classification: { kind: "http", status: 404, setupHint: "check-base-url" },
+						},
+					})
+				)
+			);
+		});
+
+		test("the ledger round-trips through the memento and rejects junk shapes on read", async () => {
+			const storage = makeExtensionStorage();
+			await rememberIssueReport(storage.memento, { fingerprint: "v1|x", openedAt: 123 });
+			assert.deepStrictEqual(readLastIssueReport(storage.memento), { fingerprint: "v1|x", openedAt: 123 });
+
+			for (const junk of [undefined, null, "v1|x", 42, {}, { fingerprint: "v1|x" }, { fingerprint: 1, openedAt: 1 }]) {
+				const junkStorage = makeExtensionStorage();
+				if (junk !== undefined) {
+					await junkStorage.memento.update("litellm.lastIssueReport", junk);
+				}
+				assert.strictEqual(readLastIssueReport(junkStorage.memento), undefined, JSON.stringify(junk) ?? "undefined");
+			}
+		});
 	});
 });

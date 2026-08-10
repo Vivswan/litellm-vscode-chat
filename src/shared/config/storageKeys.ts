@@ -102,6 +102,17 @@ export const OPENROUTER_CATALOG_METADATA_KEY = "litellm.openRouterCatalogMetadat
  */
 export const PARKED_GLOBAL_HEADERS_KEY = "litellm.parkedGlobalHeaders";
 
+/**
+ * globalState: the last opened issue report ({ fingerprint, openedAt }). The
+ * fingerprint is the diagnostics snapshot's signature - version, connection
+ * state, counts, configured flags, and error classification enums, never log
+ * or response text - and the repeat-report hint compares against it before
+ * opening a look-alike report within the recency window. Helpers live in
+ * src/extension/ui/issueReporter.ts; src/extension/ui/commands.ts
+ * (runReportIssue) drives the reads and writes.
+ */
+export const LAST_ISSUE_REPORT_KEY = "litellm.lastIssueReport";
+
 /** SecretStorage: API key for one registered server. */
 export function apiKeySecret(serverId: string): string {
 	return `litellm.apiKey.${serverId}`;

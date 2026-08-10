@@ -13,6 +13,7 @@ import { IssueReporter } from "../../../extension/ui/issueReporter";
 import { statusErrorHeadline } from "../../../extension/ui/notifier";
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
+import { LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import type { SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
@@ -705,6 +706,8 @@ suite("extension/ui/commands", () => {
 			});
 		}
 
+		const freshMemento = () => makeExtensionStorage().memento;
+
 		function issueBody(url: string): string {
 			return new URL(url).searchParams.get("body") ?? "";
 		}
@@ -765,7 +768,8 @@ suite("extension/ui/commands", () => {
 					() => ({ state: "not-configured" }),
 					"1.2.3",
 					"9.9.9",
-					makeReporter(openedIssueUrls)
+					makeReporter(openedIssueUrls),
+					freshMemento()
 				);
 				await waitFor(() => openedIssueUrls.length > 0, "Report Anyway to open the issue");
 			} finally {
@@ -788,7 +792,8 @@ suite("extension/ui/commands", () => {
 					() => ({ state: "not-configured" }),
 					"1.2.3",
 					"9.9.9",
-					makeReporter(openedIssueUrls)
+					makeReporter(openedIssueUrls),
+					freshMemento()
 				);
 				await waitFor(() => gateExecuted(mocks).length > 0, "the dashboard command to run");
 			} finally {
@@ -802,7 +807,14 @@ suite("extension/ui/commands", () => {
 			const openedIssueUrls: string[] = [];
 			const mocks = mockGate("Troubleshooting Docs");
 			try {
-				await runReportIssue(makeRegistry(), () => classified404, "1.2.3", "9.9.9", makeReporter(openedIssueUrls));
+				await runReportIssue(
+					makeRegistry(),
+					() => classified404,
+					"1.2.3",
+					"9.9.9",
+					makeReporter(openedIssueUrls),
+					freshMemento()
+				);
 				await waitFor(() => mocks.executed.length > 0, "the docs link to open");
 			} finally {
 				mocks.restore();
@@ -819,7 +831,14 @@ suite("extension/ui/commands", () => {
 			const openedIssueUrls: string[] = [];
 			const mocks = mockGate("Test Connection");
 			try {
-				await runReportIssue(makeRegistry(), () => classified404, "1.2.3", "9.9.9", makeReporter(openedIssueUrls));
+				await runReportIssue(
+					makeRegistry(),
+					() => classified404,
+					"1.2.3",
+					"9.9.9",
+					makeReporter(openedIssueUrls),
+					freshMemento()
+				);
 				await waitFor(() => gateExecuted(mocks).length > 0, "the connection test command to run");
 			} finally {
 				mocks.restore();
@@ -834,10 +853,10 @@ suite("extension/ui/commands", () => {
 			try {
 				const registry = makeRegistry();
 				const reporter = makeReporter(openedIssueUrls);
-				await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter);
+				await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
 				await waitFor(() => gateWarnings(mocks).length === 1, "the gate to show");
 				// Nothing is remembered: the second invocation offers the gate again.
-				await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter);
+				await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter, freshMemento());
 				await waitFor(() => gateWarnings(mocks).length === 2, "the gate to re-offer");
 				// A settled turn for any stray action; there must be none.
 				await new Promise((resolve) => setTimeout(resolve, 10));
@@ -868,7 +887,8 @@ suite("extension/ui/commands", () => {
 					() => ({ state: "connected", totalModels: 2, serverStatuses: [makeServerStatus({ modelCount: 2 })] }),
 					"1.2.3",
 					"9.9.9",
-					reporter
+					reporter,
+					freshMemento()
 				);
 			} finally {
 				mocks.restore();
@@ -891,7 +911,8 @@ suite("extension/ui/commands", () => {
 					}),
 					"1.2.3",
 					"9.9.9",
-					makeReporter(openedIssueUrls)
+					makeReporter(openedIssueUrls),
+					freshMemento()
 				);
 			} finally {
 				mocks.restore();
@@ -914,7 +935,14 @@ suite("extension/ui/commands", () => {
 				// intent awaits this promise inside its serialized message chain, so
 				// it must settle while showWarningMessage's promise is still pending
 				// (an awaited gate would hang this test into its timeout).
-				await runReportIssue(makeRegistry(), () => status, "1.2.3", "9.9.9", makeReporter(openedIssueUrls));
+				await runReportIssue(
+					makeRegistry(),
+					() => status,
+					"1.2.3",
+					"9.9.9",
+					makeReporter(openedIssueUrls),
+					freshMemento()
+				);
 				assert.ok(answer !== undefined, "the gate must be on screen when the command settles");
 				assert.strictEqual(openedIssueUrls.length, 0, "no issue opens before the gate is answered");
 				// The world changes while the dialog sits unanswered; the report must
@@ -929,6 +957,310 @@ suite("extension/ui/commands", () => {
 				issueBody(expectDefined(openedIssueUrls[0])).includes("Connection state: not-configured"),
 				"the issue must carry the snapshot built before the gate, not the later status"
 			);
+		});
+
+		// The repeat-report hint: the pass-through-to-GitHub path remembers each
+		// opened report's diagnostic fingerprint in globalState and interposes a
+		// modal prompt when the next attempt looks the same within the window.
+		suite("repeat-report hint", () => {
+			const healthy: ConnectionStatus = {
+				state: "connected",
+				totalModels: 2,
+				serverStatuses: [makeServerStatus({ modelCount: 2 })],
+			};
+
+			interface HintMocks {
+				dialogs: { message: string; modal: boolean; buttons: string[] }[];
+				executed: unknown[][];
+				restore: () => void;
+			}
+
+			/** Mock the modal hint (answering with `answer`) and intercept executeCommand for the issues-list link. */
+			function mockHint(answer: string | undefined): HintMocks {
+				const dialogs: HintMocks["dialogs"] = [];
+				const executed: unknown[][] = [];
+				const origInfo = vscode.window.showInformationMessage;
+				const origExecute = vscode.commands.executeCommand;
+				(vscode.window as Record<string, unknown>).showInformationMessage = async (
+					message: string,
+					options: unknown,
+					...buttons: string[]
+				) => {
+					const modal =
+						typeof options === "object" && options !== null && (options as { modal?: boolean }).modal === true;
+					dialogs.push({ message, modal, buttons: modal ? buttons : [] });
+					return answer;
+				};
+				(vscode.commands as Record<string, unknown>).executeCommand = async (command: string, ...args: unknown[]) => {
+					executed.push([command, ...args]);
+				};
+				return {
+					dialogs,
+					executed,
+					restore() {
+						(vscode.window as Record<string, unknown>).showInformationMessage = origInfo;
+						(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
+					},
+				};
+			}
+
+			/** Only the hint's own dialogs: the mock intercepts process-wide, and the shared host toasts too. */
+			function hintDialogs(mocks: HintMocks): HintMocks["dialogs"] {
+				return mocks.dialogs.filter((dialog) => dialog.buttons.includes("Report Anyway"));
+			}
+
+			function storedReport(storage: ReturnType<typeof makeExtensionStorage>): {
+				fingerprint: string;
+				openedAt: number;
+			} {
+				const raw = storage.mementoStore.get(LAST_ISSUE_REPORT_KEY);
+				assert.ok(typeof raw === "object" && raw !== null, "a report must be remembered");
+				return raw as { fingerprint: string; openedAt: number };
+			}
+
+			test("the first report opens without a prompt and stores a text-free fingerprint", async () => {
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				const reporter = makeReporter(openedIssueUrls);
+				reporter.appendLog("log-line-MARKER");
+				reporter.recordError(
+					"discovery",
+					new RequestError("LiteLLM API error: 502\n<html>resp-body-MARKER</html>", "http", {
+						status: 502,
+						logClassification: "RequestError(http, status 502)",
+					})
+				);
+				const mocks = mockHint(undefined);
+				try {
+					await runReportIssue(makeRegistry(), () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+				} finally {
+					mocks.restore();
+				}
+				assert.strictEqual(openedIssueUrls.length, 1, "the first report opens directly");
+				assert.deepStrictEqual(hintDialogs(mocks), [], "no prompt without a remembered report");
+				const stored = storedReport(storage);
+				assert.deepStrictEqual(Object.keys(stored).sort(), ["fingerprint", "openedAt"]);
+				assert.strictEqual(typeof stored.fingerprint, "string");
+				assert.strictEqual(typeof stored.openedAt, "number");
+				assert.ok(!JSON.stringify(stored).includes("MARKER"), "the ledger must never carry log or response text");
+			});
+
+			test("a look-alike report within the window prompts, and dismissal aborts silently", async () => {
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				const reporter = makeReporter(openedIssueUrls);
+				const registry = makeRegistry();
+				const mocks = mockHint(undefined);
+				try {
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					assert.strictEqual(openedIssueUrls.length, 1);
+					const before = storedReport(storage);
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await waitFor(() => hintDialogs(mocks).length === 1, "the repeat hint to show");
+					// A settled turn for any stray action; there must be none.
+					await new Promise((resolve) => setTimeout(resolve, 10));
+					const dialog = expectDefined(hintDialogs(mocks)[0]);
+					assert.ok(dialog.modal, "the hint must be modal");
+					assert.ok(dialog.message.includes("looks the same"), dialog.message);
+					assert.ok(dialog.message.includes("less than an hour ago"), dialog.message);
+					assert.deepStrictEqual(dialog.buttons, ["Open Existing Issues", "Report Anyway"]);
+					assert.strictEqual(openedIssueUrls.length, 1, "dismissal must not open an issue");
+					assert.deepStrictEqual(storedReport(storage), before, "dismissal must not refresh the ledger");
+				} finally {
+					mocks.restore();
+				}
+			});
+
+			test("Report Anyway opens the issue and refreshes the stored fingerprint", async () => {
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				const reporter = makeReporter(openedIssueUrls);
+				const registry = makeRegistry();
+				const first = mockHint(undefined);
+				try {
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+				} finally {
+					first.restore();
+				}
+				// Age the remembered report so the refreshed timestamp is observable.
+				const aged = { ...storedReport(storage), openedAt: Date.now() - 60 * 60 * 1000 };
+				storage.mementoStore.set(LAST_ISSUE_REPORT_KEY, aged);
+				const mocks = mockHint("Report Anyway");
+				try {
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await waitFor(() => openedIssueUrls.length === 2, "Report Anyway to open the issue");
+					await waitFor(() => storedReport(storage).openedAt > aged.openedAt, "the ledger to refresh");
+				} finally {
+					mocks.restore();
+				}
+				const dialog = expectDefined(hintDialogs(mocks)[0]);
+				assert.ok(dialog.message.includes("1 hour ago"), dialog.message);
+				assert.strictEqual(storedReport(storage).fingerprint, aged.fingerprint, "the same state fingerprints alike");
+			});
+
+			test("Open Existing Issues opens the filtered issues list and never a new issue", async () => {
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				const reporter = makeReporter(openedIssueUrls);
+				const registry = makeRegistry();
+				const first = mockHint(undefined);
+				try {
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+				} finally {
+					first.restore();
+				}
+				const before = storedReport(storage);
+				const mocks = mockHint("Open Existing Issues");
+				try {
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await waitFor(() => mocks.executed.some((call) => call[0] === "vscode.open"), "the issues list to open");
+					await new Promise((resolve) => setTimeout(resolve, 10));
+				} finally {
+					mocks.restore();
+				}
+				const opened = mocks.executed.filter((call) => call[0] === "vscode.open");
+				assert.strictEqual(opened.length, 1);
+				const url = String(expectDefined(opened[0])[1]);
+				assert.ok(url.startsWith("https://github.com/Vivswan/litellm-vscode-chat/issues?"), url);
+				assert.ok(url.includes(encodeURIComponent("is:issue is:open label:bug")), url);
+				assert.strictEqual(openedIssueUrls.length, 1, "the issues-list action must not open a new issue");
+				assert.deepStrictEqual(
+					storedReport(storage),
+					before,
+					"pointing at existing issues must not refresh the ledger"
+				);
+			});
+
+			test("a changed diagnostic state skips the prompt", async () => {
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				const reporter = makeReporter(openedIssueUrls);
+				const registry = makeRegistry();
+				const mocks = mockHint(undefined);
+				try {
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					await runReportIssue(
+						registry,
+						() => ({ state: "connected", totalModels: 3, serverStatuses: [makeServerStatus({ modelCount: 3 })] }),
+						"1.2.3",
+						"9.9.9",
+						reporter,
+						storage.memento
+					);
+				} finally {
+					mocks.restore();
+				}
+				assert.deepStrictEqual(hintDialogs(mocks), [], "a different fingerprint must not prompt");
+				assert.strictEqual(openedIssueUrls.length, 2, "the changed state reports directly");
+			});
+
+			test("a remembered report older than the window skips the prompt", async () => {
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				const reporter = makeReporter(openedIssueUrls);
+				const registry = makeRegistry();
+				const mocks = mockHint(undefined);
+				try {
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					const stored = storedReport(storage);
+					storage.mementoStore.set(LAST_ISSUE_REPORT_KEY, {
+						...stored,
+						openedAt: Date.now() - 73 * 60 * 60 * 1000,
+					});
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+				} finally {
+					mocks.restore();
+				}
+				assert.deepStrictEqual(hintDialogs(mocks), [], "an expired window must not prompt");
+				assert.strictEqual(openedIssueUrls.length, 2, "the report past the window opens directly");
+				assert.ok(storedReport(storage).openedAt > Date.now() - 60_000, "the fresh report re-arms the window");
+			});
+
+			test("a future-dated ledger (clock rollback) skips the prompt instead of prompting forever", async () => {
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				const reporter = makeReporter(openedIssueUrls);
+				const registry = makeRegistry();
+				const mocks = mockHint(undefined);
+				try {
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					const stored = storedReport(storage);
+					storage.mementoStore.set(LAST_ISSUE_REPORT_KEY, {
+						...stored,
+						openedAt: Date.now() + 24 * 60 * 60 * 1000,
+					});
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+				} finally {
+					mocks.restore();
+				}
+				assert.deepStrictEqual(hintDialogs(mocks), [], "a negative elapsed must count as expired");
+				assert.strictEqual(openedIssueUrls.length, 2, "the report opens directly");
+			});
+
+			test("the command settles while the modal hint is unanswered", async () => {
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				const reporter = makeReporter(openedIssueUrls);
+				const registry = makeRegistry();
+				const first = mockHint(undefined);
+				try {
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+				} finally {
+					first.restore();
+				}
+				let answer: ((choice: string | undefined) => void) | undefined;
+				const origInfo = vscode.window.showInformationMessage;
+				(vscode.window as Record<string, unknown>).showInformationMessage = (
+					_message: string,
+					_options: unknown,
+					..._buttons: string[]
+				) =>
+					new Promise((resolve) => {
+						answer = resolve;
+					});
+				try {
+					// Pins the non-blocking contract, like the setup-gate twin above:
+					// the dashboard awaits this command in its serialized message
+					// chain, so it must settle while the modal is still pending.
+					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
+					assert.ok(answer !== undefined, "the modal must be on screen when the command settles");
+					assert.strictEqual(openedIssueUrls.length, 1, "no issue opens before the modal is answered");
+					expectDefined(answer)("Report Anyway");
+					await waitFor(() => openedIssueUrls.length === 2, "Report Anyway to open the issue");
+				} finally {
+					(vscode.window as Record<string, unknown>).showInformationMessage = origInfo;
+				}
+			});
+
+			test("the setup gate keeps precedence over the repeat hint", async () => {
+				const storage = makeExtensionStorage();
+				const openedIssueUrls: string[] = [];
+				const reporter = makeReporter(openedIssueUrls);
+				const registry = makeRegistry();
+				// First gated report: Report Anyway opens and remembers the fingerprint.
+				const firstGate = mockGate("Report Anyway");
+				try {
+					await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter, storage.memento);
+					await waitFor(() => openedIssueUrls.length === 1, "the gated report to open");
+					await waitFor(() => storage.mementoStore.has(LAST_ISSUE_REPORT_KEY), "the gated report to be remembered");
+				} finally {
+					firstGate.restore();
+				}
+				// Second attempt, same state, inside the window: the gate shows
+				// again - a setup problem keeps showing its guidance - and the
+				// modal hint never appears.
+				const gate = mockGate("Report Anyway");
+				const hint = mockHint(undefined);
+				try {
+					await runReportIssue(registry, () => classified404, "1.2.3", "9.9.9", reporter, storage.memento);
+					await waitFor(() => openedIssueUrls.length === 2, "Report Anyway to open the second report");
+				} finally {
+					hint.restore();
+					gate.restore();
+				}
+				assert.strictEqual(gateWarnings(gate).length, 1, "the setup gate must show on the repeat attempt");
+				assert.deepStrictEqual(hintDialogs(hint), [], "the repeat hint must never preempt the setup gate");
+			});
 		});
 	});
 

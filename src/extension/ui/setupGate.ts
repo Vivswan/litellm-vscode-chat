@@ -2,7 +2,9 @@
  * The Report Issue command's troubleshoot-first gate: setup-shaped
  * diagnostics get one non-modal offer of the faster fix (dashboard, docs,
  * connection test) before GitHub opens. Report Anyway is always one click,
- * and nothing is remembered - rerunning the command re-offers. Every entry
+ * and the gate itself remembers nothing - rerunning the command re-offers
+ * (the repeat-report ledger runReportIssue writes when a report opens is a
+ * separate, ungated-path concern). Every entry
  * point (palette, dashboard, hub, and the toasts' Report Issue action)
  * funnels through the one registered command, so they all pass this gate;
  * a classified failure toast that already offered Troubleshooting Docs gets
