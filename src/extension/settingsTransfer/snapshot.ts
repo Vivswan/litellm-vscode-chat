@@ -4,15 +4,20 @@
  * (key-absent recorded as absent) and the previous SecretStorage blob of
  * every label the import will touch are recorded, and undo is a wholesale
  * restore of that record. One slot, replaced per import, cleared on undo.
- * Persistence is the host's concern (the settings part in a globalStorage
- * JSON file, the blobs under a SecretStorage backup key - secrets never in a
- * plaintext file - with both keys declared in shared/config/storageKeys.ts
- * when the flows land); these builders only shape what is stored and what a
- * restore writes.
+ * Persistence is the host's concern, with one caveat it must honor: the
+ * recorded `servers` value can carry inline secret text (inline storage is
+ * legal in that setting), so the settings half is secret-capable too - it
+ * may only land somewhere already acceptable for settings.json plaintext,
+ * or ride with the blobs under the SecretStorage backup key; the blobs half
+ * is always secrets and never touches a plaintext file. The storage keys
+ * belong in shared/config/storageKeys.ts when the flows land. These
+ * builders only shape what is stored and what a restore writes.
  *
- * Pure and vscode-free, like the rest of src/extension/settingsTransfer/.
+ * Pure and vscode-free, like envelope.ts and secretSurgery.ts.
  */
 
+import { ALL_SETTING_KEYS } from "../../shared/config/settingSpec";
+import { isUnsafeRecordKey } from "../../shared/util/json";
 import type { StoredServerSecrets } from "../servers/serverSync/secrets";
 
 /**
@@ -37,12 +42,29 @@ export interface PreImportSnapshot {
  * undefined read records as absent; settings values are JSON, never
  * undefined) plus the touched labels' current blobs.
  */
-export function buildPreImportSnapshot(
-	_readGlobalSetting: (key: string) => unknown,
-	_readServerSecrets: (label: string) => Promise<StoredServerSecrets>,
-	_touchedLabels: readonly string[]
+export async function buildPreImportSnapshot(
+	readGlobalSetting: (key: string) => unknown,
+	readServerSecrets: (label: string) => Promise<StoredServerSecrets>,
+	touchedLabels: readonly string[]
 ): Promise<PreImportSnapshot> {
-	throw new Error("unimplemented");
+	const settings: Record<string, SnapshotEntry<unknown>> = {};
+	for (const key of ALL_SETTING_KEYS) {
+		const value = readGlobalSetting(key);
+		settings[key] = value === undefined ? { present: false } : { present: true, value };
+	}
+	const blobs: Record<string, SnapshotEntry<StoredServerSecrets>> = {};
+	for (const label of touchedLabels) {
+		// Reserved names can never be real labels (rawDeclaredLabels excludes
+		// them), and bracket assignment under one would corrupt the record.
+		if (isUnsafeRecordKey(label) || Object.hasOwn(blobs, label)) {
+			continue;
+		}
+		const blob = await readServerSecrets(label);
+		// An empty blob and a missing SecretStorage key are the same state to
+		// readServerSecrets, so both record as absent (the restore deletes).
+		blobs[label] = Object.keys(blob).length > 0 ? { present: true, value: blob } : { present: false };
+	}
+	return { settings, blobs, at: new Date().toISOString() };
 }
 
 /** The write and remove lists the undo command applies, in restore order (settings, then blobs). */
@@ -58,6 +80,24 @@ export interface SnapshotRestore {
 }
 
 /** Turn a snapshot into the exact writes and removals that restore it. */
-export function planSnapshotRestore(_snapshot: PreImportSnapshot): SnapshotRestore {
-	throw new Error("unimplemented");
+export function planSnapshotRestore(snapshot: PreImportSnapshot): SnapshotRestore {
+	const settingWrites: { key: string; value: unknown }[] = [];
+	const settingRemovals: string[] = [];
+	for (const [key, entry] of Object.entries(snapshot.settings)) {
+		if (entry.present) {
+			settingWrites.push({ key, value: entry.value });
+		} else {
+			settingRemovals.push(key);
+		}
+	}
+	const blobWrites: { label: string; secrets: StoredServerSecrets }[] = [];
+	const blobRemovals: string[] = [];
+	for (const [label, entry] of Object.entries(snapshot.blobs)) {
+		if (entry.present) {
+			blobWrites.push({ label, secrets: entry.value });
+		} else {
+			blobRemovals.push(label);
+		}
+	}
+	return { settingWrites, settingRemovals, blobWrites, blobRemovals };
 }

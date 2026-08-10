@@ -4,14 +4,22 @@
  * are included only on the caller's explicit choice: included means each
  * labeled entry's SecretStorage blob is materialized inline (secretSurgery),
  * excluded means inline secret values are stripped and discarded, with no
- * placeholders left behind.
+ * placeholders left behind - and shapes the sanitizer does not recognize (a
+ * non-array servers value, non-record array elements) are omitted from a
+ * no-secrets export outright rather than trusted.
  *
- * Pure and vscode-free, like the rest of src/extension/settingsTransfer/;
- * the host command injects the reads.
+ * No direct vscode usage; the one impurity is the serverSync setting
+ * parser's label rule (see importPlan.ts's module comment). The host command
+ * injects the reads.
  */
 
+import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
+import { isRecord } from "../../shared/util/json";
 import type { StoredServerSecrets } from "../servers/serverSync/secrets";
+import { rawDeclaredLabels } from "../servers/serverSync/setting";
 import type { SettingsExportEnvelope } from "./envelope";
+import { buildEnvelope } from "./envelope";
+import { materializeEntrySecrets, stripEntrySecrets } from "./secretSurgery";
 
 /** The reads and choices buildSettingsExport needs; the host command supplies the real ones. */
 export interface SettingsExportEnv {
@@ -38,7 +46,82 @@ export interface SettingsExportResult {
 	readonly unmaterializedSecretCount: number;
 }
 
+/** The label the sync side would keep for one raw entry (rawDeclaredLabels' rule, per element), or undefined. */
+export function declaredEntryLabel(rawEntry: unknown): string | undefined {
+	const [label] = rawDeclaredLabels([rawEntry]);
+	return label;
+}
+
 /** Build the export envelope; see the module comment for the walk and the secret handling. */
-export function buildSettingsExport(_env: SettingsExportEnv): Promise<SettingsExportResult> {
-	throw new Error("unimplemented");
+export async function buildSettingsExport(env: SettingsExportEnv): Promise<SettingsExportResult> {
+	const settings: Record<string, unknown> = {};
+	let settingCount = 0;
+	let serverCount = 0;
+	let secretFieldCount = 0;
+	let unmaterializedSecretCount = 0;
+
+	for (const key of ALL_SETTING_KEYS) {
+		const value = env.readGlobalSetting(key);
+		if (value === undefined) {
+			continue;
+		}
+		if (key !== SERVERS_SETTING_KEY) {
+			settings[key] = value;
+			settingCount += 1;
+			continue;
+		}
+		if (!Array.isArray(value)) {
+			// A servers value that is not an array cannot be sanitized
+			// entry-by-entry, so a no-secrets export omits it outright rather
+			// than risk a secret riding out in an unrecognized shape.
+			if (env.includeSecrets) {
+				settings[key] = value;
+				settingCount += 1;
+			}
+			continue;
+		}
+		settingCount += 1;
+		const exported: unknown[] = [];
+		for (const rawEntry of value) {
+			if (!isRecord(rawEntry)) {
+				// Same rule per element: only the record shape has a sanitizer.
+				// The parser ignores non-record elements anyway, so a no-secrets
+				// export drops them instead of trusting their contents.
+				if (env.includeSecrets) {
+					exported.push(rawEntry);
+				}
+				continue;
+			}
+			if (!env.includeSecrets) {
+				// Every object entry is stripped, labeled or not: an unlabeled
+				// entry can still carry inline secret text, and an export the user
+				// asked to keep secret-free must never leak it.
+				exported.push(stripEntrySecrets(rawEntry).entry);
+				continue;
+			}
+			const label = declaredEntryLabel(rawEntry);
+			if (label === undefined) {
+				// No label means no SecretStorage key: the entry rides as-is, its
+				// inline values (already in the settings file) counted as kept.
+				secretFieldCount += Object.keys(stripEntrySecrets(rawEntry).secrets).length;
+				exported.push(rawEntry);
+				continue;
+			}
+			const blob = await env.readServerSecrets(label);
+			const materialized = materializeEntrySecrets(rawEntry, blob);
+			unmaterializedSecretCount += materialized.unmaterialized;
+			secretFieldCount += Object.keys(stripEntrySecrets(materialized.entry).secrets).length;
+			exported.push(materialized.entry);
+		}
+		serverCount = exported.length;
+		settings[key] = exported;
+	}
+
+	return {
+		envelope: buildEnvelope(settings, env.extensionVersion),
+		settingCount,
+		serverCount,
+		secretFieldCount,
+		unmaterializedSecretCount,
+	};
 }
