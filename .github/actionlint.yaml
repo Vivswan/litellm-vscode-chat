@@ -1,0 +1,12 @@
+# Repo-owned actionlint configuration. Generated once by
+# Vivswan/repo-platform and never overwritten by template
+# sync, so add this repository's own ignores freely.
+
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      # GitHub grants Dependabot-alert reads to GITHUB_TOKEN under the
+      # vulnerability-alerts permission key (the release-health gate needs
+      # it); actionlint's permission-scope list has not caught up yet
+      # (rhysd/actionlint#666). Drop this once it knows the scope.
+      - 'unknown permission scope "vulnerability-alerts"'

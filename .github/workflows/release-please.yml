@@ -30,14 +30,18 @@ on:
         value: ${{ jobs.release-please.outputs.tag_name }}
 
 # The effective token comes from the calling job; declaring the needs here
-# documents them and caps a caller that grants more.
+# documents them and caps a caller that grants more. The read keys feed the
+# release-health pre-flight (open issues, Dependabot alerts).
 permissions:
   contents: write
   pull-requests: write
+  issues: read
+  vulnerability-alerts: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -57,6 +61,22 @@ jobs:
             echo "::notice::main moved to ${head:0:7} since this run started; the newer run releases"
             echo "current=false" >> "$GITHUB_OUTPUT"
           fi
+      # Authoritative release gating: the release PR's release-health CI job
+      # gives early visible feedback, but it can be stale by merge time (a
+      # fuzz or blocker issue opened after that PR went green re-runs no
+      # check), so the same action runs again here before release-please
+      # acts. In release mode the gate self-scopes to release-cut pushes:
+      # it gates only a push that merges a release-please-- PR (reading the
+      # release-override label from that PR) and passes trivially on every
+      # other run, so ordinary main pushes and release-PR refreshes are
+      # never blocked.
+      - uses: Vivswan/repo-platform/actions/release-health@main
+        if: steps.head.outputs.current == 'true'
+        with:
+          mode: release
+          fuzz-label: "nightly-fuzz"
+        env:
+          GH_TOKEN: ${{ github.token }}
       - uses: googleapis/release-please-action@v5
         id: release
         if: steps.head.outputs.current == 'true'

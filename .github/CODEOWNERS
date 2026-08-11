@@ -1,6 +1,10 @@
 # Default owners for everything in the repo. Baseline from
-# Vivswan/repo-platform; add repo-specific rules freely -
-# local edits survive template updates via three-way merge.
+# Vivswan/repo-platform.
 
 * @vivswan
 /.github/ @vivswan
+
+# Repository-specific owners go below this line; they stay yours across
+# template updates. CODEOWNERS applies the LAST matching pattern, so
+# entries here override the managed defaults above.
+# repo-platform:local-section

@@ -28,6 +28,7 @@ coverage/**
 .claude/**
 .codex/**
 .worktrees/**
+.bun-version
 biome.json
 bun.lock
 bunfig.toml

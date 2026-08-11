@@ -13,13 +13,13 @@
 # or running lifecycle scripts, so no PR-controlled code runs next to the
 # write credential.
 #
-# Two Dependabot token subtleties. Dependabot-triggered runs read the
-# Dependabot secrets store, not the Actions one, and their default token is
-# read-only, but the job-level permissions below are honored. And a push made
-# with github.token starts no workflows, so without the REPO_PLATFORM_TOKEN
-# secret the fix lands but the PR needs a close/reopen for its checks to
-# appear; register the token as a Dependabot secret to re-run CI
-# automatically.
+# Dependabot-triggered runs read the Dependabot secrets store, not the
+# Actions one, and their default token is read-only, but the job-level
+# permissions below are honored. Register REPO_PLATFORM_TOKEN as a
+# Dependabot secret so the fix commit re-runs CI; a push made with
+# github.token starts no workflows, so after such a push the job posts a
+# PR comment and a warning annotation saying the checks will not re-run
+# (close/reopen the PR to re-run them).
 
 name: Dependabot Bun Lockfile
 
@@ -45,14 +45,18 @@ jobs:
     # to a fork's branch.
     if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
+      pull-requests: write # the no-retrigger-token PR comment below
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       # Every tracked lockfile, not just the root one: a repository can
       # commit several (repo-platform itself locks each composite action's
       # directory). '*/bun.lock' is a git pathspec, where '*' crosses '/',
@@ -74,17 +78,37 @@ jobs:
         shell: bash
         env:
           TOKEN: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
+          CAN_RETRIGGER: ${{ secrets.REPO_PLATFORM_TOKEN != '' }}
+          GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           if git diff --quiet -- 'bun.lock' '*/bun.lock'; then
             echo "lockfiles already deduped"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git ls-files -z -- 'bun.lock' '*/bun.lock' | xargs -0 git add --
-            # The body's [dependabot skip] keeps Dependabot rebasing and
-            # updating the PR over this commit; without it Dependabot stops
-            # touching a PR once someone else pushes to it.
-            git commit -m "build(deps): dedupe bun lockfile" -m "[dependabot skip]"
-            git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$HEAD_REF"
+            exit 0
           fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git ls-files -z -- 'bun.lock' '*/bun.lock' | xargs -0 git add --
+          # The body's [dependabot skip] keeps Dependabot rebasing and
+          # updating the PR over this commit; without it Dependabot stops
+          # touching a PR once someone else pushes to it.
+          git commit -m "build(deps): dedupe bun lockfile" -m "[dependabot skip]"
+          git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$HEAD_REF"
+          if [ "$CAN_RETRIGGER" = "true" ]; then
+            exit 0
+          fi
+          # The fix landed via github.token, which starts no workflows: this
+          # PR's checks will not re-run on the new head. Surface that on the
+          # PR (once) and as a run annotation. The push itself succeeded, so
+          # the run stays green - the fleet legitimately runs without the
+          # token, and a red run on every deduped PR would drown real
+          # failures.
+          marker="<!-- dependabot-bun-lockfile: no-retrigger-token -->"
+          comments=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '.[].body' || true)
+          case "$comments" in
+            *"$marker"*) ;;
+            *) gh pr comment "$PR_NUMBER" -R "$GITHUB_REPOSITORY" --body "$marker
+          Pushed a lockfile dedupe commit with the default workflow token, which starts no workflows, so checks will not re-run on the new head. Close and reopen this PR to re-run them, or register \`REPO_PLATFORM_TOKEN\` as a Dependabot secret so future fixes re-trigger CI automatically." || true ;;
+          esac
+          echo "::warning::lockfile fix pushed without REPO_PLATFORM_TOKEN - checks will not re-run on the new head; close/reopen the PR or register the token as a Dependabot secret"

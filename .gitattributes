@@ -18,7 +18,7 @@ CLAUDE.md -text
 *.zip binary
 
 # Repository-specific attributes (binary globs, linguist overrides) go
-# below this line. They survive template updates via three-way merge.
+# below this line; they stay yours across template updates.
 # repo-platform:local-section
 
 *.vsix binary
