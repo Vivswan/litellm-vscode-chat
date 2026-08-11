@@ -2,11 +2,11 @@
  * The attach-side override application and declared-model synthesis: coherent
  * rebuilds (token constraints, capability flags, the reasoning gate over the
  * flag and the supported-params list, the caching gate, pricing re-derived
- * from the effective cost fields, outputLimitSource promotion, stale
- * catalog-pricing strips), the object-identity fast path when no consumed
- * configuration matches, inertness against the DISCOVERED raw-ID set, and
- * collision suppression against reserved exposed IDs. The seed-pinned
- * equivalence twin lives in capabilityOverrides.property.test.ts.
+ * from the effective cost fields, outputLimitSource promotion, stale-pricing
+ * healing), the object-identity fast path when no consumed configuration
+ * matches, inertness against the DISCOVERED raw-ID set, and collision
+ * suppression against reserved exposed IDs. The seed-pinned equivalence twin
+ * lives in capabilityOverrides.property.test.ts.
  */
 import * as assert from "node:assert";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
@@ -222,11 +222,12 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.deepStrictEqual(promoted[0]?.configurationSchema, REASONING_EFFORT_SCHEMA, "promotion adds the control");
 		});
 
-		test("a stale catalog-priced copy is stripped: pricing is no longer catalog-sourced", () => {
-			// Stale-served window copies from before the pricing redesign can still
-			// carry catalog-applied pricing under the catalogPricing marker; the
-			// rebuild strips it instead of letting it read as server pricing, and
-			// the healed copy stays unpriced (and on the fast path) afterwards.
+		test("a stored copy carrying pricing the walk does not derive is healed by the verified rebuild", () => {
+			// A stale-served window copy rebuilt under an earlier configuration
+			// can carry price fields the current walk no longer justifies. No
+			// marker is needed: advertisesEffective's pricing clause catches the
+			// mismatch, the rebuild strips and re-derives, and the healed copy
+			// settles on the fast path.
 			const bare: LiteLLMModelItem = { id: "gpt-test", shape: { kind: "bare" } };
 			const info = registered(bare);
 			const stale = {
@@ -234,13 +235,11 @@ suite("provider/catalog/capabilityOverrides", () => {
 				inputCost: 10,
 				outputCost: 20,
 				pricing: "$10 in / $20 out per 1M tokens",
-				litellm: { ...info.litellm, catalogPricing: true },
 			};
 			const stripped = applyCapabilityOverrides([stale], SERVER, options());
-			assert.strictEqual(stripped[0]?.inputCost, undefined, "catalog-applied pricing must not survive");
+			assert.strictEqual(stripped[0]?.inputCost, undefined, "unjustified pricing must not survive");
 			assert.strictEqual(stripped[0]?.outputCost, undefined);
 			assert.strictEqual(stripped[0]?.pricing, undefined);
-			assert.strictEqual(stripped[0]?.litellm.catalogPricing, undefined);
 			const healed = applyCapabilityOverrides(stripped, SERVER, options());
 			assert.strictEqual(healed, stripped, "the healed copy is unpriced and takes the identity fast path");
 

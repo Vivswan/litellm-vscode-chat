@@ -247,9 +247,9 @@ function advertisesEffective(info: PreAttachModelInfo, effective: EffectiveCapab
  * re-derived from the effective cost fields on every rebuild - a server price
  * re-derives byte-identical, a user cost record beats it, a user 0/0 prices
  * as free), and the outputLimitSource provenance ("user" for any override
- * level). Pricing is never catalog-sourced: a copy an earlier extension
- * version priced from the catalog (the legacy litellm.catalogPricing marker)
- * is force-rebuilt so its stale catalog price strips and never returns.
+ * level). Pricing is never catalog-sourced: every price a served model
+ * carries is re-derived here from the effective cost fields, so nothing but
+ * the server's report and the user's records can put a number on a model.
  */
 export function applyCapabilityOverrides(
 	infos: readonly PreAttachModelInfo[],
@@ -275,28 +275,20 @@ export function applyCapabilityOverrides(
 			const field = capabilityField(fields, name);
 			return field !== undefined && LEVEL_TRIGGERS_REBUILD[field.level];
 		});
-		if (
-			!needsRebuild &&
-			effective.directive === undefined &&
-			info.litellm.catalogPricing !== true &&
-			advertisesEffective(info, effective)
-		) {
+		if (!needsRebuild && effective.directive === undefined && advertisesEffective(info, effective)) {
 			// Nothing matched and the entry already says what the walk resolves
-			// (see advertisesEffective for why that is verified, not assumed). A
-			// catalog-priced copy never takes it: its stale catalog price must be
-			// stripped by the rebuild.
+			// (see advertisesEffective for why that is verified, not assumed).
 			return info;
 		}
 		changed = true;
 		// The schema is removed on demotion by destructuring it away, then
 		// re-added only when the gate holds; an entry that already carried it
 		// keeps the same object. The pricing block is stripped the same way and
-		// re-derived from the effective cost fields (untouched server costs come
-		// back byte-identical; the legacy catalogPricing marker is dropped and a
-		// price it once justified never returns).
+		// re-derived from the effective cost fields, so untouched server costs
+		// come back byte-identical and a price the walk no longer justifies
+		// never survives a rebuild.
 		const { configurationSchema, ...rest } = info;
 		const base = withoutPricing(rest);
-		const { catalogPricing: _catalogPricing, ...litellmBase } = info.litellm;
 		return {
 			...base,
 			maxInputTokens: fields.max_input_tokens.value,
@@ -309,7 +301,7 @@ export function applyCapabilityOverrides(
 			...pricingFieldsFromEffective(fields),
 			...(reasoningGate(fields) ? { configurationSchema: configurationSchema ?? REASONING_EFFORT_SCHEMA } : {}),
 			litellm: {
-				...litellmBase,
+				...info.litellm,
 				supportsPromptCaching: promptCachingFrom(fields),
 				outputLimitSource: effective.outputLimitSource,
 				supportsAudioInput: fields.supports_audio_input.value,

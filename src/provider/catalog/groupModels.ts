@@ -56,14 +56,6 @@ interface LiteLLMModelMetadataBase {
 	readonly supportsAudioInput?: boolean;
 	/** True for a declared model (an entry's discovery.declared; discovery does not list it). */
 	readonly declared?: boolean;
-	/**
-	 * True when the model's pricing fields came from the OpenRouter catalog,
-	 * not the server. capabilityOverrides keys on it: a stale-served copy
-	 * re-decorates through the same pass, and only this marker lets it tell a
-	 * price it applied earlier (re-derive, or strip when the directive is
-	 * gone) from a server price (never displaced).
-	 */
-	readonly catalogPricing?: boolean;
 }
 
 /**
