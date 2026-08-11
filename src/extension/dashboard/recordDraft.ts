@@ -23,6 +23,7 @@ import {
 	INHERITABLE_DIRECTIVE,
 	isForceableParameter,
 	isUnsafeRecordKey,
+	isValidConsumedCapabilityValue,
 	isValidHeaderName,
 	isValidHeaderValue,
 	OPENROUTER_MODEL_DIRECTIVE,
@@ -547,26 +548,6 @@ function consumedFieldKind(key: string): CapabilityValueKind | undefined {
 }
 
 /**
- * Whether a parsed JSON value satisfies a consumed field's kind, mirroring
- * the resolver's verdict (capabilityResolution's consumedValueValid): numbers
- * are positive integers, costs finite non-negative numbers (0 is "free"),
- * booleans booleans, string-arrays arrays of non-empty strings (the empty
- * array is valid).
- */
-function consumedValueOk(kind: CapabilityValueKind, value: unknown): boolean {
-	switch (kind) {
-		case "number":
-			return typeof value === "number" && Number.isInteger(value) && value > 0;
-		case "cost":
-			return typeof value === "number" && Number.isFinite(value) && value >= 0;
-		case "boolean":
-			return typeof value === "boolean";
-		case "string-array":
-			return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
-	}
-}
-
-/**
  * The non-blocking note on a consumed row whose value fails its kind: the
  * setting keeps the row, and the resolver diagnoses the value and leaves the
  * field unset so a lower level can win - the same lenient contract as the
@@ -662,6 +643,10 @@ export function parseCapabilityGroups(
 		);
 		const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
 		const rows = group.params.map((param): CapabilityRowIssue => {
+			// Deliberate trim asymmetry: the editor judges and saves field keys
+			// trimmed, while the resolver reads stored records verbatim - a padded
+			// key hand-written into settings.json stays a padded open field until
+			// the next Apply normalizes it.
 			const key = param.key.trim();
 			const problem = keyProblem(
 				key,
@@ -739,13 +724,15 @@ export function parseCapabilityGroups(
 				return { problem: { field: "value", message: parsed.error } };
 			}
 			fields[key] = parsed.value;
-			// The consumed vocabulary beyond the core is advisory-typed, like the
-			// resolver treats it: the setting keeps an invalid value, resolution
-			// diagnoses it and leaves the field unset, so the row hints without
-			// blocking.
+			// The consumed vocabulary beyond the core is advisory-typed, judged by
+			// the resolver's OWN validator (isValidConsumedCapabilityValue): the
+			// setting keeps an invalid value, resolution diagnoses it and leaves
+			// the field unset, so the row hints without blocking.
 			const consumedKind = consumedFieldKind(key);
 			if (consumedKind !== undefined) {
-				return consumedValueOk(consumedKind, parsed.value) ? {} : { hint: consumedInvalidHint(consumedKind, key) };
+				return isValidConsumedCapabilityValue(consumedKind, parsed.value)
+					? {}
+					: { hint: consumedInvalidHint(consumedKind, key) };
 			}
 			// Underscore keys are reserved for future directives and pass
 			// silently. Anything else is an OPEN field the resolver applies

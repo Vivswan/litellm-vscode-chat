@@ -31,6 +31,7 @@ export {
 	CONSUMED_CAPABILITY_FIELDS,
 	capabilityField,
 	FALLBACK_DIRECTIVE,
+	isValidConsumedCapabilityValue,
 	OPENROUTER_MODEL_DIRECTIVE,
 } from "../../shared/config/capabilityResolution";
 // The effective-values inspector renders through the same resolution the

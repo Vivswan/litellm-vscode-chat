@@ -104,7 +104,14 @@ function isCapabilityFieldName(key: string): key is CapabilityFieldName {
 	return Object.hasOwn(CAPABILITY_FIELDS, key);
 }
 
-function consumedValueValid(kind: CapabilityValueKind, value: unknown): boolean {
+/**
+ * Whether a value satisfies a consumed field's kind - the ONE typing verdict
+ * for the consumed vocabulary, shared by the resolver's parse (invalid values
+ * are diagnosed and left unset) and the dashboard editors' live drafts (the
+ * same values hint without blocking), so the two judgments cannot drift.
+ * Pure and webview-safe; the dashboard imports it through protocol.ts.
+ */
+export function isValidConsumedCapabilityValue(kind: CapabilityValueKind, value: unknown): boolean {
 	switch (kind) {
 		case "number":
 			return typeof value === "number" && Number.isInteger(value) && value > 0;
@@ -203,7 +210,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 		}
 		const kind = Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key) ? CONSUMED_CAPABILITY_FIELDS[key] : undefined;
 		if (kind !== undefined) {
-			if (consumedValueValid(kind, value)) {
+			if (isValidConsumedCapabilityValue(kind, value)) {
 				// A cost of -0 would ride a negative sign into arithmetic; "free" is +0.
 				fields[key] = kind === "cost" && value === 0 ? 0 : (value as CapabilityJsonValue);
 			} else {

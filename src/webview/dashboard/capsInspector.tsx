@@ -110,7 +110,6 @@ function FieldName({ name }: { name: string }) {
 					part
 				) : (
 					// Underscore positions are stable within one render; the index is the identity.
-					// biome-ignore lint/suspicious/noArrayIndexKey: static text segments, never reordered
 					<Fragment key={index}>
 						<wbr />
 						{part}
