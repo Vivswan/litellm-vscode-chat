@@ -290,9 +290,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * the CURRENT configuration: the discovered infos with capability
 	 * overrides applied, and the declared models discovery did not list
 	 * (inert against the discovered raw-ID set, suppressed on collision with a
-	 * registered ID). Applied outside the discovery cache and the status
-	 * window on purpose - a configuration edit reaches the next serve without
-	 * a cache clear, and a removed declared ID disappears immediately.
+	 * registered ID). Applied outside the discovery cache on purpose - a
+	 * configuration edit reaches the next serve without a cache clear, and a
+	 * removed declared ID disappears immediately. The status window records
+	 * the overridden result; declared models alone stay out of it.
 	 */
 	private decorateServedModels(
 		discovered: DiscoveredGroupModels,
@@ -737,9 +738,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
 				};
 			});
-			// Overrides and declared models are applied to what is SERVED, never
-			// to what is cached or recorded: the cache and the window stay
-			// configuration-free, so an edit reaches the very next serve.
+			// Overrides and declared models are applied to what is SERVED: the
+			// discovery cache stays configuration-free, so an edit reaches the
+			// very next serve. The status window records the served (overridden)
+			// models; declared models alone are config-rebuilt every serve and
+			// never recorded.
 			const { overridden, declared } = this.decorateServedModels(discovered, server, 1, groupServer.label);
 			this.log(`Provider group at ${server.baseUrl} returned ${discovered.infos.length} models`);
 			this.reportGroupStatus(

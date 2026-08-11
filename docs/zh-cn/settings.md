@@ -42,7 +42,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | 声明的 LiteLLM 服务器; [条目属性见下](#服务器条目属性), 完整故事在[服务器](servers.md) |
 | `litellm-vscode-chat.models.parameters` | `{}` | 按模型的请求参数, 以[匹配器](models.md#模型匹配)为键。只发送你设置的。完整故事: [模型 - 参数](models.md#参数) |
-| `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆盖, 以[匹配器](models.md#模型匹配)为键: token 限制、视觉、工具、推理。完整故事: [模型 - 能力](models.md#能力) |
+| `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆盖, 以[匹配器](models.md#模型匹配)为键: token 限制、视觉、工具、推理、定价 - 任何 `model_info` 字段, 认识与否皆可; 词汇表是开放的。完整故事: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.models.openRouterCatalog` | `true` | 用每周刷新的 OpenRouter 公开目录快照填补缺失的能力; 手动刷新用 "LiteLLM: Refresh OpenRouter Catalog"。详情含隐私说明: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.chat.timeout` | `300000` | 单次聊天补全的硬性时间预算, 毫秒。聊天请求从不重试, 所以这是一个请求可占用的总时间, 含流式传输。最小 1000; 更低的值会被钳制。为长推理运行或缓慢的基础设施调大它 |
 | `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣布支持的模型上, 跨会话轮次复用提供方侧的提示缓存; [详情见下](#提示缓存) |
@@ -75,13 +75,13 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 
 ## 记录指令
 
-在 `models.parameters` 或 `models.capabilities` 记录内 (全局或每条目), 以 `_` 开头的键是指令: 给扩展的指示, 从不发送到服务器。未知的 `_` 键被忽略。
+在 `models.parameters` 或 `models.capabilities` 记录内 (全局或每条目), 以 `_` 开头的键是指令: 给扩展的指示, 从不发送到服务器。未知的 `_` 键被忽略; 其他每个键都是字段 - 两套词汇表都是开放的 ([能力](models.md#能力字段))。
 
 | 指令 | 有效于 | 作用 |
 |---|---|---|
 | `"_force": true \| ["field", ...]` | `models.parameters` | 把全部/列出的参数字段标记为强制: 它们胜过运行时选项和模型选择器的每模型配置。提供程序拥有的字段 (`model`、`messages`、`stream`、`stream_options`、`tools`、`tool_choice`) 不能强制 - 点名会被报告并跳过。完整故事: [模型 - 参数](models.md#参数) |
 | `"_fallback": true \| ["field", ...]` | `models.capabilities` | 把全部/列出的能力字段标记为回退: 它们填补在服务器报告之下, 而不是覆盖它。回退提供的最大输出 token 数算作用户设置 (没有 4096 上限)。完整故事: [模型 - 能力](models.md#能力) |
-| `"_openrouter_model": "vendor/id"` | `models.capabilities` | 从 OpenRouter 目录拉取点名模型的能力数据。由此得到的字段排在服务器报告之上 (这条指令的含义是: 对这个模型, 服务器的数据不可信), 但排在同记录中你显式写下的字段之下。离线也能用内置快照工作。完整故事: [模型 - 能力](models.md#能力) |
+| `"_openrouter_model": "vendor/id"` | `models.capabilities` | 从 OpenRouter 目录拉取点名模型的能力数据 - 只有能力, 从不包括定价。由此得到的字段排在服务器报告之上 (这条指令的含义是: 对这个模型, 服务器的数据不可信), 但排在同记录中你显式写下的字段之下。离线也能用内置快照工作。完整故事: [模型 - 能力](models.md#能力) |
 | `"_inheritable": true \| ["field", ...]` | 两种记录 | 把全部/列出的字段标记为可被匹配得更具体、且未另行声明的模型继承。完整故事: [模型 - 匹配](models.md#哪条记录生效) |
 | `"_inherit_from": true \| false \| ["key", ...]` | 两种记录 | 本记录继承什么: 到达它的一切、什么都不继承 (`false` - 也是屏障: 任何东西都流不过一条什么都不继承的记录), 或恰好点名的记录 (绕过屏障)。完整故事: [模型 - 匹配](models.md#哪条记录生效) |
 

@@ -169,13 +169,13 @@ export function helpCapabilityPrefix(): string {
 
 export function helpCapabilityName(): string {
 	return l10n.t(
-		"A capability field like context_length or supports_vision, or a directive: _openrouter_model fills fields from the catalog, _fallback demotes fields below the server's report."
+		"Any model_info field, e.g. context_length, supports_vision, or input_cost_per_token; unknown names apply as-is. _openrouter_model fills from the catalog, _fallback demotes below the server's report."
 	);
 }
 
 export function helpCapabilityValue(): string {
 	return l10n.t(
-		"Numbers are token counts, e.g. 128000; support flags are true or false. Your values beat what the server reports unless the row is marked fallback."
+		"Token counts are numbers, e.g. 128000; support flags true or false; costs per-token USD, 0 meaning free. Your values beat what the server reports unless the row is marked fallback."
 	);
 }
 

@@ -42,7 +42,7 @@ The file is a versioned envelope (setting keys inside it drop the `litellm-vscod
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | The declared LiteLLM servers; [entry properties below](#server-entry-properties), full story in [Servers](servers.md) |
 | `litellm-vscode-chat.models.parameters` | `{}` | Request parameters per model, keyed by [matchers](models.md#model-matching). Only what you set is sent. Full story: [Models - Parameters](models.md#parameters) |
-| `litellm-vscode-chat.models.capabilities` | `{}` | Capability overrides per model, keyed by [matchers](models.md#model-matching): token limits, vision, tools, reasoning. Full story: [Models - Capabilities](models.md#capabilities) |
+| `litellm-vscode-chat.models.capabilities` | `{}` | Capability overrides per model, keyed by [matchers](models.md#model-matching): token limits, vision, tools, reasoning, pricing - any `model_info` field, known or not; the vocabulary is open. Full story: [Models - Capabilities](models.md#capabilities) |
 | `litellm-vscode-chat.models.openRouterCatalog` | `true` | Fill missing capabilities from a weekly-refreshed snapshot of OpenRouter's public catalog; manual refresh via "LiteLLM: Refresh OpenRouter Catalog". Details incl. privacy notes: [Models - Capabilities](models.md#capabilities) |
 | `litellm-vscode-chat.chat.timeout` | `300000` | Hard time budget for one chat completion, in milliseconds. Chat requests are never retried, so this is the total time one request may take, streaming included. Minimum 1000; lower values are clamped. Raise it for long reasoning runs or slow infrastructure |
 | `litellm-vscode-chat.chat.promptCaching` | `true` | Reuse provider-side prompt caches across the turns of a session on models that advertise support; [details below](#prompt-caching) |
@@ -75,13 +75,13 @@ Secret-capable fields (`auth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKe
 
 ## Record directives
 
-Inside a `models.parameters` or `models.capabilities` record (global or per-entry), keys starting with `_` are directives: instructions to the extension, never sent to the server. Unknown `_` keys are ignored.
+Inside a `models.parameters` or `models.capabilities` record (global or per-entry), keys starting with `_` are directives: instructions to the extension, never sent to the server. Unknown `_` keys are ignored; every other key is a field - both vocabularies are open ([capabilities](models.md#capability-fields)).
 
 | Directive | Valid in | What it does |
 |---|---|---|
 | `"_force": true \| ["field", ...]` | `models.parameters` | Marks all/listed parameter fields as forced: they beat runtime options and the model picker's per-model configuration. Provider-owned fields (`model`, `messages`, `stream`, `stream_options`, `tools`, `tool_choice`) cannot be forced - naming one is reported and skipped. Full story: [Models - Parameters](models.md#parameters) |
 | `"_fallback": true \| ["field", ...]` | `models.capabilities` | Marks all/listed capability fields as fallbacks: they fill in below what the server reports instead of overriding it. A fallback-provided max output tokens counts as user-set (no 4096 cap). Full story: [Models - Capabilities](models.md#capabilities) |
-| `"_openrouter_model": "vendor/id"` | `models.capabilities` | Pulls the named model's capability data from the OpenRouter catalog. Derived fields rank above what the server reports (the directive says the server's data is not to be trusted for this model) but below your explicit fields in the record. Works offline from the bundled snapshot. Full story: [Models - Capabilities](models.md#capabilities) |
+| `"_openrouter_model": "vendor/id"` | `models.capabilities` | Pulls the named model's capability data - capabilities only, never pricing - from the OpenRouter catalog. Derived fields rank above what the server reports (the directive says the server's data is not to be trusted for this model) but below your explicit fields in the record. Works offline from the bundled snapshot. Full story: [Models - Capabilities](models.md#capabilities) |
 | `"_inheritable": true \| ["field", ...]` | both records | Marks all/listed fields inheritable by more-specifically-matched models that do not say otherwise. Full story: [Models - Matching](models.md#which-record-applies) |
 | `"_inherit_from": true \| false \| ["key", ...]` | both records | What this record inherits: everything that reaches it, nothing (`false` - also the barrier: nothing flows past a record that inherits nothing), or exactly the named records (bypassing barriers). Full story: [Models - Matching](models.md#which-record-applies) |
 

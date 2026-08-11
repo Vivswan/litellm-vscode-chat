@@ -6,7 +6,7 @@ Everything about models in one place: how they get into the picker, how configur
 
 - [How models appear](#how-models-appear) - discovery, declared models, what registers and what does not
 - [Model matching](#model-matching) - the key grammar every model-keyed record uses, and how matching records combine
-- [Capabilities](#capabilities) - what a model can do: the field vocabulary, overrides, fallbacks, the OpenRouter catalog, token limits
+- [Capabilities](#capabilities) - what a model can do: the field vocabulary, overrides, fallbacks, the OpenRouter catalog, pricing, token limits
 - [Parameters](#parameters) - what a request asks for: the pass-through contract, the `max_tokens` exception, forcing, precedence
 - [The picker](#the-picker) - how models surface in Copilot Chat, and the per-model Configure menu
 - [Multimodal input](#multimodal-input) and [what comes back](#thinking-sources-generated-media-and-token-usage) - attachments, thinking, sources, generated media, token usage
@@ -156,7 +156,9 @@ Capabilities are **source-invariant**: the resolution below neither knows nor ca
 
 ### Capability fields
 
-The `models.capabilities` records (global setting and [per-entry field](servers.md#per-server-model-configuration)) correct and extend what the server reports, using this closed vocabulary:
+The `models.capabilities` records (global setting and [per-entry field](servers.md#per-server-model-configuration)) correct and extend what the server reports. Like `models.parameters`, the vocabulary is **open**: it is your server, and its `model_info` may carry fields this extension has never heard of, so any field name is accepted and applied. What differs between fields is only what they drive.
+
+**The core seven** decide registration; they always resolve (built-in defaults backstop them - `max_input_tokens` by the context-minus-output derivation instead) and take positive integers or booleans:
 
 | Field | Type | What it controls |
 |-------|------|------------------|
@@ -168,7 +170,22 @@ The `models.capabilities` records (global setting and [per-entry field](servers.
 | `supports_reasoning` | boolean | The Thinking Effort control in the picker |
 | `supports_audio_input` | boolean | Whether audio attachments are sent |
 
-Unlike `models.parameters`, this vocabulary is closed: an unknown field is not forwarded anywhere, it is flagged in the [capability inspector](#inspectors). Number fields take positive integers; an invalid value is flagged too, and the next-best source wins instead.
+**The consumed fields** are everything else the extension reads somewhere; each is validated for its kind, and an invalid value is flagged with the next-best source winning instead, exactly like the core:
+
+| Field | Type | What it drives |
+|-------|------|------------------|
+| `input_cost_per_token`, `output_cost_per_token` | cost | [Pricing](#pricing) in the picker and the dashboard |
+| `cache_read_input_token_cost`, `cache_creation_input_token_cost` | cost | The cache pricing figures |
+| `long_context_input_cost_per_token`, `long_context_output_cost_per_token`, `long_context_cache_read_input_token_cost`, `long_context_cache_creation_input_token_cost` | cost | Long-context tier pricing. Write these synthesized names; discovery resolves LiteLLM's threshold-suffixed wire keys (`input_cost_per_token_above_200k_tokens`, ...) into them for you |
+| `supports_prompt_caching` | boolean | Whether prompt-cache markers are placed - the one capability that changes what a request contains. The feature stays double-gated: the [`chat.promptCaching` setting](settings.md#prompt-caching) must be on too |
+| `supports_pdf_input`, `supports_response_schema` | boolean | Nothing yet: both resolve and display in the [capability inspector](#inspectors) but gate no behavior - PDFs are sent to every model regardless ([multimodal input](#multimodal-input)) |
+| `supported_openai_params` | string array | `reasoning_effort` in the list is the second signal for the Thinking Effort control, beside `supports_reasoning`; whichever of the two resolved at the higher precedence level decides, the flag winning ties |
+
+Cost fields take non-negative per-token USD numbers; writing a zero pair yourself means genuinely free ([pricing](#pricing)).
+
+**Everything else** - any other field not starting with `_` - is an open extra: kept as written (any name works, even awkward ones like `toString`), resolved through the same matching, precedence, and inheritance as every other field, and shown with provenance in the [capability inspector](#inspectors) and the [Resolved models view](dashboard.md#resolved-models). Its values come only from your records: discovery reads the server's report for the core and consumed fields only, so a custom server-side field never supplies a value - its *name* still counts as typo evidence below. Registration does not consume open extras yet; a future version may.
+
+Validation is advisory, never gating. A field name the extension does not consume gets a "not a field this extension knows" note in the inspector only when there is real evidence it may be a typo: the server's own `/model/info` key set is known, non-empty, and does not contain the field. Without that evidence - a declared-only entry, an expected `modelInfo` failure, the `/models` fallback - there is no note at all. Either way the value is applied as an override as-is: you are always right about your own server.
 
 ### What the server reports
 
@@ -180,7 +197,8 @@ Discovery reads capabilities from model info:
 | Vision | `supports_vision` | |
 | Audio input | `supports_audio_input` | |
 | Reasoning | `supports_reasoning`, or `reasoning_effort` among `supported_openai_params` | An explicit `supports_reasoning: false` wins |
-| Prompt caching | `supports_prompt_caching` | Not in the override vocabulary; `chat.promptCaching` turns the feature off globally ([Settings](settings.md#prompt-caching)) |
+| Prompt caching | `supports_prompt_caching` | Overridable like every field; the feature stays double-gated by `chat.promptCaching` ([Settings](settings.md#prompt-caching)) |
+| Pricing | the eight cost fields (`input_cost_per_token`, ...) | An input/output pair of exactly 0/0 is LiteLLM's stamp for "no pricing data" and reads as no report at all ([pricing](#pricing)) |
 | Token limits | model info's token limit fields | See [Token limits](#token-limits) |
 
 A wrong flag on the server side is worth fixing there: the extension trusts the declaration in both directions, offering what is declared and withholding what is not. When the server is not yours to fix, override the flag instead.
@@ -221,7 +239,7 @@ An override says "the server is wrong"; a fallback says "in case the server is s
 }
 ```
 
-- `_fallback: true` makes every field in the record a fallback; `_fallback: ["field", ...]` only the listed ones, leaving the rest ordinary overrides.
+- `_fallback: true` makes every field in the record a fallback; `_fallback: ["field", ...]` only the listed ones, leaving the rest ordinary overrides. Any field the record sets can carry the mark - core, cost, or open extra alike.
 - A fallback `max_output_tokens` still counts as user-set for the [`max_tokens` exception](#the-max_tokens-exception): the 4096 clamp is lifted.
 - An inherited field arrives with its source's marking: a fallback stays a fallback wherever [inheritance](#which-record-applies) carries it, and a receiving record cannot re-mark fields it did not write (its own `_fallback` list may only name its own fields; the same source-side rule governs [`_force`](#forcing-parameters-_force)). Want an inherited fallback as a hard override on one model? State it there: `"gpt-5.6": { "context_length": 200000 }` - an own, unlisted field is an override, and only that model stops following the source.
 - A directive list may only name fields present in its own record: naming an absent field is reported as an invalid directive, that name is skipped, and the rest of the list still applies (the same rule the receiver re-marking restriction builds on). And a known directive in the wrong record type - `_fallback` in a parameters record, `_force` in a capabilities record - is reported and ignored, while truly unknown `_` keys stay silently ignored for forward compatibility.
@@ -230,7 +248,7 @@ Like every directive, the underscore key is an instruction to the extension - it
 
 ### The OpenRouter catalog
 
-The extension bundles a snapshot of [OpenRouter](https://openrouter.ai)'s public model catalog and fills capability fields nothing else provides from it. Two ways a model meets the catalog:
+The extension bundles a snapshot of [OpenRouter](https://openrouter.ai)'s public model catalog and fills capability fields nothing else provides from it. The catalog carries capabilities only - token limits, vision, tools, reasoning - and never pricing: no cost field ever comes from it, explicit directive or implicit match alike ([pricing](#pricing)). Two ways a model meets the catalog:
 
 - **Explicit**: `"_openrouter_model"` names the catalog entry for models whose ID the catalog would never guess:
 
@@ -254,20 +272,29 @@ Where the data comes from, and the one network implication:
 
 ### Capability precedence
 
-Per field, the highest source that sets it wins. Within each record level, [the matching rules](#which-record-applies) pick among matching keys:
+Per field, the highest source that sets it wins - the same walk for every field, core, cost, and open extra alike. Within each record level, [the matching rules](#which-record-applies) pick among matching keys:
 
 1. Entry `models.capabilities`
 2. Global `models.capabilities`
 3. Fields derived from an explicit `_openrouter_model` directive
-4. What the server reports (absent for declared models)
+4. What the server reports - the core and consumed fields only (absent for declared models; a 0/0 input/output cost pair reads as no pricing report at all - [pricing](#pricing))
 5. `_fallback` fields (entry above global, the matching rules within each)
 6. An implicit OpenRouter catalog match
-7. Built-in defaults: tools on, vision/audio/reasoning off, 128000 context, 16000 max output
+7. Built-in defaults for the core: tools on, vision/audio/reasoning off, 128000 context, 16000 max output; `max_input_tokens` has no default of its own and instead derives as context length minus max output. Other fields have no default and simply stay absent when nothing above sets them
 
 Two consequences worth knowing:
 
 - A `max_output_tokens` you set yourself - levels 1, 2, or 5 - counts as user-declared and is sent as-is when it becomes the wire `max_tokens`; so does a server limit every deployment of the model declared. Any catalog-derived value (explicit directive or implicit match) and the built-in floor count as guesses and cap wire `max_tokens` at 4096 ([the exception](#the-max_tokens-exception)). To lift the cap for a catalog-backed model, write the `max_output_tokens` yourself.
-- Pricing is never overridden: server-reported pricing always wins, and catalog pricing only fills in where the server reports none.
+- The catalog levels (3 and 6) carry capabilities only, never cost fields, so a price can only come from the server's report or from you ([pricing](#pricing)).
+
+### Pricing
+
+What a model costs comes from exactly two places - LiteLLM's `/model/info` report and your own `models.capabilities` cost fields - resolved through the [precedence](#capability-precedence) above:
+
+- The server's report is the baseline, with one reading rule: an input/output cost pair of exactly 0/0 is LiteLLM's stamp for models with no pricing data, so it counts as undeclared - no price is shown, and stray cache or long-context costs beside the stamp are dropped with it.
+- Your cost fields beat the server's field by field, like any capability override; `_fallback`-marked ones fill in only where the server reports nothing.
+- A 0/0 pair *you* write is different from the server's stamp: you said the model is free, so it prices as genuinely free - $0 in / $0 out and the cheapest badge.
+- The OpenRouter catalog never supplies pricing, so a well-known model ID on a free deployment cannot inherit the public rate card.
 
 ### Token limits
 
@@ -396,9 +423,9 @@ Temperature stays free-form in `models.parameters` on purpose: the Configure men
 
 ### Pricing in the picker
 
-- Per-token costs from model info are converted to the per-million-token figures the model picker and the [dashboard](dashboard.md)'s models table display, along with cache and long-context tier costs where declared.
-- A cost pair of exactly zero is treated as undeclared rather than free, because LiteLLM stamps zeros onto models with no pricing data.
-- The cheapest/fastest aggregates carry no pricing at all: there the proxy's routing decides what a request actually costs.
+- The effective per-token costs - the server's report plus your overrides ([pricing](#pricing)) - are converted to the per-million-token figures the model picker and the [dashboard](dashboard.md)'s models table display, along with cache and long-context tier costs where declared.
+- A *server-reported* cost pair of exactly zero is treated as undeclared rather than free, because LiteLLM stamps zeros onto models with no pricing data. A zero pair you wrote yourself displays as free - $0 in / $0 out, with the cheapest badge.
+- The cheapest/fastest aggregates carry no *server* pricing - there the proxy's routing decides what a request actually costs - though a user cost record matching the aggregate's [suffixed ID](#provider-routes-and-aggregates) still prices it.
 
 What requests actually cost, per server and against budgets, lives in [Usage](usage.md#the-usage-panel).
 
@@ -409,7 +436,7 @@ What an attachment becomes on the wire depends on its type and the model's resol
 | Attachment | Capability gate | On other models |
 |------------|-----------------|-----------------|
 | Images (attachments, and images replayed from earlier turns) | Sent only to models that declare vision support | The text goes through and the images are dropped, with a note in the "LiteLLM" output channel |
-| PDFs (sent as file blocks on user messages) | Not capability-gated | A model that cannot take PDFs fails with its server's own error message |
+| PDFs (sent as file blocks on user messages) | Not capability-gated (`supports_pdf_input` resolves and displays but gates nothing yet) | A model that cannot take PDFs fails with its server's own error message |
 | Audio (WAV, MP3; sent as audio input blocks) | Sent only to models that declare audio input support | Dropped with an output-channel note |
 | Text-decodable files (plain text, JSON, source files) | None: decoded and sent as text everywhere | - |
 
@@ -431,4 +458,4 @@ Every rule on this page is observable. The [dashboard](dashboard.md)'s models ta
 - **Parameters** ([effective parameters](dashboard.md#effective-parameters)): every parameter that would go out, its resolved value, and the source that set it - which record, which matcher key - with shadowed values shown beneath the winner, plus the `max_tokens` the request would carry and why.
 - **Capabilities** ([effective capabilities](dashboard.md#effective-capabilities)): every capability field with its resolved value and source - an entry or global record key, an `_openrouter_model` derivation, the server's report, a `_fallback` fill, a catalog match, or the built-in default - again with the shadowed values beneath.
 
-The inspectors also surface the diagnostics named on this page: invalid matcher keys, unknown capability fields, invalid values, unknown catalog IDs, and `_force` on unforceable keys. When a matcher does something surprising, start here - the answer is one Parameters or Capabilities click away.
+The inspectors also surface the diagnostics named on this page: invalid matcher keys, invalid values, unknown catalog IDs, and `_force` on unforceable keys - plus the advisory note on capability fields the extension does not know, shown only against real `/model/info` evidence and never blocking the value from applying ([capability fields](#capability-fields)). When a matcher does something surprising, start here - the answer is one Parameters or Capabilities click away.

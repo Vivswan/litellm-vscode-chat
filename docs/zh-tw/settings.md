@@ -42,7 +42,7 @@
 |---------|---------|-------------|
 | `litellm-vscode-chat.servers` | `[]` | 宣告的 LiteLLM 伺服器; [項目屬性見下](#伺服器項目屬性), 完整故事在[伺服器](servers.md) |
 | `litellm-vscode-chat.models.parameters` | `{}` | 按模型的請求參數, 以[比對器](models.md#模型比對)為鍵。只送出您設定的。完整故事: [模型 - 參數](models.md#參數) |
-| `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆寫, 以[比對器](models.md#模型比對)為鍵: token 上限、視覺、工具、推理。完整故事: [模型 - 能力](models.md#能力) |
+| `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆寫, 以[比對器](models.md#模型比對)為鍵: token 上限、視覺、工具、推理、定價 - 任何 `model_info` 欄位, 認識與否皆可; 詞彙表是開放的。完整故事: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.models.openRouterCatalog` | `true` | 用每週重新整理的 OpenRouter 公開目錄快照填補缺少的能力; 手動重新整理用 "LiteLLM: Refresh OpenRouter Catalog"。詳情含隱私說明: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.chat.timeout` | `300000` | 單次聊天補全的硬性時間預算, 毫秒。聊天請求從不重試, 所以這是一個請求可占用的總時間, 含串流。最小 1000; 更低的值會被箝制。為長推理運行或緩慢的基礎設施調大它 |
 | `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣告支援的模型上, 跨工作階段回合沿用提供者端的提示快取; [詳情見下](#提示快取) |
@@ -75,13 +75,13 @@
 
 ## 記錄指示詞
 
-在 `models.parameters` 或 `models.capabilities` 記錄內 (全域或各項目), 以 `_` 開頭的鍵是指示詞: 給延伸模組的指示, 從不送到伺服器。未知的 `_` 鍵被忽略。
+在 `models.parameters` 或 `models.capabilities` 記錄內 (全域或各項目), 以 `_` 開頭的鍵是指示詞: 給延伸模組的指示, 從不送到伺服器。未知的 `_` 鍵被忽略; 其他每個鍵都是欄位 - 兩套詞彙表都是開放的 ([能力](models.md#能力欄位))。
 
 | 指示詞 | 有效於 | 作用 |
 |---|---|---|
 | `"_force": true \| ["field", ...]` | `models.parameters` | 把全部/列出的參數欄位標記為強制: 它們勝過執行階段選項與模型選擇器的各模型設定。提供者擁有的欄位 (`model`、`messages`、`stream`、`stream_options`、`tools`、`tool_choice`) 不能強制 - 指名會被回報並略過。完整故事: [模型 - 參數](models.md#參數) |
 | `"_fallback": true \| ["field", ...]` | `models.capabilities` | 把全部/列出的能力欄位標記為後備: 它們填補在伺服器回報之下, 而不是覆寫它。後備提供的最大輸出 token 數算作使用者設定 (沒有 4096 上限)。完整故事: [模型 - 能力](models.md#能力) |
-| `"_openrouter_model": "vendor/id"` | `models.capabilities` | 從 OpenRouter 目錄拉取指名模型的能力資料。由此得到的欄位排在伺服器回報之上 (這條指示詞的含義是: 對這個模型, 伺服器的資料不可信), 但排在同記錄中您明確寫下的欄位之下。離線也能用內建快照運作。完整故事: [模型 - 能力](models.md#能力) |
+| `"_openrouter_model": "vendor/id"` | `models.capabilities` | 從 OpenRouter 目錄拉取指名模型的能力資料 - 只有能力, 從不包括定價。由此得到的欄位排在伺服器回報之上 (這條指示詞的含義是: 對這個模型, 伺服器的資料不可信), 但排在同記錄中您明確寫下的欄位之下。離線也能用內建快照運作。完整故事: [模型 - 能力](models.md#能力) |
 | `"_inheritable": true \| ["field", ...]` | 兩種記錄 | 把全部/列出的欄位標記為可被比對得更具體、且未另行聲明的模型繼承。完整故事: [模型 - 比對](models.md#哪筆記錄生效) |
 | `"_inherit_from": true \| false \| ["key", ...]` | 兩種記錄 | 本記錄繼承什麼: 到達它的一切、什麼都不繼承 (`false` - 也是屏障: 任何東西都流不過一筆什麼都不繼承的記錄), 或恰好指名的記錄 (繞過屏障)。完整故事: [模型 - 比對](models.md#哪筆記錄生效) |
 
