@@ -331,13 +331,35 @@ suite("extension/dashboard/serverForm", () => {
 			assert.notStrictEqual(parse.modelCapabilityIssues[0]?.rows[0]?.problem, undefined);
 		});
 
-		test("unknown-key hints ride a clean parse without blocking it", () => {
-			const parse = parseServerForm(
-				draft({ modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "supports_pdf_input", valueText: "true" }] }] })
+		test("unknown-key hints ride a clean parse without blocking it, gated on the entry's observed evidence", () => {
+			// No evidence in the context: the hint stays suppressed (the host's
+			// advisory filter, mirrored live).
+			const silent = parseServerForm(
+				draft({ modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "supports_web_search", valueText: "true" }] }] })
 			);
-			assert.ok(parse.ok, "unknown keys hint, never block");
-			assert.notStrictEqual(parse.modelCapabilityIssues[0]?.rows[0]?.hint, undefined);
-			assert.deepStrictEqual(parse.intent.server.modelCapabilities, { "gpt-4": { supports_pdf_input: true } });
+			assert.ok(silent.ok, "unknown keys never block");
+			assert.strictEqual(silent.modelCapabilityIssues[0]?.rows[0]?.hint, undefined, "no evidence, no hint");
+			assert.deepStrictEqual(silent.intent.server.modelCapabilities, { "gpt-4": { supports_web_search: true } });
+
+			// Observed keys lacking the field: the hint rides the clean parse.
+			const hinted = parseServerForm(
+				draft({
+					modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "supports_web_search", valueText: "true" }] }],
+				}),
+				{ observedModelInfoKeys: ["litellm_provider", "mode"] }
+			);
+			assert.ok(hinted.ok, "unknown keys hint, never block");
+			assert.match(hinted.modelCapabilityIssues[0]?.rows[0]?.hint ?? "", /applied as an override as-is/);
+
+			// Observed keys naming the field: an observed key is real, no hint.
+			const observed = parseServerForm(
+				draft({
+					modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "supports_web_search", valueText: "true" }] }],
+				}),
+				{ observedModelInfoKeys: ["supports_web_search"] }
+			);
+			assert.ok(observed.ok);
+			assert.strictEqual(observed.modelCapabilityIssues[0]?.rows[0]?.hint, undefined);
 		});
 
 		test("clean rows and the checkbox list assemble into the intent; empty drafts send both fields empty", () => {

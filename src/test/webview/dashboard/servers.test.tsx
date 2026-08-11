@@ -5,6 +5,7 @@
  * into adoptServer must fail here).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { render } from "preact";
 import { act } from "preact/test-utils";
 import type { DashboardServer, WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
@@ -914,7 +915,9 @@ test("the edit form round-trips model capabilities and expected failures into th
 	expect(saved.server.expectedFailures).toEqual(["modelListing", "modelInfo"]);
 });
 
-test("an unknown capability key hints without blocking the save", () => {
+test("an unknown capability key gets a JSON input and no hint without observed evidence; the save still posts", () => {
+	// The server never reported a /model/info key set: no evidence, so the
+	// live draft mirrors the host's advisory filter and stays silent.
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));
 	fireClick(buttonByText(root, "Add capability matcher"));
@@ -929,16 +932,199 @@ test("an unknown capability key hints without blocking the save", () => {
 		throw new Error("the capability rows did not render");
 	}
 	fireInput(prefixInput, "gpt-4");
-	fireInput(keyInput, "supports_pdf_input");
-	// A boolean-shaped unknown key gets a JSON value input, not a checkbox.
+	fireInput(keyInput, "supports_web_search");
+	// An unknown key stays free-form JSON, not a checkbox (the open vocabulary
+	// carries any JSON value).
 	const valueInput = overlay.querySelector<HTMLInputElement>('input[placeholder="JSON value"]');
 	if (valueInput === null) {
 		throw new Error("the unknown-key value input did not render");
 	}
 	fireInput(valueInput, "true");
-	expect(root.textContent).toContain('"supports_pdf_input" is not a known capability field');
+	expect(root.textContent).not.toContain("is not a field this extension knows");
+	// Open fields take the fallback mark too: the resolver's _fallback accepts
+	// any field the record sets.
+	const fallbackBox = [...overlay.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
+		(input) => input.getAttribute("aria-label") === 'Fall back for "supports_web_search"'
+	);
+	expect(fallbackBox).not.toBeUndefined();
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
+});
+
+test("an unknown capability key hints when the server's observed keys lack it, and the hint says it still applies", () => {
+	const root = mountSection([
+		makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["litellm_provider", "mode"] }),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+	fireClick(buttonByText(root, "Add capability matcher"));
+	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+	if (overlay === null) {
+		throw new Error("Add capability matcher did not open the overlay");
+	}
+	fireClick(buttonByText(overlay, "Add capability"));
+	const prefixInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
+	const keyInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
+	if (prefixInput === null || keyInput === null) {
+		throw new Error("the capability rows did not render");
+	}
+	fireInput(prefixInput, "gpt-4");
+	fireInput(keyInput, "supports_web_search");
+	const valueInput = overlay.querySelector<HTMLInputElement>('input[placeholder="JSON value"]');
+	if (valueInput === null) {
+		throw new Error("the unknown-key value input did not render");
+	}
+	fireInput(valueInput, "true");
+	expect(root.textContent).toContain('"supports_web_search" is not a field this extension knows');
+	expect(root.textContent).toContain("applied as an override as-is");
+	// An observed key is real whatever the vocabulary says: switching the row
+	// onto one the server reported clears the hint.
+	fireInput(keyInput, "mode");
+	expect(root.textContent).not.toContain("is not a field this extension knows");
+	// The hint never blocks the save either way.
+	fireInput(keyInput, "supports_web_search");
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages.length).toBe(1);
+});
+
+test("a consumed capability key gets its typed input: costs a decimal number field, caching flags a checkbox", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
+	fireClick(buttonByText(root, "Edit"));
+	fireClick(buttonByText(root, "Add capability matcher"));
+	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+	if (overlay === null) {
+		throw new Error("Add capability matcher did not open the overlay");
+	}
+	fireClick(buttonByText(overlay, "Add capability"));
+	const prefixInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
+	const keyInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
+	if (prefixInput === null || keyInput === null) {
+		throw new Error("the capability rows did not render");
+	}
+	fireInput(prefixInput, "gpt-4");
+	// A consumed boolean (supports_prompt_caching) renders the support-flag
+	// checkbox and seeds true, exactly like a core flag.
+	fireInput(keyInput, "supports_prompt_caching");
+	const flag = overlay.querySelector<HTMLInputElement>("label.capability-flag input");
+	expect(flag?.checked).toBe(true);
+	// A cost key renders a number input allowing zero and decimals. The "true"
+	// the flag key seeded does not fit a cost, so the row first keeps the raw
+	// input showing it; clearing it flips the row onto the typed control.
+	fireInput(keyInput, "input_cost_per_token");
+	const carried = overlay.querySelector<HTMLInputElement>("input.value");
+	if (carried === null) {
+		throw new Error("the carried-value input did not render");
+	}
+	expect(carried.value).toBe("true");
+	fireInput(carried, "");
+	const costInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="USD per token"]');
+	if (costInput === null) {
+		throw new Error("the cost value input did not render");
+	}
+	expect(costInput.type).toBe("number");
+	expect(costInput.min).toBe("0");
+	fireInput(costInput, "0");
+	expect(root.textContent).not.toContain("this value is ignored");
+	// Consumed fields carry the fallback mark like any other set field.
+	expect(
+		[...overlay.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
+			(input) => input.getAttribute("aria-label") === 'Fall back for "input_cost_per_token"'
+		)
+	).not.toBeUndefined();
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages.length).toBe(1);
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.server.modelCapabilities).toEqual({ "gpt-4": { input_cost_per_token: 0 } });
+});
+
+test("a discovery pass finishing under the open form refreshes the unknown-key hint evidence", () => {
+	const sectionWith = (servers: readonly DashboardServer[]) => (
+		<ServersSection
+			servers={servers}
+			now={Date.now()}
+			ack={undefined}
+			failures={{}}
+			inlineSecrets={undefined}
+			onDismissFailure={() => {}}
+			onClearInlineSecrets={() => {}}
+		/>
+	);
+	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
+	fireClick(buttonByText(root, "Edit"));
+	fireClick(buttonByText(root, "Add capability matcher"));
+	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+	if (overlay === null) {
+		throw new Error("Add capability matcher did not open the overlay");
+	}
+	fireClick(buttonByText(overlay, "Add capability"));
+	const prefixInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
+	const keyInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
+	if (prefixInput === null || keyInput === null) {
+		throw new Error("the capability rows did not render");
+	}
+	fireInput(prefixInput, "gpt-4");
+	fireInput(keyInput, "supports_web_search");
+	const valueInput = overlay.querySelector<HTMLInputElement>('input[placeholder="JSON value"]');
+	if (valueInput === null) {
+		throw new Error("the unknown-key value input did not render");
+	}
+	fireInput(valueInput, "true");
+	expect(root.textContent).not.toContain("is not a field this extension knows");
+	// The state push that lands the discovery result re-renders the section
+	// with the server's observed keys; the OPEN form's hints must follow the
+	// live evidence, not the open-time snapshot.
+	void act(() => {
+		render(
+			sectionWith([makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["litellm_provider", "mode"] })]),
+			root
+		);
+	});
+	expect(root.textContent).toContain('"supports_web_search" is not a field this extension knows');
+});
+
+test("a preserved invalid consumed value keeps the raw JSON input instead of a typed control that would blank it", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelCapabilities: { "gpt-4": { input_cost_per_token: "free", supports_prompt_caching: 1 } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+	const overlay = openMatcherEditor(root, "gpt-4");
+	// A number input would display the stored "free" as blank and a checkbox
+	// would read the stored 1 as unchecked; the rows keep free-form inputs
+	// showing the text as it is, with the non-blocking hints beside them.
+	const values = [...overlay.querySelectorAll<HTMLInputElement>("input.value")];
+	expect(values.map((input) => input.type)).toEqual(["text", "text"]);
+	expect(values.map((input) => input.value)).toEqual(['"free"', "1"]);
+	expect(overlay.querySelector("label.capability-flag")).toBeNull();
+	expect(root.textContent).toContain("this value is ignored");
+	// Fixing the cost flips the row back onto the typed number input.
+	const costInput = values[0];
+	if (costInput === undefined) {
+		throw new Error("the cost row did not render");
+	}
+	fireInput(costInput, "0.000002");
+	expect(overlay.querySelector<HTMLInputElement>('input[placeholder^="USD per token"]')?.value).toBe("0.000002");
+	// The typed control takes exactly what an HTML number input can display:
+	// scientific notation stays typed, while hex, a trailing dot, and padded
+	// whitespace (all blanked by the control) keep the raw text input.
+	const costValue = () => {
+		const input = [...overlay.querySelectorAll<HTMLInputElement>("input.value")][0];
+		if (input === undefined) {
+			throw new Error("the cost row's value input did not render");
+		}
+		return input;
+	};
+	fireInput(costValue(), "1e5");
+	expect(costValue().type).toBe("number");
+	for (const text of ["0x10", "1.", " 1 "]) {
+		fireInput(costValue(), text);
+		expect(costValue().type).toBe("text");
+		expect(costValue().value).toBe(text);
+	}
 });
 
 test("switching a row's key onto a support flag seeds it true and renders the checkbox", () => {

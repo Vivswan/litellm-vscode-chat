@@ -208,20 +208,110 @@ suite("extension/dashboard/recordDraft", () => {
 			}
 		});
 
-		test("unknown keys hint without blocking; underscore keys pass silently as JSON", () => {
+		test("unknown keys parse as JSON and stay silent with no evidence; underscore keys pass silently too", () => {
+			// No recognizedKeys (no server reported a /model/info key set): the
+			// host's advisory filter drops every unknown-key hint, and the live
+			// draft hints must mirror it - no evidence, no crying wolf.
 			const parse = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
 					params: [
-						{ key: "supports_pdf_input", valueText: "true" },
+						{ key: "supports_web_search", valueText: "true" },
 						{ key: "_future_directive", valueText: '"x"' },
 					],
 				},
 			]);
 			assert.ok(parse.ok);
-			assert.notStrictEqual(parse.issues[0]?.rows[0]?.hint, undefined, "unknown keys carry the hint");
+			assert.strictEqual(parse.issues[0]?.rows[0]?.hint, undefined, "no evidence, no hint");
 			assert.strictEqual(parse.issues[0]?.rows[1]?.hint, undefined, "underscore keys are reserved, not unknown");
-			assert.deepStrictEqual(parse.value, { "gpt-4": { supports_pdf_input: true, _future_directive: "x" } });
+			assert.deepStrictEqual(parse.value, { "gpt-4": { supports_web_search: true, _future_directive: "x" } });
+		});
+
+		test("unknown-key hints mirror the host's advisory filter over the observed evidence", () => {
+			const groups = [{ prefix: "gpt-4", params: [{ key: "supports_web_search", valueText: "true" }] }];
+			const hintOf = (recognizedKeys: ReadonlySet<string> | undefined) => {
+				const parse = parseCapabilityGroups(groups, recognizedKeys);
+				assert.ok(parse.ok);
+				return parse.issues[0]?.rows[0]?.hint;
+			};
+			assert.strictEqual(hintOf(undefined), undefined, "absent evidence suppresses");
+			assert.strictEqual(hintOf(new Set()), undefined, "known-empty evidence says nothing and suppresses");
+			assert.strictEqual(hintOf(new Set(["supports_web_search"])), undefined, "an observed key is real");
+			assert.ok(
+				hintOf(new Set(["max_output_tokens"]))?.includes("applied as an override as-is"),
+				"evidence lacking the key hints, and the wording says the field still applies"
+			);
+			// A consumed key parses typed, so it can never hint as unknown even
+			// when the evidence lacks it - the host filter's backstop, mirrored.
+			const consumed = parseCapabilityGroups(
+				[{ prefix: "gpt-4", params: [{ key: "supports_pdf_input", valueText: "true" }] }],
+				new Set(["max_output_tokens"])
+			);
+			assert.ok(consumed.ok);
+			assert.strictEqual(consumed.issues[0]?.rows[0]?.hint, undefined, "consumed keys never hint as unknown");
+			// Prototype-named open fields ride the same path without touching
+			// Object.prototype ("toString" is a legal /model/info key).
+			const proto = parseCapabilityGroups(
+				[{ prefix: "gpt-4", params: [{ key: "toString", valueText: "1" }] }],
+				new Set(["toString"])
+			);
+			assert.ok(proto.ok);
+			assert.strictEqual(proto.issues[0]?.rows[0]?.hint, undefined, "an observed prototype-named key is real");
+		});
+
+		test("consumed fields are advisory-typed: valid values pass, invalid ones hint without blocking", () => {
+			const parse = parseCapabilityGroups([
+				{
+					prefix: "gpt-4",
+					params: [
+						{ key: "input_cost_per_token", valueText: "0" },
+						{ key: "output_cost_per_token", valueText: "0.000002" },
+						{ key: "cache_read_input_token_cost", valueText: "-1" },
+						{ key: "supports_prompt_caching", valueText: "1" },
+						{ key: "supported_openai_params", valueText: '["temperature", "top_p"]' },
+						{ key: "long_context_input_cost_per_token", valueText: '"free"' },
+					],
+				},
+			]);
+			assert.ok(parse.ok, "invalid consumed values never block");
+			const rows = parse.issues[0]?.rows ?? [];
+			assert.strictEqual(rows[0]?.hint, undefined, "a zero cost is how free is written");
+			assert.strictEqual(rows[1]?.hint, undefined, "decimal costs are valid");
+			assert.ok(rows[2]?.hint?.includes("ignored"), "a negative cost hints");
+			assert.ok(rows[3]?.hint?.includes("ignored"), "a non-boolean flag hints");
+			assert.strictEqual(rows[4]?.hint, undefined, "a list of non-empty strings is valid");
+			assert.ok(rows[5]?.hint?.includes("ignored"), "a string cost hints");
+			// The values are kept verbatim either way: the setting is lenient and
+			// the resolver diagnoses at resolution, exactly like unknown keys.
+			assert.deepStrictEqual(parse.value["gpt-4"], {
+				input_cost_per_token: 0,
+				output_cost_per_token: 0.000002,
+				cache_read_input_token_cost: -1,
+				supports_prompt_caching: 1,
+				supported_openai_params: ["temperature", "top_p"],
+				long_context_input_cost_per_token: "free",
+			});
+		});
+
+		test("string-array consumed fields: [] is valid, empty strings and non-strings hint", () => {
+			const parse = parseCapabilityGroups([
+				{
+					prefix: "a",
+					params: [{ key: "supported_openai_params", valueText: "[]" }],
+				},
+				{
+					prefix: "b",
+					params: [{ key: "supported_openai_params", valueText: '[""]' }],
+				},
+				{
+					prefix: "c",
+					params: [{ key: "supported_openai_params", valueText: "[1]" }],
+				},
+			]);
+			assert.ok(parse.ok);
+			assert.strictEqual(parse.issues[0]?.rows[0]?.hint, undefined, "the empty array is valid");
+			assert.notStrictEqual(parse.issues[1]?.rows[0]?.hint, undefined, "an empty string entry hints");
+			assert.notStrictEqual(parse.issues[2]?.rows[0]?.hint, undefined, "a non-string entry hints");
 		});
 
 		test("empty, reserved, and duplicate keys are flagged like the parameter editor flags them", () => {
@@ -283,6 +373,41 @@ suite("extension/dashboard/recordDraft", () => {
 				unknown.issues[0]?.rows[1]?.hint?.includes("max_output_tokens"),
 				"a listed field the prefix does not set is named in the hint"
 			);
+			// The vocabulary is open: any set field is _fallback-eligible, so a
+			// list naming an open field's own row hints nothing.
+			const openField = parseCapabilityGroups([
+				{
+					prefix: "gpt-4",
+					params: [
+						{ key: "supports_web_search", valueText: "true" },
+						{ key: "_fallback", valueText: '["supports_web_search"]' },
+					],
+				},
+			]);
+			assert.ok(openField.ok);
+			assert.strictEqual(openField.issues[0]?.rows[1]?.hint, undefined, "open fields are fallback-eligible");
+		});
+
+		test("directive eligibility is key-shaped: an invalid consumed VALUE does not strand its row's marks", () => {
+			// Deliberate divergence from the resolver, pinned here: the resolver
+			// drops an invalid-valued consumed field from its kept set, so a
+			// `_fallback` naming it is an invalid-directive diagnostic until the
+			// value is fixed. The editor keeps eligibility key-shaped anyway -
+			// the value row already hints, and value-aware eligibility would make
+			// the checkboxes and directive-row absorption churn per keystroke.
+			const parse = parseCapabilityGroups([
+				{
+					prefix: "gpt-4",
+					params: [
+						{ key: "input_cost_per_token", valueText: '"free"' },
+						{ key: "_fallback", valueText: '["input_cost_per_token"]' },
+					],
+				},
+			]);
+			assert.ok(parse.ok);
+			assert.notStrictEqual(parse.issues[0]?.rows[0]?.hint, undefined, "the invalid value carries its own hint");
+			assert.strictEqual(parse.issues[0]?.rows[1]?.hint, undefined, "the _fallback row does not double-flag it");
+			assert.ok(directiveEligible("_fallback", "input_cost_per_token"), "eligibility never reads the value");
 		});
 	});
 
@@ -298,10 +423,14 @@ suite("extension/dashboard/recordDraft", () => {
 	});
 
 	suite("directive checkboxes (_fallback / _force)", () => {
-		test("eligibility: _fallback marks known capability fields, _force refuses owned and underscore keys", () => {
+		test("eligibility: _fallback marks any set field (open vocabulary), _force refuses owned and underscore keys", () => {
 			assert.ok(directiveEligible("_fallback", "context_length"));
-			assert.ok(!directiveEligible("_fallback", "supports_pdf_input"), "unknown fields carry no checkbox");
+			// The vocabulary is open and the resolver's _fallback accepts any set
+			// field, consumed or unknown alike.
+			assert.ok(directiveEligible("_fallback", "supports_pdf_input"), "consumed fields carry the checkbox");
+			assert.ok(directiveEligible("_fallback", "supports_web_search"), "open fields carry the checkbox");
 			assert.ok(!directiveEligible("_fallback", "_openrouter_model"), "directives carry no checkbox");
+			assert.ok(!directiveEligible("_fallback", ""), "an unnamed row carries no checkbox");
 			assert.ok(directiveEligible("_force", "temperature"));
 			assert.ok(!directiveEligible("_force", "model"), "provider-owned keys are unforceable");
 			// max_tokens is the one provider-owned key _force may mark (the

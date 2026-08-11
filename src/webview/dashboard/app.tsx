@@ -588,6 +588,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					ack={ack}
 					failures={failures}
 					catalogResults={catalogResults}
+					observedModelInfoKeys={state.observedModelInfoKeys}
 					now={now}
 					editRecordRequest={editRecordRequest}
 				/>

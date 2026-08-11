@@ -247,6 +247,25 @@ type FormTarget =
 type ServerFormTarget = Extract<FormTarget, { kind: "add" | "edit" }>;
 
 /**
+ * The edit form's live hint evidence: the CURRENT server row's observed
+ * /model/info key set, looked up by the edited entry's label on every render
+ * rather than read from the form's frozen open-time snapshot - a discovery
+ * pass finishing while the form is open must update the capability rows'
+ * unknown-key hints the same way it updates the host-side filter. An add
+ * target has no server and so no evidence.
+ */
+function observedKeysForForm(
+	servers: readonly DashboardServer[],
+	target: ServerFormTarget
+): readonly string[] | undefined {
+	if (target.kind !== "edit") {
+		return undefined;
+	}
+	const row = servers.find((server) => server.origin === "declared" && server.label === target.original.label);
+	return row?.observedModelInfoKeys;
+}
+
+/**
  * The inspectors' jump into a declared entry's edit form (the surface owning
  * per-entry records). Minted by App; the seq keys re-delivery so repeating
  * the same jump re-opens.
@@ -744,6 +763,7 @@ function ServerForm({
 	inlineSecrets,
 	catalogResults,
 	declaredLabels,
+	observedModelInfoKeys,
 	onUserEdit,
 	onClose,
 	onCancel,
@@ -755,6 +775,8 @@ function ServerForm({
 	/** The latest catalogSearchResults response, for the capability rows' `_openrouter_model` picker. */
 	catalogResults: CatalogSearchResponse | undefined;
 	declaredLabels: readonly string[];
+	/** The edited entry's LIVE observed /model/info key set (observedKeysForForm); the capability hints' evidence. */
+	observedModelInfoKeys?: readonly string[] | undefined;
 	/** Reports the first user edit; the slide-over's close-with-confirm keys on it. */
 	onUserEdit: () => void;
 	onClose: () => void;
@@ -906,10 +928,12 @@ function ServerForm({
 	const originalLabel = target.kind === "edit" ? target.original.label : undefined;
 	// One parse per keystroke: it either carries the intent Save posts or the
 	// problems the form renders, so what the fields show and what would be
-	// saved can never diverge.
+	// saved can never diverge. The observed-keys evidence is the live prop, so
+	// a discovery pass finishing under the open form refreshes the hints.
 	const parse = parseServerForm(draft, {
 		takenLabels: declaredLabels,
 		...(originalLabel !== undefined ? { originalLabel } : {}),
+		...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
 	});
 	const label = draft.label.trim();
 	const renaming = target.kind === "edit" && label !== target.original.label;
@@ -2140,6 +2164,7 @@ export function ServersSection({
 							inlineSecrets={inlineSecrets}
 							catalogResults={catalogResults}
 							declaredLabels={declaredLabels}
+							observedModelInfoKeys={observedKeysForForm(servers, form.target)}
 							onUserEdit={() => setFormDirty(true)}
 							onClose={closeForm}
 							onCancel={requestCloseForm}

@@ -141,7 +141,7 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 				...makeCapabilities().fields,
 				context_length: { value: 200000, level: "global", key: "gpt*", inheritedFrom: "gpt*", shadowed: [] },
 			},
-			diagnostics: [{ kind: "unrecognized-key", key: "supports_pdf_input", layer: "global", recordKey: "gpt-4" }],
+			diagnostics: [{ kind: "unrecognized-key", key: "supports_web_search", layer: "global", recordKey: "gpt-4" }],
 		}),
 		{ declared: true }
 	);
@@ -149,7 +149,123 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 	expect(text).toContain("Declared model");
 	expect(text).toContain('"openai/nope" was not found');
 	expect(text).toContain("inherited from gpt*");
-	expect(text).toContain('"supports_pdf_input" is not a known capability field');
+	expect(text).toContain('"supports_web_search" is not a field this extension knows');
+});
+
+test("the core fields render first in their pinned order; open fields follow sorted by wire key", () => {
+	const root = answeredInPlace(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				supported_openai_params: {
+					value: ["temperature", "top_p"],
+					level: "server",
+					shadowed: [],
+				},
+				input_cost_per_token: { value: 0.0000025, level: "global", key: "gpt*", shadowed: [] },
+				supports_web_search: { value: true, level: "entry", key: "gpt-4", shadowed: [] },
+			},
+		})
+	);
+	const names = [...root.querySelectorAll("table.params tbody tr:not(.param-shadowed) td.param-name")].map(
+		(cell) => cell.textContent
+	);
+	expect(names).toEqual([
+		"Context length",
+		"Max input tokens",
+		"Max output tokens",
+		"Tool calling",
+		"Vision",
+		"Reasoning",
+		"Audio input",
+		// The open fields, code-unit sorted, labeled by their raw wire keys.
+		"input_cost_per_token",
+		"supported_openai_params",
+		"supports_web_search",
+	]);
+	const text = root.textContent ?? "";
+	// Open values render as plain numbers or compact JSON, never token-formatted.
+	expect(text).toContain("0.0000025");
+	expect(text).toContain('["temperature","top_p"]');
+	// An open boolean keeps the yes/no idiom.
+	const webSearchRow = [...root.querySelectorAll("table.params tbody tr")].find((row) =>
+		row.textContent?.includes("supports_web_search")
+	);
+	expect(webSearchRow?.textContent).toContain("yes");
+	expect(webSearchRow?.textContent).toContain("Server entry - gpt-4");
+});
+
+test("prototype-named open fields render from the bag, never from Object.prototype", () => {
+	const core = makeCapabilities().fields;
+	const fields = Object.fromEntries([
+		...Object.entries(core),
+		["__proto__", { value: 1, level: "server", shadowed: [] }],
+		["toString", { value: "shadowed-name", level: "global", key: "*", shadowed: [] }],
+	]) as EffectiveCapabilities["fields"];
+	const root = answeredInPlace(makeCapabilities({ fields }));
+	const names = [...root.querySelectorAll("table.params tbody tr td.param-name")].map((cell) => cell.textContent);
+	expect(names).toContain("__proto__");
+	expect(names).toContain("toString");
+	const text = root.textContent ?? "";
+	expect(text).toContain('"shadowed-name"');
+	expect(({} as Record<string, unknown>).toString).toBe(Object.prototype.toString);
+});
+
+test("a value long enough to clip gets the focusable full-text tip; short values stay plain", () => {
+	const long = ["temperature", "top_p", "max_tokens", "stream", "stop", "tools", "tool_choice"];
+	const root = answeredInPlace(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				supported_openai_params: { value: long, level: "server", shadowed: [] },
+			},
+		})
+	);
+	const tipWrap = root.querySelector(".param-value .tip-wrap");
+	expect(tipWrap).not.toBeNull();
+	expect(tipWrap?.getAttribute("tabindex")).toBe("0");
+	expect(tipWrap?.querySelector('[role="tooltip"]')?.textContent).toBe(JSON.stringify(long));
+	// The short core values stay plain text outside the Tab order.
+	expect(root.querySelectorAll(".param-value .tip-wrap").length).toBe(1);
+});
+
+test("the clip tip's threshold sits exactly at the 36ch box, counting wide glyphs double", () => {
+	const tipCount = (value: string): number => {
+		const root = answeredInPlace(
+			makeCapabilities({
+				fields: { ...makeCapabilities().fields, note: { value, level: "server", shadowed: [] } },
+			})
+		);
+		const count = root.querySelectorAll(".param-value .tip-wrap").length;
+		cleanup();
+		resetPosted();
+		return count;
+	};
+	// JSON.stringify adds the two quotes: 34 chars render as exactly 36.
+	expect(tipCount("x".repeat(34))).toBe(0);
+	expect(tipCount("x".repeat(35))).toBe(1);
+	// 18 CJK glyphs plus the quotes approximate 38ch: clipped well before the
+	// code-unit length reaches 36, so the tip must already be there.
+	expect(tipCount("字".repeat(18))).toBe(1);
+});
+
+test("an unrecognized-key diagnostic renders as an informational note, apart from real problems", () => {
+	const root = answeredInPlace(
+		makeCapabilities({
+			diagnostics: [
+				{ kind: "unrecognized-key", key: "supports_web_search", layer: "global", recordKey: "gpt-4" },
+				{ kind: "invalid-value", key: "context_length", layer: "entry", recordKey: "gpt-4" },
+			],
+		})
+	);
+	const advisories = root.querySelector(".params-advisories");
+	expect(advisories).not.toBeNull();
+	expect(advisories?.textContent).toContain("applied as an override as-is");
+	expect(advisories?.querySelector("li")?.className).toBe("hint");
+	// The real problem stays under the problems heading, not among the notes.
+	const text = root.textContent ?? "";
+	expect(text).toContain("Configuration problems in the matched records:");
+	expect(advisories?.textContent).not.toContain("invalid value");
 });
 
 test("the declared badge follows the model's verdict: a discovered model shows no badge", () => {

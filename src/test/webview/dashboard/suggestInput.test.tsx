@@ -74,7 +74,7 @@ function optionTexts(input: HTMLInputElement): string[] {
 	return Array.from(listboxOf(input)?.querySelectorAll("[role='option']") ?? []).map((o) => o.textContent ?? "");
 }
 
-test("the capability key input filters its closed vocabulary case-insensitively as the user types", () => {
+test("the capability key input filters its suggested vocabulary case-insensitively as the user types", () => {
 	const section = mountEditor("Model capabilities", "Add capability matcher");
 	const keyInput = section().querySelector("input.key[placeholder^='Capability']") as HTMLInputElement;
 	expect(keyInput.getAttribute("role")).toBe("combobox");
@@ -84,7 +84,15 @@ test("the capability key input filters its closed vocabulary case-insensitively 
 	expect(keyInput.getAttribute("aria-expanded")).toBe("true");
 	const names = optionTexts(keyInput);
 	expect(names.length).toBeGreaterThan(0);
-	expect(names.every((name) => name.includes("supports_"))).toBe(true);
+	expect(names.every((name) => name.toLowerCase().includes("sup"))).toBe(true);
+	// The suggestions span the consumed vocabulary: core flags and the
+	// advisory-typed keys (caching flags, supported_openai_params) alike.
+	expect(names).toContain("supports_vision");
+	expect(names).toContain("supports_prompt_caching");
+	expect(names).toContain("supported_openai_params");
+	// Cost keys ride the list too.
+	fireInput(keyInput, "cost");
+	expect(optionTexts(keyInput)).toContain("input_cost_per_token");
 
 	// Substring, not prefix: "router" hits the _openrouter_model directive.
 	fireInput(keyInput, "router");

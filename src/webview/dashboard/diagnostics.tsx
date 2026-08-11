@@ -276,8 +276,11 @@ function recordDiagnosticText(where: string, diagnostic: RecordDiagnostic): stri
 				where
 			);
 		case "unrecognized-key":
+			// Informational (the host marks these advisory): the field APPLIES
+			// as-is - the open vocabulary keeps it - and the surviving hint only
+			// says the observed /model/info evidence does not name the key.
 			return l10n.t(
-				'"{0}" in record "{1}" is not a known capability field ({2})',
+				'"{0}" in record "{1}" is not a field this extension knows; it is applied as an override as-is ({2})',
 				diagnostic.key,
 				diagnostic.recordKey,
 				where
@@ -382,9 +385,13 @@ function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagno
 			<ul class="config-diagnostics">
 				{diagnostics.map((diagnostic, index) => {
 					const presentation = diagnosticPresentation(diagnostic);
+					// The host marks surviving unrecognized-key record diagnostics
+					// advisory: informational rows render muted, every other kind
+					// keeps the warning tone.
+					const advisory = diagnostic.kind === "record" && diagnostic.severity === "advisory";
 					return (
 						// Positional identity: the list rebuilds wholesale on every push.
-						<li key={index} class="state-warn">
+						<li key={index} class={advisory ? "hint" : "state-warn"}>
 							{presentation.text}
 							{presentation.docs !== undefined ? (
 								<>

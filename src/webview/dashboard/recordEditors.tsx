@@ -9,7 +9,7 @@ import type {
 	TransportErrorClassification,
 } from "../../extension/dashboard/protocol";
 import {
-	CAPABILITY_FIELDS,
+	CONSUMED_CAPABILITY_FIELDS,
 	FALLBACK_DIRECTIVE,
 	FORCE_DIRECTIVE,
 	INHERIT_FROM_DIRECTIVE,
@@ -812,9 +812,14 @@ function ParamGroupsFields({
 /** The latest catalogSearchResults response; pickers match it against their own request ID. */
 export type CatalogSearchResponse = Extract<ExtensionToWebviewMessage, { type: "catalogSearchResults" }>;
 
-/** The key suggestions the capability rows offer: the closed vocabulary plus the directives. */
+/**
+ * The key suggestions the capability rows offer: the consumed vocabulary (the
+ * registration-typed core first, then the advisory-typed cost/caching/params
+ * keys), with the directives at the end. Suggestions only - the vocabulary is
+ * open, and any other key applies as-is.
+ */
 const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = [
-	...Object.keys(CAPABILITY_FIELDS),
+	...Object.keys(CONSUMED_CAPABILITY_FIELDS),
 	FALLBACK_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 ];
@@ -1002,15 +1007,59 @@ function SuggestInput({
 	);
 }
 
-/** What input a capability row's value takes, keyed off the closed vocabulary and the directives. */
-function capabilityValueKind(key: string): "number" | "boolean" | "catalog-id" | "json" {
+/**
+ * What input a capability row's value takes, keyed off the consumed
+ * vocabulary and the directives: token counts get number inputs, costs get
+ * decimal number inputs (0 is "free"), support flags get checkboxes, and
+ * everything else - string-array consumed fields included - falls back to
+ * JSON text (the vocabulary is open, so unknown keys stay free-form).
+ */
+function capabilityValueKind(key: string): "number" | "boolean" | "cost" | "catalog-id" | "json" {
 	if (key === OPENROUTER_MODEL_DIRECTIVE) {
 		return "catalog-id";
 	}
-	if (Object.hasOwn(CAPABILITY_FIELDS, key)) {
-		return CAPABILITY_FIELDS[key as keyof typeof CAPABILITY_FIELDS];
+	const kind = Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key) ? CONSUMED_CAPABILITY_FIELDS[key] : undefined;
+	return kind === undefined || kind === "string-array" ? "json" : kind;
+}
+
+/** The number-family value inputs' shared attributes; costs allow 0 and decimals, token counts do not. */
+function numberInputProps(kind: "number" | "cost"): { min: number; step: number | "any"; placeholder: string } {
+	return kind === "cost"
+		? { min: 0, step: "any", placeholder: l10n.t("USD per token, e.g. 0.000002") }
+		: { min: 1, step: 1, placeholder: l10n.t("Tokens, e.g. 128000") };
+}
+
+/**
+ * What an HTML number input can DISPLAY, the spec's "valid floating-point
+ * number" grammar: an optional minus, digits with an optional dot-and-digits
+ * fraction (or a bare .5 fraction), an optional exponent. Anything else -
+ * hex, whitespace, a trailing dot - is sanitized to a blank control, so it
+ * must keep the raw text input instead. Tested against the UNTRIMMED text:
+ * the control renders the text exactly as it is.
+ */
+const NUMBER_INPUT_TEXT = /^-?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/;
+
+/**
+ * The control a capability row actually renders: the key's typed control only
+ * while the current text fits it, raw JSON text otherwise. Invalid values are
+ * deliberately preserved (the parse hints, the resolver diagnoses at
+ * resolution), and a typed control would misrepresent them - a number input
+ * displays a stored `"free"` as blank, a checkbox reads a stored `1` as
+ * unchecked - so the row falls back to the free-form input that shows the
+ * text as it is.
+ */
+function capabilityControlKind(key: string, valueText: string): ReturnType<typeof capabilityValueKind> {
+	const kind = capabilityValueKind(key);
+	if (kind === "boolean") {
+		// The checkbox reads trimmed text ("true " still shows checked), so
+		// fitting is judged trimmed too.
+		const trimmed = valueText.trim();
+		return trimmed === "" || trimmed === "true" || trimmed === "false" ? kind : "json";
 	}
-	return "json";
+	if (kind === "number" || kind === "cost") {
+		return valueText === "" || NUMBER_INPUT_TEXT.test(valueText) ? kind : "json";
+	}
+	return kind;
 }
 
 /** How long a picker waits after the last keystroke before searching the catalog. */
@@ -1197,10 +1246,14 @@ function CapabilityGroupsFields({
 				// rows the checkboxes rewrite.
 				const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
 				// The control-backed directive rows the grid absorbs, the parameters
-				// editor's rule with this editor's own flag set. The hint clause is
-				// load-bearing here: an `_inheritable` list may name a row key
-				// outside the closed capability vocabulary - eligible for a checkbox
-				// yet hinted as ignored - and only the hint keeps that row visible.
+				// editor's rule with this editor's own flag set. What keeps a
+				// directive row visible is structural - directiveRowAbsorbed's
+				// eligible-row check: a `_fallback`/`_inheritable` list entry naming
+				// no field row has no checkbox to display it, so the row stays. The
+				// hint clause is only a backstop on top (a hinted row must stay to
+				// show its hint); with the open vocabulary every hinted list entry
+				// already fails the eligible check, so no row's visibility rides on
+				// a hint that evidence could suppress.
 				const rowAbsorbed = (index: number): boolean =>
 					!focusHold.focused(groupIndex, index) &&
 					directiveRowAbsorbed(group, index, CAPABILITY_FLAG_DIRECTIVES) &&
@@ -1271,7 +1324,8 @@ function CapabilityGroupsFields({
 									}
 									const issue = issues[groupIndex]?.rows[paramIndex];
 									const key = param.key.trim();
-									const kind = capabilityValueKind(key);
+									const kind = capabilityControlKind(key, param.valueText);
+									const numberProps = kind === "number" || kind === "cost" ? numberInputProps(kind) : undefined;
 									const removeLabel = key.length > 0 ? l10n.t('Remove "{0}"', key) : l10n.t("Remove");
 									const patchRow = (patch: Partial<{ key: string; valueText: string }>) =>
 										patchGroup(groupIndex, {
@@ -1322,12 +1376,13 @@ function CapabilityGroupsFields({
 											) : (
 												<span class="cell value">
 													<input
-														type={kind === "number" ? "number" : "text"}
-														min={kind === "number" ? 1 : undefined}
+														type={numberProps !== undefined ? "number" : "text"}
+														min={numberProps?.min}
+														step={numberProps?.step}
 														class={`value${issue?.problem?.field === "value" ? " invalid" : ""}`}
 														aria-invalid={issue?.problem?.field === "value"}
 														aria-label={l10n.t("Value")}
-														placeholder={kind === "number" ? l10n.t("Tokens, e.g. 128000") : l10n.t("JSON value")}
+														placeholder={numberProps?.placeholder ?? l10n.t("JSON value")}
 														value={param.valueText}
 														disabled={inert}
 														onInput={(event) => patchRow({ valueText: event.currentTarget.value })}
@@ -1337,36 +1392,33 @@ function CapabilityGroupsFields({
 											)}
 											{/* The per-row fallback/inheritable marks in the shared fixed
 										    flag column, before the row action like the parameter
-										    editor's force mark; only the closed vocabulary's fields
-										    carry a fallback box (directives and unknown keys have no
-										    server value to fall under). */}
-											{Object.hasOwn(CAPABILITY_FIELDS, key) || (key.length > 0 && !key.startsWith("_")) ? (
+										    editor's force mark. The vocabulary is open, so every
+										    non-directive field carries the fallback box - the
+										    resolver's `_fallback` accepts any field the record sets,
+										    known or not. */}
+											{directiveEligible(FALLBACK_DIRECTIVE, key) ? (
 												<span class="cell directive-flag">
-													{Object.hasOwn(CAPABILITY_FIELDS, key) ? (
-														<>
-															<label>
-																<input
-																	type="checkbox"
-																	aria-label={l10n.t('Fall back for "{0}"', key)}
-																	checked={fallbackFields.has(key)}
-																	disabled={inert}
-																	onChange={(event) =>
-																		patchGroup(
-																			groupIndex,
-																			toggleDirectiveField(group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
-																		)
-																	}
-																/>
-																{l10n.t({
-																	message: "fallback",
-																	comment: [
-																		"Checkbox label on a capability row; applies the value only where the server reports none.",
-																	],
-																})}
-															</label>
-															<Help text={helpFallbackFlag()} />
-														</>
-													) : null}
+													<label>
+														<input
+															type="checkbox"
+															aria-label={l10n.t('Fall back for "{0}"', key)}
+															checked={fallbackFields.has(key)}
+															disabled={inert}
+															onChange={(event) =>
+																patchGroup(
+																	groupIndex,
+																	toggleDirectiveField(group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
+																)
+															}
+														/>
+														{l10n.t({
+															message: "fallback",
+															comment: [
+																"Checkbox label on a capability row; applies the value only where the server reports none.",
+															],
+														})}
+													</label>
+													<Help text={helpFallbackFlag()} />
 													<InheritableFlag
 														group={group}
 														groupIndex={groupIndex}
@@ -1768,7 +1820,8 @@ function FieldChipPopover({
 		);
 		onClose();
 	};
-	const valueKind = kind === "caps" ? capabilityValueKind(key) : "json";
+	const valueKind = kind === "caps" ? capabilityControlKind(key, row.valueText) : "json";
+	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
 	const valueInvalid = issue?.problem?.field === "value";
 	// Enter closes the popover once the value is typed - the draft already
 	// holds every keystroke, so there is nothing else to commit here.
@@ -1802,12 +1855,13 @@ function FieldChipPopover({
 				/>
 			) : (
 				<input
-					type={valueKind === "number" ? "number" : "text"}
-					min={valueKind === "number" ? 1 : undefined}
+					type={numberProps !== undefined ? "number" : "text"}
+					min={numberProps?.min}
+					step={numberProps?.step}
 					class={valueInvalid ? "value invalid" : "value"}
 					aria-invalid={valueInvalid}
 					aria-label={l10n.t('Value for "{0}"', key)}
-					placeholder={valueKind === "number" ? l10n.t("Tokens, e.g. 128000") : l10n.t("JSON value, e.g. 0.2")}
+					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
 					value={row.valueText}
 					disabled={disabled}
 					onInput={(event) => patchValue(event.currentTarget.value)}
@@ -1839,7 +1893,9 @@ function FieldChipPopover({
 							<Help text={directiveEligible(FORCE_DIRECTIVE, key) ? helpForceFlag() : helpForceFlagDisabled()} />
 						</>
 					) : null}
-					{kind === "caps" && Object.hasOwn(CAPABILITY_FIELDS, key) ? (
+					{/* Any non-directive key takes the fallback mark: the vocabulary is
+					    open and the resolver's `_fallback` accepts any set field. */}
+					{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, key) ? (
 						<>
 							<label>
 								<input
@@ -1924,7 +1980,8 @@ function AddFieldPopover({
 	const trimmed = key.trim();
 	const problem = trimmed.length === 0 ? undefined : candidateProblem(kind, groups, groupIndex, { key, valueText });
 	const canAdd = trimmed.length > 0 && problem === undefined;
-	const valueKind = kind === "caps" ? capabilityValueKind(trimmed) : "json";
+	const valueKind = kind === "caps" ? capabilityControlKind(trimmed, valueText) : "json";
+	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
 	const setKeyAndSeed = (nextKey: string) => {
 		setKey(nextKey);
 		// A key switched onto a support flag means "turn it on" (the row grid's
@@ -1999,11 +2056,12 @@ function AddFieldPopover({
 				/>
 			) : (
 				<input
-					type={valueKind === "number" ? "number" : "text"}
-					min={valueKind === "number" ? 1 : undefined}
+					type={numberProps !== undefined ? "number" : "text"}
+					min={numberProps?.min}
+					step={numberProps?.step}
 					class="value"
 					aria-label={l10n.t("New field value")}
-					placeholder={valueKind === "number" ? l10n.t("Tokens, e.g. 128000") : l10n.t("JSON value, e.g. 0.2")}
+					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
 					value={valueText}
 					disabled={disabled}
 					onInput={(event) => setValueText(event.currentTarget.value)}
@@ -2031,7 +2089,8 @@ function AddFieldPopover({
 							<Help text={directiveEligible(FORCE_DIRECTIVE, trimmed) ? helpForceFlag() : helpForceFlagDisabled()} />
 						</>
 					) : null}
-					{kind === "caps" && Object.hasOwn(CAPABILITY_FIELDS, trimmed) ? (
+					{/* Same open-vocabulary rule as the edit popover's fallback mark. */}
+					{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, trimmed) ? (
 						<>
 							<label>
 								<input
@@ -2820,6 +2879,7 @@ export function ModelCapabilitiesEditor({
 	ack,
 	failure,
 	catalogResults,
+	observedKeys,
 	hidden,
 	external,
 }: {
@@ -2831,6 +2891,14 @@ export function ModelCapabilitiesEditor({
 	failure: IntentFailure | undefined;
 	/** The latest catalogSearchResults response, for the `_openrouter_model` picker. */
 	catalogResults: CatalogSearchResponse | undefined;
+	/**
+	 * The cross-server union of observed /model/info keys
+	 * (DashboardState.observedModelInfoKeys), the unknown-key hints' evidence:
+	 * the global records scope over every server, so the union is the right
+	 * set. Absent or empty means no evidence and every such hint stays
+	 * suppressed (the host's advisory filter, run live as the user types).
+	 */
+	observedKeys?: readonly string[] | undefined;
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
 	hidden?: boolean;
 	/** The inspectors' configure-jump; see ExternalRecordEdit. */
@@ -2838,9 +2906,10 @@ export function ModelCapabilitiesEditor({
 }) {
 	const draft = useDraftRows(toCapabilityGroups(scoped.value), ack, failure);
 	const groups = draft.rows;
+	const recognizedKeys = observedKeys === undefined ? undefined : new Set(observedKeys);
 	// One parse per keystroke, like the parameters editor: the row issues, the
 	// Apply gate, and the assembled record are the same verdict.
-	const parse = parseCapabilityGroups(groups);
+	const parse = parseCapabilityGroups(groups, recognizedKeys);
 	const issues = parse.issues;
 	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
 	const jsonParse = json === undefined ? undefined : capabilityGroupsFromJsonText(json.text);
@@ -3008,9 +3077,10 @@ export function ModelCapabilitiesEditor({
 				<ApplyStatus phase={draft.phase} />
 			</div>
 			{scoped.otherScopes.map((other) => {
-				// The same-parse rule as the parameters editor's static tables.
+				// The same-parse rule as the parameters editor's static tables,
+				// with the same evidence: other scopes still hold global records.
 				const otherGroups = toCapabilityGroups(other.value);
-				const otherParse = parseCapabilityGroups(otherGroups);
+				const otherParse = parseCapabilityGroups(otherGroups, recognizedKeys);
 				return (
 					<div class="other-scope" key={other.scope}>
 						<OtherScopeNote scope={other.scope} />

@@ -726,9 +726,20 @@ const STYLES = `
 	   every quiet action). */
 	.params-inspector .params-configure { margin: 4px 0 8px; }
 	.params-inspector .row-edit { margin-left: 6px; padding: 0 2px; }
-	/* Capability values are short (a token count, yes/no); wrapping "128,000"
-	   mid-number reads as two values, so the value cell never wraps there. */
-	.caps-inspector .param-value { white-space: nowrap; }
+	/* Capability values never wrap: "128,000" split mid-number reads as two
+	   values. Open fields carry arbitrary JSON (a supported_openai_params
+	   list, say), so long values truncate with a CSS ellipsis instead of
+	   blowing the table wide - the .caps-text idiom: the clip sits on an
+	   inner span, and the focusable tip beside it carries the full text. */
+	.caps-inspector .param-value { white-space: nowrap; max-width: 36ch; overflow: hidden; text-overflow: ellipsis; }
+	.caps-inspector .param-value .tip-wrap { max-width: 100%; }
+	.caps-inspector .param-value .param-value-clip {
+		display: inline-block;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		vertical-align: bottom;
+	}
 	.params-inspector .param-shadowed td {
 		color: var(--vscode-descriptionForeground);
 		font-size: 0.9em;
@@ -743,9 +754,13 @@ const STYLES = `
 	.params-inspector .param-shadowed:not(:has(+ .param-shadowed)) td {
 		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 	}
-	/* Capability names are localized human labels, not settings keys; only the
-	   params twin's real keys keep the monospace register. */
-	.caps-inspector .param-name { font-family: var(--vscode-font-family); }
+	/* Core capability names are localized human labels wrapping at their own
+	   spaces; open rows render their raw wire keys in <code> (they ARE
+	   settings keys, so they keep the monospace register), breaking only at
+	   the <wbr> the renderer places after underscores - overflow-wrap:
+	   anywhere would shatter them into arbitrary fragments. */
+	.caps-inspector .param-name { font-family: var(--vscode-font-family); overflow-wrap: normal; }
+	.caps-inspector .param-name code { font-family: var(--vscode-editor-font-family, monospace); }
 	.params-inspector .params-replaced ul {
 		list-style: none;
 		margin: 4px 0 8px;
@@ -1223,6 +1238,9 @@ const STYLES = `
 	.failure-detail { display: block; white-space: pre-line; opacity: 0.85; font-size: 0.9em; margin-top: 2px; }
 	.config-diagnostics { margin: 8px 0 16px; padding-left: 18px; }
 	.config-diagnostics li { margin: 4px 0; }
+	/* Advisory rows (informational, the applied-as-is capability notes) render
+	   muted where real problems keep the warning tone. */
+	.config-diagnostics li.hint { color: var(--vscode-descriptionForeground); }
 	.record-tree { margin: 8px 0; }
 	.record-tree > summary { cursor: pointer; font-weight: 600; }
 	.record-tree ul { list-style: none; margin: 2px 0 2px 4px; padding-left: 16px; border-left: 1px solid var(--vscode-editorWidget-border, #444); }

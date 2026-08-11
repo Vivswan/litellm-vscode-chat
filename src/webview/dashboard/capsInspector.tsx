@@ -11,10 +11,11 @@
  */
 
 import * as l10n from "@vscode/l10n";
+import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type {
 	CapabilityDiagnostic,
-	CapabilityFieldName,
+	CapabilityJsonValue,
 	CapabilityLevel,
 	DashboardModel,
 	EffectiveCapabilities,
@@ -22,9 +23,9 @@ import type {
 	ExtensionToWebviewMessage,
 	ShadowedCapabilityValue,
 } from "../../extension/dashboard/protocol";
-import { CAPABILITY_FIELDS, FALLBACK_DIRECTIVE } from "../../extension/dashboard/protocol";
+import { capabilityField, FALLBACK_DIRECTIVE } from "../../extension/dashboard/protocol";
 import { DOCS_LINK_CAPS_INSPECTOR } from "./docsLinks";
-import { DocsLink, Help } from "./help";
+import { DocsLink, Help, HoverTip } from "./help";
 import { helpCapsInspector } from "./helpText";
 import { formatTokens } from "./models";
 import { RecordChainFigure } from "./recordChain";
@@ -34,8 +35,12 @@ import { newRequestId, postMessage } from "./vscodeApi";
 /** The latest modelCapabilities response; the inspector matches it against its own request ID. */
 export type ModelCapabilitiesResponse = Extract<ExtensionToWebviewMessage, { type: "modelCapabilities" }>;
 
-/** The capability fields in display order: the token trio, then the support flags. */
-const FIELD_ORDER: readonly CapabilityFieldName[] = [
+/**
+ * The core fields in display order: the token trio, then the support flags.
+ * Every other field the resolution carries (the vocabulary is open) renders
+ * after these, sorted by key.
+ */
+const FIELD_ORDER: readonly string[] = [
 	"context_length",
 	"max_input_tokens",
 	"max_output_tokens",
@@ -45,8 +50,83 @@ const FIELD_ORDER: readonly CapabilityFieldName[] = [
 	"supports_audio_input",
 ];
 
-/** A capability field's display name, resolved at call time (no module-level localized constants). */
-function fieldLabel(name: CapabilityFieldName): string {
+/** The number fields that render as token counts; other numbers (costs, say) render plain. */
+const TOKEN_FIELDS: ReadonlySet<string> = new Set(["context_length", "max_input_tokens", "max_output_tokens"]);
+
+/**
+ * Where the stylesheet's ellipsis can start clipping a value cell (the
+ * .caps-inspector .param-value 36ch max-width). Values that may clip get the
+ * focusable HoverTip so keyboards and assistive tech reach the full text -
+ * native title tooltips do not reliably render in the webview host (see
+ * help.tsx); short values stay plain text outside the Tab order.
+ */
+const VALUE_CLIP_CH = 36;
+
+/**
+ * An approximate rendered width in ch: code points beyond Latin-1 (CJK,
+ * emoji) count double, erring toward MORE tips - a wide-glyph value clips
+ * well before its code-unit length reaches the ch box, and an ellipsized
+ * value without the focusable tip would be unreachable without a pointer.
+ */
+function approxWidthCh(text: string): number {
+	let width = 0;
+	for (const ch of text) {
+		width += (ch.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
+	}
+	return width;
+}
+
+/** One value cell: plain text while it surely fits, the focusable full-text tip once the ellipsis could clip it. */
+function ValueCell({ text }: { text: string }) {
+	return (
+		<td class="param-value">
+			{approxWidthCh(text) > VALUE_CLIP_CH ? (
+				<HoverTip focusable tip={text}>
+					<span class="param-value-clip">{text}</span>
+				</HoverTip>
+			) : (
+				text
+			)}
+		</td>
+	);
+}
+
+/**
+ * One name cell: the core fields' localized labels wrap at their spaces; an
+ * open field renders its raw wire key in the monospace register (it IS a
+ * settings key), breakable only at its underscores via <wbr> so the fixed
+ * slide-over never shatters it into arbitrary fragments.
+ */
+function FieldName({ name }: { name: string }) {
+	const label = fieldLabel(name);
+	if (label !== name) {
+		return <>{label}</>;
+	}
+	const parts = name.split(/(?<=_)/);
+	return (
+		<code>
+			{parts.map((part, index) =>
+				index === 0 ? (
+					part
+				) : (
+					// Underscore positions are stable within one render; the index is the identity.
+					// biome-ignore lint/suspicious/noArrayIndexKey: static text segments, never reordered
+					<Fragment key={index}>
+						<wbr />
+						{part}
+					</Fragment>
+				)
+			)}
+		</code>
+	);
+}
+
+/**
+ * A capability field's display name, resolved at call time (no module-level
+ * localized constants). Only the core fields have human labels; every other
+ * key is an open wire name and renders as-is, never localized.
+ */
+function fieldLabel(name: string): string {
 	switch (name) {
 		case "context_length":
 			return l10n.t("Context length");
@@ -62,14 +142,25 @@ function fieldLabel(name: CapabilityFieldName): string {
 			return l10n.t("Reasoning");
 		case "supports_audio_input":
 			return l10n.t("Audio input");
+		default:
+			return name;
 	}
 }
 
-function formatValue(name: CapabilityFieldName, value: number | boolean): string {
+/**
+ * One capability value as the table shows it: booleans as yes/no, the token
+ * trio as token counts, other numbers plain, and everything else (strings,
+ * arrays, objects - open fields carry any JSON) as compact JSON, truncated
+ * by the stylesheet rather than chopped here.
+ */
+function formatValue(name: string, value: CapabilityJsonValue): string {
 	if (typeof value === "boolean") {
 		return value ? l10n.t("yes") : l10n.t("no");
 	}
-	return CAPABILITY_FIELDS[name] === "number" ? formatTokens(value) : String(value);
+	if (typeof value === "number") {
+		return TOKEN_FIELDS.has(name) ? formatTokens(value) : String(value);
+	}
+	return JSON.stringify(value) ?? "";
 }
 
 /** The Source column's naming: the precedence level that set the value plus its winning key. */
@@ -96,12 +187,11 @@ function levelName(level: CapabilityLevel, key: string | undefined): string {
 	}
 }
 
-function ShadowedLine({ name, shadow }: { name: CapabilityFieldName; shadow: ShadowedCapabilityValue }) {
+function ShadowedLine({ name, shadow }: { name: string; shadow: ShadowedCapabilityValue }) {
 	return (
 		<tr class="param-shadowed">
 			<td />
-			{/* Only core fields render here (FieldRow's callers), and every level feeding a core field is kind-validated. */}
-			<td class="param-value">{formatValue(name, shadow.value as number | boolean)}</td>
+			<ValueCell text={formatValue(name, shadow.value)} />
 			<td>{l10n.t("overridden: {0}", levelName(shadow.level, shadow.key))}</td>
 		</tr>
 	);
@@ -112,8 +202,8 @@ function FieldRow({
 	field,
 	onEditField,
 }: {
-	name: CapabilityFieldName;
-	field: EffectiveCapabilityField<number | boolean>;
+	name: string;
+	field: EffectiveCapabilityField;
 	/** The per-row jump to the record that owns the value; renders only on record-sourced rows. */
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
@@ -127,8 +217,10 @@ function FieldRow({
 	return (
 		<>
 			<tr>
-				<td class="param-name">{fieldLabel(name)}</td>
-				<td class="param-value">{formatValue(name, field.value)}</td>
+				<td class="param-name">
+					<FieldName name={name} />
+				</td>
+				<ValueCell text={formatValue(name, field.value)} />
 				<td>
 					{levelName(field.level, field.key)}
 					{editable ? (
@@ -161,7 +253,15 @@ function diagnosticText(diagnostic: CapabilityDiagnostic): string {
 			: l10n.t("settings key {0}", diagnostic.recordKey);
 	switch (diagnostic.kind) {
 		case "unrecognized-key":
-			return l10n.t('"{0}" is not a known capability field ({1})', diagnostic.key, where);
+			// Informational, not a problem: the field APPLIES as-is (open
+			// vocabulary); the extension-side advisory filter already dropped
+			// hints with no evidence behind them, so a surviving one only says
+			// the key may be a typo.
+			return l10n.t(
+				'"{0}" is not a field this extension knows; it is applied as an override as-is ({1})',
+				diagnostic.key,
+				where
+			);
 		case "invalid-value":
 			return l10n.t('"{0}" has an invalid value and is ignored ({1})', diagnostic.key, where);
 		case "invalid-matcher":
@@ -218,6 +318,16 @@ function CapsBody({
 	declared: boolean;
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
+	// The open fields beyond the core, sorted by wire key (code-unit order -
+	// these are wire identifiers, and locale collation would reorder them per
+	// display language). Object.keys reads own properties only, and the
+	// per-name reads go through capabilityField: a field named "toString" must
+	// read from the bag, never from Object.prototype.
+	const extraNames = Object.keys(capabilities.fields)
+		.filter((name) => !FIELD_ORDER.includes(name))
+		.sort();
+	const advisories = capabilities.diagnostics.filter((diagnostic) => diagnostic.kind === "unrecognized-key");
+	const problems = capabilities.diagnostics.filter((diagnostic) => diagnostic.kind !== "unrecognized-key");
 	return (
 		<>
 			{declared ? (
@@ -242,20 +352,41 @@ function CapsBody({
 					</tr>
 				</thead>
 				<tbody>
-					{FIELD_ORDER.map((name) => (
-						<FieldRow key={name} name={name} field={capabilities.fields[name]} onEditField={onEditField} />
-					))}
+					{FIELD_ORDER.map((name) => {
+						const field = capabilityField(capabilities.fields, name);
+						return field === undefined ? null : (
+							<FieldRow key={name} name={name} field={field} onEditField={onEditField} />
+						);
+					})}
+					{extraNames.map((name) => {
+						const field = capabilityField(capabilities.fields, name);
+						return field === undefined ? null : (
+							<FieldRow key={name} name={name} field={field} onEditField={onEditField} />
+						);
+					})}
 				</tbody>
 			</table>
 			<p class="params-max-tokens">
 				<span class="hint">{outputLimitNote(capabilities)}</span>
 			</p>
-			{capabilities.diagnostics.length > 0 ? (
+			{problems.length > 0 ? (
 				<div class="params-replaced">
 					<p class="hint">{l10n.t("Configuration problems in the matched records:")}</p>
 					<ul>
-						{capabilities.diagnostics.map((diagnostic) => (
+						{problems.map((diagnostic) => (
 							<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.key}`}>
+								{diagnosticText(diagnostic)}
+							</li>
+						))}
+					</ul>
+				</div>
+			) : null}
+			{advisories.length > 0 ? (
+				<div class="params-replaced params-advisories">
+					<p class="hint">{l10n.t("Notes on the matched records:")}</p>
+					<ul>
+						{advisories.map((diagnostic) => (
+							<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.key}`} class="hint">
 								{diagnosticText(diagnostic)}
 							</li>
 						))}

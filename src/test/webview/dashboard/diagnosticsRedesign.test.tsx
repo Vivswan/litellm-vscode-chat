@@ -170,6 +170,42 @@ describe("Configuration diagnostics", () => {
 		expect(items[6]).toContain("2 groups are hidden");
 		expect(items[6]).toContain("prod-hidden, staging-hidden");
 	});
+
+	test("advisory rows render muted with the applied-as-is wording; warnings keep the warning tone", () => {
+		const diagnostics: ConfigDiagnosticView[] = [
+			{
+				kind: "record",
+				setting: "models.capabilities",
+				diagnostic: { kind: "unrecognized-key", recordKey: "gpt-4", key: "supports_web_search" },
+				severity: "advisory",
+			},
+			{
+				kind: "record",
+				setting: "models.capabilities",
+				diagnostic: { kind: "invalid-value", recordKey: "gpt-4", key: "context_length" },
+			},
+		];
+		const root = mount(
+			<DiagnosticsSection
+				servers={[]}
+				modelCount={0}
+				legacyServerCount={0}
+				diagnostics={diagnostics}
+				resolvedResponse={undefined}
+				active={false}
+				stateSeq={0}
+				onInspect={() => undefined}
+				now={NOW}
+			/>
+		);
+		const items = Array.from(root.querySelectorAll(".config-diagnostics li"));
+		expect(items).toHaveLength(2);
+		expect(items[0]?.className).toBe("hint");
+		expect(items[0]?.textContent).toContain('"supports_web_search"');
+		expect(items[0]?.textContent).toContain("applied as an override as-is");
+		expect(items[1]?.className).toBe("state-warn");
+		expect(items[1]?.textContent).toContain("invalid value");
+	});
 });
 
 describe("Resolved models", () => {

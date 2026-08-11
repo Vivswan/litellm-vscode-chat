@@ -10,9 +10,10 @@
 import * as l10n from "@vscode/l10n";
 import { compareSpecificity, parseMatcherKey } from "../../shared/config/modelMatcher";
 import { isRecord } from "../../shared/util/json";
-import type { CapabilityFieldName, ExpectedFailureCategory, HeaderScalar } from "./protocol";
+import type { CapabilityFieldName, CapabilityValueKind, ExpectedFailureCategory, HeaderScalar } from "./protocol";
 import {
 	CAPABILITY_FIELDS,
+	CONSUMED_CAPABILITY_FIELDS,
 	EXPECTED_FAILURE_CATEGORIES,
 	FALLBACK_DIRECTIVE,
 	FORCE_DIRECTIVE,
@@ -511,9 +512,10 @@ export function toCapabilityGroups(value: Readonly<Record<string, Readonly<Recor
 /**
  * One capability row's verdicts: an optional blocking problem (aligned to the
  * offending input, like RowFieldProblem everywhere else) plus an optional
- * non-blocking hint. Hints exist because the capability vocabulary is closed
- * but the setting is lenient: an unknown key survives a save (and is
- * diagnosed at resolution), so the editor flags it without refusing it.
+ * non-blocking hint. Hints exist because the capability vocabulary is OPEN
+ * and the setting is lenient: an unknown key survives a save and APPLIES
+ * as-is at resolution, and an invalid consumed value survives too (diagnosed
+ * and left unset there), so the editor flags without refusing.
  */
 interface CapabilityRowIssue {
 	readonly problem?: RowFieldProblem | undefined;
@@ -537,6 +539,53 @@ export type CapabilityGroupsParse =
 
 function isCapabilityFieldName(key: string): key is CapabilityFieldName {
 	return Object.hasOwn(CAPABILITY_FIELDS, key);
+}
+
+/** The consumed vocabulary's kind for a key, own-property guarded ("toString" is a legal open field name). */
+function consumedFieldKind(key: string): CapabilityValueKind | undefined {
+	return Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key) ? CONSUMED_CAPABILITY_FIELDS[key] : undefined;
+}
+
+/**
+ * Whether a parsed JSON value satisfies a consumed field's kind, mirroring
+ * the resolver's verdict (capabilityResolution's consumedValueValid): numbers
+ * are positive integers, costs finite non-negative numbers (0 is "free"),
+ * booleans booleans, string-arrays arrays of non-empty strings (the empty
+ * array is valid).
+ */
+function consumedValueOk(kind: CapabilityValueKind, value: unknown): boolean {
+	switch (kind) {
+		case "number":
+			return typeof value === "number" && Number.isInteger(value) && value > 0;
+		case "cost":
+			return typeof value === "number" && Number.isFinite(value) && value >= 0;
+		case "boolean":
+			return typeof value === "boolean";
+		case "string-array":
+			return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
+	}
+}
+
+/**
+ * The non-blocking note on a consumed row whose value fails its kind: the
+ * setting keeps the row, and the resolver diagnoses the value and leaves the
+ * field unset so a lower level can win - the same lenient contract as the
+ * unknown-key hint, so the editor flags without refusing.
+ */
+function consumedInvalidHint(kind: CapabilityValueKind, key: string): string {
+	switch (kind) {
+		case "number":
+			return l10n.t('"{0}" takes a positive whole number; this value is ignored and lower levels fill in', key);
+		case "cost":
+			return l10n.t('"{0}" takes USD per token, 0 or more; this value is ignored and lower levels fill in', key);
+		case "boolean":
+			return l10n.t('"{0}" takes true or false; this value is ignored and lower levels fill in', key);
+		case "string-array":
+			return l10n.t(
+				'"{0}" takes a list of non-empty strings, e.g. ["temperature"]; this value is ignored and lower levels fill in',
+				key
+			);
+	}
 }
 
 /** A draft's boolean reading: bare or JSON true/false, nothing else. */
@@ -568,13 +617,24 @@ export function parseCatalogIdText(text: string): string | undefined {
 /**
  * Parse capability draft groups into the modelCapabilities record, or the
  * row-aligned issues that block it. Value typing follows the resolver's
- * vocabulary (capabilityResolution's parseCapabilityRecord): number fields
- * take positive integers, boolean fields take true/false,
- * `_openrouter_model` takes a catalog ID, other underscore keys pass through
- * as JSON (reserved for future directives), and unknown keys get a
- * non-blocking hint - the setting keeps them, resolution diagnoses them.
+ * vocabulary (capabilityResolution's parseCapabilityRecord): the core fields
+ * block on their kinds (number fields take positive integers, boolean fields
+ * take true/false), `_openrouter_model` takes a catalog ID, other underscore
+ * keys pass through as JSON (reserved for future directives). The rest of the
+ * consumed vocabulary is advisory-typed like the resolver treats it: an
+ * invalid value is kept but hinted (resolution diagnoses it and leaves the
+ * field unset). Any other key is an OPEN field, kept and applied as-is;
+ * it gets the may-be-a-typo hint only when `recognizedKeys` - the relevant
+ * server's observed /model/info key set (the entry's own server, or the
+ * cross-server union for the global setting) - is known, non-empty, and
+ * names neither the key nor a consumed field, mirroring the host's advisory
+ * filter exactly: with no evidence (absent or empty set) every hint stays
+ * suppressed rather than crying wolf.
  */
-export function parseCapabilityGroups(groups: readonly PrefixGroup[]): CapabilityGroupsParse {
+export function parseCapabilityGroups(
+	groups: readonly PrefixGroup[],
+	recognizedKeys?: ReadonlySet<string> | undefined
+): CapabilityGroupsParse {
 	const duplicatePrefixes = duplicates(groups.map((group) => group.prefix.trim()));
 	const prefixes: ReadonlySet<string> = new Set(groups.map((group) => group.prefix.trim()));
 	const issues: CapabilityGroupIssues[] = [];
@@ -582,10 +642,18 @@ export function parseCapabilityGroups(groups: readonly PrefixGroup[]): Capabilit
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
 		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
-		// The `_fallback` and `_inheritable` hints' context: the capability
-		// fields this group's own rows set.
+		// The `_fallback` and `_inheritable` hints' context: the fields this
+		// group's own rows set - every non-directive key, because the vocabulary
+		// is open and `_fallback` accepts any set field. Deliberately KEY-shaped,
+		// value-blind: the resolver's kept-field set additionally excludes a
+		// consumed field whose value fails its kind, so a directive naming such
+		// a row draws an invalid-directive diagnostic at resolution until the
+		// value is fixed. That transient divergence is accepted - the row's own
+		// invalid-value hint already flags it, and a value-aware set would make
+		// checkbox eligibility and directive-row absorption churn under every
+		// keystroke of the value input.
 		const groupFieldKeys: ReadonlySet<string> = new Set(
-			group.params.map((param) => param.key.trim()).filter(isCapabilityFieldName)
+			group.params.map((param) => param.key.trim()).filter((key) => key.length > 0 && !key.startsWith("_"))
 		);
 		const prefixProblem = keyProblem(
 			group.prefix.trim(),
@@ -666,17 +734,30 @@ export function parseCapabilityGroups(groups: readonly PrefixGroup[]): Capabilit
 				fields[key] = parsed;
 				return {};
 			}
-			// Underscore keys are reserved for future directives and pass
-			// silently; anything else is outside the closed vocabulary, kept but
-			// hinted (resolution will diagnose it the same way).
 			const parsed = parseJsonValue(param.valueText);
 			if (!parsed.ok) {
 				return { problem: { field: "value", message: parsed.error } };
 			}
 			fields[key] = parsed.value;
-			return key.startsWith("_")
+			// The consumed vocabulary beyond the core is advisory-typed, like the
+			// resolver treats it: the setting keeps an invalid value, resolution
+			// diagnoses it and leaves the field unset, so the row hints without
+			// blocking.
+			const consumedKind = consumedFieldKind(key);
+			if (consumedKind !== undefined) {
+				return consumedValueOk(consumedKind, parsed.value) ? {} : { hint: consumedInvalidHint(consumedKind, key) };
+			}
+			// Underscore keys are reserved for future directives and pass
+			// silently. Anything else is an OPEN field the resolver applies
+			// as-is; it hints as a possible typo only against real evidence -
+			// a known, non-empty observed /model/info key set that does not
+			// name it (the host's advisory filter, run live as the user types).
+			if (key.startsWith("_")) {
+				return {};
+			}
+			return recognizedKeys === undefined || recognizedKeys.size === 0 || recognizedKeys.has(key)
 				? {}
-				: { hint: l10n.t('"{0}" is not a known capability field; the extension ignores it', key) };
+				: { hint: l10n.t('"{0}" is not a field this extension knows; it is applied as an override as-is', key) };
 		});
 		blocked = blocked || prefixProblem !== undefined || rows.some((row) => row.problem !== undefined);
 		issues.push({ prefix: prefixProblem, rows });
@@ -706,18 +787,16 @@ export function toggleExpectedFailure(
 export type FieldDirective = typeof FALLBACK_DIRECTIVE | typeof FORCE_DIRECTIVE | typeof INHERITABLE_DIRECTIVE;
 
 /**
- * Whether a row key can carry the directive's mark: `_fallback` marks the
- * known capability fields, `_force` any wire-eligible parameter (neither
- * provider-owned nor an underscore key), `_inheritable` any own field
- * (anything that is not itself a directive). The editors render a checkbox
- * for exactly these rows, and a literal `true` directive expands over exactly
+ * Whether a row key can carry the directive's mark: `_fallback` and
+ * `_inheritable` mark any own field (anything that is not itself a directive;
+ * the capability vocabulary is open, and the resolver's `_fallback` accepts
+ * any field the record sets), `_force` any wire-eligible parameter (neither
+ * provider-owned nor an underscore key). The editors render a checkbox for
+ * exactly these rows, and a literal `true` directive expands over exactly
  * these keys when a toggle rewrites it as a list.
  */
 export function directiveEligible(directive: FieldDirective, key: string): boolean {
-	if (directive === FALLBACK_DIRECTIVE) {
-		return isCapabilityFieldName(key);
-	}
-	if (directive === INHERITABLE_DIRECTIVE) {
+	if (directive === FALLBACK_DIRECTIVE || directive === INHERITABLE_DIRECTIVE) {
 		return key.length > 0 && !key.startsWith("_");
 	}
 	return key.length > 0 && isForceableParameter(key);

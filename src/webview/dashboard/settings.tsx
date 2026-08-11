@@ -795,6 +795,7 @@ export function SettingsSection({
 	ack,
 	failures,
 	catalogResults,
+	observedModelInfoKeys,
 	now,
 	editRecordRequest,
 }: {
@@ -805,6 +806,8 @@ export function SettingsSection({
 	failures: FailuresByIntent;
 	/** The latest catalogSearchResults response, for the capability editor's `_openrouter_model` picker. */
 	catalogResults?: CatalogSearchResponse | undefined;
+	/** The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys), the capability editor's hint evidence. */
+	observedModelInfoKeys?: readonly string[] | undefined;
 	/** The shared clock tick; the catalog row's "updated N ago" reads it. */
 	now?: number;
 	/** The inspectors' configure-jump into one of the record editors; see EditRecordRequest. */
@@ -924,6 +927,7 @@ export function SettingsSection({
 											ack={ack}
 											failure={failures.setModelCapabilities}
 											catalogResults={catalogResults}
+											observedKeys={observedModelInfoKeys}
 											hidden={!capsVisible}
 											external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
 										/>

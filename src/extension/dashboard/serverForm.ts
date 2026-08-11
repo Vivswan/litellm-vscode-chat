@@ -264,12 +264,21 @@ export function parseDeclaredModelsText(text: string): string[] {
 	];
 }
 
-/** The context a draft is parsed against: sibling labels for rename-collision checks. */
+/** The context a draft is parsed against: sibling labels for rename-collision checks, and the hint evidence. */
 export interface ServerFormContext {
 	/** Labels of the other declared entries. */
 	readonly takenLabels?: readonly string[];
 	/** The label of the entry being edited; absent when adding. Doubles as the intent's replaceLabel. */
 	readonly originalLabel?: string;
+	/**
+	 * The edited entry's observed /model/info key set
+	 * (DashboardServer.observedModelInfoKeys), the evidence behind the
+	 * capability rows' unknown-key hints: with no set (a fresh add, a
+	 * declared-only entry, a /models-fallback discovery) or an empty one,
+	 * every such hint stays suppressed - the host's advisory filter, run
+	 * live as the user types.
+	 */
+	readonly observedModelInfoKeys?: readonly string[] | undefined;
 }
 
 /** The saveServerSetting intent body a clean draft parses to; the webview adds only the requestId. */
@@ -286,7 +295,9 @@ export type ServerFormParse =
 			/**
 			 * Row-aligned capability issues from the same parseCapabilityGroups
 			 * pass that assembled the intent. Non-empty even on a clean parse:
-			 * unknown-key hints never block a save but must still render.
+			 * the advisory hints (an unknown key the entry's observed
+			 * /model/info evidence does not name, an invalid consumed value)
+			 * never block a save but must still render.
 			 */
 			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
 			/** Row-aligned model-parameter hints (the _force semantic warnings); non-blocking, like the capability issues. */
@@ -431,7 +442,10 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	if (!groupsParse.ok) {
 		problems.modelParameters = l10n.t("Fix the model parameter rows");
 	}
-	const capabilitiesParse = parseCapabilityGroups(draft.modelCapabilities);
+	const capabilitiesParse = parseCapabilityGroups(
+		draft.modelCapabilities,
+		context.observedModelInfoKeys === undefined ? undefined : new Set(context.observedModelInfoKeys)
+	);
 	if (!capabilitiesParse.ok) {
 		problems.modelCapabilities = l10n.t("Fix the model capability rows");
 	}
