@@ -5,6 +5,10 @@ version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
+    # One PR per cycle for all action bumps, not one PR per action.
+    groups:
+      actions:
+        patterns: ["*"]
     schedule:
       interval: "monthly"
     cooldown:

@@ -11,3 +11,30 @@ trim_trailing_whitespace = false
 
 [Makefile]
 indent_style = tab
+
+# Repository-specific rules go below this line; they stay yours across
+# template updates. Start each override with its own [section] header (a
+# bare property here lands inside the last managed section's scope);
+# .editorconfig applies later sections over earlier ones, so sections
+# here override the managed rules above.
+# repo-platform:local-section
+
+# repo-platform:recovery-appendix
+# The recovery re-render (recover=recopy) could not tell this file's
+# repository-local tail apart from its managed content, so the previous
+# copy is preserved in full below. Keep what is repository-local, drop
+# what the content above already covers, then delete this comment.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

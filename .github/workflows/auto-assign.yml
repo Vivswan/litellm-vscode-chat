@@ -16,29 +16,36 @@ on:
   # Code scanning alerts have no creation trigger for Actions, so assign them
   # after each CI run completes (CodeQL analyzes inside CI's gate, and a
   # reusable-workflow call creates no separate run to watch), with a weekly
-  # cron as a catch-up. The code_scanning input gates the actual alert job.
+  # cron as a catch-up.
   workflow_run:
     workflows: ["CI"]
     types: [completed]
   schedule:
     - cron: "23 6 * * 1"
 
-# security-events is granted unconditionally: a reusable-workflow call is
-# statically validated against the permissions of EVERY job in the called
-# file regardless of each job's `if:`, so the alert-assignment job's
-# permissions must be grantable even where code scanning is disabled. The
-# code_scanning input below keeps that job from actually running there.
-# contents:read lets the reusable workflow read CODEOWNERS to decide who
-# gets assigned (falling back to the repo owner).
-permissions:
-  contents: read
-  issues: write
-  pull-requests: write
-  security-events: write
+# No workflow-level grants: each job below grants its reusable workflow
+# exactly what that capability needs. contents:read is CODEOWNERS
+# resolution - who gets assigned, falling back to the repo owner.
+permissions: {}
 
 jobs:
   auto-assign:
+    if: github.event_name == 'issues' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     uses: Vivswan/repo-platform/.github/workflows/reusable-auto-assign.yml@main
     with:
-      code_scanning: true
       issue: ${{ inputs.issue || '' }}
+  # Alert assignment lives in its own reusable workflow so security-events
+  # stays off the job above: a reusable-workflow call is statically
+  # validated against every job in the called file, `if:` or not. A
+  # dispatch runs it only when no issue was named - naming one means the
+  # dispatch is a targeted assignment, not an alert sweep.
+  assign-alerts:
+    if: github.event_name == 'workflow_run' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.issue == '')
+    permissions:
+      contents: read
+      security-events: write
+    uses: Vivswan/repo-platform/.github/workflows/reusable-auto-assign-alerts.yml@main

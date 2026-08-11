@@ -8,6 +8,10 @@
 # gate through the `checks` job. Module checks (the pr-title title check,
 # CodeQL analysis) run inside the gate too, so branch protection blocks on
 # them without extra required checks.
+#
+# The base checks (typography, commit-names, actionlint, yamllint, gitleaks)
+# render as one job each on public repositories and as steps of a single
+# base-checks job on private ones, where every job bills a rounded-up minute.
 
 name: CI
 
@@ -40,46 +44,52 @@ jobs:
   checks:
     uses: ./.github/workflows/checks.yml
 
+  # Informational, deliberately NOT in all-green's needs: a red run flags
+  # template-convention drift (usually local edits to managed files), but
+  # it never blocks this repository's merges - the next sync PR heals it.
+  validate-template:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Vivswan/repo-platform/actions/validate-template@main
+
   typography:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: Vivswan/repo-platform/actions/check-typography@main
 
   commit-names:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: Vivswan/repo-platform/actions/validate-commit-names@main
 
-  # Informational, deliberately NOT in all-green's needs: a red run flags
-  # template-convention drift (usually local edits to managed files), but
-  # it never blocks this repository's merges - the next sync PR heals it.
-  validate-template:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: Vivswan/repo-platform/actions/validate-template@main
-
   actionlint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: raven-actions/actionlint@v2
 
-  # Secret scanning: a committed credential fails the gate. The action
-  # scans the event's commit range (fetch-depth: 0 so any range
-  # resolves); audit the OLD history once with a local `gitleaks git`.
-  # Personal-account repos need no GITLEAKS_LICENSE; allowlist false
-  # positives in the repo-owned .gitleaks.toml at the repository root
-  # (seeded by the template, never overwritten by sync).
-  # pull-requests read: the action lists the PR's commits to build the
-  # scan range. Comments off keeps that scope at read; leaks still land
-  # in the job summary and SARIF artifact.
+  yamllint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install yamllint
+        run: python3 -m pip install --quiet yamllint
+      - name: Lint YAML
+        run: yamllint -s .
+
   gitleaks:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -87,6 +97,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # Secret scanning: a committed credential fails the gate. The action
+      # scans the event's commit range (fetch-depth 0 above lets any range
+      # resolve); audit the OLD history once with a local `gitleaks git`.
+      # Personal-account repos need no GITLEAKS_LICENSE; allowlist false
+      # positives in the repo-owned .gitleaks.toml at the repository root
+      # (seeded by the template, never overwritten by sync).
+      # pull-requests read on this job: the action lists the PR's commits
+      # to build the scan range. Comments off keeps that scope at read;
+      # leaks still land in the job summary and SARIF artifact.
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -96,15 +115,6 @@ jobs:
           # the floor so CI honors the same config local runs do.
           GITLEAKS_VERSION: "8.30.1"
 
-  yamllint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install yamllint
-        run: python3 -m pip install --quiet yamllint
-      - name: Lint YAML
-        run: yamllint -s .
-
   # Fails when a PR introduces dependencies with known vulnerabilities, by
   # diffing the dependency graph between base and head. Public renders only:
   # the dependency-graph API behind it is free just for public repositories.
@@ -113,6 +123,7 @@ jobs:
   # stays unconditional.
   dependency-review:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         if: github.event_name == 'pull_request'
@@ -146,6 +157,7 @@ jobs:
   # all-green treats a skipped needed job as failure.
   release-freshness:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')
@@ -166,6 +178,34 @@ jobs:
             exit 1
           fi
 
+  # Early, visible release gating: fails the release PR while an open issue
+  # carries the fuzz-tracking or release-blocker label, or an open Dependabot
+  # alert reaches the severity threshold. This check can go stale (an issue
+  # opened after the PR turned green re-runs nothing here), so the release
+  # path re-runs the same action as the authoritative pre-flight before
+  # cutting a release. The skip lives on the STEP: all-green treats a
+  # skipped needed job as failure.
+  release-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # vulnerability-alerts read is the Dependabot alerts API key
+    # (security-events covers code scanning only); where the token cannot
+    # see alerts, the action's graceful degradation turns the security gate
+    # into a skipped check instead of a failure.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      vulnerability-alerts: read
+    steps:
+      - uses: Vivswan/repo-platform/actions/release-health@main
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')
+        with:
+          mode: pull-request
+          fuzz-label: "nightly-fuzz"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Conventional Commit PR title, checked inside the gate so branch
   # protection blocks on it. PRs are squash-merged, so the PR title becomes
   # the commit subject and drives release-please versioning: `feat:` (minor),
@@ -174,6 +214,7 @@ jobs:
   # job as failure, and ci.yml also runs on push/dispatch/schedule events.
   pr-title:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       pull-requests: read
     steps:
@@ -196,20 +237,22 @@ jobs:
       - dependency-review
       - codeql-javascript
       - release-freshness
+      - release-health
       - pr-title
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: All jobs green
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          NEEDS: ${{ toJson(needs) }}
         run: |
-          echo "results: $RESULTS"
-          for result in $RESULTS; do
-            if [ "$result" != "success" ]; then
-              echo "::error::all-green failed: at least one required job did not succeed (results: $RESULTS). Open the failing job's log in this run, fix the failure, and push again."
-              exit 1
-            fi
-          done
+          set -o pipefail
+          jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' <<< "$NEEDS"
+          failed="$(jq -r 'to_entries[] | select(.value.result != "success") | .key' <<< "$NEEDS" | tr '\n' ' ')"
+          if [ -n "$failed" ]; then
+            echo "::error::all-green failed: ${failed% } did not succeed. Open the failing job's log in this run, fix the failure, and push again."
+            exit 1
+          fi
 
   # Release from a green main only: the repo-owned release.yml pipeline
   # (which runs the managed release-please.yml machinery, plus any of this
@@ -234,5 +277,9 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+      # The release-health pre-flight (in the managed release-please.yml)
+      # reads open issues and Dependabot alerts through this ceiling.
+      issues: read
+      vulnerability-alerts: read
     uses: ./.github/workflows/release.yml
     secrets: inherit

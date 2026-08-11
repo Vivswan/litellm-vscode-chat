@@ -1,7 +1,7 @@
 # This file is managed by Vivswan/repo-platform.
 # Local edits may be replaced during template updates.
 #
-# Applies this repository's .github/settings.yml via repo-settings-as-code.
+# Applies this repository's .github/settings.yml via github-settings-as-code.
 # Without the REPO_PLATFORM_TOKEN secret the run warns and skips; with
 # one, it needs Administration + Issues write, and a section the token
 # cannot reach fails the run. No heal cron here on purpose:
