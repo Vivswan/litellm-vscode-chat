@@ -775,39 +775,64 @@ export function observedKeysByEntryLabel(
 }
 
 /**
+ * The evidence set as the advisory filter reads it: undefined when there is
+ * none - no set at all, or an EMPTY set (a /model/info listing with zero
+ * deployments, or none carrying a model_info object, says nothing about the
+ * server's key vocabulary, and hinting against it would flag every open
+ * field at once). Set-built: observed keys are server-derived strings, and
+ * "__proto__" is a legal member a raw object key would misread.
+ */
+function observedEvidenceSet(observedKeys: readonly string[] | undefined): ReadonlySet<string> | undefined {
+	return observedKeys === undefined || observedKeys.length === 0 ? undefined : new Set(observedKeys);
+}
+
+/**
+ * Whether one unrecognized-key hint survives its evidence: the set is known
+ * and names neither the key nor a consumed field. The consumed-vocabulary
+ * check is a backstop - the parse never emits unrecognized-key for consumed
+ * fields - so a vocabulary drift cannot resurrect hints for keys the
+ * extension reads.
+ */
+function unrecognizedKeyHintSurvives(key: string, observed: ReadonlySet<string> | undefined): boolean {
+	return observed !== undefined && !observed.has(key) && !Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key);
+}
+
+/**
+ * The kind-aware core of the advisory filter: unrecognized-key hints are
+ * judged against the evidence the selector picks per diagnostic; every other
+ * kind passes through untouched. Returns the input array itself when there is
+ * nothing to judge, so callers can cheaply detect "unchanged".
+ */
+function filterUnrecognizedKeys<T extends RecordDiagnostic>(
+	diagnostics: readonly T[],
+	evidenceFor: (diagnostic: T) => ReadonlySet<string> | undefined
+): readonly T[] {
+	if (!diagnostics.some((diagnostic) => diagnostic.kind === "unrecognized-key")) {
+		return diagnostics;
+	}
+	return diagnostics.filter(
+		(diagnostic) =>
+			diagnostic.kind !== "unrecognized-key" || unrecognizedKeyHintSurvives(diagnostic.key, evidenceFor(diagnostic))
+	);
+}
+
+/**
  * The advisory filter over capability-record unrecognized-key diagnostics
  * (informational by contract: the field APPLIES as-is; the hint only says the
  * key may be a typo). A hint survives exactly when the relevant observed
  * /model/info key set is KNOWN, NON-EMPTY, and names neither the key nor a
  * consumed field: an observed key is real whatever the vocabulary says, and
- * with no set at all (declared-only entries, expected modelInfo failures, the
- * /models fallback, pre-discovery) there is no evidence to hint from, so
- * every hint drops rather than crying wolf. An EMPTY set is treated the same
- * way: a /model/info listing with zero deployments (or none carrying a
- * model_info object) says nothing about the server's key vocabulary, and
- * hinting against it would flag every open field at once. The
- * consumed-vocabulary check is a backstop - the parse never emits
- * unrecognized-key for consumed fields - so a vocabulary drift cannot
- * resurrect hints for keys the extension reads. Every other diagnostic kind
- * passes through untouched. Membership tests go through a Set: observed keys
- * are server-derived strings, and "__proto__" is a legal member a raw object
- * key would misread.
+ * with no evidence (declared-only entries, expected modelInfo failures, the
+ * /models fallback, pre-discovery, an empty listing - see
+ * observedEvidenceSet) there is nothing to hint from, so every hint drops
+ * rather than crying wolf.
  */
 export function filterUnrecognizedKeyDiagnostics<T extends RecordDiagnostic>(
 	diagnostics: readonly T[],
 	observedKeys: readonly string[] | undefined
 ): readonly T[] {
-	if (!diagnostics.some((diagnostic) => diagnostic.kind === "unrecognized-key")) {
-		return diagnostics;
-	}
-	const observed = observedKeys === undefined || observedKeys.length === 0 ? undefined : new Set(observedKeys);
-	return diagnostics.filter(
-		(diagnostic) =>
-			diagnostic.kind !== "unrecognized-key" ||
-			(observed !== undefined &&
-				!observed.has(diagnostic.key) &&
-				!Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, diagnostic.key))
-	);
+	const observed = observedEvidenceSet(observedKeys);
+	return filterUnrecognizedKeys(diagnostics, () => observed);
 }
 
 export function buildDashboardState(inputs: DashboardStateInputs): DashboardState {
@@ -912,12 +937,24 @@ export function resolveDashboardModelCapabilities(
 		query.resolution !== undefined
 			? query.resolution.resolveCapabilities(serverId, rawId, inputs)
 			: resolveModelCapabilities({ rawModelId: rawId, ...inputs });
-	// The advisory filter runs against THIS model's server (both layers: the
-	// inspector shows one model on one server, so the server's own listing is
-	// the evidence for every record that applies here). Surviving
-	// unrecognized-key diagnostics are advisory hints by kind; the other kinds
-	// pass through untouched.
-	const diagnostics = filterUnrecognizedKeyDiagnostics(resolved.diagnostics, snapshot.observedModelInfoKeys);
+	// The advisory filter judges each hint by its layer's own evidence, the
+	// SAME evidence Configuration diagnostics and the settings editor use:
+	// entry records apply to this server only, so its own listing judges them;
+	// a global record applies to every server, so a key ANY server observed is
+	// real (the cross-server union) - otherwise the inspector would hint on a
+	// record the editor its edit action opens renders as clean. The evidence
+	// sets are built only when a hint exists to judge. The non-global branch
+	// deliberately falls back to the stricter per-server evidence: a future
+	// RecordLayer member would fail safe (fewer hints), never borrow the
+	// union's broader proof.
+	if (!resolved.diagnostics.some((diagnostic) => diagnostic.kind === "unrecognized-key")) {
+		return resolved;
+	}
+	const entryEvidence = observedEvidenceSet(snapshot.observedModelInfoKeys);
+	const globalEvidence = observedEvidenceSet(observedModelInfoKeysUnion(query.snapshots));
+	const diagnostics = filterUnrecognizedKeys(resolved.diagnostics, (diagnostic) =>
+		diagnostic.layer === "global" ? globalEvidence : entryEvidence
+	);
 	return diagnostics.length === resolved.diagnostics.length ? resolved : { ...resolved, diagnostics };
 }
 

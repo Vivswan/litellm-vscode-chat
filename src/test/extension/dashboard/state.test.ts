@@ -1956,6 +1956,85 @@ suite("extension/dashboard/state", () => {
 					{ kind: "unrecognized-key", recordKey: "gpt-4", key: "entry_mystery", layer: "entry" },
 				]);
 			});
+
+			suite("layered evidence: global hints use the cross-server union, entry hints the server's own set", () => {
+				// Server A serves nothing relevant but observed the key; server B
+				// serves the inspected model and did not. The inspector must judge
+				// each layer the same way Configuration diagnostics and the settings
+				// editor do, or a click-through from a hint lands in an editor that
+				// renders the record as clean.
+				const twoServers = (servingSet: readonly string[] | undefined, otherSet: readonly string[] | undefined) => [
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "gB", label: "B", baseUrl: "http://b.test" }),
+						models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
+						...(servingSet !== undefined ? { observedModelInfoKeys: servingSet } : {}),
+					},
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "gA", label: "A", baseUrl: "http://a.test" }),
+						models: [],
+						...(otherSet !== undefined ? { observedModelInfoKeys: otherSet } : {}),
+					},
+				];
+				const resolveOnB = (
+					servingSet: readonly string[] | undefined,
+					otherSet: readonly string[] | undefined,
+					entryRecord?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
+				) =>
+					resolveDashboardModelCapabilities(
+						{
+							snapshots: twoServers(servingSet, otherSet),
+							reader: makeReader({ "models.capabilities": { "gpt-4": { supports_web_search: true } } }),
+							resolveEntryCapabilities: () => entryRecord,
+							catalog: EMPTY_CATALOG_LOOKUP,
+						},
+						modelScopeKey("gB"),
+						"gpt-4"
+					);
+
+				test("a global hint drops when ANY server observed the key, even one not serving this model", () => {
+					// The regression shape: the SERVING server carries a real,
+					// non-empty set that lacks the key (per-server evidence alone
+					// would hint), and only the other server observed it. A
+					// serving-set-only filter fails here; the union must win.
+					const discriminating = resolveOnB(["known_key"], ["supports_web_search"]);
+					assert.deepStrictEqual(discriminating?.diagnostics, []);
+					// And the softer shape: the serving server has no set at all.
+					const noServingSet = resolveOnB(undefined, ["supports_web_search"]);
+					assert.deepStrictEqual(noServingSet?.diagnostics, []);
+				});
+
+				test("a global hint survives against the union when no server observed the key", () => {
+					const capabilities = resolveOnB(undefined, ["something_else"]);
+					assert.deepStrictEqual(capabilities?.diagnostics, [
+						{ kind: "unrecognized-key", recordKey: "gpt-4", key: "supports_web_search", layer: "global" },
+					]);
+				});
+
+				test("an entry hint keeps its own server's evidence: another server's observation cannot silence it", () => {
+					const capabilities = resolveOnB(["known_key"], ["entry_mystery"], {
+						"gpt-4": { entry_mystery: 1 },
+					});
+					assert.deepStrictEqual(
+						capabilities?.diagnostics.filter((diagnostic) => diagnostic.layer === "entry"),
+						[{ kind: "unrecognized-key", recordKey: "gpt-4", key: "entry_mystery", layer: "entry" }]
+					);
+				});
+
+				test("an entry hint drops when its own server has no evidence, whatever the union holds", () => {
+					const capabilities = resolveOnB(undefined, ["anything"], { "gpt-4": { entry_mystery: 1 } });
+					assert.deepStrictEqual(
+						capabilities?.diagnostics.filter((diagnostic) => diagnostic.layer === "entry"),
+						[]
+					);
+				});
+
+				test("no evidence anywhere stays silent on both layers", () => {
+					const capabilities = resolveOnB(undefined, undefined, { "gpt-4": { entry_mystery: 1 } });
+					assert.deepStrictEqual(capabilities?.diagnostics, []);
+				});
+			});
 		});
 	});
 
