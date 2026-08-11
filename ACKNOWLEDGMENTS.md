@@ -46,6 +46,7 @@ commit that introduced this file.
 | [@K0IN](https://github.com/K0IN) | Reasoning effort selection request ([#177](https://github.com/Vivswan/litellm-vscode-chat/issues/177)) |
 | [@kfkawalec](https://github.com/kfkawalec) | Pasted/attached images never reaching LiteLLM ([#73](https://github.com/Vivswan/litellm-vscode-chat/issues/73)) |
 | [@kushagra-patel-nykaa](https://github.com/kushagra-patel-nykaa) | Models missing on VS Code 1.120+, `isUserSelectable` placement ([#119](https://github.com/Vivswan/litellm-vscode-chat/issues/119)) |
+| [@leovela69](https://github.com/leovela69) | Diagnostics reports that exposed the hidden-group status/reporting chain ([#246](https://github.com/Vivswan/litellm-vscode-chat/issues/246)) |
 | [@Lw-CodeStorage](https://github.com/Lw-CodeStorage) | Sticker images not recognized in chat ([#141](https://github.com/Vivswan/litellm-vscode-chat/issues/141)) |
 | [@o-l-a-v](https://github.com/o-l-a-v) | Confirming and narrowing the missing-models report ([#188](https://github.com/Vivswan/litellm-vscode-chat/issues/188)) |
 | [@Pandaplanes](https://github.com/Pandaplanes) | Base URL trailing-slash normalization ([#53](https://github.com/Vivswan/litellm-vscode-chat/issues/53)) |

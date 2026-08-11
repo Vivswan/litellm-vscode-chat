@@ -1,0 +1,6 @@
+#!/bin/sh
+
+# A subject that credits a reporter - "(#N, thanks @login)" - must land with a
+# matching ACKNOWLEDGMENTS.md row; the history guard in
+# src/test/creditConvention.test.ts cannot see this commit's own subject yet.
+bun scripts/ci/check-credit-rows.ts "$1"

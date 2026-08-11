@@ -82,6 +82,7 @@ export default defineConfig({
 			// label-coverage guard walks out/test and fails the suite when a
 			// compiled test file is matched by zero labels or by more than one.
 			files: [
+				"out/test/creditConvention.test.js",
 				"out/test/dockerTestLabels.test.js",
 				"out/test/envFile.test.js",
 				"out/test/fuzzSeed.test.js",

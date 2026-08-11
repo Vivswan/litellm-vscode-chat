@@ -120,6 +120,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          # Full history for the crediting-convention guard in the unit suite
+          # (src/test/creditConvention.test.ts), same as test-reusable.yml.
+          fetch-depth: 0
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -222,3 +226,25 @@ jobs:
 
       - name: Typecheck all four tsconfig projects
         run: bun run typecheck
+
+  # Squash merge lands the PR title as the commit subject (settings.yml pins
+  # PR_TITLE), so a crediting title never passes through the commit-msg hook
+  # and is not yet in git log for the history guard's pre-merge run. This
+  # checks the title against the PR's own ACKNOWLEDGMENTS.md before merge.
+  pr-title-credit:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: A crediting PR title has its ACKNOWLEDGMENTS.md row
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bun scripts/ci/check-credit-rows.ts --subject "$PR_TITLE"
