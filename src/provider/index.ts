@@ -34,7 +34,7 @@ import {
 } from "./catalog/groupModels";
 import type { ModelRoute } from "./catalog/modelCatalog";
 import { buildModelInfos } from "./catalog/registration";
-import type { ServerModelsSnapshot } from "./catalog/statusWindow";
+import type { DiscoveryObservations, ServerModelsSnapshot } from "./catalog/statusWindow";
 import { StatusWindow } from "./catalog/statusWindow";
 import type { ConfigurationPrompt } from "./config";
 import { ensureServers } from "./config";
@@ -58,6 +58,8 @@ function delay(ms: number): Promise<void> {
 export interface DiscoveredGroupModels {
 	readonly infos: readonly PreAttachModelInfo[];
 	readonly discoveredRawIds: readonly string[];
+	/** See FetchModelsResult.observedModelInfoKeys; rides the cache so cached serves re-report it. */
+	readonly observedModelInfoKeys?: readonly string[];
 }
 
 export interface LiteLLMChatModelProviderOptions {
@@ -437,7 +439,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 						{ ...server, entryLabel: server.label },
 						this.expectedDiscoveryFailures(server.label, server.baseUrl)
 					);
-					return { server, outcome: { ok: true as const, models: result.models } };
+					return {
+						server,
+						outcome: {
+							ok: true as const,
+							models: result.models,
+							observedModelInfoKeys: result.observedModelInfoKeys,
+						},
+					};
 				} catch (reason) {
 					return { server, outcome: { ok: false as const, reason } };
 				}
@@ -452,6 +461,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const declaredRoutes = new Map<string, ModelRoute>();
 		const modelsByServer = new Map<string, readonly PreAttachModelInfo[]>();
 		const rawIdsByServer = new Map<string, readonly string[]>();
+		const observedKeysByServer = new Map<string, readonly string[]>();
 
 		const successfulCount = results.filter(({ outcome }) => outcome.ok).length;
 		const serverCount = servers.length;
@@ -531,6 +541,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// declaredModelsForSnapshot.
 			modelsByServer.set(server.id, overridden);
 			rawIdsByServer.set(server.id, discoveredRawIds);
+			if (outcome.observedModelInfoKeys !== undefined) {
+				observedKeysByServer.set(server.id, outcome.observedModelInfoKeys);
+			}
 			for (const [k, v] of reg.routes) {
 				allRoutes.set(k, v);
 			}
@@ -571,7 +584,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				status,
 				modelsByServer.get(status.serverId) ?? [],
 				{ kind: "registry" },
-				rawIdsByServer.get(status.serverId) ?? []
+				{
+					discoveredRawIds: rawIdsByServer.get(status.serverId) ?? [],
+					observedModelInfoKeys: observedKeysByServer.get(status.serverId),
+				}
 			);
 		}
 		this.reportMergedStatus(options.silent);
@@ -673,14 +689,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			this.log("Provider group is hidden by an explicit user removal; serving no models", {
 				baseUrl: server.baseUrl,
 			});
-			this.reportGroupStatus(
-				server,
-				groupServer,
-				silent,
-				{ state: "ok", modelCount: 0, hiddenByRemoval: true },
-				[],
-				[]
-			);
+			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: 0, hiddenByRemoval: true }, []);
 			return [];
 		}
 
@@ -701,7 +710,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 					silent,
 					{ state: "ok", modelCount: overridden.length + declared.infos.length },
 					overridden,
-					cached.discoveredRawIds
+					{
+						discoveredRawIds: cached.discoveredRawIds,
+						observedModelInfoKeys: cached.observedModelInfoKeys,
+					}
 				);
 				return attach([...overridden, ...declared.infos]);
 			}
@@ -711,10 +723,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
 		try {
 			const discovered = await this._discoveryCache.fetch(server.id, async () => {
-				const { models } = await this._client.fetchModels(server, expectedFailures);
+				const { models, observedModelInfoKeys } = await this._client.fetchModels(server, expectedFailures);
 				return {
 					infos: buildModelInfos(models, server, 1, (msg) => this.log(msg)).infos,
 					discoveredRawIds: models.map((model) => model.id),
+					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
 				};
 			});
 			// Overrides and declared models are applied to what is SERVED, never
@@ -728,7 +741,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				silent,
 				{ state: "ok", modelCount: overridden.length + declared.infos.length },
 				overridden,
-				discovered.discoveredRawIds
+				{
+					discoveredRawIds: discovered.discoveredRawIds,
+					observedModelInfoKeys: discovered.observedModelInfoKeys,
+				}
 			);
 			return attach([...overridden, ...declared.infos]);
 		} catch (error) {
@@ -781,7 +797,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 					...(declared.infos.length > 0 ? { declaredModelCount: declared.infos.length } : {}),
 				},
 				stale?.models ?? [],
-				stale?.discoveredRawIds ?? []
+				{ discoveredRawIds: stale?.discoveredRawIds ?? [] }
 			);
 			if (silent) {
 				const staleServed =
@@ -880,8 +896,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			  },
 		/** Discovered pre-attach infos only; declared models are config-rebuilt every serve and never recorded. */
 		models: readonly PreAttachModelInfo[],
-		/** The raw IDs discovery returned for `models`; see ServerModelsSnapshot.discoveredRawIds. */
-		discoveredRawIds: readonly string[]
+		/** What this discovery observed (raw IDs, model_info keys); see DiscoveryObservations. */
+		observations: DiscoveryObservations = {}
 	): void {
 		this._groupStatusReportCount += 1;
 		this._statusWindow.record(
@@ -897,7 +913,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			},
 			models,
 			{ kind: "group", groupServer },
-			discoveredRawIds
+			observations
 		);
 		this.reportMergedStatus(silent);
 	}

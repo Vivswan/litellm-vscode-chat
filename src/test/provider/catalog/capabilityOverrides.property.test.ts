@@ -1,20 +1,28 @@
 /**
  * The registration-side equivalence twin of the capabilityResolution property
  * suite: for generated LiteLLM discovery shapes (deployment, bare, and
- * providers-array models with random capability and limit fields) run through
- * the REAL registration path, and generated capability records (keys cut from
- * the raw IDs so matches are common, scoped and entry layers, directives into
- * a generated catalog), the models applyCapabilityOverrides serves advertise
- * exactly what resolveModelCapabilities resolves - on the rebuilt path AND on
- * the object-identity fast path, which is the claim that lets untouched
- * models skip the rebuild at all. synthesizeDeclaredModels is pinned to the
- * same walk over the declared baseline, and the whole application is
- * idempotent because the untouched serverDeclared baseline rides each model.
+ * providers-array models with random capability, limit, and cost fields) run
+ * through the REAL registration path, and generated capability records (keys
+ * cut from the raw IDs so matches are common, scoped and entry layers, cost
+ * and params overrides, directives into a generated catalog), the models
+ * applyCapabilityOverrides serves advertise exactly what
+ * resolveModelCapabilities resolves - token limits, flags, the caching gate,
+ * the reasoning gate, and the pricing block re-derived from the effective
+ * cost fields - on the rebuilt path AND on the object-identity fast path,
+ * which is the claim that lets untouched models skip the rebuild at all.
+ * synthesizeDeclaredModels is pinned to the same walk over the declared
+ * baseline, and the whole application is idempotent because the untouched
+ * serverDeclared baseline rides each model.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
-import { applyCapabilityOverrides, synthesizeDeclaredModels } from "../../../provider/catalog/capabilityOverrides";
+import {
+	applyCapabilityOverrides,
+	pricingFieldsFromEffective,
+	reasoningGate,
+	synthesizeDeclaredModels,
+} from "../../../provider/catalog/capabilityOverrides";
 import type { PreAttachModelInfo } from "../../../provider/catalog/groupModels";
 import { rawModelIdFromExposed } from "../../../provider/catalog/modelCatalog";
 import { buildModelInfos } from "../../../provider/catalog/registration";
@@ -26,7 +34,11 @@ import type {
 	EffectiveCapabilities,
 	ModelCapabilitiesRecord,
 } from "../../../shared/config/capabilityResolution";
-import { OPENROUTER_MODEL_DIRECTIVE, resolveModelCapabilities } from "../../../shared/config/capabilityResolution";
+import {
+	capabilityField,
+	OPENROUTER_MODEL_DIRECTIVE,
+	resolveModelCapabilities,
+} from "../../../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
@@ -61,6 +73,7 @@ const providerArb: fc.Arbitrary<LiteLLMProvider> = fc.record(
 			nil: undefined,
 		}),
 		supports_prompt_caching: flagValue,
+		supports_response_schema: flagValue,
 		supports_reasoning: flagValue,
 		supported_openai_params: fc.option(
 			fc.oneof(fc.constant<string[]>(["reasoning_effort"]), fc.constant<string[]>(["temperature"]), fc.constant(null)),
@@ -70,6 +83,18 @@ const providerArb: fc.Arbitrary<LiteLLMProvider> = fc.record(
 			nil: undefined,
 		}),
 		output_cost_per_token: fc.option(fc.oneof(fc.constant(0), fc.constant(0.000015), fc.constant(null)), {
+			nil: undefined,
+		}),
+		cache_read_input_token_cost: fc.option(fc.oneof(fc.constant(0), fc.constant(0.0000003), fc.constant(null)), {
+			nil: undefined,
+		}),
+		cache_creation_input_token_cost: fc.option(fc.oneof(fc.constant(0), fc.constant(0.00000375), fc.constant(null)), {
+			nil: undefined,
+		}),
+		long_context_input_cost_per_token: fc.option(fc.oneof(fc.constant(0.000003), fc.constant(0.000006)), {
+			nil: undefined,
+		}),
+		long_context_output_cost_per_token: fc.option(fc.oneof(fc.constant(0.000015), fc.constant(0.0000225)), {
 			nil: undefined,
 		}),
 	},
@@ -115,6 +140,13 @@ const validFieldsArb: fc.Arbitrary<Partial<CapabilityFieldValues>> = fc.record(
 const fieldValueArb = fc.oneof(
 	{ arbitrary: validNumber, weight: 3 },
 	{ arbitrary: fc.boolean(), weight: 3 },
+	// Valid cost and params-list values, so the consumed cost/caching/params
+	// fields get well-typed user overrides alongside the invalid noise.
+	{ arbitrary: fc.constantFrom<unknown>(0, 0.000001, 0.000003), weight: 2 },
+	{
+		arbitrary: fc.constantFrom<unknown>(["reasoning_effort"], ["temperature"], ["reasoning_effort", "temperature"], []),
+		weight: 2,
+	},
 	{ arbitrary: fc.constantFrom<unknown>("128k", 0, -5, 1.5, null), weight: 1 }
 );
 const recordKeyArb = fc.oneof(
@@ -126,7 +158,13 @@ const recordKeyArb = fc.oneof(
 			"supports_function_calling",
 			"supports_vision",
 			"supports_reasoning",
-			"supports_audio_input"
+			"supports_audio_input",
+			"supports_prompt_caching",
+			"supported_openai_params",
+			"input_cost_per_token",
+			"output_cost_per_token",
+			"cache_read_input_token_cost",
+			"long_context_input_cost_per_token"
 		),
 		weight: 5,
 	},
@@ -136,12 +174,16 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	.tuple(
 		fc.dictionary(recordKeyArb, fieldValueArb, { maxKeys: 4 }),
 		fc.option(fc.boolean(), { nil: undefined }),
+		fc.option(fc.boolean(), { nil: undefined }),
 		fc.option(fc.constantFrom<string>(...DIRECTIVE_POOL), { nil: undefined })
 	)
-	.map(([base, declare, openrouterModel]) => ({
+	.map(([base, declare, fallback, openrouterModel]) => ({
 		...base,
-		// The retired _declare directive stays as inert underscore-key noise.
+		// The retired _declare directive stays as inert underscore-key noise;
+		// _fallback: true demotes every kept field below the server level, so
+		// the fallback walk levels stay covered.
 		...(declare !== undefined ? { _declare: declare } : {}),
+		...(fallback !== undefined ? { _fallback: fallback } : {}),
 		...(openrouterModel !== undefined ? { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel } : {}),
 	}));
 
@@ -264,14 +306,40 @@ function effectiveFor(info: PreAttachModelInfo, s: Scenario): EffectiveCapabilit
 	});
 }
 
+const MODEL_PRICING_KEYS = [
+	"inputCost",
+	"outputCost",
+	"cacheCost",
+	"cacheWriteCost",
+	"longContextInputCost",
+	"longContextOutputCost",
+	"longContextCacheCost",
+	"longContextCacheWriteCost",
+	"priceCategory",
+	"pricing",
+] as const;
+
 function assertAdvertisesEffective(info: PreAttachModelInfo, effective: EffectiveCapabilities): void {
 	assert.strictEqual(info.maxInputTokens, effective.fields.max_input_tokens.value);
 	assert.strictEqual(info.maxOutputTokens, effective.fields.max_output_tokens.value);
 	assert.strictEqual(Boolean(info.capabilities?.toolCalling), effective.fields.supports_function_calling.value);
 	assert.strictEqual(Boolean(info.capabilities?.imageInput), effective.fields.supports_vision.value);
 	assert.strictEqual(info.litellm.supportsAudioInput === true, effective.fields.supports_audio_input.value);
+	assert.strictEqual(
+		info.litellm.supportsPromptCaching,
+		capabilityField(effective.fields, "supports_prompt_caching")?.value === true,
+		"the caching gate must follow the effective supports_prompt_caching"
+	);
 	assert.strictEqual(info.litellm.outputLimitSource, effective.outputLimitSource);
-	assert.strictEqual(info.configurationSchema !== undefined, effective.fields.supports_reasoning.value);
+	assert.strictEqual(
+		info.configurationSchema !== undefined,
+		reasoningGate(effective.fields),
+		"the reasoning control must follow the gate over the flag and the params list"
+	);
+	const expectedPricing = pricingFieldsFromEffective(effective.fields);
+	for (const key of MODEL_PRICING_KEYS) {
+		assert.strictEqual(info[key], expectedPricing[key], `${key} must equal the effective-field derivation exactly`);
+	}
 }
 
 suite("provider/catalog capabilityOverrides properties", () => {

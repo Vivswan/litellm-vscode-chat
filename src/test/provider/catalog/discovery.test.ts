@@ -100,6 +100,79 @@ suite("provider/catalog/discovery", () => {
 	});
 
 	suite("fetchModels", () => {
+		test("observedModelInfoKeys unions the model_info keys of a successful listing, sorted", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () =>
+					HttpResponse.json({
+						data: [
+							{ model_name: "a", model_info: { id: "a", max_input_tokens: 1000, custom_field: 1 } },
+							{ model_name: "b", model_info: { supports_vision: true, blocked: true } },
+							{ model_name: "c" },
+							// No usable model id, so the entry cannot register - but its
+							// model_info keys were on the wire and must still count.
+							{ bogus: true, model_info: { malformed_entry_key: 1 } },
+							{ id: "listing-shaped", providers: [], model_info: { listing_shaped_key: 2 } },
+							// A non-record model_info contributes nothing (isRecord
+							// rejects arrays and strings), and an oversized key is
+							// dropped by the per-key length bound.
+							{ model_name: "d", model_info: ["not", "a", "record"] },
+							{ model_name: "e", model_info: "not a record" },
+							{ model_name: "f", model_info: { ["k".repeat(129)]: 1 } },
+						],
+					})
+				)
+			);
+
+			const result = await fetchModels(request());
+
+			// Keys union across the RAW entries (blocked, malformed, and
+			// listing-shaped ones included - they were observed either way);
+			// entries without a model_info object add nothing. Sorted, so
+			// downstream displays are deterministic.
+			assert.deepStrictEqual(result.observedModelInfoKeys, [
+				"blocked",
+				"custom_field",
+				"id",
+				"listing_shaped_key",
+				"malformed_entry_key",
+				"max_input_tokens",
+				"supports_vision",
+			]);
+		});
+
+		test("a successful listing with zero entries reports an empty key set, present", async () => {
+			// Presence is the "listing succeeded" signal, so the one success path
+			// with nothing observed must report [] rather than absence.
+			mswServer.use(http.get(MODEL_INFO_URL, () => HttpResponse.json({ data: [] })));
+			const result = await fetchModels(request());
+			assert.deepStrictEqual(result.models, []);
+			assert.deepStrictEqual(result.observedModelInfoKeys, []);
+		});
+
+		test("observedModelInfoKeys is absent on the /v1/models fallback and capped against hostile payloads", async () => {
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+				http.get(MODELS_URL, () => HttpResponse.json({ object: "list", data: [{ id: "fallback-model" }] }))
+			);
+			const fallback = await fetchModels(request());
+			assert.deepStrictEqual(
+				fallback.models.map((m) => m.id),
+				["fallback-model"]
+			);
+			assert.ok(
+				!("observedModelInfoKeys" in fallback),
+				"the fallback listing reports no model_info, so the field must be absent, not empty"
+			);
+
+			const hostile = Object.fromEntries(Array.from({ length: 600 }, (_, i) => [`k${String(i).padStart(4, "0")}`, 1]));
+			mswServer.use(
+				http.get(MODEL_INFO_URL, () => HttpResponse.json({ data: [{ model_name: "m", model_info: hostile }] }))
+			);
+			const capped = await fetchModels(request());
+			assert.strictEqual(capped.observedModelInfoKeys?.length, 512, "the union truncates deterministically at 512");
+			assert.strictEqual(capped.observedModelInfoKeys?.[0], "k0000", "truncation happens after the sort");
+		});
+
 		test("one malformed model/info element is skipped without aborting registration", async () => {
 			let modelsEndpointCalled = false;
 			mswServer.use(
@@ -879,6 +952,47 @@ suite("provider/catalog/discovery", () => {
 		test("a single deployment passes through unchanged", () => {
 			const sole = deployment({ max_output_tokens: 8000, supports_prompt_caching: true, supports_vision: true });
 			assert.strictEqual(mergeModelDeployments([sole]), sole);
+		});
+
+		test("a merged deployment's baseline never claims more than the merge advertised", () => {
+			// Disagreeing per-deployment costs merge to unknown (agreedCost null)
+			// and a true+null flag merges to unknown (everyDeploymentSupports):
+			// the registered entry must not price the disagreeing field, and the
+			// capability baseline must leave both unreported so lower walk levels
+			// can still fill them.
+			const merged = mergeModelDeployments([
+				deployment({
+					input_cost_per_token: 0.000003,
+					output_cost_per_token: 0.000015,
+					supports_prompt_caching: true,
+					supported_openai_params: ["temperature", "reasoning_effort"],
+				}),
+				deployment({
+					input_cost_per_token: 0.000004,
+					output_cost_per_token: 0.000015,
+					supported_openai_params: ["temperature"],
+				}),
+			]);
+			const { infos } = buildModelInfos(
+				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider } }],
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				1,
+				() => {}
+			);
+			const info = expectDefined(infos[0]);
+			assert.ok(!("inputCost" in info), "a disagreeing cost must not price the merged entry");
+			assert.strictEqual(info.outputCost, 15, "the agreed cost still prices");
+			assert.strictEqual(info.litellm.supportsPromptCaching, false, "an unknown merged flag does not advertise");
+			const declared = info.litellm.serverDeclared;
+			assert.ok(declared.kind === "discovered");
+			assert.ok(!("input_cost_per_token" in declared.values), "the baseline mirrors the un-priced field");
+			assert.strictEqual(declared.values.output_cost_per_token, 0.000015);
+			assert.ok(!("supports_prompt_caching" in declared.values), "an unknown (null) merged flag stays unreported");
+			assert.deepStrictEqual(
+				declared.values.supported_openai_params,
+				["temperature"],
+				"the baseline carries the merge's intersected params, never one deployment's longer list"
+			);
 		});
 
 		test("merged token advertisement equals the minimum of the standalone advertisements (A/B case)", () => {

@@ -2,7 +2,7 @@ import type { LanguageModelChatInformation } from "vscode";
 import type { ServerWithKey } from "../../shared/servers";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
 import type { PreAttachModelInfo } from "./groupModels";
-import type { ModelRoute } from "./modelCatalog";
+import type { ModelRoute, PerTokenCosts } from "./modelCatalog";
 import {
 	buildExposedModelId,
 	collapseTokenConstraints,
@@ -49,19 +49,6 @@ type LongContextPricingKey =
 export type ModelPricing = Pick<
 	LanguageModelChatInformation,
 	BasePricingKey | LongContextPricingKey | "priceCategory" | "pricing"
->;
-
-/** The per-token cost fields pricingFromCosts converts; a LiteLLMProvider satisfies it as-is. */
-type PerTokenCosts = Pick<
-	LiteLLMProvider,
-	| "input_cost_per_token"
-	| "output_cost_per_token"
-	| "cache_read_input_token_cost"
-	| "cache_creation_input_token_cost"
-	| "long_context_input_cost_per_token"
-	| "long_context_output_cost_per_token"
-	| "long_context_cache_read_input_token_cost"
-	| "long_context_cache_creation_input_token_cost"
 >;
 
 /**
@@ -126,8 +113,21 @@ function configurationSchemaFor(
  * typical LiteLLM user the label is the only cost line that hover can show;
  * the Manage Models markdown hover renders label and numbers together, one
  * accepted duplicated line.
+ *
+ * `zeroPairMeansUndeclared` (default true) is the one semantic knob, for
+ * capabilityOverrides' rebuild from EFFECTIVE fields: there a raw zero pair
+ * can only be user-written configuration ("this model is genuinely free" -
+ * the server's 0/0 stamp never enters the capability walk, see
+ * serverCostValues), so under `false` the pair prices as $0/$0 with the
+ * cheapest badge instead of reading as undeclared. A pair that merely ROUNDS
+ * to 0/0 (sub-unit dust) still gets neither label nor badge under either
+ * setting, so a server-derived rebuild stays byte-identical to what this
+ * function produced at registration. Exported for that rebuild seam.
  */
-function pricingFromCosts(costs: PerTokenCosts): ModelPricing {
+export function pricingFromCosts(
+	costs: PerTokenCosts,
+	opts?: { readonly zeroPairMeansUndeclared?: boolean }
+): ModelPricing {
 	// LiteLLM (observed on v1.93) stamps input/output_cost_per_token: 0 onto
 	// /model/info entries that declare no pricing at all, so a zero pair is
 	// "undeclared", not "free": rendering $0 would mislead the picker and any
@@ -135,10 +135,9 @@ function pricingFromCosts(costs: PerTokenCosts): ModelPricing {
 	// this for local and self-hosted families like ollama/*) lose their $0
 	// display under this rule; behind LiteLLM that shape is indistinguishable
 	// from the stamp, and unknown-as-free is the worse failure.
-	if (
-		normalizeCostPerToken(costs.input_cost_per_token) === 0 &&
-		normalizeCostPerToken(costs.output_cost_per_token) === 0
-	) {
+	const zeroPair =
+		normalizeCostPerToken(costs.input_cost_per_token) === 0 && normalizeCostPerToken(costs.output_cost_per_token) === 0;
+	if (zeroPair && (opts?.zeroPairMeansUndeclared ?? true)) {
 		return {};
 	}
 	const fields: { -readonly [K in keyof ModelPricing]?: ModelPricing[K] } = {};
@@ -185,11 +184,14 @@ function pricingFromCosts(costs: PerTokenCosts): ModelPricing {
 	// the numeric field's 0 rather than inventing a smaller unit. A pair that
 	// BOTH rounded to 0 gets neither label nor badge: it slipped past the raw
 	// 0/0 undeclared check on sub-unit dust, and "$0 in / $0 out" plus a "low"
-	// badge would present it as free.
+	// badge would present it as free. The `zeroPair` disjunct is reachable
+	// only under zeroPairMeansUndeclared: false (the default path returned {}
+	// above): a RAW zero pair kept by that option is user-written "free" and
+	// carries the $0 label and the cheapest badge on purpose.
 	if (
 		fields.inputCost !== undefined &&
 		fields.outputCost !== undefined &&
-		(fields.inputCost > 0 || fields.outputCost > 0)
+		(fields.inputCost > 0 || fields.outputCost > 0 || zeroPair)
 	) {
 		fields.priceCategory = priceCategoryFor(fields.inputCost, fields.outputCost);
 		fields.pricing = `$${fields.inputCost} in / $${fields.outputCost} out per 1M tokens`;
@@ -272,8 +274,15 @@ export function buildModelInfos(
 		// server-declared architecture); VS Code has no audio capability flag,
 		// so this rides the litellm metadata and gates message conversion.
 		const audioInput = reportedModalities.includes("audio");
-		const baselineFor = (providers: readonly LiteLLMProvider[], toolCalling: boolean, reasoning: boolean) =>
-			discoveredCapabilityBaseline({ providers, modalities, toolCalling, reasoning });
+		// Costs join the baseline only at the shapes this registration prices
+		// (the pricingFromCosts call sites below): the walk's server level must
+		// never offer a price the picker refused to advertise.
+		const baselineFor = (
+			providers: readonly LiteLLMProvider[],
+			toolCalling: boolean,
+			reasoning: boolean,
+			costs?: PerTokenCosts
+		) => discoveredCapabilityBaseline({ providers, modalities, toolCalling, reasoning, costs });
 
 		switch (shape.kind) {
 			case "deployment": {
@@ -300,7 +309,12 @@ export function buildModelInfos(
 							supportsPromptCaching: provider.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,
-							serverDeclared: baselineFor([provider], supportsTools(provider), supportsReasoningEffort(provider)),
+							serverDeclared: baselineFor(
+								[provider],
+								supportsTools(provider),
+								supportsReasoningEffort(provider),
+								provider
+							),
 						},
 					} satisfies PreAttachModelInfo,
 				];
@@ -414,7 +428,7 @@ export function buildModelInfos(
 							supportsPromptCaching: p.supports_prompt_caching === true,
 							outputLimitSource: constraints.outputLimitSource,
 							supportsAudioInput: audioInput,
-							serverDeclared: baselineFor([p], true, supportsReasoningEffort(p)),
+							serverDeclared: baselineFor([p], true, supportsReasoningEffort(p), p),
 						},
 					} satisfies PreAttachModelInfo);
 					registerRoute(exposedId, rawId);

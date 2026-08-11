@@ -35,6 +35,14 @@ export interface ServerModelsSnapshot {
 	 * emit only synthetic variants (`foo:cheapest`) for a discovered `foo`.
 	 */
 	readonly discoveredRawIds: readonly string[];
+	/**
+	 * The model_info keys the last successful /model/info listing reported
+	 * (see FetchModelsResult.observedModelInfoKeys), carried forward across
+	 * failure reports exactly like discoveredRawIds so a mid-outage refresh
+	 * cannot blank the set. Absent when the last success came from the /models
+	 * fallback (or the server never reported keys).
+	 */
+	readonly observedModelInfoKeys?: readonly string[] | undefined;
 }
 
 /**
@@ -58,7 +66,20 @@ type StatusWindowEntry = {
 	status: ServerStatus;
 	models: readonly PreAttachModelInfo[];
 	discoveredRawIds: readonly string[];
+	observedModelInfoKeys: readonly string[] | undefined;
 } & StatusWindowSource;
+
+/**
+ * What one successful discovery observed, recorded beside its status report.
+ * A named bundle (not positional parameters) because both members are string
+ * arrays: transposing them at a call site would type-check.
+ */
+export interface DiscoveryObservations {
+	/** The raw IDs discovery returned; see ServerModelsSnapshot.discoveredRawIds. */
+	readonly discoveredRawIds?: readonly string[] | undefined;
+	/** The observed model_info keys, when the listing reported them; see ServerModelsSnapshot.observedModelInfoKeys. */
+	readonly observedModelInfoKeys?: readonly string[] | undefined;
+}
 
 /**
  * Statuses accumulate keyed by server ID; the group-agnostic call (normally
@@ -130,8 +151,8 @@ export class StatusWindow {
 		status: ServerStatus,
 		models: readonly PreAttachModelInfo[],
 		source: StatusWindowSource,
-		/** The raw IDs discovery returned when it succeeded; failure reports carry the previous set forward. */
-		discoveredRawIds: readonly string[] = []
+		/** What the discovery observed when it succeeded; failure reports carry the previous observations forward. */
+		observations: DiscoveryObservations = {}
 	): void {
 		const previous = this.entries.get(status.serverId);
 		this.entries.set(status.serverId, {
@@ -140,7 +161,10 @@ export class StatusWindow {
 			lastSuccessAt: status.state === "ok" ? this.now() : previous?.lastSuccessAt,
 			status,
 			models,
-			discoveredRawIds: status.state === "ok" ? discoveredRawIds : (previous?.discoveredRawIds ?? []),
+			discoveredRawIds:
+				status.state === "ok" ? (observations.discoveredRawIds ?? []) : (previous?.discoveredRawIds ?? []),
+			observedModelInfoKeys:
+				status.state === "ok" ? observations.observedModelInfoKeys : previous?.observedModelInfoKeys,
 			...source,
 		});
 	}
@@ -151,6 +175,7 @@ export class StatusWindow {
 			status: entry.status,
 			models: entry.models,
 			discoveredRawIds: entry.discoveredRawIds,
+			...(entry.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: entry.observedModelInfoKeys } : {}),
 		}));
 	}
 

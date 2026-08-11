@@ -318,6 +318,26 @@ export type CapabilityLevel =
 	| "derived"
 	| "floor";
 
+/**
+ * The walk's levels in precedence order, highest first - the ONE declaration
+ * of that order (resolveModelCapabilities' doc lists the same eight steps,
+ * and its code must layer candidates in this order). Consumers that rank
+ * levels (capabilityOverrides' reasoningGate) derive from this list instead
+ * of re-declaring the order; the satisfies check keeps it total over
+ * CapabilityLevel, so adding a level fails compilation here too.
+ */
+export const CAPABILITY_LEVEL_ORDER: readonly CapabilityLevel[] = Object.keys({
+	entry: true,
+	global: true,
+	directive: true,
+	server: true,
+	"entry-fallback": true,
+	"global-fallback": true,
+	catalog: true,
+	derived: true,
+	floor: true,
+} satisfies Record<CapabilityLevel, true>) as CapabilityLevel[];
+
 /** A lower-precedence level's value for a field some higher level won. */
 export interface ShadowedCapabilityValue {
 	readonly level: CapabilityLevel;

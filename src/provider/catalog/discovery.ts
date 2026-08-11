@@ -329,6 +329,17 @@ export function mergeModelDeployments(deployments: ModelDeployments): MappedMode
 
 export interface FetchModelsResult {
 	models: LiteLLMModelItem[];
+	/**
+	 * The sorted union of model_info keys observed across the /model/info
+	 * items, present ONLY when that listing succeeded (absent on the /models
+	 * fallback and on failure): downstream advisory hints must be able to tell
+	 * "the server reports these fields" from "nothing was observed". Collected
+	 * from the RAW entries, before parsing and the blocked/non-chat filters
+	 * (the keys were on the wire either way, even on an entry too malformed to
+	 * register), and capped at OBSERVED_MODEL_INFO_KEYS_MAX after the sort, so
+	 * a hostile payload cannot balloon the status window.
+	 */
+	observedModelInfoKeys?: readonly string[];
 }
 
 /**
@@ -454,7 +465,13 @@ interface NarrowedModelInfoData {
 	 * list, not a fallback that re-lists the blocked models.
 	 */
 	usableEntryCount: number;
+	/** See FetchModelsResult.observedModelInfoKeys; sorted and capped here. */
+	observedModelInfoKeys: readonly string[];
 }
+
+/** Defensive bounds on the observed-key union: count (deterministic - sort first, then truncate) and per-key length (an oversized key is dropped, not clipped, so truncation can never alias two keys). Real model_info keys are a few dozen characters. */
+const OBSERVED_MODEL_INFO_KEYS_MAX = 512;
+const OBSERVED_MODEL_INFO_KEY_MAX_LENGTH = 128;
 
 /**
  * model_info.mode values that provably serve a non-chat endpoint: selecting
@@ -482,12 +499,24 @@ const NON_CHAT_MODES: readonly string[] = [
  */
 function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): NarrowedModelInfoData {
 	let usableEntryCount = 0;
+	const observedKeys = new Set<string>();
 	type Slot =
 		| { kind: "deployments"; group: [MappedModelInfo, ...MappedModelInfo[]] }
 		| { kind: "model"; model: LiteLLMModelItem };
 	const slots: Slot[] = [];
 	const deploymentsById = new Map<string, [MappedModelInfo, ...MappedModelInfo[]]>();
 	for (const entry of data) {
+		// Raw keys, before any parsing: the union covers every entry that
+		// carries a model_info object on the wire - malformed entries (no
+		// usable model id) and listing-shaped entries included - because the
+		// keys were observed either way.
+		if (isRecord(entry) && isRecord(entry.model_info)) {
+			for (const key of Object.keys(entry.model_info)) {
+				if (key.length <= OBSERVED_MODEL_INFO_KEY_MAX_LENGTH) {
+					observedKeys.add(key);
+				}
+			}
+		}
 		const parsed = parseModelInfoItem(entry);
 		if (parsed !== undefined) {
 			usableEntryCount += 1;
@@ -524,7 +553,8 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): N
 	const models = slots.map((slot) =>
 		slot.kind === "deployments" ? toModelItem(mergeModelDeployments(slot.group)) : slot.model
 	);
-	return { models, usableEntryCount };
+	const observedModelInfoKeys = [...observedKeys].sort().slice(0, OBSERVED_MODEL_INFO_KEYS_MAX);
+	return { models, usableEntryCount, observedModelInfoKeys };
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
@@ -555,7 +585,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			const data: unknown[] = parsedInfo.data;
 			log("Parsed model/info response:", { modelCount: data.length });
 
-			const { models, usableEntryCount } = narrowModelInfoData(data, log);
+			const { models, usableEntryCount, observedModelInfoKeys } = narrowModelInfoData(data, log);
 			if (data.length > 0 && usableEntryCount === 0) {
 				log("model/info returned data but no usable models; falling back", {
 					dataLength: data.length,
@@ -563,7 +593,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				});
 			} else {
 				log("Successfully fetched models:", models.length);
-				return { models };
+				return { models, observedModelInfoKeys };
 			}
 		} else {
 			log("model/info response has no data array; falling back", { payload: truncateForLog(parsedInfo) });

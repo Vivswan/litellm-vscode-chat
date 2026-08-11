@@ -707,6 +707,110 @@ suite("provider", () => {
 			}
 		});
 
+		test("the server baseline carries the consumed fields under registration's exact per-shape rules", () => {
+			const groq = {
+				provider: "groq",
+				status: "active",
+				supports_tools: true,
+				supports_prompt_caching: true,
+				supports_response_schema: true,
+				supported_openai_params: ["temperature", "reasoning_effort"],
+				input_cost_per_token: 0.000001,
+				output_cost_per_token: 0.000002,
+			};
+			const together = {
+				...groq,
+				provider: "together",
+				supports_prompt_caching: false,
+				// A mixed-type pass-through list: the baseline's element-wise
+				// re-narrowing keeps only non-empty strings.
+				supported_openai_params: ["temperature", 42, ""] as unknown as string[],
+				input_cost_per_token: 0.000002,
+			};
+			const { infos } = buildModelInfos(
+				[
+					{
+						id: "sole",
+						shape: { kind: "deployment", provider: { ...groq, provider: "openai" } },
+						architecture: { input_modalities: ["text", "image", "pdf"] },
+					},
+					{
+						id: "stamped",
+						shape: {
+							kind: "deployment",
+							provider: {
+								...groq,
+								provider: "openai",
+								input_cost_per_token: 0,
+								output_cost_per_token: 0,
+								cache_read_input_token_cost: 0.0000003,
+							},
+						},
+					},
+					{
+						id: "negzero",
+						shape: {
+							kind: "deployment",
+							provider: { ...groq, provider: "openai", input_cost_per_token: -0 },
+						},
+					},
+					{ id: "multi", shape: { kind: "group", providers: [groq, together] } },
+				],
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				1,
+				() => {}
+			);
+			const byId = new Map(infos.map((i) => [i.id, i]));
+			const baseline = (id: string) => {
+				const declared = expectDefined(byId.get(id), `missing entry ${id}`).litellm.serverDeclared;
+				assert.ok(declared.kind === "discovered", `${id} must carry a discovered baseline`);
+				return declared.values;
+			};
+
+			const sole = baseline("sole");
+			assert.strictEqual(sole.supports_prompt_caching, true);
+			assert.strictEqual(sole.supports_response_schema, true);
+			assert.deepStrictEqual(sole.supported_openai_params, ["temperature", "reasoning_effort"]);
+			assert.strictEqual(sole.supports_pdf_input, true, "pdf derives from the reported modalities array");
+			assert.strictEqual(sole.input_cost_per_token, 0.000001, "a priced shape stores its per-token costs");
+			assert.strictEqual(sole.output_cost_per_token, 0.000002);
+
+			const stamped = baseline("stamped");
+			assert.ok(!("input_cost_per_token" in stamped), "the 0/0 stamp is undeclared, not free");
+			assert.ok(!("cache_read_input_token_cost" in stamped), "the stamp drops the stray cache cost too");
+
+			const negzero = baseline("negzero");
+			assert.ok(
+				Object.is(negzero.input_cost_per_token, 0) && !Object.is(negzero.input_cost_per_token, -0),
+				"a -0 cost canonicalizes to +0 in the baseline"
+			);
+
+			const aggregate = baseline("multi:cheapest");
+			assert.ok(
+				!("input_cost_per_token" in aggregate),
+				"aggregates never price, so their baseline must not offer a cost the picker refused"
+			);
+			assert.strictEqual(
+				aggregate.supports_prompt_caching,
+				false,
+				"the every-contributor rule, exactly as the registered metadata gates"
+			);
+			assert.deepStrictEqual(
+				aggregate.supported_openai_params,
+				["temperature"],
+				"the params list intersects across contributors"
+			);
+			assert.ok(!("supports_pdf_input" in aggregate), "no modalities array means the pdf flag stays unreported");
+
+			const perProvider = baseline("multi:groq");
+			assert.strictEqual(
+				perProvider.input_cost_per_token,
+				0.000001,
+				"per-provider entries price, so their baseline carries their own costs"
+			);
+			assert.strictEqual(perProvider.supports_prompt_caching, true);
+		});
+
 		test("priceCategory bands follow the blended base cost, unmoved by long-context tiers", () => {
 			// Symmetric input/output costs make the blend equal the per-million
 			// cost itself ((3x + x) / 4 = x), so each case pins one band boundary

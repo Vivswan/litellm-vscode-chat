@@ -1,11 +1,12 @@
 /**
  * The attach-side override application and declared-model synthesis: coherent
- * rebuilds (token constraints, capability flags, the reasoning control,
- * outputLimitSource promotion, stale catalog-pricing strips), the
- * object-identity fast path when no configuration matches, inertness against
- * the DISCOVERED raw-ID set, and collision suppression against reserved
- * exposed IDs. The seed-pinned equivalence twin lives in
- * capabilityOverrides.property.test.ts.
+ * rebuilds (token constraints, capability flags, the reasoning gate over the
+ * flag and the supported-params list, the caching gate, pricing re-derived
+ * from the effective cost fields, outputLimitSource promotion, stale
+ * catalog-pricing strips), the object-identity fast path when no consumed
+ * configuration matches, inertness against the DISCOVERED raw-ID set, and
+ * collision suppression against reserved exposed IDs. The seed-pinned
+ * equivalence twin lives in capabilityOverrides.property.test.ts.
  */
 import * as assert from "node:assert";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
@@ -224,7 +225,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 		test("a stale catalog-priced copy is stripped: pricing is no longer catalog-sourced", () => {
 			// Stale-served window copies from before the pricing redesign can still
 			// carry catalog-applied pricing under the catalogPricing marker; the
-			// rebuild strips it instead of letting it read as server pricing.
+			// rebuild strips it instead of letting it read as server pricing, and
+			// the healed copy stays unpriced (and on the fast path) afterwards.
 			const bare: LiteLLMModelItem = { id: "gpt-test", shape: { kind: "bare" } };
 			const info = registered(bare);
 			const stale = {
@@ -239,10 +241,328 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(stripped[0]?.outputCost, undefined);
 			assert.strictEqual(stripped[0]?.pricing, undefined);
 			assert.strictEqual(stripped[0]?.litellm.catalogPricing, undefined);
+			const healed = applyCapabilityOverrides(stripped, SERVER, options());
+			assert.strictEqual(healed, stripped, "the healed copy is unpriced and takes the identity fast path");
 
 			const server = applyCapabilityOverrides([registered(DEPLOYMENT)], SERVER, options());
 			assert.strictEqual(server[0]?.inputCost, 3, "server-reported pricing rides untouched");
 			assert.strictEqual(server[0]?.outputCost, 15);
+		});
+
+		test("a user cost record prices a discovered model, beating the server's cost", () => {
+			const out = applyCapabilityOverrides(
+				[registered(DEPLOYMENT)],
+				SERVER,
+				options({
+					globalCapabilities: { "gpt-test": { input_cost_per_token: 0.000001, output_cost_per_token: 0.000002 } },
+				})
+			);
+			const priced = out[0];
+			assert.ok(priced !== undefined);
+			assert.strictEqual(priced.inputCost, 1, "the user's per-token cost beats the server's 0.000003");
+			assert.strictEqual(priced.outputCost, 2);
+			assert.strictEqual(priced.pricing, "$1 in / $2 out per 1M tokens");
+			assert.strictEqual(priced.priceCategory, "medium", "blended (3*1+2)/4 = 1.25 lands in the medium band");
+		});
+
+		test("a user 0/0 cost pair prices as genuinely free: $0 label and the cheapest badge", () => {
+			const out = applyCapabilityOverrides(
+				[registered(DEPLOYMENT)],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { input_cost_per_token: 0, output_cost_per_token: 0 } } })
+			);
+			const free = out[0];
+			assert.ok(free !== undefined);
+			assert.strictEqual(free.inputCost, 0);
+			assert.strictEqual(free.outputCost, 0);
+			assert.strictEqual(free.pricing, "$0 in / $0 out per 1M tokens");
+			assert.strictEqual(free.priceCategory, "low", "a genuinely free model earns the cheapest badge");
+		});
+
+		test("the server's 0/0 stamp stays undeclared: a rebuild adds no pricing fields", () => {
+			const stamped: LiteLLMModelItem = {
+				id: "gpt-test",
+				shape: {
+					kind: "deployment",
+					provider: {
+						...DEPLOYMENT_PROVIDER,
+						input_cost_per_token: 0,
+						output_cost_per_token: 0,
+						cache_read_input_token_cost: 0.0000003,
+					},
+				},
+			};
+			const infos = [registered(stamped)];
+			// An unrelated override forces the rebuild path; the stamp (and the
+			// stray cache cost beside it) must not resurface as pricing.
+			const out = applyCapabilityOverrides(
+				infos,
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { supports_vision: false } } })
+			);
+			const rebuilt = out[0];
+			assert.ok(rebuilt !== undefined);
+			assert.notStrictEqual(rebuilt, infos[0], "the vision override forces the rebuild path");
+			for (const key of ["inputCost", "outputCost", "cacheCost", "priceCategory", "pricing"] as const) {
+				assert.ok(!(key in rebuilt), `the 0/0 stamp must rebuild with no ${key}`);
+			}
+		});
+
+		test("server pricing re-derives byte-identical on a rebuild forced by an unrelated override", () => {
+			const priced: LiteLLMModelItem = {
+				id: "gpt-test",
+				shape: {
+					kind: "deployment",
+					provider: {
+						...DEPLOYMENT_PROVIDER,
+						cache_read_input_token_cost: 0.0000003,
+						cache_creation_input_token_cost: 0.00000375,
+						long_context_input_cost_per_token: 0.000006,
+						long_context_output_cost_per_token: 0.0000225,
+						long_context_cache_read_input_token_cost: 0.0000003,
+						long_context_cache_creation_input_token_cost: 0.0000075,
+					},
+				},
+			};
+			const infos = [registered(priced)];
+			const out = applyCapabilityOverrides(
+				infos,
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { supports_audio_input: true } } })
+			);
+			const rebuilt = out[0];
+			const original = infos[0];
+			assert.ok(rebuilt !== undefined && original !== undefined);
+			assert.notStrictEqual(rebuilt, original, "the audio override forces the rebuild path");
+			for (const key of [
+				"inputCost",
+				"outputCost",
+				"cacheCost",
+				"cacheWriteCost",
+				"longContextInputCost",
+				"longContextOutputCost",
+				"longContextCacheCost",
+				"longContextCacheWriteCost",
+				"priceCategory",
+				"pricing",
+			] as const) {
+				assert.strictEqual(rebuilt[key], original[key], `${key} must re-derive exactly as registration priced it`);
+			}
+			assert.strictEqual(rebuilt.longContextInputCost, 6, "the tier price differs from base, so it rides");
+			assert.strictEqual(rebuilt.longContextOutputCost, 22.5);
+			assert.strictEqual(rebuilt.longContextCacheWriteCost, 7.5);
+			assert.ok(
+				!("longContextCacheCost" in rebuilt),
+				"a tier cost identical to its base is omitted, as at registration"
+			);
+		});
+
+		test("a user override on one side of the pair leaves the server's other side priced", () => {
+			const out = applyCapabilityOverrides(
+				[registered(DEPLOYMENT)],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { input_cost_per_token: 0.00001 } } })
+			);
+			const mixed = out[0];
+			assert.ok(mixed !== undefined);
+			assert.strictEqual(mixed.inputCost, 10, "the user's input cost wins");
+			assert.strictEqual(mixed.outputCost, 15, "the server's output cost stays");
+			assert.strictEqual(mixed.pricing, "$10 in / $15 out per 1M tokens");
+		});
+
+		test("a stored copy priced under a removed user cost record heals back to the server price", () => {
+			// The pricing clause of advertisesEffective exists for exactly this:
+			// a stale window copy rebuilt under an earlier configuration must
+			// re-price from the server once the record is gone, then settle on
+			// the identity fast path.
+			const priced = applyCapabilityOverrides(
+				[registered(DEPLOYMENT)],
+				SERVER,
+				options({
+					globalCapabilities: { "gpt-test": { input_cost_per_token: 0.000001, output_cost_per_token: 0.000002 } },
+				})
+			);
+			assert.strictEqual(priced[0]?.inputCost, 1);
+			const healed = applyCapabilityOverrides(priced, SERVER, options());
+			assert.strictEqual(healed[0]?.inputCost, 3, "the server price returns once the record is gone");
+			assert.strictEqual(healed[0]?.outputCost, 15);
+			assert.strictEqual(healed[0]?.pricing, "$3 in / $15 out per 1M tokens");
+			const settled = applyCapabilityOverrides(healed, SERVER, options());
+			assert.strictEqual(settled, healed, "the healed copy takes the identity fast path");
+		});
+
+		test("sub-unit dust re-derives byte-identical: no $0 label sneaks in through the rebuild", () => {
+			// Both costs are real but round to 0 per million; registration
+			// deliberately withholds the label and badge, and the effective-field
+			// rebuild must reproduce that exactly (the relaxed zero-pair rule is
+			// for RAW user-written 0/0 only), or the fast path could never hold.
+			const dust: LiteLLMModelItem = {
+				id: "gpt-test",
+				shape: {
+					kind: "deployment",
+					provider: { ...DEPLOYMENT_PROVIDER, input_cost_per_token: 1e-13, output_cost_per_token: 2e-13 },
+				},
+			};
+			const infos = [registered(dust)];
+			assert.strictEqual(infos[0]?.inputCost, 0, "dust rounds to a 0 numeric field at registration");
+			assert.strictEqual(infos[0]?.pricing, undefined, "but earns no label");
+			const out = applyCapabilityOverrides(
+				infos,
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { supports_audio_input: true } } })
+			);
+			assert.strictEqual(out[0]?.inputCost, 0);
+			assert.strictEqual(out[0]?.outputCost, 0);
+			assert.strictEqual(out[0]?.pricing, undefined, "the rebuild must not present dust as free");
+			assert.strictEqual(out[0]?.priceCategory, undefined);
+		});
+
+		test("user-written dust gets no label either: only a RAW 0/0 pair reads as free", () => {
+			const out = applyCapabilityOverrides(
+				[registered(DEPLOYMENT)],
+				SERVER,
+				options({
+					globalCapabilities: { "gpt-test": { input_cost_per_token: 1e-13, output_cost_per_token: 1e-13 } },
+				})
+			);
+			const dusty = out[0];
+			assert.ok(dusty !== undefined);
+			assert.strictEqual(dusty.inputCost, 0, "the numeric fields round to 0");
+			assert.strictEqual(dusty.outputCost, 0);
+			assert.strictEqual(dusty.pricing, undefined, "a pair that merely rounds to 0/0 earns no label");
+			assert.strictEqual(dusty.priceCategory, undefined);
+		});
+
+		test("a supports_prompt_caching override flips the caching gate both ways", () => {
+			const promoted = applyCapabilityOverrides(
+				[registered(DEPLOYMENT)],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { supports_prompt_caching: true } } })
+			);
+			assert.strictEqual(promoted[0]?.litellm.supportsPromptCaching, true, "the override promotes the gate");
+
+			const caching: LiteLLMModelItem = {
+				id: "gpt-test",
+				shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_prompt_caching: true } },
+			};
+			const withCaching = registered(caching);
+			assert.strictEqual(withCaching.litellm.supportsPromptCaching, true);
+			const demoted = applyCapabilityOverrides(
+				[withCaching],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { supports_prompt_caching: false } } })
+			);
+			assert.strictEqual(demoted[0]?.litellm.supportsPromptCaching, false, "the override demotes the server's flag");
+		});
+
+		suite("reasoningGate", () => {
+			test("the flag beats the params list at the same level", () => {
+				// One record carries both signals: the explicit flag wins the tie,
+				// matching the registration-side flag-beats-list rule.
+				const out = applyCapabilityOverrides(
+					[registered(DEPLOYMENT)],
+					SERVER,
+					options({
+						globalCapabilities: {
+							"gpt-test": { supports_reasoning: false, supported_openai_params: ["reasoning_effort"] },
+						},
+					})
+				);
+				assert.strictEqual(out[0]?.configurationSchema, undefined, "the flag's false beats the list's promotion");
+			});
+
+			test("a user params list outranks the floor's no-signal false", () => {
+				// DEPLOYMENT reports no reasoning data, so the flag resolves at the
+				// floor - a backstop, not a demotion - and the params list decides.
+				const out = applyCapabilityOverrides(
+					[registered(DEPLOYMENT)],
+					SERVER,
+					options({ globalCapabilities: { "gpt-test": { supported_openai_params: ["reasoning_effort"] } } })
+				);
+				assert.deepStrictEqual(out[0]?.configurationSchema, REASONING_EFFORT_SCHEMA);
+			});
+
+			test("a winning params list without reasoning_effort demotes the control", () => {
+				const reasoningItem: LiteLLMModelItem = {
+					...DEPLOYMENT,
+					shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+				};
+				const withSchema = registered(reasoningItem);
+				assert.notStrictEqual(withSchema.configurationSchema, undefined);
+				const out = applyCapabilityOverrides(
+					[withSchema],
+					SERVER,
+					options({ globalCapabilities: { "gpt-test": { supported_openai_params: ["temperature"] } } })
+				);
+				assert.strictEqual(
+					out[0]?.configurationSchema,
+					undefined,
+					"a user-declared params list at a higher level than the server flag decides"
+				);
+			});
+
+			test("an empty params list is a real demotion signal when it wins", () => {
+				const reasoningItem: LiteLLMModelItem = {
+					...DEPLOYMENT,
+					shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+				};
+				const out = applyCapabilityOverrides(
+					[registered(reasoningItem)],
+					SERVER,
+					options({ globalCapabilities: { "gpt-test": { supported_openai_params: [] } } })
+				);
+				assert.strictEqual(out[0]?.configurationSchema, undefined, "an empty list carries no reasoning_effort");
+			});
+
+			test("a params list in the entry record outranks a flag in the global record", () => {
+				const out = applyCapabilityOverrides(
+					[registered(DEPLOYMENT)],
+					SERVER,
+					options({
+						globalCapabilities: { "gpt-test": { supports_reasoning: false } },
+						entryCapabilities: { "gpt-test": { supported_openai_params: ["reasoning_effort"] } },
+					})
+				);
+				assert.deepStrictEqual(
+					out[0]?.configurationSchema,
+					REASONING_EFFORT_SCHEMA,
+					"entry beats global, whichever of the two fields each layer carries"
+				);
+			});
+
+			test("a fallback-demoted params list loses to the server's flag", () => {
+				const reasoningItem: LiteLLMModelItem = {
+					...DEPLOYMENT,
+					shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+				};
+				const out = applyCapabilityOverrides(
+					[registered(reasoningItem)],
+					SERVER,
+					options({
+						globalCapabilities: { "gpt-test": { _fallback: true, supported_openai_params: ["temperature"] } },
+					})
+				);
+				assert.deepStrictEqual(
+					out[0]?.configurationSchema,
+					REASONING_EFFORT_SCHEMA,
+					"a _fallback list sits below the server level, so the server's flag keeps the control"
+				);
+			});
+		});
+
+		test("a pdf/schema-only configuration keeps the identity fast path", () => {
+			// supports_pdf_input and supports_response_schema resolve and display
+			// but feed no registered artifact yet, so they must not rebuild.
+			const infos = [registered(DEPLOYMENT)];
+			const out = applyCapabilityOverrides(
+				infos,
+				SERVER,
+				options({
+					globalCapabilities: { "gpt-test": { supports_pdf_input: true, supports_response_schema: true } },
+				})
+			);
+			assert.strictEqual(out, infos, "pdf/schema overrides gate nothing at registration");
+			assert.strictEqual(out[0], infos[0]);
 		});
 
 		test("record problems log one classification per distinct problem, not one per model", () => {
@@ -251,11 +571,17 @@ suite("provider/catalog/capabilityOverrides", () => {
 				[makeModelInfo({ id: "a-model" }), makeModelInfo({ id: "a-second" })],
 				SERVER,
 				options({
-					globalCapabilities: { "a-*": { bogus_key: 1, supports_vision: true } },
+					globalCapabilities: { "a-*": { bogus_key: 1, max_output_tokens: -5, supports_vision: true } },
 					log: (message) => logged.push(message),
 				})
 			);
-			assert.deepStrictEqual(logged, ["Ignoring a modelCapabilities record problem"]);
+			// The unrecognized key is applied as-is (informational); the invalid
+			// value is a real problem the resolution ignored. One line each, not
+			// one per model, and never a value.
+			assert.deepStrictEqual(logged, [
+				"Applying an unrecognized capability field as-is",
+				"Ignoring a modelCapabilities record problem",
+			]);
 		});
 	});
 
@@ -374,6 +700,50 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.deepStrictEqual(
 				infos.map((info) => info.id),
 				["twin"]
+			);
+		});
+
+		test("a declared model with an entry cost record registers priced", () => {
+			// No server level exists at all for a declared model; the user's cost
+			// record is the only price source and must reach the picker.
+			const { infos } = synthesizeDeclaredModels(
+				new Set(),
+				new Set(),
+				SERVER,
+				1,
+				options({
+					entryCapabilities: { "my-model": { input_cost_per_token: 0.000003, output_cost_per_token: 0.000015 } },
+					entryDeclaredModels: ["my-model"],
+				})
+			);
+			const declared = infos[0];
+			assert.ok(declared !== undefined);
+			assert.strictEqual(declared.inputCost, 3);
+			assert.strictEqual(declared.outputCost, 15);
+			assert.strictEqual(declared.pricing, "$3 in / $15 out per 1M tokens");
+			assert.strictEqual(declared.priceCategory, "medium");
+		});
+
+		test("a declared model honors caching and reasoning-params records like a discovered one", () => {
+			const { infos } = synthesizeDeclaredModels(
+				new Set(),
+				new Set(),
+				SERVER,
+				1,
+				options({
+					entryCapabilities: {
+						"my-model": { supports_prompt_caching: true, supported_openai_params: ["reasoning_effort"] },
+					},
+					entryDeclaredModels: ["my-model"],
+				})
+			);
+			const declared = infos[0];
+			assert.ok(declared !== undefined);
+			assert.strictEqual(declared.litellm.supportsPromptCaching, true, "declared models no longer hardcode false");
+			assert.deepStrictEqual(
+				declared.configurationSchema,
+				REASONING_EFFORT_SCHEMA,
+				"a params list with reasoning_effort promotes the control over the floor"
 			);
 		});
 	});

@@ -167,6 +167,82 @@ suite("provider server snapshots", () => {
 		});
 	});
 
+	test("snapshots carry the observed model_info keys, carried forward across failure reports", async () => {
+		const provider = makeProvider();
+		let fail = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+
+		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+			const healthy = expectDefined(provider.getServerSnapshots()[0]);
+			assert.deepStrictEqual(
+				healthy.observedModelInfoKeys,
+				["id", "max_input_tokens", "max_output_tokens", "supports_function_calling"],
+				"a successful /model/info listing records its observed keys, sorted"
+			);
+
+			fail = true;
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+			const failed = expectDefined(provider.getServerSnapshots()[0]);
+			assert.strictEqual(failed.status.state, "error");
+			assert.deepStrictEqual(
+				failed.observedModelInfoKeys,
+				["id", "max_input_tokens", "max_output_tokens", "supports_function_calling"],
+				"a mid-outage refresh must not blank the observed-key set"
+			);
+		});
+	});
+
+	test("a group discovered through the /v1/models fallback records no observed model_info keys", async () => {
+		const provider = makeProvider();
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+			http.get(MODELS_URL, () => HttpResponse.json({ object: "list", data: [{ id: "fallback-model" }] }))
+		);
+
+		await provider.provideLanguageModelChatInformation(
+			groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k" }),
+			cancellation()
+		);
+
+		const snapshot = expectDefined(provider.getServerSnapshots()[0]);
+		assert.strictEqual(snapshot.status.state, "ok");
+		assert.strictEqual(
+			snapshot.observedModelInfoKeys,
+			undefined,
+			"the fallback listing observes no model_info, so the snapshot must not claim an empty set"
+		);
+	});
+
+	test("a later fallback-only success replaces the observed keys with absence, like discoveredRawIds", async () => {
+		// Carry-forward is a failure-report rule only: a SUCCESSFUL refresh
+		// replaces the observations wholesale, so a server that degrades from
+		// /model/info to the /models fallback stops claiming keys its current
+		// listing no longer reports.
+		const provider = makeProvider();
+		let fallbackOnly = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () =>
+				fallbackOnly ? emptyErrorResponse(404) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)
+			),
+			http.get(MODELS_URL, () => HttpResponse.json({ object: "list", data: [{ id: "test-model" }] }))
+		);
+
+		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+			assert.notStrictEqual(expectDefined(provider.getServerSnapshots()[0]).observedModelInfoKeys, undefined);
+
+			fallbackOnly = true;
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+			const degraded = expectDefined(provider.getServerSnapshots()[0]);
+			assert.strictEqual(degraded.status.state, "ok");
+			assert.strictEqual(degraded.observedModelInfoKeys, undefined);
+		});
+	});
+
 	test("hasSeenGroupConfiguration latches when the host hands a group, before any snapshot exists", async () => {
 		const provider = makeProvider();
 		// A failing discovery, so the group produces no snapshot rows even though
