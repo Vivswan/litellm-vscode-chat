@@ -17,7 +17,12 @@ const MIN_DELAY_MS = 60_000;
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
 const fixtureText = fs.readFileSync(path.join(repoRoot, "src", "test", "fixtures", "openrouter-models.json"), "utf8");
 
-/** A payload distinguishable from the fixture, in the live endpoint's shape, over the runtime model-count floor. */
+/**
+ * A payload distinguishable from the fixture, in the live endpoint's shape,
+ * over the runtime model-count floor. The live endpoint carries a pricing
+ * block; the store's slimmed cache must never keep it (LiteLLM is the only
+ * pricing source).
+ */
 const refreshedPayload = {
 	data: Array.from({ length: 250 }, (_, index) => ({
 		id: `refreshed/model-${index}`,
@@ -242,9 +247,12 @@ suite("extension openRouterCatalog store", () => {
 		assert.strictEqual(harness.store.lookup.byExactId("refreshed/model-1").kind, "found");
 		assert.strictEqual(harness.store.lookup.byExactId("anthropic/claude-sonnet-4.5").kind, "not-found");
 
-		// The cache file is the slimmed artifact, parseable and complete.
-		const written = JSON.parse(fs.readFileSync(harness.cachePath, "utf8")) as { data: unknown[] };
+		// The cache file is the slimmed artifact, parseable and complete, and
+		// the live payload's pricing blocks did not survive slimming.
+		const writtenText = fs.readFileSync(harness.cachePath, "utf8");
+		const written = JSON.parse(writtenText) as { data: unknown[] };
 		assert.strictEqual(written.data.length, 250);
+		assert.ok(!writtenText.includes("pricing"), "pricing keys reached the persisted catalog cache");
 		// Temp-then-rename left no temp file behind.
 		assert.deepStrictEqual(
 			fs.readdirSync(harness.storageDir).filter((name) => name.includes(".tmp")),

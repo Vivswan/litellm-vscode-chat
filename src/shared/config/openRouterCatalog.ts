@@ -2,11 +2,18 @@
  * The OpenRouter capability catalog: the mapping from OpenRouter's /models
  * payload to the core capability vocabulary, the slimming that produces the
  * packaged dist/openrouter-models.json artifact, and the lookup the resolver
- * consumes (capabilityResolution's CapabilityCatalogLookup). Pure (no vscode,
- * no zod, no Node) and lenient by contract: the catalog is best-effort backfill
- * data, so every parser here degrades malformed input to absence instead of
- * throwing - a broken snapshot yields an empty catalog, never a broken
- * activation. Consumed by the runtime store (src/extension/openRouterCatalog.ts)
+ * consumes (capabilityResolution's CapabilityCatalogLookup). The catalog maps
+ * capabilities only - context_length, max_output_tokens, supports_vision,
+ * supports_function_calling, supports_reasoning, plus id and name for the
+ * directive picker; pricing deliberately never rides the catalog: LiteLLM's
+ * /model/info is the only pricing source. Pure (no vscode, no zod, no Node)
+ * and lenient by contract: the catalog is best-effort backfill data, so every
+ * parser here degrades malformed input to absence instead of throwing - a
+ * broken snapshot yields an empty catalog, never a broken activation. That
+ * leniency also covers legacy artifacts: slim files cached or packaged while
+ * slimming still kept OpenRouter's pricing block, parse unchanged (the mapping
+ * ignores unmapped keys), and re-slimming them sheds the pricing keys.
+ * Consumed by the runtime store (src/extension/openRouterCatalog.ts)
  * and the build-time fetch script (scripts/dev/fetch-openrouter-catalog.ts);
  * never imported anywhere reachable from src/webview/.
  */
@@ -161,10 +168,11 @@ export function parseCatalogSnapshot(payload: unknown): OpenRouterCatalogSnapsho
 
 /**
  * Slim one entry to the wire subset the mapping consumes, normalizing as it
- * goes (numbers parsed, costs re-encoded as canonical strings, token lists
- * reduced to the mapped tokens in a fixed order) so the artifact is
- * deterministic and mapping-equivalent to its source: parsing the slimmed
- * entry yields exactly what parsing the raw entry did.
+ * goes (numbers parsed, token lists reduced to the mapped tokens in a fixed
+ * order) so the artifact is deterministic and mapping-equivalent to its
+ * source: parsing the slimmed entry yields exactly what parsing the raw
+ * entry did. Unmapped source keys - OpenRouter's pricing block among them -
+ * never survive slimming.
  */
 function slimEntry(entry: unknown): SlimOpenRouterModel | undefined {
 	const model = mapOpenRouterEntry(entry);

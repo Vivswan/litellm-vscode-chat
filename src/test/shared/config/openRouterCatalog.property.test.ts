@@ -50,13 +50,10 @@ const entryArb = fc.oneof(
 					fc.record({ max_completion_tokens: fc.oneof(fc.integer({ min: -10, max: 200_000 }), fc.constant(null)) }),
 					fc.constant(null)
 				),
-				pricing: fc.oneof(
-					fc.record(
-						{ prompt: fc.oneof(fc.constant("0.000001"), fc.constant("-1"), fc.double().map(String), fc.integer()) },
-						{ requiredKeys: [] }
-					),
-					fc.constant([])
-				),
+				// An unmapped wire key (the live payload carries several, and
+				// legacy slim artifacts still carry pricing blocks): mapping and
+				// slimming must ignore it whatever shape it takes.
+				description: fc.jsonValue({ maxDepth: 2 }),
 				supported_parameters: fc.oneof(
 					fc.array(fc.oneof(fc.constantFrom("tools", "reasoning", "temperature"), fc.integer())),
 					fc.constant("tools")
@@ -74,6 +71,20 @@ const payloadArb = fc.oneof(
 	{ arbitrary: fc.array(entryArb, { maxLength: 12 }), weight: 1 },
 	{ arbitrary: fc.jsonValue({ maxDepth: 3 }), weight: 1 }
 );
+
+/**
+ * The complete wire-key vocabulary a slimmed entry may carry. Slimming
+ * rebuilds each entry from the mapped fields, so an unmapped source key
+ * (a legacy pricing block included) must never survive into the artifact.
+ */
+const SLIM_WIRE_KEYS = new Set([
+	"id",
+	"name",
+	"context_length",
+	"architecture",
+	"top_provider",
+	"supported_parameters",
+]);
 
 /** Every produced model must be well-formed: non-blank id, vocabulary-typed fields. */
 function assertWellFormed(models: readonly CatalogModel[]): void {
@@ -130,6 +141,15 @@ suite("shared/config openRouterCatalog properties", () => {
 					JSON.stringify(slim),
 					"slimming is not idempotent"
 				);
+
+				// Closed key set: mapping-equivalence and idempotency alone are
+				// blind to an unmapped key riding along (it changes no parsed
+				// model and keeps surviving re-slims), so pin the vocabulary.
+				for (const entry of slim.data) {
+					for (const key of Object.keys(entry)) {
+						assert.ok(SLIM_WIRE_KEYS.has(key), `unmapped key ${key} survived slimming`);
+					}
+				}
 
 				const raw = new Map(parseCatalogSnapshot(payload).models.map((model) => [model.id, model]));
 				const slimmed = parseCatalogSnapshot(slim).models;

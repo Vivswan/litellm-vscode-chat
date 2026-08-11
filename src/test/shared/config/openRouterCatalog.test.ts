@@ -49,8 +49,8 @@ suite("shared/config openRouterCatalog mapping", () => {
 	test("absent lists and absent numbers leave their fields unset", () => {
 		// No architecture and no supported_parameters: every boolean stays
 		// unset so lower precedence levels keep those fields. The numeric
-		// string context_length parses leniently; pricing keys and the null
-		// max_completion_tokens are dropped.
+		// string context_length parses leniently, and the legacy pricing
+		// block this fixture entry keeps is ignored.
 		assert.deepStrictEqual(modelById("mistralai/mistral-tiny"), {
 			id: "mistralai/mistral-tiny",
 			name: "Mistral Tiny",
@@ -83,6 +83,7 @@ suite("shared/config openRouterCatalog mapping", () => {
 				context_length: -5,
 				architecture: { input_modalities: "image" },
 				top_provider: { max_completion_tokens: 1.5 },
+				// A malformed legacy pricing block is just unmapped-key noise.
 				pricing: { prompt: "-0.001", completion: [] },
 				supported_parameters: [{ tools: true }, "tools"],
 			}),
@@ -193,5 +194,68 @@ suite("shared/config openRouterCatalog slimming", () => {
 		for (const model of fromSlim) {
 			assert.deepStrictEqual(model, fromRaw.get(model.id));
 		}
+	});
+
+	test("legacy slim artifacts that still carry pricing blocks parse fine and re-slim without them", () => {
+		// Cached catalog files under globalStorage and older packaged
+		// dist/openrouter-models.json artifacts were slimmed while pricing
+		// still rode the catalog. The decoder must keep reading them - the
+		// keys are simply ignored - and nothing pricing-derived may reach a
+		// snapshot, a lookup result, or a re-encoded artifact.
+		const legacySlimFile = {
+			data: [
+				{
+					id: "anthropic/claude-3.5-sonnet",
+					name: "Anthropic: Claude 3.5 Sonnet",
+					context_length: 200000,
+					architecture: { input_modalities: ["image"] },
+					top_provider: { max_completion_tokens: 8192 },
+					pricing: { prompt: "0.000003", completion: "0.000015" },
+					supported_parameters: ["tools"],
+				},
+				{
+					id: "free/model",
+					pricing: { prompt: "0", completion: "0" },
+				},
+			],
+		};
+
+		const snapshot = parseCatalogSnapshot(legacySlimFile);
+		assert.deepStrictEqual(snapshot.models, [
+			{
+				id: "anthropic/claude-3.5-sonnet",
+				name: "Anthropic: Claude 3.5 Sonnet",
+				fields: {
+					context_length: 200000,
+					max_output_tokens: 8192,
+					supports_vision: true,
+					supports_function_calling: true,
+					supports_reasoning: false,
+				},
+			},
+			{ id: "free/model", fields: {} },
+		]);
+
+		const lookup = createCatalogLookup(snapshot, { implicitLookup: true });
+		assert.deepStrictEqual(lookup.byExactId("free/model"), { kind: "found", id: "free/model", fields: {} });
+
+		// The runtime store re-encodes through slimCatalogPayload on every
+		// successful refresh: a legacy file coming back through it sheds the
+		// pricing keys.
+		const reSlimmed = slimCatalogPayload(legacySlimFile);
+		assert.deepStrictEqual(reSlimmed, {
+			data: [
+				{
+					id: "anthropic/claude-3.5-sonnet",
+					name: "Anthropic: Claude 3.5 Sonnet",
+					context_length: 200000,
+					architecture: { input_modalities: ["image"] },
+					top_provider: { max_completion_tokens: 8192 },
+					supported_parameters: ["tools"],
+				},
+				{ id: "free/model" },
+			],
+		});
+		assert.ok(!JSON.stringify(reSlimmed).includes("pricing"));
 	});
 });

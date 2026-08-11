@@ -121,6 +121,15 @@ jobs:
             echo "::error::dist/openrouter-models.json parses to ${catalog_count} models (floor ${catalog_floor})"
             exit 1
           fi
+          # The catalog is capabilities-only: pricing never rides it (LiteLLM
+          # is the only pricing source), so a pricing key in the shipped
+          # artifact means the slim encoder regressed or a stale file slipped
+          # into the package.
+          catalog_priced="$(jq '[.data[] | has("pricing")] | any' dist/openrouter-models.json)"
+          if [ "$catalog_priced" != "false" ]; then
+            echo "::error::dist/openrouter-models.json carries pricing keys; the catalog is capabilities-only"
+            exit 1
+          fi
           # The localization catalogs must ship: without package.nls.json the
           # host renders raw %key% placeholders, and without the English
           # bundle vscode.l10n and the webview injection have nothing to read.
