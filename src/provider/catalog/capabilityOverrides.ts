@@ -45,6 +45,14 @@ export interface CapabilityOverrideOptions {
 	readonly resolution: ModelResolutionTable;
 	/** Classification-only logging (record keys and field names are user configuration, never response text). */
 	readonly log: (message: string, data?: unknown) => void;
+	/**
+	 * The advisory sink for informational notes (Logger.advisory: output
+	 * channel only, never the issue-report buffer). Applying an open field
+	 * as-is is a feature, and it recurs on every serve pass, so it must not
+	 * consume the issue reporter's small ring-buffer budget; real record
+	 * problems go through `log`.
+	 */
+	readonly logAdvisory: (message: string, data?: unknown) => void;
 }
 
 /**
@@ -164,7 +172,7 @@ function promptCachingFrom(fields: EffectiveCapabilityFields): boolean {
  * kind names a real problem the resolution ignored.
  */
 function diagnosticLogger(
-	log: CapabilityOverrideOptions["log"]
+	opts: Pick<CapabilityOverrideOptions, "log" | "logAdvisory">
 ): (diagnostics: readonly CapabilityDiagnostic[]) => void {
 	const seen = new Set<string>();
 	return (diagnostics) => {
@@ -172,12 +180,13 @@ function diagnosticLogger(
 			const key = JSON.stringify([diagnostic.kind, diagnostic.layer, diagnostic.recordKey, diagnostic.key]);
 			if (!seen.has(key)) {
 				seen.add(key);
-				log(
-					diagnostic.kind === "unrecognized-key"
-						? "Applying an unrecognized capability field as-is"
-						: "Ignoring a modelCapabilities record problem",
-					diagnostic
-				);
+				// The advisory sink keeps the recurring open-field note out of the
+				// issue reporter's ring-buffer budget; problems keep the budget.
+				if (diagnostic.kind === "unrecognized-key") {
+					opts.logAdvisory("Applying an unrecognized capability field as-is", diagnostic);
+				} else {
+					opts.log("Ignoring a modelCapabilities record problem", diagnostic);
+				}
 			}
 		}
 	};
@@ -259,7 +268,7 @@ export function applyCapabilityOverrides(
 	opts: CapabilityOverrideOptions
 ): readonly PreAttachModelInfo[] {
 	let changed = false;
-	const logDiagnostics = diagnosticLogger(opts.log);
+	const logDiagnostics = diagnosticLogger(opts);
 	const out = infos.map((info) => {
 		const rawModelId = rawModelIdFromExposed(info.id, server.id);
 		const effective = opts.resolution.resolveCapabilities(server.id, rawModelId, {
@@ -338,7 +347,7 @@ export function synthesizeDeclaredModels(
 	serverCount: number,
 	opts: CapabilityOverrideOptions
 ): DeclaredModelSynthesis {
-	const logDiagnostics = diagnosticLogger(opts.log);
+	const logDiagnostics = diagnosticLogger(opts);
 	// Exact IDs, inert when discovered, config-rebuilt every serve; a
 	// duplicated ID synthesizes once.
 	const specs = [...new Set(opts.entryDeclaredModels ?? [])].map((rawId) => ({ rawId, layer: "entry" as const }));

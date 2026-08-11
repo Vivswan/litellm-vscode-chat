@@ -47,6 +47,22 @@ suite("shared/logger", () => {
 		assert.ok(expectDefined(sinks.bufferLines[1]).includes('with data: {\n  "a": 1\n}'));
 	});
 
+	test("advisory writes the channel only: the issue-report buffer's budget is never consumed", () => {
+		// The buffer is the issue reporter's small ring; recurring informational
+		// notes (open capability fields applied as-is) must not evict the real
+		// errors it exists to carry.
+		const sinks = makeSinks();
+		const logger = new Logger(sinks.channel, sinks.recorder);
+
+		logger.advisory("open field applied", { key: "my_custom_field" });
+		logger.advisory("bare note");
+
+		assert.deepStrictEqual(sinks.infoLines, ['open field applied: {\n  "key": "my_custom_field"\n}', "bare note"]);
+		assert.equal(sinks.errorLines.length, 0);
+		assert.equal(sinks.bufferLines.length, 0, "advisory lines must never reach the buffer");
+		assert.equal(sinks.recorded.length, 0);
+	});
+
 	test("log with unserializable data does not throw: circular and JSON-invisible values take the object tag", () => {
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);

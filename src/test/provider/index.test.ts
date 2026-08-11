@@ -5,10 +5,19 @@ import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../provider";
 import { buildModelInfos } from "../../provider/catalog/registration";
 import { RequestError } from "../../provider/transport/errorMapping";
+import { Logger } from "../../shared/logger";
 import type { AggregatedStatus } from "../../shared/servers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { expectDefined, makeModelInfo, makeProvider, userMessage, withFetch } from "../testUtils";
+import {
+	DEFAULT_DISCOVERY_PAYLOAD,
+	expectDefined,
+	makeModelInfo,
+	makeProvider,
+	userMessage,
+	withConfig,
+	withFetch,
+} from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
@@ -809,6 +818,43 @@ suite("provider", () => {
 				"per-provider entries price, so their baseline carries their own costs"
 			);
 			assert.strictEqual(perProvider.supports_prompt_caching, true);
+		});
+
+		test("open-field advisory notes bypass the issue-report buffer; record problems still consume it", async () => {
+			// The issue reporter's ring buffer holds 50 lines; open capability
+			// fields are a feature that logs on every serve pass, so their note
+			// must never evict real errors from an issue report.
+			const channelLines: string[] = [];
+			const bufferLines: string[] = [];
+			const logger = new Logger(
+				{ info: (line) => channelLines.push(line), error: (line) => channelLines.push(line) },
+				{ appendLog: (line) => bufferLines.push(line), recordError: () => {} }
+			);
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, { logger });
+			mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
+
+			await withConfig(
+				{ "models.capabilities": { "test-model": { my_open_field: 7, max_output_tokens: -5 } } },
+				async () => {
+					await provider.provideLanguageModelChatInformation(
+						{ silent: true },
+						new vscode.CancellationTokenSource().token
+					);
+				}
+			);
+
+			assert.ok(
+				channelLines.some((line) => line.includes("Applying an unrecognized capability field as-is")),
+				"the advisory note still reaches the output channel"
+			);
+			assert.ok(
+				!bufferLines.some((line) => line.includes("Applying an unrecognized capability field as-is")),
+				"the advisory note must not consume issue-report budget"
+			);
+			assert.ok(
+				bufferLines.some((line) => line.includes("Ignoring a modelCapabilities record problem")),
+				"a real record problem still lands in the issue-report buffer"
+			);
 		});
 
 		test("priceCategory bands follow the blended base cost, unmoved by long-context tiers", () => {

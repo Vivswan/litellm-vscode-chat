@@ -229,6 +229,11 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.logger?.log(message, data);
 	}
 
+	/** Channel-only advisory notes; see Logger.advisory for why these bypass the issue-report buffer. */
+	private logAdvisory(message: string, data?: unknown): void {
+		this.logger?.advisory(message, data);
+	}
+
 	private logError(message: string, error: unknown): void {
 		this.logger?.error(message, error);
 	}
@@ -275,6 +280,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			catalog: this._getCatalogLookup(),
 			resolution: this._resolution,
 			log: (message, data) => this.log(message, data),
+			// Advisory notes bypass the issue-report buffer; see Logger.advisory.
+			logAdvisory: (message, data) => this.logAdvisory(message, data),
 		};
 	}
 
@@ -347,7 +354,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			new Set(snapshot.models.map((info) => info.id)),
 			server,
 			serverCount,
-			{ ...this.capabilityOptions(server, identity?.label), log: () => {} }
+			{ ...this.capabilityOptions(server, identity?.label), log: () => {}, logAdvisory: () => {} }
 		).infos;
 	}
 

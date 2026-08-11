@@ -284,6 +284,7 @@ const scenario: fc.Arbitrary<Scenario> = fc
 			catalog,
 			resolution: new ModelResolutionTable(),
 			log: () => {},
+			logAdvisory: () => {},
 		};
 		return {
 			items: [item],

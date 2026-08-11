@@ -553,6 +553,10 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): N
 	const models = slots.map((slot) =>
 		slot.kind === "deployments" ? toModelItem(mergeModelDeployments(slot.group)) : slot.model
 	);
+	// Sort-then-slice keeps truncation deterministic but drops the alphabetic
+	// TAIL: an over-cap payload can make a really-reported key read as
+	// unobserved, letting a spurious unknown-key hint through downstream; the
+	// set never gains keys the server did not send.
 	const observedModelInfoKeys = [...observedKeys].sort().slice(0, OBSERVED_MODEL_INFO_KEYS_MAX);
 	return { models, usableEntryCount, observedModelInfoKeys };
 }

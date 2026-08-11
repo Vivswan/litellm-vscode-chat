@@ -539,6 +539,7 @@ function optsFor(s: SeamScenario, catalog: CapabilityCatalogLookup): CapabilityO
 		catalog,
 		resolution: new ModelResolutionTable(),
 		log: () => {},
+		logAdvisory: () => {},
 	};
 }
 
@@ -846,6 +847,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 						catalog: EMPTY_CATALOG_LOOKUP,
 						resolution: new ModelResolutionTable(),
 						log: () => {},
+						logAdvisory: () => {},
 					};
 					// One normalizing pass: whatever registration under-advertised
 					// against the zero-config walk is rebuilt here, so the extras pass
@@ -868,6 +870,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 						catalog: EMPTY_CATALOG_LOOKUP,
 						resolution: new ModelResolutionTable(),
 						log: () => {},
+						logAdvisory: () => {},
 					};
 					const served = applyCapabilityOverrides(base, SERVER, extrasOnly);
 					assert.strictEqual(served, base, "an extras-only pass must return the input array by identity");
@@ -950,6 +953,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 					}),
 					resolution: new ModelResolutionTable(),
 					log: () => {},
+					logAdvisory: () => {},
 				};
 				const { infos } = buildModelInfos(items, SERVER, s.serverCount, () => {});
 				const served = applyCapabilityOverrides(infos, SERVER, opts);
@@ -1006,6 +1010,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 					catalog: s.catalog,
 					resolution: new ModelResolutionTable(),
 					log: () => {},
+					logAdvisory: () => {},
 				};
 				const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});
 				const served = applyCapabilityOverrides(infos, SERVER, opts);
@@ -1055,6 +1060,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 						catalog: s.catalog,
 						resolution: new ModelResolutionTable(),
 						log: () => {},
+						logAdvisory: () => {},
 					};
 					const { infos } = buildModelInfos(s.items, SERVER, s.serverCount, () => {});
 					for (const info of applyCapabilityOverrides(infos, SERVER, opts)) {
@@ -1090,6 +1096,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 						catalog: s.catalog,
 						resolution: new ModelResolutionTable(),
 						log: () => {},
+						logAdvisory: () => {},
 					};
 					const { infos } = buildModelInfos(items, SERVER, s.serverCount, () => {});
 					for (const info of applyCapabilityOverrides(infos, SERVER, opts)) {

@@ -28,6 +28,7 @@ function options(overrides: Partial<CapabilityOverrideOptions> = {}): Capability
 		catalog: EMPTY_CATALOG_LOOKUP,
 		resolution: new ModelResolutionTable(),
 		log: () => {},
+		logAdvisory: () => {},
 		...overrides,
 	};
 }
@@ -564,23 +565,24 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(out[0], infos[0]);
 		});
 
-		test("record problems log one classification per distinct problem, not one per model", () => {
+		test("record problems log one classification per distinct problem, routed by severity", () => {
 			const logged: string[] = [];
+			const advisory: string[] = [];
 			applyCapabilityOverrides(
 				[makeModelInfo({ id: "a-model" }), makeModelInfo({ id: "a-second" })],
 				SERVER,
 				options({
 					globalCapabilities: { "a-*": { bogus_key: 1, max_output_tokens: -5, supports_vision: true } },
 					log: (message) => logged.push(message),
+					logAdvisory: (message) => advisory.push(message),
 				})
 			);
-			// The unrecognized key is applied as-is (informational); the invalid
-			// value is a real problem the resolution ignored. One line each, not
-			// one per model, and never a value.
-			assert.deepStrictEqual(logged, [
-				"Applying an unrecognized capability field as-is",
-				"Ignoring a modelCapabilities record problem",
-			]);
+			// The unrecognized key is applied as-is (informational) and rides the
+			// advisory sink, which bypasses the issue reporter's ring-buffer
+			// budget; the invalid value is a real problem and keeps the budget.
+			// One line each, not one per model, and never a value.
+			assert.deepStrictEqual(advisory, ["Applying an unrecognized capability field as-is"]);
+			assert.deepStrictEqual(logged, ["Ignoring a modelCapabilities record problem"]);
 		});
 	});
 
@@ -674,6 +676,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 
 		test("a leftover global _declare directive creates nothing and stays silent", () => {
 			const logged: string[] = [];
+			const advisory: string[] = [];
 			const { infos } = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
@@ -682,10 +685,12 @@ suite("provider/catalog/capabilityOverrides", () => {
 				options({
 					globalCapabilities: { "my-model": { _declare: true } },
 					log: (message) => logged.push(message),
+					logAdvisory: (message) => advisory.push(message),
 				})
 			);
 			assert.deepStrictEqual(infos, []);
 			assert.deepStrictEqual(logged, [], "the retired directive is an unknown underscore key, not a diagnostic");
+			assert.deepStrictEqual(advisory, [], "underscore keys are not open fields either; no advisory note");
 		});
 
 		test("a duplicated declared ID synthesizes once", () => {

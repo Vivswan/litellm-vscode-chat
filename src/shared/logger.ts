@@ -193,8 +193,9 @@ function logDataText(data: unknown): string {
 /**
  * The single logging implementation for the extension. Every line goes to the
  * output channel and, when a recorder is attached, to the issue-report buffer,
- * so litellm.reportIssue sees logs from all layers. Channel output is not
- * readable back, so the buffer keeps its own hand-formatted [ISO] lines.
+ * so litellm.reportIssue sees logs from all layers - except advisory(), the
+ * one deliberate channel-only path. Channel output is not readable back, so
+ * the buffer keeps its own hand-formatted [ISO] lines.
  */
 export class Logger {
 	constructor(
@@ -206,6 +207,20 @@ export class Logger {
 		const text = data !== undefined ? `${message}: ${logDataText(data)}` : message;
 		this.output.info(text);
 		this.recorder?.appendLog(`[${new Date().toISOString()}] ${text}`);
+	}
+
+	/**
+	 * An advisory note: the output channel only, never the issue-report
+	 * buffer. The buffer is a small ring (the issue reporter's 50-entry
+	 * budget), and informational lines that recur on every serve pass - open
+	 * capability fields applied as-is, for one - would evict the real errors
+	 * an issue report exists to carry. Problems stay on log()/error(). The
+	 * channel is still user-pasteable, so the classification-only rule is
+	 * unchanged: keys and classifications, never response-derived text or
+	 * values.
+	 */
+	advisory(message: string, data?: unknown): void {
+		this.output.info(data !== undefined ? `${message}: ${logDataText(data)}` : message);
 	}
 
 	error(message: string, error: unknown): void {
